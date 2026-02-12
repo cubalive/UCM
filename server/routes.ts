@@ -30,25 +30,32 @@ export async function registerRoutes(
 ): Promise<Server> {
 
   app.get("/api/health", async (_req, res) => {
+    let dbStatus = "disconnected";
+    let supabaseStatus = "not_configured";
+
     try {
       const { pool } = await import("./db");
       await pool.query("SELECT 1");
+      dbStatus = "connected";
+    } catch {}
 
-      let supabaseStatus = "not_configured";
-      const sbServer = getSupabaseServer();
-      if (sbServer) {
-        try {
-          const { data: { session }, error } = await sbServer.auth.getSession();
-          supabaseStatus = error ? `error: ${error.message}` : "connected";
-        } catch (e: any) {
-          supabaseStatus = `error: ${e.message}`;
-        }
+    const sbServer = getSupabaseServer();
+    if (sbServer) {
+      try {
+        const { data, error } = await sbServer.from("cities").select("id").limit(1);
+        supabaseStatus = error ? `error: ${error.message}` : "connected";
+      } catch (e: any) {
+        supabaseStatus = `error: ${e.message}`;
       }
-
-      res.json({ ok: true, db: "connected", supabase: supabaseStatus });
-    } catch {
-      res.status(500).json({ ok: false, db: "disconnected" });
     }
+
+    const ok = dbStatus === "connected";
+    res.status(ok ? 200 : 500).json({
+      ok,
+      db: dbStatus,
+      supabase: supabaseStatus,
+      version: "1.0.0",
+    });
   });
 
   app.post("/api/auth/login", async (req, res) => {
@@ -119,23 +126,57 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/me", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/me", async (req, res) => {
+    const header = req.headers.authorization;
+    if (!header?.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "No token provided" });
+    }
+    const token = header.slice(7);
+
+    const sbServer = getSupabaseServer();
+    if (sbServer) {
+      try {
+        const { data: { user: sbUser }, error } = await sbServer.auth.getUser(token);
+        if (!error && sbUser) {
+          const { data: profile } = await sbServer
+            .from("profiles")
+            .select("role, city_id")
+            .eq("id", sbUser.id)
+            .single();
+
+          if (!profile) {
+            return res.status(404).json({ message: "Profile not found" });
+          }
+
+          return res.json({
+            id: sbUser.id,
+            email: sbUser.email,
+            role: profile.role,
+            city_id: profile.city_id,
+            ucm_id: null,
+          });
+        }
+      } catch {}
+    }
+
     try {
-      const user = await storage.getUser(req.user!.userId);
+      const { verifyToken } = await import("./auth");
+      const payload = verifyToken(token);
+      const user = await storage.getUser(payload.userId);
       if (!user) return res.status(404).json({ message: "User not found" });
 
       const cityAccess = await storage.getUserCityAccess(user.id);
       const primaryCityId = cityAccess.length > 0 ? cityAccess[0] : null;
 
-      res.json({
+      return res.json({
         id: user.id,
         email: user.email,
         role: user.role,
         city_id: primaryCityId,
         ucm_id: user.publicId,
       });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
+    } catch {
+      return res.status(401).json({ message: "Invalid or expired token" });
     }
   });
 

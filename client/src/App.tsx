@@ -6,6 +6,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import TripsPage from "@/pages/trips";
@@ -36,8 +39,30 @@ function Router() {
   );
 }
 
+function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex items-center justify-center min-h-screen" data-testid="error-panel">
+      <Card className="w-full max-w-md mx-4">
+        <CardHeader className="flex flex-row items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0" />
+          <CardTitle className="text-lg">Connection Error</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground" data-testid="text-error-message">
+            {message}
+          </p>
+          <Button onClick={onRetry} className="w-full" data-testid="button-retry">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function AuthenticatedApp() {
-  const { user, loading } = useAuth();
+  const { user, loading, error, retry } = useAuth();
 
   if (loading) {
     return (
@@ -49,6 +74,10 @@ function AuthenticatedApp() {
         </div>
       </div>
     );
+  }
+
+  if (error && !user) {
+    return <ErrorPanel message={error} onRetry={retry} />;
   }
 
   if (!user) {
