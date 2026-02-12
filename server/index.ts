@@ -60,6 +60,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  try {
+    const { seedSuperAdmin, seedData } = await import("./seed");
+    await seedSuperAdmin();
+    await seedData();
+  } catch (err) {
+    console.error("Seed error:", err);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
