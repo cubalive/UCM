@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, sql, inArray, count } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
 import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
@@ -20,20 +20,28 @@ export interface IStorage {
   setUserCityAccess(userId: number, cityIds: number[]): Promise<void>;
 
   getVehicles(cityId?: number): Promise<Vehicle[]>;
+  getVehicle(id: number): Promise<Vehicle | undefined>;
   createVehicle(data: InsertVehicle): Promise<Vehicle>;
 
   getDrivers(cityId?: number): Promise<Driver[]>;
+  getDriver(id: number): Promise<Driver | undefined>;
   createDriver(data: InsertDriver): Promise<Driver>;
+  updateDriver(id: number, data: Partial<Driver>): Promise<Driver | undefined>;
+  getDriverByVehicleId(vehicleId: number, excludeDriverId?: number): Promise<Driver | undefined>;
 
   getClinics(cityId?: number): Promise<Clinic[]>;
   createClinic(data: InsertClinic): Promise<Clinic>;
 
   getPatients(cityId?: number): Promise<Patient[]>;
+  getPatient(id: number): Promise<Patient | undefined>;
   createPatient(data: InsertPatient): Promise<Patient>;
 
   getTrips(cityId?: number, limit?: number): Promise<Trip[]>;
+  getTrip(id: number): Promise<Trip | undefined>;
   createTrip(data: InsertTrip): Promise<Trip>;
+  updateTrip(id: number, data: Partial<Trip>): Promise<Trip | undefined>;
   updateTripStatus(id: number, status: string): Promise<Trip | undefined>;
+  getUnassignedTrips(cityId: number): Promise<Trip[]>;
 
   getAuditLogs(cityId?: number): Promise<AuditLog[]>;
   createAuditLog(data: InsertAuditLog): Promise<AuditLog>;
@@ -97,6 +105,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(vehicles).orderBy(vehicles.name);
   }
 
+  async getVehicle(id: number): Promise<Vehicle | undefined> {
+    const [vehicle] = await db.select().from(vehicles).where(eq(vehicles.id, id));
+    return vehicle;
+  }
+
   async createVehicle(data: InsertVehicle): Promise<Vehicle> {
     const [vehicle] = await db.insert(vehicles).values(data).returning();
     return vehicle;
@@ -109,8 +122,31 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(drivers).orderBy(drivers.firstName);
   }
 
+  async getDriver(id: number): Promise<Driver | undefined> {
+    const [driver] = await db.select().from(drivers).where(eq(drivers.id, id));
+    return driver;
+  }
+
   async createDriver(data: InsertDriver): Promise<Driver> {
     const [driver] = await db.insert(drivers).values(data).returning();
+    return driver;
+  }
+
+  async updateDriver(id: number, data: Partial<Driver>): Promise<Driver | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    const [driver] = await db.update(drivers).set(updateData).where(eq(drivers.id, id)).returning();
+    return driver;
+  }
+
+  async getDriverByVehicleId(vehicleId: number, excludeDriverId?: number): Promise<Driver | undefined> {
+    const conditions = [
+      eq(drivers.vehicleId, vehicleId),
+      eq(drivers.status, "ACTIVE"),
+    ];
+    if (excludeDriverId) {
+      conditions.push(ne(drivers.id, excludeDriverId) as any);
+    }
+    const [driver] = await db.select().from(drivers).where(and(...conditions));
     return driver;
   }
 
@@ -133,6 +169,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(patients).orderBy(patients.firstName);
   }
 
+  async getPatient(id: number): Promise<Patient | undefined> {
+    const [patient] = await db.select().from(patients).where(eq(patients.id, id));
+    return patient;
+  }
+
   async createPatient(data: InsertPatient): Promise<Patient> {
     const [patient] = await db.insert(patients).values(data).returning();
     return patient;
@@ -150,14 +191,36 @@ export class DatabaseStorage implements IStorage {
     return query;
   }
 
+  async getTrip(id: number): Promise<Trip | undefined> {
+    const [trip] = await db.select().from(trips).where(eq(trips.id, id));
+    return trip;
+  }
+
   async createTrip(data: InsertTrip): Promise<Trip> {
     const [trip] = await db.insert(trips).values(data).returning();
     return trip;
   }
 
-  async updateTripStatus(id: number, status: string): Promise<Trip | undefined> {
-    const [trip] = await db.update(trips).set({ status: status as any }).where(eq(trips.id, id)).returning();
+  async updateTrip(id: number, data: Partial<Trip>): Promise<Trip | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    updateData.updatedAt = new Date();
+    const [trip] = await db.update(trips).set(updateData).where(eq(trips.id, id)).returning();
     return trip;
+  }
+
+  async updateTripStatus(id: number, status: string): Promise<Trip | undefined> {
+    const [trip] = await db.update(trips).set({ status: status as any, updatedAt: new Date() }).where(eq(trips.id, id)).returning();
+    return trip;
+  }
+
+  async getUnassignedTrips(cityId: number): Promise<Trip[]> {
+    return db.select().from(trips).where(
+      and(
+        eq(trips.cityId, cityId),
+        eq(trips.status, "SCHEDULED"),
+        isNull(trips.driverId),
+      )
+    ).orderBy(trips.scheduledDate, trips.scheduledTime);
   }
 
   async getAuditLogs(cityId?: number): Promise<AuditLog[]> {

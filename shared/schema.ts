@@ -32,6 +32,13 @@ export const driverStatusEnum = pgEnum("driver_status", [
   "ON_LEAVE",
 ]);
 
+export const dispatchStatusEnum = pgEnum("dispatch_status", [
+  "available",
+  "enroute",
+  "off",
+  "hold",
+]);
+
 export const cities = pgTable("cities", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
@@ -90,6 +97,7 @@ export const drivers = pgTable("drivers", {
   lastLng: doublePrecision("last_lng"),
   lastSeenAt: timestamp("last_seen_at"),
   status: driverStatusEnum("status").notNull().default("ACTIVE"),
+  dispatchStatus: dispatchStatusEnum("dispatch_status").notNull().default("off"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

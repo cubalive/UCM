@@ -32,10 +32,12 @@ import {
   Route,
   ClipboardList,
   LogOut,
+  Radio,
 } from "lucide-react";
 
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Dispatch", url: "/dispatch", icon: Radio },
   { title: "Trips", url: "/trips", icon: Route },
   { title: "Patients", url: "/patients", icon: HeartPulse },
   { title: "Drivers", url: "/drivers", icon: UserCheck },
