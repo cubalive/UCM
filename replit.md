@@ -32,7 +32,9 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - `server/seed.ts` - SUPER_ADMIN creation and seed data
 - `server/public-id.ts` - Atomic public ID generator using DB sequence
 - `lib/supabaseClient.ts` - Shared Supabase client (browser + server, lazy init)
+- `lib/mapsConfig.ts` - Google Maps API key config (reads GOOGLE_MAPS_API_KEY env)
 - `client/src/lib/auth.tsx` - Auth context provider (calls /api/auth/me + /api/me)
+- `client/src/components/MapLoader.tsx` - Google Maps script loader (context + hook)
 - `client/src/pages/` - All page components
 - `scripts/supabase-migration.sql` - Idempotent Supabase DDL (tables, functions, RLS)
 
@@ -41,6 +43,7 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - `GET /api/me` - Returns `{ id, email, role, city_id, ucm_id }` (supports both JWT and Supabase tokens)
 - `GET /api/auth/me` - Returns full user profile with city access
 - `POST /api/auth/login` - Login with email/password
+- `GET /api/maps/test` - Returns `{ ok, mapsKeyLoaded, apiKey }` for Google Maps
 - CRUD endpoints for all entities under `/api/*`
 
 ## Running
@@ -55,8 +58,10 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - SUPABASE_URL - Supabase project URL
 - SUPABASE_ANON_KEY - Supabase anon/public key
 - SUPABASE_SERVICE_ROLE_KEY - Supabase service role key
+- GOOGLE_MAPS_API_KEY - Google Maps API key (Maps JS, Directions, Geocoding, Places)
 
 ## Recent Changes
 - 2026-02-12: Added Supabase integration (client, health check, /api/me dual-auth)
 - 2026-02-12: Frontend error panel with retry button when /api/me fails
 - 2026-02-12: SQL migration script for Supabase (cities, profiles, helper functions, RLS)
+- 2026-02-12: Google Maps integration (lib/mapsConfig.ts, MapLoader.tsx, /api/maps/test endpoint)

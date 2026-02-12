@@ -6,6 +6,7 @@ import { generatePublicId } from "./public-id";
 import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema } from "@shared/schema";
 import { z } from "zod";
 import { getSupabaseServer } from "../lib/supabaseClient";
+import { GOOGLE_MAPS_KEY } from "../lib/mapsConfig";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -55,6 +56,15 @@ export async function registerRoutes(
       db: dbStatus,
       supabase: supabaseStatus,
       version: "1.0.0",
+    });
+  });
+
+  app.get("/api/maps/test", (_req, res) => {
+    const mapsKeyLoaded = GOOGLE_MAPS_KEY.length > 0;
+    res.json({
+      ok: mapsKeyLoaded,
+      mapsKeyLoaded,
+      apiKey: mapsKeyLoaded ? GOOGLE_MAPS_KEY : undefined,
     });
   });
 
