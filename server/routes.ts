@@ -38,7 +38,7 @@ export async function registerRoutes(
       const sbServer = getSupabaseServer();
       if (sbServer) {
         try {
-          const { data, error } = await sbServer.from("users").select("id").limit(1);
+          const { data: { session }, error } = await sbServer.auth.getSession();
           supabaseStatus = error ? `error: ${error.message}` : "connected";
         } catch (e: any) {
           supabaseStatus = `error: ${e.message}`;
