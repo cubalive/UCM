@@ -5,6 +5,7 @@ import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, 
 import { generatePublicId } from "./public-id";
 import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema } from "@shared/schema";
 import { z } from "zod";
+import { getSupabaseServer } from "../lib/supabaseClient";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -32,9 +33,21 @@ export async function registerRoutes(
     try {
       const { pool } = await import("./db");
       await pool.query("SELECT 1");
-      res.json({ ok: true, db: "connected", frontend: "served", version: "1.0" });
+
+      let supabaseStatus = "not_configured";
+      const sbServer = getSupabaseServer();
+      if (sbServer) {
+        try {
+          const { data, error } = await sbServer.from("users").select("id").limit(1);
+          supabaseStatus = error ? `error: ${error.message}` : "connected";
+        } catch (e: any) {
+          supabaseStatus = `error: ${e.message}`;
+        }
+      }
+
+      res.json({ ok: true, db: "connected", supabase: supabaseStatus });
     } catch {
-      res.status(500).json({ ok: false, db: "disconnected", frontend: "served", version: "1.0" });
+      res.status(500).json({ ok: false, db: "disconnected" });
     }
   });
 
@@ -101,6 +114,26 @@ export async function registerRoutes(
 
       const { password, ...safeUser } = user;
       res.json({ user: { ...safeUser, cityAccess }, cities: accessibleCities });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/me", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const cityAccess = await storage.getUserCityAccess(user.id);
+      const primaryCityId = cityAccess.length > 0 ? cityAccess[0] : null;
+
+      res.json({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        city_id: primaryCityId,
+        ucm_id: user.publicId,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
