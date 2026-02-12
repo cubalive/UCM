@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -66,6 +66,7 @@ export const vehicles = pgTable("vehicles", {
   cityId: integer("city_id").notNull().references(() => cities.id),
   name: text("name").notNull(),
   licensePlate: text("license_plate").notNull(),
+  colorHex: text("color_hex"),
   make: text("make"),
   model: text("model"),
   year: integer("year"),
@@ -80,10 +81,14 @@ export const drivers = pgTable("drivers", {
   publicId: varchar("public_id", { length: 20 }).notNull().unique(),
   cityId: integer("city_id").notNull().references(() => cities.id),
   userId: integer("user_id").references(() => users.id),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   phone: text("phone").notNull(),
   licenseNumber: text("license_number"),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  lastSeenAt: timestamp("last_seen_at"),
   status: driverStatusEnum("status").notNull().default("ACTIVE"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -137,7 +142,11 @@ export const trips = pgTable("trips", {
   scheduledTime: text("scheduled_time").notNull(),
   status: tripStatusEnum("status").notNull().default("SCHEDULED"),
   lastEtaMinutes: integer("last_eta_minutes"),
+  distanceMiles: numeric("distance_miles"),
+  durationMinutes: integer("duration_minutes"),
+  routePolyline: text("route_polyline"),
   lastEtaUpdatedAt: timestamp("last_eta_updated_at"),
+  updatedAt: timestamp("updated_at").defaultNow(),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
