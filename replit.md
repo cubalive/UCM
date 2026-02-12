@@ -31,10 +31,13 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - `server/auth.ts` - JWT auth middleware
 - `server/seed.ts` - SUPER_ADMIN creation and seed data
 - `server/public-id.ts` - Atomic public ID generator using DB sequence
+- `server/lib/googleMaps.ts` - Google Maps service (geocode, autocomplete, ETA, route) with TTL caching
+- `server/lib/mapsRoutes.ts` - Maps API endpoints with Zod validation and rate limiting
+- `server/lib/rateLimiter.ts` - Per-IP rate limiter (in-memory, 60 req/min)
 - `lib/supabaseClient.ts` - Shared Supabase client (browser + server, lazy init)
 - `lib/mapsConfig.ts` - Google Maps API key config (reads GOOGLE_MAPS_API_KEY env)
 - `client/src/lib/auth.tsx` - Auth context provider (calls /api/auth/me + /api/me)
-- `client/src/components/MapLoader.tsx` - Google Maps script loader (context + hook)
+- `client/src/components/MapLoader.tsx` - Maps availability context (backend-only, no key exposure)
 - `client/src/pages/` - All page components
 - `scripts/supabase-migration.sql` - Idempotent Supabase DDL (tables, functions, RLS)
 
@@ -43,7 +46,11 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - `GET /api/me` - Returns `{ id, email, role, city_id, ucm_id }` (supports both JWT and Supabase tokens)
 - `GET /api/auth/me` - Returns full user profile with city access
 - `POST /api/auth/login` - Login with email/password
-- `GET /api/maps/test` - Returns `{ ok, mapsKeyLoaded, apiKey }` for Google Maps
+- `GET /api/maps/health` - Returns `{ ok, mapsKeyLoaded }` (no key exposed)
+- `POST /api/maps/geocode` - Geocode address to lat/lng (server-side only)
+- `POST /api/maps/places/autocomplete` - Address autocomplete suggestions (server-side only)
+- `POST /api/maps/eta` - Traffic-aware ETA between two locations (server-side only)
+- `POST /api/maps/route` - Route with waypoint optimization (server-side only)
 - CRUD endpoints for all entities under `/api/*`
 
 ## Running
@@ -65,3 +72,5 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-12: Frontend error panel with retry button when /api/me fails
 - 2026-02-12: SQL migration script for Supabase (cities, profiles, helper functions, RLS)
 - 2026-02-12: Google Maps integration (lib/mapsConfig.ts, MapLoader.tsx, /api/maps/test endpoint)
+- 2026-02-12: Backend-only Google Maps service (geocode, autocomplete, ETA, route) with caching + rate limiting
+- 2026-02-12: Added lat/lng columns to clinics, patients tables; pickup/dropoff lat/lng + ETA fields to trips table

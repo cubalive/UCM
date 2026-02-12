@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -94,6 +94,8 @@ export const clinics = pgTable("clinics", {
   cityId: integer("city_id").notNull().references(() => cities.id),
   name: text("name").notNull(),
   address: text("address").notNull(),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
   phone: text("phone"),
   contactName: text("contact_name"),
   active: boolean("active").notNull().default(true),
@@ -108,6 +110,8 @@ export const patients = pgTable("patients", {
   lastName: text("last_name").notNull(),
   phone: text("phone"),
   address: text("address"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
   dateOfBirth: text("date_of_birth"),
   insuranceId: text("insurance_id"),
   wheelchairRequired: boolean("wheelchair_required").notNull().default(false),
@@ -124,10 +128,16 @@ export const trips = pgTable("trips", {
   vehicleId: integer("vehicle_id").references(() => vehicles.id),
   clinicId: integer("clinic_id").references(() => clinics.id),
   pickupAddress: text("pickup_address").notNull(),
+  pickupLat: doublePrecision("pickup_lat"),
+  pickupLng: doublePrecision("pickup_lng"),
   dropoffAddress: text("dropoff_address").notNull(),
+  dropoffLat: doublePrecision("dropoff_lat"),
+  dropoffLng: doublePrecision("dropoff_lng"),
   scheduledDate: text("scheduled_date").notNull(),
   scheduledTime: text("scheduled_time").notNull(),
   status: tripStatusEnum("status").notNull().default("SCHEDULED"),
+  lastEtaMinutes: integer("last_eta_minutes"),
+  lastEtaUpdatedAt: timestamp("last_eta_updated_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
