@@ -2,9 +2,12 @@ import { db } from "./db";
 import { eq, and, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
 import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
+  citySettings, driverVehicleAssignments,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
   type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog, type InsertInvoice,
+  type InsertCitySettings, type InsertDriverVehicleAssignment,
   type City, type User, type Vehicle, type Driver, type Clinic, type Patient, type Trip, type AuditLog, type SmsOptOut, type Invoice,
+  type CitySettings, type DriverVehicleAssignment,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -60,6 +63,16 @@ export interface IStorage {
 
   isPhoneOptedOut(phone: string): Promise<boolean>;
   setPhoneOptOut(phone: string, optedOut: boolean): Promise<void>;
+
+  getCitySettings(cityId: number): Promise<CitySettings | undefined>;
+  getAllCitySettings(): Promise<CitySettings[]>;
+  upsertCitySettings(data: InsertCitySettings): Promise<CitySettings>;
+
+  getDriverVehicleAssignments(cityId: number, date: string): Promise<DriverVehicleAssignment[]>;
+  getDriverVehicleAssignment(driverId: number, date: string): Promise<DriverVehicleAssignment | undefined>;
+  createDriverVehicleAssignment(data: InsertDriverVehicleAssignment): Promise<DriverVehicleAssignment>;
+  updateDriverVehicleAssignment(id: number, data: Partial<DriverVehicleAssignment>): Promise<DriverVehicleAssignment | undefined>;
+  getYesterdayAssignment(driverId: number, yesterday: string): Promise<DriverVehicleAssignment | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -350,6 +363,69 @@ export class DatabaseStorage implements IStorage {
     } else {
       await db.insert(smsOptOut).values({ phone, optedOut, updatedAt: new Date() });
     }
+  }
+
+  async getCitySettings(cityId: number): Promise<CitySettings | undefined> {
+    const [settings] = await db.select().from(citySettings).where(eq(citySettings.cityId, cityId));
+    return settings;
+  }
+
+  async getAllCitySettings(): Promise<CitySettings[]> {
+    return db.select().from(citySettings);
+  }
+
+  async upsertCitySettings(data: InsertCitySettings): Promise<CitySettings> {
+    const existing = await this.getCitySettings(data.cityId);
+    if (existing) {
+      const [updated] = await db.update(citySettings)
+        .set(data)
+        .where(eq(citySettings.cityId, data.cityId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(citySettings).values(data).returning();
+    return created;
+  }
+
+  async getDriverVehicleAssignments(cityId: number, date: string): Promise<DriverVehicleAssignment[]> {
+    return db.select().from(driverVehicleAssignments)
+      .where(and(
+        eq(driverVehicleAssignments.cityId, cityId),
+        eq(driverVehicleAssignments.date, date),
+      ))
+      .orderBy(driverVehicleAssignments.driverId);
+  }
+
+  async getDriverVehicleAssignment(driverId: number, date: string): Promise<DriverVehicleAssignment | undefined> {
+    const [row] = await db.select().from(driverVehicleAssignments)
+      .where(and(
+        eq(driverVehicleAssignments.driverId, driverId),
+        eq(driverVehicleAssignments.date, date),
+      ));
+    return row;
+  }
+
+  async createDriverVehicleAssignment(data: InsertDriverVehicleAssignment): Promise<DriverVehicleAssignment> {
+    const [row] = await db.insert(driverVehicleAssignments).values(data).returning();
+    return row;
+  }
+
+  async updateDriverVehicleAssignment(id: number, data: Partial<DriverVehicleAssignment>): Promise<DriverVehicleAssignment | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    const [row] = await db.update(driverVehicleAssignments)
+      .set(updateData)
+      .where(eq(driverVehicleAssignments.id, id))
+      .returning();
+    return row;
+  }
+
+  async getYesterdayAssignment(driverId: number, yesterday: string): Promise<DriverVehicleAssignment | undefined> {
+    const [row] = await db.select().from(driverVehicleAssignments)
+      .where(and(
+        eq(driverVehicleAssignments.driverId, driverId),
+        eq(driverVehicleAssignments.date, yesterday),
+      ));
+    return row;
   }
 }
 

@@ -11,6 +11,7 @@ import { getSupabaseServer } from "../lib/supabaseClient";
 import { registerMapsRoutes } from "./lib/mapsRoutes";
 import { registerDispatchRoutes } from "./lib/dispatchRoutes";
 import { registerSmsRoutes } from "./lib/smsRoutes";
+import { registerVehicleAssignRoutes } from "./lib/vehicleAssignRoutes";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -66,6 +67,7 @@ export async function registerRoutes(
   registerMapsRoutes(app);
   registerDispatchRoutes(app);
   registerSmsRoutes(app);
+  registerVehicleAssignRoutes(app);
 
   app.post("/api/auth/login", async (req, res) => {
     try {

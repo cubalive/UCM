@@ -73,6 +73,9 @@ app.use((req, res, next) => {
   const { startEtaEngine } = await import("./lib/etaEngine");
   startEtaEngine();
 
+  const { startVehicleAutoAssignScheduler } = await import("./lib/vehicleAutoAssign");
+  startVehicleAutoAssignScheduler();
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

@@ -39,7 +39,8 @@ import {
   Route,
   Bell,
 } from "lucide-react";
-import type { Driver, Vehicle, Trip, Patient } from "@shared/schema";
+import type { Driver, Vehicle, Trip, Patient, DriverVehicleAssignment } from "@shared/schema";
+import { CalendarDays, ArrowLeftRight } from "lucide-react";
 
 interface DriverWithVehicle extends Driver {
   vehicle: Vehicle | null;
@@ -150,13 +151,22 @@ export default function DispatchMapPage() {
   const [smsPatient, setSmsPatient] = useState<Patient | null>(null);
   const [smsCustomMessage, setSmsCustomMessage] = useState("");
   const [smsMode, setSmsMode] = useState<"template" | "custom">("template");
+  const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
+  const [overrideDriverId, setOverrideDriverId] = useState<string>("");
+  const [overrideVehicleId, setOverrideVehicleId] = useState<string>("");
 
   const cityId = selectedCity?.id;
+  const today = new Date().toLocaleDateString("en-CA");
 
   const { data: mapData, isLoading, refetch } = useQuery<MapData>({
     queryKey: ["/api/dispatch/map-data", cityId ? `?cityId=${cityId}` : ""],
     refetchInterval: 10000,
     enabled: true,
+  });
+
+  const { data: dailyAssignments, refetch: refetchAssignments } = useQuery<DriverVehicleAssignment[]>({
+    queryKey: ["/api/vehicle-assignments", `?cityId=${cityId}&date=${today}`],
+    enabled: !!cityId,
   });
 
   const assignTripMutation = useMutation({
@@ -227,6 +237,56 @@ export default function DispatchMapPage() {
       toast({ title: "Auto-assign complete", description: `Assigned: ${data.assigned}, Skipped: ${data.skipped}` });
       queryClient.invalidateQueries({ queryKey: ["/api/dispatch/map-data"] });
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Auto-assign failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const overrideAssignMutation = useMutation({
+    mutationFn: async ({ driver_id, vehicle_id, date }: { driver_id: number; vehicle_id: number; date: string }) => {
+      const res = await fetch("/api/vehicle-assignments/override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify({ driver_id, vehicle_id, date }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Override failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Vehicle assignment overridden" });
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicle-assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/map-data"] });
+      setOverrideDialogOpen(false);
+      setOverrideDriverId("");
+      setOverrideVehicleId("");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Override failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const triggerAutoAssignMutation = useMutation({
+    mutationFn: async () => {
+      if (!cityId) throw new Error("Select a city first");
+      const res = await fetch("/api/vehicle-assignments/trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify({ city_id: cityId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Trigger failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Vehicle auto-assign complete", description: `Assigned: ${data.assigned}, Reused: ${data.reused}, Skipped: ${data.skipped}` });
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicle-assignments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/map-data"] });
     },
     onError: (err: Error) => {
       toast({ title: "Auto-assign failed", description: err.message, variant: "destructive" });
@@ -591,6 +651,159 @@ export default function DispatchMapPage() {
           </Card>
         </div>
       </div>
+
+      <Card>
+        <CardHeader className="p-3 pb-2 flex flex-row items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-sm">Daily Vehicle Assignments</CardTitle>
+            <Badge variant="secondary" className="text-xs">{today}</Badge>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setOverrideDriverId("");
+                setOverrideVehicleId("");
+                setOverrideDialogOpen(true);
+              }}
+              disabled={!cityId}
+              data-testid="button-override-assignment"
+            >
+              <ArrowLeftRight className="w-4 h-4 mr-1.5" />
+              Override
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => triggerAutoAssignMutation.mutate()}
+              disabled={triggerAutoAssignMutation.isPending || !cityId}
+              data-testid="button-trigger-auto-assign"
+            >
+              <Zap className="w-4 h-4 mr-1.5" />
+              {triggerAutoAssignMutation.isPending ? "Running..." : "Auto-Assign Vehicles"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-2">
+          {!dailyAssignments || dailyAssignments.length === 0 ? (
+            <p className="text-xs text-muted-foreground p-2" data-testid="text-no-daily-assignments">
+              No vehicle assignments for today. Click "Auto-Assign Vehicles" to generate.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {dailyAssignments.map((assignment) => {
+                const driver = mapData?.drivers.find(d => d.id === assignment.driverId);
+                const vehicle = mapData?.vehicles.find(v => v.id === assignment.vehicleId);
+                return (
+                  <div
+                    key={assignment.id}
+                    className="flex items-center gap-3 p-2 rounded-md border bg-card"
+                    data-testid={`daily-assignment-${assignment.id}`}
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <UserCheck className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm font-medium truncate">
+                        {driver ? `${driver.firstName} ${driver.lastName}` : `Driver #${assignment.driverId}`}
+                      </span>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <Truck className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm truncate">
+                        {vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : `Vehicle #${assignment.vehicleId}`}
+                      </span>
+                    </div>
+                    <Badge
+                      variant={assignment.assignedBy === "dispatch" ? "default" : "secondary"}
+                      className="text-[10px] flex-shrink-0"
+                      data-testid={`badge-assigned-by-${assignment.id}`}
+                    >
+                      {assignment.assignedBy === "dispatch" ? "Dispatch" : "Auto"}
+                    </Badge>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {overrideDialogOpen && (
+        <Dialog open={overrideDialogOpen} onOpenChange={(open) => !open && setOverrideDialogOpen(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Override Vehicle Assignment</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Assign a specific vehicle to a driver for today ({today}). This will override any existing auto-assignment.
+              </p>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Driver</label>
+                <Select value={overrideDriverId} onValueChange={(val) => { setOverrideDriverId(val); setOverrideVehicleId(""); }}>
+                  <SelectTrigger data-testid="select-override-driver">
+                    <SelectValue placeholder="Select a driver" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {mapData?.drivers
+                      .filter(d => d.status === "ACTIVE")
+                      .map(d => (
+                        <SelectItem key={d.id} value={d.id.toString()} data-testid={`option-override-driver-${d.id}`}>
+                          {d.firstName} {d.lastName} ({d.publicId})
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Vehicle</label>
+                <Select value={overrideVehicleId} onValueChange={setOverrideVehicleId}>
+                  <SelectTrigger data-testid="select-override-vehicle">
+                    <SelectValue placeholder="Select a vehicle" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(() => {
+                      const selectedOvDriver = mapData?.drivers.find(d => d.id === parseInt(overrideDriverId));
+                      const filteredVehicles = (mapData?.vehicles || []).filter(v =>
+                        v.status === "ACTIVE" && (selectedOvDriver ? v.cityId === selectedOvDriver.cityId : true)
+                      );
+                      return filteredVehicles.length > 0 ? filteredVehicles.map(v => (
+                        <SelectItem key={v.id} value={v.id.toString()} data-testid={`option-override-vehicle-${v.id}`}>
+                          {v.name} - {v.licensePlate}
+                          {v.wheelchairAccessible ? " (WC)" : ""}
+                        </SelectItem>
+                      )) : (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                          {overrideDriverId ? "No vehicles in this driver's city" : "Select a driver first"}
+                        </div>
+                      );
+                    })()}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setOverrideDialogOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  if (overrideDriverId && overrideVehicleId) {
+                    overrideAssignMutation.mutate({
+                      driver_id: parseInt(overrideDriverId),
+                      vehicle_id: parseInt(overrideVehicleId),
+                      date: today,
+                    });
+                  }
+                }}
+                disabled={!overrideDriverId || !overrideVehicleId || overrideAssignMutation.isPending}
+                data-testid="button-confirm-override"
+              >
+                {overrideAssignMutation.isPending ? "Saving..." : "Override Assignment"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {selectedDriver && (
         <Dialog open={!!selectedDriver} onOpenChange={(open) => !open && setSelectedDriver(null)}>

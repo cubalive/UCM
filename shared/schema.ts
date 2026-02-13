@@ -217,6 +217,30 @@ export const invoices = pgTable("invoices", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const assignedByEnum = pgEnum("assigned_by", [
+  "system",
+  "dispatch",
+]);
+
+export const citySettings = pgTable("city_settings", {
+  cityId: integer("city_id").primaryKey().references(() => cities.id),
+  shiftStartTime: text("shift_start_time").notNull().default("06:00"),
+  autoAssignEnabled: boolean("auto_assign_enabled").notNull().default(true),
+  autoAssignDays: text("auto_assign_days").array().notNull().default(sql`ARRAY['Mon','Tue','Wed','Thu','Fri','Sat']`),
+  autoAssignMinutesBefore: integer("auto_assign_minutes_before").notNull().default(60),
+});
+
+export const driverVehicleAssignments = pgTable("driver_vehicle_assignments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  date: text("date").notNull(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  shiftStartTime: text("shift_start_time").notNull(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  vehicleId: integer("vehicle_id").notNull().references(() => vehicles.id),
+  assignedBy: assignedByEnum("assigned_by").notNull().default("system"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const auditLog = pgTable("audit_log", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").references(() => users.id),
@@ -236,6 +260,8 @@ export const insertClinicSchema = createInsertSchema(clinics).omit({ id: true, c
 export const insertPatientSchema = createInsertSchema(patients).omit({ id: true, createdAt: true });
 export const insertTripSchema = createInsertSchema(trips).omit({ id: true, createdAt: true });
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true });
+export const insertCitySettingsSchema = createInsertSchema(citySettings);
+export const insertDriverVehicleAssignmentSchema = createInsertSchema(driverVehicleAssignments).omit({ id: true, createdAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true, createdAt: true });
 
 export type InsertCity = z.infer<typeof insertCitySchema>;
@@ -259,6 +285,10 @@ export type Trip = typeof trips.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
 export type AuditLog = typeof auditLog.$inferSelect;
 export type SmsOptOut = typeof smsOptOut.$inferSelect;
+export type CitySettings = typeof citySettings.$inferSelect;
+export type DriverVehicleAssignment = typeof driverVehicleAssignments.$inferSelect;
+export type InsertCitySettings = z.infer<typeof insertCitySettingsSchema>;
+export type InsertDriverVehicleAssignment = z.infer<typeof insertDriverVehicleAssignmentSchema>;
 
 export const loginSchema = z.object({
   email: z.string().email(),
