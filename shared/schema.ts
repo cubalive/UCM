@@ -159,6 +159,12 @@ export const trips = pgTable("trips", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const smsOptOut = pgTable("sms_opt_out", {
+  phone: text("phone").primaryKey(),
+  optedOut: boolean("opted_out").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const auditLog = pgTable("audit_log", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").references(() => users.id),
@@ -197,6 +203,7 @@ export type Clinic = typeof clinics.$inferSelect;
 export type Patient = typeof patients.$inferSelect;
 export type Trip = typeof trips.$inferSelect;
 export type AuditLog = typeof auditLog.$inferSelect;
+export type SmsOptOut = typeof smsOptOut.$inferSelect;
 
 export const loginSchema = z.object({
   email: z.string().email(),
