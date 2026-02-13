@@ -505,9 +505,23 @@ export async function registerRoutes(
         const { normalizePhone } = await import("./lib/twilioSms");
         clinicData.phone = normalizePhone(clinicData.phone) || clinicData.phone;
       }
-      const clinic = await storage.createClinic(clinicData);
+      let clinic = await storage.createClinic(clinicData);
 
+      let authProvisioned = false;
       let userCreated = false;
+      try {
+        const { ensureAuthUserForClinic } = await import("./lib/driverAuth");
+        const { userId: authUserId, isNew } = await ensureAuthUserForClinic({
+          name: clinic.name,
+          email: clinic.email!,
+        });
+        clinic = await storage.updateClinic(clinic.id, { authUserId } as any);
+        authProvisioned = true;
+        console.log(`[clinicCreate] Auth user ${isNew ? "created" : "linked"}: ${authUserId}`);
+      } catch (authErr: any) {
+        console.error("[clinicCreate] Auth provisioning failed (non-fatal):", authErr.message);
+      }
+
       try {
         const existingUsers = await db.select().from(users).where(eq(users.email, clinic.email!));
         if (existingUsers.length === 0) {
@@ -537,10 +551,10 @@ export async function registerRoutes(
         action: "CREATE",
         entity: "clinic",
         entityId: clinic.id,
-        details: `Created clinic ${clinic.name}${userCreated ? " (user account created)" : ""}`,
+        details: `Created clinic ${clinic.name}${authProvisioned ? " (auth provisioned)" : ""}${userCreated ? " (user account created)" : ""}`,
         cityId: clinic.cityId,
       });
-      res.json({ ...clinic, userCreated });
+      res.json({ ...clinic, userCreated, authProvisioned });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -574,6 +588,20 @@ export async function registerRoutes(
       if (updateData.phone) {
         const { normalizePhone } = await import("./lib/twilioSms");
         updateData.phone = normalizePhone(updateData.phone) || updateData.phone;
+      }
+
+      if (updateData.email && !clinic.authUserId) {
+        try {
+          const { ensureAuthUserForClinic } = await import("./lib/driverAuth");
+          const { userId: authUserId } = await ensureAuthUserForClinic({
+            name: clinic.name,
+            email: updateData.email,
+          });
+          updateData.authUserId = authUserId;
+          console.log(`[clinicUpdate] Auth user linked: ${authUserId}`);
+        } catch (authErr: any) {
+          console.error("[clinicUpdate] Auth provisioning failed (non-fatal):", authErr.message);
+        }
       }
 
       const updated = await storage.updateClinic(clinicId, updateData);
@@ -812,6 +840,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/auth/admin/health", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { checkAdminHealth } = await import("./lib/driverAuth");
+      const result = await checkAdminHealth();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, hasServiceRole: false, canCreateUsers: false, error: err.message });
+    }
+  });
+
   app.post("/api/admin/drivers/:id/send-invite", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const driverId = parseInt(req.params.id);
@@ -894,6 +932,49 @@ export async function registerRoutes(
       });
 
       res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/clinics/:id/send-invite", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.params.id);
+      if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+
+      const clinic = await storage.getClinic(clinicId);
+      if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+      if (!clinic.email) return res.status(400).json({ message: "Clinic has no email address" });
+
+      if (!clinic.authUserId) {
+        try {
+          const { ensureAuthUserForClinic } = await import("./lib/driverAuth");
+          const { userId: authUserId } = await ensureAuthUserForClinic({
+            name: clinic.name,
+            email: clinic.email,
+          });
+          await storage.updateClinic(clinicId, { authUserId } as any);
+        } catch (provErr: any) {
+          return res.status(500).json({ message: `Failed to provision auth: ${provErr.message}` });
+        }
+      }
+
+      const { generateInviteLink } = await import("./lib/driverAuth");
+      const result = await generateInviteLink(clinic.email);
+      if (!result.success) {
+        return res.status(500).json({ message: result.error || "Failed to send invite" });
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "SEND_INVITE",
+        entity: "clinic",
+        entityId: clinicId,
+        details: `Sent login invite to clinic ${clinic.name} (${clinic.email})`,
+        cityId: clinic.cityId,
+      });
+
+      res.json({ success: true, message: `Login link sent to ${clinic.email}` });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

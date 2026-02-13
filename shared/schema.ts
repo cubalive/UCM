@@ -117,6 +117,7 @@ export const clinics = pgTable("clinics", {
   name: text("name").notNull(),
   address: text("address").notNull(),
   email: text("email").unique(),
+  authUserId: text("auth_user_id"),
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
   phone: text("phone"),

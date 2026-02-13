@@ -79,6 +79,8 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - `POST /api/trips/:id/notify` - Send patient notification by trip status template (SUPER_ADMIN/DISPATCH)
 - `POST /api/twilio/inbound` - Twilio inbound webhook (STOP/START opt-out handling, TwiML response)
 - `PATCH /api/patients/:id` - Update patient fields (SUPER_ADMIN/ADMIN/DISPATCH, phone auto-normalized)
+- `GET /api/auth/admin/health` - Returns `{ ok, hasServiceRole, canCreateUsers, error? }` (SUPER_ADMIN only)
+- `POST /api/admin/clinics/:id/send-invite` - Send login link to clinic (SUPER_ADMIN/DISPATCH)
 - CRUD endpoints for all entities under `/api/*`
 
 ## Running
@@ -134,3 +136,8 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: GET /api/auth/health: returns Supabase connectivity + canCreateUsers status
 - `server/lib/driverAuth.ts` - ensureAuthUserForDriver helper, invite link generation, Supabase health check
 - 2026-02-13: Drivers UI: auth status badges (Auth linked / No auth), Send Driver Login Link button, Provision Auth backfill button
+- 2026-02-13: GET /api/auth/admin/health: SUPER_ADMIN-only, returns hasServiceRole + canCreateUsers + error
+- 2026-02-13: Clinic auth provisioning: Supabase auth user auto-created on clinic create/update with email (authUserId stored)
+- 2026-02-13: POST /api/admin/clinics/:id/send-invite: send login link to clinic (SUPER_ADMIN/DISPATCH)
+- 2026-02-13: Clinics UI: auth status badges (Auth linked / No auth), Send Clinic Login Link button
+- 2026-02-13: Refactored driverAuth.ts: ensureAuthUser supports driver/clinic/viewer roles

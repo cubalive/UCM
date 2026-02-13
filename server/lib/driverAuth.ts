@@ -5,12 +5,14 @@ interface EnsureAuthResult {
   isNew: boolean;
 }
 
-export async function ensureAuthUserForDriver({
+export async function ensureAuthUser({
   name,
   email,
+  role,
 }: {
   name: string;
   email: string;
+  role: "driver" | "clinic" | "viewer";
 }): Promise<EnsureAuthResult> {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
@@ -19,7 +21,7 @@ export async function ensureAuthUserForDriver({
 
   const supabase = getSupabaseServer();
   if (!supabase) {
-    throw new Error("Supabase is not configured. Cannot provision driver auth.");
+    throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Replit deployment secrets.");
   }
 
   const { data: listData, error: listError } = await supabase.auth.admin.listUsers({
@@ -36,14 +38,14 @@ export async function ensureAuthUserForDriver({
   );
 
   if (existingUser) {
-    await upsertProfile(supabase, existingUser.id, name, email);
+    await upsertProfile(supabase, existingUser.id, name, email, role);
     return { userId: existingUser.id, isNew: false };
   }
 
   const { data: createData, error: createError } = await supabase.auth.admin.createUser({
     email,
     email_confirm: true,
-    user_metadata: { name, role: "driver" },
+    user_metadata: { name, role },
   });
 
   if (createError) {
@@ -54,8 +56,28 @@ export async function ensureAuthUserForDriver({
     throw new Error("Supabase user creation returned no user");
   }
 
-  await upsertProfile(supabase, createData.user.id, name, email);
+  await upsertProfile(supabase, createData.user.id, name, email, role);
   return { userId: createData.user.id, isNew: true };
+}
+
+export async function ensureAuthUserForDriver({
+  name,
+  email,
+}: {
+  name: string;
+  email: string;
+}): Promise<EnsureAuthResult> {
+  return ensureAuthUser({ name, email, role: "driver" });
+}
+
+export async function ensureAuthUserForClinic({
+  name,
+  email,
+}: {
+  name: string;
+  email: string;
+}): Promise<EnsureAuthResult> {
+  return ensureAuthUser({ name, email, role: "clinic" });
 }
 
 async function upsertProfile(
@@ -63,26 +85,27 @@ async function upsertProfile(
   userId: string,
   name: string,
   email: string,
+  role: string,
 ) {
   try {
     await supabase.from("profiles").upsert(
       {
         id: userId,
-        role: "driver",
+        role,
         name,
         email,
       },
       { onConflict: "id" }
     );
   } catch (err: any) {
-    console.error("[driverAuth] Profile upsert failed (non-fatal):", err.message);
+    console.error("[authProvisioning] Profile upsert failed (non-fatal):", err.message);
   }
 }
 
 export async function generateInviteLink(email: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseServer();
   if (!supabase) {
-    return { success: false, error: "Supabase is not configured" };
+    return { success: false, error: "Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Replit deployment secrets." };
   }
 
   const { data, error } = await supabase.auth.admin.generateLink({
@@ -100,23 +123,67 @@ export async function generateInviteLink(email: string): Promise<{ success: bool
   return { success: true };
 }
 
-export async function checkSupabaseHealth(): Promise<{
+export async function checkAdminHealth(): Promise<{
   ok: boolean;
-  supabase: boolean;
+  hasServiceRole: boolean;
   canCreateUsers: boolean;
+  error?: string;
 }> {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    return {
+      ok: false,
+      hasServiceRole: false,
+      canCreateUsers: false,
+      error: "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Replit deployment secrets.",
+    };
+  }
+
   const supabase = getSupabaseServer();
   if (!supabase) {
-    return { ok: false, supabase: false, canCreateUsers: false };
+    return {
+      ok: false,
+      hasServiceRole: false,
+      canCreateUsers: false,
+      error: "Supabase client could not be initialized.",
+    };
   }
 
   let canCreateUsers = false;
   try {
     const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1 });
     canCreateUsers = !error;
-  } catch {
-    canCreateUsers = false;
+    if (error) {
+      return {
+        ok: false,
+        hasServiceRole: true,
+        canCreateUsers: false,
+        error: `Admin API call failed: ${error.message}`,
+      };
+    }
+  } catch (err: any) {
+    return {
+      ok: false,
+      hasServiceRole: true,
+      canCreateUsers: false,
+      error: `Admin API exception: ${err.message}`,
+    };
   }
 
-  return { ok: true, supabase: true, canCreateUsers };
+  return { ok: true, hasServiceRole: true, canCreateUsers };
+}
+
+export async function checkSupabaseHealth(): Promise<{
+  ok: boolean;
+  supabase: boolean;
+  canCreateUsers: boolean;
+}> {
+  const result = await checkAdminHealth();
+  return {
+    ok: result.ok,
+    supabase: result.hasServiceRole,
+    canCreateUsers: result.canCreateUsers,
+  };
 }

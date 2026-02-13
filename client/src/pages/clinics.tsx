@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building2, Search, Pencil, AlertTriangle } from "lucide-react";
+import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 const facilityTypeLabels: Record<string, string> = {
@@ -28,8 +28,9 @@ const facilityTypeLabels: Record<string, string> = {
 };
 
 export default function ClinicsPage() {
-  const { token, selectedCity } = useAuth();
+  const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
+  const canManageAuth = user?.role === "SUPER_ADMIN" || user?.role === "DISPATCH";
   const [open, setOpen] = useState(false);
   const [editClinic, setEditClinic] = useState<any>(null);
   const [search, setSearch] = useState("");
@@ -71,6 +72,19 @@ export default function ClinicsPage() {
       toast({ title: "Clinic updated" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: (clinicId: number) =>
+      apiFetch(`/api/admin/clinics/${clinicId}/send-invite`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (data: any) => {
+      toast({ title: "Invite sent", description: data.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to send invite", description: err.message, variant: "destructive" }),
   });
 
   const filtered = clinics?.filter(
@@ -142,10 +156,19 @@ export default function ClinicsPage() {
                       </div>
                     )}
                   </div>
-                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <Badge variant={c.active ? "secondary" : "destructive"}>
                       {c.active ? "Active" : "Inactive"}
                     </Badge>
+                    {c.authUserId ? (
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-clinic-auth-linked-${c.id}`}>
+                        <ShieldCheck className="w-3 h-3 mr-1" />Auth linked
+                      </Badge>
+                    ) : c.email ? (
+                      <Badge variant="outline" className="text-xs text-muted-foreground" data-testid={`badge-clinic-auth-missing-${c.id}`}>
+                        <ShieldAlert className="w-3 h-3 mr-1" />No auth
+                      </Badge>
+                    ) : null}
                     <Button
                       size="icon"
                       variant="ghost"
@@ -156,6 +179,20 @@ export default function ClinicsPage() {
                     </Button>
                   </div>
                 </div>
+                {canManageAuth && c.email && (
+                  <div className="mt-3 pt-3 border-t">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => inviteMutation.mutate(c.id)}
+                      disabled={inviteMutation.isPending}
+                      data-testid={`button-send-clinic-invite-${c.id}`}
+                    >
+                      <Mail className="w-3 h-3 mr-2" />
+                      Send Clinic Login Link
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
