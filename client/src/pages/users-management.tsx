@@ -11,14 +11,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Users, Search } from "lucide-react";
+import { Plus, Users, Search, Key, Mail, Copy } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function UsersPage() {
-  const { token } = useAuth();
+  const { token, user: currentUser } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
 
   const { data: usersData, isLoading } = useQuery<any[]>({
     queryKey: ["/api/users"],
@@ -30,6 +31,33 @@ export default function UsersPage() {
     queryKey: ["/api/cities"],
     queryFn: () => apiFetch("/api/cities", token),
     enabled: !!token,
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: (userId: number) =>
+      apiFetch(`/api/admin/users/${userId}/reset-password`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (data: any) => {
+      if (data?.tempPassword) {
+        setTempPasswordInfo({ email: "", password: data.tempPassword });
+      }
+      toast({ title: "Password reset", description: "New credentials emailed to user" });
+    },
+    onError: (err: any) => toast({ title: "Failed to reset password", description: err.message, variant: "destructive" }),
+  });
+
+  const sendLoginLinkMutation = useMutation({
+    mutationFn: ({ targetType, targetId }: { targetType: string; targetId: number }) =>
+      apiFetch("/api/admin/send-login-link", token, {
+        method: "POST",
+        body: JSON.stringify({ targetType, targetId: String(targetId) }),
+      }),
+    onSuccess: (data: any) => {
+      toast({ title: "Login link sent", description: data.message });
+    },
+    onError: (err: any) => toast({ title: "Failed to send login link", description: err.message, variant: "destructive" }),
   });
 
   const createMutation = useMutation({
@@ -113,10 +141,65 @@ export default function UsersPage() {
                     </Badge>
                   </div>
                 </div>
+                {currentUser?.role === "SUPER_ADMIN" && u.email && u.role !== "SUPER_ADMIN" && (
+                  <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
+                    {(u.role === "DISPATCH" || u.role === "ADMIN") && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => sendLoginLinkMutation.mutate({ targetType: "dispatch", targetId: u.id })}
+                        disabled={sendLoginLinkMutation.isPending}
+                        data-testid={`button-send-login-link-${u.id}`}
+                      >
+                        <Mail className="w-3 h-3 mr-2" />
+                        Send Login Link
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => resetPasswordMutation.mutate(u.id)}
+                      disabled={resetPasswordMutation.isPending}
+                      data-testid={`button-reset-password-${u.id}`}
+                    >
+                      <Key className="w-3 h-3 mr-2" />
+                      Reset Password
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
         </div>
+      )}
+      {tempPasswordInfo && (
+        <Dialog open={!!tempPasswordInfo} onOpenChange={() => setTempPasswordInfo(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Password Reset</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                A new temporary password has been generated and emailed to the user.
+              </p>
+              <div className="flex items-center gap-2 bg-muted p-3 rounded-md font-mono text-sm">
+                <span className="flex-1 break-all" data-testid="text-temp-password">{tempPasswordInfo.password}</span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => {
+                    navigator.clipboard.writeText(tempPasswordInfo.password);
+                    toast({ title: "Copied to clipboard" });
+                  }}
+                  data-testid="button-copy-temp-password"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <Button className="w-full" onClick={() => setTempPasswordInfo(null)} data-testid="button-close-temp-password">
+                Done
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

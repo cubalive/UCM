@@ -595,15 +595,30 @@ export async function registerRoutes(
           assignedBy: req.user!.role === "SUPER_ADMIN" ? "super_admin" : "dispatch",
         });
       }
+      let emailSent = false;
+      if (tempPassword && driverData.email) {
+        try {
+          const { sendDriverTempPassword } = await import("./services/emailService");
+          const driverName = `${driverData.firstName} ${driverData.lastName}`;
+          const emailResult = await sendDriverTempPassword(driverData.email, tempPassword, driverName);
+          emailSent = emailResult.success;
+          if (!emailResult.success) {
+            console.error("[driverCreate] Credentials email failed (non-fatal):", emailResult.error);
+          }
+        } catch (emailErr: any) {
+          console.error("[driverCreate] Email exception (non-fatal):", emailErr.message);
+        }
+      }
+
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
         entity: "driver",
         entityId: driver.id,
-        details: `Created driver ${driver.firstName} ${driver.lastName}${authProvisioned ? " (auth provisioned)" : ""}`,
+        details: `Created driver ${driver.firstName} ${driver.lastName}${authProvisioned ? " (auth provisioned)" : ""}${emailSent ? " (credentials emailed)" : ""}`,
         cityId: driver.cityId,
       });
-      res.json({ ...driver, tempPassword, authProvisioned });
+      res.json({ ...driver, tempPassword, authProvisioned, emailSent });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -896,15 +911,29 @@ export async function registerRoutes(
         console.error("Auto user creation for clinic failed:", userErr.message);
       }
 
+      let emailSent = false;
+      if (authProvisioned && clinic.email) {
+        try {
+          const { sendClinicLoginLink } = await import("./services/emailService");
+          const emailResult = await sendClinicLoginLink(clinic.email, clinic.name);
+          emailSent = emailResult.success;
+          if (!emailResult.success) {
+            console.error("[clinicCreate] Login link email failed (non-fatal):", emailResult.error);
+          }
+        } catch (emailErr: any) {
+          console.error("[clinicCreate] Email exception (non-fatal):", emailErr.message);
+        }
+      }
+
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
         entity: "clinic",
         entityId: clinic.id,
-        details: `Created clinic ${clinic.name}${authProvisioned ? " (auth provisioned)" : ""}${userCreated ? " (user account created)" : ""}`,
+        details: `Created clinic ${clinic.name}${authProvisioned ? " (auth provisioned)" : ""}${userCreated ? " (user account created)" : ""}${emailSent ? " (login link emailed)" : ""}`,
         cityId: clinic.cityId,
       });
-      res.json({ ...clinic, userCreated, authProvisioned, tempPassword });
+      res.json({ ...clinic, userCreated, authProvisioned, tempPassword, emailSent });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1802,7 +1831,7 @@ export async function registerRoutes(
         if (!targetUser) return res.status(404).json({ message: "User not found" });
         if (!targetUser.email) return res.status(400).json({ message: "User has no email address" });
         email = targetUser.email;
-        recipientName = targetUser.name || targetUser.email;
+        recipientName = `${targetUser.firstName} ${targetUser.lastName}`;
         role = targetUser.role;
       }
 
@@ -2774,7 +2803,7 @@ export async function registerRoutes(
 
         try {
           const { sendResetPasswordEmail } = await import("./services/emailService");
-          const emailResult = await sendResetPasswordEmail(targetUser.email, tempPassword, targetUser.name || targetUser.email);
+          const emailResult = await sendResetPasswordEmail(targetUser.email, tempPassword, `${targetUser.firstName} ${targetUser.lastName}`);
           if (!emailResult.success) {
             console.error("[adminResetPassword] Email send failed (non-fatal):", emailResult.error);
           }
@@ -2793,6 +2822,115 @@ export async function registerRoutes(
       });
 
       res.json({ ok: true, tempPassword });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/clinics/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.params.id);
+      if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+
+      const clinic = await storage.getClinic(clinicId);
+      if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+      if (!clinic.email) return res.status(400).json({ message: "Clinic has no email address" });
+
+      const clinicUser = await storage.getUserByClinicId(clinicId);
+      if (!clinicUser) return res.status(404).json({ message: "No user account found for this clinic" });
+
+      const { generateTempPassword } = await import("./lib/driverAuth");
+      const tempPassword = generateTempPassword();
+      const hashed = await hashPassword(tempPassword);
+      await db.update(users).set({ password: hashed, mustChangePassword: true }).where(eq(users.id, clinicUser.id));
+
+      try {
+        const supabase = getSupabaseServer();
+        if (supabase) {
+          const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+          const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === clinic.email!.toLowerCase());
+          if (sbUser) {
+            await supabase.auth.admin.updateUser(sbUser.id, { password: tempPassword, user_metadata: { must_change_password: true } });
+          }
+        }
+      } catch (sbErr: any) {
+        console.error("[clinicResetPassword] Supabase sync failed (non-fatal):", sbErr.message);
+      }
+
+      let emailSent = false;
+      try {
+        const { sendResetPasswordEmail } = await import("./services/emailService");
+        const emailResult = await sendResetPasswordEmail(clinic.email, tempPassword, clinic.name);
+        emailSent = emailResult.success;
+      } catch (emailErr: any) {
+        console.error("[clinicResetPassword] Email failed (non-fatal):", emailErr.message);
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ADMIN_RESET_PASSWORD",
+        entity: "clinic",
+        entityId: clinicId,
+        details: `Reset password for clinic ${clinic.name} (${clinic.email})${emailSent ? " — email sent" : ""}`,
+        cityId: clinic.cityId,
+      });
+
+      res.json({ ok: true, tempPassword, emailSent });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/drivers/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const driverId = parseInt(req.params.id);
+      if (isNaN(driverId)) return res.status(400).json({ message: "Invalid driver ID" });
+
+      const driver = await storage.getDriver(driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+      if (!driver.email) return res.status(400).json({ message: "Driver has no email address" });
+
+      const driverUser = await storage.getUserByDriverId(driverId);
+      if (!driverUser) return res.status(404).json({ message: "No user account found for this driver" });
+
+      const { generateTempPassword } = await import("./lib/driverAuth");
+      const tempPassword = generateTempPassword();
+      const hashed = await hashPassword(tempPassword);
+      await db.update(users).set({ password: hashed, mustChangePassword: true }).where(eq(users.id, driverUser.id));
+
+      try {
+        const supabase = getSupabaseServer();
+        if (supabase) {
+          const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+          const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === driver.email!.toLowerCase());
+          if (sbUser) {
+            await supabase.auth.admin.updateUser(sbUser.id, { password: tempPassword, user_metadata: { must_change_password: true } });
+          }
+        }
+      } catch (sbErr: any) {
+        console.error("[driverResetPassword] Supabase sync failed (non-fatal):", sbErr.message);
+      }
+
+      let emailSent = false;
+      try {
+        const { sendResetPasswordEmail } = await import("./services/emailService");
+        const driverName = `${driver.firstName} ${driver.lastName}`;
+        const emailResult = await sendResetPasswordEmail(driver.email, tempPassword, driverName);
+        emailSent = emailResult.success;
+      } catch (emailErr: any) {
+        console.error("[driverResetPassword] Email failed (non-fatal):", emailErr.message);
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ADMIN_RESET_PASSWORD",
+        entity: "driver",
+        entityId: driverId,
+        details: `Reset password for driver ${driver.firstName} ${driver.lastName} (${driver.email})${emailSent ? " — email sent" : ""}`,
+        cityId: driver.cityId,
+      });
+
+      res.json({ ok: true, tempPassword, emailSent });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

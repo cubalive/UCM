@@ -81,6 +81,9 @@ export default function DriversPage() {
       setOpen(false);
       if (result?.tempPassword && result?.email) {
         setTempPasswordInfo({ email: result.email, password: result.tempPassword });
+        if (result?.emailSent) {
+          toast({ title: "Driver added — credentials emailed" });
+        }
       } else {
         toast({ title: "Driver added" });
       }
@@ -142,6 +145,21 @@ export default function DriversPage() {
       toast({ title: "Credentials sent", description: data.message });
     },
     onError: (err: any) => toast({ title: "Failed to send credentials", description: err.message, variant: "destructive" }),
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: (driverId: number) =>
+      apiFetch(`/api/admin/drivers/${driverId}/reset-password`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (data: any) => {
+      if (data?.tempPassword) {
+        setTempPasswordInfo({ email: "", password: data.tempPassword });
+      }
+      toast({ title: "Password reset", description: data.emailSent ? "New credentials emailed" : "Password reset — email not sent" });
+    },
+    onError: (err: any) => toast({ title: "Failed to reset password", description: err.message, variant: "destructive" }),
   });
 
   const backfillMutation = useMutation({
@@ -298,7 +316,7 @@ export default function DriversPage() {
                   </div>
                 </div>
                 {canManageAuth && d.email && (
-                  <div className="mt-3 pt-3 border-t">
+                  <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
                     <Button
                       variant="outline"
                       size="sm"
@@ -307,8 +325,20 @@ export default function DriversPage() {
                       data-testid={`button-send-invite-${d.id}`}
                     >
                       <Mail className="w-3 h-3 mr-2" />
-                      Send Driver Login Link
+                      Send Login Link
                     </Button>
+                    {user?.role === "SUPER_ADMIN" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => resetPasswordMutation.mutate(d.id)}
+                        disabled={resetPasswordMutation.isPending}
+                        data-testid={`button-reset-driver-password-${d.id}`}
+                      >
+                        <Key className="w-3 h-3 mr-2" />
+                        Reset Password
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>

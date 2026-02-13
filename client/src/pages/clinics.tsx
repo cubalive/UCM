@@ -57,10 +57,10 @@ export default function ClinicsPage() {
       if (result?.tempPassword && result?.email) {
         setTempPasswordInfo({ email: result.email, password: result.tempPassword });
       } else {
-        const msg = result?.userCreated
-          ? "Clinic added — user account created automatically"
-          : "Clinic added";
-        toast({ title: msg });
+        const parts = ["Clinic added"];
+        if (result?.userCreated) parts.push("user account created");
+        if (result?.emailSent) parts.push("login link emailed");
+        toast({ title: parts.join(" — ") });
       }
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -89,6 +89,21 @@ export default function ClinicsPage() {
       toast({ title: "Login link sent", description: data.message });
     },
     onError: (err: any) => toast({ title: "Failed to send login link", description: err.message, variant: "destructive" }),
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: (clinicId: number) =>
+      apiFetch(`/api/admin/clinics/${clinicId}/reset-password`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (data: any) => {
+      if (data?.tempPassword) {
+        setTempPasswordInfo({ email: "", password: data.tempPassword });
+      }
+      toast({ title: "Password reset", description: data.emailSent ? "New credentials emailed" : "Password reset — email not sent" });
+    },
+    onError: (err: any) => toast({ title: "Failed to reset password", description: err.message, variant: "destructive" }),
   });
 
   const filtered = clinics?.filter(
@@ -185,7 +200,7 @@ export default function ClinicsPage() {
                   </div>
                 </div>
                 {canManageAuth && c.email && (
-                  <div className="mt-3 pt-3 border-t">
+                  <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
                     <Button
                       variant="outline"
                       size="sm"
@@ -194,8 +209,20 @@ export default function ClinicsPage() {
                       data-testid={`button-send-clinic-invite-${c.id}`}
                     >
                       <Mail className="w-3 h-3 mr-2" />
-                      Send Clinic Login Link
+                      Send Login Link
                     </Button>
+                    {user?.role === "SUPER_ADMIN" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => resetPasswordMutation.mutate(c.id)}
+                        disabled={resetPasswordMutation.isPending}
+                        data-testid={`button-reset-clinic-password-${c.id}`}
+                      >
+                        <Key className="w-3 h-3 mr-2" />
+                        Reset Password
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>
