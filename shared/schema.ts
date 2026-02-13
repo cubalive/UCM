@@ -73,6 +73,7 @@ export const users = pgTable("users", {
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   driverId: integer("driver_id"),
   clinicId: integer("clinic_id"),
+  patientId: integer("patient_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
