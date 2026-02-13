@@ -147,6 +147,7 @@ export default function DriversPage() {
     onError: (err: any) => toast({ title: "Failed to send credentials", description: err.message, variant: "destructive" }),
   });
 
+  const [resetTarget, setResetTarget] = useState<{ id: number; email: string } | null>(null);
   const resetPasswordMutation = useMutation({
     mutationFn: (driverId: number) =>
       apiFetch(`/api/admin/drivers/${driverId}/reset-password`, token, {
@@ -155,11 +156,15 @@ export default function DriversPage() {
       }),
     onSuccess: (data: any) => {
       if (data?.tempPassword) {
-        setTempPasswordInfo({ email: "", password: data.tempPassword });
+        setTempPasswordInfo({ email: resetTarget?.email || "", password: data.tempPassword });
       }
       toast({ title: "Password reset", description: data.emailSent ? "New credentials emailed" : "Password reset — email not sent" });
+      setResetTarget(null);
     },
-    onError: (err: any) => toast({ title: "Failed to reset password", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      toast({ title: "Failed to reset password", description: err.message, variant: "destructive" });
+      setResetTarget(null);
+    },
   });
 
   const backfillMutation = useMutation({
@@ -331,7 +336,7 @@ export default function DriversPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => resetPasswordMutation.mutate(d.id)}
+                        onClick={() => { setResetTarget({ id: d.id, email: d.email }); resetPasswordMutation.mutate(d.id); }}
                         disabled={resetPasswordMutation.isPending}
                         data-testid={`button-reset-driver-password-${d.id}`}
                       >

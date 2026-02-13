@@ -91,6 +91,7 @@ export default function ClinicsPage() {
     onError: (err: any) => toast({ title: "Failed to send login link", description: err.message, variant: "destructive" }),
   });
 
+  const [resetTarget, setResetTarget] = useState<{ id: number; email: string } | null>(null);
   const resetPasswordMutation = useMutation({
     mutationFn: (clinicId: number) =>
       apiFetch(`/api/admin/clinics/${clinicId}/reset-password`, token, {
@@ -99,11 +100,15 @@ export default function ClinicsPage() {
       }),
     onSuccess: (data: any) => {
       if (data?.tempPassword) {
-        setTempPasswordInfo({ email: "", password: data.tempPassword });
+        setTempPasswordInfo({ email: resetTarget?.email || "", password: data.tempPassword });
       }
       toast({ title: "Password reset", description: data.emailSent ? "New credentials emailed" : "Password reset — email not sent" });
+      setResetTarget(null);
     },
-    onError: (err: any) => toast({ title: "Failed to reset password", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      toast({ title: "Failed to reset password", description: err.message, variant: "destructive" });
+      setResetTarget(null);
+    },
   });
 
   const filtered = clinics?.filter(
@@ -215,7 +220,7 @@ export default function ClinicsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => resetPasswordMutation.mutate(c.id)}
+                        onClick={() => { setResetTarget({ id: c.id, email: c.email }); resetPasswordMutation.mutate(c.id); }}
                         disabled={resetPasswordMutation.isPending}
                         data-testid={`button-reset-clinic-password-${c.id}`}
                       >

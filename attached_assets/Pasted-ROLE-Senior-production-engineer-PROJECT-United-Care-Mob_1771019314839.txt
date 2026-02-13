@@ -1,0 +1,55 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Email + Auth must work end-to-end using existing Resend/SMTP + Supabase Auth.
+Currently UI shows actions (e.g. "Send Clinic Login Link") but emails are not reliably triggered or the flow is incomplete.
+Implement real, production-safe flows and return clear UI feedback.
+
+REQUIREMENTS:
+1) Clinic "Send Clinic Login Link"
+- If clinic.email is missing: disable button + show inline error.
+- If present:
+  - Generate Supabase magic link (email link sign-in) for that clinic user.
+  - Send email via existing email service (Resend/SMTP already configured).
+  - Show success toast "Login link sent" and log audit event.
+
+2) Driver account creation email
+- When a driver is created (or when driver email is added later):
+  - Create/ensure Supabase Auth user exists for driver.email
+  - Generate a one-time temporary password OR preferred: send magic link
+  - Email must include:
+    - login URL (app.unitedcaremobility.com)
+    - instructions
+    - if temp password is used: require password change on first login
+- Show the temp password in UI ONLY once (immediately after creation) and store only hashed/never store plaintext.
+- Log audit event.
+
+3) Reset Password (Admin actions)
+- Add "Reset Password" action for clinic, driver, dispatch user.
+- It must generate reset link and send email.
+- Show UI confirmation and log audit event.
+
+4) Security
+- Server-side authorize actions: only super_admin (and optionally dispatch for driver resets) can trigger these.
+- Do not leak whether an email exists outside admin contexts.
+- Rate-limit sending per recipient (basic cooldown).
+
+5) Verification
+- Add /api/health/email endpoint returning:
+  { ok: true, provider: "resend|smtp", canSend: true }
+- Manual tests:
+  - Create clinic with email -> receive login link
+  - Create driver with email -> receive login credentials/link
+  - Reset password -> receive reset link
+  - Links work in production domain
+
+Do not change database schema unless strictly required.
+Verify before exit.

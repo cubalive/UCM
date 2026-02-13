@@ -1567,7 +1567,7 @@ export async function registerRoutes(
             const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
             const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === user.email.toLowerCase());
             if (sbUser) {
-              await supabase.auth.admin.updateUser(sbUser.id, {
+              await supabase.auth.admin.updateUserById(sbUser.id, {
                 password: parsed.data.newPassword,
                 user_metadata: { must_change_password: false },
               });
@@ -1620,7 +1620,7 @@ export async function registerRoutes(
             const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
             const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === targetUser.email.toLowerCase());
             if (sbUser) {
-              await supabase.auth.admin.updateUser(sbUser.id, {
+              await supabase.auth.admin.updateUserById(sbUser.id, {
                 password: parsed.data.newPassword,
                 user_metadata: { must_change_password: false },
               });
@@ -1646,6 +1646,15 @@ export async function registerRoutes(
     }
   });
 
+  const emailCooldowns = new Map<string, number>();
+  const EMAIL_COOLDOWN_MS = 60_000;
+  function checkEmailCooldown(key: string): boolean {
+    const last = emailCooldowns.get(key);
+    if (last && Date.now() - last < EMAIL_COOLDOWN_MS) return false;
+    emailCooldowns.set(key, Date.now());
+    return true;
+  }
+
   app.post("/api/admin/drivers/:id/send-invite", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const driverId = parseInt(req.params.id);
@@ -1654,6 +1663,10 @@ export async function registerRoutes(
       const driver = await storage.getDriver(driverId);
       if (!driver) return res.status(404).json({ message: "Driver not found" });
       if (!driver.email) return res.status(400).json({ message: "Driver has no email address" });
+
+      if (!checkEmailCooldown(`driver-invite-${driver.email}`)) {
+        return res.status(429).json({ message: "An email was sent recently. Please wait 60 seconds before trying again." });
+      }
 
       let tempPassword: string | undefined;
 
@@ -1756,6 +1769,10 @@ export async function registerRoutes(
       const clinic = await storage.getClinic(clinicId);
       if (!clinic) return res.status(404).json({ message: "Clinic not found" });
       if (!clinic.email) return res.status(400).json({ message: "Clinic has no email address" });
+
+      if (!checkEmailCooldown(`clinic-invite-${clinic.email}`)) {
+        return res.status(429).json({ message: "An email was sent recently. Please wait 60 seconds before trying again." });
+      }
 
       if (!clinic.authUserId) {
         try {
@@ -2024,6 +2041,21 @@ export async function registerRoutes(
   app.get("/api/debug/email-health", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res) => {
     const { getEmailHealth } = await import("./lib/email");
     res.json(getEmailHealth());
+  });
+
+  app.get("/api/health/email", async (_req, res) => {
+    const hasResendKey = !!process.env.RESEND_API_KEY;
+    const hasSupabaseUrl = !!process.env.SUPABASE_URL;
+    const hasServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const provider = hasResendKey ? "resend" : "none";
+    const canSend = hasResendKey;
+    const canGenerateLinks = hasSupabaseUrl && hasServiceRole;
+    res.json({
+      ok: canSend && canGenerateLinks,
+      provider,
+      canSend,
+      canGenerateLinks,
+    });
   });
 
   app.get("/api/admin/clinics/city-mismatch", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
@@ -2791,7 +2823,7 @@ export async function registerRoutes(
             const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
             const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === targetUser.email.toLowerCase());
             if (sbUser) {
-              await supabase.auth.admin.updateUser(sbUser.id, {
+              await supabase.auth.admin.updateUserById(sbUser.id, {
                 password: tempPassword,
                 user_metadata: { must_change_password: true },
               });
@@ -2850,7 +2882,7 @@ export async function registerRoutes(
           const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
           const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === clinic.email!.toLowerCase());
           if (sbUser) {
-            await supabase.auth.admin.updateUser(sbUser.id, { password: tempPassword, user_metadata: { must_change_password: true } });
+            await supabase.auth.admin.updateUserById(sbUser.id, { password: tempPassword, user_metadata: { must_change_password: true } });
           }
         }
       } catch (sbErr: any) {
@@ -2904,7 +2936,7 @@ export async function registerRoutes(
           const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
           const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === driver.email!.toLowerCase());
           if (sbUser) {
-            await supabase.auth.admin.updateUser(sbUser.id, { password: tempPassword, user_metadata: { must_change_password: true } });
+            await supabase.auth.admin.updateUserById(sbUser.id, { password: tempPassword, user_metadata: { must_change_password: true } });
           }
         }
       } catch (sbErr: any) {
