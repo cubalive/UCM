@@ -96,7 +96,7 @@ function useLoadGoogleMapsScript(apiKey: string | null | undefined) {
     }
 
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=marker`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=marker,places`;
     script.async = true;
     script.defer = true;
     script.onload = () => setLoaded(true);

@@ -25,7 +25,7 @@ The application follows a client-server architecture.
 - **PostgreSQL**: Relational database for persistent storage, accessed via Drizzle ORM.
 - **Replit DB**: Used for specific operational data storage.
 - **Supabase**: Leveraged for user authentication profiles, city management, and Row-Level Security (RLS).
-- **Google Maps Platform**: Utilized for Maps JavaScript API, Directions API, Geocoding API, and Places API for location services, ETA calculations, route optimization, and live driver map. The frontend loads the Maps JS API via a protected `/api/maps/client-key` endpoint.
+- **Google Maps Platform**: Utilized for Maps JavaScript API, Directions API, Geocoding API, and Places API for location services, ETA calculations, route optimization, and live driver map. Uses separate keys: `GOOGLE_MAPS_BROWSER_KEY` for frontend Maps JS (served via `/api/maps/client-key` and `/api/public/maps/key`), `GOOGLE_MAPS_SERVER_KEY` for server-side API calls (Geocoding, Directions, Routes). Health check at `GET /api/google/health` returns `{ok, hasBrowserKey, hasServerKey}`. Frontend loads libraries: marker, places.
 - **Twilio**: Integrated for sending and receiving SMS messages, including patient notifications and handling SMS opt-out requests.
 
 ## Recent Changes

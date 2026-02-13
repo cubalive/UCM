@@ -102,7 +102,7 @@ export default function PublicTrackingPage() {
       .then(r => r.json())
       .then(json => {
         if (json.key) {
-          script.src = `https://maps.googleapis.com/maps/api/js?key=${json.key}&libraries=geometry`;
+          script.src = `https://maps.googleapis.com/maps/api/js?key=${json.key}&libraries=geometry,places`;
           document.head.appendChild(script);
         } else {
           setMapAvailable(false);

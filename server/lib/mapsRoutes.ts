@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { GOOGLE_MAPS_KEY } from "../../lib/mapsConfig";
+import { GOOGLE_MAPS_SERVER_KEY, GOOGLE_MAPS_BROWSER_KEY } from "../../lib/mapsConfig";
+const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 import { geocodeAddress, placesAutocomplete, placeDetails, etaMinutes, buildRoute } from "./googleMaps";
 import { checkRateLimit } from "./rateLimiter";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
@@ -58,16 +59,25 @@ const routeSchema = z.object({
 export function registerMapsRoutes(app: Express): void {
   app.get("/api/maps/health", (_req, res) => {
     res.json({
-      ok: GOOGLE_MAPS_KEY.length > 0,
-      mapsKeyLoaded: GOOGLE_MAPS_KEY.length > 0,
+      ok: GOOGLE_MAPS_BROWSER_KEY.length > 0 || GOOGLE_MAPS_KEY.length > 0,
+      mapsKeyLoaded: GOOGLE_MAPS_BROWSER_KEY.length > 0 || GOOGLE_MAPS_KEY.length > 0,
     });
   });
 
-  app.get("/api/maps/client-key", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), (_req: Request, res: Response) => {
-    if (!GOOGLE_MAPS_KEY) {
+  app.get("/api/google/health", (_req, res) => {
+    res.json({
+      ok: true,
+      hasBrowserKey: GOOGLE_MAPS_BROWSER_KEY.length > 0,
+      hasServerKey: GOOGLE_MAPS_KEY.length > 0,
+    });
+  });
+
+  app.get("/api/maps/client-key", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "DRIVER"), (_req: Request, res: Response) => {
+    const clientKey = GOOGLE_MAPS_BROWSER_KEY || GOOGLE_MAPS_KEY;
+    if (!clientKey) {
       return res.status(503).json({ key: null, message: "Google Maps API key not configured" });
     }
-    res.json({ key: GOOGLE_MAPS_KEY });
+    res.json({ key: clientKey });
   });
 
   app.post("/api/maps/geocode", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: Request, res: Response) => {

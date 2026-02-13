@@ -3,7 +3,8 @@ import { storage } from "../storage";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
 import { etaMinutes } from "./googleMaps";
 import { z } from "zod";
-import { GOOGLE_MAPS_KEY } from "../../lib/mapsConfig";
+import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
+const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 import { autoNotifyPatient } from "./dispatchAutoSms";
 
 const assignDriverVehicleSchema = z.object({

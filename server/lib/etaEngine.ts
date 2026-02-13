@@ -1,7 +1,8 @@
 import { storage } from "../storage";
 import { etaMinutes } from "./googleMaps";
 import { autoNotifyPatient } from "./dispatchAutoSms";
-import { GOOGLE_MAPS_KEY } from "../../lib/mapsConfig";
+import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
+const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 
 const ETA_INTERVAL_MS = 60_000;
 const FIVE_MIN_THRESHOLD = 5;

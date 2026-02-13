@@ -19,10 +19,10 @@ export function MapLoader({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/maps/health")
+    fetch("/api/google/health")
       .then((res) => res.json())
       .then((data) => {
-        if (data.ok && data.mapsKeyLoaded) {
+        if (data.ok && data.hasBrowserKey) {
           setIsAvailable(true);
         } else {
           setError("Maps service not configured");

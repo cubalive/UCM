@@ -3,7 +3,8 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
 import { etaMinutes } from "./googleMaps";
-import { GOOGLE_MAPS_KEY } from "../../lib/mapsConfig";
+import { GOOGLE_MAPS_SERVER_KEY, GOOGLE_MAPS_BROWSER_KEY } from "../../lib/mapsConfig";
+const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 
 function generateToken(): string {
   return crypto.randomBytes(32).toString("hex");
@@ -11,8 +12,8 @@ function generateToken(): string {
 
 export function registerTrackingRoutes(app: Express) {
   app.get("/api/public/maps/key", (_req, res) => {
-    if (GOOGLE_MAPS_KEY) {
-      res.json({ key: GOOGLE_MAPS_KEY });
+    if (GOOGLE_MAPS_BROWSER_KEY) {
+      res.json({ key: GOOGLE_MAPS_BROWSER_KEY });
     } else {
       res.json({ key: null });
     }

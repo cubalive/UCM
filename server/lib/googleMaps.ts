@@ -1,4 +1,5 @@
-import { GOOGLE_MAPS_KEY } from "../../lib/mapsConfig";
+import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
+const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 
 const GOOGLE_API_BASE = "https://maps.googleapis.com/maps/api";
 
