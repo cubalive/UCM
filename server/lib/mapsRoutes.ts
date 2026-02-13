@@ -63,7 +63,7 @@ export function registerMapsRoutes(app: Express): void {
     });
   });
 
-  app.post("/api/maps/geocode", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
+  app.post("/api/maps/geocode", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = geocodeSchema.safeParse(req.body);
@@ -79,7 +79,7 @@ export function registerMapsRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/maps/places/autocomplete", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
+  app.post("/api/maps/places/autocomplete", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = autocompleteSchema.safeParse(req.body);
@@ -95,7 +95,7 @@ export function registerMapsRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/maps/places/details", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
+  app.post("/api/maps/places/details", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = placeDetailsSchema.safeParse(req.body);
