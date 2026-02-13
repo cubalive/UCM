@@ -211,7 +211,8 @@ export default function TripsPage() {
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {trip.scheduledDate} at {trip.scheduledTime}
+                      {trip.scheduledDate} at {trip.scheduledTime} | Pickup: {trip.pickupTime}
+                      {trip.estimatedArrivalTime && ` | ETA: ${trip.estimatedArrivalTime}`}
                     </p>
                     <p className="text-sm">
                       <span className="text-muted-foreground">From:</span> {trip.pickupAddress}
@@ -301,6 +302,10 @@ function TripDetailDialog({
           <div className="space-y-2">
             <h3 className="text-sm font-medium text-muted-foreground">Schedule</h3>
             <p className="text-sm" data-testid="text-trip-schedule">{trip.scheduledDate} at {trip.scheduledTime}</p>
+            <p className="text-sm" data-testid="text-trip-pickup-time">Pickup: {trip.pickupTime}</p>
+            {trip.estimatedArrivalTime && (
+              <p className="text-sm" data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -508,6 +513,8 @@ function TripForm({
     dropoffAddress: "",
     scheduledDate: "",
     scheduledTime: "",
+    pickupTime: "",
+    estimatedArrivalTime: "",
     notes: "",
   });
 
@@ -519,6 +526,7 @@ function TripForm({
       driverId: form.driverId ? parseInt(form.driverId) : null,
       vehicleId: form.vehicleId ? parseInt(form.vehicleId) : null,
       clinicId: form.clinicId ? parseInt(form.clinicId) : null,
+      estimatedArrivalTime: form.estimatedArrivalTime || null,
     });
   };
 
@@ -543,6 +551,16 @@ function TripForm({
         <div className="space-y-2">
           <Label>Time *</Label>
           <Input type="time" value={form.scheduledTime} onChange={(e) => setForm({ ...form, scheduledTime: e.target.value })} required data-testid="input-trip-time" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label>Pickup Time *</Label>
+          <Input type="time" value={form.pickupTime} onChange={(e) => setForm({ ...form, pickupTime: e.target.value })} required data-testid="input-trip-pickup-time" />
+        </div>
+        <div className="space-y-2">
+          <Label>Est. Arrival Time</Label>
+          <Input type="time" value={form.estimatedArrivalTime} onChange={(e) => setForm({ ...form, estimatedArrivalTime: e.target.value })} data-testid="input-trip-est-arrival" />
         </div>
       </div>
       <div className="space-y-2">

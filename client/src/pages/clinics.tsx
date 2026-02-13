@@ -9,9 +9,23 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Building2, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+
+const facilityTypeLabels: Record<string, string> = {
+  clinic: "Clinic",
+  hospital: "Hospital",
+  mental: "Mental Health",
+  private: "Private Practice",
+};
 
 export default function ClinicsPage() {
   const { token, selectedCity } = useAuth();
@@ -90,6 +104,11 @@ export default function ClinicsPage() {
                   <div className="space-y-1 min-w-0">
                     <p className="font-medium" data-testid={`text-clinic-name-${c.id}`}>{c.name}</p>
                     <p className="text-xs font-mono text-muted-foreground">{c.publicId}</p>
+                    {c.facilityType && (
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-facility-type-${c.id}`}>
+                        {facilityTypeLabels[c.facilityType] || c.facilityType}
+                      </Badge>
+                    )}
                     <p className="text-sm text-muted-foreground truncate">{c.address}</p>
                     {c.phone && <p className="text-sm text-muted-foreground">{c.phone}</p>}
                     {c.contactName && <p className="text-xs text-muted-foreground">Contact: {c.contactName}</p>}
@@ -108,7 +127,7 @@ export default function ClinicsPage() {
 }
 
 function ClinicForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loading: boolean }) {
-  const [form, setForm] = useState({ name: "", address: "", phone: "", contactName: "" });
+  const [form, setForm] = useState({ name: "", address: "", phone: "", contactName: "", facilityType: "clinic" });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,6 +143,18 @@ function ClinicForm({ onSubmit, loading }: { onSubmit: (data: any) => void; load
       <div className="space-y-2">
         <Label>Address *</Label>
         <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} required data-testid="input-clinic-address" />
+      </div>
+      <div className="space-y-2">
+        <Label>Facility Type *</Label>
+        <Select value={form.facilityType} onValueChange={(v) => setForm({ ...form, facilityType: v })}>
+          <SelectTrigger data-testid="select-clinic-facility-type"><SelectValue placeholder="Select type" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="clinic">Clinic</SelectItem>
+            <SelectItem value="hospital">Hospital</SelectItem>
+            <SelectItem value="mental">Mental Health</SelectItem>
+            <SelectItem value="private">Private Practice</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">

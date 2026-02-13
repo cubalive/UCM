@@ -122,3 +122,5 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - `server/lib/dispatchAutoSms.ts` - Shared auto-notification helper (fire-and-forget, opt-out aware)
 - `server/lib/etaEngine.ts` - Live ETA recalculation engine (60s interval, 5-min alert trigger)
 - 2026-02-13: Patient editing: PATCH /api/patients/:id (SUPER_ADMIN/ADMIN/DISPATCH), notes column added, edit dialog in patients page
+- 2026-02-13: Required trip times: pickupTime (required), estimatedArrivalTime (optional) added to trips schema + form + display
+- 2026-02-13: Facility type classification: facilityType enum (clinic/hospital/mental/private) added to clinics schema + form + display badge
