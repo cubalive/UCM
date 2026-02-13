@@ -463,6 +463,8 @@ export async function registerRoutes(
 
       const { generateTempPassword } = await import("./lib/driverAuth");
       let localTempPassword: string | undefined;
+      const driver = await storage.createDriver(driverData);
+
       try {
         const existingUsers = await db.select().from(users).where(eq(users.email, driverData.email));
         if (existingUsers.length === 0) {
@@ -479,15 +481,24 @@ export async function registerRoutes(
             phone: driverData.phone || null,
             active: true,
             mustChangePassword: true,
+            driverId: driver.id,
           });
           await storage.setUserCityAccess(newUser.id, [driverData.cityId]);
+          driverData.userId = newUser.id;
+          await db.update(drivers).set({ userId: newUser.id }).where(eq(drivers.id, driver.id));
           if (!tempPassword) tempPassword = localTempPassword;
+        } else {
+          const existingUser = existingUsers[0];
+          if (!existingUser.driverId) {
+            await db.update(users).set({ driverId: driver.id }).where(eq(users.id, existingUser.id));
+          }
+          if (!driver.userId) {
+            await db.update(drivers).set({ userId: existingUser.id }).where(eq(drivers.id, driver.id));
+          }
         }
       } catch (userErr: any) {
         console.error("[driverCreate] Local user creation failed (non-fatal):", userErr.message);
       }
-
-      const driver = await storage.createDriver(driverData);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
@@ -571,10 +582,16 @@ export async function registerRoutes(
             phone: clinic.phone || null,
             active: true,
             mustChangePassword: true,
+            clinicId: clinic.id,
           });
           await storage.setUserCityAccess(newUser.id, [clinic.cityId]);
           userCreated = true;
           if (!tempPassword) tempPassword = localTempPassword;
+        } else {
+          const existingUser = existingUsers[0];
+          if (!existingUser.clinicId) {
+            await db.update(users).set({ clinicId: clinic.id }).where(eq(users.id, existingUser.id));
+          }
         }
       } catch (userErr: any) {
         console.error("Auto user creation for clinic failed:", userErr.message);

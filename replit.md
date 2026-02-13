@@ -147,3 +147,7 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: POST /api/admin/users/:id/set-password: SUPER_ADMIN password reset for any user
 - 2026-02-13: Temp password modal dialogs in drivers + clinics pages with copy-to-clipboard
 - `client/src/pages/change-password.tsx` - Forced password change screen (intercepts login flow)
+- 2026-02-13: User linking: driverId/clinicId columns on users table for reverse lookup
+- 2026-02-13: Safe unique indexes: LOWER(email) WHERE NOT NULL on drivers + clinics tables
+- 2026-02-13: Driver/clinic creation auto-links users.driverId/clinicId + drivers.userId bidirectionally
+- 2026-02-13: Branding: logo-horizontal.png on login, logo-small.png on sidebar, manifest.json + favicon + splash
