@@ -23,6 +23,9 @@ interface DriverLocation {
   lng: number;
   updated_at: string | null;
   status: string;
+  vehicle_id: number | null;
+  vehicle_label: string | null;
+  vehicle_color: string | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -110,10 +113,49 @@ interface GoogleMapProps {
   zoom: number;
 }
 
+const CAR_SVG_PATH = "M 7 1 C 5.5 1 4.3 1.8 3.8 3 L 2 3 C 0.9 3 0 3.9 0 5 L 0 10 C 0 10.6 0.4 11 1 11 L 2.5 11 C 2.5 12.4 3.6 13.5 5 13.5 C 6.4 13.5 7.5 12.4 7.5 11 L 12.5 11 C 12.5 12.4 13.6 13.5 15 13.5 C 16.4 13.5 17.5 12.4 17.5 11 L 19 11 C 19.6 11 20 10.6 20 10 L 20 5 C 20 3.9 19.1 3 18 3 L 16.2 3 C 15.7 1.8 14.5 1 13 1 Z M 5 10 C 4.4 10 4 10.4 4 11 C 4 11.6 4.4 12 5 12 C 5.6 12 6 11.6 6 11 C 6 10.4 5.6 10 5 10 Z M 15 10 C 14.4 10 14 10.4 14 11 C 14 11.6 14.4 12 15 12 C 15.6 12 16 11.6 16 11 C 16 10.4 15.6 10 15 10 Z M 4 5 L 7 3 L 13 3 L 16 5 Z";
+
+const DEFAULT_MARKER_COLOR = "#6366F1";
+
+function createCarIcon(vehicleColor: string | null, stale: boolean, statusColor: string) {
+  const fillColor = vehicleColor || DEFAULT_MARKER_COLOR;
+  const opacity = stale ? 0.5 : 1;
+  const strokeColor = stale ? "#f59e0b" : statusColor;
+  const strokeWidth = stale ? 1.5 : 1;
+  const statusDot = `<circle cx="18" cy="2" r="4" fill="${statusColor}" stroke="white" stroke-width="1"/>`;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="28" viewBox="-2 -2 24 18">
+    <path d="${CAR_SVG_PATH}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>
+    ${statusDot}
+  </svg>`;
+
+  return {
+    url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(36, 28),
+    anchor: new google.maps.Point(18, 14),
+  };
+}
+
+function createFallbackIcon(stale: boolean, statusColor: string) {
+  const opacity = stale ? 0.5 : 1;
+  const strokeColor = stale ? "#f59e0b" : "#ffffff";
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9" fill="${statusColor}" fill-opacity="${opacity}" stroke="${strokeColor}" stroke-width="2"/>
+  </svg>`;
+
+  return {
+    url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(24, 24),
+    anchor: new google.maps.Point(12, 12),
+  };
+}
+
 function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
+  const labelsRef = useRef<google.maps.Marker[]>([]);
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
 
   useEffect(() => {
@@ -140,26 +182,44 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
 
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
+    labelsRef.current.forEach((m) => m.setMap(null));
+    labelsRef.current = [];
 
     drivers.forEach((driver) => {
       const stale = isStale(driver.updated_at);
-      const color = STATUS_COLORS[driver.status] || STATUS_COLORS.off;
+      const statusColor = STATUS_COLORS[driver.status] || STATUS_COLORS.off;
+      const hasVehicle = driver.vehicle_id != null;
 
-      const svgIcon = {
-        path: google.maps.SymbolPath.CIRCLE,
-        fillColor: color,
-        fillOpacity: stale ? 0.5 : 1,
-        strokeColor: stale ? "#f59e0b" : "#ffffff",
-        strokeWeight: stale ? 3 : 2,
-        scale: 10,
-      };
+      const icon = hasVehicle
+        ? createCarIcon(driver.vehicle_color, stale, statusColor)
+        : createFallbackIcon(stale, statusColor);
 
       const marker = new google.maps.Marker({
         position: { lat: driver.lat, lng: driver.lng },
         map: mapInstanceRef.current!,
-        icon: svgIcon,
+        icon,
         title: driver.driver_name,
         zIndex: stale ? 1 : 10,
+      });
+
+      const firstName = driver.driver_name.split(" ")[0];
+      const labelMarker = new google.maps.Marker({
+        position: { lat: driver.lat, lng: driver.lng },
+        map: mapInstanceRef.current!,
+        icon: {
+          url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'),
+          scaledSize: new google.maps.Size(1, 1),
+          anchor: new google.maps.Point(0, 0),
+        },
+        label: {
+          text: firstName,
+          color: "#1e293b",
+          fontSize: "11px",
+          fontWeight: "600",
+          className: "driver-map-label",
+        },
+        clickable: false,
+        zIndex: stale ? 0 : 5,
       });
 
       marker.addListener("click", () => {
@@ -168,14 +228,18 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
         const staleTag = stale
           ? `<div style="color:#d97706;font-weight:600;font-size:11px;margin-top:4px;">STALE</div>`
           : "";
+        const vehicleInfo = driver.vehicle_label
+          ? `<div style="font-size:11px;color:#666;margin-top:2px;">Vehicle: ${driver.vehicle_label}</div>`
+          : `<div style="font-size:11px;color:#999;margin-top:2px;font-style:italic;">No vehicle assigned</div>`;
 
         infoWindowRef.current?.setContent(`
-          <div style="padding:4px;min-width:140px;">
+          <div style="padding:4px;min-width:160px;">
             <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${driver.driver_name}</div>
             <div style="font-size:12px;color:#666;">
-              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px;"></span>
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:4px;"></span>
               ${statusLabel}
             </div>
+            ${vehicleInfo}
             <div style="font-size:11px;color:#888;margin-top:2px;">Updated: ${timeAgo}</div>
             ${staleTag}
           </div>
@@ -184,9 +248,10 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
       });
 
       markersRef.current.push(marker);
+      labelsRef.current.push(labelMarker);
     });
 
-    if (drivers.length > 0 && drivers.length > 1) {
+    if (drivers.length > 1) {
       const bounds = new google.maps.LatLngBounds();
       drivers.forEach((d) => bounds.extend({ lat: d.lat, lng: d.lng }));
       mapInstanceRef.current.fitBounds(bounds, { top: 50, right: 50, bottom: 50, left: 50 });
@@ -395,6 +460,16 @@ export default function LiveMapPage() {
           <CardContent className="p-3">
             <p className="text-xs font-medium text-muted-foreground mb-2">Driver Legend</p>
             <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <svg width="16" height="12" viewBox="-1 -1 22 16" className="flex-shrink-0">
+                  <path d={CAR_SVG_PATH} fill="#6366F1" stroke="#22c55e" strokeWidth="1" />
+                </svg>
+                <span className="text-xs">Vehicle assigned</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full border border-background bg-muted-foreground" />
+                <span className="text-xs">No vehicle</span>
+              </div>
               {Object.entries(STATUS_LABELS).map(([key, label]) => (
                 <div key={key} className="flex items-center gap-1.5">
                   <span

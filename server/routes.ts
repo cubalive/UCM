@@ -1690,19 +1690,27 @@ export async function registerRoutes(
       if (!hasAccess) return res.status(403).json({ message: "No access to this city" });
 
       const allDrivers = await storage.getDrivers(cityId);
+      const allVehicles = await storage.getVehicles(cityId);
+      const vehicleMap = new Map(allVehicles.map((v: any) => [v.id, v]));
       const activeDrivers = allDrivers.filter((d: any) => d.status === "ACTIVE");
 
       const locations = activeDrivers
         .filter((d: any) => d.lastLat != null && d.lastLng != null)
-        .map((d: any) => ({
-          driver_id: d.id,
-          driver_name: `${d.firstName} ${d.lastName}`,
-          city_id: d.cityId,
-          lat: d.lastLat,
-          lng: d.lastLng,
-          updated_at: d.lastSeenAt ? new Date(d.lastSeenAt).toISOString() : null,
-          status: d.dispatchStatus,
-        }));
+        .map((d: any) => {
+          const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
+          return {
+            driver_id: d.id,
+            driver_name: `${d.firstName} ${d.lastName}`,
+            city_id: d.cityId,
+            lat: d.lastLat,
+            lng: d.lastLng,
+            updated_at: d.lastSeenAt ? new Date(d.lastSeenAt).toISOString() : null,
+            status: d.dispatchStatus,
+            vehicle_id: vehicle?.id ?? null,
+            vehicle_label: vehicle ? `${vehicle.name}` : null,
+            vehicle_color: vehicle?.colorHex ?? null,
+          };
+        });
 
       res.json(locations);
     } catch (err: any) {
