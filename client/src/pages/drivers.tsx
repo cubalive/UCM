@@ -17,18 +17,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function DriversPage() {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [editDriver, setEditDriver] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
   const canManageAuth = user?.role === "SUPER_ADMIN" || user?.role === "DISPATCH";
+  const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "DISPATCH" || user?.role === "ADMIN";
 
   const { data: drivers, isLoading } = useQuery<any[]>({
     queryKey: ["/api/drivers", selectedCity?.id],
@@ -63,6 +65,22 @@ export default function DriversPage() {
       } else {
         toast({ title: "Driver added" });
       }
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) =>
+      apiFetch(`/api/drivers/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      setEditDriver(null);
+      toast({ title: "Driver updated" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -105,6 +123,12 @@ export default function DriversPage() {
   const driversWithoutAuth = drivers?.filter((d: any) => d.email && !d.authUserId) || [];
 
   const statusColors: Record<string, string> = { ACTIVE: "secondary", INACTIVE: "destructive", ON_LEAVE: "secondary" };
+
+  const getVehicleName = (vehicleId: number | null) => {
+    if (!vehicleId || !vehicles) return null;
+    const v = vehicles.find((v: any) => v.id === vehicleId);
+    return v ? `${v.name} — ${v.licensePlate}` : null;
+  };
 
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
@@ -171,8 +195,13 @@ export default function DriversPage() {
                     {d.email && <p className="text-sm text-muted-foreground" data-testid={`text-driver-email-${d.id}`}>{d.email}</p>}
                     <p className="text-sm text-muted-foreground">{d.phone}</p>
                     {d.licenseNumber && <p className="text-xs text-muted-foreground">License: {d.licenseNumber}</p>}
+                    {getVehicleName(d.vehicleId) && (
+                      <p className="text-xs text-muted-foreground" data-testid={`text-driver-vehicle-${d.id}`}>
+                        Vehicle: {getVehicleName(d.vehicleId)}
+                      </p>
+                    )}
                   </div>
-                  <div className="flex flex-col items-end gap-1">
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <Badge variant={statusColors[d.status] as any || "secondary"}>{d.status}</Badge>
                     {d.authUserId ? (
                       <Badge variant="outline" className="text-xs" data-testid={`badge-auth-linked-${d.id}`}>
@@ -183,6 +212,16 @@ export default function DriversPage() {
                         <ShieldAlert className="w-3 h-3 mr-1" />No auth
                       </Badge>
                     ) : null}
+                    {canEdit && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setEditDriver(d)}
+                        data-testid={`button-edit-driver-${d.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {canManageAuth && d.email && (
@@ -204,6 +243,23 @@ export default function DriversPage() {
           ))}
         </div>
       )}
+
+      <Dialog open={!!editDriver} onOpenChange={(o) => { if (!o) setEditDriver(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Driver</DialogTitle></DialogHeader>
+          {editDriver && (
+            <DriverForm
+              cities={cities || []}
+              vehicles={vehicles || []}
+              defaultCityId={editDriver.cityId}
+              initialData={editDriver}
+              onSubmit={(d) => updateMutation.mutate({ id: editDriver.id, data: d })}
+              loading={updateMutation.isPending}
+              isEdit
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!tempPasswordInfo} onOpenChange={(v) => !v && setTempPasswordInfo(null)}>
         <DialogContent>
@@ -253,23 +309,28 @@ function DriverForm({
   cities,
   vehicles,
   defaultCityId,
+  initialData,
   onSubmit,
   loading,
+  isEdit,
 }: {
   cities: any[];
   vehicles: any[];
   defaultCityId?: number;
+  initialData?: any;
   onSubmit: (data: any) => void;
   loading: boolean;
+  isEdit?: boolean;
 }) {
   const [form, setForm] = useState({
-    email: "",
-    firstName: "",
-    lastName: "",
-    phone: "",
-    licenseNumber: "",
-    cityId: defaultCityId || 0,
-    vehicleId: null as number | null,
+    email: initialData?.email || "",
+    firstName: initialData?.firstName || "",
+    lastName: initialData?.lastName || "",
+    phone: initialData?.phone || "",
+    licenseNumber: initialData?.licenseNumber || "",
+    cityId: initialData?.cityId || defaultCityId || 0,
+    vehicleId: initialData?.vehicleId || null as number | null,
+    status: initialData?.status || "ACTIVE",
   });
 
   const cityVehicles = vehicles.filter((v: any) => v.cityId === form.cityId);
@@ -277,7 +338,7 @@ function DriverForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const payload: any = { ...form };
-    if (!payload.vehicleId) delete payload.vehicleId;
+    if (!isEdit && !payload.vehicleId) delete payload.vehicleId;
     onSubmit(payload);
   };
 
@@ -290,9 +351,10 @@ function DriverForm({
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
           required
+          disabled={isEdit}
           data-testid="input-driver-email"
         />
-        <p className="text-xs text-muted-foreground">Driver will use this email to log in</p>
+        {!isEdit && <p className="text-xs text-muted-foreground">Driver will use this email to log in</p>}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
@@ -312,22 +374,24 @@ function DriverForm({
         <Label>License Number</Label>
         <Input value={form.licenseNumber} onChange={(e) => setForm({ ...form, licenseNumber: e.target.value })} style={{ textTransform: "uppercase" }} data-testid="input-driver-license" />
       </div>
-      <div className="space-y-2">
-        <Label>City *</Label>
-        <Select
-          value={form.cityId ? String(form.cityId) : ""}
-          onValueChange={(v) => setForm({ ...form, cityId: Number(v), vehicleId: null })}
-        >
-          <SelectTrigger data-testid="select-driver-city">
-            <SelectValue placeholder="Select city" />
-          </SelectTrigger>
-          <SelectContent>
-            {cities.map((c: any) => (
-              <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {!isEdit && (
+        <div className="space-y-2">
+          <Label>City *</Label>
+          <Select
+            value={form.cityId ? String(form.cityId) : ""}
+            onValueChange={(v) => setForm({ ...form, cityId: Number(v), vehicleId: null })}
+          >
+            <SelectTrigger data-testid="select-driver-city">
+              <SelectValue placeholder="Select city" />
+            </SelectTrigger>
+            <SelectContent>
+              {cities.map((c: any) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <div className="space-y-2">
         <Label>Vehicle</Label>
         <Select
@@ -350,13 +414,26 @@ function DriverForm({
           <p className="text-xs text-muted-foreground">No vehicles in selected city</p>
         )}
       </div>
+      {isEdit && (
+        <div className="space-y-2">
+          <Label>Status</Label>
+          <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+            <SelectTrigger data-testid="select-driver-status"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ACTIVE">Active</SelectItem>
+              <SelectItem value="INACTIVE">Inactive</SelectItem>
+              <SelectItem value="ON_LEAVE">On Leave</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <Button
         type="submit"
         className="w-full"
         disabled={loading || !form.email || !form.cityId}
         data-testid="button-submit-driver"
       >
-        {loading ? "Adding..." : "Add Driver"}
+        {loading ? (isEdit ? "Saving..." : "Adding...") : (isEdit ? "Save Changes" : "Add Driver")}
       </Button>
     </form>
   );

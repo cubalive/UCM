@@ -594,6 +594,64 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/drivers/:id", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const driverId = parseInt(req.params.id);
+      const driver = await storage.getDriver(driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+      if (!(await checkCityAccess(req, driver.cityId))) {
+        return res.status(403).json({ message: "No access to this driver" });
+      }
+
+      const { firstName, lastName, phone, email, licenseNumber, vehicleId, status } = req.body;
+
+      if (vehicleId !== undefined && vehicleId !== null) {
+        const vehicle = await storage.getVehicle(vehicleId);
+        if (!vehicle) return res.status(400).json({ message: "Vehicle not found" });
+        if (vehicle.cityId !== driver.cityId) {
+          return res.status(400).json({ message: "Vehicle must belong to the same city as the driver" });
+        }
+      }
+
+      let normalizedLicense = licenseNumber;
+      if (normalizedLicense) {
+        normalizedLicense = normalizedLicense.trim().toUpperCase();
+        if (!/^[A-Z0-9-]+$/.test(normalizedLicense)) {
+          return res.status(400).json({ message: "License number may only contain letters, numbers, and hyphens" });
+        }
+      }
+
+      let normalizedPhone = phone;
+      if (normalizedPhone) {
+        const { normalizePhone } = await import("./lib/twilioSms");
+        normalizedPhone = normalizePhone(normalizedPhone) || normalizedPhone;
+      }
+
+      const updated = await storage.updateDriver(driverId, {
+        ...(firstName !== undefined ? { firstName } : {}),
+        ...(lastName !== undefined ? { lastName } : {}),
+        ...(normalizedPhone !== undefined ? { phone: normalizedPhone } : {}),
+        ...(email !== undefined ? { email } : {}),
+        ...(normalizedLicense !== undefined ? { licenseNumber: normalizedLicense } : {}),
+        ...(vehicleId !== undefined ? { vehicleId: vehicleId || null } : {}),
+        ...(status !== undefined ? { status } : {}),
+      });
+      if (!updated) return res.status(404).json({ message: "Driver not found" });
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "UPDATE",
+        entity: "driver",
+        entityId: updated.id,
+        details: `Updated driver ${updated.firstName} ${updated.lastName}`,
+        cityId: updated.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/clinics", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const cityId = await getAllowedCityId(req);
