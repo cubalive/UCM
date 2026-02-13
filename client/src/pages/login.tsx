@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Shield } from "lucide-react";
-import logoImg from "@assets/public:logo-master.png_1770964647689.PNG";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -36,7 +35,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <div className="flex items-center justify-center mb-4">
-            <img src={logoImg} alt="United Care Mobility" className="h-20 w-auto" data-testid="img-logo" />
+            <img src="/branding/logo-horizontal.png" alt="United Care Mobility" className="h-16 w-auto max-w-full" data-testid="img-logo" />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-app-title">
             United Care Mobility

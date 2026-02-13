@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Lock } from "lucide-react";
-import logoImg from "@assets/public:logo-master.png_1770964647689.PNG";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 
@@ -54,7 +53,7 @@ export default function ChangePasswordPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto mb-3 flex items-center justify-center">
-            <img src={logoImg} alt="UCM" className="h-16 w-auto" data-testid="img-change-password-logo" />
+            <img src="/branding/logo-small.png" alt="UCM" className="h-16 w-auto" data-testid="img-change-password-logo" />
           </div>
           <CardTitle className="text-xl">Change Your Password</CardTitle>
           <p className="text-sm text-muted-foreground mt-2">
