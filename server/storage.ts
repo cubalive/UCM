@@ -2,12 +2,12 @@ import { db } from "./db";
 import { eq, and, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
 import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
-  citySettings, driverVehicleAssignments,
+  citySettings, driverVehicleAssignments, vehicleAssignmentHistory,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
   type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog, type InsertInvoice,
-  type InsertCitySettings, type InsertDriverVehicleAssignment,
+  type InsertCitySettings, type InsertDriverVehicleAssignment, type InsertVehicleAssignmentHistory,
   type City, type User, type Vehicle, type Driver, type Clinic, type Patient, type Trip, type AuditLog, type SmsOptOut, type Invoice,
-  type CitySettings, type DriverVehicleAssignment,
+  type CitySettings, type DriverVehicleAssignment, type VehicleAssignmentHistory,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -74,6 +74,10 @@ export interface IStorage {
   createDriverVehicleAssignment(data: InsertDriverVehicleAssignment): Promise<DriverVehicleAssignment>;
   updateDriverVehicleAssignment(id: number, data: Partial<DriverVehicleAssignment>): Promise<DriverVehicleAssignment | undefined>;
   getYesterdayAssignment(driverId: number, yesterday: string): Promise<DriverVehicleAssignment | undefined>;
+
+  getVehicleAssignmentHistory(driverId: number): Promise<VehicleAssignmentHistory[]>;
+  createVehicleAssignmentHistory(data: InsertVehicleAssignmentHistory): Promise<VehicleAssignmentHistory>;
+  closeVehicleAssignmentHistory(driverId: number, vehicleId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -439,6 +443,27 @@ export class DatabaseStorage implements IStorage {
         eq(driverVehicleAssignments.date, yesterday),
       ));
     return row;
+  }
+
+  async getVehicleAssignmentHistory(driverId: number): Promise<VehicleAssignmentHistory[]> {
+    return db.select().from(vehicleAssignmentHistory)
+      .where(eq(vehicleAssignmentHistory.driverId, driverId))
+      .orderBy(desc(vehicleAssignmentHistory.assignedAt));
+  }
+
+  async createVehicleAssignmentHistory(data: InsertVehicleAssignmentHistory): Promise<VehicleAssignmentHistory> {
+    const [row] = await db.insert(vehicleAssignmentHistory).values(data).returning();
+    return row;
+  }
+
+  async closeVehicleAssignmentHistory(driverId: number, vehicleId: number): Promise<void> {
+    await db.update(vehicleAssignmentHistory)
+      .set({ unassignedAt: new Date() })
+      .where(and(
+        eq(vehicleAssignmentHistory.driverId, driverId),
+        eq(vehicleAssignmentHistory.vehicleId, vehicleId),
+        isNull(vehicleAssignmentHistory.unassignedAt),
+      ));
   }
 }
 

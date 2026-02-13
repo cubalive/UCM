@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 const UNASSIGN_REASONS = [
@@ -36,6 +36,7 @@ export default function DriversPage() {
   const [open, setOpen] = useState(false);
   const [editDriver, setEditDriver] = useState<any>(null);
   const [unassignDriver, setUnassignDriver] = useState<any>(null);
+  const [historyDriver, setHistoryDriver] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
@@ -256,14 +257,24 @@ export default function DriversPage() {
                       </Badge>
                     ) : null}
                     {canEdit && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => setEditDriver(d)}
-                        data-testid={`button-edit-driver-${d.id}`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setHistoryDriver(d)}
+                          data-testid={`button-vehicle-history-${d.id}`}
+                        >
+                          <History className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setEditDriver(d)}
+                          data-testid={`button-edit-driver-${d.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -315,6 +326,13 @@ export default function DriversPage() {
           }
         }}
         loading={unassignMutation.isPending}
+      />
+
+      <VehicleHistoryDialog
+        driver={historyDriver}
+        open={!!historyDriver}
+        onOpenChange={(o) => { if (!o) setHistoryDriver(null); }}
+        token={token}
       />
 
       <Dialog open={!!tempPasswordInfo} onOpenChange={(v) => !v && setTempPasswordInfo(null)}>
@@ -456,6 +474,80 @@ function UnassignVehicleDialog({
   );
 }
 
+function VehicleHistoryDialog({
+  driver,
+  open,
+  onOpenChange,
+  token,
+}: {
+  driver: any;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  token: string | null;
+}) {
+  const { data: history, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/drivers", driver?.id, "vehicle-history"],
+    queryFn: () => apiFetch(`/api/drivers/${driver?.id}/vehicle-history`, token),
+    enabled: !!driver && !!token && open,
+  });
+
+  const formatDate = (d: string | null) => {
+    if (!d) return "—";
+    return new Date(d).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Vehicle History — {driver?.firstName} {driver?.lastName}</DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+          </div>
+        ) : !history?.length ? (
+          <p className="text-sm text-muted-foreground py-6 text-center" data-testid="text-no-vehicle-history">
+            No vehicle assignment history found.
+          </p>
+        ) : (
+          <div className="space-y-3 max-h-96 overflow-y-auto" data-testid="vehicle-history-list">
+            {history.map((h: any) => (
+              <Card key={h.id}>
+                <CardContent className="py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1 min-w-0">
+                      <p className="font-medium text-sm" data-testid={`text-history-vehicle-${h.id}`}>
+                        {h.vehicleName} — {h.vehicleLicensePlate}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Assigned: {formatDate(h.assignedAt)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Unassigned: {h.unassignedAt ? formatDate(h.unassignedAt) : <Badge variant="secondary" className="text-xs">Current</Badge>}
+                      </p>
+                      {h.reason && (
+                        <p className="text-xs text-muted-foreground">Reason: {h.reason}</p>
+                      )}
+                    </div>
+                    <Badge variant="outline" className="text-xs flex-shrink-0">{h.assignedBy}</Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DriverForm({
   cities,
   vehicles,
@@ -581,7 +673,7 @@ function DriverForm({
       <Button
         type="submit"
         className="w-full"
-        disabled={loading || !form.email || !form.cityId}
+        disabled={loading || (!isEdit && !form.email) || !form.cityId}
         data-testid="button-submit-driver"
       >
         {loading ? (isEdit ? "Saving..." : "Adding...") : (isEdit ? "Save Changes" : "Add Driver")}

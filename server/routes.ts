@@ -580,6 +580,14 @@ export async function registerRoutes(
       } catch (userErr: any) {
         console.error("[driverCreate] Local user creation failed (non-fatal):", userErr.message);
       }
+      if (driver.vehicleId) {
+        await storage.createVehicleAssignmentHistory({
+          driverId: driver.id,
+          vehicleId: driver.vehicleId,
+          cityId: driver.cityId,
+          assignedBy: req.user!.role === "SUPER_ADMIN" ? "super_admin" : "dispatch",
+        });
+      }
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
@@ -627,6 +635,7 @@ export async function registerRoutes(
         normalizedPhone = normalizePhone(normalizedPhone) || normalizedPhone;
       }
 
+      const oldVehicleId = driver.vehicleId;
       const updated = await storage.updateDriver(driverId, {
         ...(firstName !== undefined ? { firstName } : {}),
         ...(lastName !== undefined ? { lastName } : {}),
@@ -638,8 +647,39 @@ export async function registerRoutes(
       });
       if (!updated) return res.status(404).json({ message: "Driver not found" });
 
+      const assignedByValue = req.user!.role === "SUPER_ADMIN" ? "super_admin" : "dispatch";
+
+      if (vehicleId !== undefined) {
+        if (oldVehicleId && (vehicleId === null || vehicleId !== oldVehicleId)) {
+          const existingHistory = await storage.getVehicleAssignmentHistory(driverId);
+          const openRow = existingHistory.find((h) => h.vehicleId === oldVehicleId && !h.unassignedAt);
+          if (openRow) {
+            await storage.closeVehicleAssignmentHistory(driverId, oldVehicleId);
+          } else {
+            await storage.createVehicleAssignmentHistory({
+              driverId,
+              vehicleId: oldVehicleId,
+              cityId: driver.cityId,
+              assignedBy: assignedByValue,
+              assignedAt: driver.createdAt,
+              unassignedAt: new Date(),
+              reason: unassignReason || null,
+            });
+          }
+        }
+        if (vehicleId && vehicleId !== oldVehicleId) {
+          await storage.createVehicleAssignmentHistory({
+            driverId,
+            vehicleId,
+            cityId: driver.cityId,
+            assignedBy: assignedByValue,
+            reason: null,
+          });
+        }
+      }
+
       let auditDetails = `Updated driver ${updated.firstName} ${updated.lastName}`;
-      if (vehicleId === null && driver.vehicleId) {
+      if (vehicleId === null && oldVehicleId) {
         auditDetails = `Unassigned vehicle from driver ${updated.firstName} ${updated.lastName}`;
         if (unassignReason) auditDetails += ` — Reason: ${unassignReason}`;
       }
@@ -653,6 +693,43 @@ export async function registerRoutes(
         cityId: updated.cityId,
       });
       res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/drivers/:id/vehicle-history", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const driverId = parseInt(req.params.id);
+      const driver = await storage.getDriver(driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+      if (!(await checkCityAccess(req, driver.cityId))) {
+        return res.status(403).json({ message: "No access to this driver" });
+      }
+      let history = await storage.getVehicleAssignmentHistory(driverId);
+      if (driver.vehicleId) {
+        const hasOpen = history.some((h) => h.vehicleId === driver.vehicleId && !h.unassignedAt);
+        if (!hasOpen) {
+          await storage.createVehicleAssignmentHistory({
+            driverId,
+            vehicleId: driver.vehicleId,
+            cityId: driver.cityId,
+            assignedBy: "system",
+            assignedAt: driver.createdAt,
+          });
+          history = await storage.getVehicleAssignmentHistory(driverId);
+        }
+      }
+      const allVehicles = await storage.getVehicles(driver.cityId);
+      const enriched = history.map((h) => {
+        const v = allVehicles.find((v) => v.id === h.vehicleId);
+        return {
+          ...h,
+          vehicleName: v ? v.name : "Unknown",
+          vehicleLicensePlate: v ? v.licensePlate : "N/A",
+        };
+      });
+      res.json(enriched);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

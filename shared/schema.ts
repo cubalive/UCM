@@ -245,6 +245,17 @@ export const driverVehicleAssignments = pgTable("driver_vehicle_assignments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const vehicleAssignmentHistory = pgTable("vehicle_assignment_history", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  vehicleId: integer("vehicle_id").notNull().references(() => vehicles.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  assignedAt: timestamp("assigned_at").notNull().defaultNow(),
+  unassignedAt: timestamp("unassigned_at"),
+  assignedBy: text("assigned_by").notNull().default("system"),
+  reason: text("reason"),
+});
+
 export const auditLog = pgTable("audit_log", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").references(() => users.id),
@@ -266,6 +277,7 @@ export const insertTripSchema = createInsertSchema(trips).omit({ id: true, creat
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true });
 export const insertCitySettingsSchema = createInsertSchema(citySettings);
 export const insertDriverVehicleAssignmentSchema = createInsertSchema(driverVehicleAssignments).omit({ id: true, createdAt: true });
+export const insertVehicleAssignmentHistorySchema = createInsertSchema(vehicleAssignmentHistory).omit({ id: true });
 export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true, createdAt: true });
 
 export type InsertCity = z.infer<typeof insertCitySchema>;
@@ -293,6 +305,8 @@ export type CitySettings = typeof citySettings.$inferSelect;
 export type DriverVehicleAssignment = typeof driverVehicleAssignments.$inferSelect;
 export type InsertCitySettings = z.infer<typeof insertCitySettingsSchema>;
 export type InsertDriverVehicleAssignment = z.infer<typeof insertDriverVehicleAssignmentSchema>;
+export type VehicleAssignmentHistory = typeof vehicleAssignmentHistory.$inferSelect;
+export type InsertVehicleAssignmentHistory = z.infer<typeof insertVehicleAssignmentHistorySchema>;
 
 export const loginSchema = z.object({
   email: z.string().email(),
