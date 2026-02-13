@@ -681,12 +681,19 @@ export default function DispatchMapPage() {
                 <SelectValue placeholder="Select a vehicle" />
               </SelectTrigger>
               <SelectContent>
-                {availableVehicles.map((v) => (
-                  <SelectItem key={v.id} value={v.id.toString()}>
-                    {v.name} - {v.licensePlate}
-                    {v.wheelchairAccessible ? " (WC)" : ""}
-                  </SelectItem>
-                ))}
+                {availableVehicles
+                  .filter((v) => v.cityId === selectedDriver.cityId)
+                  .map((v) => (
+                    <SelectItem key={v.id} value={v.id.toString()} data-testid={`option-vehicle-${v.id}`}>
+                      {v.name} - {v.licensePlate}
+                      {v.wheelchairAccessible ? " (WC)" : ""}
+                    </SelectItem>
+                  ))}
+                {availableVehicles.filter((v) => v.cityId === selectedDriver.cityId).length === 0 && (
+                  <div className="px-2 py-1.5 text-sm text-muted-foreground" data-testid="text-no-compatible-vehicles">
+                    No vehicles available in this city
+                  </div>
+                )}
               </SelectContent>
             </Select>
             <DialogFooter>
@@ -728,15 +735,20 @@ export default function DispatchMapPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {mapData?.drivers
-                    .filter((d) => d.status === "ACTIVE" && d.vehicleId)
+                    .filter((d) => d.status === "ACTIVE" && d.vehicleId && d.cityId === selectedTrip.cityId)
                     .map((d) => (
-                      <SelectItem key={d.id} value={d.id.toString()}>
+                      <SelectItem key={d.id} value={d.id.toString()} data-testid={`option-driver-${d.id}`}>
                         {d.firstName} {d.lastName}
                         {d.vehicle ? ` (${d.vehicle.name})` : ""}
                         {" - "}
                         {DISPATCH_STATUS_LABELS[d.dispatchStatus]}
                       </SelectItem>
                     ))}
+                  {(mapData?.drivers.filter((d) => d.status === "ACTIVE" && d.vehicleId && d.cityId === selectedTrip.cityId).length ?? 0) === 0 && (
+                    <div className="px-2 py-1.5 text-sm text-muted-foreground" data-testid="text-no-compatible-drivers">
+                      No drivers available in this city
+                    </div>
+                  )}
                 </SelectContent>
               </Select>
             </div>

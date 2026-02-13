@@ -1,169 +1,29 @@
 # United Care Mobility (UCM)
 
 ## Overview
-Medical Transportation Management System for managing multi-city non-emergency medical transportation services. Features multi-city support, role-based access control, comprehensive fleet/patient/trip management, and a full dispatch engine with driver-vehicle linking, trip assignment, auto-dispatch, and driver status tracking.
+United Care Mobility (UCM) is a Medical Transportation Management System designed to streamline non-emergency medical transportation services across multiple cities. The system aims to enhance operational efficiency, improve patient care coordination, and optimize resource allocation within a complex, multi-city environment. It provides a comprehensive solution for managing fleets, patients, and trips, featuring a robust dispatch engine. The project's ambition is to become the leading platform for non-emergency medical transport providers, enabling seamless, reliable, and compliant service delivery.
 
-## Architecture
-- **Frontend**: React + Vite + Tailwind CSS + shadcn/ui, served from `client/`
-- **Backend**: Express.js API, served from `server/`
-- **Database**: PostgreSQL via Drizzle ORM (Replit DB for operational data)
-- **Supabase**: Connected for auth profiles, cities, and RLS-protected data
-- **Auth**: JWT-based with bcryptjs password hashing; /api/me also supports Supabase access tokens
+## User Preferences
+I prefer iterative development with a focus on clear, modular code. I appreciate detailed explanations for complex architectural decisions and new feature implementations. Please ask before making any major changes to the core structure or public-facing APIs. I prefer that the agent does not make changes to the `shared/permissions.ts` file without explicit instruction.
 
-## Key Features
-- Multi-city system with city-scoped data
-- RBAC: SUPER_ADMIN, ADMIN, DISPATCH, DRIVER, VIEWER
-- Public ID system (01UCM000001 format)
-- CRUD for Cities, Users, Vehicles, Drivers, Clinics, Patients, Trips
-- Dispatch engine: driver-vehicle assignment, trip assignment, auto-dispatch, driver status
-- Driver dispatch status: available, enroute, hold, off
-- Safety rules: no cross-city assignments, wheelchair accessibility checks, vehicle requirement enforcement
-- Google Maps ETA calculation on trip assignment (graceful fallback when API unavailable)
-- Twilio SMS notifications for patients and dispatch (template-based + custom messages)
-- SMS opt-out compliance (STOP/START keyword handling via inbound webhook)
-- Audit logging
-- Dashboard with stats
-- Supabase integration for user profiles and city management
+## System Architecture
+The application follows a client-server architecture.
+- **Frontend**: Built with React, Vite, Tailwind CSS, and shadcn/ui, located in the `client/` directory. UI/UX emphasizes a clean, intuitive design with a consistent color scheme derived from Tailwind CSS and shadcn/ui components.
+- **Backend**: An Express.js API residing in the `server/` directory, handling business logic, data access, and external integrations.
+- **Database**: PostgreSQL is used as the primary data store, managed via Drizzle ORM. Replit DB is utilized for operational data.
+- **Authentication**: JWT-based authentication with `bcryptjs` for password hashing. The `/api/me` endpoint supports both internal JWTs and Supabase access tokens.
+- **Authorization**: Role-Based Access Control (RBAC) is implemented with roles including SUPER_ADMIN, ADMIN, DISPATCH, DRIVER, and VIEWER, enforcing permissions across the system.
+- **Multi-city Support**: Core entities like vehicles, drivers, clinics, patients, and trips are scoped to specific cities, ensuring data segregation and operational independence.
+- **Public ID System**: A consistent `01UCM000001` format is used for public-facing identifiers, generated atomically using database sequences.
+- **Dispatch Engine**: Features include driver-vehicle assignment, trip assignment with ETA calculation, automated dispatching, and real-time driver status tracking (available, enroute, hold, off). Safety rules prevent cross-city assignments and enforce vehicle requirements (e.g., wheelchair accessibility).
+- **SMS Notifications**: Integrated Twilio for template-based and custom SMS notifications to patients and dispatch, with opt-out compliance via inbound webhooks.
+- **Audit Logging**: Comprehensive logging of key system actions for accountability and troubleshooting.
+- **Google Maps Integration**: Services for geocoding, address autocomplete, ETA calculation, and route optimization, with server-side caching and rate limiting.
+- **Project Structure**: Organized into `client/`, `server/`, and `shared/` directories. `shared/schema.ts` defines common Drizzle and Zod schemas. `server/routes.ts` centralizes API routes with Zod validation and RBAC.
 
-## Data Model
-All city-scoped entities: vehicles, drivers, clinics, patients, trips
-Global entities: users (with city access mapping), cities, audit_log, sms_opt_out
-Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
-
-### Key Schema Fields
-- **vehicles**: colorHex (hex color for map markers)
-- **drivers**: vehicleId (FK to vehicles), authUserId (Supabase auth UUID), lastLat/lastLng/lastSeenAt (GPS tracking), dispatchStatus (available/enroute/hold/off)
-- **trips**: driverId, vehicleId, pickupLat/pickupLng, dropoffLat/dropoffLng, lastEtaMinutes, distanceMiles, durationMinutes, routePolyline
-- **sms_opt_out**: phone (PK), optedOut, updatedAt
-
-## Project Structure
-- `shared/schema.ts` - Drizzle schema, Zod schemas, TypeScript types
-- `server/routes.ts` - API routes with Zod validation and RBAC
-- `server/storage.ts` - Database storage layer (IStorage interface)
-- `server/auth.ts` - JWT auth middleware
-- `server/seed.ts` - SUPER_ADMIN creation and seed data
-- `server/public-id.ts` - Atomic public ID generator using DB sequence
-- `server/lib/googleMaps.ts` - Google Maps service (geocode, autocomplete, ETA, route) with TTL caching
-- `server/lib/mapsRoutes.ts` - Maps API endpoints with Zod validation and rate limiting
-- `server/lib/dispatchRoutes.ts` - Dispatch engine endpoints (assign vehicle, assign trip, auto-assign, driver status)
-- `server/lib/twilioSms.ts` - Twilio SMS helper (sendSms, message templates, opt-out check)
-- `server/lib/smsRoutes.ts` - SMS API endpoints (send, trip notify, inbound webhook, health)
-- `server/lib/rateLimiter.ts` - Per-IP rate limiter (in-memory, 60 req/min)
-- `lib/supabaseClient.ts` - Shared Supabase client (browser + server, lazy init)
-- `lib/mapsConfig.ts` - Google Maps API key config (reads GOOGLE_MAPS_API_KEY env)
-- `client/src/lib/auth.tsx` - Auth context provider (calls /api/auth/me + /api/me)
-- `client/src/components/MapLoader.tsx` - Maps availability context (backend-only, no key exposure)
-- `client/src/pages/dispatch-map.tsx` - Dispatch center page (driver/trip management, status controls, assignment, SMS notifications)
-- `client/src/pages/` - All page components
-- `scripts/supabase-migration.sql` - Idempotent Supabase DDL (tables, functions, RLS)
-
-## API Endpoints
-- `GET /api/health` - Returns `{ ok, db, supabase, version }`
-- `GET /api/me` - Returns `{ id, email, role, city_id, ucm_id }` (supports both JWT and Supabase tokens)
-- `GET /api/auth/me` - Returns full user profile with city access
-- `POST /api/auth/login` - Login with email/password
-- `GET /api/maps/health` - Returns `{ ok, mapsKeyLoaded }` (no key exposed)
-- `POST /api/maps/geocode` - Geocode address to lat/lng (server-side only)
-- `POST /api/maps/places/autocomplete` - Address autocomplete suggestions (server-side only)
-- `POST /api/maps/eta` - Traffic-aware ETA between two locations (server-side only)
-- `POST /api/maps/route` - Route with waypoint optimization (server-side only)
-- `POST /api/dispatch/assign-driver-vehicle` - Link driver to vehicle (same city, no conflicts)
-- `POST /api/dispatch/assign-trip` - Assign trip to driver (validates vehicle, city, wheelchair, calculates ETA)
-- `POST /api/dispatch/auto-assign` - Smart auto-assign: closest available drivers to unassigned trips
-- `POST /api/dispatch/unassign-driver-vehicle` - Remove vehicle from driver
-- `POST /api/drivers/status` - Change driver dispatch status (available/enroute/hold/off)
-- `POST /api/drivers/location` - Update driver GPS coordinates
-- `GET /api/dispatch/map-data` - Full dispatch dashboard data (drivers+vehicles, active trips, clinics)
-- `GET /api/sms/health` - Returns `{ ok, twilioConfigured }` (Twilio config status)
-- `POST /api/sms/send` - Send direct SMS (SUPER_ADMIN/DISPATCH, E.164 validation, opt-out check)
-- `POST /api/trips/:id/notify` - Send patient notification by trip status template (SUPER_ADMIN/DISPATCH)
-- `POST /api/twilio/inbound` - Twilio inbound webhook (STOP/START opt-out handling, TwiML response)
-- `PATCH /api/patients/:id` - Update patient fields (SUPER_ADMIN/ADMIN/DISPATCH, phone auto-normalized)
-- `GET /api/auth/admin/health` - Returns `{ ok, hasServiceRole, canCreateUsers, error? }` (SUPER_ADMIN only)
-- `POST /api/admin/clinics/:id/send-invite` - Send login link to clinic (SUPER_ADMIN/DISPATCH)
-- CRUD endpoints for all entities under `/api/*`
-
-## Running
-- `npm run dev` - Development with hot reload
-- Health check: GET /api/health
-- SMS health: GET /api/sms/health
-
-## Secrets Required
-- DATABASE_URL - PostgreSQL connection (Replit DB)
-- JWT_SECRET - JWT signing key
-- ADMIN_EMAIL - Super admin email
-- ADMIN_PASSWORD - Super admin password
-- SUPABASE_URL - Supabase project URL
-- SUPABASE_ANON_KEY - Supabase anon/public key
-- SUPABASE_SERVICE_ROLE_KEY - Supabase service role key
-- GOOGLE_MAPS_API_KEY - Google Maps API key (Maps JS, Directions, Geocoding, Places)
-- TWILIO_ACCOUNT_SID - Twilio account SID
-- TWILIO_AUTH_TOKEN - Twilio auth token
-- TWILIO_FROM_NUMBER - Twilio sender phone (E.164 format)
-- DISPATCH_PHONE_NUMBER - Dispatch office phone (optional, defaults to TWILIO_FROM_NUMBER)
-
-## Recent Changes
-- 2026-02-12: Added Supabase integration (client, health check, /api/me dual-auth)
-- 2026-02-12: Frontend error panel with retry button when /api/me fails
-- 2026-02-12: SQL migration script for Supabase (cities, profiles, helper functions, RLS)
-- 2026-02-12: Google Maps integration (lib/mapsConfig.ts, MapLoader.tsx, /api/maps/test endpoint)
-- 2026-02-12: Backend-only Google Maps service (geocode, autocomplete, ETA, route) with caching + rate limiting
-- 2026-02-12: Added lat/lng columns to clinics, patients tables; pickup/dropoff lat/lng + ETA fields to trips table
-- 2026-02-12: Dispatch engine: driver-vehicle linking, trip assignment with ETA, auto-dispatch, driver status system
-- 2026-02-12: Dispatch Center page (/dispatch) with driver/trip panels, status controls, assignment dialogs
-- 2026-02-12: Schema: dispatchStatus enum (available/enroute/hold/off), colorHex on vehicles, distanceMiles/durationMinutes/routePolyline on trips
-- 2026-02-13: Twilio SMS integration: helper service, message templates, opt-out compliance table
-- 2026-02-13: SMS API endpoints: /api/sms/send, /api/trips/:id/notify, /api/twilio/inbound, /api/sms/health
-- 2026-02-13: SMS notification UI in Dispatch Center: template-based and custom SMS from active trips
-- 2026-02-13: Phone normalization: auto-convert (xxx) xxx-xxxx to E.164 on save (patients, drivers, clinics) and on send
-- 2026-02-13: SMS service hardening: retry-once on Twilio failure, structured error logging
-- 2026-02-13: Automatic SMS triggers: driver_assigned on trip assign, en_route on driver status enroute (with ETA), arrived on trip IN_PROGRESS
-- 2026-02-13: Live ETA engine: recalculates ETA every 60s for en_route trips using Google Maps Directions API
-- 2026-02-13: Auto "arriving soon" 5-min SMS alert: triggers once when ETA <= 5 min (fiveMinAlertSent flag prevents duplicates)
-- 2026-02-13: Enhanced dispatch panel: live ETA display, distance badges, driver status indicators, stale ETA warnings, alert-sent badges
-- `server/lib/dispatchAutoSms.ts` - Shared auto-notification helper (fire-and-forget, opt-out aware)
-- `server/lib/etaEngine.ts` - Live ETA recalculation engine (60s interval, 5-min alert trigger)
-- 2026-02-13: Patient editing: PATCH /api/patients/:id (SUPER_ADMIN/ADMIN/DISPATCH), notes column added, edit dialog in patients page
-- 2026-02-13: Required trip times: pickupTime (required), estimatedArrivalTime (optional) added to trips schema + form + display
-- 2026-02-13: Facility type classification: facilityType enum (clinic/hospital/mental/private) added to clinics schema + form + display badge
-- 2026-02-13: Driver email + city + vehicle: email (unique) required on driver creation, city dropdown, vehicle dropdown filtered by same city
-- 2026-02-13: Clinic email: email (unique) column added, required for new clinics, edit dialog for legacy clinics with missing-email warning
-- 2026-02-13: Auto user creation: when clinic created/updated with email, VIEWER user auto-created with city access granted
-- 2026-02-13: PATCH /api/clinics/:id: update clinic fields (name, address, email, phone, contactName, facilityType, active)
-- 2026-02-13: Driver auth provisioning: Supabase auth user auto-created on driver create (authUserId stored on drivers table)
-- 2026-02-13: POST /api/admin/drivers/:id/send-invite: send login link via Supabase (SUPER_ADMIN/DISPATCH)
-- 2026-02-13: POST /api/admin/drivers/backfill-auth: bulk provision auth for drivers with email but no auth link (SUPER_ADMIN)
-- 2026-02-13: GET /api/auth/health: returns Supabase connectivity + canCreateUsers status
-- `server/lib/driverAuth.ts` - ensureAuthUserForDriver helper, invite link generation, Supabase health check
-- 2026-02-13: Drivers UI: auth status badges (Auth linked / No auth), Send Driver Login Link button, Provision Auth backfill button
-- 2026-02-13: GET /api/auth/admin/health: SUPER_ADMIN-only, returns hasServiceRole + canCreateUsers + error
-- 2026-02-13: Clinic auth provisioning: Supabase auth user auto-created on clinic create/update with email (authUserId stored)
-- 2026-02-13: POST /api/admin/clinics/:id/send-invite: send login link to clinic (SUPER_ADMIN/DISPATCH)
-- 2026-02-13: Clinics UI: auth status badges (Auth linked / No auth), Send Clinic Login Link button
-- 2026-02-13: Refactored driverAuth.ts: ensureAuthUser supports driver/clinic/viewer roles
-- 2026-02-13: Temporary password provisioning: 16-char cryptographic temp passwords on driver/clinic creation
-- 2026-02-13: `mustChangePassword` column on users table; forced password change screen on first login
-- 2026-02-13: POST /api/auth/change-password: user self-service password change (clears mustChangePassword)
-- 2026-02-13: POST /api/admin/users/:id/set-password: SUPER_ADMIN password reset for any user
-- 2026-02-13: Temp password modal dialogs in drivers + clinics pages with copy-to-clipboard
-- `client/src/pages/change-password.tsx` - Forced password change screen (intercepts login flow)
-- 2026-02-13: User linking: driverId/clinicId columns on users table for reverse lookup
-- 2026-02-13: Safe unique indexes: LOWER(email) WHERE NOT NULL on drivers + clinics tables
-- 2026-02-13: Driver/clinic creation auto-links users.driverId/clinicId + drivers.userId bidirectionally
-- 2026-02-13: Branding: logo-horizontal.png on login, logo-small.png on sidebar, manifest.json + favicon + splash
-- 2026-02-13: RBAC enforcement: shared/permissions.ts single source of truth role-permissions map
-- 2026-02-13: Backend RBAC: requireRole middleware on all /api routes (vehicles, drivers, clinics, patients, trips, stats, maps)
-- 2026-02-13: VIEWER restricted: only patients (clinic-scoped), trips (clinic-scoped), invoices (clinic-scoped); no drivers/vehicles/clinics/users/audit/stats
-- 2026-02-13: DISPATCH restricted: all ops except users/audit/cities
-- 2026-02-13: Frontend route guards: ProtectedRoute component redirects unauthorized to /unauthorized
-- 2026-02-13: Sidebar filters nav items by role permissions using shared/permissions.ts
-- `shared/permissions.ts` - Role-permission map, can() helper, getVisibleNavItems()
-- `client/src/pages/unauthorized.tsx` - Access Denied page with redirect to home
-- 2026-02-13: Trip creation: Google Places Autocomplete for pickup/dropoff addresses (no free-typing)
-- 2026-02-13: Structured address fields: pickupStreet/City/State/Zip, dropoffStreet/City/State/Zip on trips table
-- 2026-02-13: ZIP code required on trip creation (validated client-side from Place Details API)
-- 2026-02-13: Trip type: one_time | recurring enum; recurringDays text[] column
-- 2026-02-13: Recurring schedule UI: presets (Mon/Wed/Fri, Tue/Thu/Sat, Daily) + custom day checkboxes
-- 2026-02-13: Past-date validation: trip start date cannot be before today in city timezone
-- 2026-02-13: POST /api/maps/places/details: extract structured address (street/city/state/zip/lat/lng) from Google placeId
-- `server/lib/googleMaps.ts` - placeDetails() function with TTL cache
+## External Dependencies
+- **PostgreSQL**: Relational database for persistent storage, accessed via Drizzle ORM.
+- **Replit DB**: Used for specific operational data storage.
+- **Supabase**: Leveraged for user authentication profiles, city management, and Row-Level Security (RLS).
+- **Google Maps Platform**: Utilized for Maps JavaScript API, Directions API, Geocoding API, and Places API for location services, ETA calculations, and route optimization.
+- **Twilio**: Integrated for sending and receiving SMS messages, including patient notifications and handling SMS opt-out requests.

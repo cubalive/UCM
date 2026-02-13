@@ -88,7 +88,7 @@ export const vehicles = pgTable("vehicles", {
   cityId: integer("city_id").notNull().references(() => cities.id),
   name: text("name").notNull(),
   licensePlate: text("license_plate").notNull(),
-  colorHex: text("color_hex"),
+  colorHex: text("color_hex").notNull().default("#6366F1"),
   make: text("make"),
   model: text("model"),
   year: integer("year"),

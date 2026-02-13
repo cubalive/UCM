@@ -153,9 +153,20 @@ export function registerDispatchRoutes(app: Express) {
         }
 
         const vehicle = await storage.getVehicle(driver.vehicleId);
+        if (!vehicle) {
+          return res.status(400).json({ message: "Assigned vehicle not found" });
+        }
+
+        if (vehicle.cityId !== driver.cityId) {
+          return res.status(400).json({ message: "Driver and vehicle must belong to the same city/base" });
+        }
+
+        if (vehicle.cityId !== trip.cityId) {
+          return res.status(400).json({ message: "Vehicle must belong to the same city as the trip" });
+        }
 
         const patient = await storage.getPatient(trip.patientId);
-        if (patient?.wheelchairRequired && vehicle && !vehicle.wheelchairAccessible) {
+        if (patient?.wheelchairRequired && !vehicle.wheelchairAccessible) {
           return res.status(400).json({
             message: "Patient requires wheelchair accessibility but assigned vehicle does not support it",
           });
@@ -262,11 +273,13 @@ export function registerDispatchRoutes(app: Express) {
           const best = candidates[0];
           const vehicle = await storage.getVehicle(best.driver.vehicleId!);
 
+          if (!vehicle || vehicle.cityId !== city_id) {
+            skipped++;
+            continue;
+          }
+
           const patient = await storage.getPatient(trip.patientId);
-          if (patient?.wheelchairRequired && vehicle && !vehicle.wheelchairAccessible) {
-            const wcCandidate = candidates.find((c) => {
-              return true;
-            });
+          if (patient?.wheelchairRequired && !vehicle.wheelchairAccessible) {
             skipped++;
             continue;
           }
