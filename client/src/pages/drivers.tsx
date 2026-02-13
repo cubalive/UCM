@@ -652,7 +652,7 @@ function DriverForm({
     status: initialData?.status || "ACTIVE",
   });
 
-  const cityVehicles = vehicles.filter((v: any) => v.cityId === form.cityId);
+  const cityVehicles = vehicles.filter((v: any) => v.cityId === form.cityId && v.status === "ACTIVE");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

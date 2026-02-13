@@ -18,7 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Truck, Search, Accessibility, Pencil } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Plus, Truck, Search, Accessibility, Pencil, Wrench } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function VehiclesPage() {
@@ -140,6 +141,16 @@ export default function VehiclesPage() {
                     <p className="text-sm text-muted-foreground">{v.licensePlate}</p>
                     {v.make && <p className="text-sm text-muted-foreground">{v.year} {v.make} {v.model}</p>}
                     <p className="text-xs text-muted-foreground">Capacity: {v.capacity}</p>
+                    {v.lastServiceDate && (
+                      <p className="text-xs text-muted-foreground" data-testid={`text-vehicle-service-date-${v.id}`}>
+                        Last service: {new Date(v.lastServiceDate).toLocaleDateString()}
+                      </p>
+                    )}
+                    {v.status !== "ACTIVE" && v.maintenanceNotes && (
+                      <p className="text-xs text-muted-foreground italic" data-testid={`text-vehicle-maintenance-notes-${v.id}`}>
+                        {v.maintenanceNotes}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <Badge variant={statusColors[v.status] as any || "secondary"}>{v.status.replace("_", " ")}</Badge>
@@ -200,6 +211,8 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
     colorHex: initialData?.colorHex || "#3B82F6",
     cityId: (initialData?.cityId || defaultCityId)?.toString() || "",
     status: initialData?.status || "ACTIVE",
+    lastServiceDate: initialData?.lastServiceDate ? new Date(initialData.lastServiceDate).toISOString().split("T")[0] : "",
+    maintenanceNotes: initialData?.maintenanceNotes || "",
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -209,6 +222,8 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
       year: form.year ? parseInt(form.year) : null,
       capacity: parseInt(form.capacity),
       cityId: parseInt(form.cityId),
+      lastServiceDate: form.lastServiceDate || null,
+      maintenanceNotes: form.maintenanceNotes || null,
     });
   };
 
@@ -276,17 +291,37 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
         <Label>Wheelchair Accessible</Label>
       </div>
       {isEdit && (
-        <div className="space-y-2">
-          <Label>Status</Label>
-          <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
-            <SelectTrigger data-testid="select-vehicle-status"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ACTIVE">Active</SelectItem>
-              <SelectItem value="MAINTENANCE">Maintenance</SelectItem>
-              <SelectItem value="OUT_OF_SERVICE">Out of Service</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <>
+          <div className="space-y-2">
+            <Label>Status</Label>
+            <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+              <SelectTrigger data-testid="select-vehicle-status"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ACTIVE">Active</SelectItem>
+                <SelectItem value="MAINTENANCE">Maintenance</SelectItem>
+                <SelectItem value="OUT_OF_SERVICE">Out of Service</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Last Service Date</Label>
+            <Input
+              type="date"
+              value={form.lastServiceDate}
+              onChange={(e) => setForm({ ...form, lastServiceDate: e.target.value })}
+              data-testid="input-vehicle-last-service"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Maintenance Notes</Label>
+            <Textarea
+              value={form.maintenanceNotes}
+              onChange={(e) => setForm({ ...form, maintenanceNotes: e.target.value })}
+              placeholder="Notes about maintenance, repairs, or service..."
+              data-testid="input-vehicle-maintenance-notes"
+            />
+          </div>
+        </>
       )}
       <Button type="submit" className="w-full" disabled={loading || !form.cityId || !form.colorHex.trim()} data-testid="button-submit-vehicle">
         {loading ? (isEdit ? "Saving..." : "Adding...") : (isEdit ? "Save Changes" : "Add Vehicle")}

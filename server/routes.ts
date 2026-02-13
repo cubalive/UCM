@@ -400,7 +400,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this vehicle" });
       }
 
-      const { name, licensePlate, colorHex, make, model, year, capacity, wheelchairAccessible, status, cityId } = req.body;
+      const { name, licensePlate, colorHex, make, model, year, capacity, wheelchairAccessible, status, cityId, lastServiceDate, maintenanceNotes } = req.body;
 
       if (!colorHex || !colorHex.trim()) {
         return res.status(400).json({ message: "Vehicle color is required" });
@@ -425,6 +425,8 @@ export async function registerRoutes(
       const updated = await storage.updateVehicle(vehicleId, {
         name, licensePlate: plate, colorHex, make, model, year, capacity, wheelchairAccessible, status,
         ...(cityId ? { cityId } : {}),
+        ...(lastServiceDate !== undefined ? { lastServiceDate: lastServiceDate ? new Date(lastServiceDate) : null } : {}),
+        ...(maintenanceNotes !== undefined ? { maintenanceNotes } : {}),
       });
       if (!updated) return res.status(404).json({ message: "Vehicle not found" });
 
@@ -508,6 +510,9 @@ export async function registerRoutes(
         }
         if (vehicle.cityId !== parsed.data.cityId) {
           return res.status(400).json({ message: "Vehicle must belong to the same city as the driver" });
+        }
+        if (vehicle.status !== "ACTIVE") {
+          return res.status(400).json({ message: "Vehicle is not active and cannot be assigned." });
         }
       }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
@@ -620,6 +625,9 @@ export async function registerRoutes(
         if (!vehicle) return res.status(400).json({ message: "Vehicle not found" });
         if (vehicle.cityId !== driver.cityId) {
           return res.status(400).json({ message: "Vehicle must belong to the same city as the driver" });
+        }
+        if (vehicle.status !== "ACTIVE") {
+          return res.status(400).json({ message: "Vehicle is not active and cannot be assigned." });
         }
 
         if (vehicleId !== driver.vehicleId) {

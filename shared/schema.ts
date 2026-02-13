@@ -95,6 +95,8 @@ export const vehicles = pgTable("vehicles", {
   capacity: integer("capacity").notNull().default(4),
   wheelchairAccessible: boolean("wheelchair_accessible").notNull().default(false),
   status: vehicleStatusEnum("status").notNull().default("ACTIVE"),
+  lastServiceDate: timestamp("last_service_date"),
+  maintenanceNotes: text("maintenance_notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
