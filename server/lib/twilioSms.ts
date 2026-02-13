@@ -82,6 +82,7 @@ export type TripNotifyStatus =
   | "scheduled"
   | "driver_assigned"
   | "en_route"
+  | "arriving_soon"
   | "arrived"
   | "picked_up"
   | "completed"
@@ -103,6 +104,10 @@ const TEMPLATES: Record<TripNotifyStatus, (v: TemplateVars) => string> = {
   en_route: (v) => {
     const eta = v.eta_minutes != null ? ` ETA: ${v.eta_minutes} minutes.` : "";
     return `${v.driver_name || "Your driver"} is on the way.${eta}`;
+  },
+  arriving_soon: (v) => {
+    const eta = v.eta_minutes != null ? `about ${v.eta_minutes} minutes` : "about 5 minutes";
+    return `United Care Mobility: Your driver will arrive in ${eta}.`;
   },
   arrived: (v) =>
     `${v.driver_name || "Your driver"} has arrived.`,

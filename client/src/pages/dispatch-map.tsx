@@ -36,6 +36,8 @@ import {
   MessageSquare,
   Send,
   AlertTriangle,
+  Route,
+  Bell,
 } from "lucide-react";
 import type { Driver, Vehicle, Trip, Patient } from "@shared/schema";
 
@@ -153,7 +155,7 @@ export default function DispatchMapPage() {
 
   const { data: mapData, isLoading, refetch } = useQuery<MapData>({
     queryKey: ["/api/dispatch/map-data", cityId ? `?cityId=${cityId}` : ""],
-    refetchInterval: 15000,
+    refetchInterval: 10000,
     enabled: true,
   });
 
@@ -475,25 +477,47 @@ export default function DispatchMapPage() {
               {[...assignedTrips, ...inProgressTrips].map((trip) => {
                 const assignedDriver = mapData?.drivers.find((d) => d.id === trip.driverId);
                 const assignedVehicle = mapData?.vehicles.find((v) => v.id === trip.vehicleId);
+                const etaMinutes = trip.lastEtaMinutes;
+                const distMiles = trip.distanceMiles ? parseFloat(trip.distanceMiles) : null;
+                const etaAge = trip.lastEtaUpdatedAt
+                  ? Math.round((Date.now() - new Date(trip.lastEtaUpdatedAt).getTime()) / 60000)
+                  : null;
+                const isEtaStale = etaAge !== null && etaAge > 3;
+                const isArrivingSoon = etaMinutes !== null && etaMinutes !== undefined && etaMinutes <= 5;
                 return (
                   <div
                     key={trip.id}
-                    className="flex items-center gap-3 p-3 rounded-md border bg-card"
+                    className={`flex items-center gap-3 p-3 rounded-md border bg-card ${isArrivingSoon ? "border-green-500/50" : ""}`}
                     data-testid={`active-trip-${trip.id}`}
                   >
                     <div
-                      className="w-2 h-10 rounded-full flex-shrink-0"
+                      className="w-2 h-full min-h-[3rem] rounded-full flex-shrink-0"
                       style={{ backgroundColor: TRIP_STATUS_COLORS[trip.status] }}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-medium">{trip.publicId}</span>
-                        <Badge variant="outline" className="text-[10px]">{trip.status.replace("_", " ")}</Badge>
-                        {trip.lastEtaMinutes && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            <Clock className="w-3 h-3 mr-1" />
-                            {trip.lastEtaMinutes} min
+                        <span className="text-xs font-medium" data-testid={`text-trip-id-${trip.id}`}>{trip.publicId}</span>
+                        <Badge variant="outline" className="text-[10px]" data-testid={`badge-trip-status-${trip.id}`}>{trip.status.replace("_", " ")}</Badge>
+                        {trip.fiveMinAlertSent && (
+                          <Badge variant="secondary" className="text-[10px] text-green-600 dark:text-green-400" data-testid={`badge-alert-sent-${trip.id}`}>
+                            <Bell className="w-3 h-3 mr-1" />
+                            Alert Sent
                           </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                        {etaMinutes !== null && etaMinutes !== undefined && (
+                          <div className={`flex items-center gap-1 text-xs font-medium ${isArrivingSoon ? "text-green-600 dark:text-green-400" : ""}`} data-testid={`text-eta-${trip.id}`}>
+                            <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>{etaMinutes} min</span>
+                            {isEtaStale && <span className="text-[9px] text-muted-foreground">(stale)</span>}
+                          </div>
+                        )}
+                        {distMiles !== null && (
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid={`text-distance-${trip.id}`}>
+                            <Route className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>{distMiles} mi</span>
+                          </div>
                         )}
                       </div>
                       <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
@@ -506,6 +530,15 @@ export default function DispatchMapPage() {
                         <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
                           <UserCheck className="w-3 h-3 flex-shrink-0" />
                           <span>{assignedDriver.firstName} {assignedDriver.lastName}</span>
+                          {assignedDriver.dispatchStatus && (
+                            <Badge variant="outline" className="text-[9px] ml-1" data-testid={`badge-driver-status-${trip.id}`}>
+                              <span
+                                className="w-1.5 h-1.5 rounded-full mr-1"
+                                style={{ backgroundColor: DISPATCH_STATUS_COLORS[assignedDriver.dispatchStatus] }}
+                              />
+                              {DISPATCH_STATUS_LABELS[assignedDriver.dispatchStatus]}
+                            </Badge>
+                          )}
                           {assignedVehicle && (
                             <>
                               <Truck className="w-3 h-3 flex-shrink-0 ml-1" />
@@ -781,6 +814,7 @@ export default function DispatchMapPage() {
                         { status: "scheduled", label: "Scheduled" },
                         { status: "driver_assigned", label: "Driver Assigned" },
                         { status: "en_route", label: "En Route" },
+                        { status: "arriving_soon", label: "Arriving Soon" },
                         { status: "arrived", label: "Arrived" },
                         { status: "picked_up", label: "Picked Up" },
                         { status: "completed", label: "Completed" },

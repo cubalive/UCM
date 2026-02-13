@@ -165,6 +165,7 @@ export function registerDispatchRoutes(app: Express) {
           driverId: driver_id,
           vehicleId: driver.vehicleId,
           status: "ASSIGNED",
+          fiveMinAlertSent: false,
         } as any);
 
         await storage.updateDriver(driver_id, { dispatchStatus: "enroute" } as any);
@@ -274,6 +275,7 @@ export function registerDispatchRoutes(app: Express) {
             driverId: best.driver.id,
             vehicleId: best.driver.vehicleId,
             status: "ASSIGNED",
+            fiveMinAlertSent: false,
           } as any);
 
           await storage.updateDriver(best.driver.id, { dispatchStatus: "enroute" } as any);

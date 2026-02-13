@@ -115,4 +115,8 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: Phone normalization: auto-convert (xxx) xxx-xxxx to E.164 on save (patients, drivers, clinics) and on send
 - 2026-02-13: SMS service hardening: retry-once on Twilio failure, structured error logging
 - 2026-02-13: Automatic SMS triggers: driver_assigned on trip assign, en_route on driver status enroute (with ETA), arrived on trip IN_PROGRESS
+- 2026-02-13: Live ETA engine: recalculates ETA every 60s for en_route trips using Google Maps Directions API
+- 2026-02-13: Auto "arriving soon" 5-min SMS alert: triggers once when ETA <= 5 min (fiveMinAlertSent flag prevents duplicates)
+- 2026-02-13: Enhanced dispatch panel: live ETA display, distance badges, driver status indicators, stale ETA warnings, alert-sent badges
 - `server/lib/dispatchAutoSms.ts` - Shared auto-notification helper (fire-and-forget, opt-out aware)
+- `server/lib/etaEngine.ts` - Live ETA recalculation engine (60s interval, 5-min alert trigger)

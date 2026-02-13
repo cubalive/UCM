@@ -154,6 +154,7 @@ export const trips = pgTable("trips", {
   durationMinutes: integer("duration_minutes"),
   routePolyline: text("route_polyline"),
   lastEtaUpdatedAt: timestamp("last_eta_updated_at"),
+  fiveMinAlertSent: boolean("five_min_alert_sent").notNull().default(false),
   updatedAt: timestamp("updated_at").defaultNow(),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

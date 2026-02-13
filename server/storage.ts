@@ -42,6 +42,7 @@ export interface IStorage {
   updateTrip(id: number, data: Partial<Trip>): Promise<Trip | undefined>;
   updateTripStatus(id: number, status: string): Promise<Trip | undefined>;
   getUnassignedTrips(cityId: number): Promise<Trip[]>;
+  getActiveEnRouteTrips(): Promise<Trip[]>;
 
   getAuditLogs(cityId?: number): Promise<AuditLog[]>;
   createAuditLog(data: InsertAuditLog): Promise<AuditLog>;
@@ -224,6 +225,15 @@ export class DatabaseStorage implements IStorage {
         isNull(trips.driverId),
       )
     ).orderBy(trips.scheduledDate, trips.scheduledTime);
+  }
+
+  async getActiveEnRouteTrips(): Promise<Trip[]> {
+    return db.select().from(trips).where(
+      and(
+        inArray(trips.status, ["ASSIGNED", "IN_PROGRESS"]),
+        sql`${trips.driverId} IS NOT NULL`
+      )
+    );
   }
 
   async getAuditLogs(cityId?: number): Promise<AuditLog[]> {
