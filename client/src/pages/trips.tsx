@@ -24,7 +24,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle } from "lucide-react";
+import { DialogFooter } from "@/components/ui/dialog";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { RecurringSchedule, type TripType } from "@/components/recurring-schedule";
@@ -73,9 +74,15 @@ export default function TripsPage() {
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
+  const [cancelRequestTrip, setCancelRequestTrip] = useState<any>(null);
+  const [cancelReason, setCancelReason] = useState("");
+
   const canSendSms =
     user?.role === "SUPER_ADMIN" ||
     user?.role === "DISPATCH";
+
+  const isClinicUser = user?.role === "VIEWER" && !!user?.clinicId;
+  const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
 
   const { data: trips, isLoading } = useQuery<any[]>({
     queryKey: ["/api/trips", selectedCity?.id],
@@ -135,6 +142,54 @@ export default function TripsPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const approveMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/trips/${id}/approve`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      toast({ title: "Trip approved" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const cancelRequestMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      apiFetch(`/api/trips/${id}/cancel-request`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ reason }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      setCancelRequestTrip(null);
+      setCancelReason("");
+      toast({ title: "Cancel request submitted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const dispatchCancelMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      apiFetch(`/api/trips/${id}/cancel`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ reason }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      toast({ title: "Trip cancelled" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/trips/${id}/archive`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      toast({ title: "Trip archived" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const filtered = trips?.filter(
     (t: any) =>
       t.publicId?.toLowerCase().includes(search.toLowerCase()) ||
@@ -149,6 +204,20 @@ export default function TripsPage() {
     COMPLETED: "secondary",
     CANCELLED: "destructive",
     NO_SHOW: "destructive",
+  };
+
+  const approvalColors: Record<string, string> = {
+    pending: "secondary",
+    approved: "default",
+    cancel_requested: "destructive",
+    cancelled: "destructive",
+  };
+
+  const approvalLabels: Record<string, string> = {
+    pending: "Pending Approval",
+    approved: "Approved",
+    cancel_requested: "Cancel Requested",
+    cancelled: "Cancelled",
   };
 
   const getPatientForTrip = (trip: any) => {
@@ -235,6 +304,11 @@ export default function TripsPage() {
                       <Badge variant={statusColors[trip.status] as any || "secondary"}>
                         {trip.status.replace("_", " ")}
                       </Badge>
+                      {trip.approvalStatus && trip.approvalStatus !== "approved" && (
+                        <Badge variant={approvalColors[trip.approvalStatus] as any || "outline"} data-testid={`badge-approval-${trip.id}`}>
+                          {approvalLabels[trip.approvalStatus] || trip.approvalStatus}
+                        </Badge>
+                      )}
                       {trip.tripType === "recurring" && (
                         <Badge variant="outline">Recurring</Badge>
                       )}
@@ -254,7 +328,7 @@ export default function TripsPage() {
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
                     <Button
                       size="icon"
                       variant="ghost"
@@ -263,23 +337,88 @@ export default function TripsPage() {
                     >
                       <Eye className="w-4 h-4" />
                     </Button>
-                    <Select
-                      value={trip.status}
-                      onValueChange={(status) => updateStatusMutation.mutate({ id: trip.id, status })}
-                    >
-                      <SelectTrigger
-                        className="w-36"
-                        data-testid={`select-trip-status-${trip.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"].map((s) => (
-                          <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {isDispatchOrAdmin && (
+                      <>
+                        {trip.approvalStatus === "pending" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => { e.stopPropagation(); approveMutation.mutate(trip.id); }}
+                            disabled={approveMutation.isPending}
+                            data-testid={`button-approve-trip-${trip.id}`}
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Approve
+                          </Button>
+                        )}
+                        {trip.approvalStatus === "cancel_requested" && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={(e) => { e.stopPropagation(); dispatchCancelMutation.mutate({ id: trip.id, reason: "Approved cancel request" }); }}
+                            disabled={dispatchCancelMutation.isPending}
+                            data-testid={`button-confirm-cancel-trip-${trip.id}`}
+                          >
+                            <Ban className="w-3 h-3 mr-1" />
+                            Confirm Cancel
+                          </Button>
+                        )}
+                        <Select
+                          value={trip.status}
+                          onValueChange={(status) => updateStatusMutation.mutate({ id: trip.id, status })}
+                        >
+                          <SelectTrigger
+                            className="w-36"
+                            data-testid={`select-trip-status-${trip.id}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"].map((s) => (
+                              <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {user?.role === "SUPER_ADMIN" && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={(e) => { e.stopPropagation(); archiveMutation.mutate(trip.id); }}
+                            disabled={archiveMutation.isPending}
+                            data-testid={`button-archive-trip-${trip.id}`}
+                          >
+                            <Archive className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    {isClinicUser && (
+                      <>
+                        {trip.approvalStatus === "pending" && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={(e) => { e.stopPropagation(); setCancelRequestTrip(trip); }}
+                            data-testid={`button-cancel-pending-trip-${trip.id}`}
+                          >
+                            <Ban className="w-3 h-3 mr-1" />
+                            Cancel
+                          </Button>
+                        )}
+                        {trip.approvalStatus === "approved" && !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => { e.stopPropagation(); setCancelRequestTrip(trip); }}
+                            data-testid={`button-request-cancel-trip-${trip.id}`}
+                          >
+                            <Ban className="w-3 h-3 mr-1" />
+                            Request Cancel
+                          </Button>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -296,9 +435,53 @@ export default function TripsPage() {
           canSendSms={canSendSms}
           token={token}
           cityTimezone={selectedCity?.timezone || "America/New_York"}
+          isClinicUser={isClinicUser}
+          isDispatchOrAdmin={isDispatchOrAdmin}
+          userRole={user?.role}
           onClose={() => setDetailTrip(null)}
         />
       )}
+
+      <Dialog open={!!cancelRequestTrip} onOpenChange={(o) => { if (!o) { setCancelRequestTrip(null); setCancelReason(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {cancelRequestTrip?.approvalStatus === "pending" ? "Cancel Trip" : "Request Cancellation"}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {cancelRequestTrip?.approvalStatus === "pending"
+              ? "This trip has not been approved yet. You can cancel it directly."
+              : "This trip has been approved. Your cancellation request will be sent to dispatch for review."}
+          </p>
+          <div className="space-y-2">
+            <Label>Reason</Label>
+            <Textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Provide a reason for cancellation..."
+              data-testid="textarea-cancel-reason"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCancelRequestTrip(null); setCancelReason(""); }}>
+              Go Back
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!cancelReason.trim() || cancelRequestMutation.isPending}
+              data-testid="button-submit-cancel-request"
+              onClick={() => {
+                if (cancelRequestTrip) {
+                  cancelRequestMutation.mutate({ id: cancelRequestTrip.id, reason: cancelReason });
+                }
+              }}
+            >
+              {cancelRequestMutation.isPending ? "Submitting..." : cancelRequestTrip?.approvalStatus === "pending" ? "Cancel Trip" : "Submit Request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -310,6 +493,9 @@ function TripDetailDialog({
   canSendSms,
   token,
   cityTimezone,
+  isClinicUser,
+  isDispatchOrAdmin,
+  userRole,
   onClose,
 }: {
   trip: any;
@@ -318,6 +504,9 @@ function TripDetailDialog({
   canSendSms: boolean;
   token: string | null;
   cityTimezone: string;
+  isClinicUser: boolean;
+  isDispatchOrAdmin: boolean;
+  userRole?: string;
   onClose: () => void;
 }) {
   const { toast } = useToast();
@@ -408,6 +597,11 @@ function TripDetailDialog({
             <Badge variant={trip.status === "CANCELLED" || trip.status === "NO_SHOW" ? "destructive" : "secondary"}>
               {trip.status.replace("_", " ")}
             </Badge>
+            {trip.approvalStatus && trip.approvalStatus !== "approved" && (
+              <Badge variant={trip.approvalStatus === "pending" ? "secondary" : "destructive"} data-testid="badge-detail-approval">
+                {trip.approvalStatus === "pending" ? "Pending Approval" : trip.approvalStatus === "cancel_requested" ? "Cancel Requested" : trip.approvalStatus}
+              </Badge>
+            )}
             {trip.tripType === "recurring" && (
               <Badge variant="outline">Recurring</Badge>
             )}
@@ -472,11 +666,22 @@ function TripDetailDialog({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex justify-end">
-              <Button size="sm" variant="outline" onClick={() => setEditing(true)} data-testid="button-edit-trip">
-                <Pencil className="w-4 h-4 mr-1" />
-                Edit
-              </Button>
+            <div className="flex justify-end gap-2">
+              {trip.approvalStatus && trip.approvalStatus !== "approved" && trip.approvalStatus !== "cancelled" && (
+                <Badge variant={trip.approvalStatus === "pending" ? "secondary" : "destructive"}>
+                  <ShieldCheck className="w-3 h-3 mr-1" />
+                  {trip.approvalStatus === "pending" ? "Pending Approval" : "Cancel Requested"}
+                </Badge>
+              )}
+              {trip.cancelledReason && (
+                <span className="text-xs text-muted-foreground italic">Reason: {trip.cancelledReason}</span>
+              )}
+              {(!isClinicUser || trip.approvalStatus === "pending") && (
+                <Button size="sm" variant="outline" onClick={() => setEditing(true)} data-testid="button-edit-trip">
+                  <Pencil className="w-4 h-4 mr-1" />
+                  Edit
+                </Button>
+              )}
             </div>
 
             <div className="space-y-2">

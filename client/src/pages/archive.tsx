@@ -9,16 +9,17 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Archive, RotateCcw, Trash2, Search, Building2, UserCheck, HeartPulse, Users, Copy, KeyRound } from "lucide-react";
+import { Archive, RotateCcw, Trash2, Search, Building2, UserCheck, HeartPulse, Users, Copy, KeyRound, Route } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-type EntityTab = "clinics" | "drivers" | "patients" | "users";
+type EntityTab = "clinics" | "drivers" | "patients" | "users" | "trips";
 
 const tabs: { key: EntityTab; label: string; icon: typeof Building2 }[] = [
   { key: "clinics", label: "Clinics", icon: Building2 },
   { key: "drivers", label: "Drivers", icon: UserCheck },
   { key: "patients", label: "Patients", icon: HeartPulse },
   { key: "users", label: "Users", icon: Users },
+  { key: "trips", label: "Trips", icon: Route },
 ];
 
 const entityListKey: Record<EntityTab, string> = {
@@ -26,6 +27,7 @@ const entityListKey: Record<EntityTab, string> = {
   drivers: "/api/drivers",
   patients: "/api/patients",
   users: "/api/users",
+  trips: "/api/trips",
 };
 
 export default function ArchivePage() {
@@ -132,6 +134,13 @@ export default function ArchivePage() {
                   <p className="text-sm text-muted-foreground">{item.email}</p>
                 </>
               )}
+              {activeTab === "trips" && (
+                <>
+                  <p className="font-medium" data-testid={`text-archive-name-${item.id}`}>{item.publicId}</p>
+                  <p className="text-sm text-muted-foreground">{item.scheduledDate} | {item.pickupTime}</p>
+                  <p className="text-sm text-muted-foreground truncate">{item.pickupAddress}</p>
+                </>
+              )}
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="secondary" className="text-xs font-mono">{item.publicId}</Badge>
                 {activeTab === "clinics" && item.facilityType && (
@@ -139,6 +148,9 @@ export default function ArchivePage() {
                 )}
                 {activeTab === "users" && item.role && (
                   <Badge variant="outline">{item.role.replace("_", " ")}</Badge>
+                )}
+                {activeTab === "trips" && item.status && (
+                  <Badge variant={item.status === "CANCELLED" ? "destructive" : "outline"}>{item.status.replace("_", " ")}</Badge>
                 )}
               </div>
               {item.deletedAt && (

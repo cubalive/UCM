@@ -20,6 +20,13 @@ export const tripStatusEnum = pgEnum("trip_status", [
   "NO_SHOW",
 ]);
 
+export const tripApprovalStatusEnum = pgEnum("trip_approval_status", [
+  "pending",
+  "approved",
+  "cancel_requested",
+  "cancelled",
+]);
+
 export const vehicleStatusEnum = pgEnum("vehicle_status", [
   "ACTIVE",
   "MAINTENANCE",
@@ -212,6 +219,12 @@ export const trips = pgTable("trips", {
   staticMapFullUrl: text("static_map_full_url"),
   staticMapGeneratedAt: timestamp("static_map_generated_at"),
   updatedAt: timestamp("updated_at").defaultNow(),
+  approvalStatus: tripApprovalStatusEnum("approval_status").notNull().default("approved"),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: integer("approved_by"),
+  cancelledBy: integer("cancelled_by"),
+  cancelledReason: text("cancelled_reason"),
+  deletedAt: timestamp("deleted_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -308,7 +321,7 @@ export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true,
 export const insertDriverSchema = createInsertSchema(drivers).omit({ id: true, createdAt: true });
 export const insertClinicSchema = createInsertSchema(clinics).omit({ id: true, createdAt: true });
 export const insertPatientSchema = createInsertSchema(patients).omit({ id: true, createdAt: true });
-export const insertTripSchema = createInsertSchema(trips).omit({ id: true, createdAt: true });
+export const insertTripSchema = createInsertSchema(trips).omit({ id: true, createdAt: true, approvalStatus: true, approvedAt: true, approvedBy: true, cancelledBy: true, cancelledReason: true, deletedAt: true });
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true });
 export const insertCitySettingsSchema = createInsertSchema(citySettings);
 export const insertDriverVehicleAssignmentSchema = createInsertSchema(driverVehicleAssignments).omit({ id: true, createdAt: true });

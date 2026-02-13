@@ -100,6 +100,7 @@ export interface IStorage {
   getArchivedDrivers(): Promise<Driver[]>;
   getArchivedPatients(): Promise<Patient[]>;
   getArchivedUsers(): Promise<Omit<User, "password">[]>;
+  getArchivedTrips(): Promise<Trip[]>;
 
   // Active trip guard queries
   hasActiveTripsForClinic(clinicId: number): Promise<boolean>;
@@ -111,6 +112,7 @@ export interface IStorage {
   deleteDriver(id: number): Promise<void>;
   deletePatient(id: number): Promise<void>;
   deleteUser(id: number): Promise<void>;
+  deleteTrip(id: number): Promise<void>;
 
   // Update user (for admin password reset)
   updateUser(id: number, data: Partial<User>): Promise<Omit<User, "password"> | undefined>;
@@ -307,7 +309,9 @@ export class DatabaseStorage implements IStorage {
   async getTrips(cityId?: number, limit?: number): Promise<Trip[]> {
     let query = db.select().from(trips);
     if (cityId) {
-      query = query.where(eq(trips.cityId, cityId)) as any;
+      query = query.where(and(eq(trips.cityId, cityId), isNull(trips.deletedAt))) as any;
+    } else {
+      query = query.where(isNull(trips.deletedAt)) as any;
     }
     query = query.orderBy(desc(trips.createdAt)) as any;
     if (limit) {
@@ -645,6 +649,12 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
+  async getArchivedTrips(): Promise<Trip[]> {
+    return db.select().from(trips).where(
+      sql`${trips.deletedAt} IS NOT NULL`
+    ).orderBy(desc(trips.deletedAt));
+  }
+
   // Archive management methods
   async getArchivedClinics(): Promise<Clinic[]> {
     return db.select().from(clinics).where(
@@ -739,6 +749,12 @@ export class DatabaseStorage implements IStorage {
   async deleteUser(id: number): Promise<void> {
     await db.delete(userCityAccess).where(eq(userCityAccess.userId, id));
     await db.delete(users).where(eq(users.id, id));
+  }
+
+  async deleteTrip(id: number): Promise<void> {
+    await db.delete(tripSmsLog).where(eq(tripSmsLog.tripId, id));
+    await db.delete(tripShareTokens).where(eq(tripShareTokens.tripId, id));
+    await db.delete(trips).where(eq(trips.id, id));
   }
 
   // Update user method

@@ -1269,13 +1269,26 @@ export async function registerRoutes(
       }
 
       const publicId = await generatePublicId();
-      const trip = await storage.createTrip({ ...parsed.data, publicId });
+      const user = await storage.getUser(req.user!.userId);
+      const isClinic = user?.role === "VIEWER" && user.clinicId != null;
+      const approvalFields: Record<string, any> = {};
+      if (isClinic) {
+        approvalFields.approvalStatus = "pending";
+        if (!parsed.data.clinicId) {
+          (parsed.data as any).clinicId = user.clinicId;
+        }
+      } else {
+        approvalFields.approvalStatus = "approved";
+        approvalFields.approvedAt = new Date();
+        approvalFields.approvedBy = req.user!.userId;
+      }
+      const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
         entity: "trip",
         entityId: trip.id,
-        details: `Created trip ${publicId}`,
+        details: `Created trip ${publicId}${isClinic ? " (pending approval)" : ""}`,
         cityId: trip.cityId,
       });
       res.json(trip);
@@ -1329,6 +1342,26 @@ export async function registerRoutes(
 
       if (!(await checkCityAccess(req, existing.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
+      }
+
+      const editUser = await storage.getUser(req.user!.userId);
+      const isClinicEditor = editUser?.role === "VIEWER" && editUser.clinicId != null;
+      if (isClinicEditor) {
+        if (existing.clinicId !== editUser.clinicId) {
+          return res.status(403).json({ message: "You can only edit your own clinic's trips" });
+        }
+        if (existing.approvalStatus !== "pending") {
+          return res.status(403).json({ message: "Cannot edit trip after it has been approved. Contact dispatch for changes." });
+        }
+        const coreFields = ["pickupAddress", "pickupStreet", "pickupCity", "pickupState", "pickupZip", "pickupPlaceId", "pickupLat", "pickupLng",
+          "dropoffAddress", "dropoffStreet", "dropoffCity", "dropoffState", "dropoffZip", "dropoffPlaceId", "dropoffLat", "dropoffLng",
+          "scheduledDate", "scheduledTime", "pickupTime", "estimatedArrivalTime", "driverId", "vehicleId", "clinicId", "tripType", "recurringDays"];
+        if (existing.approvalStatus !== "pending") {
+          const hasCoreChange = Object.keys(req.body).some(k => coreFields.includes(k));
+          if (hasCoreChange) {
+            return res.status(403).json({ message: "Cannot edit core trip fields after approval" });
+          }
+        }
       }
 
       const updateData: Record<string, any> = {};
@@ -1446,6 +1479,184 @@ export async function registerRoutes(
         cityId: trip.cityId,
       });
       res.json(trip);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Trip approval endpoint - dispatch/admin approves pending trips
+  app.patch("/api/trips/:id/approve", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (trip.approvalStatus !== "pending") {
+        return res.status(400).json({ message: `Trip is already ${trip.approvalStatus}` });
+      }
+      const updated = await storage.updateTrip(id, {
+        approvalStatus: "approved",
+        approvedAt: new Date(),
+        approvedBy: req.user!.userId,
+      } as any);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "APPROVE",
+        entity: "trip",
+        entityId: id,
+        details: `Approved trip ${trip.publicId}`,
+        cityId: trip.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Clinic requests cancellation of an approved trip
+  app.patch("/api/trips/:id/cancel-request", authMiddleware, requireRole("VIEWER"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.clinicId || trip.clinicId !== user.clinicId) {
+        return res.status(403).json({ message: "You can only cancel your own clinic's trips" });
+      }
+      if (trip.approvalStatus === "pending") {
+        const updated = await storage.updateTrip(id, {
+          approvalStatus: "cancelled",
+          cancelledBy: req.user!.userId,
+          cancelledReason: req.body.reason || "Cancelled by clinic",
+          status: "CANCELLED",
+        } as any);
+        await storage.createAuditLog({
+          userId: req.user!.userId,
+          action: "CANCEL",
+          entity: "trip",
+          entityId: id,
+          details: `Clinic cancelled pending trip ${trip.publicId}`,
+          cityId: trip.cityId,
+        });
+        return res.json(updated);
+      }
+      if (trip.approvalStatus !== "approved") {
+        return res.status(400).json({ message: `Cannot request cancellation: trip is ${trip.approvalStatus}` });
+      }
+      const updated = await storage.updateTrip(id, {
+        approvalStatus: "cancel_requested",
+        cancelledBy: req.user!.userId,
+        cancelledReason: req.body.reason || "Cancellation requested by clinic",
+      } as any);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "CANCEL_REQUEST",
+        entity: "trip",
+        entityId: id,
+        details: `Clinic requested cancellation for trip ${trip.publicId}: ${req.body.reason || "No reason given"}`,
+        cityId: trip.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Dispatch/admin cancels an approved or cancel-requested trip
+  app.patch("/api/trips/:id/cancel", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (trip.approvalStatus === "cancelled") {
+        return res.status(400).json({ message: "Trip is already cancelled" });
+      }
+      const updated = await storage.updateTrip(id, {
+        approvalStatus: "cancelled",
+        cancelledBy: req.user!.userId,
+        cancelledReason: req.body.reason || "Cancelled by dispatch",
+        status: "CANCELLED",
+      } as any);
+      storage.revokeTokensForTrip(id).catch(() => {});
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "CANCEL",
+        entity: "trip",
+        entityId: id,
+        details: `Cancelled trip ${trip.publicId}: ${req.body.reason || "No reason given"}`,
+        cityId: trip.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // SUPER_ADMIN archive (soft-delete) a trip
+  app.patch("/api/admin/trips/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      const updated = await storage.updateTrip(id, { deletedAt: new Date() } as any);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ARCHIVE",
+        entity: "trip",
+        entityId: id,
+        details: `Archived trip ${trip.publicId}`,
+        cityId: trip.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // SUPER_ADMIN restore an archived trip
+  app.patch("/api/admin/trips/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (!trip.deletedAt) return res.status(400).json({ message: "Trip is not archived" });
+      const updated = await storage.updateTrip(id, { deletedAt: null } as any);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "RESTORE",
+        entity: "trip",
+        entityId: id,
+        details: `Restored trip ${trip.publicId}`,
+        cityId: trip.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // SUPER_ADMIN permanently delete a trip (must be archived first)
+  app.delete("/api/admin/trips/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (!trip.deletedAt) return res.status(400).json({ message: "Trip must be archived before permanent deletion" });
+      await storage.deleteTrip(id);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "DELETE",
+        entity: "trip",
+        entityId: id,
+        details: `Permanently deleted trip ${trip.publicId}`,
+        cityId: trip.cityId,
+      });
+      res.json({ ok: true, message: "Trip permanently deleted" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -2461,8 +2672,10 @@ export async function registerRoutes(
           return res.json(await storage.getArchivedPatients());
         case "users":
           return res.json(await storage.getArchivedUsers());
+        case "trips":
+          return res.json(await storage.getArchivedTrips());
         default:
-          return res.status(400).json({ message: "Invalid entity type. Must be clinics, drivers, patients, or users" });
+          return res.status(400).json({ message: "Invalid entity type. Must be clinics, drivers, patients, users, or trips" });
       }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
