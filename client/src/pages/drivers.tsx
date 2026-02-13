@@ -310,7 +310,7 @@ function DriverForm({
       </div>
       <div className="space-y-2">
         <Label>License Number</Label>
-        <Input value={form.licenseNumber} onChange={(e) => setForm({ ...form, licenseNumber: e.target.value })} data-testid="input-driver-license" />
+        <Input value={form.licenseNumber} onChange={(e) => setForm({ ...form, licenseNumber: e.target.value })} style={{ textTransform: "uppercase" }} data-testid="input-driver-license" />
       </div>
       <div className="space-y-2">
         <Label>City *</Label>

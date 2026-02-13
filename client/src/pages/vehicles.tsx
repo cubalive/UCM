@@ -181,7 +181,7 @@ function VehicleForm({ cities, defaultCityId, onSubmit, loading }: {
       </div>
       <div className="space-y-2">
         <Label>License Plate *</Label>
-        <Input value={form.licensePlate} onChange={(e) => setForm({ ...form, licensePlate: e.target.value })} required data-testid="input-vehicle-plate" />
+        <Input value={form.licensePlate} onChange={(e) => setForm({ ...form, licensePlate: e.target.value })} style={{ textTransform: "uppercase" }} required data-testid="input-vehicle-plate" />
       </div>
       <div className="space-y-2">
         <Label>Vehicle Color *</Label>
