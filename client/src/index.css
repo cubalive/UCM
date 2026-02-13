@@ -2,6 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes logo-tile-reveal {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+.logo-tile {
+  background: hsl(var(--background));
+  opacity: 1;
+  animation: logo-tile-reveal 400ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-tile {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 .driver-map-label {
   background: rgba(255, 255, 255, 0.85);
   padding: 1px 4px;

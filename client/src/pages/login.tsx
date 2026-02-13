@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Shield } from "lucide-react";
+import { LogoTileAnimation } from "@/components/logo-tile-animation";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -34,9 +35,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
-          <div className="flex items-center justify-center mb-4">
-            <img src="/branding/logo-horizontal.png" alt="United Care Mobility" className="h-16 w-auto max-w-full" data-testid="img-logo" />
-          </div>
+          <LogoTileAnimation className="mb-4" />
           <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-app-title">
             United Care Mobility
           </h1>

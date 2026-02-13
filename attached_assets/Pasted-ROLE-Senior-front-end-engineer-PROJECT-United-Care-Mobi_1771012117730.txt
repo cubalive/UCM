@@ -1,0 +1,86 @@
+ROLE: Senior front-end engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- UI-only changes
+- Do NOT modify backend logic
+- Do NOT touch auth flow
+- Verify before exit
+
+GOAL:
+Add a professional medical-style branded login animation and a consistent dashboard header banner using the company logo.
+
+STYLE:
+Elegant medical look:
+- clean white background
+- subtle blue/green accents
+- soft shadows
+- minimal and professional
+
+TASK 1 — LOGIN LOGO ANIMATION (tiles from outside to inside)
+
+1. Use existing company logo (PNG already in project).
+2. Create a lightweight animation where the logo appears in small square tiles from the outer edges toward the center.
+3. Do NOT use heavy GIF if avoidable. Prefer:
+   - CSS grid + opacity animation
+   OR
+   - simple canvas animation
+4. Animation rules:
+   - plays once on page load
+   - duration: 1.2–1.8 seconds
+   - then remains static logo
+   - must not delay login form usability
+   - respect reduced motion:
+     if prefers-reduced-motion = true → show static logo only
+
+5. Layout:
+   - center logo above login form
+   - spacing clean and balanced
+   - no scroll jump
+
+TASK 2 — DASHBOARD HEADER BANNER
+
+Add a consistent header for:
+- admin
+- dispatch
+- clinic
+- driver dashboards
+
+HEADER CONTENT:
+Left:
+- company logo (small)
+- text: "United Care Mobility"
+
+Center:
+- active city name (if available)
+
+Right:
+- role badge (Admin / Dispatch / Clinic / Driver)
+- settings icon
+- logout button
+
+STYLE:
+- height: ~64px
+- white background
+- thin bottom border
+- subtle shadow
+- responsive mobile layout
+
+RULES:
+- header must NOT appear on public tracking page
+- must NOT appear on login page
+- must not break existing routing
+- must not cause layout shift
+
+ASSETS:
+If logo not in public folder:
+place in /public/branding/ucm-logo.png
+
+VERIFY:
+- login still works
+- no blank screens
+- animation plays once
+- dashboards show header
+- mobile view correct
