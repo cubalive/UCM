@@ -92,6 +92,26 @@ export interface IStorage {
   getActiveDriverIdForPatient(patientId: number): Promise<number | null>;
   getActiveTripsForClinic(cityId: number, clinicId: number): Promise<Trip[]>;
   getActiveTripForPatient(patientId: number): Promise<Trip | undefined>;
+
+  // Archive management
+  getArchivedClinics(): Promise<Clinic[]>;
+  getArchivedDrivers(): Promise<Driver[]>;
+  getArchivedPatients(): Promise<Patient[]>;
+  getArchivedUsers(): Promise<Omit<User, "password">[]>;
+
+  // Active trip guard queries
+  hasActiveTripsForClinic(clinicId: number): Promise<boolean>;
+  hasActiveTripsForDriver(driverId: number): Promise<boolean>;
+  hasActiveTripsForPatient(patientId: number): Promise<boolean>;
+
+  // Permanent delete
+  deleteClinic(id: number): Promise<void>;
+  deleteDriver(id: number): Promise<void>;
+  deletePatient(id: number): Promise<void>;
+  deleteUser(id: number): Promise<void>;
+
+  // Update user (for admin password reset)
+  updateUser(id: number, data: Partial<User>): Promise<Omit<User, "password"> | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -116,7 +136,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUsers(): Promise<Omit<User, "password">[]> {
-    const rows = await db.select().from(users).orderBy(users.firstName);
+    const rows = await db.select().from(users).where(
+      and(eq(users.active, true), isNull(users.deletedAt))
+    ).orderBy(users.firstName);
     return rows.map(({ password, ...rest }) => rest) as any;
   }
 
@@ -176,9 +198,13 @@ export class DatabaseStorage implements IStorage {
 
   async getDrivers(cityId?: number): Promise<Driver[]> {
     if (cityId) {
-      return db.select().from(drivers).where(eq(drivers.cityId, cityId)).orderBy(drivers.firstName);
+      return db.select().from(drivers).where(
+        and(eq(drivers.cityId, cityId), eq(drivers.active, true), isNull(drivers.deletedAt))
+      ).orderBy(drivers.firstName);
     }
-    return db.select().from(drivers).orderBy(drivers.firstName);
+    return db.select().from(drivers).where(
+      and(eq(drivers.active, true), isNull(drivers.deletedAt))
+    ).orderBy(drivers.firstName);
   }
 
   async getDriver(id: number): Promise<Driver | undefined> {
@@ -214,9 +240,13 @@ export class DatabaseStorage implements IStorage {
 
   async getClinics(cityId?: number): Promise<Clinic[]> {
     if (cityId) {
-      return db.select().from(clinics).where(eq(clinics.cityId, cityId)).orderBy(clinics.name);
+      return db.select().from(clinics).where(
+        and(eq(clinics.cityId, cityId), eq(clinics.active, true), isNull(clinics.deletedAt))
+      ).orderBy(clinics.name);
     }
-    return db.select().from(clinics).orderBy(clinics.name);
+    return db.select().from(clinics).where(
+      and(eq(clinics.active, true), isNull(clinics.deletedAt))
+    ).orderBy(clinics.name);
   }
 
   async getClinic(id: number): Promise<Clinic | undefined> {
@@ -237,9 +267,13 @@ export class DatabaseStorage implements IStorage {
 
   async getPatients(cityId?: number): Promise<Patient[]> {
     if (cityId) {
-      return db.select().from(patients).where(eq(patients.cityId, cityId)).orderBy(patients.firstName);
+      return db.select().from(patients).where(
+        and(eq(patients.cityId, cityId), eq(patients.active, true), isNull(patients.deletedAt))
+      ).orderBy(patients.firstName);
     }
-    return db.select().from(patients).orderBy(patients.firstName);
+    return db.select().from(patients).where(
+      and(eq(patients.active, true), isNull(patients.deletedAt))
+    ).orderBy(patients.firstName);
   }
 
   async getPatient(id: number): Promise<Patient | undefined> {
@@ -597,6 +631,111 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(trips.scheduledDate))
       .limit(1);
     return row;
+  }
+
+  // Archive management methods
+  async getArchivedClinics(): Promise<Clinic[]> {
+    return db.select().from(clinics).where(
+      or(eq(clinics.active, false), sql`${clinics.deletedAt} IS NOT NULL`)
+    ).orderBy(desc(clinics.deletedAt));
+  }
+
+  async getArchivedDrivers(): Promise<Driver[]> {
+    return db.select().from(drivers).where(
+      or(eq(drivers.active, false), sql`${drivers.deletedAt} IS NOT NULL`)
+    ).orderBy(desc(drivers.deletedAt));
+  }
+
+  async getArchivedPatients(): Promise<Patient[]> {
+    return db.select().from(patients).where(
+      or(eq(patients.active, false), sql`${patients.deletedAt} IS NOT NULL`)
+    ).orderBy(desc(patients.deletedAt));
+  }
+
+  async getArchivedUsers(): Promise<Omit<User, "password">[]> {
+    const rows = await db.select().from(users).where(
+      or(eq(users.active, false), sql`${users.deletedAt} IS NOT NULL`)
+    ).orderBy(desc(users.deletedAt));
+    return rows.map(({ password, ...rest }) => rest) as any;
+  }
+
+  // Active trip guard queries
+  async hasActiveTripsForClinic(clinicId: number): Promise<boolean> {
+    const [row] = await db
+      .select({ cnt: count() })
+      .from(trips)
+      .where(
+        and(
+          eq(trips.clinicId, clinicId),
+          or(
+            eq(trips.status, "SCHEDULED"),
+            eq(trips.status, "ASSIGNED"),
+            eq(trips.status, "IN_PROGRESS"),
+          ),
+        )
+      );
+    return (row?.cnt ?? 0) > 0;
+  }
+
+  async hasActiveTripsForDriver(driverId: number): Promise<boolean> {
+    const [row] = await db
+      .select({ cnt: count() })
+      .from(trips)
+      .where(
+        and(
+          eq(trips.driverId, driverId),
+          or(
+            eq(trips.status, "SCHEDULED"),
+            eq(trips.status, "ASSIGNED"),
+            eq(trips.status, "IN_PROGRESS"),
+          ),
+        )
+      );
+    return (row?.cnt ?? 0) > 0;
+  }
+
+  async hasActiveTripsForPatient(patientId: number): Promise<boolean> {
+    const [row] = await db
+      .select({ cnt: count() })
+      .from(trips)
+      .where(
+        and(
+          eq(trips.patientId, patientId),
+          or(
+            eq(trips.status, "SCHEDULED"),
+            eq(trips.status, "ASSIGNED"),
+            eq(trips.status, "IN_PROGRESS"),
+          ),
+        )
+      );
+    return (row?.cnt ?? 0) > 0;
+  }
+
+  // Permanent delete methods
+  async deleteClinic(id: number): Promise<void> {
+    await db.delete(clinics).where(eq(clinics.id, id));
+  }
+
+  async deleteDriver(id: number): Promise<void> {
+    await db.delete(drivers).where(eq(drivers.id, id));
+  }
+
+  async deletePatient(id: number): Promise<void> {
+    await db.delete(patients).where(eq(patients.id, id));
+  }
+
+  async deleteUser(id: number): Promise<void> {
+    await db.delete(userCityAccess).where(eq(userCityAccess.userId, id));
+    await db.delete(users).where(eq(users.id, id));
+  }
+
+  // Update user method
+  async updateUser(id: number, data: Partial<User>): Promise<Omit<User, "password"> | undefined> {
+    const { id: _id, password: _pwd, ...updateData } = data as any;
+    const [user] = await db.update(users).set(updateData).where(eq(users.id, id)).returning();
+    if (!user) return undefined;
+    const { password, ...rest } = user;
+    return rest as any;
   }
 }
 

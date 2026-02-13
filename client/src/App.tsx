@@ -26,6 +26,7 @@ import ChangePasswordPage from "@/pages/change-password";
 import ClinicInvoicesPage from "@/pages/clinic-invoices";
 import FleetOpsPage from "@/pages/fleet-ops";
 import LiveMapPage from "@/pages/live-map";
+import ArchivePage from "@/pages/archive";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
 import NotFound from "@/pages/not-found";
@@ -75,6 +76,7 @@ function Router() {
       <Route path="/cities">{() => <ProtectedRoute resource="cities" component={CitiesPage} />}</Route>
       <Route path="/users">{() => <ProtectedRoute resource="users" component={UsersPage} />}</Route>
       <Route path="/audit">{() => <ProtectedRoute resource="audit" component={AuditPage} />}</Route>
+      <Route path="/archive">{() => <ProtectedRoute resource="audit" component={ArchivePage} />}</Route>
       <Route path="/dispatch">{() => <ProtectedRoute resource="dispatch" component={DispatchMapPage} />}</Route>
       <Route path="/fleet">{() => <ProtectedRoute resource="dispatch" component={FleetOpsPage} />}</Route>
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>

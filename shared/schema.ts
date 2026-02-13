@@ -74,6 +74,7 @@ export const users = pgTable("users", {
   driverId: integer("driver_id"),
   clinicId: integer("clinic_id"),
   patientId: integer("patient_id"),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -118,6 +119,8 @@ export const drivers = pgTable("drivers", {
   lastSeenAt: timestamp("last_seen_at"),
   status: driverStatusEnum("status").notNull().default("ACTIVE"),
   dispatchStatus: dispatchStatusEnum("dispatch_status").notNull().default("off"),
+  active: boolean("active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -140,6 +143,7 @@ export const clinics = pgTable("clinics", {
   contactName: text("contact_name"),
   facilityType: facilityTypeEnum("facility_type").notNull().default("clinic"),
   active: boolean("active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -163,6 +167,7 @@ export const patients = pgTable("patients", {
   notes: text("notes"),
   wheelchairRequired: boolean("wheelchair_required").notNull().default(false),
   active: boolean("active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

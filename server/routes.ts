@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, clinics, patients } from "@shared/schema";
 import { z } from "zod";
 import { eq, sql } from "drizzle-orm";
 import { db } from "./db";
@@ -2133,6 +2133,406 @@ export async function registerRoutes(
         })),
         conflicts,
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/archived", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const entity = req.query.entity as string;
+      switch (entity) {
+        case "clinics":
+          return res.json(await storage.getArchivedClinics());
+        case "drivers":
+          return res.json(await storage.getArchivedDrivers());
+        case "patients":
+          return res.json(await storage.getArchivedPatients());
+        case "users":
+          return res.json(await storage.getArchivedUsers());
+        default:
+          return res.status(400).json({ message: "Invalid entity type. Must be clinics, drivers, patients, or users" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/clinics/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const clinic = await storage.getClinic(id);
+      if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+      const hasActive = await storage.hasActiveTripsForClinic(id);
+      if (hasActive) return res.status(409).json({ message: "Cannot archive clinic with active trips" });
+
+      const updated = await storage.updateClinic(id, { active: false, deletedAt: new Date() });
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ARCHIVE",
+        entity: "clinic",
+        entityId: id,
+        details: `Archived clinic ${clinic.name}`,
+        cityId: clinic.cityId,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/clinics/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const clinic = await storage.getClinic(id);
+      if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+      const updated = await storage.updateClinic(id, { active: true, deletedAt: null } as any);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "RESTORE",
+        entity: "clinic",
+        entityId: id,
+        details: `Restored clinic ${clinic.name}`,
+        cityId: clinic.cityId,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/clinics/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const clinic = await storage.getClinic(id);
+      if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+      if (clinic.active) return res.status(400).json({ message: "Must archive before permanent delete" });
+
+      const hasActive = await storage.hasActiveTripsForClinic(id);
+      if (hasActive) return res.status(409).json({ message: "Cannot delete clinic with active trips" });
+
+      await storage.deleteClinic(id);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "PERMANENT_DELETE",
+        entity: "clinic",
+        entityId: id,
+        details: `Permanently deleted clinic ${clinic.name}`,
+        cityId: clinic.cityId,
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/drivers/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const driver = await storage.getDriver(id);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      const hasActive = await storage.hasActiveTripsForDriver(id);
+      if (hasActive) return res.status(409).json({ message: "Cannot archive driver with active trips" });
+
+      const updated = await storage.updateDriver(id, { active: false, deletedAt: new Date() });
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ARCHIVE",
+        entity: "driver",
+        entityId: id,
+        details: `Archived driver ${driver.firstName} ${driver.lastName}`,
+        cityId: driver.cityId,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/drivers/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const driver = await storage.getDriver(id);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      const updated = await storage.updateDriver(id, { active: true, deletedAt: null } as any);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "RESTORE",
+        entity: "driver",
+        entityId: id,
+        details: `Restored driver ${driver.firstName} ${driver.lastName}`,
+        cityId: driver.cityId,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/drivers/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const driver = await storage.getDriver(id);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      if (driver.active) return res.status(400).json({ message: "Must archive before permanent delete" });
+
+      const hasActive = await storage.hasActiveTripsForDriver(id);
+      if (hasActive) return res.status(409).json({ message: "Cannot delete driver with active trips" });
+
+      await storage.deleteDriver(id);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "PERMANENT_DELETE",
+        entity: "driver",
+        entityId: id,
+        details: `Permanently deleted driver ${driver.firstName} ${driver.lastName}`,
+        cityId: driver.cityId,
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/patients/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const patient = await storage.getPatient(id);
+      if (!patient) return res.status(404).json({ message: "Patient not found" });
+
+      const hasActive = await storage.hasActiveTripsForPatient(id);
+      if (hasActive) return res.status(409).json({ message: "Cannot archive patient with active trips" });
+
+      const updated = await storage.updatePatient(id, { active: false, deletedAt: new Date() });
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ARCHIVE",
+        entity: "patient",
+        entityId: id,
+        details: `Archived patient ${patient.firstName} ${patient.lastName}`,
+        cityId: patient.cityId,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/patients/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const patient = await storage.getPatient(id);
+      if (!patient) return res.status(404).json({ message: "Patient not found" });
+
+      const updated = await storage.updatePatient(id, { active: true, deletedAt: null } as any);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "RESTORE",
+        entity: "patient",
+        entityId: id,
+        details: `Restored patient ${patient.firstName} ${patient.lastName}`,
+        cityId: patient.cityId,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/patients/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const patient = await storage.getPatient(id);
+      if (!patient) return res.status(404).json({ message: "Patient not found" });
+
+      if (patient.active) return res.status(400).json({ message: "Must archive before permanent delete" });
+
+      const hasActive = await storage.hasActiveTripsForPatient(id);
+      if (hasActive) return res.status(409).json({ message: "Cannot delete patient with active trips" });
+
+      await storage.deletePatient(id);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "PERMANENT_DELETE",
+        entity: "patient",
+        entityId: id,
+        details: `Permanently deleted patient ${patient.firstName} ${patient.lastName}`,
+        cityId: patient.cityId,
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const user = await storage.getUser(id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      if (user.role === "SUPER_ADMIN") return res.status(400).json({ message: "Cannot archive super admin" });
+
+      const updated = await storage.updateUser(id, { active: false, deletedAt: new Date() } as any);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ARCHIVE",
+        entity: "user",
+        entityId: id,
+        details: `Archived user ${user.email}`,
+        cityId: null,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const user = await storage.getUser(id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const updated = await storage.updateUser(id, { active: true, deletedAt: null } as any);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "RESTORE",
+        entity: "user",
+        entityId: id,
+        details: `Restored user ${user.email}`,
+        cityId: null,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/users/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const user = await storage.getUser(id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      if (user.active) return res.status(400).json({ message: "Must archive before permanent delete" });
+
+      if (user.role === "SUPER_ADMIN") return res.status(400).json({ message: "Cannot delete super admin" });
+
+      await storage.deleteUser(id);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "PERMANENT_DELETE",
+        entity: "user",
+        entityId: id,
+        details: `Permanently deleted user ${user.email}`,
+        cityId: null,
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/users/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const targetUserId = parseInt(req.params.id);
+      if (isNaN(targetUserId)) return res.status(400).json({ message: "Invalid user ID" });
+
+      const targetUser = await storage.getUser(targetUserId);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
+
+      const parsed = z.object({ newPassword: z.string().min(8).optional() }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
+      }
+
+      const tempPassword = parsed.data?.newPassword || (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2).toUpperCase() + "!1");
+      const hashed = await hashPassword(tempPassword);
+      await db.update(users).set({ password: hashed, mustChangePassword: true }).where(eq(users.id, targetUserId));
+
+      if (targetUser.email) {
+        try {
+          const supabase = getSupabaseServer();
+          if (supabase) {
+            const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+            const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === targetUser.email.toLowerCase());
+            if (sbUser) {
+              await supabase.auth.admin.updateUser(sbUser.id, {
+                password: tempPassword,
+                user_metadata: { must_change_password: true },
+              });
+            }
+          }
+        } catch (sbErr: any) {
+          console.error("[adminResetPassword] Supabase password sync failed (non-fatal):", sbErr.message);
+        }
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ADMIN_RESET_PASSWORD",
+        entity: "user",
+        entityId: targetUserId,
+        details: `Super admin reset password for user ${targetUser.email}`,
+        cityId: null,
+      });
+
+      res.json({ ok: true, tempPassword });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
