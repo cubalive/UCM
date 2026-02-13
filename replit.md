@@ -112,3 +112,7 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: Twilio SMS integration: helper service, message templates, opt-out compliance table
 - 2026-02-13: SMS API endpoints: /api/sms/send, /api/trips/:id/notify, /api/twilio/inbound, /api/sms/health
 - 2026-02-13: SMS notification UI in Dispatch Center: template-based and custom SMS from active trips
+- 2026-02-13: Phone normalization: auto-convert (xxx) xxx-xxxx to E.164 on save (patients, drivers, clinics) and on send
+- 2026-02-13: SMS service hardening: retry-once on Twilio failure, structured error logging
+- 2026-02-13: Automatic SMS triggers: driver_assigned on trip assign, en_route on driver status enroute (with ETA), arrived on trip IN_PROGRESS
+- `server/lib/dispatchAutoSms.ts` - Shared auto-notification helper (fire-and-forget, opt-out aware)

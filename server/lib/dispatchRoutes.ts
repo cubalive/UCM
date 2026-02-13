@@ -4,6 +4,7 @@ import { authMiddleware, requireRole, type AuthRequest } from "../auth";
 import { etaMinutes } from "./googleMaps";
 import { z } from "zod";
 import { GOOGLE_MAPS_KEY } from "../../lib/mapsConfig";
+import { autoNotifyPatient } from "./dispatchAutoSms";
 
 const assignDriverVehicleSchema = z.object({
   driver_id: z.number().int().positive(),
@@ -187,6 +188,8 @@ export function registerDispatchRoutes(app: Express) {
           cityId: trip.cityId,
         });
 
+        autoNotifyPatient(trip_id, "driver_assigned");
+
         const finalTrip = await storage.getTrip(trip_id);
         res.json({
           trip: finalTrip,
@@ -321,6 +324,26 @@ export function registerDispatchRoutes(app: Express) {
         if (!driver) return res.status(404).json({ message: "Driver not found" });
 
         const updatedDriver = await storage.updateDriver(driver_id, { dispatchStatus: status } as any);
+
+        if (status === "enroute") {
+          const allTrips = await storage.getTrips(driver.cityId);
+          const activeTrip = allTrips.find(
+            (t) => t.driverId === driver_id && t.status === "ASSIGNED"
+          );
+          if (activeTrip) {
+            let etaMins: number | null = null;
+            if (driver.lastLat && driver.lastLng && activeTrip.pickupLat && activeTrip.pickupLng) {
+              try {
+                const eta = await etaMinutes(
+                  { lat: driver.lastLat, lng: driver.lastLng },
+                  { lat: activeTrip.pickupLat, lng: activeTrip.pickupLng }
+                );
+                if (eta) etaMins = eta.minutes;
+              } catch {}
+            }
+            autoNotifyPatient(activeTrip.id, "en_route", { eta_minutes: etaMins });
+          }
+        }
 
         await storage.createAuditLog({
           userId: req.user!.userId,

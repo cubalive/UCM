@@ -480,6 +480,12 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const trip = await storage.updateTripStatus(id, parsed.data.status);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+      if (parsed.data.status === "IN_PROGRESS") {
+        const { autoNotifyPatient } = await import("./lib/dispatchAutoSms");
+        autoNotifyPatient(id, "arrived");
+      }
+
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "UPDATE_STATUS",
