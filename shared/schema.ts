@@ -262,6 +262,22 @@ export const vehicleAssignmentHistory = pgTable("vehicle_assignment_history", {
   reason: text("reason"),
 });
 
+export const tripShareTokens = pgTable("trip_share_tokens", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  token: text("token").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revoked: boolean("revoked").notNull().default(false),
+});
+
+export const tripSmsLog = pgTable("trip_sms_log", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  kind: text("kind").notNull(),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+});
+
 export const auditLog = pgTable("audit_log", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").references(() => users.id),
@@ -285,6 +301,8 @@ export const insertCitySettingsSchema = createInsertSchema(citySettings);
 export const insertDriverVehicleAssignmentSchema = createInsertSchema(driverVehicleAssignments).omit({ id: true, createdAt: true });
 export const insertVehicleAssignmentHistorySchema = createInsertSchema(vehicleAssignmentHistory).omit({ id: true });
 export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true, createdAt: true });
+export const insertTripShareTokenSchema = createInsertSchema(tripShareTokens).omit({ id: true, createdAt: true });
+export const insertTripSmsLogSchema = createInsertSchema(tripSmsLog).omit({ id: true, sentAt: true });
 
 export type InsertCity = z.infer<typeof insertCitySchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -313,6 +331,10 @@ export type InsertCitySettings = z.infer<typeof insertCitySettingsSchema>;
 export type InsertDriverVehicleAssignment = z.infer<typeof insertDriverVehicleAssignmentSchema>;
 export type VehicleAssignmentHistory = typeof vehicleAssignmentHistory.$inferSelect;
 export type InsertVehicleAssignmentHistory = z.infer<typeof insertVehicleAssignmentHistorySchema>;
+export type TripShareToken = typeof tripShareTokens.$inferSelect;
+export type InsertTripShareToken = z.infer<typeof insertTripShareTokenSchema>;
+export type TripSmsLog = typeof tripSmsLog.$inferSelect;
+export type InsertTripSmsLog = z.infer<typeof insertTripSmsLogSchema>;
 
 export const loginSchema = z.object({
   email: z.string().email(),

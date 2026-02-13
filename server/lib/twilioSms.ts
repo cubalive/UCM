@@ -94,20 +94,25 @@ interface TemplateVars {
   vehicle_label?: string;
   eta_minutes?: number | null;
   dispatch_phone?: string;
+  tracking_url?: string;
 }
 
 const TEMPLATES: Record<TripNotifyStatus, (v: TemplateVars) => string> = {
   scheduled: (v) =>
     `Your ride is scheduled for ${v.pickup_time || "your appointment time"}. Reply STOP to opt out.`,
-  driver_assigned: (v) =>
-    `${v.driver_name || "Your driver"} is assigned. Vehicle: ${v.vehicle_label || "TBD"}.`,
+  driver_assigned: (v) => {
+    const track = v.tracking_url ? ` Track: ${v.tracking_url}` : "";
+    return `${v.driver_name || "Your driver"} is assigned. Vehicle: ${v.vehicle_label || "TBD"}.${track}`;
+  },
   en_route: (v) => {
     const eta = v.eta_minutes != null ? ` ETA: ${v.eta_minutes} minutes.` : "";
-    return `${v.driver_name || "Your driver"} is on the way.${eta}`;
+    const track = v.tracking_url ? ` Track: ${v.tracking_url}` : "";
+    return `${v.driver_name || "Your driver"} is on the way.${eta}${track}`;
   },
   arriving_soon: (v) => {
     const eta = v.eta_minutes != null ? `about ${v.eta_minutes} minutes` : "about 5 minutes";
-    return `United Care Mobility: Your driver will arrive in ${eta}.`;
+    const track = v.tracking_url ? ` Track: ${v.tracking_url}` : "";
+    return `United Care Mobility: Your driver will arrive in ${eta}.${track}`;
   },
   arrived: (v) =>
     `${v.driver_name || "Your driver"} has arrived.`,

@@ -26,6 +26,7 @@ import ClinicInvoicesPage from "@/pages/clinic-invoices";
 import FleetOpsPage from "@/pages/fleet-ops";
 import LiveMapPage from "@/pages/live-map";
 import UnauthorizedPage from "@/pages/unauthorized";
+import PublicTrackingPage from "@/pages/public-tracking";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -149,9 +150,14 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <AuthenticatedApp />
-        </AuthProvider>
+        <Switch>
+          <Route path="/t/:token" component={PublicTrackingPage} />
+          <Route>
+            <AuthProvider>
+              <AuthenticatedApp />
+            </AuthProvider>
+          </Route>
+        </Switch>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

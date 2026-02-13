@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { RecurringSchedule, type TripType } from "@/components/recurring-schedule";
@@ -314,6 +314,7 @@ function TripDetailDialog({
   const { toast } = useToast();
   const [smsOpen, setSmsOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
 
   const [editTripType, setEditTripType] = useState<TripType>(trip.tripType || "one_time");
   const [editRecurringDays, setEditRecurringDays] = useState<string[]>(trip.recurringDays || []);
@@ -323,6 +324,36 @@ function TripDetailDialog({
   const [editNotes, setEditNotes] = useState(trip.notes || "");
 
   const todayStr = getTodayInTimezone(cityTimezone);
+
+  const isActiveTrip = trip.status === "ASSIGNED" || trip.status === "IN_PROGRESS";
+  const hasDriver = !!trip.driverId;
+
+  const { data: etaData } = useQuery<{ ok: boolean; eta_minutes?: number; distance_text?: string; updated_at?: string; source?: string; message?: string }>({
+    queryKey: ["/api/trips", trip.id, "eta-to-pickup"],
+    queryFn: () => apiFetch(`/api/trips/${trip.id}/eta-to-pickup`, token),
+    enabled: !!token && hasDriver && isActiveTrip,
+    refetchInterval: 120000,
+  });
+
+  const createTokenMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/trips/${trip.id}/share-token`, token, { method: "POST" }),
+    onSuccess: (data: any) => {
+      setTrackingUrl(data.url);
+      toast({ title: "Tracking link created" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const revokeTokenMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/trips/${trip.id}/share-token/revoke`, token, { method: "POST" }),
+    onSuccess: () => {
+      setTrackingUrl(null);
+      toast({ title: "Tracking link revoked" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
 
   const updateMutation = useMutation({
     mutationFn: (data: any) =>
@@ -469,6 +500,86 @@ function TripDetailDialog({
               <div className="space-y-2">
                 <h3 className="text-sm font-medium text-muted-foreground">Driver</h3>
                 <p className="text-sm" data-testid="text-trip-driver">{driver.firstName} {driver.lastName}</p>
+              </div>
+            )}
+
+            {isActiveTrip && hasDriver && etaData?.ok && etaData.eta_minutes != null && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Navigation className="w-4 h-4" />
+                  ETA to Pickup
+                </h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant={etaData.eta_minutes <= 5 ? "destructive" : "secondary"} data-testid="badge-eta-minutes">
+                    <Clock className="w-3 h-3 mr-1" />
+                    {etaData.eta_minutes} min
+                  </Badge>
+                  {etaData.distance_text && (
+                    <span className="text-sm text-muted-foreground" data-testid="text-eta-distance">{etaData.distance_text}</span>
+                  )}
+                  {etaData.source === "cached" && (
+                    <span className="text-xs text-muted-foreground">(cached)</span>
+                  )}
+                </div>
+                {etaData.eta_minutes <= 5 && trip.status === "IN_PROGRESS" && (
+                  <Badge variant="destructive" className="mt-1" data-testid="badge-five-min-alert">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    Driver is 5 minutes away
+                  </Badge>
+                )}
+              </div>
+            )}
+
+            {canSendSms && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <LinkIcon className="w-4 h-4" />
+                  Tracking Link
+                </h3>
+                {trackingUrl ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={trackingUrl}
+                        readOnly
+                        className="text-xs font-mono flex-1"
+                        data-testid="input-tracking-url"
+                      />
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        onClick={() => {
+                          navigator.clipboard.writeText(trackingUrl);
+                          toast({ title: "Link copied" });
+                        }}
+                        data-testid="button-copy-tracking-link"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => revokeTokenMutation.mutate()}
+                      disabled={revokeTokenMutation.isPending}
+                      data-testid="button-revoke-tracking-link"
+                    >
+                      <XCircle className="w-4 h-4 mr-1" />
+                      {revokeTokenMutation.isPending ? "Revoking..." : "Revoke Link"}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => createTokenMutation.mutate()}
+                    disabled={createTokenMutation.isPending}
+                    data-testid="button-create-tracking-link"
+                  >
+                    <Link2 className="w-4 h-4 mr-1" />
+                    {createTokenMutation.isPending ? "Creating..." : "Create Tracking Link"}
+                  </Button>
+                )}
               </div>
             )}
 

@@ -2,12 +2,13 @@ import { db } from "./db";
 import { eq, and, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
 import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
-  citySettings, driverVehicleAssignments, vehicleAssignmentHistory,
+  citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
   type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog, type InsertInvoice,
   type InsertCitySettings, type InsertDriverVehicleAssignment, type InsertVehicleAssignmentHistory,
   type City, type User, type Vehicle, type Driver, type Clinic, type Patient, type Trip, type AuditLog, type SmsOptOut, type Invoice,
   type CitySettings, type DriverVehicleAssignment, type VehicleAssignmentHistory,
+  type TripShareToken, type InsertTripShareToken, type TripSmsLog, type InsertTripSmsLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -78,6 +79,14 @@ export interface IStorage {
   getVehicleAssignmentHistory(driverId: number): Promise<VehicleAssignmentHistory[]>;
   createVehicleAssignmentHistory(data: InsertVehicleAssignmentHistory): Promise<VehicleAssignmentHistory>;
   closeVehicleAssignmentHistory(driverId: number, vehicleId: number): Promise<void>;
+
+  createTripShareToken(data: InsertTripShareToken): Promise<TripShareToken>;
+  getActiveTokenForTrip(tripId: number): Promise<TripShareToken | undefined>;
+  getTokenByValue(token: string): Promise<TripShareToken | undefined>;
+  revokeTokensForTrip(tripId: number): Promise<void>;
+
+  createTripSmsLog(data: InsertTripSmsLog): Promise<TripSmsLog>;
+  hasSmsBeenSent(tripId: number, kind: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -464,6 +473,52 @@ export class DatabaseStorage implements IStorage {
         eq(vehicleAssignmentHistory.vehicleId, vehicleId),
         isNull(vehicleAssignmentHistory.unassignedAt),
       ));
+  }
+
+  async createTripShareToken(data: InsertTripShareToken): Promise<TripShareToken> {
+    const [row] = await db.insert(tripShareTokens).values(data).returning();
+    return row;
+  }
+
+  async getActiveTokenForTrip(tripId: number): Promise<TripShareToken | undefined> {
+    const [row] = await db.select().from(tripShareTokens)
+      .where(and(
+        eq(tripShareTokens.tripId, tripId),
+        eq(tripShareTokens.revoked, false),
+        sql`${tripShareTokens.expiresAt} > NOW()`,
+      ))
+      .orderBy(desc(tripShareTokens.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async getTokenByValue(token: string): Promise<TripShareToken | undefined> {
+    const [row] = await db.select().from(tripShareTokens)
+      .where(eq(tripShareTokens.token, token));
+    return row;
+  }
+
+  async revokeTokensForTrip(tripId: number): Promise<void> {
+    await db.update(tripShareTokens)
+      .set({ revoked: true })
+      .where(and(
+        eq(tripShareTokens.tripId, tripId),
+        eq(tripShareTokens.revoked, false),
+      ));
+  }
+
+  async createTripSmsLog(data: InsertTripSmsLog): Promise<TripSmsLog> {
+    const [row] = await db.insert(tripSmsLog).values(data).returning();
+    return row;
+  }
+
+  async hasSmsBeenSent(tripId: number, kind: string): Promise<boolean> {
+    const [row] = await db.select({ cnt: count() }).from(tripSmsLog)
+      .where(and(
+        eq(tripSmsLog.tripId, tripId),
+        eq(tripSmsLog.kind, kind),
+      ));
+    return (row?.cnt ?? 0) > 0;
   }
 }
 

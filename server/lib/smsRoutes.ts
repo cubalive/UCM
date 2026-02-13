@@ -160,12 +160,30 @@ export function registerSmsRoutes(app: Express) {
           }
         }
 
+        let trackingUrl: string | undefined;
+        const trackingStatuses: TripNotifyStatus[] = ["driver_assigned", "en_route", "arriving_soon"];
+        if (trackingStatuses.includes(parsed.data.status)) {
+          try {
+            const existing = await storage.getActiveTokenForTrip(tripId);
+            if (existing) {
+              trackingUrl = `${req.protocol}://${req.get("host")}/t/${existing.token}`;
+            } else {
+              const crypto = await import("crypto");
+              const tokenValue = crypto.randomBytes(32).toString("hex");
+              const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+              await storage.createTripShareToken({ tripId, token: tokenValue, expiresAt });
+              trackingUrl = `${req.protocol}://${req.get("host")}/t/${tokenValue}`;
+            }
+          } catch {}
+        }
+
         const message = buildNotifyMessage(parsed.data.status, {
           pickup_time: `${trip.scheduledDate} ${trip.scheduledTime}`,
           driver_name: driverName,
           vehicle_label: vehicleLabel,
           eta_minutes: etaMinutes,
           dispatch_phone: getDispatchPhone(),
+          tracking_url: trackingUrl,
         });
 
         const result = await sendSms(patientPhone, message);
