@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, getUserCityIds, type AuthRequest } from "../auth";
 import { z } from "zod";
 import { runVehicleAutoAssignForCity } from "./vehicleAutoAssign";
 
@@ -85,6 +85,10 @@ export function registerVehicleAssignRoutes(app: Express) {
         if (!cityId || !date) {
           return res.status(400).json({ message: "cityId and date are required" });
         }
+        const userCityIds = await getUserCityIds(req.user!.userId, req.user!.role);
+        if (userCityIds.length > 0 && !userCityIds.includes(cityId)) {
+          return res.status(403).json({ message: "You do not have access to this city" });
+        }
         const assignments = await storage.getDriverVehicleAssignments(cityId, date);
         res.json(assignments);
       } catch (err: any) {
@@ -165,6 +169,236 @@ export function registerVehicleAssignRoutes(app: Express) {
         });
 
         res.json(assignment);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.post("/api/dispatch/assignments/reassign-vehicle",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const schema = z.object({
+          assignmentId: z.number().int().positive(),
+          newVehicleId: z.number().int().positive(),
+          updateTrips: z.boolean().default(false),
+          notes: z.string().optional(),
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Invalid request body", errors: parsed.error.flatten() });
+        }
+
+        const { assignmentId, newVehicleId, updateTrips, notes } = parsed.data;
+
+        const { db } = await import("../db");
+        const { driverVehicleAssignments } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+        const [assignmentRow] = await db.select().from(driverVehicleAssignments).where(eq(driverVehicleAssignments.id, assignmentId));
+
+        if (!assignmentRow) {
+          return res.status(404).json({ message: "Assignment not found" });
+        }
+
+        const driver = await storage.getDriver(assignmentRow.driverId);
+        if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+        const userCityIds = await getUserCityIds(req.user!.userId, req.user!.role);
+        if (userCityIds.length > 0 && !userCityIds.includes(driver.cityId)) {
+          return res.status(403).json({ message: "You do not have access to this city" });
+        }
+
+        const newVehicle = await storage.getVehicle(newVehicleId);
+        if (!newVehicle) return res.status(404).json({ message: "New vehicle not found" });
+
+        if (driver.cityId !== newVehicle.cityId) {
+          return res.status(400).json({ message: "Driver and vehicle must belong to the same city" });
+        }
+
+        if (newVehicle.status !== "ACTIVE") {
+          return res.status(400).json({ message: `Vehicle is ${newVehicle.status}, must be ACTIVE` });
+        }
+
+        if (!newVehicle.active) {
+          return res.status(400).json({ message: "Vehicle is archived" });
+        }
+
+        const cityAssignments = await storage.getDriverVehicleAssignments(driver.cityId, assignmentRow.date);
+        const conflicting = cityAssignments.find(a => a.vehicleId === newVehicleId && a.id !== assignmentId);
+        if (conflicting) {
+          const otherDriver = await storage.getDriver(conflicting.driverId);
+          return res.status(409).json({
+            message: `Vehicle already assigned to ${otherDriver?.firstName} ${otherDriver?.lastName} for ${assignmentRow.date}`,
+          });
+        }
+
+        const oldVehicleId = assignmentRow.vehicleId;
+        const oldVehicle = await storage.getVehicle(oldVehicleId);
+
+        await storage.updateDriverVehicleAssignment(assignmentId, {
+          vehicleId: newVehicleId,
+          assignedBy: "dispatch",
+          status: "active",
+          notes: notes || null,
+          updatedBy: req.user!.userId,
+          updatedAt: new Date(),
+        } as any);
+
+        await storage.updateDriver(driver.id, { vehicleId: newVehicleId });
+
+        if (oldVehicleId) {
+          await storage.closeVehicleAssignmentHistory(driver.id, oldVehicleId);
+        }
+        await storage.createVehicleAssignmentHistory({
+          driverId: driver.id,
+          vehicleId: newVehicleId,
+          cityId: driver.cityId,
+          assignedAt: new Date(),
+          assignedBy: req.user!.userId.toString(),
+        });
+
+        let tripsUpdated = 0;
+        if (updateTrips) {
+          const driverTrips = await storage.getTripsByDriverAndDate(driver.id, assignmentRow.date);
+          for (const trip of driverTrips) {
+            await storage.updateTrip(trip.id, { vehicleId: newVehicleId });
+            tripsUpdated++;
+          }
+        }
+
+        await storage.createAuditLog({
+          userId: req.user!.userId,
+          action: "REASSIGN_VEHICLE",
+          entity: "driver_vehicle_assignments",
+          entityId: assignmentId,
+          details: `Reassigned vehicle for driver ${driver.firstName} ${driver.lastName}: ${oldVehicle?.name || oldVehicleId} → ${newVehicle.name}${notes ? ` (notes: ${notes})` : ""}${updateTrips ? ` (${tripsUpdated} trips updated)` : ""}`,
+          cityId: driver.cityId,
+        });
+
+        res.json({ success: true, tripsUpdated });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.post("/api/dispatch/assignments/swap-drivers",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const schema = z.object({
+          assignmentIdA: z.number().int().positive(),
+          assignmentIdB: z.number().int().positive(),
+          updateTrips: z.boolean().default(false),
+          notes: z.string().optional(),
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Invalid request body", errors: parsed.error.flatten() });
+        }
+
+        const { assignmentIdA, assignmentIdB, updateTrips, notes } = parsed.data;
+
+        if (assignmentIdA === assignmentIdB) {
+          return res.status(400).json({ message: "Cannot swap a driver with themselves" });
+        }
+
+        const { db } = await import("../db");
+        const { driverVehicleAssignments } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+
+        const [assignmentA] = await db.select().from(driverVehicleAssignments).where(eq(driverVehicleAssignments.id, assignmentIdA));
+        const [assignmentB] = await db.select().from(driverVehicleAssignments).where(eq(driverVehicleAssignments.id, assignmentIdB));
+
+        if (!assignmentA) return res.status(404).json({ message: "Assignment A not found" });
+        if (!assignmentB) return res.status(404).json({ message: "Assignment B not found" });
+
+        if (assignmentA.date !== assignmentB.date) {
+          return res.status(400).json({ message: "Both assignments must be on the same date" });
+        }
+
+        const driverA = await storage.getDriver(assignmentA.driverId);
+        const driverB = await storage.getDriver(assignmentB.driverId);
+        if (!driverA || !driverB) return res.status(404).json({ message: "Driver not found" });
+
+        if (driverA.cityId !== driverB.cityId) {
+          return res.status(400).json({ message: "Both drivers must belong to the same city" });
+        }
+
+        const userCityIds = await getUserCityIds(req.user!.userId, req.user!.role);
+        if (userCityIds.length > 0 && !userCityIds.includes(driverA.cityId)) {
+          return res.status(403).json({ message: "You do not have access to this city" });
+        }
+
+        const vehicleIdA = assignmentA.vehicleId;
+        const vehicleIdB = assignmentB.vehicleId;
+
+        await storage.updateDriverVehicleAssignment(assignmentIdA, {
+          vehicleId: vehicleIdB,
+          assignedBy: "dispatch",
+          status: "active",
+          notes: notes || null,
+          updatedBy: req.user!.userId,
+          updatedAt: new Date(),
+        } as any);
+
+        await storage.updateDriverVehicleAssignment(assignmentIdB, {
+          vehicleId: vehicleIdA,
+          assignedBy: "dispatch",
+          status: "active",
+          notes: notes || null,
+          updatedBy: req.user!.userId,
+          updatedAt: new Date(),
+        } as any);
+
+        await storage.updateDriver(driverA.id, { vehicleId: vehicleIdB });
+        await storage.updateDriver(driverB.id, { vehicleId: vehicleIdA });
+
+        if (vehicleIdA) {
+          await storage.closeVehicleAssignmentHistory(driverA.id, vehicleIdA);
+          await storage.createVehicleAssignmentHistory({
+            driverId: driverB.id, vehicleId: vehicleIdA, cityId: driverB.cityId,
+            assignedAt: new Date(), assignedBy: req.user!.userId.toString(),
+          });
+        }
+        if (vehicleIdB) {
+          await storage.closeVehicleAssignmentHistory(driverB.id, vehicleIdB);
+          await storage.createVehicleAssignmentHistory({
+            driverId: driverA.id, vehicleId: vehicleIdB, cityId: driverA.cityId,
+            assignedAt: new Date(), assignedBy: req.user!.userId.toString(),
+          });
+        }
+
+        let tripsUpdated = 0;
+        if (updateTrips) {
+          const tripsA = await storage.getTripsByDriverAndDate(driverA.id, assignmentA.date);
+          for (const trip of tripsA) {
+            await storage.updateTrip(trip.id, { vehicleId: vehicleIdB });
+            tripsUpdated++;
+          }
+          const tripsB = await storage.getTripsByDriverAndDate(driverB.id, assignmentB.date);
+          for (const trip of tripsB) {
+            await storage.updateTrip(trip.id, { vehicleId: vehicleIdA });
+            tripsUpdated++;
+          }
+        }
+
+        const vehicleA = vehicleIdA ? await storage.getVehicle(vehicleIdA) : null;
+        const vehicleB = vehicleIdB ? await storage.getVehicle(vehicleIdB) : null;
+
+        await storage.createAuditLog({
+          userId: req.user!.userId,
+          action: "SWAP_DRIVERS",
+          entity: "driver_vehicle_assignments",
+          entityId: assignmentIdA,
+          details: `Swapped vehicles: ${driverA.firstName} ${driverA.lastName} (${vehicleA?.name || "none"} → ${vehicleB?.name || "none"}) ↔ ${driverB.firstName} ${driverB.lastName} (${vehicleB?.name || "none"} → ${vehicleA?.name || "none"})${notes ? ` (notes: ${notes})` : ""}${updateTrips ? ` (${tripsUpdated} trips updated)` : ""}`,
+          cityId: driverA.cityId,
+        });
+
+        res.json({ success: true, tripsUpdated });
       } catch (err: any) {
         res.status(500).json({ message: err.message });
       }

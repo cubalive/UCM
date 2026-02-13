@@ -58,6 +58,12 @@ export const tripTypeEnum = pgEnum("trip_type", [
   "recurring",
 ]);
 
+export const assignmentStatusEnum = pgEnum("assignment_status", [
+  "active",
+  "reassigned",
+  "cancelled",
+]);
+
 export const cities = pgTable("cities", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
@@ -110,6 +116,8 @@ export const vehicles = pgTable("vehicles", {
   maintenanceNotes: text("maintenance_notes"),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by"),
+  deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -132,6 +140,8 @@ export const drivers = pgTable("drivers", {
   dispatchStatus: dispatchStatusEnum("dispatch_status").notNull().default("off"),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by"),
+  deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -281,6 +291,10 @@ export const driverVehicleAssignments = pgTable("driver_vehicle_assignments", {
   driverId: integer("driver_id").notNull().references(() => drivers.id),
   vehicleId: integer("vehicle_id").notNull().references(() => vehicles.id),
   assignedBy: assignedByEnum("assigned_by").notNull().default("system"),
+  status: assignmentStatusEnum("status").notNull().default("active"),
+  notes: text("notes"),
+  updatedBy: integer("updated_by"),
+  updatedAt: timestamp("updated_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

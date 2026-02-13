@@ -2777,14 +2777,15 @@ export async function registerRoutes(
       const hasActive = await storage.hasActiveTripsForDriver(id);
       if (hasActive) return res.status(409).json({ message: "Cannot archive driver with active trips" });
 
-      const updated = await storage.updateDriver(id, { active: false, deletedAt: new Date() });
+      const reason = req.body?.reason || null;
+      const updated = await storage.updateDriver(id, { active: false, deletedAt: new Date(), deletedBy: req.user!.userId, deleteReason: reason } as any);
 
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "ARCHIVE",
         entity: "driver",
         entityId: id,
-        details: `Archived driver ${driver.firstName} ${driver.lastName}`,
+        details: `Archived driver ${driver.firstName} ${driver.lastName}${reason ? ` (reason: ${reason})` : ""}`,
         cityId: driver.cityId,
       });
 
@@ -2794,7 +2795,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/drivers/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/drivers/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -2802,7 +2803,7 @@ export async function registerRoutes(
       const driver = await storage.getDriver(id);
       if (!driver) return res.status(404).json({ message: "Driver not found" });
 
-      const updated = await storage.updateDriver(id, { active: true, deletedAt: null } as any);
+      const updated = await storage.updateDriver(id, { active: true, deletedAt: null, deletedBy: null, deleteReason: null } as any);
 
       await storage.createAuditLog({
         userId: req.user!.userId,
@@ -2819,7 +2820,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/drivers/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.delete("/api/admin/drivers/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -3236,8 +3237,8 @@ export async function registerRoutes(
     }
   });
 
-  // Vehicle archive/restore/permanent delete (SUPER_ADMIN only)
-  app.patch("/api/admin/vehicles/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  // Vehicle archive/restore/permanent delete
+  app.patch("/api/admin/vehicles/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -3245,13 +3246,14 @@ export async function registerRoutes(
       if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
       const hasActive = await storage.hasActiveTripsForVehicle(id);
       if (hasActive) return res.status(409).json({ message: "Cannot archive vehicle with active trips" });
-      const updated = await storage.updateVehicle(id, { active: false, deletedAt: new Date() });
+      const reason = req.body?.reason || null;
+      const updated = await storage.updateVehicle(id, { active: false, deletedAt: new Date(), deletedBy: req.user!.userId, deleteReason: reason } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "ARCHIVE",
         entity: "vehicle",
         entityId: id,
-        details: `Archived vehicle ${vehicle.name}`,
+        details: `Archived vehicle ${vehicle.name}${reason ? ` (reason: ${reason})` : ""}`,
         cityId: vehicle.cityId,
       });
       res.json(updated);
@@ -3266,7 +3268,7 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
       const vehicle = await storage.getVehicle(id);
       if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
-      const updated = await storage.updateVehicle(id, { active: true, deletedAt: null } as any);
+      const updated = await storage.updateVehicle(id, { active: true, deletedAt: null, deletedBy: null, deleteReason: null } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "RESTORE",
