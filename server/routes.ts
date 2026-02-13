@@ -331,7 +331,12 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
       const publicId = await generatePublicId();
-      const driver = await storage.createDriver({ ...parsed.data, publicId });
+      const driverData = { ...parsed.data, publicId };
+      if (driverData.phone) {
+        const { normalizePhone } = await import("./lib/twilioSms");
+        driverData.phone = normalizePhone(driverData.phone) || driverData.phone;
+      }
+      const driver = await storage.createDriver(driverData);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
@@ -366,7 +371,12 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
       const publicId = await generatePublicId();
-      const clinic = await storage.createClinic({ ...parsed.data, publicId });
+      const clinicData = { ...parsed.data, publicId };
+      if (clinicData.phone) {
+        const { normalizePhone } = await import("./lib/twilioSms");
+        clinicData.phone = normalizePhone(clinicData.phone) || clinicData.phone;
+      }
+      const clinic = await storage.createClinic(clinicData);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",

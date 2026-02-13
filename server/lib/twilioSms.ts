@@ -42,27 +42,40 @@ export interface SendSmsResult {
 export async function sendSms(to: string, message: string): Promise<SendSmsResult> {
   const client = getClient();
   if (!client) {
+    console.error("[SMS] Twilio client not configured");
     return { success: false, error: "Twilio not configured" };
   }
   if (!TWILIO_FROM_NUMBER) {
+    console.error("[SMS] TWILIO_FROM_NUMBER not set");
     return { success: false, error: "TWILIO_FROM_NUMBER not set" };
   }
-  if (!isValidE164(to)) {
-    return { success: false, error: "Invalid E.164 phone number" };
+
+  const normalized = normalizePhone(to);
+  const dest = normalized || to;
+  if (!isValidE164(dest)) {
+    console.error(`[SMS] Invalid phone after normalization: ${to} → ${dest}`);
+    return { success: false, error: "Invalid phone number" };
   }
 
-  try {
-    const msg = await client.messages.create({
-      to,
-      from: TWILIO_FROM_NUMBER,
-      body: message,
-    });
-    console.log(`[SMS] Sent to ${to}, SID: ${msg.sid}`);
-    return { success: true, sid: msg.sid };
-  } catch (err: any) {
-    console.error(`[SMS] Failed to send to ${to}:`, err.message);
-    return { success: false, error: err.message };
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const msg = await client.messages.create({
+        to: dest,
+        from: TWILIO_FROM_NUMBER,
+        body: message,
+      });
+      console.log(`[SMS] Sent to ${dest}, SID: ${msg.sid}, attempt: ${attempt}`);
+      return { success: true, sid: msg.sid };
+    } catch (err: any) {
+      console.error(`[SMS] Attempt ${attempt} failed for ${dest}: ${err.message}`);
+      if (attempt === 2) {
+        return { success: false, error: err.message };
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
+
+  return { success: false, error: "SMS send failed after retries" };
 }
 
 export type TripNotifyStatus =
