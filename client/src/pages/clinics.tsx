@@ -82,15 +82,14 @@ export default function ClinicsPage() {
 
   const inviteMutation = useMutation({
     mutationFn: (clinicId: number) =>
-      apiFetch(`/api/admin/clinics/${clinicId}/send-invite`, token, {
+      apiFetch(`/api/admin/send-login-link`, token, {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify({ targetType: "clinic", targetId: String(clinicId) }),
       }),
     onSuccess: (data: any) => {
-      toast({ title: "Invite sent", description: data.message });
-      queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
+      toast({ title: "Login link sent", description: data.message });
     },
-    onError: (err: any) => toast({ title: "Failed to send invite", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Failed to send login link", description: err.message, variant: "destructive" }),
   });
 
   const filtered = clinics?.filter(

@@ -135,15 +135,14 @@ export default function DriversPage() {
 
   const inviteMutation = useMutation({
     mutationFn: (driverId: number) =>
-      apiFetch(`/api/admin/drivers/${driverId}/send-invite`, token, {
+      apiFetch(`/api/admin/send-login-link`, token, {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify({ targetType: "driver", targetId: String(driverId) }),
       }),
     onSuccess: (data: any) => {
-      toast({ title: "Invite sent", description: data.message });
-      queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
+      toast({ title: "Login link sent", description: data.message });
     },
-    onError: (err: any) => toast({ title: "Failed to send invite", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Failed to send login link", description: err.message, variant: "destructive" }),
   });
 
   const backfillMutation = useMutation({

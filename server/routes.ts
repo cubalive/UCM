@@ -1747,6 +1747,188 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/send-login-link", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { targetType, targetId } = req.body;
+      if (!targetType || !targetId) {
+        return res.status(400).json({ message: "targetType and targetId are required" });
+      }
+      if (!["clinic", "driver"].includes(targetType)) {
+        return res.status(400).json({ message: "targetType must be 'clinic' or 'driver'" });
+      }
+
+      const id = parseInt(targetId);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid targetId" });
+
+      let email: string | null = null;
+      let recipientName = "";
+      let clinicId: number | null = null;
+      let driverId: number | null = null;
+      let role = "";
+
+      if (targetType === "clinic") {
+        const clinic = await storage.getClinic(id);
+        if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+        if (!clinic.email) return res.status(400).json({ message: "Clinic has no email address" });
+        email = clinic.email;
+        recipientName = clinic.name;
+        clinicId = clinic.id;
+        role = "VIEWER";
+      } else {
+        const driver = await storage.getDriver(id);
+        if (!driver) return res.status(404).json({ message: "Driver not found" });
+        if (!driver.email) return res.status(400).json({ message: "Driver has no email address" });
+        email = driver.email;
+        recipientName = `${driver.firstName} ${driver.lastName}`;
+        driverId = driver.id;
+        role = "DRIVER";
+      }
+
+      const crypto = await import("crypto");
+      const { loginTokens } = await import("@shared/schema");
+      const { sendEmail, buildLoginLinkEmail } = await import("./lib/email");
+
+      const recentCheck = await db.select().from(loginTokens)
+        .where(sql`role = ${role} AND (${clinicId ? sql`clinic_id = ${clinicId}` : sql`driver_id = ${driverId}`}) AND created_at > NOW() - INTERVAL '60 seconds'`)
+        .limit(1);
+      if (recentCheck.length > 0) {
+        return res.status(429).json({ message: "A login link was sent recently. Please wait 60 seconds." });
+      }
+
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      const user = targetType === "clinic"
+        ? await storage.getUserByClinicId(clinicId!)
+        : await storage.getUserByDriverId(driverId!);
+
+      await db.insert(loginTokens).values({
+        tokenHash,
+        userId: user?.id || null,
+        clinicId,
+        driverId,
+        role,
+        expiresAt,
+        createdBy: req.user!.userId,
+      });
+
+      const appUrl = process.env.APP_PUBLIC_URL || `https://${process.env.REPLIT_DOMAINS?.split(",")[0] || "localhost:5000"}`;
+      const loginUrl = `${appUrl}/login?token=${rawToken}`;
+
+      const { subject, html } = buildLoginLinkEmail({
+        recipientName,
+        loginUrl,
+        expiresMinutes: 15,
+      });
+
+      const emailResult = await sendEmail({ to: email, subject, html });
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "SEND_LOGIN_LINK",
+        entity: targetType,
+        entityId: id,
+        details: `Sent login link to ${recipientName} (${email}). Email ${emailResult.success ? "delivered" : "failed"}: ${emailResult.error || "ok"}`,
+        cityId: null,
+      });
+
+      if (!emailResult.success) {
+        return res.status(500).json({ message: `Email failed: ${emailResult.error}` });
+      }
+
+      res.json({ success: true, message: `Login link sent to ${email}` });
+    } catch (err: any) {
+      console.error("[SEND_LOGIN_LINK] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/auth/token-login", async (req, res) => {
+    try {
+      const { token: rawToken } = req.body;
+      if (!rawToken || typeof rawToken !== "string") {
+        return res.status(400).json({ message: "Token is required" });
+      }
+
+      const crypto = await import("crypto");
+      const { loginTokens } = await import("@shared/schema");
+      const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+      const [record] = await db.select().from(loginTokens)
+        .where(sql`token_hash = ${tokenHash}`)
+        .limit(1);
+
+      if (!record) {
+        return res.status(401).json({ message: "Invalid login link. Please request a new one from your administrator." });
+      }
+
+      if (record.usedAt) {
+        return res.status(401).json({ message: "This login link has already been used. Please request a new one." });
+      }
+
+      if (new Date(record.expiresAt) < new Date()) {
+        return res.status(401).json({ message: "This login link has expired. Please request a new one." });
+      }
+
+      await db.update(loginTokens).set({ usedAt: new Date() }).where(eq(loginTokens.id, record.id));
+
+      let user;
+      if (record.userId) {
+        user = await storage.getUser(record.userId);
+      }
+
+      if (!user && record.clinicId) {
+        user = await storage.getUserByClinicId(record.clinicId);
+      }
+
+      if (!user && record.driverId) {
+        user = await storage.getUserByDriverId(record.driverId);
+      }
+
+      if (!user) {
+        return res.status(404).json({ message: "No user account found for this login link. Contact your administrator." });
+      }
+
+      if (!user.active) {
+        return res.status(403).json({ message: "Account disabled" });
+      }
+
+      const jwtToken = signToken({ userId: user.id, role: user.role });
+      const cityAccess = await storage.getUserCityAccess(user.id);
+      const allCities = await storage.getCities();
+      const accessibleCities = user.role === "SUPER_ADMIN"
+        ? allCities
+        : allCities.filter((c) => cityAccess.includes(c.id));
+
+      const { password, ...safeUser } = user;
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "TOKEN_LOGIN",
+        entity: "user",
+        entityId: user.id,
+        details: `User ${user.email} logged in via magic link`,
+        cityId: null,
+      });
+
+      res.json({
+        token: jwtToken,
+        user: { ...safeUser, cityAccess },
+        cities: accessibleCities,
+      });
+    } catch (err: any) {
+      console.error("[TOKEN_LOGIN] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/debug/email-health", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res) => {
+    const { getEmailHealth } = await import("./lib/email");
+    res.json(getEmailHealth());
+  });
+
   app.get("/api/admin/clinics/city-mismatch", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const allClinics = await storage.getClinics();

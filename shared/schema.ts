@@ -349,6 +349,21 @@ export type InsertTripShareToken = z.infer<typeof insertTripShareTokenSchema>;
 export type TripSmsLog = typeof tripSmsLog.$inferSelect;
 export type InsertTripSmsLog = z.infer<typeof insertTripSmsLogSchema>;
 
+export const loginTokens = pgTable("login_tokens", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tokenHash: text("token_hash").notNull().unique(),
+  userId: integer("user_id"),
+  clinicId: integer("clinic_id"),
+  driverId: integer("driver_id"),
+  role: text("role").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type LoginToken = typeof loginTokens.$inferSelect;
+
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
