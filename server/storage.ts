@@ -1,10 +1,10 @@
 import { db } from "./db";
 import { eq, and, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
 import {
-  cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog,
+  cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
   type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog,
-  type City, type User, type Vehicle, type Driver, type Clinic, type Patient, type Trip, type AuditLog,
+  type City, type User, type Vehicle, type Driver, type Clinic, type Patient, type Trip, type AuditLog, type SmsOptOut,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -48,6 +48,9 @@ export interface IStorage {
 
   getStats(cityId?: number): Promise<Record<string, number>>;
   getTripStatusSummary(cityId?: number): Promise<Record<string, number>>;
+
+  isPhoneOptedOut(phone: string): Promise<boolean>;
+  setPhoneOptOut(phone: string, optedOut: boolean): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -276,6 +279,19 @@ export class DatabaseStorage implements IStorage {
       summary[row.status] = Number(row.value);
     }
     return summary;
+  }
+  async isPhoneOptedOut(phone: string): Promise<boolean> {
+    const [row] = await db.select().from(smsOptOut).where(eq(smsOptOut.phone, phone));
+    return row?.optedOut === true;
+  }
+
+  async setPhoneOptOut(phone: string, optedOut: boolean): Promise<void> {
+    const [existing] = await db.select().from(smsOptOut).where(eq(smsOptOut.phone, phone));
+    if (existing) {
+      await db.update(smsOptOut).set({ optedOut, updatedAt: new Date() }).where(eq(smsOptOut.phone, phone));
+    } else {
+      await db.insert(smsOptOut).values({ phone, optedOut, updatedAt: new Date() });
+    }
   }
 }
 

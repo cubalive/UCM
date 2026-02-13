@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getSupabaseServer } from "../lib/supabaseClient";
 import { registerMapsRoutes } from "./lib/mapsRoutes";
 import { registerDispatchRoutes } from "./lib/dispatchRoutes";
+import { registerSmsRoutes } from "./lib/smsRoutes";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -62,6 +63,7 @@ export async function registerRoutes(
 
   registerMapsRoutes(app);
   registerDispatchRoutes(app);
+  registerSmsRoutes(app);
 
   app.post("/api/auth/login", async (req, res) => {
     try {

@@ -1,0 +1,228 @@
+import type { Express } from "express";
+import { z } from "zod";
+import { storage } from "../storage";
+import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import {
+  sendSms,
+  isTwilioConfigured,
+  isValidE164,
+  buildNotifyMessage,
+  getDispatchPhone,
+  type TripNotifyStatus,
+} from "./twilioSms";
+
+const VALID_NOTIFY_STATUSES: TripNotifyStatus[] = [
+  "scheduled",
+  "driver_assigned",
+  "en_route",
+  "arrived",
+  "picked_up",
+  "completed",
+  "canceled",
+];
+
+const sendSmsSchema = z.object({
+  to: z.string().min(1),
+  message: z.string().min(1).max(1600),
+});
+
+const tripNotifySchema = z.object({
+  status: z.enum([
+    "scheduled",
+    "driver_assigned",
+    "en_route",
+    "arrived",
+    "picked_up",
+    "completed",
+    "canceled",
+  ]),
+});
+
+export function registerSmsRoutes(app: Express) {
+  app.get("/api/sms/health", (_req, res) => {
+    res.json({ ok: true, twilioConfigured: isTwilioConfigured() });
+  });
+
+  app.post(
+    "/api/sms/send",
+    authMiddleware,
+    requireRole("DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const parsed = sendSmsSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Invalid request: 'to' and 'message' required" });
+        }
+
+        const { to, message } = parsed.data;
+
+        if (!isValidE164(to)) {
+          return res.status(400).json({ message: "Phone number must be E.164 format (e.g. +15551234567)" });
+        }
+
+        const optedOut = await storage.isPhoneOptedOut(to);
+        if (optedOut) {
+          return res.status(422).json({ message: "Recipient has opted out of SMS" });
+        }
+
+        const result = await sendSms(to, message);
+        if (!result.success) {
+          return res.status(502).json({ message: result.error || "SMS send failed" });
+        }
+
+        await storage.createAuditLog({
+          userId: req.user!.userId,
+          action: "SMS_SEND",
+          entity: "sms",
+          entityId: null,
+          details: `SMS sent to ${to}: ${message.substring(0, 80)}`,
+          cityId: null,
+        });
+
+        res.json({ ok: true, sid: result.sid });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.post(
+    "/api/trips/:id/notify",
+    authMiddleware,
+    requireRole("DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const tripId = parseInt(req.params.id as string);
+        if (isNaN(tripId)) {
+          return res.status(400).json({ message: "Invalid trip ID" });
+        }
+
+        const parsed = tripNotifySchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({
+            message: `Invalid status. Must be one of: ${VALID_NOTIFY_STATUSES.join(", ")}`,
+          });
+        }
+
+        const trip = await storage.getTrip(tripId);
+        if (!trip) {
+          return res.status(404).json({ message: "Trip not found" });
+        }
+
+        const patient = await storage.getPatient(trip.patientId);
+        if (!patient) {
+          return res.status(404).json({ message: "Patient not found" });
+        }
+
+        if (!patient.phone || !isValidE164(patient.phone)) {
+          return res.status(422).json({ message: "Patient phone missing or invalid E.164 format" });
+        }
+
+        const optedOut = await storage.isPhoneOptedOut(patient.phone);
+        if (optedOut) {
+          return res.status(422).json({ message: "Patient has opted out of SMS" });
+        }
+
+        let driverName: string | undefined;
+        let vehicleLabel: string | undefined;
+        let etaMinutes: number | null = null;
+
+        if (trip.driverId) {
+          const driver = await storage.getDriver(trip.driverId);
+          if (driver) {
+            driverName = `${driver.firstName} ${driver.lastName}`;
+
+            if (trip.vehicleId) {
+              const vehicle = await storage.getVehicle(trip.vehicleId);
+              if (vehicle) {
+                vehicleLabel = `${vehicle.name} (${vehicle.licensePlate})`;
+              }
+            }
+
+            if (parsed.data.status === "en_route" && driver.lastLat && driver.lastLng && trip.pickupLat && trip.pickupLng) {
+              try {
+                const { etaMinutes: calcEta } = await import("./googleMaps");
+                const eta = await calcEta(
+                  { lat: driver.lastLat, lng: driver.lastLng },
+                  { lat: trip.pickupLat, lng: trip.pickupLng }
+                );
+                if (eta) {
+                  etaMinutes = eta.durationMinutes;
+                }
+              } catch {
+              }
+            }
+          }
+        }
+
+        const message = buildNotifyMessage(parsed.data.status, {
+          pickup_time: `${trip.scheduledDate} ${trip.scheduledTime}`,
+          driver_name: driverName,
+          vehicle_label: vehicleLabel,
+          eta_minutes: etaMinutes,
+          dispatch_phone: getDispatchPhone(),
+        });
+
+        const result = await sendSms(patient.phone, message);
+        if (!result.success) {
+          return res.status(502).json({ message: result.error || "SMS send failed" });
+        }
+
+        await storage.createAuditLog({
+          userId: req.user!.userId,
+          action: "SMS_NOTIFY",
+          entity: "trip",
+          entityId: trip.id,
+          details: `SMS notification (${parsed.data.status}) sent to patient ${patient.firstName} ${patient.lastName}`,
+          cityId: trip.cityId,
+        });
+
+        res.json({
+          ok: true,
+          sid: result.sid,
+          status: parsed.data.status,
+          message,
+          patient: `${patient.firstName} ${patient.lastName}`,
+        });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.post("/api/twilio/inbound", async (req, res) => {
+    try {
+      const body = (req.body.Body || "").trim().toUpperCase();
+      const from = req.body.From || "";
+
+      if (!from) {
+        res.type("text/xml").send("<Response></Response>");
+        return;
+      }
+
+      const stopWords = ["STOP", "UNSUBSCRIBE", "CANCEL", "QUIT", "END"];
+      const startWords = ["START", "YES", "UNSTOP"];
+
+      let responseText = "";
+
+      if (stopWords.includes(body)) {
+        await storage.setPhoneOptOut(from, true);
+        responseText = "You have been unsubscribed. Reply START to re-subscribe.";
+        console.log(`[SMS] Opt-out received from ${from}`);
+      } else if (startWords.includes(body)) {
+        await storage.setPhoneOptOut(from, false);
+        responseText = "You have been re-subscribed to notifications.";
+        console.log(`[SMS] Opt-in received from ${from}`);
+      }
+
+      const twiml = responseText
+        ? `<Response><Message>${responseText}</Message></Response>`
+        : "<Response></Response>";
+
+      res.type("text/xml").send(twiml);
+    } catch (err: any) {
+      console.error("[SMS] Inbound webhook error:", err.message);
+      res.type("text/xml").send("<Response></Response>");
+    }
+  });
+}
