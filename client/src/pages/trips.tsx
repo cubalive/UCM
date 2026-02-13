@@ -577,15 +577,20 @@ function TripDetailDialog({
       toast({ title: "Please select at least one recurring day", variant: "destructive" });
       return;
     }
-    updateMutation.mutate({
-      tripType: editTripType,
-      recurringDays: editTripType === "recurring" ? editRecurringDays : null,
-      scheduledDate: editScheduledDate,
-      scheduledTime: editPickupTime,
-      pickupTime: editPickupTime,
-      estimatedArrivalTime: editEstArrival,
-      notes: editNotes || null,
-    });
+    const clinicNotesOnly = isClinicUser && trip.approvalStatus !== "pending";
+    if (clinicNotesOnly) {
+      updateMutation.mutate({ notes: editNotes || null });
+    } else {
+      updateMutation.mutate({
+        tripType: editTripType,
+        recurringDays: editTripType === "recurring" ? editRecurringDays : null,
+        scheduledDate: editScheduledDate,
+        scheduledTime: editPickupTime,
+        pickupTime: editPickupTime,
+        estimatedArrivalTime: editEstArrival,
+        notes: editNotes || null,
+      });
+    }
   };
 
   return (
@@ -610,47 +615,54 @@ function TripDetailDialog({
 
         {editing ? (
           <div className="space-y-4">
-            <RecurringSchedule
-              tripType={editTripType}
-              onTripTypeChange={setEditTripType}
-              recurringDays={editRecurringDays}
-              onRecurringDaysChange={setEditRecurringDays}
-              testIdPrefix="edit-trip"
-            />
+            {(!isClinicUser || trip.approvalStatus === "pending") && (
+              <>
+                <RecurringSchedule
+                  tripType={editTripType}
+                  onTripTypeChange={setEditTripType}
+                  recurringDays={editRecurringDays}
+                  onRecurringDaysChange={setEditRecurringDays}
+                  testIdPrefix="edit-trip"
+                />
 
-            <div className="space-y-2">
-              <Label>Start Date *</Label>
-              <Input
-                type="date"
-                value={editScheduledDate}
-                min={todayStr}
-                onChange={(e) => setEditScheduledDate(e.target.value)}
-                required
-                data-testid="input-edit-trip-date"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Pickup Time *</Label>
-                <Input
-                  type="time"
-                  value={editPickupTime}
-                  onChange={(e) => setEditPickupTime(e.target.value)}
-                  required
-                  data-testid="input-edit-trip-pickup-time"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Est. Arrival Time *</Label>
-                <Input
-                  type="time"
-                  value={editEstArrival}
-                  onChange={(e) => setEditEstArrival(e.target.value)}
-                  required
-                  data-testid="input-edit-trip-est-arrival"
-                />
-              </div>
-            </div>
+                <div className="space-y-2">
+                  <Label>Start Date *</Label>
+                  <Input
+                    type="date"
+                    value={editScheduledDate}
+                    min={todayStr}
+                    onChange={(e) => setEditScheduledDate(e.target.value)}
+                    required
+                    data-testid="input-edit-trip-date"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Pickup Time *</Label>
+                    <Input
+                      type="time"
+                      value={editPickupTime}
+                      onChange={(e) => setEditPickupTime(e.target.value)}
+                      required
+                      data-testid="input-edit-trip-pickup-time"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Est. Arrival Time *</Label>
+                    <Input
+                      type="time"
+                      value={editEstArrival}
+                      onChange={(e) => setEditEstArrival(e.target.value)}
+                      required
+                      data-testid="input-edit-trip-est-arrival"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+            {isClinicUser && trip.approvalStatus !== "pending" && (
+              <p className="text-sm text-muted-foreground">This trip has been approved. You can only update notes.</p>
+            )}
             <div className="space-y-2">
               <Label>Notes</Label>
               <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} data-testid="input-edit-trip-notes" />
@@ -676,10 +688,10 @@ function TripDetailDialog({
               {trip.cancelledReason && (
                 <span className="text-xs text-muted-foreground italic">Reason: {trip.cancelledReason}</span>
               )}
-              {(!isClinicUser || trip.approvalStatus === "pending") && (
+              {(!isClinicUser || trip.approvalStatus === "pending" || trip.approvalStatus === "approved") && trip.approvalStatus !== "cancelled" && (
                 <Button size="sm" variant="outline" onClick={() => setEditing(true)} data-testid="button-edit-trip">
                   <Pencil className="w-4 h-4 mr-1" />
-                  Edit
+                  {isClinicUser && trip.approvalStatus !== "pending" ? "Add Notes" : "Edit"}
                 </Button>
               )}
             </div>

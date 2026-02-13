@@ -1350,16 +1350,13 @@ export async function registerRoutes(
         if (existing.clinicId !== editUser.clinicId) {
           return res.status(403).json({ message: "You can only edit your own clinic's trips" });
         }
-        if (existing.approvalStatus !== "pending") {
-          return res.status(403).json({ message: "Cannot edit trip after it has been approved. Contact dispatch for changes." });
-        }
         const coreFields = ["pickupAddress", "pickupStreet", "pickupCity", "pickupState", "pickupZip", "pickupPlaceId", "pickupLat", "pickupLng",
           "dropoffAddress", "dropoffStreet", "dropoffCity", "dropoffState", "dropoffZip", "dropoffPlaceId", "dropoffLat", "dropoffLng",
           "scheduledDate", "scheduledTime", "pickupTime", "estimatedArrivalTime", "driverId", "vehicleId", "clinicId", "tripType", "recurringDays"];
         if (existing.approvalStatus !== "pending") {
           const hasCoreChange = Object.keys(req.body).some(k => coreFields.includes(k));
           if (hasCoreChange) {
-            return res.status(403).json({ message: "Cannot edit core trip fields after approval" });
+            return res.status(403).json({ message: "Cannot edit core trip fields after approval. Contact dispatch for changes." });
           }
         }
       }
