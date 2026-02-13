@@ -32,6 +32,13 @@ export const driverStatusEnum = pgEnum("driver_status", [
   "ON_LEAVE",
 ]);
 
+export const facilityTypeEnum = pgEnum("facility_type", [
+  "clinic",
+  "hospital",
+  "mental",
+  "private",
+]);
+
 export const dispatchStatusEnum = pgEnum("dispatch_status", [
   "available",
   "enroute",
@@ -111,6 +118,7 @@ export const clinics = pgTable("clinics", {
   lng: doublePrecision("lng"),
   phone: text("phone"),
   contactName: text("contact_name"),
+  facilityType: facilityTypeEnum("facility_type").notNull().default("clinic"),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -149,6 +157,8 @@ export const trips = pgTable("trips", {
   dropoffLng: doublePrecision("dropoff_lng"),
   scheduledDate: text("scheduled_date").notNull(),
   scheduledTime: text("scheduled_time").notNull(),
+  pickupTime: text("pickup_time").notNull(),
+  estimatedArrivalTime: text("estimated_arrival_time"),
   status: tripStatusEnum("status").notNull().default("SCHEDULED"),
   lastEtaMinutes: integer("last_eta_minutes"),
   distanceMiles: numeric("distance_miles"),
