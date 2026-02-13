@@ -1320,6 +1320,13 @@ export async function registerRoutes(
         autoNotifyPatient(id, "arrived");
       }
 
+      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (terminalStatuses.includes(parsed.data.status)) {
+        storage.revokeTokensForTrip(id).catch((err: any) => {
+          console.error(`[TRACKING] Failed to revoke tokens for trip ${id}:`, err.message);
+        });
+      }
+
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "UPDATE_STATUS",

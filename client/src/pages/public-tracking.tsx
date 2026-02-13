@@ -93,7 +93,7 @@ export default function PublicTrackingPage() {
 
   useEffect(() => {
     fetchTracking();
-    const interval = setInterval(fetchTracking, 30000);
+    const interval = setInterval(fetchTracking, 15000);
     return () => clearInterval(interval);
   }, [fetchTracking]);
 
@@ -356,7 +356,7 @@ export default function PublicTrackingPage() {
         )}
 
         <p className="text-xs text-center text-muted-foreground" data-testid="text-auto-refresh">
-          This page updates automatically every 30 seconds
+          This page updates automatically every 15 seconds
         </p>
       </div>
     </div>

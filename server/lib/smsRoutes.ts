@@ -152,7 +152,7 @@ export function registerSmsRoutes(app: Express) {
                   { lat: trip.pickupLat, lng: trip.pickupLng }
                 );
                 if (eta) {
-                  etaMinutes = eta.durationMinutes;
+                  etaMinutes = eta.minutes;
                 }
               } catch {
               }
@@ -190,6 +190,8 @@ export function registerSmsRoutes(app: Express) {
         if (!result.success) {
           return res.status(502).json({ message: result.error || "SMS send failed" });
         }
+
+        await storage.createTripSmsLog({ tripId, kind: parsed.data.status });
 
         await storage.createAuditLog({
           userId: req.user!.userId,
