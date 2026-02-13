@@ -2942,7 +2942,24 @@ export async function registerRoutes(
 
       if (user.role === "SUPER_ADMIN") return res.status(400).json({ message: "Cannot archive super admin" });
 
-      const updated = await storage.updateUser(id, { active: false, deletedAt: new Date() } as any);
+      const reason = req.body?.reason || null;
+      const updated = await storage.updateUser(id, { active: false, deletedAt: new Date(), deletedBy: req.user!.userId, deleteReason: reason } as any);
+
+      // Ban Supabase auth user if exists
+      if (user.email) {
+        try {
+          const supabase = getSupabaseServer();
+          if (supabase) {
+            const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+            const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === user.email.toLowerCase());
+            if (sbUser) {
+              await supabase.auth.admin.updateUserById(sbUser.id, { ban_duration: "876600h" });
+            }
+          }
+        } catch (sbErr: any) {
+          console.error("[archiveUser] Supabase ban failed (non-fatal):", sbErr.message);
+        }
+      }
 
       await storage.createAuditLog({
         userId: req.user!.userId,
@@ -2967,7 +2984,23 @@ export async function registerRoutes(
       const user = await storage.getUser(id);
       if (!user) return res.status(404).json({ message: "User not found" });
 
-      const updated = await storage.updateUser(id, { active: true, deletedAt: null } as any);
+      const updated = await storage.updateUser(id, { active: true, deletedAt: null, deletedBy: null, deleteReason: null } as any);
+
+      // Un-ban Supabase auth user if exists
+      if (user.email) {
+        try {
+          const supabase = getSupabaseServer();
+          if (supabase) {
+            const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+            const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === user.email.toLowerCase());
+            if (sbUser) {
+              await supabase.auth.admin.updateUserById(sbUser.id, { ban_duration: "none" });
+            }
+          }
+        } catch (sbErr: any) {
+          console.error("[restoreUser] Supabase un-ban failed (non-fatal):", sbErr.message);
+        }
+      }
 
       await storage.createAuditLog({
         userId: req.user!.userId,
@@ -2989,12 +3022,33 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
+      const { ack, confirm } = req.body || {};
+      if (ack !== "I understand this cannot be undone" || confirm !== "DELETE") {
+        return res.status(400).json({ message: "Must provide ack and confirm fields to permanently delete a user" });
+      }
+
       const user = await storage.getUser(id);
       if (!user) return res.status(404).json({ message: "User not found" });
 
       if (user.active) return res.status(400).json({ message: "Must archive before permanent delete" });
 
       if (user.role === "SUPER_ADMIN") return res.status(400).json({ message: "Cannot delete super admin" });
+
+      // Delete Supabase auth user if exists
+      if (user.email) {
+        try {
+          const supabase = getSupabaseServer();
+          if (supabase) {
+            const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+            const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === user.email.toLowerCase());
+            if (sbUser) {
+              await supabase.auth.admin.deleteUser(sbUser.id);
+            }
+          }
+        } catch (sbErr: any) {
+          console.error("[permanentDeleteUser] Supabase auth delete failed (non-fatal):", sbErr.message);
+        }
+      }
 
       await storage.deleteUser(id);
 
@@ -3267,7 +3321,8 @@ export async function registerRoutes(
       }
       const hasActive = await storage.hasActiveTripsForPatient(id);
       if (hasActive) return res.status(409).json({ message: "Cannot delete patient with active trips" });
-      const updated = await storage.updatePatient(id, { active: false, deletedAt: new Date() });
+      const reason = req.body?.reason || null;
+      const updated = await storage.updatePatient(id, { active: false, deletedAt: new Date(), deletedBy: req.user!.userId, deleteReason: reason } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "ARCHIVE",

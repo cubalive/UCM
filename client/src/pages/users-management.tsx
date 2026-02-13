@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Users, Search, Key, Mail, Copy } from "lucide-react";
+import { Plus, Users, Search, Key, Mail, Copy, Archive } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function UsersPage() {
@@ -58,6 +58,16 @@ export default function UsersPage() {
       toast({ title: "Login link sent", description: data.message });
     },
     onError: (err: any) => toast({ title: "Failed to send login link", description: err.message, variant: "destructive" }),
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (userId: number) =>
+      apiFetch(`/api/admin/users/${userId}/archive`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({ title: "User archived", description: "User has been moved to the archive" });
+    },
+    onError: (err: any) => toast({ title: "Archive failed", description: err.message, variant: "destructive" }),
   });
 
   const createMutation = useMutation({
@@ -164,6 +174,20 @@ export default function UsersPage() {
                     >
                       <Key className="w-3 h-3 mr-2" />
                       Reset Password
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        if (window.confirm(`Archive user ${u.firstName} ${u.lastName}? This will disable their access.`)) {
+                          archiveMutation.mutate(u.id);
+                        }
+                      }}
+                      disabled={archiveMutation.isPending}
+                      data-testid={`button-archive-user-${u.id}`}
+                    >
+                      <Archive className="w-3 h-3 mr-2" />
+                      Archive
                     </Button>
                   </div>
                 )}

@@ -64,7 +64,10 @@ export default function ArchivePage() {
 
   const deleteMutation = useMutation({
     mutationFn: ({ entity, id }: { entity: EntityTab; id: number }) =>
-      apiFetch(`/api/admin/${entity}/${id}/permanent`, token, { method: "DELETE" }),
+      apiFetch(`/api/admin/${entity}/${id}/permanent`, token, {
+        method: "DELETE",
+        ...(entity === "users" ? { body: JSON.stringify({ ack: "I understand this cannot be undone", confirm: "DELETE" }) } : {}),
+      }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/archived", variables.entity] });
       queryClient.invalidateQueries({ queryKey: [entityListKey[variables.entity]] });

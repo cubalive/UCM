@@ -82,6 +82,8 @@ export const users = pgTable("users", {
   clinicId: integer("clinic_id"),
   patientId: integer("patient_id"),
   deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by"),
+  deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -178,6 +180,8 @@ export const patients = pgTable("patients", {
   wheelchairRequired: boolean("wheelchair_required").notNull().default(false),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by"),
+  deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
