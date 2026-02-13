@@ -603,7 +603,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this driver" });
       }
 
-      const { firstName, lastName, phone, email, licenseNumber, vehicleId, status } = req.body;
+      const { firstName, lastName, phone, email, licenseNumber, vehicleId, status, unassignReason } = req.body;
 
       if (vehicleId !== undefined && vehicleId !== null) {
         const vehicle = await storage.getVehicle(vehicleId);
@@ -638,12 +638,18 @@ export async function registerRoutes(
       });
       if (!updated) return res.status(404).json({ message: "Driver not found" });
 
+      let auditDetails = `Updated driver ${updated.firstName} ${updated.lastName}`;
+      if (vehicleId === null && driver.vehicleId) {
+        auditDetails = `Unassigned vehicle from driver ${updated.firstName} ${updated.lastName}`;
+        if (unassignReason) auditDetails += ` — Reason: ${unassignReason}`;
+      }
+
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "UPDATE",
         entity: "driver",
         entityId: updated.id,
-        details: `Updated driver ${updated.firstName} ${updated.lastName}`,
+        details: auditDetails,
         cityId: updated.cityId,
       });
       res.json(updated);

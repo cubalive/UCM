@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   Select,
@@ -17,14 +18,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+
+const UNASSIGN_REASONS = [
+  { value: "vehicle_maintenance", label: "Vehicle in maintenance" },
+  { value: "driver_reassignment", label: "Driver reassignment" },
+  { value: "end_of_shift", label: "End of shift" },
+  { value: "vehicle_out_of_service", label: "Vehicle out of service" },
+  { value: "scheduling_change", label: "Scheduling change" },
+  { value: "other", label: "Other" },
+];
 
 export default function DriversPage() {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [editDriver, setEditDriver] = useState<any>(null);
+  const [unassignDriver, setUnassignDriver] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
@@ -81,6 +92,21 @@ export default function DriversPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setEditDriver(null);
       toast({ title: "Driver updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const unassignMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      apiFetch(`/api/drivers/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify({ vehicleId: null, unassignReason: reason }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      setUnassignDriver(null);
+      toast({ title: "Vehicle unassigned" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -195,9 +221,26 @@ export default function DriversPage() {
                     {d.email && <p className="text-sm text-muted-foreground" data-testid={`text-driver-email-${d.id}`}>{d.email}</p>}
                     <p className="text-sm text-muted-foreground">{d.phone}</p>
                     {d.licenseNumber && <p className="text-xs text-muted-foreground">License: {d.licenseNumber}</p>}
-                    {getVehicleName(d.vehicleId) && (
-                      <p className="text-xs text-muted-foreground" data-testid={`text-driver-vehicle-${d.id}`}>
-                        Vehicle: {getVehicleName(d.vehicleId)}
+                    {d.vehicleId ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs text-muted-foreground" data-testid={`text-driver-vehicle-${d.id}`}>
+                          Vehicle: {getVehicleName(d.vehicleId)}
+                        </p>
+                        {canEdit && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setUnassignDriver(d)}
+                            data-testid={`button-unassign-vehicle-${d.id}`}
+                          >
+                            <Unlink className="w-3 h-3 mr-1" />
+                            Unassign
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground" data-testid={`text-driver-no-vehicle-${d.id}`}>
+                        No vehicle assigned
                       </p>
                     )}
                   </div>
@@ -261,6 +304,19 @@ export default function DriversPage() {
         </DialogContent>
       </Dialog>
 
+      <UnassignVehicleDialog
+        driver={unassignDriver}
+        vehicleName={unassignDriver ? getVehicleName(unassignDriver.vehicleId) : null}
+        open={!!unassignDriver}
+        onOpenChange={(o) => { if (!o) setUnassignDriver(null); }}
+        onConfirm={(reason) => {
+          if (unassignDriver) {
+            unassignMutation.mutate({ id: unassignDriver.id, reason });
+          }
+        }}
+        loading={unassignMutation.isPending}
+      />
+
       <Dialog open={!!tempPasswordInfo} onOpenChange={(v) => !v && setTempPasswordInfo(null)}>
         <DialogContent>
           <DialogHeader>
@@ -302,6 +358,101 @@ export default function DriversPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function UnassignVehicleDialog({
+  driver,
+  vehicleName,
+  open,
+  onOpenChange,
+  onConfirm,
+  loading,
+}: {
+  driver: any;
+  vehicleName: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (reason: string) => void;
+  loading: boolean;
+}) {
+  const [reasonCategory, setReasonCategory] = useState("");
+  const [reasonText, setReasonText] = useState("");
+
+  const buildReason = () => {
+    const catLabel = UNASSIGN_REASONS.find((r) => r.value === reasonCategory)?.label || "";
+    if (reasonCategory === "other" && reasonText.trim()) return reasonText.trim();
+    if (catLabel && reasonText.trim()) return `${catLabel}: ${reasonText.trim()}`;
+    return catLabel || reasonText.trim();
+  };
+
+  const canSubmit = !!reasonCategory && (reasonCategory !== "other" || reasonText.trim().length > 0);
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => {
+      if (!o) {
+        setReasonCategory("");
+        setReasonText("");
+      }
+      onOpenChange(o);
+    }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Unassign Vehicle</DialogTitle>
+        </DialogHeader>
+        {driver && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Remove <span className="font-medium text-foreground">{vehicleName}</span> from driver{" "}
+              <span className="font-medium text-foreground">{driver.firstName} {driver.lastName}</span>?
+            </p>
+            <div className="space-y-2">
+              <Label>Reason *</Label>
+              <Select value={reasonCategory} onValueChange={setReasonCategory}>
+                <SelectTrigger data-testid="select-unassign-reason">
+                  <SelectValue placeholder="Select a reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  {UNASSIGN_REASONS.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {reasonCategory && (
+              <div className="space-y-2">
+                <Label>{reasonCategory === "other" ? "Please describe *" : "Additional details (optional)"}</Label>
+                <Textarea
+                  value={reasonText}
+                  onChange={(e) => setReasonText(e.target.value)}
+                  placeholder={reasonCategory === "other" ? "Enter reason..." : "Optional notes..."}
+                  data-testid="input-unassign-details"
+                />
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => onOpenChange(false)}
+                data-testid="button-cancel-unassign"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                disabled={!canSubmit || loading}
+                onClick={() => onConfirm(buildReason())}
+                data-testid="button-confirm-unassign"
+              >
+                {loading ? "Unassigning..." : "Unassign Vehicle"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
