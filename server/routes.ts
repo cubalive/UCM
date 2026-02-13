@@ -1452,6 +1452,16 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Pickup time must be before estimated arrival time" });
       }
 
+      const addressChanged = updateData.pickupAddress || updateData.dropoffAddress
+        || updateData.pickupLat != null || updateData.pickupLng != null
+        || updateData.dropoffLat != null || updateData.dropoffLng != null
+        || updateData.pickupPlaceId !== undefined || updateData.dropoffPlaceId !== undefined;
+      if (addressChanged) {
+        updateData.staticMapThumbUrl = null;
+        updateData.staticMapFullUrl = null;
+        updateData.staticMapGeneratedAt = null;
+      }
+
       const trip = await storage.updateTrip(id, updateData);
       await storage.createAuditLog({
         userId: req.user!.userId,

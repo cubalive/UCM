@@ -1,0 +1,69 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+For every trip, store pickup/dropoff lat/lng reliably and render a 320x160 static map thumbnail for completed trips.
+
+ASSUMPTION:
+We already use Google Maps JS in frontend and have Google server key in secrets.
+We also enabled Google Maps Static API + Routes/Directions API in Google Console.
+
+SECRETS REQUIRED:
+GOOGLE_MAPS_SERVER_KEY (server-only)
+APP_PUBLIC_URL (already exists)
+
+PHASE 1 — DATA: ALWAYS STORE COORDINATES
+1) Ensure trips table has:
+pickup_address text
+dropoff_address text
+pickup_lat numeric
+pickup_lng numeric
+dropoff_lat numeric
+dropoff_lng numeric
+
+2) On trip creation and any address edit:
+- If user selected from autocomplete, store lat/lng from selection.
+- If user typed address (fallback), geocode server-side using Google Geocoding API OR Places details if available.
+- If geocoding fails, block saving with clear error "Address must be selected from suggestions" (preferred) OR allow save but mark missing coords and hide thumbnail.
+
+PHASE 2 — STATIC MAP THUMBNAIL URL (COMPLETED TRIPS)
+1) Add backend helper:
+buildStaticTripMapUrl({pickup_lat,lng,dropoff_lat,lng})
+- size: 320x160
+- markers:
+  label A at pickup
+  label B at dropoff
+- path line between A and B
+- include key=GOOGLE_MAPS_SERVER_KEY
+
+2) Add endpoint:
+GET /api/trips/:id/map-thumbnail
+- Auth: super_admin/dispatch can access any; clinic only if owns trip; patient only if owns trip
+- Returns { url: string } or { url: null, reason: "missing_coords" }
+
+SECURITY:
+- Do NOT expose server key to frontend.
+- If needed, backend can proxy the image bytes instead of returning URL. Prefer proxy if simple:
+GET /api/trips/:id/map-thumbnail.png
+
+PHASE 3 — UI
+1) Trips list (Completed section):
+- Show a small thumbnail (320x160) for each completed trip.
+- If missing coords, show placeholder "Map unavailable".
+
+2) Trip details:
+- Show thumbnail under route summary.
+
+VERIFY:
+- Creating trip with autocomplete stores pickup/dropoff lat/lng
+- Completed trip shows thumbnail
+- Clinic/patient cannot access thumbnails for other trips (403)
+- No Google key is leaked in client code
+Verify before exit.

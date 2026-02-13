@@ -165,6 +165,28 @@ export function registerTrackingRoutes(app: Express) {
         const trip = await storage.getTrip(tripId);
         if (!trip) return res.status(404).json({ message: "Trip not found" });
 
+        if (req.user) {
+          const user = await storage.getUser(req.user.userId);
+          if (user) {
+            const role = user.role;
+            if (role !== "SUPER_ADMIN" && role !== "ADMIN" && role !== "DISPATCH") {
+              if (role === "VIEWER" && user.clinicId) {
+                if (trip.clinicId !== user.clinicId) {
+                  return res.status(403).json({ message: "Access denied" });
+                }
+              } else if (role === "DRIVER") {
+                const drivers = await storage.getDrivers();
+                const driverRecord = drivers.find(d => d.userId === user.id);
+                if (!driverRecord || trip.driverId !== driverRecord.id) {
+                  return res.status(403).json({ message: "Access denied" });
+                }
+              } else {
+                return res.status(403).json({ message: "Access denied" });
+              }
+            }
+          }
+        }
+
         const { thumbUrl, fullUrl } = await ensureStaticMap(trip);
         const targetUrl = size === "thumb" ? thumbUrl : fullUrl;
 
