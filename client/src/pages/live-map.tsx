@@ -26,6 +26,9 @@ interface DriverLocation {
   vehicle_id: number | null;
   vehicle_label: string | null;
   vehicle_color: string | null;
+  vehicle_color_hex: string | null;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -115,40 +118,80 @@ interface GoogleMapProps {
 
 const CAR_SVG_PATH = "M 7 1 C 5.5 1 4.3 1.8 3.8 3 L 2 3 C 0.9 3 0 3.9 0 5 L 0 10 C 0 10.6 0.4 11 1 11 L 2.5 11 C 2.5 12.4 3.6 13.5 5 13.5 C 6.4 13.5 7.5 12.4 7.5 11 L 12.5 11 C 12.5 12.4 13.6 13.5 15 13.5 C 16.4 13.5 17.5 12.4 17.5 11 L 19 11 C 19.6 11 20 10.6 20 10 L 20 5 C 20 3.9 19.1 3 18 3 L 16.2 3 C 15.7 1.8 14.5 1 13 1 Z M 5 10 C 4.4 10 4 10.4 4 11 C 4 11.6 4.4 12 5 12 C 5.6 12 6 11.6 6 11 C 6 10.4 5.6 10 5 10 Z M 15 10 C 14.4 10 14 10.4 14 11 C 14 11.6 14.4 12 15 12 C 15.6 12 16 11.6 16 11 C 16 10.4 15.6 10 15 10 Z M 4 5 L 7 3 L 13 3 L 16 5 Z";
 
-const DEFAULT_MARKER_COLOR = "#6366F1";
+const DEFAULT_MARKER_COLOR = "#9ca3af";
 
-function createCarIcon(vehicleColor: string | null, stale: boolean, statusColor: string) {
+function getVehicleLabel(model: string | null, make: string | null): string {
+  if (model) {
+    const m = model.toUpperCase().replace(/\s+/g, "");
+    return m.length > 6 ? m.substring(0, 6) : m;
+  }
+  if (make) {
+    const m = make.toUpperCase().replace(/\s+/g, "");
+    return m.length > 6 ? m.substring(0, 6) : m;
+  }
+  return "UCM";
+}
+
+function getTextColor(hexColor: string): string {
+  const r = parseInt(hexColor.slice(1, 3), 16);
+  const g = parseInt(hexColor.slice(3, 5), 16);
+  const b = parseInt(hexColor.slice(5, 7), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? "#1e293b" : "#ffffff";
+}
+
+const iconCache = new Map<string, google.maps.Icon>();
+
+function createCarIcon(vehicleColor: string | null, stale: boolean, statusColor: string, vehicleModel: string | null, vehicleMake: string | null) {
   const fillColor = vehicleColor || DEFAULT_MARKER_COLOR;
+  const label = getVehicleLabel(vehicleModel, vehicleMake);
+  const cacheKey = `${fillColor}-${stale}-${statusColor}-${label}`;
+
+  const cached = iconCache.get(cacheKey);
+  if (cached) return cached;
+
   const opacity = stale ? 0.5 : 1;
   const strokeColor = stale ? "#f59e0b" : statusColor;
   const strokeWidth = stale ? 1.5 : 1;
-  const statusDot = `<circle cx="18" cy="2" r="4" fill="${statusColor}" stroke="white" stroke-width="1"/>`;
+  const statusDot = `<circle cx="19" cy="2" r="3.5" fill="${statusColor}" stroke="white" stroke-width="1"/>`;
+  const textColor = getTextColor(fillColor);
+  const fontSize = label.length > 5 ? "3.2" : label.length > 4 ? "3.5" : "4";
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="28" viewBox="-2 -2 24 18">
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="42" height="32" viewBox="-2 -2 25 20">
     <path d="${CAR_SVG_PATH}" fill="${fillColor}" fill-opacity="${opacity}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>
+    <text x="10" y="8.5" text-anchor="middle" fill="${textColor}" fill-opacity="${opacity}" font-size="${fontSize}" font-family="Arial,sans-serif" font-weight="700" letter-spacing="0.3">${label}</text>
     ${statusDot}
   </svg>`;
 
-  return {
+  const icon = {
     url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg),
-    scaledSize: new google.maps.Size(36, 28),
-    anchor: new google.maps.Point(18, 14),
+    scaledSize: new google.maps.Size(42, 32),
+    anchor: new google.maps.Point(21, 16),
   };
+  iconCache.set(cacheKey, icon);
+  return icon;
 }
 
 function createFallbackIcon(stale: boolean, statusColor: string) {
+  const cacheKey = `fallback-${stale}-${statusColor}`;
+  const cached = iconCache.get(cacheKey);
+  if (cached) return cached;
+
   const opacity = stale ? 0.5 : 1;
   const strokeColor = stale ? "#f59e0b" : "#ffffff";
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-    <circle cx="12" cy="12" r="9" fill="${statusColor}" fill-opacity="${opacity}" stroke="${strokeColor}" stroke-width="2"/>
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+    <circle cx="14" cy="14" r="10" fill="${DEFAULT_MARKER_COLOR}" fill-opacity="${opacity}" stroke="${strokeColor}" stroke-width="2"/>
+    <text x="14" y="17.5" text-anchor="middle" fill="white" fill-opacity="${opacity}" font-size="6" font-family="Arial,sans-serif" font-weight="700">UCM</text>
   </svg>`;
 
-  return {
+  const icon = {
     url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg),
-    scaledSize: new google.maps.Size(24, 24),
-    anchor: new google.maps.Point(12, 12),
+    scaledSize: new google.maps.Size(28, 28),
+    anchor: new google.maps.Point(14, 14),
   };
+  iconCache.set(cacheKey, icon);
+  return icon;
 }
 
 function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
@@ -191,7 +234,7 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
       const hasVehicle = driver.vehicle_id != null;
 
       const icon = hasVehicle
-        ? createCarIcon(driver.vehicle_color, stale, statusColor)
+        ? createCarIcon(driver.vehicle_color_hex || driver.vehicle_color, stale, statusColor, driver.vehicle_model, driver.vehicle_make)
         : createFallbackIcon(stale, statusColor);
 
       const marker = new google.maps.Marker({
@@ -228,8 +271,11 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
         const staleTag = stale
           ? `<div style="color:#d97706;font-weight:600;font-size:11px;margin-top:4px;">STALE</div>`
           : "";
+        const vehicleMakeModel = driver.vehicle_make && driver.vehicle_model
+          ? `${driver.vehicle_make} ${driver.vehicle_model}`
+          : driver.vehicle_make || driver.vehicle_model || null;
         const vehicleInfo = driver.vehicle_label
-          ? `<div style="font-size:11px;color:#666;margin-top:2px;">Vehicle: ${driver.vehicle_label}</div>`
+          ? `<div style="font-size:11px;color:#666;margin-top:2px;">Vehicle: ${driver.vehicle_label}${vehicleMakeModel ? ` (${vehicleMakeModel})` : ""}</div>`
           : `<div style="font-size:11px;color:#999;margin-top:2px;font-style:italic;">No vehicle assigned</div>`;
 
         infoWindowRef.current?.setContent(`

@@ -2441,6 +2441,9 @@ export async function registerRoutes(
               vehicle_id: vehicle?.id ?? null,
               vehicle_label: vehicle ? `${vehicle.name}` : null,
               vehicle_color: vehicle?.colorHex ?? null,
+              vehicle_color_hex: vehicle?.colorHex ?? null,
+              vehicle_make: vehicle?.make ?? null,
+              vehicle_model: vehicle?.model ?? null,
             };
           });
 
@@ -2493,6 +2496,9 @@ export async function registerRoutes(
           vehicle_id: vehicle?.id ?? null,
           vehicle_label: vehicle ? `${vehicle.name}` : null,
           vehicle_color: vehicle?.colorHex ?? null,
+          vehicle_color_hex: vehicle?.colorHex ?? null,
+          vehicle_make: vehicle?.make ?? null,
+          vehicle_model: vehicle?.model ?? null,
         };
       });
 
