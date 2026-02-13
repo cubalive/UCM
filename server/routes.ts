@@ -1144,13 +1144,35 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Pickup ZIP code is required" });
       }
       if (parsed.data.pickupLat == null || parsed.data.pickupLng == null) {
-        return res.status(400).json({ message: "Pickup address must be selected from autocomplete (lat/lng required)" });
+        if (parsed.data.pickupAddress) {
+          try {
+            const { geocodeAddress } = await import("./lib/googleMaps");
+            const geo = await geocodeAddress(parsed.data.pickupAddress);
+            (parsed.data as any).pickupLat = geo.lat;
+            (parsed.data as any).pickupLng = geo.lng;
+          } catch (geoErr: any) {
+            return res.status(400).json({ message: `Could not geocode pickup address: ${geoErr.message}` });
+          }
+        } else {
+          return res.status(400).json({ message: "Pickup address must be selected from autocomplete (lat/lng required)" });
+        }
       }
       if (parsed.data.dropoffAddress && !parsed.data.dropoffZip) {
         return res.status(400).json({ message: "Dropoff ZIP code is required" });
       }
       if (parsed.data.dropoffLat == null || parsed.data.dropoffLng == null) {
-        return res.status(400).json({ message: "Dropoff address must be selected from autocomplete (lat/lng required)" });
+        if (parsed.data.dropoffAddress) {
+          try {
+            const { geocodeAddress } = await import("./lib/googleMaps");
+            const geo = await geocodeAddress(parsed.data.dropoffAddress);
+            (parsed.data as any).dropoffLat = geo.lat;
+            (parsed.data as any).dropoffLng = geo.lng;
+          } catch (geoErr: any) {
+            return res.status(400).json({ message: `Could not geocode dropoff address: ${geoErr.message}` });
+          }
+        } else {
+          return res.status(400).json({ message: "Dropoff address must be selected from autocomplete (lat/lng required)" });
+        }
       }
       if (parsed.data.pickupTime && parsed.data.estimatedArrivalTime && parsed.data.pickupTime >= parsed.data.estimatedArrivalTime) {
         return res.status(400).json({ message: "Pickup time must be before estimated arrival time" });
@@ -1262,10 +1284,17 @@ export async function registerRoutes(
         if (!effectiveZip) {
           return res.status(400).json({ message: "Pickup ZIP code is required" });
         }
-        const effectiveLat = updateData.pickupLat ?? existing.pickupLat;
-        const effectiveLng = updateData.pickupLng ?? existing.pickupLng;
+        let effectiveLat = updateData.pickupLat ?? existing.pickupLat;
+        let effectiveLng = updateData.pickupLng ?? existing.pickupLng;
         if (effectiveLat == null || effectiveLng == null) {
-          return res.status(400).json({ message: "Pickup address must be selected from autocomplete (lat/lng required)" });
+          try {
+            const { geocodeAddress } = await import("./lib/googleMaps");
+            const geo = await geocodeAddress(updateData.pickupAddress);
+            updateData.pickupLat = geo.lat;
+            updateData.pickupLng = geo.lng;
+          } catch (geoErr: any) {
+            return res.status(400).json({ message: `Could not geocode pickup address: ${geoErr.message}` });
+          }
         }
       }
       if (updateData.dropoffAddress) {
@@ -1273,10 +1302,17 @@ export async function registerRoutes(
         if (!effectiveZip) {
           return res.status(400).json({ message: "Dropoff ZIP code is required" });
         }
-        const effectiveLat = updateData.dropoffLat ?? existing.dropoffLat;
-        const effectiveLng = updateData.dropoffLng ?? existing.dropoffLng;
+        let effectiveLat = updateData.dropoffLat ?? existing.dropoffLat;
+        let effectiveLng = updateData.dropoffLng ?? existing.dropoffLng;
         if (effectiveLat == null || effectiveLng == null) {
-          return res.status(400).json({ message: "Dropoff address must be selected from autocomplete (lat/lng required)" });
+          try {
+            const { geocodeAddress } = await import("./lib/googleMaps");
+            const geo = await geocodeAddress(updateData.dropoffAddress);
+            updateData.dropoffLat = geo.lat;
+            updateData.dropoffLng = geo.lng;
+          } catch (geoErr: any) {
+            return res.status(400).json({ message: `Could not geocode dropoff address: ${geoErr.message}` });
+          }
         }
       }
 
