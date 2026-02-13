@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building2, Search } from "lucide-react";
+import { Plus, Building2, Search, Pencil, AlertTriangle } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 const facilityTypeLabels: Record<string, string> = {
@@ -31,6 +31,7 @@ export default function ClinicsPage() {
   const { token, selectedCity } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [editClinic, setEditClinic] = useState<any>(null);
   const [search, setSearch] = useState("");
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -46,11 +47,28 @@ export default function ClinicsPage() {
         method: "POST",
         body: JSON.stringify({ ...data, cityId: selectedCity?.id }),
       }),
-    onSuccess: () => {
+    onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setOpen(false);
-      toast({ title: "Clinic added" });
+      const msg = result?.userCreated
+        ? "Clinic added — user account created automatically"
+        : "Clinic added";
+      toast({ title: msg });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) =>
+      apiFetch(`/api/clinics/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
+      setEditClinic(null);
+      toast({ title: "Clinic updated" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -58,7 +76,8 @@ export default function ClinicsPage() {
   const filtered = clinics?.filter(
     (c: any) =>
       c.name?.toLowerCase().includes(search.toLowerCase()) ||
-      c.publicId?.toLowerCase().includes(search.toLowerCase())
+      c.publicId?.toLowerCase().includes(search.toLowerCase()) ||
+      c.email?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -74,7 +93,10 @@ export default function ClinicsPage() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Add Clinic</DialogTitle></DialogHeader>
-            <ClinicForm onSubmit={(d) => createMutation.mutate(d)} loading={createMutation.isPending} />
+            <ClinicForm
+              onSubmit={(d) => createMutation.mutate(d)}
+              loading={createMutation.isPending}
+            />
           </DialogContent>
         </Dialog>
       </div>
@@ -109,25 +131,71 @@ export default function ClinicsPage() {
                         {facilityTypeLabels[c.facilityType] || c.facilityType}
                       </Badge>
                     )}
+                    {c.email && <p className="text-sm text-muted-foreground" data-testid={`text-clinic-email-${c.id}`}>{c.email}</p>}
                     <p className="text-sm text-muted-foreground truncate">{c.address}</p>
                     {c.phone && <p className="text-sm text-muted-foreground">{c.phone}</p>}
                     {c.contactName && <p className="text-xs text-muted-foreground">Contact: {c.contactName}</p>}
+                    {!c.email && (
+                      <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        <AlertTriangle className="w-3 h-3" />
+                        <span>Missing email</span>
+                      </div>
+                    )}
                   </div>
-                  <Badge variant={c.active ? "secondary" : "destructive"} className="flex-shrink-0">
-                    {c.active ? "Active" : "Inactive"}
-                  </Badge>
+                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                    <Badge variant={c.active ? "secondary" : "destructive"}>
+                      {c.active ? "Active" : "Inactive"}
+                    </Badge>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setEditClinic(c)}
+                      data-testid={`button-edit-clinic-${c.id}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog open={!!editClinic} onOpenChange={(v) => !v && setEditClinic(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Clinic</DialogTitle></DialogHeader>
+          {editClinic && (
+            <ClinicForm
+              initialData={editClinic}
+              onSubmit={(d) => updateMutation.mutate({ id: editClinic.id, data: d })}
+              loading={updateMutation.isPending}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ClinicForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loading: boolean }) {
-  const [form, setForm] = useState({ name: "", address: "", phone: "", contactName: "", facilityType: "clinic" });
+function ClinicForm({
+  initialData,
+  onSubmit,
+  loading,
+}: {
+  initialData?: any;
+  onSubmit: (data: any) => void;
+  loading: boolean;
+}) {
+  const isEdit = !!initialData;
+  const [form, setForm] = useState({
+    name: initialData?.name || "",
+    address: initialData?.address || "",
+    email: initialData?.email || "",
+    phone: initialData?.phone || "",
+    contactName: initialData?.contactName || "",
+    facilityType: initialData?.facilityType || "clinic",
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,6 +207,22 @@ function ClinicForm({ onSubmit, loading }: { onSubmit: (data: any) => void; load
       <div className="space-y-2">
         <Label>Clinic Name *</Label>
         <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required data-testid="input-clinic-name" />
+      </div>
+      <div className="space-y-2">
+        <Label>Email *</Label>
+        <Input
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          required
+          data-testid="input-clinic-email"
+        />
+        {isEdit && !initialData?.email && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3" />
+            Clinic must have an email for login access.
+          </p>
+        )}
       </div>
       <div className="space-y-2">
         <Label>Address *</Label>
@@ -166,8 +250,8 @@ function ClinicForm({ onSubmit, loading }: { onSubmit: (data: any) => void; load
           <Input value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} data-testid="input-clinic-contact" />
         </div>
       </div>
-      <Button type="submit" className="w-full" disabled={loading} data-testid="button-submit-clinic">
-        {loading ? "Adding..." : "Add Clinic"}
+      <Button type="submit" className="w-full" disabled={loading || !form.email} data-testid="button-submit-clinic">
+        {loading ? (isEdit ? "Saving..." : "Adding...") : (isEdit ? "Save Changes" : "Add Clinic")}
       </Button>
     </form>
   );

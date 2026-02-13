@@ -115,6 +115,7 @@ export const clinics = pgTable("clinics", {
   cityId: integer("city_id").notNull().references(() => cities.id),
   name: text("name").notNull(),
   address: text("address").notNull(),
+  email: text("email").unique(),
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
   phone: text("phone"),

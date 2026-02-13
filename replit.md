@@ -124,3 +124,7 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: Patient editing: PATCH /api/patients/:id (SUPER_ADMIN/ADMIN/DISPATCH), notes column added, edit dialog in patients page
 - 2026-02-13: Required trip times: pickupTime (required), estimatedArrivalTime (optional) added to trips schema + form + display
 - 2026-02-13: Facility type classification: facilityType enum (clinic/hospital/mental/private) added to clinics schema + form + display badge
+- 2026-02-13: Driver email + city + vehicle: email (unique) required on driver creation, city dropdown, vehicle dropdown filtered by same city
+- 2026-02-13: Clinic email: email (unique) column added, required for new clinics, edit dialog for legacy clinics with missing-email warning
+- 2026-02-13: Auto user creation: when clinic created/updated with email, VIEWER user auto-created with city access granted
+- 2026-02-13: PATCH /api/clinics/:id: update clinic fields (name, address, email, phone, contactName, facilityType, active)

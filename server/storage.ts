@@ -30,7 +30,9 @@ export interface IStorage {
   getDriverByVehicleId(vehicleId: number, excludeDriverId?: number): Promise<Driver | undefined>;
 
   getClinics(cityId?: number): Promise<Clinic[]>;
+  getClinic(id: number): Promise<Clinic | undefined>;
   createClinic(data: InsertClinic): Promise<Clinic>;
+  updateClinic(id: number, data: Partial<Clinic>): Promise<Clinic | undefined>;
 
   getPatients(cityId?: number): Promise<Patient[]>;
   getPatient(id: number): Promise<Patient | undefined>;
@@ -162,8 +164,19 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(clinics).orderBy(clinics.name);
   }
 
+  async getClinic(id: number): Promise<Clinic | undefined> {
+    const [clinic] = await db.select().from(clinics).where(eq(clinics.id, id));
+    return clinic;
+  }
+
   async createClinic(data: InsertClinic): Promise<Clinic> {
     const [clinic] = await db.insert(clinics).values(data).returning();
+    return clinic;
+  }
+
+  async updateClinic(id: number, data: Partial<Clinic>): Promise<Clinic | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    const [clinic] = await db.update(clinics).set(updateData).where(eq(clinics.id, id)).returning();
     return clinic;
   }
 

@@ -3,8 +3,10 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users } from "@shared/schema";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
 import { getSupabaseServer } from "../lib/supabaseClient";
 import { registerMapsRoutes } from "./lib/mapsRoutes";
 import { registerDispatchRoutes } from "./lib/dispatchRoutes";
@@ -417,6 +419,13 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid clinic data" });
       }
+      if (!parsed.data.email || !parsed.data.email.trim()) {
+        return res.status(400).json({ message: "Clinic email is required" });
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(parsed.data.email)) {
+        return res.status(400).json({ message: "Invalid email format" });
+      }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
       }
@@ -427,15 +436,112 @@ export async function registerRoutes(
         clinicData.phone = normalizePhone(clinicData.phone) || clinicData.phone;
       }
       const clinic = await storage.createClinic(clinicData);
+
+      let userCreated = false;
+      try {
+        const existingUsers = await db.select().from(users).where(eq(users.email, clinic.email!));
+        if (existingUsers.length === 0) {
+          const tempPassword = `UCM-${Date.now().toString(36)}`;
+          const hashed = await hashPassword(tempPassword);
+          const userPublicId = await generatePublicId();
+          const nameParts = clinic.name.split(" ");
+          const newUser = await storage.createUser({
+            publicId: userPublicId,
+            email: clinic.email!,
+            password: hashed,
+            firstName: nameParts[0] || clinic.name,
+            lastName: nameParts.slice(1).join(" ") || "Clinic",
+            role: "VIEWER",
+            phone: clinic.phone || null,
+            active: true,
+          });
+          await storage.setUserCityAccess(newUser.id, [clinic.cityId]);
+          userCreated = true;
+        }
+      } catch (userErr: any) {
+        console.error("Auto user creation for clinic failed:", userErr.message);
+      }
+
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
         entity: "clinic",
         entityId: clinic.id,
-        details: `Created clinic ${clinic.name}`,
+        details: `Created clinic ${clinic.name}${userCreated ? " (user account created)" : ""}`,
         cityId: clinic.cityId,
       });
-      res.json(clinic);
+      res.json({ ...clinic, userCreated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/clinics/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.params.id);
+      if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+
+      const clinic = await storage.getClinic(clinicId);
+      if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+      if (!(await checkCityAccess(req, clinic.cityId))) {
+        return res.status(403).json({ message: "No access to this city" });
+      }
+
+      const allowed = ["name", "address", "email", "phone", "contactName", "facilityType", "active"];
+      const updateData: any = {};
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updateData[key] = req.body[key];
+      }
+
+      if (updateData.email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(updateData.email)) {
+          return res.status(400).json({ message: "Invalid email format" });
+        }
+      }
+
+      if (updateData.phone) {
+        const { normalizePhone } = await import("./lib/twilioSms");
+        updateData.phone = normalizePhone(updateData.phone) || updateData.phone;
+      }
+
+      const updated = await storage.updateClinic(clinicId, updateData);
+
+      if (updateData.email && !clinic.email) {
+        try {
+          const existingUsers = await db.select().from(users).where(eq(users.email, updateData.email));
+          if (existingUsers.length === 0) {
+            const tempPassword = `UCM-${Date.now().toString(36)}`;
+            const hashed = await hashPassword(tempPassword);
+            const userPublicId = await generatePublicId();
+            const nameParts = clinic.name.split(" ");
+            const newUser = await storage.createUser({
+              publicId: userPublicId,
+              email: updateData.email,
+              password: hashed,
+              firstName: nameParts[0] || clinic.name,
+              lastName: nameParts.slice(1).join(" ") || "Clinic",
+              role: "VIEWER",
+              phone: clinic.phone || null,
+              active: true,
+            });
+            await storage.setUserCityAccess(newUser.id, [clinic.cityId]);
+          }
+        } catch (userErr: any) {
+          console.error("Auto user creation for clinic update failed:", userErr.message);
+        }
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "UPDATE",
+        entity: "clinic",
+        entityId: clinicId,
+        details: `Updated clinic ${clinic.name}`,
+        cityId: clinic.cityId,
+      });
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
