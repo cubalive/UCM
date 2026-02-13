@@ -111,6 +111,7 @@ export async function registerRoutes(
         token,
         user: { ...safeUser, cityAccess },
         cities: accessibleCities,
+        mustChangePassword: user.mustChangePassword || false,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -445,17 +446,45 @@ export async function registerRoutes(
       }
 
       let authProvisioned = false;
+      let tempPassword: string | undefined;
       try {
         const { ensureAuthUserForDriver } = await import("./lib/driverAuth");
-        const { userId: authUserId, isNew } = await ensureAuthUserForDriver({
+        const result = await ensureAuthUserForDriver({
           name: `${driverData.firstName} ${driverData.lastName}`,
           email: driverData.email,
         });
-        driverData.authUserId = authUserId;
+        driverData.authUserId = result.userId;
         authProvisioned = true;
-        console.log(`[driverCreate] Auth user ${isNew ? "created" : "linked"}: ${authUserId}`);
+        if (result.tempPassword) tempPassword = result.tempPassword;
+        console.log(`[driverCreate] Auth user ${result.isNew ? "created" : "linked"}: ${result.userId}`);
       } catch (authErr: any) {
         console.error("[driverCreate] Auth provisioning failed (non-fatal):", authErr.message);
+      }
+
+      const { generateTempPassword } = await import("./lib/driverAuth");
+      let localTempPassword: string | undefined;
+      try {
+        const existingUsers = await db.select().from(users).where(eq(users.email, driverData.email));
+        if (existingUsers.length === 0) {
+          localTempPassword = tempPassword || generateTempPassword();
+          const hashed = await hashPassword(localTempPassword);
+          const userPublicId = await generatePublicId();
+          const newUser = await storage.createUser({
+            publicId: userPublicId,
+            email: driverData.email,
+            password: hashed,
+            firstName: driverData.firstName,
+            lastName: driverData.lastName,
+            role: "DRIVER",
+            phone: driverData.phone || null,
+            active: true,
+            mustChangePassword: true,
+          });
+          await storage.setUserCityAccess(newUser.id, [driverData.cityId]);
+          if (!tempPassword) tempPassword = localTempPassword;
+        }
+      } catch (userErr: any) {
+        console.error("[driverCreate] Local user creation failed (non-fatal):", userErr.message);
       }
 
       const driver = await storage.createDriver(driverData);
@@ -467,7 +496,7 @@ export async function registerRoutes(
         details: `Created driver ${driver.firstName} ${driver.lastName}${authProvisioned ? " (auth provisioned)" : ""}`,
         cityId: driver.cityId,
       });
-      res.json(driver);
+      res.json({ ...driver, tempPassword, authProvisioned });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -509,15 +538,17 @@ export async function registerRoutes(
 
       let authProvisioned = false;
       let userCreated = false;
+      let tempPassword: string | undefined;
       try {
         const { ensureAuthUserForClinic } = await import("./lib/driverAuth");
-        const { userId: authUserId, isNew } = await ensureAuthUserForClinic({
+        const result = await ensureAuthUserForClinic({
           name: clinic.name,
           email: clinic.email!,
         });
-        clinic = await storage.updateClinic(clinic.id, { authUserId } as any);
+        clinic = await storage.updateClinic(clinic.id, { authUserId: result.userId } as any);
         authProvisioned = true;
-        console.log(`[clinicCreate] Auth user ${isNew ? "created" : "linked"}: ${authUserId}`);
+        if (result.tempPassword) tempPassword = result.tempPassword;
+        console.log(`[clinicCreate] Auth user ${result.isNew ? "created" : "linked"}: ${result.userId}`);
       } catch (authErr: any) {
         console.error("[clinicCreate] Auth provisioning failed (non-fatal):", authErr.message);
       }
@@ -525,8 +556,9 @@ export async function registerRoutes(
       try {
         const existingUsers = await db.select().from(users).where(eq(users.email, clinic.email!));
         if (existingUsers.length === 0) {
-          const tempPassword = `UCM-${Date.now().toString(36)}`;
-          const hashed = await hashPassword(tempPassword);
+          const { generateTempPassword } = await import("./lib/driverAuth");
+          const localTempPassword = tempPassword || generateTempPassword();
+          const hashed = await hashPassword(localTempPassword);
           const userPublicId = await generatePublicId();
           const nameParts = clinic.name.split(" ");
           const newUser = await storage.createUser({
@@ -538,9 +570,11 @@ export async function registerRoutes(
             role: "VIEWER",
             phone: clinic.phone || null,
             active: true,
+            mustChangePassword: true,
           });
           await storage.setUserCityAccess(newUser.id, [clinic.cityId]);
           userCreated = true;
+          if (!tempPassword) tempPassword = localTempPassword;
         }
       } catch (userErr: any) {
         console.error("Auto user creation for clinic failed:", userErr.message);
@@ -554,7 +588,7 @@ export async function registerRoutes(
         details: `Created clinic ${clinic.name}${authProvisioned ? " (auth provisioned)" : ""}${userCreated ? " (user account created)" : ""}`,
         cityId: clinic.cityId,
       });
-      res.json({ ...clinic, userCreated, authProvisioned });
+      res.json({ ...clinic, userCreated, authProvisioned, tempPassword });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -610,8 +644,9 @@ export async function registerRoutes(
         try {
           const existingUsers = await db.select().from(users).where(eq(users.email, updateData.email));
           if (existingUsers.length === 0) {
-            const tempPassword = `UCM-${Date.now().toString(36)}`;
-            const hashed = await hashPassword(tempPassword);
+            const { generateTempPassword: genTP } = await import("./lib/driverAuth");
+            const tp = genTP();
+            const hashed = await hashPassword(tp);
             const userPublicId = await generatePublicId();
             const nameParts = clinic.name.split(" ");
             const newUser = await storage.createUser({
@@ -623,6 +658,7 @@ export async function registerRoutes(
               role: "VIEWER",
               phone: clinic.phone || null,
               active: true,
+              mustChangePassword: true,
             });
             await storage.setUserCityAccess(newUser.id, [clinic.cityId]);
           }
@@ -847,6 +883,115 @@ export async function registerRoutes(
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ ok: false, hasServiceRole: false, canCreateUsers: false, error: err.message });
+    }
+  });
+
+  const changePasswordSchema = z.object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8, "Password must be at least 8 characters"),
+  });
+
+  app.post("/api/auth/change-password", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const parsed = changePasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
+      }
+
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const valid = await comparePassword(parsed.data.currentPassword, user.password);
+      if (!valid) {
+        return res.status(401).json({ message: "Current password is incorrect" });
+      }
+
+      const hashed = await hashPassword(parsed.data.newPassword);
+      await db.update(users).set({ password: hashed, mustChangePassword: false }).where(eq(users.id, user.id));
+
+      if (user.email) {
+        try {
+          const supabase = getSupabaseServer();
+          if (supabase) {
+            const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+            const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === user.email.toLowerCase());
+            if (sbUser) {
+              await supabase.auth.admin.updateUser(sbUser.id, {
+                password: parsed.data.newPassword,
+                user_metadata: { must_change_password: false },
+              });
+            }
+          }
+        } catch (sbErr: any) {
+          console.error("[changePassword] Supabase password sync failed (non-fatal):", sbErr.message);
+        }
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "CHANGE_PASSWORD",
+        entity: "user",
+        entityId: user.id,
+        details: `User ${user.email} changed password`,
+        cityId: null,
+      });
+
+      res.json({ success: true, message: "Password changed successfully" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  const adminSetPasswordSchema = z.object({
+    newPassword: z.string().min(8, "Password must be at least 8 characters"),
+  });
+
+  app.post("/api/admin/users/:id/set-password", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const targetUserId = parseInt(req.params.id);
+      if (isNaN(targetUserId)) return res.status(400).json({ message: "Invalid user ID" });
+
+      const parsed = adminSetPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
+      }
+
+      const targetUser = await storage.getUser(targetUserId);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
+
+      const hashed = await hashPassword(parsed.data.newPassword);
+      await db.update(users).set({ password: hashed, mustChangePassword: false }).where(eq(users.id, targetUserId));
+
+      if (targetUser.email) {
+        try {
+          const supabase = getSupabaseServer();
+          if (supabase) {
+            const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+            const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === targetUser.email.toLowerCase());
+            if (sbUser) {
+              await supabase.auth.admin.updateUser(sbUser.id, {
+                password: parsed.data.newPassword,
+                user_metadata: { must_change_password: false },
+              });
+            }
+          }
+        } catch (sbErr: any) {
+          console.error("[adminSetPassword] Supabase password sync failed (non-fatal):", sbErr.message);
+        }
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ADMIN_SET_PASSWORD",
+        entity: "user",
+        entityId: targetUserId,
+        details: `Super admin reset password for user ${targetUser.email}`,
+        cityId: null,
+      });
+
+      res.json({ success: true, message: `Password set for ${targetUser.email}` });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

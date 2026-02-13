@@ -141,3 +141,9 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: POST /api/admin/clinics/:id/send-invite: send login link to clinic (SUPER_ADMIN/DISPATCH)
 - 2026-02-13: Clinics UI: auth status badges (Auth linked / No auth), Send Clinic Login Link button
 - 2026-02-13: Refactored driverAuth.ts: ensureAuthUser supports driver/clinic/viewer roles
+- 2026-02-13: Temporary password provisioning: 16-char cryptographic temp passwords on driver/clinic creation
+- 2026-02-13: `mustChangePassword` column on users table; forced password change screen on first login
+- 2026-02-13: POST /api/auth/change-password: user self-service password change (clears mustChangePassword)
+- 2026-02-13: POST /api/admin/users/:id/set-password: SUPER_ADMIN password reset for any user
+- 2026-02-13: Temp password modal dialogs in drivers + clinics pages with copy-to-clipboard
+- `client/src/pages/change-password.tsx` - Forced password change screen (intercepts login flow)

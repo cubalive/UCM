@@ -21,12 +21,14 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   meData: MeData | null;
+  mustChangePassword: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   retry: () => void;
   setSelectedCity: (city: City | null) => void;
   hasAccess: (cityId: number) => boolean;
   isSuperAdmin: boolean;
+  clearMustChangePassword: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -41,6 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [meData, setMeData] = useState<MeData | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [devLoginAttempts, setDevLoginAttempts] = useState(0);
   const [devBypassed, setDevBypassed] = useState(false);
 
@@ -78,6 +81,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCities(data.cities || []);
       setMeData(me);
       setError(null);
+
+      if (data.user?.mustChangePassword) {
+        setMustChangePassword(true);
+      }
 
       if (data.cities?.length > 0 && !selectedCity) {
         setSelectedCity(data.cities[0]);
@@ -129,6 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               phone: null,
               cityAccess: [],
               createdAt: new Date(),
+              mustChangePassword: false,
             } as unknown as AuthUser);
             setToken("dev-bypass-token");
           }
@@ -159,6 +167,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSelectedCity(data.cities[0]);
     }
 
+    if (data.mustChangePassword) {
+      setMustChangePassword(true);
+    }
+
     try {
       const meRes = await fetch("/api/me", {
         headers: { Authorization: `Bearer ${data.token}` },
@@ -176,6 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSelectedCity(null);
     setMeData(null);
     setError(null);
+    setMustChangePassword(false);
     localStorage.removeItem("ucm_token");
   };
 
@@ -188,6 +201,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const clearMustChangePassword = () => {
+    setMustChangePassword(false);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -198,12 +215,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         error,
         meData,
+        mustChangePassword,
         login,
         logout,
         retry,
         setSelectedCity,
         hasAccess,
         isSuperAdmin,
+        clearMustChangePassword,
       }}
     >
       {children}

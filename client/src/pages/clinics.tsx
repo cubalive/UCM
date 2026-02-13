@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 const facilityTypeLabels: Record<string, string> = {
@@ -34,6 +34,7 @@ export default function ClinicsPage() {
   const [open, setOpen] = useState(false);
   const [editClinic, setEditClinic] = useState<any>(null);
   const [search, setSearch] = useState("");
+  const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
   const { data: clinics, isLoading } = useQuery<any[]>({
@@ -52,10 +53,14 @@ export default function ClinicsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setOpen(false);
-      const msg = result?.userCreated
-        ? "Clinic added — user account created automatically"
-        : "Clinic added";
-      toast({ title: msg });
+      if (result?.tempPassword && result?.email) {
+        setTempPasswordInfo({ email: result.email, password: result.tempPassword });
+      } else {
+        const msg = result?.userCreated
+          ? "Clinic added — user account created automatically"
+          : "Clinic added";
+        toast({ title: msg });
+      }
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -208,6 +213,47 @@ export default function ClinicsPage() {
               onSubmit={(d) => updateMutation.mutate({ id: editClinic.id, data: d })}
               loading={updateMutation.isPending}
             />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!tempPasswordInfo} onOpenChange={(v) => !v && setTempPasswordInfo(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="w-5 h-5" />
+              Temporary Password
+            </DialogTitle>
+          </DialogHeader>
+          {tempPasswordInfo && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                A login account has been created for <span className="font-medium text-foreground">{tempPasswordInfo.email}</span>.
+                Share this temporary password with the clinic securely.
+              </p>
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted font-mono text-sm">
+                <span className="flex-1 select-all" data-testid="text-clinic-temp-password">{tempPasswordInfo.password}</span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => {
+                    navigator.clipboard.writeText(tempPasswordInfo.password);
+                    toast({ title: "Copied to clipboard" });
+                  }}
+                  data-testid="button-copy-clinic-temp-password"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="p-3 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  This password is shown only once and is not stored. The user must change it on first login.
+                </p>
+              </div>
+              <Button className="w-full" onClick={() => setTempPasswordInfo(null)} data-testid="button-dismiss-clinic-temp-password">
+                Done
+              </Button>
+            </div>
           )}
         </DialogContent>
       </Dialog>

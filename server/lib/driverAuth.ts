@@ -1,9 +1,23 @@
 import { getSupabaseServer } from "../../lib/supabaseClient";
+import crypto from "crypto";
 
 interface EnsureAuthResult {
   userId: string;
   isNew: boolean;
+  tempPassword?: string;
 }
+
+function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
+  let password = "";
+  const bytes = crypto.randomBytes(16);
+  for (let i = 0; i < 16; i++) {
+    password += chars[bytes[i] % chars.length];
+  }
+  return password;
+}
+
+export { generateTempPassword };
 
 export async function ensureAuthUser({
   name,
@@ -42,10 +56,13 @@ export async function ensureAuthUser({
     return { userId: existingUser.id, isNew: false };
   }
 
+  const tempPassword = generateTempPassword();
+
   const { data: createData, error: createError } = await supabase.auth.admin.createUser({
     email,
+    password: tempPassword,
     email_confirm: true,
-    user_metadata: { name, role },
+    user_metadata: { name, role, must_change_password: true },
   });
 
   if (createError) {
@@ -57,7 +74,7 @@ export async function ensureAuthUser({
   }
 
   await upsertProfile(supabase, createData.user.id, name, email, role);
-  return { userId: createData.user.id, isNew: true };
+  return { userId: createData.user.id, isNew: true, tempPassword };
 }
 
 export async function ensureAuthUserForDriver({
@@ -118,6 +135,24 @@ export async function generateInviteLink(email: string): Promise<{ success: bool
     if (inviteError) {
       return { success: false, error: `Failed to send invite: ${inviteError.message}` };
     }
+  }
+
+  return { success: true };
+}
+
+export async function adminSetPassword(userId: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+  const supabase = getSupabaseServer();
+  if (!supabase) {
+    return { success: false, error: "Supabase is not configured." };
+  }
+
+  const { error } = await supabase.auth.admin.updateUser(userId, {
+    password: newPassword,
+    user_metadata: { must_change_password: false },
+  });
+
+  if (error) {
+    return { success: false, error: `Failed to update password: ${error.message}` };
   }
 
   return { success: true };

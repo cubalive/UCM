@@ -20,6 +20,7 @@ import CitiesPage from "@/pages/cities";
 import UsersPage from "@/pages/users-management";
 import AuditPage from "@/pages/audit";
 import DispatchMapPage from "@/pages/dispatch-map";
+import ChangePasswordPage from "@/pages/change-password";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -64,7 +65,7 @@ function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void
 }
 
 function AuthenticatedApp() {
-  const { user, loading, error, retry } = useAuth();
+  const { user, loading, error, retry, mustChangePassword } = useAuth();
 
   if (loading) {
     return (
@@ -84,6 +85,10 @@ function AuthenticatedApp() {
 
   if (!user) {
     return <LoginPage />;
+  }
+
+  if (mustChangePassword) {
+    return <ChangePasswordPage />;
   }
 
   const style = {
