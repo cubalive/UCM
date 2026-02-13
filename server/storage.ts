@@ -11,6 +11,7 @@ export interface IStorage {
   getCities(): Promise<City[]>;
   getCity(id: number): Promise<City | undefined>;
   createCity(data: InsertCity): Promise<City>;
+  updateCity(id: number, data: Partial<City>): Promise<City | undefined>;
 
   getUsers(): Promise<Omit<User, "password">[]>;
   getUser(id: number): Promise<User | undefined>;
@@ -69,6 +70,12 @@ export class DatabaseStorage implements IStorage {
 
   async createCity(data: InsertCity): Promise<City> {
     const [city] = await db.insert(cities).values(data).returning();
+    return city;
+  }
+
+  async updateCity(id: number, data: Partial<City>): Promise<City | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    const [city] = await db.update(cities).set(updateData).where(eq(cities.id, id)).returning();
     return city;
   }
 

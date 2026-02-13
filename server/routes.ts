@@ -218,6 +218,21 @@ export async function registerRoutes(
     }
   });
 
+  const ALLOWED_TIMEZONES = [
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+    "America/Phoenix",
+    "America/Anchorage",
+    "Pacific/Honolulu",
+    "America/Indiana/Indianapolis",
+  ];
+
+  app.get("/api/timezones", authMiddleware, (_req: AuthRequest, res) => {
+    res.json({ ok: true, items: ALLOWED_TIMEZONES });
+  });
+
   app.get("/api/cities", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const allCities = await storage.getCities();
@@ -237,7 +252,14 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid city data" });
       }
-      const city = await storage.createCity(parsed.data);
+      const cityData = { ...parsed.data };
+      if (!cityData.timezone || !cityData.timezone.trim()) {
+        cityData.timezone = "America/Los_Angeles";
+      }
+      if (!ALLOWED_TIMEZONES.includes(cityData.timezone)) {
+        return res.status(400).json({ message: `Invalid timezone. Allowed: ${ALLOWED_TIMEZONES.join(", ")}` });
+      }
+      const city = await storage.createCity(cityData);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
@@ -247,6 +269,39 @@ export async function registerRoutes(
         cityId: city.id,
       });
       res.json(city);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/cities/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const cityId = parseInt(req.params.id);
+      if (isNaN(cityId)) return res.status(400).json({ message: "Invalid city ID" });
+
+      const city = await storage.getCity(cityId);
+      if (!city) return res.status(404).json({ message: "City not found" });
+
+      const allowed = ["name", "state", "timezone", "active"];
+      const updateData: any = {};
+      for (const key of allowed) {
+        if (req.body[key] !== undefined) updateData[key] = req.body[key];
+      }
+
+      if (updateData.timezone && !ALLOWED_TIMEZONES.includes(updateData.timezone)) {
+        return res.status(400).json({ message: `Invalid timezone. Allowed: ${ALLOWED_TIMEZONES.join(", ")}` });
+      }
+
+      const updated = await storage.updateCity(cityId, updateData);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "UPDATE",
+        entity: "city",
+        entityId: cityId,
+        details: `Updated city ${city.name}`,
+        cityId: cityId,
+      });
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

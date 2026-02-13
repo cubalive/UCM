@@ -9,14 +9,33 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, MapPin } from "lucide-react";
+import { Plus, MapPin, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+
+const FALLBACK_TIMEZONES = [
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Phoenix",
+  "America/Anchorage",
+  "Pacific/Honolulu",
+  "America/Indiana/Indianapolis",
+];
 
 export default function CitiesPage() {
   const { token } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [editCity, setEditCity] = useState<any>(null);
 
   const { data: cities, isLoading } = useQuery<any[]>({
     queryKey: ["/api/cities"],
@@ -34,6 +53,20 @@ export default function CitiesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/cities"] });
       setOpen(false);
       toast({ title: "City added" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) =>
+      apiFetch(`/api/cities/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cities"] });
+      setEditCity(null);
+      toast({ title: "City updated" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -76,27 +109,76 @@ export default function CitiesPage() {
                   <div className="space-y-1">
                     <p className="font-medium" data-testid={`text-city-name-${c.id}`}>{c.name}</p>
                     <p className="text-sm text-muted-foreground">{c.state}</p>
-                    <p className="text-xs text-muted-foreground">{c.timezone}</p>
+                    <p className="text-xs text-muted-foreground" data-testid={`text-city-timezone-${c.id}`}>{c.timezone}</p>
                   </div>
-                  <Badge variant={c.active ? "secondary" : "destructive"} className="flex-shrink-0">
-                    {c.active ? "Active" : "Inactive"}
-                  </Badge>
+                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                    <Badge variant={c.active ? "secondary" : "destructive"}>
+                      {c.active ? "Active" : "Inactive"}
+                    </Badge>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setEditCity(c)}
+                      data-testid={`button-edit-city-${c.id}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog open={!!editCity} onOpenChange={(v) => !v && setEditCity(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit City</DialogTitle></DialogHeader>
+          {editCity && (
+            <CityForm
+              initialData={editCity}
+              onSubmit={(d) => updateMutation.mutate({ id: editCity.id, data: d })}
+              loading={updateMutation.isPending}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function CityForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loading: boolean }) {
-  const [form, setForm] = useState({ name: "", state: "", timezone: "America/New_York" });
+function CityForm({
+  initialData,
+  onSubmit,
+  loading,
+}: {
+  initialData?: any;
+  onSubmit: (data: any) => void;
+  loading: boolean;
+}) {
+  const { token } = useAuth();
+  const isEdit = !!initialData;
+
+  const { data: tzData, isLoading: tzLoading, isError: tzError } = useQuery<{ ok: boolean; items: string[] }>({
+    queryKey: ["/api/timezones"],
+    queryFn: () => apiFetch("/api/timezones", token),
+    enabled: !!token,
+  });
+
+  const timezones = tzData?.items?.length ? tzData.items : (tzError ? FALLBACK_TIMEZONES : []);
+  const useFallbackInput = tzError && !tzData?.items?.length;
+
+  const [form, setForm] = useState({
+    name: initialData?.name || "",
+    state: initialData?.state || "",
+    timezone: initialData?.timezone || "America/Los_Angeles",
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(form);
+    const payload = { ...form };
+    if (!payload.timezone.trim()) payload.timezone = "America/Los_Angeles";
+    onSubmit(payload);
   };
 
   return (
@@ -110,11 +192,37 @@ function CityForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loadin
         <Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} required placeholder="e.g. TX" data-testid="input-city-state" />
       </div>
       <div className="space-y-2">
-        <Label>Timezone</Label>
-        <Input value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} data-testid="input-city-timezone" />
+        <Label>Timezone *</Label>
+        {tzLoading ? (
+          <Skeleton className="h-9 w-full" />
+        ) : useFallbackInput ? (
+          <Input
+            value={form.timezone}
+            onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+            placeholder="America/Los_Angeles"
+            data-testid="input-city-timezone"
+          />
+        ) : (
+          <Select
+            value={form.timezone}
+            onValueChange={(v) => setForm({ ...form, timezone: v })}
+          >
+            <SelectTrigger data-testid="select-city-timezone">
+              <SelectValue placeholder="Select timezone" />
+            </SelectTrigger>
+            <SelectContent>
+              {timezones.map((tz) => (
+                <SelectItem key={tz} value={tz}>{tz.replace(/_/g, " ")}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {useFallbackInput && (
+          <p className="text-xs text-muted-foreground">Could not load timezone list. Enter a valid IANA timezone.</p>
+        )}
       </div>
       <Button type="submit" className="w-full" disabled={loading} data-testid="button-submit-city">
-        {loading ? "Adding..." : "Add City"}
+        {loading ? (isEdit ? "Saving..." : "Adding...") : (isEdit ? "Save Changes" : "Add City")}
       </Button>
     </form>
   );
