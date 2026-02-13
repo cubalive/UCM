@@ -1,10 +1,10 @@
 import { db } from "./db";
 import { eq, and, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
 import {
-  cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut,
+  cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
-  type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog,
-  type City, type User, type Vehicle, type Driver, type Clinic, type Patient, type Trip, type AuditLog, type SmsOptOut,
+  type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog, type InsertInvoice,
+  type City, type User, type Vehicle, type Driver, type Clinic, type Patient, type Trip, type AuditLog, type SmsOptOut, type Invoice,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -53,6 +53,10 @@ export interface IStorage {
 
   getStats(cityId?: number): Promise<Record<string, number>>;
   getTripStatusSummary(cityId?: number): Promise<Record<string, number>>;
+
+  getInvoices(clinicId?: number): Promise<Invoice[]>;
+  getInvoice(id: number): Promise<Invoice | undefined>;
+  createInvoice(data: InsertInvoice): Promise<Invoice>;
 
   isPhoneOptedOut(phone: string): Promise<boolean>;
   setPhoneOptOut(phone: string, optedOut: boolean): Promise<void>;
@@ -317,6 +321,23 @@ export class DatabaseStorage implements IStorage {
     }
     return summary;
   }
+  async getInvoices(clinicId?: number): Promise<Invoice[]> {
+    if (clinicId) {
+      return db.select().from(invoices).where(eq(invoices.clinicId, clinicId)).orderBy(desc(invoices.createdAt));
+    }
+    return db.select().from(invoices).orderBy(desc(invoices.createdAt));
+  }
+
+  async getInvoice(id: number): Promise<Invoice | undefined> {
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, id));
+    return invoice;
+  }
+
+  async createInvoice(data: InsertInvoice): Promise<Invoice> {
+    const [invoice] = await db.insert(invoices).values(data).returning();
+    return invoice;
+  }
+
   async isPhoneOptedOut(phone: string): Promise<boolean> {
     const [row] = await db.select().from(smsOptOut).where(eq(smsOptOut.phone, phone));
     return row?.optedOut === true;
