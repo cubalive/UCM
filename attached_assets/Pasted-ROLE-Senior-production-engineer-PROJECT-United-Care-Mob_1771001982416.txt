@@ -1,0 +1,60 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+REQUEST:
+In Add Patient form (Clinic dashboard and Admin), allow configuring a recurring ride schedule at patient creation time.
+
+IMPORTANT MODEL RULE:
+Recurring schedule belongs to trips/templates, not the patient record itself.
+So we will add an optional "Create recurring rides for this patient" section that creates trips (or a trip template) after the patient is created.
+
+GOAL:
+When adding a patient, user can optionally:
+- Choose schedule: One-time | Recurring
+- If recurring: presets M/W/F, T/Th/S, Custom days
+- Start date (>= today, city timezone)
+- Pickup time (required)
+- Estimated arrival time (required)
+- Default pickup/dropoff addresses (autocomplete, ZIP required) OR choose "set later"
+
+IMPLEMENTATION:
+
+1) UI (Add Patient)
+- Add collapsible section:
+  "Create rides for this patient"
+  Toggle: OFF by default
+- If ON:
+  - Trip type: One-time / Recurring
+  - Recurring presets and custom days
+  - Start date
+  - Pickup time + Estimated arrival time (required)
+  - Pickup/dropoff address (Google autocomplete) optional but recommended
+  - Notes
+
+2) Backend
+- After patient create succeeds:
+  - If section enabled, create:
+    A) Either a trip template table row (preferred) OR
+    B) Directly create the first trip + store recurring pattern on trips
+- Must enforce validation:
+  - No past start_date
+  - pickup_time + est_arrival_time required
+  - If addresses provided: zip/lat/lng required
+- Auth:
+  - clinic_user: only for own clinic
+  - dispatch/super_admin: allowed
+
+3) Verification
+- Add patient without rides -> works
+- Add patient with Recurring MWF -> creates the recurring pattern and first trip starting today
+- Add patient with One-time -> creates one trip
+- Confirm the existing Create Trip screen still has recurring options (no regression)
+
+Return a short summary and where the feature lives in UI.
