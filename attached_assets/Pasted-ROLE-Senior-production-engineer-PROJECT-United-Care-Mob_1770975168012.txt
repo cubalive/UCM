@@ -1,0 +1,72 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT create sub-agents
+- Do NOT run parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+ISSUE:
+Patients can be edited, but Drivers and Vehicles cannot be edited (UI or API).
+We need full edit capability for super_admin and dispatch.
+
+GOAL:
+Enable reliable EDIT (update) for:
+- Drivers
+- Vehicles
+with proper RBAC and validations, without breaking clinic restrictions.
+
+TASKS:
+
+1) BACKEND: DRIVERS UPDATE
+- Ensure endpoints exist and work:
+  GET  /api/drivers
+  GET  /api/drivers/:id
+  PUT  /api/drivers/:id
+- Authorization:
+  - super_admin and dispatch allowed
+  - driver allowed ONLY for self profile fields (optional)
+  - clinic_user forbidden
+- Updateable fields:
+  name, email, phone, city_id, active, notes, shift_status (if present), vehicle_id (only if city/base matches)
+- Validations:
+  - email normalized lower/trim; unique if non-null
+  - phone normalized to E.164
+  - city_id required
+  - if vehicle_id set -> enforce vehicle.home_city_id == driver.city_id
+
+2) BACKEND: VEHICLES UPDATE
+- Ensure endpoints exist and work:
+  GET  /api/vehicles
+  GET  /api/vehicles/:id
+  PUT  /api/vehicles/:id
+- Authorization:
+  - super_admin and dispatch allowed
+  - clinic_user forbidden
+- Updateable fields:
+  label/name, plate, vehicle_type, wheelchair_capable, capacity, home_city_id, color, active
+- Validations:
+  - home_city_id required
+  - color required (hex or predefined list)
+  - prevent assigning vehicle to drivers of a different city via validation rules
+
+3) FRONTEND: EDIT FORMS
+- Drivers:
+  - Add/Edit screen must be editable (not read-only)
+  - Save button calls PUT /api/drivers/:id
+  - Show success toast and refresh data
+  - Show exact API error on failure
+- Vehicles:
+  - Add/Edit screen must be editable
+  - Save button calls PUT /api/vehicles/:id
+  - Include color picker + home base selector
+  - Show exact API error on failure
+
+4) DIAGNOSTICS
+- If a form is disabled due to role, show explicit "Not allowed" message.
+- If save fails, show API message (not generic).
+
+5) VERIFY (must do)
+- Login as super
