@@ -611,13 +611,60 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this driver" });
       }
 
-      const { firstName, lastName, phone, email, licenseNumber, vehicleId, status, unassignReason } = req.body;
+      const { firstName, lastName, phone, email, licenseNumber, vehicleId, status, unassignReason, forceAssign } = req.body;
+
+      let forceUnassignedDriverId: number | null = null;
 
       if (vehicleId !== undefined && vehicleId !== null) {
         const vehicle = await storage.getVehicle(vehicleId);
         if (!vehicle) return res.status(400).json({ message: "Vehicle not found" });
         if (vehicle.cityId !== driver.cityId) {
           return res.status(400).json({ message: "Vehicle must belong to the same city as the driver" });
+        }
+
+        if (vehicleId !== driver.vehicleId) {
+          const allDrivers = await storage.getDrivers(driver.cityId);
+          const conflicting = allDrivers.find(
+            (d) => d.id !== driverId && d.vehicleId === vehicleId && d.status === "ACTIVE"
+          );
+          if (conflicting) {
+            if (forceAssign && req.user!.role === "SUPER_ADMIN") {
+              forceUnassignedDriverId = conflicting.id;
+              await storage.updateDriver(conflicting.id, { vehicleId: null });
+
+              const existingHistory = await storage.getVehicleAssignmentHistory(conflicting.id);
+              const openRow = existingHistory.find((h) => h.vehicleId === vehicleId && !h.unassignedAt);
+              if (openRow) {
+                await storage.closeVehicleAssignmentHistory(conflicting.id, vehicleId);
+              } else {
+                await storage.createVehicleAssignmentHistory({
+                  driverId: conflicting.id,
+                  vehicleId,
+                  cityId: driver.cityId,
+                  assignedBy: "super_admin",
+                  assignedAt: conflicting.createdAt,
+                  unassignedAt: new Date(),
+                  reason: "Force reassigned by super admin",
+                });
+              }
+
+              await storage.createAuditLog({
+                userId: req.user!.userId,
+                action: "UPDATE",
+                entity: "driver",
+                entityId: conflicting.id,
+                details: `Force-unassigned vehicle ${vehicle.name} (${vehicle.licensePlate}) from driver ${conflicting.firstName} ${conflicting.lastName} for reassignment to ${driver.firstName} ${driver.lastName}`,
+                cityId: driver.cityId,
+              });
+            } else {
+              return res.status(400).json({
+                message: `Vehicle is already assigned to driver ${conflicting.firstName} ${conflicting.lastName}. Unassign it first.`,
+                code: "VEHICLE_ALREADY_ASSIGNED",
+                conflictingDriverId: conflicting.id,
+                conflictingDriverName: `${conflicting.firstName} ${conflicting.lastName}`,
+              });
+            }
+          }
         }
       }
 

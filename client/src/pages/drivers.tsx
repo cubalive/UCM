@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 const UNASSIGN_REASONS = [
@@ -39,6 +39,13 @@ export default function DriversPage() {
   const [historyDriver, setHistoryDriver] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
+  const [vehicleConflict, setVehicleConflict] = useState<{
+    driverId: number;
+    driverName: string;
+    conflictingDriverId: number;
+    conflictingDriverName: string;
+    pendingData: any;
+  } | null>(null);
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
   const canManageAuth = user?.role === "SUPER_ADMIN" || user?.role === "DISPATCH";
@@ -92,9 +99,23 @@ export default function DriversPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setEditDriver(null);
+      setVehicleConflict(null);
       toast({ title: "Driver updated" });
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: any, variables: { id: number; data: any }) => {
+      if (err.data?.code === "VEHICLE_ALREADY_ASSIGNED") {
+        setEditDriver(null);
+        setVehicleConflict({
+          driverId: variables.id,
+          driverName: err.data.conflictingDriverName,
+          conflictingDriverId: err.data.conflictingDriverId,
+          conflictingDriverName: err.data.conflictingDriverName,
+          pendingData: variables.data,
+        });
+      } else {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+      }
+    },
   });
 
   const unassignMutation = useMutation({
@@ -334,6 +355,61 @@ export default function DriversPage() {
         onOpenChange={(o) => { if (!o) setHistoryDriver(null); }}
         token={token}
       />
+
+      <Dialog open={!!vehicleConflict} onOpenChange={(o) => { if (!o) setVehicleConflict(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Vehicle Already Assigned
+            </DialogTitle>
+          </DialogHeader>
+          {vehicleConflict && (
+            <div className="space-y-4" data-testid="vehicle-conflict-dialog">
+              <p className="text-sm text-muted-foreground">
+                This vehicle is currently assigned to <span className="font-medium text-foreground">{vehicleConflict.conflictingDriverName}</span>. You must unassign it from that driver before assigning it here.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const conflictDriver = (drivers || []).find((d: any) => d.id === vehicleConflict.conflictingDriverId);
+                    setVehicleConflict(null);
+                    if (conflictDriver) {
+                      setEditDriver(conflictDriver);
+                    }
+                  }}
+                  data-testid="button-go-to-conflicting-driver"
+                >
+                  Go to {vehicleConflict.conflictingDriverName}
+                </Button>
+                {user?.role === "SUPER_ADMIN" && (
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      updateMutation.mutate({
+                        id: vehicleConflict.driverId,
+                        data: { ...vehicleConflict.pendingData, forceAssign: true },
+                      });
+                    }}
+                    disabled={updateMutation.isPending}
+                    data-testid="button-force-assign"
+                  >
+                    {updateMutation.isPending ? "Reassigning..." : "Force Reassign (Admin Override)"}
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  onClick={() => setVehicleConflict(null)}
+                  data-testid="button-cancel-conflict"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!tempPasswordInfo} onOpenChange={(v) => !v && setTempPasswordInfo(null)}>
         <DialogContent>
