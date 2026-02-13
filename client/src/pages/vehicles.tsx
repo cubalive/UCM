@@ -18,13 +18,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Truck, Search, Accessibility } from "lucide-react";
+import { Plus, Truck, Search, Accessibility, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function VehiclesPage() {
   const { token, selectedCity } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [editVehicle, setEditVehicle] = useState<any>(null);
   const [search, setSearch] = useState("");
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -51,6 +52,21 @@ export default function VehiclesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setOpen(false);
       toast({ title: "Vehicle added" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) =>
+      apiFetch(`/api/vehicles/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      setEditVehicle(null);
+      toast({ title: "Vehicle updated" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -130,6 +146,14 @@ export default function VehiclesPage() {
                     {v.wheelchairAccessible && (
                       <Badge variant="secondary"><Accessibility className="w-3 h-3 mr-1" />WC</Badge>
                     )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setEditVehicle(v)}
+                      data-testid={`button-edit-vehicle-${v.id}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -137,19 +161,45 @@ export default function VehiclesPage() {
           ))}
         </div>
       )}
+
+      <Dialog open={!!editVehicle} onOpenChange={(o) => { if (!o) setEditVehicle(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Vehicle</DialogTitle></DialogHeader>
+          {editVehicle && (
+            <VehicleForm
+              cities={cities || []}
+              defaultCityId={editVehicle.cityId}
+              initialData={editVehicle}
+              onSubmit={(d) => updateMutation.mutate({ id: editVehicle.id, data: d })}
+              loading={updateMutation.isPending}
+              isEdit
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function VehicleForm({ cities, defaultCityId, onSubmit, loading }: {
+function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, isEdit }: {
   cities: any[];
   defaultCityId?: number;
+  initialData?: any;
   onSubmit: (data: any) => void;
   loading: boolean;
+  isEdit?: boolean;
 }) {
   const [form, setForm] = useState({
-    name: "", licensePlate: "", make: "", model: "", year: "", capacity: "4",
-    wheelchairAccessible: false, colorHex: "#3B82F6", cityId: defaultCityId?.toString() || "",
+    name: initialData?.name || "",
+    licensePlate: initialData?.licensePlate || "",
+    make: initialData?.make || "",
+    model: initialData?.model || "",
+    year: initialData?.year?.toString() || "",
+    capacity: initialData?.capacity?.toString() || "4",
+    wheelchairAccessible: initialData?.wheelchairAccessible || false,
+    colorHex: initialData?.colorHex || "#3B82F6",
+    cityId: (initialData?.cityId || defaultCityId)?.toString() || "",
+    status: initialData?.status || "ACTIVE",
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -225,8 +275,21 @@ function VehicleForm({ cities, defaultCityId, onSubmit, loading }: {
         <Switch checked={form.wheelchairAccessible} onCheckedChange={(v) => setForm({ ...form, wheelchairAccessible: v })} data-testid="switch-vehicle-wheelchair" />
         <Label>Wheelchair Accessible</Label>
       </div>
+      {isEdit && (
+        <div className="space-y-2">
+          <Label>Status</Label>
+          <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+            <SelectTrigger data-testid="select-vehicle-status"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ACTIVE">Active</SelectItem>
+              <SelectItem value="MAINTENANCE">Maintenance</SelectItem>
+              <SelectItem value="OUT_OF_SERVICE">Out of Service</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <Button type="submit" className="w-full" disabled={loading || !form.cityId || !form.colorHex.trim()} data-testid="button-submit-vehicle">
-        {loading ? "Adding..." : "Add Vehicle"}
+        {loading ? (isEdit ? "Saving..." : "Adding...") : (isEdit ? "Save Changes" : "Add Vehicle")}
       </Button>
     </form>
   );

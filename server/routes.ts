@@ -378,6 +378,70 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/vehicles/:id", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const vehicle = await storage.getVehicle(parseInt(req.params.id));
+      if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
+      if (!(await checkCityAccess(req, vehicle.cityId))) {
+        return res.status(403).json({ message: "No access to this vehicle" });
+      }
+      res.json(vehicle);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/vehicles/:id", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const vehicleId = parseInt(req.params.id);
+      const vehicle = await storage.getVehicle(vehicleId);
+      if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
+      if (!(await checkCityAccess(req, vehicle.cityId))) {
+        return res.status(403).json({ message: "No access to this vehicle" });
+      }
+
+      const { name, licensePlate, colorHex, make, model, year, capacity, wheelchairAccessible, status, cityId } = req.body;
+
+      if (!colorHex || !colorHex.trim()) {
+        return res.status(400).json({ message: "Vehicle color is required" });
+      }
+      if (cityId && cityId !== vehicle.cityId) {
+        if (!(await checkCityAccess(req, cityId))) {
+          return res.status(403).json({ message: "No access to the target city" });
+        }
+        const assignedDriver = await storage.getDriverByVehicleId(vehicleId);
+        if (assignedDriver && assignedDriver.cityId !== cityId) {
+          return res.status(400).json({ message: "Vehicle is assigned to a driver in another city; unassign first." });
+        }
+      }
+      let plate = licensePlate;
+      if (plate) {
+        plate = plate.trim().toUpperCase();
+        if (!/^[A-Z0-9-]+$/.test(plate)) {
+          return res.status(400).json({ message: "License plate may only contain letters, numbers, and hyphens" });
+        }
+      }
+
+      const updated = await storage.updateVehicle(vehicleId, {
+        name, licensePlate: plate, colorHex, make, model, year, capacity, wheelchairAccessible, status,
+        ...(cityId ? { cityId } : {}),
+      });
+      if (!updated) return res.status(404).json({ message: "Vehicle not found" });
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "UPDATE",
+        entity: "vehicle",
+        entityId: updated.id,
+        details: `Updated vehicle ${updated.name}`,
+        cityId: updated.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/vehicles", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const parsed = insertVehicleSchema.omit({ publicId: true }).safeParse(req.body);
