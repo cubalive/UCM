@@ -34,6 +34,7 @@ import {
   LogOut,
   Radio,
 } from "lucide-react";
+import logoImg from "@assets/public:logo-master.png_1770964647689.PNG";
 
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -63,9 +64,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-md bg-primary flex items-center justify-center flex-shrink-0">
-            <Truck className="w-5 h-5 text-primary-foreground" />
-          </div>
+          <img src={logoImg} alt="UCM" className="h-9 w-auto flex-shrink-0" data-testid="img-sidebar-logo" />
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate" data-testid="text-sidebar-title">UCM</p>
             <p className="text-xs text-muted-foreground truncate">Mobility System</p>
