@@ -212,6 +212,7 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
         zip: initialData.addressZip || "",
         lat: initialData.lat || 0,
         lng: initialData.lng || 0,
+        placeId: initialData.addressPlaceId || undefined,
       }
     : null;
 
@@ -239,6 +240,10 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
       toast({ title: "ZIP code required", description: "Please select an address that includes a ZIP code.", variant: "destructive" });
       return;
     }
+    if (!addressData.lat || !addressData.lng) {
+      toast({ title: "Coordinates required", description: "Please clear and re-select the address.", variant: "destructive" });
+      return;
+    }
     const combinedNotes = buildStructuredNotes(form.notes, form.recurringSchedule);
     onSubmit({
       firstName: form.firstName,
@@ -249,6 +254,7 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
       addressCity: addressData?.city || "",
       addressState: addressData?.state || "",
       addressZip: addressData?.zip || "",
+      addressPlaceId: addressData?.placeId || null,
       lat: addressData?.lat || null,
       lng: addressData?.lng || null,
       dateOfBirth: form.dateOfBirth,

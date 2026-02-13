@@ -908,7 +908,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
 
-      const allowed = ["name", "address", "addressStreet", "addressCity", "addressState", "addressZip", "lat", "lng", "email", "phone", "contactName", "facilityType", "active"];
+      const allowed = ["name", "address", "addressStreet", "addressCity", "addressState", "addressZip", "addressPlaceId", "lat", "lng", "email", "phone", "contactName", "facilityType", "active"];
       const updateData: any = {};
       for (const key of allowed) {
         if (req.body[key] !== undefined) updateData[key] = req.body[key];
@@ -1020,6 +1020,9 @@ export async function registerRoutes(
       if (parsed.data.address && !parsed.data.addressZip) {
         return res.status(400).json({ message: "ZIP code is required when providing an address" });
       }
+      if (parsed.data.address && (parsed.data.lat == null || parsed.data.lng == null)) {
+        return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
+      }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
       }
@@ -1056,7 +1059,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
 
-      const allowedFields = ["phone", "address", "addressStreet", "addressCity", "addressState", "addressZip", "lat", "lng", "notes", "insuranceId", "wheelchairRequired", "active", "firstName", "lastName", "dateOfBirth", "cityId"];
+      const allowedFields = ["phone", "address", "addressStreet", "addressCity", "addressState", "addressZip", "addressPlaceId", "lat", "lng", "notes", "insuranceId", "wheelchairRequired", "active", "firstName", "lastName", "dateOfBirth", "cityId"];
       const updateData: Record<string, any> = {};
       for (const key of allowedFields) {
         if (req.body[key] !== undefined) {
@@ -1067,6 +1070,15 @@ export async function registerRoutes(
       if (updateData.cityId && updateData.cityId !== existing.cityId) {
         if (!(await checkCityAccess(req, updateData.cityId))) {
           return res.status(403).json({ message: "No access to target city" });
+        }
+      }
+
+      if (updateData.address !== undefined) {
+        if (!updateData.addressZip || !String(updateData.addressZip).trim()) {
+          return res.status(400).json({ message: "ZIP code is required when providing an address" });
+        }
+        if (updateData.lat == null || updateData.lng == null) {
+          return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
         }
       }
 
@@ -1131,8 +1143,14 @@ export async function registerRoutes(
       if (parsed.data.pickupAddress && !parsed.data.pickupZip) {
         return res.status(400).json({ message: "Pickup ZIP code is required" });
       }
+      if (parsed.data.pickupLat == null || parsed.data.pickupLng == null) {
+        return res.status(400).json({ message: "Pickup address must be selected from autocomplete (lat/lng required)" });
+      }
       if (parsed.data.dropoffAddress && !parsed.data.dropoffZip) {
         return res.status(400).json({ message: "Dropoff ZIP code is required" });
+      }
+      if (parsed.data.dropoffLat == null || parsed.data.dropoffLng == null) {
+        return res.status(400).json({ message: "Dropoff address must be selected from autocomplete (lat/lng required)" });
       }
       if (parsed.data.pickupTime && parsed.data.estimatedArrivalTime && parsed.data.pickupTime >= parsed.data.estimatedArrivalTime) {
         return res.status(400).json({ message: "Pickup time must be before estimated arrival time" });
@@ -1176,6 +1194,7 @@ export async function registerRoutes(
     pickupCity: z.string().optional(),
     pickupState: z.string().optional(),
     pickupZip: z.string().optional(),
+    pickupPlaceId: z.string().nullable().optional(),
     pickupLat: z.number().optional(),
     pickupLng: z.number().optional(),
     dropoffAddress: z.string().optional(),
@@ -1183,6 +1202,7 @@ export async function registerRoutes(
     dropoffCity: z.string().optional(),
     dropoffState: z.string().optional(),
     dropoffZip: z.string().optional(),
+    dropoffPlaceId: z.string().nullable().optional(),
     dropoffLat: z.number().optional(),
     dropoffLng: z.number().optional(),
     scheduledDate: z.string().optional(),
@@ -1242,11 +1262,21 @@ export async function registerRoutes(
         if (!effectiveZip) {
           return res.status(400).json({ message: "Pickup ZIP code is required" });
         }
+        const effectiveLat = updateData.pickupLat ?? existing.pickupLat;
+        const effectiveLng = updateData.pickupLng ?? existing.pickupLng;
+        if (effectiveLat == null || effectiveLng == null) {
+          return res.status(400).json({ message: "Pickup address must be selected from autocomplete (lat/lng required)" });
+        }
       }
       if (updateData.dropoffAddress) {
         const effectiveZip = updateData.dropoffZip ?? existing.dropoffZip;
         if (!effectiveZip) {
           return res.status(400).json({ message: "Dropoff ZIP code is required" });
+        }
+        const effectiveLat = updateData.dropoffLat ?? existing.dropoffLat;
+        const effectiveLng = updateData.dropoffLng ?? existing.dropoffLng;
+        if (effectiveLat == null || effectiveLng == null) {
+          return res.status(400).json({ message: "Dropoff address must be selected from autocomplete (lat/lng required)" });
         }
       }
 

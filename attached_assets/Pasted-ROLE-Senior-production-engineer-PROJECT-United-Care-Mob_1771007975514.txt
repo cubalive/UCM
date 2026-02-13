@@ -1,0 +1,54 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+BUG:
+Clinic created with an address in Phoenix, but the clinic is effectively operating/seeing data from Dallas (admin default city). There is no enforced relationship between clinic address and clinic service city/area.
+
+GOAL:
+Make clinic "service area city" (city_id) a required, enforced field and ensure address must match that city_id. Clinics must never see or operate in a different city.
+
+REQUIREMENTS:
+
+1) Data model
+- Ensure clinics table has: city_id (uuid) NOT NULL references cities(id)
+- Ensure clinics table has: timezone (text) OR always join from cities.timezone
+- For all clinic users, their effective city is clinics.city_id (not a UI default)
+
+2) Create/Edit Clinic UI (Admin/Dispatch)
+- Add required field: "Service City" (dropdown from cities)
+- Address uses autocomplete and returns structured city/state/zip + lat/lng
+- Validation:
+  - If selected Service City does NOT match the address city/state (or is outside the city's allowed bounds), block save with clear error:
+    "Clinic address must be inside the selected Service City. Change the Service City or pick a valid address."
+  - Provide one-click option: "Set Service City to match address" (updates dropdown to address city if that city exists in cities table; otherwise instruct to create that city first)
+
+3) Backend enforcement (non-negotiable)
+- On clinic create/update:
+  - Require city_id
+  - Require address zip + lat/lng
+  - Validate address city/state match the selected city_id (cities table stores canonical city_name + state, optionally bounding box)
+  - Reject with 400 if mismatch
+
+4) Access control / filtering
+- Clinic user queries MUST filter by their clinic.city_id (server-side)
+- Remove any "default city" fallback for clinic role
+- Dispatch/admin can select city, clinic cannot
+
+5) Migration / cleanup
+- Find clinics with null or wrong city_id (compare address city/state)
+- Provide a safe admin script/endpoint to fix:
+  - list mismatched clinics
+  - update their city_id to correct city if exists, else flag
+
+VERIFY:
+- Create clinic with Phoenix address while Service City = Dallas -> blocked
+- Create clinic with Phoenix address and Service City = Phoenix -> allowed
+- Clinic user only sees Phoenix resources
+- No regression for Dallas clinics

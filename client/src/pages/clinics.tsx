@@ -294,6 +294,7 @@ function ClinicForm({
         zip: initialData.addressZip || "",
         lat: initialData.lat,
         lng: initialData.lng,
+        placeId: initialData.addressPlaceId || undefined,
       };
     }
     return null;
@@ -311,6 +312,10 @@ function ClinicForm({
       setAddressError("ZIP code is required");
       return;
     }
+    if (!addressValue.lat || !addressValue.lng) {
+      setAddressError("Coordinates are missing. Please re-select the address.");
+      return;
+    }
     setAddressError("");
     onSubmit({
       ...form,
@@ -319,6 +324,7 @@ function ClinicForm({
       addressCity: addressValue.city,
       addressState: addressValue.state,
       addressZip: addressValue.zip,
+      addressPlaceId: addressValue.placeId || null,
       lat: addressValue.lat,
       lng: addressValue.lng,
     });

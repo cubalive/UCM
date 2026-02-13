@@ -791,8 +791,16 @@ function TripForm({
       toast({ title: "Pickup address requires a ZIP code", variant: "destructive" });
       return;
     }
+    if (pickupAddr && (!pickupAddr.lat || !pickupAddr.lng)) {
+      toast({ title: "Pickup address missing coordinates. Please re-select.", variant: "destructive" });
+      return;
+    }
     if (!dropoffAddr || !dropoffAddr.zip) {
       toast({ title: "Dropoff address requires a ZIP code", variant: "destructive" });
+      return;
+    }
+    if (dropoffAddr && (!dropoffAddr.lat || !dropoffAddr.lng)) {
+      toast({ title: "Dropoff address missing coordinates. Please re-select.", variant: "destructive" });
       return;
     }
     if (dateIsPast) {
@@ -818,6 +826,7 @@ function TripForm({
       pickupCity: pickupAddr.city,
       pickupState: pickupAddr.state,
       pickupZip: pickupAddr.zip,
+      pickupPlaceId: pickupAddr.placeId || null,
       pickupLat: pickupAddr.lat,
       pickupLng: pickupAddr.lng,
       dropoffAddress: dropoffAddr.formattedAddress,
@@ -825,6 +834,7 @@ function TripForm({
       dropoffCity: dropoffAddr.city,
       dropoffState: dropoffAddr.state,
       dropoffZip: dropoffAddr.zip,
+      dropoffPlaceId: dropoffAddr.placeId || null,
       dropoffLat: dropoffAddr.lat,
       dropoffLng: dropoffAddr.lng,
       scheduledDate,
