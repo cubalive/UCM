@@ -813,15 +813,41 @@ export async function registerRoutes(
     }
   });
 
+  const createTripSchema = insertTripSchema.omit({ publicId: true }).refine(
+    (d) => !!d.pickupZip,
+    { message: "Pickup ZIP code is required", path: ["pickupZip"] }
+  ).refine(
+    (d) => !!d.dropoffZip,
+    { message: "Dropoff ZIP code is required", path: ["dropoffZip"] }
+  ).refine(
+    (d) => d.tripType !== "recurring" || (Array.isArray(d.recurringDays) && d.recurringDays.length > 0),
+    { message: "Recurring trips must have at least one day selected", path: ["recurringDays"] }
+  );
+
   app.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const parsed = insertTripSchema.omit({ publicId: true }).safeParse(req.body);
+      const parsed = createTripSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid trip data" });
+        const firstIssue = parsed.error.issues[0];
+        return res.status(400).json({ message: firstIssue?.message || "Invalid trip data" });
       }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
       }
+
+      const city = await storage.getCity(parsed.data.cityId);
+      if (city) {
+        const tz = city.timezone || "America/New_York";
+        const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+        const y = parts.find(p => p.type === "year")?.value;
+        const m = parts.find(p => p.type === "month")?.value;
+        const d = parts.find(p => p.type === "day")?.value;
+        const todayStr = `${y}-${m}-${d}`;
+        if (parsed.data.scheduledDate < todayStr) {
+          return res.status(400).json({ message: "Trip date cannot be in the past" });
+        }
+      }
+
       const publicId = await generatePublicId();
       const trip = await storage.createTrip({ ...parsed.data, publicId });
       await storage.createAuditLog({

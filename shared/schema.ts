@@ -46,6 +46,11 @@ export const dispatchStatusEnum = pgEnum("dispatch_status", [
   "hold",
 ]);
 
+export const tripTypeEnum = pgEnum("trip_type", [
+  "one_time",
+  "recurring",
+]);
+
 export const cities = pgTable("cities", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
@@ -157,15 +162,25 @@ export const trips = pgTable("trips", {
   vehicleId: integer("vehicle_id").references(() => vehicles.id),
   clinicId: integer("clinic_id").references(() => clinics.id),
   pickupAddress: text("pickup_address").notNull(),
+  pickupStreet: text("pickup_street"),
+  pickupCity: text("pickup_city"),
+  pickupState: text("pickup_state"),
+  pickupZip: text("pickup_zip"),
   pickupLat: doublePrecision("pickup_lat"),
   pickupLng: doublePrecision("pickup_lng"),
   dropoffAddress: text("dropoff_address").notNull(),
+  dropoffStreet: text("dropoff_street"),
+  dropoffCity: text("dropoff_city"),
+  dropoffState: text("dropoff_state"),
+  dropoffZip: text("dropoff_zip"),
   dropoffLat: doublePrecision("dropoff_lat"),
   dropoffLng: doublePrecision("dropoff_lng"),
   scheduledDate: text("scheduled_date").notNull(),
   scheduledTime: text("scheduled_time").notNull(),
   pickupTime: text("pickup_time").notNull(),
   estimatedArrivalTime: text("estimated_arrival_time"),
+  tripType: tripTypeEnum("trip_type").notNull().default("one_time"),
+  recurringDays: text("recurring_days").array(),
   status: tripStatusEnum("status").notNull().default("SCHEDULED"),
   lastEtaMinutes: integer("last_eta_minutes"),
   distanceMiles: numeric("distance_miles"),

@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { GOOGLE_MAPS_KEY } from "../../lib/mapsConfig";
-import { geocodeAddress, placesAutocomplete, etaMinutes, buildRoute } from "./googleMaps";
+import { geocodeAddress, placesAutocomplete, placeDetails, etaMinutes, buildRoute } from "./googleMaps";
 import { checkRateLimit } from "./rateLimiter";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
 
@@ -31,6 +31,10 @@ const geocodeSchema = z.object({
 
 const autocompleteSchema = z.object({
   input: z.string().min(2, "Input must be at least 2 characters"),
+});
+
+const placeDetailsSchema = z.object({
+  placeId: z.string().min(1, "placeId is required"),
 });
 
 const latLngSchema = z.object({
@@ -86,6 +90,22 @@ export function registerMapsRoutes(app: Express): void {
     try {
       const results = await placesAutocomplete(parsed.data.input);
       res.json({ ok: true, results });
+    } catch (e: any) {
+      res.status(502).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.post("/api/maps/places/details", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
+    if (!rateLimitMiddleware(req, res)) return;
+
+    const parsed = placeDetailsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: parsed.error.issues[0].message });
+    }
+
+    try {
+      const result = await placeDetails(parsed.data.placeId);
+      res.json({ ok: true, result });
     } catch (e: any) {
       res.status(502).json({ ok: false, error: e.message });
     }

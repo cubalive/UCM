@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -24,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, MapPin, Loader2, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 function normalizePhoneToE164(phone: string): string | null {
@@ -46,6 +47,214 @@ function formatPhoneDisplay(phone: string): string {
     return `(${area}) ${prefix}-${line}`;
   }
   return phone;
+}
+
+interface StructuredAddress {
+  formattedAddress: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  lat: number;
+  lng: number;
+}
+
+function AddressAutocomplete({
+  label,
+  value,
+  onSelect,
+  token,
+  testIdPrefix,
+  required,
+}: {
+  label: string;
+  value: StructuredAddress | null;
+  onSelect: (addr: StructuredAddress | null) => void;
+  token: string | null;
+  testIdPrefix: string;
+  required?: boolean;
+}) {
+  const [inputValue, setInputValue] = useState(value?.formattedAddress || "");
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (value?.formattedAddress && inputValue !== value.formattedAddress) {
+      setInputValue(value.formattedAddress);
+    }
+  }, [value?.formattedAddress]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const fetchSuggestions = useCallback(
+    async (query: string) => {
+      if (query.length < 3) {
+        setSuggestions([]);
+        return;
+      }
+      setLoading(true);
+      try {
+        const data = await apiFetch("/api/maps/places/autocomplete", token, {
+          method: "POST",
+          body: JSON.stringify({ input: query }),
+        });
+        setSuggestions(data.results || []);
+        setShowDropdown(true);
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [token]
+  );
+
+  const handleInputChange = (val: string) => {
+    setInputValue(val);
+    if (value) onSelect(null);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(val), 300);
+  };
+
+  const handleSelectSuggestion = async (suggestion: any) => {
+    setShowDropdown(false);
+    setInputValue(suggestion.description);
+    setDetailsLoading(true);
+    try {
+      const data = await apiFetch("/api/maps/places/details", token, {
+        method: "POST",
+        body: JSON.stringify({ placeId: suggestion.placeId }),
+      });
+      if (data.result) {
+        onSelect(data.result);
+        setInputValue(data.result.formattedAddress);
+      }
+    } catch {
+      onSelect(null);
+    } finally {
+      setDetailsLoading(false);
+    }
+  };
+
+  const hasZipError = value && !value.zip;
+
+  const handleClear = () => {
+    setInputValue("");
+    onSelect(null);
+    setSuggestions([]);
+    setShowDropdown(false);
+  };
+
+  if (value) {
+    return (
+      <div className="space-y-2">
+        <Label>{label} {required && "*"}</Label>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 flex items-center gap-2 rounded-md border px-3 py-2 text-sm bg-muted/50">
+            <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            <span className="truncate" data-testid={`text-${testIdPrefix}-selected`}>{value.formattedAddress}</span>
+          </div>
+          <Button type="button" variant="outline" size="icon" onClick={handleClear} data-testid={`button-${testIdPrefix}-clear`}>
+            <span className="sr-only">Clear</span>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div>
+            <span className="text-muted-foreground">Street:</span>{" "}
+            <span data-testid={`text-${testIdPrefix}-street`}>{value.street || "—"}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">City:</span>{" "}
+            <span data-testid={`text-${testIdPrefix}-city`}>{value.city || "—"}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">State:</span>{" "}
+            <span data-testid={`text-${testIdPrefix}-state`}>{value.state || "—"}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">ZIP:</span>{" "}
+            <span data-testid={`text-${testIdPrefix}-zip`} className={hasZipError ? "text-destructive font-medium" : ""}>
+              {value.zip || "Missing"}
+            </span>
+          </div>
+        </div>
+        {hasZipError && (
+          <p className="text-xs text-destructive flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3" />
+            ZIP code is required. Please clear and select a more specific address.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2" ref={containerRef}>
+      <Label>{label} {required && "*"}</Label>
+      <div className="relative">
+        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          value={inputValue}
+          onChange={(e) => handleInputChange(e.target.value)}
+          onFocus={() => { if (suggestions.length > 0) setShowDropdown(true); }}
+          placeholder="Start typing an address..."
+          className="pl-9"
+          data-testid={`input-${testIdPrefix}-address`}
+        />
+        {(loading || detailsLoading) && (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+        )}
+        {showDropdown && suggestions.length > 0 && (
+          <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-60 overflow-y-auto">
+            {suggestions.map((s: any) => (
+              <button
+                key={s.placeId}
+                type="button"
+                className="w-full text-left px-3 py-2 text-sm hover-elevate cursor-pointer"
+                onClick={() => handleSelectSuggestion(s)}
+                data-testid={`option-${testIdPrefix}-${s.placeId}`}
+              >
+                <span className="font-medium">{s.mainText}</span>
+                <span className="text-muted-foreground ml-1 text-xs">{s.secondaryText}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const ALL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+const RECURRING_PRESETS = [
+  { label: "Mon / Wed / Fri", days: ["Mon", "Wed", "Fri"] },
+  { label: "Tue / Thu / Sat", days: ["Tue", "Thu", "Sat"] },
+  { label: "Daily (Mon-Sun)", days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] },
+];
+
+function getTodayInTimezone(tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+    const y = parts.find(p => p.type === "year")?.value;
+    const m = parts.find(p => p.type === "month")?.value;
+    const d = parts.find(p => p.type === "day")?.value;
+    return `${y}-${m}-${d}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
 }
 
 export default function TripsPage() {
@@ -166,6 +375,8 @@ export default function TripsPage() {
               drivers={drivers || []}
               vehicles={vehicles || []}
               clinics={clinics || []}
+              token={token}
+              cityTimezone={selectedCity?.timezone || "America/New_York"}
               onSubmit={(data) => createMutation.mutate(data)}
               loading={createMutation.isPending}
             />
@@ -209,6 +420,9 @@ export default function TripsPage() {
                       <Badge variant={statusColors[trip.status] as any || "secondary"}>
                         {trip.status.replace("_", " ")}
                       </Badge>
+                      {trip.tripType === "recurring" && (
+                        <Badge variant="outline">Recurring</Badge>
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground">
                       {trip.scheduledDate} at {trip.scheduledTime} | Pickup: {trip.pickupTime}
@@ -220,6 +434,11 @@ export default function TripsPage() {
                     <p className="text-sm">
                       <span className="text-muted-foreground">To:</span> {trip.dropoffAddress}
                     </p>
+                    {trip.recurringDays?.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Recurring: {trip.recurringDays.join(", ")}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <Button
@@ -295,6 +514,9 @@ function TripDetailDialog({
             <Badge variant={trip.status === "CANCELLED" || trip.status === "NO_SHOW" ? "destructive" : "secondary"}>
               {trip.status.replace("_", " ")}
             </Badge>
+            {trip.tripType === "recurring" && (
+              <Badge variant="outline">Recurring</Badge>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -306,16 +528,25 @@ function TripDetailDialog({
             {trip.estimatedArrivalTime && (
               <p className="text-sm" data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</p>
             )}
+            {trip.recurringDays?.length > 0 && (
+              <p className="text-sm" data-testid="text-trip-recurring-days">Recurring: {trip.recurringDays.join(", ")}</p>
+            )}
           </div>
 
           <div className="space-y-2">
             <h3 className="text-sm font-medium text-muted-foreground">Pickup</h3>
             <p className="text-sm" data-testid="text-trip-pickup">{trip.pickupAddress}</p>
+            {trip.pickupZip && (
+              <p className="text-xs text-muted-foreground" data-testid="text-trip-pickup-zip">ZIP: {trip.pickupZip}</p>
+            )}
           </div>
 
           <div className="space-y-2">
             <h3 className="text-sm font-medium text-muted-foreground">Dropoff</h3>
             <p className="text-sm" data-testid="text-trip-dropoff">{trip.dropoffAddress}</p>
+            {trip.dropoffZip && (
+              <p className="text-xs text-muted-foreground" data-testid="text-trip-dropoff-zip">ZIP: {trip.dropoffZip}</p>
+            )}
           </div>
 
           {driver && (
@@ -494,6 +725,8 @@ function TripForm({
   drivers,
   vehicles,
   clinics,
+  token,
+  cityTimezone,
   onSubmit,
   loading,
 }: {
@@ -501,32 +734,86 @@ function TripForm({
   drivers: any[];
   vehicles: any[];
   clinics: any[];
+  token: string | null;
+  cityTimezone: string;
   onSubmit: (data: any) => void;
   loading: boolean;
 }) {
-  const [form, setForm] = useState({
-    patientId: "",
-    driverId: "",
-    vehicleId: "",
-    clinicId: "",
-    pickupAddress: "",
-    dropoffAddress: "",
-    scheduledDate: "",
-    scheduledTime: "",
-    pickupTime: "",
-    estimatedArrivalTime: "",
-    notes: "",
-  });
+  const { toast } = useToast();
+  const [patientId, setPatientId] = useState("");
+  const [driverId, setDriverId] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
+  const [clinicId, setClinicId] = useState("");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("");
+  const [pickupTime, setPickupTime] = useState("");
+  const [estimatedArrivalTime, setEstimatedArrivalTime] = useState("");
+  const [notes, setNotes] = useState("");
+  const [tripType, setTripType] = useState<"one_time" | "recurring">("one_time");
+  const [recurringDays, setRecurringDays] = useState<string[]>([]);
+
+  const [pickupAddr, setPickupAddr] = useState<StructuredAddress | null>(null);
+  const [dropoffAddr, setDropoffAddr] = useState<StructuredAddress | null>(null);
+
+  const todayStr = getTodayInTimezone(cityTimezone);
+  const dateIsPast = scheduledDate && scheduledDate < todayStr;
+
+  const toggleDay = (day: string) => {
+    setRecurringDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    );
+  };
+
+  const applyPreset = (days: string[]) => {
+    setRecurringDays(days);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!pickupAddr || !pickupAddr.zip) {
+      toast({ title: "Pickup address requires a ZIP code", variant: "destructive" });
+      return;
+    }
+    if (!dropoffAddr || !dropoffAddr.zip) {
+      toast({ title: "Dropoff address requires a ZIP code", variant: "destructive" });
+      return;
+    }
+    if (dateIsPast) {
+      toast({ title: "Trip date cannot be in the past", variant: "destructive" });
+      return;
+    }
+    if (tripType === "recurring" && recurringDays.length === 0) {
+      toast({ title: "Please select at least one recurring day", variant: "destructive" });
+      return;
+    }
+
     onSubmit({
-      ...form,
-      patientId: parseInt(form.patientId),
-      driverId: form.driverId ? parseInt(form.driverId) : null,
-      vehicleId: form.vehicleId ? parseInt(form.vehicleId) : null,
-      clinicId: form.clinicId ? parseInt(form.clinicId) : null,
-      estimatedArrivalTime: form.estimatedArrivalTime || null,
+      patientId: parseInt(patientId),
+      driverId: driverId ? parseInt(driverId) : null,
+      vehicleId: vehicleId ? parseInt(vehicleId) : null,
+      clinicId: clinicId ? parseInt(clinicId) : null,
+      pickupAddress: pickupAddr.formattedAddress,
+      pickupStreet: pickupAddr.street,
+      pickupCity: pickupAddr.city,
+      pickupState: pickupAddr.state,
+      pickupZip: pickupAddr.zip,
+      pickupLat: pickupAddr.lat,
+      pickupLng: pickupAddr.lng,
+      dropoffAddress: dropoffAddr.formattedAddress,
+      dropoffStreet: dropoffAddr.street,
+      dropoffCity: dropoffAddr.city,
+      dropoffState: dropoffAddr.state,
+      dropoffZip: dropoffAddr.zip,
+      dropoffLat: dropoffAddr.lat,
+      dropoffLng: dropoffAddr.lng,
+      scheduledDate,
+      scheduledTime,
+      pickupTime,
+      estimatedArrivalTime: estimatedArrivalTime || null,
+      tripType,
+      recurringDays: tripType === "recurring" ? recurringDays : null,
+      notes: notes || null,
     });
   };
 
@@ -534,7 +821,7 @@ function TripForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label>Patient *</Label>
-        <Select value={form.patientId} onValueChange={(v) => setForm({ ...form, patientId: v })}>
+        <Select value={patientId} onValueChange={setPatientId}>
           <SelectTrigger data-testid="select-trip-patient"><SelectValue placeholder="Select patient" /></SelectTrigger>
           <SelectContent>
             {patients.map((p) => (
@@ -543,37 +830,116 @@ function TripForm({
           </SelectContent>
         </Select>
       </div>
+
+      <div className="space-y-2">
+        <Label>Trip Type *</Label>
+        <Select value={tripType} onValueChange={(v) => setTripType(v as "one_time" | "recurring")}>
+          <SelectTrigger data-testid="select-trip-type"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="one_time">One-time</SelectItem>
+            <SelectItem value="recurring">Recurring</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {tripType === "recurring" && (
+        <div className="space-y-3 rounded-md border p-3">
+          <Label>Recurring Schedule</Label>
+          <div className="flex flex-wrap gap-2">
+            {RECURRING_PRESETS.map((preset) => {
+              const isActive =
+                preset.days.length === recurringDays.length &&
+                preset.days.every((d) => recurringDays.includes(d));
+              return (
+                <Button
+                  key={preset.label}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={isActive ? "toggle-elevate toggle-elevated" : ""}
+                  onClick={() => applyPreset(preset.days)}
+                  data-testid={`button-preset-${preset.label.replace(/[\s\/]/g, "-").toLowerCase()}`}
+                >
+                  {preset.label}
+                </Button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {ALL_DAYS.map((day) => (
+              <label key={day} className="flex items-center gap-1.5 cursor-pointer">
+                <Checkbox
+                  checked={recurringDays.includes(day)}
+                  onCheckedChange={() => toggleDay(day)}
+                  data-testid={`checkbox-day-${day.toLowerCase()}`}
+                />
+                <span className="text-sm">{day}</span>
+              </label>
+            ))}
+          </div>
+          {recurringDays.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Selected: {recurringDays.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
-          <Label>Date *</Label>
-          <Input type="date" value={form.scheduledDate} onChange={(e) => setForm({ ...form, scheduledDate: e.target.value })} required data-testid="input-trip-date" />
+          <Label>Start Date *</Label>
+          <Input
+            type="date"
+            value={scheduledDate}
+            min={todayStr}
+            onChange={(e) => setScheduledDate(e.target.value)}
+            required
+            data-testid="input-trip-date"
+          />
+          {dateIsPast && (
+            <p className="text-xs text-destructive flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" />
+              Date cannot be in the past
+            </p>
+          )}
         </div>
         <div className="space-y-2">
           <Label>Time *</Label>
-          <Input type="time" value={form.scheduledTime} onChange={(e) => setForm({ ...form, scheduledTime: e.target.value })} required data-testid="input-trip-time" />
+          <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} required data-testid="input-trip-time" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Pickup Time *</Label>
-          <Input type="time" value={form.pickupTime} onChange={(e) => setForm({ ...form, pickupTime: e.target.value })} required data-testid="input-trip-pickup-time" />
+          <Input type="time" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} required data-testid="input-trip-pickup-time" />
         </div>
         <div className="space-y-2">
           <Label>Est. Arrival Time</Label>
-          <Input type="time" value={form.estimatedArrivalTime} onChange={(e) => setForm({ ...form, estimatedArrivalTime: e.target.value })} data-testid="input-trip-est-arrival" />
+          <Input type="time" value={estimatedArrivalTime} onChange={(e) => setEstimatedArrivalTime(e.target.value)} data-testid="input-trip-est-arrival" />
         </div>
       </div>
-      <div className="space-y-2">
-        <Label>Pickup Address *</Label>
-        <Input value={form.pickupAddress} onChange={(e) => setForm({ ...form, pickupAddress: e.target.value })} required data-testid="input-trip-pickup" />
-      </div>
-      <div className="space-y-2">
-        <Label>Dropoff Address *</Label>
-        <Input value={form.dropoffAddress} onChange={(e) => setForm({ ...form, dropoffAddress: e.target.value })} required data-testid="input-trip-dropoff" />
-      </div>
+
+      <AddressAutocomplete
+        label="Pickup Address"
+        value={pickupAddr}
+        onSelect={setPickupAddr}
+        token={token}
+        testIdPrefix="pickup"
+        required
+      />
+
+      <AddressAutocomplete
+        label="Dropoff Address"
+        value={dropoffAddr}
+        onSelect={setDropoffAddr}
+        token={token}
+        testIdPrefix="dropoff"
+        required
+      />
+
       <div className="space-y-2">
         <Label>Clinic</Label>
-        <Select value={form.clinicId} onValueChange={(v) => setForm({ ...form, clinicId: v })}>
+        <Select value={clinicId} onValueChange={setClinicId}>
           <SelectTrigger data-testid="select-trip-clinic"><SelectValue placeholder="Select clinic (optional)" /></SelectTrigger>
           <SelectContent>
             {clinics.map((c) => (
@@ -585,7 +951,7 @@ function TripForm({
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Driver</Label>
-          <Select value={form.driverId} onValueChange={(v) => setForm({ ...form, driverId: v })}>
+          <Select value={driverId} onValueChange={setDriverId}>
             <SelectTrigger data-testid="select-trip-driver"><SelectValue placeholder="Assign later" /></SelectTrigger>
             <SelectContent>
               {drivers.map((d) => (
@@ -596,7 +962,7 @@ function TripForm({
         </div>
         <div className="space-y-2">
           <Label>Vehicle</Label>
-          <Select value={form.vehicleId} onValueChange={(v) => setForm({ ...form, vehicleId: v })}>
+          <Select value={vehicleId} onValueChange={setVehicleId}>
             <SelectTrigger data-testid="select-trip-vehicle"><SelectValue placeholder="Assign later" /></SelectTrigger>
             <SelectContent>
               {vehicles.map((v) => (
@@ -608,9 +974,14 @@ function TripForm({
       </div>
       <div className="space-y-2">
         <Label>Notes</Label>
-        <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="input-trip-notes" />
+        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} data-testid="input-trip-notes" />
       </div>
-      <Button type="submit" className="w-full" disabled={loading} data-testid="button-submit-trip">
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={loading || !patientId || !pickupAddr || !dropoffAddr || !scheduledDate || !scheduledTime || !pickupTime || !!dateIsPast}
+        data-testid="button-submit-trip"
+      >
         {loading ? "Creating..." : "Schedule Trip"}
       </Button>
     </form>

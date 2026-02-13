@@ -60,6 +60,16 @@ export interface AutocompleteResult {
   secondaryText: string;
 }
 
+export interface PlaceDetailsResult {
+  formattedAddress: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  lat: number;
+  lng: number;
+}
+
 export interface ETAResult {
   minutes: number;
   distanceMiles: number;
@@ -144,6 +154,55 @@ export async function placesAutocomplete(input: string): Promise<AutocompleteRes
 
   autocompleteCache.set(key, results);
   return results;
+}
+
+const placeDetailsCache = new TTLCache<PlaceDetailsResult>(30 * 24 * 3600);
+
+export async function placeDetails(placeId: string): Promise<PlaceDetailsResult> {
+  const key = cacheKey("pd", placeId);
+  const cached = placeDetailsCache.get(key);
+  if (cached) return cached;
+
+  const url =
+    `${GOOGLE_API_BASE}/place/details/json` +
+    `?place_id=${encodeURIComponent(placeId)}` +
+    `&fields=formatted_address,geometry,address_components` +
+    `&key=${GOOGLE_MAPS_KEY}`;
+
+  const data = await googleFetch(url);
+
+  if (data.status !== "OK" || !data.result) {
+    throw new Error(`Place details failed: ${data.status} - ${data.error_message || ""}`);
+  }
+
+  const r = data.result;
+  const components = r.address_components || [];
+
+  function getComponent(type: string): string {
+    const c = components.find((c: any) => c.types?.includes(type));
+    return c?.long_name || "";
+  }
+  function getShort(type: string): string {
+    const c = components.find((c: any) => c.types?.includes(type));
+    return c?.short_name || "";
+  }
+
+  const streetNumber = getComponent("street_number");
+  const route = getShort("route");
+  const street = streetNumber ? `${streetNumber} ${route}` : route;
+
+  const result: PlaceDetailsResult = {
+    formattedAddress: r.formatted_address || "",
+    street,
+    city: getComponent("locality") || getComponent("sublocality_level_1") || getComponent("administrative_area_level_2") || "",
+    state: getShort("administrative_area_level_1"),
+    zip: getComponent("postal_code"),
+    lat: r.geometry?.location?.lat || 0,
+    lng: r.geometry?.location?.lng || 0,
+  };
+
+  placeDetailsCache.set(key, result);
+  return result;
 }
 
 export async function etaMinutes(

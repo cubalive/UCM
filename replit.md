@@ -159,3 +159,11 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: Sidebar filters nav items by role permissions using shared/permissions.ts
 - `shared/permissions.ts` - Role-permission map, can() helper, getVisibleNavItems()
 - `client/src/pages/unauthorized.tsx` - Access Denied page with redirect to home
+- 2026-02-13: Trip creation: Google Places Autocomplete for pickup/dropoff addresses (no free-typing)
+- 2026-02-13: Structured address fields: pickupStreet/City/State/Zip, dropoffStreet/City/State/Zip on trips table
+- 2026-02-13: ZIP code required on trip creation (validated client-side from Place Details API)
+- 2026-02-13: Trip type: one_time | recurring enum; recurringDays text[] column
+- 2026-02-13: Recurring schedule UI: presets (Mon/Wed/Fri, Tue/Thu/Sat, Daily) + custom day checkboxes
+- 2026-02-13: Past-date validation: trip start date cannot be before today in city timezone
+- 2026-02-13: POST /api/maps/places/details: extract structured address (street/city/state/zip/lat/lng) from Google placeId
+- `server/lib/googleMaps.ts` - placeDetails() function with TTL cache
