@@ -115,6 +115,35 @@ export async function registerRoutes(
     }
   });
 
+  if (process.env.NODE_ENV === "development") {
+    app.get("/api/auth/dev-session", async (_req, res) => {
+      try {
+        const adminEmail = process.env.ADMIN_EMAIL;
+        if (!adminEmail) {
+          return res.status(503).json({ message: "Dev session unavailable: no ADMIN_EMAIL configured" });
+        }
+        const user = await storage.getUserByEmail(adminEmail);
+        if (!user) {
+          return res.status(503).json({ message: "Dev session unavailable: admin user not found" });
+        }
+        const token = signToken({ userId: user.id, role: user.role });
+        const cityAccess = await storage.getUserCityAccess(user.id);
+        const allCities = await storage.getCities();
+        const accessibleCities = user.role === "SUPER_ADMIN"
+          ? allCities
+          : allCities.filter((c) => cityAccess.includes(c.id));
+        const { password, ...safeUser } = user;
+        res.json({
+          token,
+          user: { ...safeUser, cityAccess },
+          cities: accessibleCities,
+        });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+  }
+
   app.get("/api/auth/me", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
