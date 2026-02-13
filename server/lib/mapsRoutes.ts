@@ -63,6 +63,13 @@ export function registerMapsRoutes(app: Express): void {
     });
   });
 
+  app.get("/api/maps/client-key", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), (_req: Request, res: Response) => {
+    if (!GOOGLE_MAPS_KEY) {
+      return res.status(503).json({ key: null, message: "Google Maps API key not configured" });
+    }
+    res.json({ key: GOOGLE_MAPS_KEY });
+  });
+
   app.post("/api/maps/geocode", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 

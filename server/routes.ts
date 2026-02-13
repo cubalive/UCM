@@ -1681,6 +1681,35 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/ops/driver-locations", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const cityId = parseInt(req.query.city_id as string);
+      if (isNaN(cityId)) return res.status(400).json({ message: "city_id is required" });
+
+      const hasAccess = await checkCityAccess(req, cityId);
+      if (!hasAccess) return res.status(403).json({ message: "No access to this city" });
+
+      const allDrivers = await storage.getDrivers(cityId);
+      const activeDrivers = allDrivers.filter((d: any) => d.status === "ACTIVE");
+
+      const locations = activeDrivers
+        .filter((d: any) => d.lastLat != null && d.lastLng != null)
+        .map((d: any) => ({
+          driver_id: d.id,
+          driver_name: `${d.firstName} ${d.lastName}`,
+          city_id: d.cityId,
+          lat: d.lastLat,
+          lng: d.lastLng,
+          updated_at: d.lastSeenAt ? new Date(d.lastSeenAt).toISOString() : null,
+          status: d.dispatchStatus,
+        }));
+
+      res.json(locations);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/ops/fleet", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.city_id as string);

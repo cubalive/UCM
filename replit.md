@@ -25,5 +25,8 @@ The application follows a client-server architecture.
 - **PostgreSQL**: Relational database for persistent storage, accessed via Drizzle ORM.
 - **Replit DB**: Used for specific operational data storage.
 - **Supabase**: Leveraged for user authentication profiles, city management, and Row-Level Security (RLS).
-- **Google Maps Platform**: Utilized for Maps JavaScript API, Directions API, Geocoding API, and Places API for location services, ETA calculations, and route optimization.
+- **Google Maps Platform**: Utilized for Maps JavaScript API, Directions API, Geocoding API, and Places API for location services, ETA calculations, route optimization, and live driver map. The frontend loads the Maps JS API via a protected `/api/maps/client-key` endpoint.
 - **Twilio**: Integrated for sending and receiving SMS messages, including patient notifications and handling SMS opt-out requests.
+
+## Recent Changes
+- **Live Map page** (Feb 2026): Added `/live-map` page under Ops (dispatch resource) showing real-time driver locations on Google Maps. Backend endpoint `GET /api/ops/driver-locations?city_id=...` returns active driver locations. Frontend polls every 10s, highlights stale drivers (>2min), gracefully handles missing Maps API key. Protected endpoint `GET /api/maps/client-key` serves the Google Maps API key to authenticated dispatch/admin users.
