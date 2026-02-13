@@ -33,6 +33,7 @@ import {
   ClipboardList,
   LogOut,
   Radio,
+  FileText,
 } from "lucide-react";
 
 const navItems = [
@@ -43,6 +44,7 @@ const navItems = [
   { title: "Drivers", url: "/drivers", icon: UserCheck },
   { title: "Vehicles", url: "/vehicles", icon: Truck },
   { title: "Clinics", url: "/clinics", icon: Building2 },
+  { title: "Invoices", url: "/invoices", icon: FileText },
 ];
 
 const adminItems = [

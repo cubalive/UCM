@@ -21,6 +21,7 @@ import UsersPage from "@/pages/users-management";
 import AuditPage from "@/pages/audit";
 import DispatchMapPage from "@/pages/dispatch-map";
 import ChangePasswordPage from "@/pages/change-password";
+import ClinicInvoicesPage from "@/pages/clinic-invoices";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -37,6 +38,7 @@ function Router() {
       <Route path="/users" component={UsersPage} />
       <Route path="/audit" component={AuditPage} />
       <Route path="/dispatch" component={DispatchMapPage} />
+      <Route path="/invoices" component={ClinicInvoicesPage} />
       <Route component={NotFound} />
     </Switch>
   );
