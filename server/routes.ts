@@ -395,6 +395,9 @@ export async function registerRoutes(
       }
       if (parsed.data.licensePlate) {
         parsed.data.licensePlate = parsed.data.licensePlate.trim().toUpperCase();
+        if (!/^[A-Z0-9-]+$/.test(parsed.data.licensePlate)) {
+          return res.status(400).json({ message: "License plate may only contain letters, numbers, and hyphens" });
+        }
       }
       const publicId = await generatePublicId();
       const vehicle = await storage.createVehicle({ ...parsed.data, publicId });
@@ -448,6 +451,9 @@ export async function registerRoutes(
       }
       if (parsed.data.licenseNumber) {
         parsed.data.licenseNumber = parsed.data.licenseNumber.trim().toUpperCase();
+        if (!/^[A-Z0-9-]+$/.test(parsed.data.licenseNumber)) {
+          return res.status(400).json({ message: "License number may only contain letters, numbers, and hyphens" });
+        }
       }
       const publicId = await generatePublicId();
       const driverData: any = { ...parsed.data, publicId };
