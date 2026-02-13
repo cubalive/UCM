@@ -35,6 +35,7 @@ import {
   LogOut,
   Radio,
   FileText,
+  Gauge,
 } from "lucide-react";
 
 interface NavItem {
@@ -47,6 +48,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, resource: "dashboard" },
   { title: "Dispatch", url: "/dispatch", icon: Radio, resource: "dispatch" },
+  { title: "Fleet", url: "/fleet", icon: Gauge, resource: "dispatch" },
   { title: "Trips", url: "/trips", icon: Route, resource: "trips" },
   { title: "Patients", url: "/patients", icon: HeartPulse, resource: "patients" },
   { title: "Drivers", url: "/drivers", icon: UserCheck, resource: "drivers" },

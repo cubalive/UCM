@@ -23,6 +23,7 @@ import AuditPage from "@/pages/audit";
 import DispatchMapPage from "@/pages/dispatch-map";
 import ChangePasswordPage from "@/pages/change-password";
 import ClinicInvoicesPage from "@/pages/clinic-invoices";
+import FleetOpsPage from "@/pages/fleet-ops";
 import UnauthorizedPage from "@/pages/unauthorized";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -63,6 +64,7 @@ function Router() {
       <Route path="/users">{() => <ProtectedRoute resource="users" component={UsersPage} />}</Route>
       <Route path="/audit">{() => <ProtectedRoute resource="audit" component={AuditPage} />}</Route>
       <Route path="/dispatch">{() => <ProtectedRoute resource="dispatch" component={DispatchMapPage} />}</Route>
+      <Route path="/fleet">{() => <ProtectedRoute resource="dispatch" component={FleetOpsPage} />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />

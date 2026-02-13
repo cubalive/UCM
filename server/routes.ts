@@ -1565,5 +1565,123 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/ops/fleet", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const cityId = parseInt(req.query.city_id as string);
+      if (isNaN(cityId)) return res.status(400).json({ message: "city_id is required" });
+
+      const hasAccess = await checkCityAccess(req, cityId);
+      if (!hasAccess) return res.status(403).json({ message: "No access to this city" });
+
+      const allDrivers = await storage.getDrivers(cityId);
+      const allVehicles = await storage.getVehicles(cityId);
+
+      const activeDrivers = allDrivers.filter((d: any) => d.status === "ACTIVE");
+      const activeVehicles = allVehicles.filter((v: any) => v.status === "ACTIVE");
+
+      const assignedDrivers = activeDrivers.filter((d: any) => d.vehicleId != null);
+      const unassignedDrivers = activeDrivers.filter((d: any) => d.vehicleId == null);
+
+      const assignedVehicleIds = new Set(activeDrivers.filter((d: any) => d.vehicleId != null).map((d: any) => d.vehicleId));
+      const unassignedVehicles = activeVehicles.filter((v: any) => !assignedVehicleIds.has(v.id));
+      const assignedVehicles = activeVehicles.filter((v: any) => assignedVehicleIds.has(v.id));
+
+      const conflicts: any[] = [];
+
+      for (const d of assignedDrivers) {
+        if (!d.vehicleId) continue;
+        const vehicle = allVehicles.find((v: any) => v.id === d.vehicleId);
+        if (!vehicle) continue;
+        if (vehicle.cityId !== d.cityId) {
+          conflicts.push({
+            type: "vehicle_city_mismatch",
+            driverId: d.id,
+            driverName: `${d.firstName} ${d.lastName}`,
+            driverPublicId: d.publicId,
+            vehicleId: vehicle.id,
+            vehicleName: vehicle.name,
+            vehiclePublicId: vehicle.publicId,
+            vehicleCityId: vehicle.cityId,
+            driverCityId: d.cityId,
+            message: `Driver ${d.firstName} ${d.lastName} (${d.publicId}) assigned to vehicle ${vehicle.name} (${vehicle.publicId}) from different city`,
+          });
+        }
+      }
+
+      for (const d of allDrivers) {
+        if (!d.vehicleId) continue;
+        const vehicle = allVehicles.find((v: any) => v.id === d.vehicleId);
+        if (!vehicle) continue;
+        if (vehicle.status !== "ACTIVE") {
+          conflicts.push({
+            type: "vehicle_not_active_but_assigned",
+            driverId: d.id,
+            driverName: `${d.firstName} ${d.lastName}`,
+            driverPublicId: d.publicId,
+            vehicleId: vehicle.id,
+            vehicleName: vehicle.name,
+            vehiclePublicId: vehicle.publicId,
+            vehicleStatus: vehicle.status,
+            message: `Driver ${d.firstName} ${d.lastName} (${d.publicId}) assigned to ${vehicle.status} vehicle ${vehicle.name} (${vehicle.publicId})`,
+          });
+        }
+      }
+
+      const vehicleDriverMap: Record<number, any[]> = {};
+      for (const d of allDrivers) {
+        if (!d.vehicleId) continue;
+        if (!vehicleDriverMap[d.vehicleId]) vehicleDriverMap[d.vehicleId] = [];
+        vehicleDriverMap[d.vehicleId].push(d);
+      }
+      for (const [vehicleIdStr, driverList] of Object.entries(vehicleDriverMap)) {
+        if (driverList.length > 1) {
+          const vehicle = allVehicles.find((v: any) => v.id === parseInt(vehicleIdStr));
+          conflicts.push({
+            type: "duplicate_vehicle_assignments",
+            vehicleId: parseInt(vehicleIdStr),
+            vehicleName: vehicle?.name || "Unknown",
+            vehiclePublicId: vehicle?.publicId || "",
+            drivers: driverList.map((d: any) => ({
+              id: d.id,
+              name: `${d.firstName} ${d.lastName}`,
+              publicId: d.publicId,
+            })),
+            message: `Vehicle ${vehicle?.name || vehicleIdStr} (${vehicle?.publicId}) assigned to ${driverList.length} drivers: ${driverList.map((d: any) => `${d.firstName} ${d.lastName}`).join(", ")}`,
+          });
+        }
+      }
+
+      res.json({
+        cityId,
+        summary: {
+          drivers_total: activeDrivers.length,
+          vehicles_total: activeVehicles.length,
+          drivers_assigned: assignedDrivers.length,
+          drivers_unassigned: unassignedDrivers.length,
+          vehicles_assigned: assignedVehicles.length,
+          vehicles_unassigned: unassignedVehicles.length,
+        },
+        unassigned_drivers: unassignedDrivers.map((d: any) => ({
+          id: d.id,
+          publicId: d.publicId,
+          name: `${d.firstName} ${d.lastName}`,
+          phone: d.phone,
+          dispatchStatus: d.dispatchStatus,
+        })),
+        unassigned_vehicles: unassignedVehicles.map((v: any) => ({
+          id: v.id,
+          publicId: v.publicId,
+          name: v.name,
+          licensePlate: v.licensePlate,
+          capacity: v.capacity,
+          wheelchairAccessible: v.wheelchairAccessible,
+        })),
+        conflicts,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }
