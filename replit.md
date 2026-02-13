@@ -30,6 +30,7 @@ The application follows a client-server architecture.
 - **Vehicle Makes & Models**: Controlled dropdowns for vehicle make and model selection, replacing free-text inputs.
 - **Trip Approval Workflow**: Trips have an `approval_status` (pending/approved/cancel_requested/cancelled) separate from operational status, with role-based approval and cancellation processes. Cancel has `cancel_type` (soft/hard) and `cancelled_at` timestamp. Dispatch/Admin can cancel with type selection; clinic can cancel pending trips (auto soft) or request cancellation for approved trips.
 - **Trip Archive Policy**: Trip archive/restore/permanent-delete restricted to SUPER_ADMIN only. DISPATCH cannot archive or delete trips (only cancel). Archive page trips tab visible only to SUPER_ADMIN.
+- **Recurring Trip Series**: Controlled recurring trip scheduling via `trip_series` table with pattern-based generation (MWF, TThS, Daily, Custom). Series store full address/coordinate data and generate child trips with `trip_series_id` FK. End condition is either an end date or occurrence count (max 365). Date generation uses city timezone for correct day-of-week matching. Series management endpoints in `server/lib/tripSeriesRoutes.ts`. RBAC: SUPER_ADMIN, ADMIN, DISPATCH can create/manage series.
 
 ## External Dependencies
 - **PostgreSQL**: Relational database for persistent storage, accessed via Drizzle ORM.

@@ -1,0 +1,134 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Implement automatic transactional SMS to patients with ETA and map links based on trip lifecycle events.
+
+ASSUMPTIONS:
+Twilio secrets exist in Replit:
+- TWILIO_ACCOUNT_SID
+- TWILIO_AUTH_TOKEN
+- TWILIO_FROM_NUMBER
+Optional:
+- DISPATCH_PHONE_NUMBER (E.164)
+
+Trips/patients/drivers data exists in Supabase:
+- patient phone (must be normalized to E.164)
+- trip pickup/dropoff coordinates (pickup_lat/lng, dropoff_lat/lng)
+- trip status updates
+- driver name and live location (lat/lng) when available
+
+REQUIREMENTS:
+
+1) PHONE NORMALIZATION
+- Add a shared server utility normalizePhoneToE164(input, defaultCountry='US')
+- Store/validate patient.phone_e164
+- If phone is missing/invalid, do not send; return clear error in UI/logs.
+
+2) OPT-OUT COMPLIANCE
+Create table if missing:
+sms_opt_out
+- phone text primary key
+- opted_out boolean default false
+- updated_at timestamptz default now()
+
+Before sending any SMS:
+- if opted_out=true => skip and return { skipped:true, reason:'opted_out' }
+
+3) INBOUND WEBHOOK
+POST /api/twilio/inbound
+- Parse inbound SMS body
+- If body contains STOP/UNSUBSCRIBE/CANCEL => opted_out=true
+- If body contains START/YES => opted_out=false
+- Respond with valid TwiML
+- Do not crash if unknown numbers
+
+4) MESSAGE TEMPLATES (transactional only)
+A) scheduled (first message to patient must include STOP language):
+"United Care Mobility: Your ride is scheduled for {pickup_time}. Reply STOP to opt out."
+
+B) driver_assigned:
+"United Care Mobility: {driver_name} has been assigned to your trip."
+
+C) en_route:
+"United Care Mobility: {driver_name} is on the way. ETA {eta_minutes} min. Track: {track_link}"
+
+D) arrived:
+"United Care Mobility: Your driver has arrived."
+
+E) picked_up (optional):
+"United Care Mobility: You are now picked up."
+
+F) completed (optional):
+"United Care Mobility: Trip completed. Thank you."
+
+G) cancelled:
+"United Care Mobility: Trip cancelled. Call dispatch {dispatch_phone}."
+
+5) TRACK LINK
+Build Google Maps link using pickup coordinates:
+https://maps.google.com/?q={pickup_lat},{pickup_lng}
+
+If pickup coords missing, omit link.
+
+6) ETA COMPUTATION (non-breaking)
+If driver live location exists AND pickup coords exist:
+- compute ETA minutes using Google Routes/Directions API (server-side)
+If not available:
+- send without ETA (do NOT fail)
+
+7) TRIGGERS (server-side, reliable)
+Send SMS on these events:
+- trip created => scheduled (once per trip)
+- driver assigned => driver_assigned
+- status changes to en_route => en_route
+- status changes to arrived => arrived
+- status changes to cancelled => cancelled
+
+Implement as:
+- a backend service called whenever status transitions occur
+- ensure idempotency (don’t send duplicates):
+  create trip_notifications_log:
+   id uuid pk
+   trip_id
+   event_type text
+   sent_at timestamptz
+   to_phone text
+   provider_sid text
+   error text null
+   unique(trip_id, event_type)
+
+8) DISPATCH UI
+In trip details (dispatch + super_admin only):
+- Show patient phone
+- Buttons:
+  Send Scheduled
+  Send En Route
+  Send Arrived
+  Send Cancelled
+- Each calls backend endpoint; show success/failure toast.
+
+9) HEALTH + TEST
+GET /api/sms/health
+=> { ok:true, twilioConfigured:true/false, dispatchPhoneConfigured:true/false }
+
+POST /api/sms/send (dispatch/super_admin)
+body: { to, message }
+
+GET /api/sms/test?to=E164 (super_admin only)
+Sends a simple test message.
+
+VERIFY:
+- Test SMS sends successfully
+- scheduled includes STOP language
+- STOP inbound flips opted_out and blocks future sends
+- en_route works with or without ETA
+- no duplicate sends due to notification log
+Verify before exit.

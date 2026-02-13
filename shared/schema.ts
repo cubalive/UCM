@@ -267,6 +267,7 @@ export const trips = pgTable("trips", {
   cancelledReason: text("cancelled_reason"),
   cancelType: tripCancelTypeEnum("cancel_type"),
   cancelledAt: timestamp("cancelled_at"),
+  tripSeriesId: integer("trip_series_id"),
   deletedAt: timestamp("deleted_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -335,6 +336,46 @@ export const vehicleAssignmentHistory = pgTable("vehicle_assignment_history", {
   reason: text("reason"),
 });
 
+export const seriesPatternEnum = pgEnum("series_pattern", [
+  "mwf",
+  "tths",
+  "daily",
+  "custom",
+]);
+
+export const tripSeries = pgTable("trip_series", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  pattern: seriesPatternEnum("pattern").notNull(),
+  daysMask: text("days_mask").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date"),
+  occurrences: integer("occurrences"),
+  pickupTime: text("pickup_time").notNull(),
+  estimatedArrivalTime: text("estimated_arrival_time").notNull(),
+  pickupAddress: text("pickup_address").notNull(),
+  pickupStreet: text("pickup_street"),
+  pickupCity: text("pickup_city"),
+  pickupState: text("pickup_state"),
+  pickupZip: text("pickup_zip"),
+  pickupPlaceId: text("pickup_place_id"),
+  pickupLat: doublePrecision("pickup_lat"),
+  pickupLng: doublePrecision("pickup_lng"),
+  dropoffAddress: text("dropoff_address").notNull(),
+  dropoffStreet: text("dropoff_street"),
+  dropoffCity: text("dropoff_city"),
+  dropoffState: text("dropoff_state"),
+  dropoffZip: text("dropoff_zip"),
+  dropoffPlaceId: text("dropoff_place_id"),
+  dropoffLat: doublePrecision("dropoff_lat"),
+  dropoffLng: doublePrecision("dropoff_lng"),
+  active: boolean("active").notNull().default(true),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const tripShareTokens = pgTable("trip_share_tokens", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   tripId: integer("trip_id").notNull().references(() => trips.id),
@@ -374,6 +415,7 @@ export const insertCitySettingsSchema = createInsertSchema(citySettings);
 export const insertDriverVehicleAssignmentSchema = createInsertSchema(driverVehicleAssignments).omit({ id: true, createdAt: true });
 export const insertVehicleAssignmentHistorySchema = createInsertSchema(vehicleAssignmentHistory).omit({ id: true });
 export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true, createdAt: true });
+export const insertTripSeriesSchema = createInsertSchema(tripSeries).omit({ id: true, createdAt: true });
 export const insertTripShareTokenSchema = createInsertSchema(tripShareTokens).omit({ id: true, createdAt: true });
 export const insertTripSmsLogSchema = createInsertSchema(tripSmsLog).omit({ id: true, sentAt: true });
 
@@ -404,6 +446,8 @@ export type InsertCitySettings = z.infer<typeof insertCitySettingsSchema>;
 export type InsertDriverVehicleAssignment = z.infer<typeof insertDriverVehicleAssignmentSchema>;
 export type VehicleAssignmentHistory = typeof vehicleAssignmentHistory.$inferSelect;
 export type InsertVehicleAssignmentHistory = z.infer<typeof insertVehicleAssignmentHistorySchema>;
+export type TripSeries = typeof tripSeries.$inferSelect;
+export type InsertTripSeries = z.infer<typeof insertTripSeriesSchema>;
 export type TripShareToken = typeof tripShareTokens.$inferSelect;
 export type InsertTripShareToken = z.infer<typeof insertTripShareTokenSchema>;
 export type TripSmsLog = typeof tripSmsLog.$inferSelect;

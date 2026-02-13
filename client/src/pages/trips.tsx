@@ -28,7 +28,7 @@ import { DialogFooter } from "@/components/ui/dialog";
 import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
-import { RecurringSchedule, type TripType } from "@/components/recurring-schedule";
+import { RecurringSchedule, type TripType, type SeriesPattern, type SeriesEndType } from "@/components/recurring-schedule";
 import { TripStaticMap } from "@/components/trip-static-map";
 
 function normalizePhoneToE164(phone: string): string | null {
@@ -118,16 +118,28 @@ export default function TripsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: any) =>
-      apiFetch("/api/trips", token, {
+    mutationFn: (data: any) => {
+      if (data._isSeries) {
+        const { _isSeries, ...seriesData } = data;
+        return apiFetch("/api/trip-series", token, {
+          method: "POST",
+          body: JSON.stringify({ ...seriesData, cityId: selectedCity?.id }),
+        });
+      }
+      return apiFetch("/api/trips", token, {
         method: "POST",
         body: JSON.stringify({ ...data, cityId: selectedCity?.id }),
-      }),
-    onSuccess: () => {
+      });
+    },
+    onSuccess: (_data: any, variables: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setOpen(false);
-      toast({ title: "Trip created" });
+      if (variables._isSeries) {
+        toast({ title: `Series created with ${_data?.count || "multiple"} trips` });
+      } else {
+        toast({ title: "Trip created" });
+      }
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -328,6 +340,11 @@ export default function TripsPage() {
                       )}
                       {trip.tripType === "recurring" && (
                         <Badge variant="outline">Recurring</Badge>
+                      )}
+                      {trip.tripSeriesId && (
+                        <Badge variant="outline" data-testid={`badge-series-${trip.id}`}>
+                          Series #{trip.tripSeriesId}
+                        </Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
@@ -711,6 +728,11 @@ function TripDetailDialog({
             )}
             {trip.tripType === "recurring" && (
               <Badge variant="outline">Recurring</Badge>
+            )}
+            {trip.tripSeriesId && (
+              <Badge variant="outline" data-testid="badge-detail-series">
+                Series #{trip.tripSeriesId}
+              </Badge>
             )}
           </DialogTitle>
         </DialogHeader>
@@ -1114,6 +1136,10 @@ function TripForm({
   const [notes, setNotes] = useState("");
   const [tripType, setTripType] = useState<TripType>("one_time");
   const [recurringDays, setRecurringDays] = useState<string[]>([]);
+  const [seriesPattern, setSeriesPattern] = useState<SeriesPattern>("custom");
+  const [seriesEndType, setSeriesEndType] = useState<SeriesEndType>("end_date");
+  const [endDate, setEndDate] = useState("");
+  const [occurrencesStr, setOccurrencesStr] = useState("");
 
   const [pickupAddr, setPickupAddr] = useState<StructuredAddress | null>(null);
   const [dropoffAddr, setDropoffAddr] = useState<StructuredAddress | null>(null);
@@ -1152,12 +1178,22 @@ function TripForm({
       toast({ title: "Please select at least one recurring day", variant: "destructive" });
       return;
     }
+    if (tripType === "recurring") {
+      if (seriesEndType === "end_date" && !endDate) {
+        toast({ title: "End date is required for recurring trips", variant: "destructive" });
+        return;
+      }
+      if (seriesEndType === "occurrences" && (!occurrencesStr || parseInt(occurrencesStr) < 1)) {
+        toast({ title: "Number of trips must be at least 1", variant: "destructive" });
+        return;
+      }
+      if (seriesEndType === "end_date" && endDate <= scheduledDate) {
+        toast({ title: "End date must be after start date", variant: "destructive" });
+        return;
+      }
+    }
 
-    onSubmit({
-      patientId: parseInt(patientId),
-      driverId: driverId ? parseInt(driverId) : null,
-      vehicleId: vehicleId ? parseInt(vehicleId) : null,
-      clinicId: clinicId ? parseInt(clinicId) : null,
+    const addressFields = {
       pickupAddress: pickupAddr.formattedAddress,
       pickupStreet: pickupAddr.street,
       pickupCity: pickupAddr.city,
@@ -1174,14 +1210,41 @@ function TripForm({
       dropoffPlaceId: dropoffAddr.placeId || null,
       dropoffLat: dropoffAddr.lat,
       dropoffLng: dropoffAddr.lng,
-      scheduledDate,
-      scheduledTime: pickupTime,
-      pickupTime,
-      estimatedArrivalTime,
-      tripType,
-      recurringDays: tripType === "recurring" ? recurringDays : null,
-      notes: notes || null,
-    });
+    };
+
+    if (tripType === "recurring") {
+      onSubmit({
+        _isSeries: true,
+        patientId: parseInt(patientId),
+        clinicId: clinicId ? parseInt(clinicId) : null,
+        driverId: driverId ? parseInt(driverId) : null,
+        vehicleId: vehicleId ? parseInt(vehicleId) : null,
+        pattern: seriesPattern,
+        daysMask: recurringDays.join(","),
+        startDate: scheduledDate,
+        endDate: seriesEndType === "end_date" ? endDate : null,
+        occurrences: seriesEndType === "occurrences" ? parseInt(occurrencesStr) : null,
+        pickupTime,
+        estimatedArrivalTime,
+        notes: notes || null,
+        ...addressFields,
+      });
+    } else {
+      onSubmit({
+        patientId: parseInt(patientId),
+        driverId: driverId ? parseInt(driverId) : null,
+        vehicleId: vehicleId ? parseInt(vehicleId) : null,
+        clinicId: clinicId ? parseInt(clinicId) : null,
+        scheduledDate,
+        scheduledTime: pickupTime,
+        pickupTime,
+        estimatedArrivalTime,
+        tripType,
+        recurringDays: null,
+        notes: notes || null,
+        ...addressFields,
+      });
+    }
   };
 
   return (
@@ -1203,6 +1266,15 @@ function TripForm({
         onTripTypeChange={setTripType}
         recurringDays={recurringDays}
         onRecurringDaysChange={setRecurringDays}
+        seriesPattern={seriesPattern}
+        onSeriesPatternChange={setSeriesPattern}
+        seriesEndType={seriesEndType}
+        onSeriesEndTypeChange={setSeriesEndType}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        occurrences={occurrencesStr}
+        onOccurrencesChange={setOccurrencesStr}
+        minDate={scheduledDate || todayStr}
         testIdPrefix="trip"
       />
 
@@ -1299,7 +1371,7 @@ function TripForm({
         disabled={loading || !patientId || !pickupAddr || !dropoffAddr || !scheduledDate || !pickupTime || !estimatedArrivalTime || !!dateIsPast}
         data-testid="button-submit-trip"
       >
-        {loading ? "Creating..." : "Schedule Trip"}
+        {loading ? "Creating..." : tripType === "recurring" ? "Create Trip Series" : "Schedule Trip"}
       </Button>
     </form>
   );

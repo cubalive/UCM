@@ -2,13 +2,14 @@ import { db } from "./db";
 import { eq, and, or, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
 import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
-  citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog,
+  citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog, tripSeries,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
   type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog, type InsertInvoice,
   type InsertCitySettings, type InsertDriverVehicleAssignment, type InsertVehicleAssignmentHistory,
   type City, type User, type Vehicle, type Driver, type Clinic, type Patient, type Trip, type AuditLog, type SmsOptOut, type Invoice,
   type CitySettings, type DriverVehicleAssignment, type VehicleAssignmentHistory,
   type TripShareToken, type InsertTripShareToken, type TripSmsLog, type InsertTripSmsLog,
+  type TripSeries, type InsertTripSeries,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -95,6 +96,12 @@ export interface IStorage {
   getActiveDriverIdForPatient(patientId: number): Promise<number | null>;
   getActiveTripsForClinic(cityId: number, clinicId: number): Promise<Trip[]>;
   getActiveTripForPatient(patientId: number): Promise<Trip | undefined>;
+
+  getTripSeriesList(cityId?: number): Promise<TripSeries[]>;
+  getTripSeriesById(id: number): Promise<TripSeries | undefined>;
+  createTripSeries(data: InsertTripSeries): Promise<TripSeries>;
+  updateTripSeries(id: number, data: Partial<TripSeries>): Promise<TripSeries | undefined>;
+  getTripsBySeriesId(seriesId: number): Promise<Trip[]>;
 
   // Archive management
   getArchivedClinics(): Promise<Clinic[]>;
@@ -773,6 +780,33 @@ export class DatabaseStorage implements IStorage {
         )
       );
     return (row?.cnt ?? 0) > 0;
+  }
+
+  async getTripSeriesList(cityId?: number): Promise<TripSeries[]> {
+    if (cityId) {
+      return db.select().from(tripSeries).where(eq(tripSeries.cityId, cityId)).orderBy(desc(tripSeries.createdAt));
+    }
+    return db.select().from(tripSeries).orderBy(desc(tripSeries.createdAt));
+  }
+
+  async getTripSeriesById(id: number): Promise<TripSeries | undefined> {
+    const [series] = await db.select().from(tripSeries).where(eq(tripSeries.id, id));
+    return series;
+  }
+
+  async createTripSeries(data: InsertTripSeries): Promise<TripSeries> {
+    const [series] = await db.insert(tripSeries).values(data).returning();
+    return series;
+  }
+
+  async updateTripSeries(id: number, data: Partial<TripSeries>): Promise<TripSeries | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    const [series] = await db.update(tripSeries).set(updateData).where(eq(tripSeries.id, id)).returning();
+    return series;
+  }
+
+  async getTripsBySeriesId(seriesId: number): Promise<Trip[]> {
+    return db.select().from(trips).where(eq(trips.tripSeriesId, seriesId)).orderBy(trips.scheduledDate);
   }
 
   // Permanent delete methods

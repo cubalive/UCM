@@ -13,6 +13,7 @@ import { registerDispatchRoutes } from "./lib/dispatchRoutes";
 import { registerSmsRoutes } from "./lib/smsRoutes";
 import { registerVehicleAssignRoutes } from "./lib/vehicleAssignRoutes";
 import { registerTrackingRoutes } from "./lib/trackingRoutes";
+import { registerTripSeriesRoutes } from "./lib/tripSeriesRoutes";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -70,6 +71,7 @@ export async function registerRoutes(
   registerSmsRoutes(app);
   registerVehicleAssignRoutes(app);
   registerTrackingRoutes(app);
+  registerTripSeriesRoutes(app);
 
   app.post("/api/auth/login", async (req, res) => {
     try {
