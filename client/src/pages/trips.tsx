@@ -76,6 +76,9 @@ export default function TripsPage() {
 
   const [cancelRequestTrip, setCancelRequestTrip] = useState<any>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [dispatchCancelTrip, setDispatchCancelTrip] = useState<any>(null);
+  const [dispatchCancelReason, setDispatchCancelReason] = useState("");
+  const [dispatchCancelType, setDispatchCancelType] = useState<"soft" | "hard">("soft");
 
   const canSendSms =
     user?.role === "SUPER_ADMIN" ||
@@ -168,13 +171,16 @@ export default function TripsPage() {
   });
 
   const dispatchCancelMutation = useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+    mutationFn: ({ id, reason, type }: { id: number; reason: string; type: string }) =>
       apiFetch(`/api/trips/${id}/cancel`, token, {
         method: "PATCH",
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ reason, type }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      setDispatchCancelTrip(null);
+      setDispatchCancelReason("");
+      setDispatchCancelType("soft");
       toast({ title: "Trip cancelled" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -366,12 +372,23 @@ export default function TripsPage() {
                           <Button
                             size="sm"
                             variant="destructive"
-                            onClick={(e) => { e.stopPropagation(); dispatchCancelMutation.mutate({ id: trip.id, reason: "Approved cancel request" }); }}
+                            onClick={(e) => { e.stopPropagation(); setDispatchCancelTrip(trip); setDispatchCancelReason(trip.cancelledReason || ""); }}
                             disabled={dispatchCancelMutation.isPending}
                             data-testid={`button-confirm-cancel-trip-${trip.id}`}
                           >
                             <Ban className="w-3 h-3 mr-1" />
                             Confirm Cancel
+                          </Button>
+                        )}
+                        {isDispatchOrAdmin && trip.approvalStatus === "approved" && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={(e) => { e.stopPropagation(); setDispatchCancelTrip(trip); }}
+                            data-testid={`button-dispatch-cancel-trip-${trip.id}`}
+                          >
+                            <Ban className="w-3 h-3 mr-1" />
+                            Cancel Trip
                           </Button>
                         )}
                         <Select
@@ -391,20 +408,22 @@ export default function TripsPage() {
                             ))}
                           </SelectContent>
                         </Select>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (window.confirm("Archive this trip? This will move it to the archive.")) {
-                              archiveMutation.mutate(trip.id);
-                            }
-                          }}
-                          disabled={archiveMutation.isPending}
-                          data-testid={`button-archive-trip-${trip.id}`}
-                        >
-                          <Archive className="w-4 h-4" />
-                        </Button>
+                        {user?.role === "SUPER_ADMIN" && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm("Archive this trip? This will move it to the archive.")) {
+                                archiveMutation.mutate(trip.id);
+                              }
+                            }}
+                            disabled={archiveMutation.isPending}
+                            data-testid={`button-archive-trip-${trip.id}`}
+                          >
+                            <Archive className="w-4 h-4" />
+                          </Button>
+                        )}
                       </>
                     )}
                     {isClinicUser && (
@@ -508,6 +527,59 @@ export default function TripsPage() {
               }}
             >
               {cancelRequestMutation.isPending ? "Submitting..." : cancelRequestTrip?.approvalStatus === "pending" ? "Cancel Trip" : "Submit Request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!dispatchCancelTrip} onOpenChange={(o) => { if (!o) { setDispatchCancelTrip(null); setDispatchCancelReason(""); setDispatchCancelType("soft"); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel Trip</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {dispatchCancelTrip?.approvalStatus === "cancel_requested"
+              ? "A clinic has requested cancellation of this trip. Confirm and select a cancel type."
+              : "Cancel this trip. Choose the cancellation type."}
+          </p>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Cancel Type</Label>
+              <Select value={dispatchCancelType} onValueChange={(v: "soft" | "hard") => setDispatchCancelType(v)}>
+                <SelectTrigger data-testid="select-cancel-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="soft">Soft Cancel (recoverable)</SelectItem>
+                  <SelectItem value="hard">Hard Cancel (permanent)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Reason</Label>
+              <Textarea
+                value={dispatchCancelReason}
+                onChange={(e) => setDispatchCancelReason(e.target.value)}
+                placeholder="Provide a reason for cancellation..."
+                data-testid="textarea-dispatch-cancel-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDispatchCancelTrip(null); setDispatchCancelReason(""); setDispatchCancelType("soft"); }}>
+              Go Back
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!dispatchCancelReason.trim() || dispatchCancelMutation.isPending}
+              data-testid="button-submit-dispatch-cancel"
+              onClick={() => {
+                if (dispatchCancelTrip) {
+                  dispatchCancelMutation.mutate({ id: dispatchCancelTrip.id, reason: dispatchCancelReason, type: dispatchCancelType });
+                }
+              }}
+            >
+              {dispatchCancelMutation.isPending ? "Cancelling..." : "Cancel Trip"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -19,7 +19,7 @@ const allTabs: { key: EntityTab; label: string; icon: typeof Building2; superAdm
   { key: "drivers", label: "Drivers", icon: UserCheck },
   { key: "patients", label: "Patients", icon: HeartPulse },
   { key: "users", label: "Users", icon: Users, superAdminOnly: true },
-  { key: "trips", label: "Trips", icon: Route },
+  { key: "trips", label: "Trips", icon: Route, superAdminOnly: true },
   { key: "vehicles", label: "Vehicles", icon: Car, superAdminOnly: true },
 ];
 
@@ -35,7 +35,7 @@ const entityListKey: Record<EntityTab, string> = {
 export default function ArchivePage() {
   const { token, user } = useAuth();
   const { toast } = useToast();
-  const isSuperAdmin = user?.role?.toUpperCase() === "SUPER_ADMIN" || user?.role?.toUpperCase() === "ADMIN";
+  const isSuperAdmin = user?.role?.toUpperCase() === "SUPER_ADMIN";
   const tabs = allTabs.filter(t => !t.superAdminOnly || isSuperAdmin);
   const defaultTab = tabs[0]?.key || "drivers";
   const [activeTab, setActiveTab] = useState<EntityTab>(defaultTab);

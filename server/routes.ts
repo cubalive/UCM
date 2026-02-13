@@ -1552,6 +1552,8 @@ export async function registerRoutes(
           approvalStatus: "cancelled",
           cancelledBy: req.user!.userId,
           cancelledReason: req.body.reason || "Cancelled by clinic",
+          cancelType: "soft",
+          cancelledAt: new Date(),
           status: "CANCELLED",
         } as any);
         await storage.createAuditLog({
@@ -1596,10 +1598,16 @@ export async function registerRoutes(
       if (trip.approvalStatus === "cancelled") {
         return res.status(400).json({ message: "Trip is already cancelled" });
       }
+      const cancelType = req.body.type || "soft";
+      if (!["soft", "hard"].includes(cancelType)) {
+        return res.status(400).json({ message: "Cancel type must be 'soft' or 'hard'" });
+      }
       const updated = await storage.updateTrip(id, {
         approvalStatus: "cancelled",
         cancelledBy: req.user!.userId,
         cancelledReason: req.body.reason || "Cancelled by dispatch",
+        cancelType: cancelType,
+        cancelledAt: new Date(),
         status: "CANCELLED",
       } as any);
       storage.revokeTokensForTrip(id).catch(() => {});
@@ -1608,7 +1616,7 @@ export async function registerRoutes(
         action: "CANCEL",
         entity: "trip",
         entityId: id,
-        details: `Cancelled trip ${trip.publicId}: ${req.body.reason || "No reason given"}`,
+        details: `Cancelled trip ${trip.publicId} (${cancelType}): ${req.body.reason || "No reason given"}`,
         cityId: trip.cityId,
       });
       res.json(updated);
@@ -1618,7 +1626,7 @@ export async function registerRoutes(
   });
 
   // SUPER_ADMIN archive (soft-delete) a trip
-  app.patch("/api/admin/trips/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/trips/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
@@ -1639,7 +1647,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/trips/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/trips/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
@@ -1661,7 +1669,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/trips/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.delete("/api/admin/trips/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
@@ -2697,6 +2705,7 @@ export async function registerRoutes(
           if (role !== "SUPER_ADMIN") return res.status(403).json({ message: "Only super admin can view archived users" });
           return res.json(await storage.getArchivedUsers());
         case "trips":
+          if (role !== "SUPER_ADMIN") return res.status(403).json({ message: "Only super admin can view archived trips" });
           return res.json(await storage.getArchivedTrips());
         case "vehicles":
           if (role !== "SUPER_ADMIN") return res.status(403).json({ message: "Only super admin can view archived vehicles" });

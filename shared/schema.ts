@@ -27,6 +27,11 @@ export const tripApprovalStatusEnum = pgEnum("trip_approval_status", [
   "cancelled",
 ]);
 
+export const tripCancelTypeEnum = pgEnum("trip_cancel_type", [
+  "soft",
+  "hard",
+]);
+
 export const vehicleStatusEnum = pgEnum("vehicle_status", [
   "ACTIVE",
   "MAINTENANCE",
@@ -260,6 +265,8 @@ export const trips = pgTable("trips", {
   approvedBy: integer("approved_by"),
   cancelledBy: integer("cancelled_by"),
   cancelledReason: text("cancelled_reason"),
+  cancelType: tripCancelTypeEnum("cancel_type"),
+  cancelledAt: timestamp("cancelled_at"),
   deletedAt: timestamp("deleted_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -361,7 +368,7 @@ export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true,
 export const insertDriverSchema = createInsertSchema(drivers).omit({ id: true, createdAt: true });
 export const insertClinicSchema = createInsertSchema(clinics).omit({ id: true, createdAt: true });
 export const insertPatientSchema = createInsertSchema(patients).omit({ id: true, createdAt: true });
-export const insertTripSchema = createInsertSchema(trips).omit({ id: true, createdAt: true, approvalStatus: true, approvedAt: true, approvedBy: true, cancelledBy: true, cancelledReason: true, deletedAt: true });
+export const insertTripSchema = createInsertSchema(trips).omit({ id: true, createdAt: true, approvalStatus: true, approvedAt: true, approvedBy: true, cancelledBy: true, cancelledReason: true, cancelType: true, cancelledAt: true, deletedAt: true });
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true });
 export const insertCitySettingsSchema = createInsertSchema(citySettings);
 export const insertDriverVehicleAssignmentSchema = createInsertSchema(driverVehicleAssignments).omit({ id: true, createdAt: true });

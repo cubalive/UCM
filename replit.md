@@ -28,7 +28,8 @@ The application follows a client-server architecture.
 - **Email Service**: Branded email functions for various user actions (login links, temporary passwords, recovery links).
 - **Archive Management**: Soft-delete system for entities (clinics, drivers, patients, users, vehicles, trips) with granular RBAC for archiving, restoring, and permanent deletion.
 - **Vehicle Makes & Models**: Controlled dropdowns for vehicle make and model selection, replacing free-text inputs.
-- **Trip Approval Workflow**: Trips have an `approval_status` (pending/approved/cancel_requested/cancelled) separate from operational status, with role-based approval and cancellation processes.
+- **Trip Approval Workflow**: Trips have an `approval_status` (pending/approved/cancel_requested/cancelled) separate from operational status, with role-based approval and cancellation processes. Cancel has `cancel_type` (soft/hard) and `cancelled_at` timestamp. Dispatch/Admin can cancel with type selection; clinic can cancel pending trips (auto soft) or request cancellation for approved trips.
+- **Trip Archive Policy**: Trip archive/restore/permanent-delete restricted to SUPER_ADMIN only. DISPATCH cannot archive or delete trips (only cancel). Archive page trips tab visible only to SUPER_ADMIN.
 
 ## External Dependencies
 - **PostgreSQL**: Relational database for persistent storage, accessed via Drizzle ORM.
