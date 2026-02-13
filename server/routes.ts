@@ -321,6 +321,12 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid vehicle data" });
       }
+      if (!parsed.data.colorHex || !parsed.data.colorHex.trim()) {
+        return res.status(400).json({ message: "Vehicle color is required" });
+      }
+      if (!parsed.data.cityId) {
+        return res.status(400).json({ message: "City is required" });
+      }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
       }

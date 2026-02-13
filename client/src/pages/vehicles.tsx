@@ -10,6 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Truck, Search, Accessibility } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -27,11 +34,17 @@ export default function VehiclesPage() {
     enabled: !!token,
   });
 
+  const { data: cities } = useQuery<any[]>({
+    queryKey: ["/api/cities"],
+    queryFn: () => apiFetch("/api/cities", token),
+    enabled: !!token,
+  });
+
   const createMutation = useMutation({
     mutationFn: (data: any) =>
       apiFetch("/api/vehicles", token, {
         method: "POST",
-        body: JSON.stringify({ ...data, cityId: selectedCity?.id }),
+        body: JSON.stringify(data),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
@@ -64,7 +77,12 @@ export default function VehiclesPage() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Add Vehicle</DialogTitle></DialogHeader>
-            <VehicleForm onSubmit={(d) => createMutation.mutate(d)} loading={createMutation.isPending} />
+            <VehicleForm
+              cities={cities || []}
+              defaultCityId={selectedCity?.id}
+              onSubmit={(d) => createMutation.mutate(d)}
+              loading={createMutation.isPending}
+            />
           </DialogContent>
         </Dialog>
       </div>
@@ -92,7 +110,16 @@ export default function VehiclesPage() {
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0">
-                    <p className="font-medium" data-testid={`text-vehicle-name-${v.id}`}>{v.name}</p>
+                    <div className="flex items-center gap-2">
+                      {v.colorHex && (
+                        <span
+                          className="inline-block w-3 h-3 rounded-full flex-shrink-0 border border-border"
+                          style={{ backgroundColor: v.colorHex }}
+                          data-testid={`swatch-vehicle-color-${v.id}`}
+                        />
+                      )}
+                      <p className="font-medium" data-testid={`text-vehicle-name-${v.id}`}>{v.name}</p>
+                    </div>
                     <p className="text-xs font-mono text-muted-foreground">{v.publicId}</p>
                     <p className="text-sm text-muted-foreground">{v.licensePlate}</p>
                     {v.make && <p className="text-sm text-muted-foreground">{v.year} {v.make} {v.model}</p>}
@@ -114,18 +141,40 @@ export default function VehiclesPage() {
   );
 }
 
-function VehicleForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loading: boolean }) {
+function VehicleForm({ cities, defaultCityId, onSubmit, loading }: {
+  cities: any[];
+  defaultCityId?: number;
+  onSubmit: (data: any) => void;
+  loading: boolean;
+}) {
   const [form, setForm] = useState({
-    name: "", licensePlate: "", make: "", model: "", year: "", capacity: "4", wheelchairAccessible: false,
+    name: "", licensePlate: "", make: "", model: "", year: "", capacity: "4",
+    wheelchairAccessible: false, colorHex: "#3B82F6", cityId: defaultCityId?.toString() || "",
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ ...form, year: form.year ? parseInt(form.year) : null, capacity: parseInt(form.capacity) });
+    onSubmit({
+      ...form,
+      year: form.year ? parseInt(form.year) : null,
+      capacity: parseInt(form.capacity),
+      cityId: parseInt(form.cityId),
+    });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label>City *</Label>
+        <Select value={form.cityId} onValueChange={(v) => setForm({ ...form, cityId: v })}>
+          <SelectTrigger data-testid="select-vehicle-city"><SelectValue placeholder="Select city" /></SelectTrigger>
+          <SelectContent>
+            {cities.filter((c) => c.active).map((c) => (
+              <SelectItem key={c.id} value={c.id.toString()}>{c.name}, {c.state}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <div className="space-y-2">
         <Label>Vehicle Name *</Label>
         <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required placeholder="e.g. Van #1" data-testid="input-vehicle-name" />
@@ -133,6 +182,26 @@ function VehicleForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loa
       <div className="space-y-2">
         <Label>License Plate *</Label>
         <Input value={form.licensePlate} onChange={(e) => setForm({ ...form, licensePlate: e.target.value })} required data-testid="input-vehicle-plate" />
+      </div>
+      <div className="space-y-2">
+        <Label>Vehicle Color *</Label>
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={form.colorHex}
+            onChange={(e) => setForm({ ...form, colorHex: e.target.value })}
+            className="w-10 h-9 rounded-md border border-input cursor-pointer"
+            data-testid="input-vehicle-color"
+          />
+          <Input
+            value={form.colorHex}
+            onChange={(e) => setForm({ ...form, colorHex: e.target.value })}
+            placeholder="#3B82F6"
+            className="flex-1"
+            required
+            data-testid="input-vehicle-color-text"
+          />
+        </div>
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div className="space-y-2">
@@ -156,7 +225,7 @@ function VehicleForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loa
         <Switch checked={form.wheelchairAccessible} onCheckedChange={(v) => setForm({ ...form, wheelchairAccessible: v })} data-testid="switch-vehicle-wheelchair" />
         <Label>Wheelchair Accessible</Label>
       </div>
-      <Button type="submit" className="w-full" disabled={loading} data-testid="button-submit-vehicle">
+      <Button type="submit" className="w-full" disabled={loading || !form.cityId || !form.colorHex.trim()} data-testid="button-submit-vehicle">
         {loading ? "Adding..." : "Add Vehicle"}
       </Button>
     </form>
