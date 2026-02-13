@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -25,9 +24,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
+import { RecurringSchedule, type TripType } from "@/components/recurring-schedule";
 
 function normalizePhoneToE164(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -50,12 +50,6 @@ function formatPhoneDisplay(phone: string): string {
   return phone;
 }
 
-const ALL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
-const RECURRING_PRESETS = [
-  { label: "Mon / Wed / Fri", days: ["Mon", "Wed", "Fri"] },
-  { label: "Tue / Thu / Sat", days: ["Tue", "Thu", "Sat"] },
-  { label: "Daily (Mon-Sun)", days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] },
-];
 
 function getTodayInTimezone(tz: string): string {
   try {
@@ -292,6 +286,7 @@ export default function TripsPage() {
           driver={getDriverForTrip(detailTrip)}
           canSendSms={canSendSms}
           token={token}
+          cityTimezone={selectedCity?.timezone || "America/New_York"}
           onClose={() => setDetailTrip(null)}
         />
       )}
@@ -305,6 +300,7 @@ function TripDetailDialog({
   driver,
   canSendSms,
   token,
+  cityTimezone,
   onClose,
 }: {
   trip: any;
@@ -312,15 +308,62 @@ function TripDetailDialog({
   driver: any;
   canSendSms: boolean;
   token: string | null;
+  cityTimezone: string;
   onClose: () => void;
 }) {
+  const { toast } = useToast();
   const [smsOpen, setSmsOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  const [editTripType, setEditTripType] = useState<TripType>(trip.tripType || "one_time");
+  const [editRecurringDays, setEditRecurringDays] = useState<string[]>(trip.recurringDays || []);
+  const [editScheduledDate, setEditScheduledDate] = useState(trip.scheduledDate || "");
+  const [editPickupTime, setEditPickupTime] = useState(trip.pickupTime || "");
+  const [editEstArrival, setEditEstArrival] = useState(trip.estimatedArrivalTime || "");
+  const [editNotes, setEditNotes] = useState(trip.notes || "");
+
+  const todayStr = getTodayInTimezone(cityTimezone);
+
+  const updateMutation = useMutation({
+    mutationFn: (data: any) =>
+      apiFetch(`/api/trips/${trip.id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      toast({ title: "Trip updated" });
+      setEditing(false);
+      onClose();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const handleSaveEdit = () => {
+    if (editPickupTime && editEstArrival && editPickupTime >= editEstArrival) {
+      toast({ title: "Pickup time must be before estimated arrival time", variant: "destructive" });
+      return;
+    }
+    if (editTripType === "recurring" && editRecurringDays.length === 0) {
+      toast({ title: "Please select at least one recurring day", variant: "destructive" });
+      return;
+    }
+    updateMutation.mutate({
+      tripType: editTripType,
+      recurringDays: editTripType === "recurring" ? editRecurringDays : null,
+      scheduledDate: editScheduledDate,
+      scheduledTime: editPickupTime,
+      pickupTime: editPickupTime,
+      estimatedArrivalTime: editEstArrival,
+      notes: editNotes || null,
+    });
+  };
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
             <span className="font-mono">{trip.publicId}</span>
             <Badge variant={trip.status === "CANCELLED" || trip.status === "NO_SHOW" ? "destructive" : "secondary"}>
               {trip.status.replace("_", " ")}
@@ -331,88 +374,152 @@ function TripDetailDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium text-muted-foreground">Schedule</h3>
-            <p className="text-sm" data-testid="text-trip-schedule">{trip.scheduledDate}</p>
-            <p className="text-sm" data-testid="text-trip-pickup-time">Pickup: {trip.pickupTime}</p>
-            <p className="text-sm" data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</p>
-            {trip.recurringDays?.length > 0 && (
-              <p className="text-sm" data-testid="text-trip-recurring-days">Recurring: {trip.recurringDays.join(", ")}</p>
-            )}
-          </div>
+        {editing ? (
+          <div className="space-y-4">
+            <RecurringSchedule
+              tripType={editTripType}
+              onTripTypeChange={setEditTripType}
+              recurringDays={editRecurringDays}
+              onRecurringDaysChange={setEditRecurringDays}
+              testIdPrefix="edit-trip"
+            />
 
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium text-muted-foreground">Pickup</h3>
-            <p className="text-sm" data-testid="text-trip-pickup">{trip.pickupAddress}</p>
-            {trip.pickupZip && (
-              <p className="text-xs text-muted-foreground" data-testid="text-trip-pickup-zip">ZIP: {trip.pickupZip}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium text-muted-foreground">Dropoff</h3>
-            <p className="text-sm" data-testid="text-trip-dropoff">{trip.dropoffAddress}</p>
-            {trip.dropoffZip && (
-              <p className="text-xs text-muted-foreground" data-testid="text-trip-dropoff-zip">ZIP: {trip.dropoffZip}</p>
-            )}
-          </div>
-
-          {driver && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Driver</h3>
-              <p className="text-sm" data-testid="text-trip-driver">{driver.firstName} {driver.lastName}</p>
+              <Label>Start Date *</Label>
+              <Input
+                type="date"
+                value={editScheduledDate}
+                min={todayStr}
+                onChange={(e) => setEditScheduledDate(e.target.value)}
+                required
+                data-testid="input-edit-trip-date"
+              />
             </div>
-          )}
-
-          {trip.notes && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Notes</h3>
-              <p className="text-sm" data-testid="text-trip-notes">{trip.notes}</p>
-            </div>
-          )}
-
-          <div className="border-t pt-4 space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <User className="w-4 h-4" />
-              Patient Communication
-            </h3>
-
-            {patient ? (
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Name:</span>
-                  <span className="text-sm" data-testid="text-patient-name">{patient.firstName} {patient.lastName}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Phone:</span>
-                  {patient.phone ? (
-                    <span className="text-sm font-mono" data-testid="text-patient-phone">{formatPhoneDisplay(patient.phone)}</span>
-                  ) : (
-                    <span className="text-sm text-destructive flex items-center gap-1" data-testid="text-patient-phone-missing">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      Patient phone not available
-                    </span>
+                <Label>Pickup Time *</Label>
+                <Input
+                  type="time"
+                  value={editPickupTime}
+                  onChange={(e) => setEditPickupTime(e.target.value)}
+                  required
+                  data-testid="input-edit-trip-pickup-time"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Est. Arrival Time *</Label>
+                <Input
+                  type="time"
+                  value={editEstArrival}
+                  onChange={(e) => setEditEstArrival(e.target.value)}
+                  required
+                  data-testid="input-edit-trip-est-arrival"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Notes</Label>
+              <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} data-testid="input-edit-trip-notes" />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleSaveEdit} disabled={updateMutation.isPending} data-testid="button-save-edit-trip">
+                {updateMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+              <Button variant="outline" onClick={() => setEditing(false)} data-testid="button-cancel-edit-trip">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)} data-testid="button-edit-trip">
+                <Pencil className="w-4 h-4 mr-1" />
+                Edit
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-muted-foreground">Schedule</h3>
+              <p className="text-sm" data-testid="text-trip-schedule">{trip.scheduledDate}</p>
+              <p className="text-sm" data-testid="text-trip-pickup-time">Pickup: {trip.pickupTime}</p>
+              <p className="text-sm" data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</p>
+              {trip.recurringDays?.length > 0 && (
+                <p className="text-sm" data-testid="text-trip-recurring-days">Recurring: {trip.recurringDays.join(", ")}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-muted-foreground">Pickup</h3>
+              <p className="text-sm" data-testid="text-trip-pickup">{trip.pickupAddress}</p>
+              {trip.pickupZip && (
+                <p className="text-xs text-muted-foreground" data-testid="text-trip-pickup-zip">ZIP: {trip.pickupZip}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-muted-foreground">Dropoff</h3>
+              <p className="text-sm" data-testid="text-trip-dropoff">{trip.dropoffAddress}</p>
+              {trip.dropoffZip && (
+                <p className="text-xs text-muted-foreground" data-testid="text-trip-dropoff-zip">ZIP: {trip.dropoffZip}</p>
+              )}
+            </div>
+
+            {driver && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground">Driver</h3>
+                <p className="text-sm" data-testid="text-trip-driver">{driver.firstName} {driver.lastName}</p>
+              </div>
+            )}
+
+            {trip.notes && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground">Notes</h3>
+                <p className="text-sm" data-testid="text-trip-notes">{trip.notes}</p>
+              </div>
+            )}
+
+            <div className="border-t pt-4 space-y-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <User className="w-4 h-4" />
+                Patient Communication
+              </h3>
+
+              {patient ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Name:</span>
+                    <span className="text-sm" data-testid="text-patient-name">{patient.firstName} {patient.lastName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Phone:</span>
+                    {patient.phone ? (
+                      <span className="text-sm font-mono" data-testid="text-patient-phone">{formatPhoneDisplay(patient.phone)}</span>
+                    ) : (
+                      <span className="text-sm text-destructive flex items-center gap-1" data-testid="text-patient-phone-missing">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        Patient phone not available
+                      </span>
+                    )}
+                  </div>
+
+                  {canSendSms && patient.phone && normalizePhoneToE164(patient.phone) && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setSmsOpen(true)}
+                      data-testid="button-send-sms"
+                    >
+                      <MessageSquare className="w-4 h-4 mr-2" />
+                      Send SMS
+                    </Button>
                   )}
                 </div>
-
-                {canSendSms && patient.phone && normalizePhoneToE164(patient.phone) && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setSmsOpen(true)}
-                    data-testid="button-send-sms"
-                  >
-                    <MessageSquare className="w-4 h-4 mr-2" />
-                    Send SMS
-                  </Button>
-                )}
-
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground" data-testid="text-no-patient">No patient linked to this trip</p>
-            )}
+              ) : (
+                <p className="text-sm text-muted-foreground" data-testid="text-no-patient">No patient linked to this trip</p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </DialogContent>
 
       {smsOpen && patient?.phone && (
@@ -557,7 +664,7 @@ function TripForm({
   const [pickupTime, setPickupTime] = useState("");
   const [estimatedArrivalTime, setEstimatedArrivalTime] = useState("");
   const [notes, setNotes] = useState("");
-  const [tripType, setTripType] = useState<"one_time" | "recurring">("one_time");
+  const [tripType, setTripType] = useState<TripType>("one_time");
   const [recurringDays, setRecurringDays] = useState<string[]>([]);
 
   const [pickupAddr, setPickupAddr] = useState<StructuredAddress | null>(null);
@@ -565,16 +672,6 @@ function TripForm({
 
   const todayStr = getTodayInTimezone(cityTimezone);
   const dateIsPast = scheduledDate && scheduledDate < todayStr;
-
-  const toggleDay = (day: string) => {
-    setRecurringDays((prev) =>
-      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
-    );
-  };
-
-  const applyPreset = (days: string[]) => {
-    setRecurringDays(days);
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -643,59 +740,13 @@ function TripForm({
         </Select>
       </div>
 
-      <div className="space-y-2">
-        <Label>Trip Type *</Label>
-        <Select value={tripType} onValueChange={(v) => setTripType(v as "one_time" | "recurring")}>
-          <SelectTrigger data-testid="select-trip-type"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="one_time">One-time</SelectItem>
-            <SelectItem value="recurring">Recurring</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {tripType === "recurring" && (
-        <div className="space-y-3 rounded-md border p-3">
-          <Label>Recurring Schedule</Label>
-          <div className="flex flex-wrap gap-2">
-            {RECURRING_PRESETS.map((preset) => {
-              const isActive =
-                preset.days.length === recurringDays.length &&
-                preset.days.every((d) => recurringDays.includes(d));
-              return (
-                <Button
-                  key={preset.label}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className={isActive ? "toggle-elevate toggle-elevated" : ""}
-                  onClick={() => applyPreset(preset.days)}
-                  data-testid={`button-preset-${preset.label.replace(/[\s\/]/g, "-").toLowerCase()}`}
-                >
-                  {preset.label}
-                </Button>
-              );
-            })}
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {ALL_DAYS.map((day) => (
-              <label key={day} className="flex items-center gap-1.5 cursor-pointer">
-                <Checkbox
-                  checked={recurringDays.includes(day)}
-                  onCheckedChange={() => toggleDay(day)}
-                  data-testid={`checkbox-day-${day.toLowerCase()}`}
-                />
-                <span className="text-sm">{day}</span>
-              </label>
-            ))}
-          </div>
-          {recurringDays.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              Selected: {recurringDays.join(", ")}
-            </p>
-          )}
-        </div>
-      )}
+      <RecurringSchedule
+        tripType={tripType}
+        onTripTypeChange={setTripType}
+        recurringDays={recurringDays}
+        onRecurringDaysChange={setRecurringDays}
+        testIdPrefix="trip"
+      />
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">

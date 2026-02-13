@@ -1168,6 +1168,107 @@ export async function registerRoutes(
     }
   });
 
+  const updateTripSchema = z.object({
+    pickupAddress: z.string().optional(),
+    pickupStreet: z.string().optional(),
+    pickupCity: z.string().optional(),
+    pickupState: z.string().optional(),
+    pickupZip: z.string().optional(),
+    pickupLat: z.number().optional(),
+    pickupLng: z.number().optional(),
+    dropoffAddress: z.string().optional(),
+    dropoffStreet: z.string().optional(),
+    dropoffCity: z.string().optional(),
+    dropoffState: z.string().optional(),
+    dropoffZip: z.string().optional(),
+    dropoffLat: z.number().optional(),
+    dropoffLng: z.number().optional(),
+    scheduledDate: z.string().optional(),
+    scheduledTime: z.string().nullable().optional(),
+    pickupTime: z.string().optional(),
+    estimatedArrivalTime: z.string().optional(),
+    tripType: z.enum(["one_time", "recurring"]).optional(),
+    recurringDays: z.array(z.enum(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])).nullable().optional(),
+    driverId: z.number().nullable().optional(),
+    vehicleId: z.number().nullable().optional(),
+    clinicId: z.number().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  });
+
+  app.patch("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+
+      const parsed = updateTripSchema.safeParse(req.body);
+      if (!parsed.success) {
+        const firstIssue = parsed.error.issues[0];
+        return res.status(400).json({ message: firstIssue?.message || "Invalid trip data" });
+      }
+
+      const existing = await storage.getTrip(id);
+      if (!existing) return res.status(404).json({ message: "Trip not found" });
+
+      if (!(await checkCityAccess(req, existing.cityId))) {
+        return res.status(403).json({ message: "No access to this city" });
+      }
+
+      const updateData: Record<string, any> = {};
+      for (const [key, value] of Object.entries(parsed.data)) {
+        if (value !== undefined) {
+          updateData[key] = value;
+        }
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update" });
+      }
+
+      const effectiveTripType = updateData.tripType ?? existing.tripType;
+      if (effectiveTripType === "recurring") {
+        const effectiveDays = updateData.recurringDays ?? existing.recurringDays;
+        if (!Array.isArray(effectiveDays) || effectiveDays.length === 0) {
+          return res.status(400).json({ message: "Recurring trips must have at least one day selected" });
+        }
+      }
+      if (updateData.tripType === "one_time") {
+        updateData.recurringDays = null;
+      }
+
+      if (updateData.pickupAddress) {
+        const effectiveZip = updateData.pickupZip ?? existing.pickupZip;
+        if (!effectiveZip) {
+          return res.status(400).json({ message: "Pickup ZIP code is required" });
+        }
+      }
+      if (updateData.dropoffAddress) {
+        const effectiveZip = updateData.dropoffZip ?? existing.dropoffZip;
+        if (!effectiveZip) {
+          return res.status(400).json({ message: "Dropoff ZIP code is required" });
+        }
+      }
+
+      const effectivePickup = updateData.pickupTime ?? existing.pickupTime;
+      const effectiveArrival = updateData.estimatedArrivalTime ?? existing.estimatedArrivalTime;
+      if (effectivePickup && effectiveArrival && effectivePickup >= effectiveArrival) {
+        return res.status(400).json({ message: "Pickup time must be before estimated arrival time" });
+      }
+
+      const trip = await storage.updateTrip(id, updateData);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "UPDATE",
+        entity: "trip",
+        entityId: id,
+        details: `Updated trip fields: ${Object.keys(updateData).join(", ")}`,
+        cityId: existing.cityId,
+      });
+      res.json(trip);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   const updateStatusSchema = z.object({
     status: z.enum(["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"]),
   });
