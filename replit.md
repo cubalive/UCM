@@ -19,19 +19,22 @@ Medical Transportation Management System for managing multi-city non-emergency m
 - Driver dispatch status: available, enroute, hold, off
 - Safety rules: no cross-city assignments, wheelchair accessibility checks, vehicle requirement enforcement
 - Google Maps ETA calculation on trip assignment (graceful fallback when API unavailable)
+- Twilio SMS notifications for patients and dispatch (template-based + custom messages)
+- SMS opt-out compliance (STOP/START keyword handling via inbound webhook)
 - Audit logging
 - Dashboard with stats
 - Supabase integration for user profiles and city management
 
 ## Data Model
 All city-scoped entities: vehicles, drivers, clinics, patients, trips
-Global entities: users (with city access mapping), cities, audit_log
+Global entities: users (with city access mapping), cities, audit_log, sms_opt_out
 Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 
 ### Key Schema Fields
 - **vehicles**: colorHex (hex color for map markers)
 - **drivers**: vehicleId (FK to vehicles), lastLat/lastLng/lastSeenAt (GPS tracking), dispatchStatus (available/enroute/hold/off)
 - **trips**: driverId, vehicleId, pickupLat/pickupLng, dropoffLat/dropoffLng, lastEtaMinutes, distanceMiles, durationMinutes, routePolyline
+- **sms_opt_out**: phone (PK), optedOut, updatedAt
 
 ## Project Structure
 - `shared/schema.ts` - Drizzle schema, Zod schemas, TypeScript types
@@ -43,12 +46,14 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - `server/lib/googleMaps.ts` - Google Maps service (geocode, autocomplete, ETA, route) with TTL caching
 - `server/lib/mapsRoutes.ts` - Maps API endpoints with Zod validation and rate limiting
 - `server/lib/dispatchRoutes.ts` - Dispatch engine endpoints (assign vehicle, assign trip, auto-assign, driver status)
+- `server/lib/twilioSms.ts` - Twilio SMS helper (sendSms, message templates, opt-out check)
+- `server/lib/smsRoutes.ts` - SMS API endpoints (send, trip notify, inbound webhook, health)
 - `server/lib/rateLimiter.ts` - Per-IP rate limiter (in-memory, 60 req/min)
 - `lib/supabaseClient.ts` - Shared Supabase client (browser + server, lazy init)
 - `lib/mapsConfig.ts` - Google Maps API key config (reads GOOGLE_MAPS_API_KEY env)
 - `client/src/lib/auth.tsx` - Auth context provider (calls /api/auth/me + /api/me)
 - `client/src/components/MapLoader.tsx` - Maps availability context (backend-only, no key exposure)
-- `client/src/pages/dispatch-map.tsx` - Dispatch center page (driver/trip management, status controls, assignment)
+- `client/src/pages/dispatch-map.tsx` - Dispatch center page (driver/trip management, status controls, assignment, SMS notifications)
 - `client/src/pages/` - All page components
 - `scripts/supabase-migration.sql` - Idempotent Supabase DDL (tables, functions, RLS)
 
@@ -69,11 +74,16 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - `POST /api/drivers/status` - Change driver dispatch status (available/enroute/hold/off)
 - `POST /api/drivers/location` - Update driver GPS coordinates
 - `GET /api/dispatch/map-data` - Full dispatch dashboard data (drivers+vehicles, active trips, clinics)
+- `GET /api/sms/health` - Returns `{ ok, twilioConfigured }` (Twilio config status)
+- `POST /api/sms/send` - Send direct SMS (SUPER_ADMIN/DISPATCH, E.164 validation, opt-out check)
+- `POST /api/trips/:id/notify` - Send patient notification by trip status template (SUPER_ADMIN/DISPATCH)
+- `POST /api/twilio/inbound` - Twilio inbound webhook (STOP/START opt-out handling, TwiML response)
 - CRUD endpoints for all entities under `/api/*`
 
 ## Running
 - `npm run dev` - Development with hot reload
 - Health check: GET /api/health
+- SMS health: GET /api/sms/health
 
 ## Secrets Required
 - DATABASE_URL - PostgreSQL connection (Replit DB)
@@ -84,6 +94,10 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - SUPABASE_ANON_KEY - Supabase anon/public key
 - SUPABASE_SERVICE_ROLE_KEY - Supabase service role key
 - GOOGLE_MAPS_API_KEY - Google Maps API key (Maps JS, Directions, Geocoding, Places)
+- TWILIO_ACCOUNT_SID - Twilio account SID
+- TWILIO_AUTH_TOKEN - Twilio auth token
+- TWILIO_FROM_NUMBER - Twilio sender phone (E.164 format)
+- DISPATCH_PHONE_NUMBER - Dispatch office phone (optional, defaults to TWILIO_FROM_NUMBER)
 
 ## Recent Changes
 - 2026-02-12: Added Supabase integration (client, health check, /api/me dual-auth)
@@ -95,3 +109,6 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-12: Dispatch engine: driver-vehicle linking, trip assignment with ETA, auto-dispatch, driver status system
 - 2026-02-12: Dispatch Center page (/dispatch) with driver/trip panels, status controls, assignment dialogs
 - 2026-02-12: Schema: dispatchStatus enum (available/enroute/hold/off), colorHex on vehicles, distanceMiles/durationMinutes/routePolyline on trips
+- 2026-02-13: Twilio SMS integration: helper service, message templates, opt-out compliance table
+- 2026-02-13: SMS API endpoints: /api/sms/send, /api/trips/:id/notify, /api/twilio/inbound, /api/sms/health
+- 2026-02-13: SMS notification UI in Dispatch Center: template-based and custom SMS from active trips

@@ -22,6 +22,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Truck,
   UserCheck,
@@ -32,8 +33,11 @@ import {
   RefreshCw,
   CircleDot,
   ArrowRight,
+  MessageSquare,
+  Send,
+  AlertTriangle,
 } from "lucide-react";
-import type { Driver, Vehicle, Trip } from "@shared/schema";
+import type { Driver, Vehicle, Trip, Patient } from "@shared/schema";
 
 interface DriverWithVehicle extends Driver {
   vehicle: Vehicle | null;
@@ -139,6 +143,11 @@ export default function DispatchMapPage() {
   const [vehicleAssignOpen, setVehicleAssignOpen] = useState(false);
   const [assignDriverId, setAssignDriverId] = useState<string>("");
   const [assignVehicleId, setAssignVehicleId] = useState<string>("");
+  const [smsDialogOpen, setSmsDialogOpen] = useState(false);
+  const [smsTrip, setSmsTrip] = useState<Trip | null>(null);
+  const [smsPatient, setSmsPatient] = useState<Patient | null>(null);
+  const [smsCustomMessage, setSmsCustomMessage] = useState("");
+  const [smsMode, setSmsMode] = useState<"template" | "custom">("template");
 
   const cityId = selectedCity?.id;
 
@@ -245,6 +254,72 @@ export default function DispatchMapPage() {
       toast({ title: "Status update failed", description: err.message, variant: "destructive" });
     },
   });
+
+  const smsNotifyMutation = useMutation({
+    mutationFn: async ({ tripId, status }: { tripId: number; status: string }) => {
+      const res = await fetch(`/api/trips/${tripId}/notify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Notification failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "SMS sent", description: `Notified ${data.patient}: ${data.status}` });
+      setSmsDialogOpen(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "SMS failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const smsDirectMutation = useMutation({
+    mutationFn: async ({ to, message }: { to: string; message: string }) => {
+      const res = await fetch("/api/sms/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify({ to, message }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "SMS failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "SMS sent", description: "Custom message delivered" });
+      setSmsDialogOpen(false);
+      setSmsCustomMessage("");
+    },
+    onError: (err: Error) => {
+      toast({ title: "SMS failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  async function openSmsDialog(trip: Trip) {
+    setSmsTrip(trip);
+    setSmsMode("template");
+    setSmsCustomMessage("");
+    try {
+      const res = await fetch(`/api/patients?cityId=${trip.cityId}`, {
+        headers: authHeaders(token),
+      });
+      if (res.ok) {
+        const patients: Patient[] = await res.json();
+        const found = patients.find((p) => p.id === trip.patientId);
+        setSmsPatient(found || null);
+      } else {
+        setSmsPatient(null);
+      }
+    } catch {
+      setSmsPatient(null);
+    }
+    setSmsDialogOpen(true);
+  }
 
   const driversWithLocation = mapData?.drivers.filter((d) => d.lastLat && d.lastLng) || [];
   const driversWithoutLocation = mapData?.drivers.filter((d) => !d.lastLat || !d.lastLng) || [];
@@ -440,6 +515,14 @@ export default function DispatchMapPage() {
                         </div>
                       )}
                     </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => openSmsDialog(trip)}
+                      data-testid={`button-sms-trip-${trip.id}`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </Button>
                   </div>
                 );
               })}
@@ -641,6 +724,112 @@ export default function DispatchMapPage() {
                 {assignTripMutation.isPending ? "Assigning..." : "Assign & Calculate ETA"}
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {smsDialogOpen && smsTrip && (
+        <Dialog open={smsDialogOpen} onOpenChange={(open) => { if (!open) { setSmsDialogOpen(false); setSmsTrip(null); setSmsPatient(null); } }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5" />
+                SMS Notification - {smsTrip.publicId}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              {!smsPatient ? (
+                <div className="flex items-center gap-2 text-sm text-destructive p-3 rounded-md border border-destructive/30 bg-destructive/5">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>Loading patient data...</span>
+                </div>
+              ) : !smsPatient.phone ? (
+                <div className="flex items-center gap-2 text-sm text-destructive p-3 rounded-md border border-destructive/30 bg-destructive/5" data-testid="text-sms-error">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>Patient phone missing. Cannot send SMS.</span>
+                </div>
+              ) : (
+                <>
+                  <div className="text-sm space-y-1">
+                    <div><span className="text-muted-foreground">Patient:</span> {smsPatient.firstName} {smsPatient.lastName}</div>
+                    <div><span className="text-muted-foreground">Phone:</span> {smsPatient.phone}</div>
+                    <div><span className="text-muted-foreground">Trip:</span> {smsTrip.pickupAddress.substring(0, 40)}</div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant={smsMode === "template" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSmsMode("template")}
+                      data-testid="button-sms-template-mode"
+                    >
+                      Quick Templates
+                    </Button>
+                    <Button
+                      variant={smsMode === "custom" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSmsMode("custom")}
+                      data-testid="button-sms-custom-mode"
+                    >
+                      Custom Message
+                    </Button>
+                  </div>
+
+                  {smsMode === "template" ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      {([
+                        { status: "scheduled", label: "Scheduled" },
+                        { status: "driver_assigned", label: "Driver Assigned" },
+                        { status: "en_route", label: "En Route" },
+                        { status: "arrived", label: "Arrived" },
+                        { status: "picked_up", label: "Picked Up" },
+                        { status: "completed", label: "Completed" },
+                        { status: "canceled", label: "Canceled" },
+                      ] as const).map(({ status, label }) => (
+                        <Button
+                          key={status}
+                          variant="outline"
+                          size="sm"
+                          className="justify-start"
+                          onClick={() => smsNotifyMutation.mutate({ tripId: smsTrip!.id, status })}
+                          disabled={smsNotifyMutation.isPending}
+                          data-testid={`button-sms-template-${status}`}
+                        >
+                          <Send className="w-3 h-3 mr-1.5 flex-shrink-0" />
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={smsCustomMessage}
+                        onChange={(e) => setSmsCustomMessage(e.target.value)}
+                        placeholder="Type your message..."
+                        className="resize-none"
+                        data-testid="input-sms-custom"
+                      />
+                      <Button
+                        onClick={() => {
+                          if (smsPatient?.phone && smsCustomMessage.trim()) {
+                            smsDirectMutation.mutate({ to: smsPatient.phone, message: smsCustomMessage.trim() });
+                          }
+                        }}
+                        disabled={!smsCustomMessage.trim() || smsDirectMutation.isPending}
+                        data-testid="button-sms-send-custom"
+                      >
+                        <Send className="w-4 h-4 mr-2" />
+                        {smsDirectMutation.isPending ? "Sending..." : "Send SMS"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {smsNotifyMutation.isPending && (
+                    <p className="text-xs text-muted-foreground">Sending notification...</p>
+                  )}
+                </>
+              )}
+            </div>
           </DialogContent>
         </Dialog>
       )}
