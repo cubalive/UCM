@@ -48,7 +48,7 @@ export default function ClinicsPage() {
     mutationFn: (data: any) =>
       apiFetch("/api/clinics", token, {
         method: "POST",
-        body: JSON.stringify({ ...data, cityId: selectedCity?.id }),
+        body: JSON.stringify(data),
       }),
     onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
@@ -276,12 +276,20 @@ function ClinicForm({
   token: string | null;
 }) {
   const isEdit = !!initialData;
+
+  const { data: cities } = useQuery<any[]>({
+    queryKey: ["/api/cities"],
+    queryFn: () => apiFetch("/api/cities", token),
+    enabled: !!token,
+  });
+
   const [form, setForm] = useState({
     name: initialData?.name || "",
     email: initialData?.email || "",
     phone: initialData?.phone || "",
     contactName: initialData?.contactName || "",
     facilityType: initialData?.facilityType || "clinic",
+    cityId: initialData?.cityId ? String(initialData.cityId) : "",
   });
 
   const [addressValue, setAddressValue] = useState<StructuredAddress | null>(() => {
@@ -302,8 +310,14 @@ function ClinicForm({
 
   const [addressError, setAddressError] = useState("");
 
+  const selectedCityObj = cities?.find((c: any) => String(c.id) === form.cityId);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.cityId) {
+      setAddressError("Service City is required");
+      return;
+    }
     if (!addressValue) {
       setAddressError("Select an address from the list");
       return;
@@ -316,9 +330,22 @@ function ClinicForm({
       setAddressError("Coordinates are missing. Please re-select the address.");
       return;
     }
+    if (selectedCityObj) {
+      const addrCity = (addressValue.city || "").trim().toLowerCase();
+      const addrState = (addressValue.state || "").trim().toLowerCase();
+      const svcCity = (selectedCityObj.name || "").trim().toLowerCase();
+      const svcState = (selectedCityObj.state || "").trim().toLowerCase();
+      if (addrCity !== svcCity || addrState !== svcState) {
+        setAddressError(
+          "Clinic address must be inside the selected Service City. Please choose the correct Service City or pick an address within it."
+        );
+        return;
+      }
+    }
     setAddressError("");
     onSubmit({
       ...form,
+      cityId: parseInt(form.cityId),
       address: addressValue.formattedAddress,
       addressStreet: addressValue.street,
       addressCity: addressValue.city,
@@ -335,6 +362,21 @@ function ClinicForm({
       <div className="space-y-2">
         <Label>Clinic Name *</Label>
         <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required data-testid="input-clinic-name" />
+      </div>
+      <div className="space-y-2">
+        <Label>Service City *</Label>
+        <Select value={form.cityId} onValueChange={(v) => { setForm({ ...form, cityId: v }); setAddressError(""); }}>
+          <SelectTrigger data-testid="select-clinic-city">
+            <SelectValue placeholder="Select service city" />
+          </SelectTrigger>
+          <SelectContent>
+            {cities?.map((c: any) => (
+              <SelectItem key={c.id} value={String(c.id)} data-testid={`option-clinic-city-${c.id}`}>
+                {c.name}, {c.state}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-2">
         <Label>Email *</Label>
@@ -391,7 +433,7 @@ function ClinicForm({
           <Input value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} data-testid="input-clinic-contact" />
         </div>
       </div>
-      <Button type="submit" className="w-full" disabled={loading || !form.email} data-testid="button-submit-clinic">
+      <Button type="submit" className="w-full" disabled={loading || !form.email || !form.cityId} data-testid="button-submit-clinic">
         {loading ? (isEdit ? "Saving..." : "Adding...") : (isEdit ? "Save Changes" : "Add Clinic")}
       </Button>
     </form>

@@ -821,8 +821,22 @@ export async function registerRoutes(
       if (parsed.data.lat == null || parsed.data.lng == null) {
         return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
       }
+      if (!parsed.data.cityId) {
+        return res.status(400).json({ message: "Service City is required" });
+      }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
+      }
+      const selectedCity = await storage.getCity(parsed.data.cityId);
+      if (!selectedCity) {
+        return res.status(400).json({ message: "Invalid Service City" });
+      }
+      const addrCity = (parsed.data.addressCity || "").trim().toLowerCase();
+      const addrState = (parsed.data.addressState || "").trim().toLowerCase();
+      if (addrCity !== selectedCity.name.trim().toLowerCase() || addrState !== selectedCity.state.trim().toLowerCase()) {
+        return res.status(400).json({
+          message: "Clinic address must be inside the selected Service City. Please choose the correct Service City or pick an address within it.",
+        });
       }
       const publicId = await generatePublicId();
       const clinicData = { ...parsed.data, publicId };
@@ -908,7 +922,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
 
-      const allowed = ["name", "address", "addressStreet", "addressCity", "addressState", "addressZip", "addressPlaceId", "lat", "lng", "email", "phone", "contactName", "facilityType", "active"];
+      const allowed = ["name", "address", "addressStreet", "addressCity", "addressState", "addressZip", "addressPlaceId", "lat", "lng", "email", "phone", "contactName", "facilityType", "active", "cityId"];
       const updateData: any = {};
       for (const key of allowed) {
         if (req.body[key] !== undefined) updateData[key] = req.body[key];
@@ -920,6 +934,37 @@ export async function registerRoutes(
         }
         if (updateData.lat == null || updateData.lng == null) {
           return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
+        }
+      }
+
+      const addressFieldChanged = updateData.address !== undefined || updateData.addressCity !== undefined || updateData.addressState !== undefined || updateData.lat !== undefined || updateData.lng !== undefined || updateData.addressZip !== undefined;
+      const cityIdChanged = updateData.cityId !== undefined;
+      if (addressFieldChanged || cityIdChanged) {
+        const effectiveCityId = updateData.cityId ?? clinic.cityId;
+        const effectiveAddrCity = updateData.addressCity ?? clinic.addressCity;
+        const effectiveAddrState = updateData.addressState ?? clinic.addressState;
+        const effectiveAddrZip = updateData.addressZip ?? clinic.addressZip;
+        const effectiveLat = updateData.lat ?? clinic.lat;
+        const effectiveLng = updateData.lng ?? clinic.lng;
+        if (!effectiveAddrZip || !String(effectiveAddrZip).trim()) {
+          return res.status(400).json({ message: "ZIP code is required for clinic address" });
+        }
+        if (effectiveLat == null || effectiveLng == null) {
+          return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
+        }
+        const targetCity = await storage.getCity(effectiveCityId);
+        if (!targetCity) {
+          return res.status(400).json({ message: "Invalid Service City" });
+        }
+        if (cityIdChanged && !(await checkCityAccess(req, updateData.cityId))) {
+          return res.status(403).json({ message: "No access to target city" });
+        }
+        const ac = (effectiveAddrCity || "").trim().toLowerCase();
+        const as_ = (effectiveAddrState || "").trim().toLowerCase();
+        if (ac !== targetCity.name.trim().toLowerCase() || as_ !== targetCity.state.trim().toLowerCase()) {
+          return res.status(400).json({
+            message: "Clinic address must be inside the selected Service City. Please choose the correct Service City or pick an address within it.",
+          });
         }
       }
 
@@ -1697,6 +1742,55 @@ export async function registerRoutes(
       });
 
       res.json({ success: true, message: `Login link sent to ${clinic.email}` });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/clinics/city-mismatch", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const allClinics = await storage.getClinics();
+      const allCities = await storage.getCities();
+      const cityMap = new Map(allCities.map((c) => [c.id, c]));
+      const mismatched: any[] = [];
+      for (const clinic of allClinics) {
+        const city = cityMap.get(clinic.cityId);
+        if (!city) {
+          mismatched.push({
+            clinicId: clinic.id,
+            publicId: clinic.publicId,
+            name: clinic.name,
+            addressCity: clinic.addressCity,
+            addressState: clinic.addressState,
+            cityId: clinic.cityId,
+            expectedCity: null,
+            expectedState: null,
+            issue: "city_not_found",
+          });
+          continue;
+        }
+        const ac = (clinic.addressCity || "").trim().toLowerCase();
+        const as_ = (clinic.addressState || "").trim().toLowerCase();
+        if (ac !== city.name.trim().toLowerCase() || as_ !== city.state.trim().toLowerCase()) {
+          const matchingCity = allCities.find(
+            (c) => c.name.trim().toLowerCase() === ac && c.state.trim().toLowerCase() === as_
+          );
+          mismatched.push({
+            clinicId: clinic.id,
+            publicId: clinic.publicId,
+            name: clinic.name,
+            addressCity: clinic.addressCity,
+            addressState: clinic.addressState,
+            cityId: clinic.cityId,
+            expectedCity: city.name,
+            expectedState: city.state,
+            issue: "address_city_mismatch",
+            suggestedCityId: matchingCity?.id || null,
+            suggestedCityName: matchingCity ? `${matchingCity.name}, ${matchingCity.state}` : null,
+          });
+        }
+      }
+      res.json({ total: allClinics.length, mismatched });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
