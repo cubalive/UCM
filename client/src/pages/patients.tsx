@@ -9,16 +9,20 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, HeartPulse, Search, Accessibility } from "lucide-react";
+import { Plus, HeartPulse, Search, Accessibility, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function PatientsPage() {
-  const { token, selectedCity } = useAuth();
+  const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [editPatient, setEditPatient] = useState<any>(null);
   const [search, setSearch] = useState("");
+
+  const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -39,6 +43,21 @@ export default function PatientsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setOpen(false);
       toast({ title: "Patient added" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) =>
+      apiFetch(`/api/patients/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      setEditPatient(null);
+      toast({ title: "Patient updated" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -94,8 +113,14 @@ export default function PatientsPage() {
                     <p className="text-xs font-mono text-muted-foreground">{p.publicId}</p>
                     {p.phone && <p className="text-sm text-muted-foreground">{p.phone}</p>}
                     {p.address && <p className="text-sm text-muted-foreground truncate">{p.address}</p>}
+                    {p.notes && <p className="text-sm text-muted-foreground truncate">{p.notes}</p>}
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    {canEdit && (
+                      <Button size="icon" variant="ghost" onClick={() => setEditPatient(p)} data-testid={`button-edit-patient-${p.id}`}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                    )}
                     {p.wheelchairRequired && (
                       <Badge variant="secondary"><Accessibility className="w-3 h-3 mr-1" />WC</Badge>
                     )}
@@ -109,13 +134,40 @@ export default function PatientsPage() {
           ))}
         </div>
       )}
+
+      <Dialog open={!!editPatient} onOpenChange={(v) => { if (!v) setEditPatient(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Edit Patient</DialogTitle></DialogHeader>
+          {editPatient && (
+            <PatientForm
+              initialData={editPatient}
+              onSubmit={(d) => updateMutation.mutate({ id: editPatient.id, data: d })}
+              loading={updateMutation.isPending}
+              isEdit
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function PatientForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loading: boolean }) {
+function PatientForm({ onSubmit, loading, initialData, isEdit }: {
+  onSubmit: (data: any) => void;
+  loading: boolean;
+  initialData?: any;
+  isEdit?: boolean;
+}) {
   const [form, setForm] = useState({
-    firstName: "", lastName: "", phone: "", address: "", dateOfBirth: "", insuranceId: "", wheelchairRequired: false,
+    firstName: initialData?.firstName || "",
+    lastName: initialData?.lastName || "",
+    phone: initialData?.phone || "",
+    address: initialData?.address || "",
+    dateOfBirth: initialData?.dateOfBirth || "",
+    insuranceId: initialData?.insuranceId || "",
+    notes: initialData?.notes || "",
+    wheelchairRequired: initialData?.wheelchairRequired || false,
+    active: initialData?.active ?? true,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -153,12 +205,22 @@ function PatientForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loa
           <Input value={form.insuranceId} onChange={(e) => setForm({ ...form, insuranceId: e.target.value })} data-testid="input-patient-insurance" />
         </div>
       </div>
+      <div className="space-y-2">
+        <Label>Notes</Label>
+        <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="input-patient-notes" />
+      </div>
       <div className="flex items-center gap-3">
         <Switch checked={form.wheelchairRequired} onCheckedChange={(v) => setForm({ ...form, wheelchairRequired: v })} data-testid="switch-patient-wheelchair" />
         <Label>Wheelchair Required</Label>
       </div>
+      {isEdit && (
+        <div className="flex items-center gap-3">
+          <Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} data-testid="switch-patient-active" />
+          <Label>Active</Label>
+        </div>
+      )}
       <Button type="submit" className="w-full" disabled={loading} data-testid="button-submit-patient">
-        {loading ? "Adding..." : "Add Patient"}
+        {loading ? (isEdit ? "Saving..." : "Adding...") : (isEdit ? "Save Changes" : "Add Patient")}
       </Button>
     </form>
   );

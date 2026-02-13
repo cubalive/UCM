@@ -127,6 +127,7 @@ export const patients = pgTable("patients", {
   lng: doublePrecision("lng"),
   dateOfBirth: text("date_of_birth"),
   insuranceId: text("insurance_id"),
+  notes: text("notes"),
   wheelchairRequired: boolean("wheelchair_required").notNull().default(false),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),

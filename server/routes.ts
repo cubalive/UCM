@@ -431,6 +431,52 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/patients/:id", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid patient ID" });
+
+      const existing = await storage.getPatient(id);
+      if (!existing) return res.status(404).json({ message: "Patient not found" });
+
+      if (!(await checkCityAccess(req, existing.cityId))) {
+        return res.status(403).json({ message: "No access to this city" });
+      }
+
+      const allowedFields = ["phone", "address", "notes", "insuranceId", "wheelchairRequired", "active", "firstName", "lastName", "dateOfBirth", "cityId"];
+      const updateData: Record<string, any> = {};
+      for (const key of allowedFields) {
+        if (req.body[key] !== undefined) {
+          updateData[key] = req.body[key];
+        }
+      }
+
+      if (updateData.cityId && updateData.cityId !== existing.cityId) {
+        if (!(await checkCityAccess(req, updateData.cityId))) {
+          return res.status(403).json({ message: "No access to target city" });
+        }
+      }
+
+      if (updateData.phone) {
+        const { normalizePhone } = await import("./lib/twilioSms");
+        updateData.phone = normalizePhone(updateData.phone) || updateData.phone;
+      }
+
+      const patient = await storage.updatePatient(id, updateData as any);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "UPDATE",
+        entity: "patient",
+        entityId: id,
+        details: `Updated patient fields: ${Object.keys(updateData).join(", ")}`,
+        cityId: patient?.cityId ?? existing.cityId,
+      });
+      res.json(patient);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/trips", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const cityId = await getAllowedCityId(req);

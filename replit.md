@@ -78,6 +78,7 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - `POST /api/sms/send` - Send direct SMS (SUPER_ADMIN/DISPATCH, E.164 validation, opt-out check)
 - `POST /api/trips/:id/notify` - Send patient notification by trip status template (SUPER_ADMIN/DISPATCH)
 - `POST /api/twilio/inbound` - Twilio inbound webhook (STOP/START opt-out handling, TwiML response)
+- `PATCH /api/patients/:id` - Update patient fields (SUPER_ADMIN/ADMIN/DISPATCH, phone auto-normalized)
 - CRUD endpoints for all entities under `/api/*`
 
 ## Running
@@ -120,3 +121,4 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: Enhanced dispatch panel: live ETA display, distance badges, driver status indicators, stale ETA warnings, alert-sent badges
 - `server/lib/dispatchAutoSms.ts` - Shared auto-notification helper (fire-and-forget, opt-out aware)
 - `server/lib/etaEngine.ts` - Live ETA recalculation engine (60s interval, 5-min alert trigger)
+- 2026-02-13: Patient editing: PATCH /api/patients/:id (SUPER_ADMIN/ADMIN/DISPATCH), notes column added, edit dialog in patients page
