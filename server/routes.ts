@@ -393,6 +393,9 @@ export async function registerRoutes(
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
       }
+      if (parsed.data.licensePlate) {
+        parsed.data.licensePlate = parsed.data.licensePlate.trim().toUpperCase();
+      }
       const publicId = await generatePublicId();
       const vehicle = await storage.createVehicle({ ...parsed.data, publicId });
       await storage.createAuditLog({
@@ -442,6 +445,9 @@ export async function registerRoutes(
       }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
+      }
+      if (parsed.data.licenseNumber) {
+        parsed.data.licenseNumber = parsed.data.licenseNumber.trim().toUpperCase();
       }
       const publicId = await generatePublicId();
       const driverData: any = { ...parsed.data, publicId };
