@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 const UNASSIGN_REASONS = [
@@ -165,6 +165,17 @@ export default function DriversPage() {
       toast({ title: "Failed to reset password", description: err.message, variant: "destructive" });
       setResetTarget(null);
     },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/drivers/${id}/archive`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Driver archived" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const backfillMutation = useMutation({
@@ -315,6 +326,19 @@ export default function DriversPage() {
                           data-testid={`button-edit-driver-${d.id}`}
                         >
                           <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            if (window.confirm(`Archive driver ${d.firstName} ${d.lastName}? This will move them to the archive.`)) {
+                              archiveMutation.mutate(d.id);
+                            }
+                          }}
+                          disabled={archiveMutation.isPending}
+                          data-testid={`button-archive-driver-${d.id}`}
+                        >
+                          <Archive className="w-4 h-4" />
                         </Button>
                       </div>
                     )}

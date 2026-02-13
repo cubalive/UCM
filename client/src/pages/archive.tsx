@@ -9,17 +9,18 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Archive, RotateCcw, Trash2, Search, Building2, UserCheck, HeartPulse, Users, Copy, KeyRound, Route } from "lucide-react";
+import { Archive, RotateCcw, Trash2, Search, Building2, UserCheck, HeartPulse, Users, Copy, KeyRound, Route, Car } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-type EntityTab = "clinics" | "drivers" | "patients" | "users" | "trips";
+type EntityTab = "clinics" | "drivers" | "patients" | "users" | "trips" | "vehicles";
 
-const tabs: { key: EntityTab; label: string; icon: typeof Building2 }[] = [
-  { key: "clinics", label: "Clinics", icon: Building2 },
+const allTabs: { key: EntityTab; label: string; icon: typeof Building2; superAdminOnly?: boolean }[] = [
+  { key: "clinics", label: "Clinics", icon: Building2, superAdminOnly: true },
   { key: "drivers", label: "Drivers", icon: UserCheck },
   { key: "patients", label: "Patients", icon: HeartPulse },
-  { key: "users", label: "Users", icon: Users },
+  { key: "users", label: "Users", icon: Users, superAdminOnly: true },
   { key: "trips", label: "Trips", icon: Route },
+  { key: "vehicles", label: "Vehicles", icon: Car, superAdminOnly: true },
 ];
 
 const entityListKey: Record<EntityTab, string> = {
@@ -28,12 +29,16 @@ const entityListKey: Record<EntityTab, string> = {
   patients: "/api/patients",
   users: "/api/users",
   trips: "/api/trips",
+  vehicles: "/api/vehicles",
 };
 
 export default function ArchivePage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<EntityTab>("clinics");
+  const isSuperAdmin = user?.role?.toUpperCase() === "SUPER_ADMIN" || user?.role?.toUpperCase() === "ADMIN";
+  const tabs = allTabs.filter(t => !t.superAdminOnly || isSuperAdmin);
+  const defaultTab = tabs[0]?.key || "drivers";
+  const [activeTab, setActiveTab] = useState<EntityTab>(defaultTab);
   const [search, setSearch] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; entity: EntityTab } | null>(null);
   const [confirmText, setConfirmText] = useState("");
@@ -139,6 +144,13 @@ export default function ArchivePage() {
                   <p className="font-medium" data-testid={`text-archive-name-${item.id}`}>{item.publicId}</p>
                   <p className="text-sm text-muted-foreground">{item.scheduledDate} | {item.pickupTime}</p>
                   <p className="text-sm text-muted-foreground truncate">{item.pickupAddress}</p>
+                </>
+              )}
+              {activeTab === "vehicles" && (
+                <>
+                  <p className="font-medium" data-testid={`text-archive-name-${item.id}`}>{item.name}</p>
+                  <p className="text-sm text-muted-foreground">{item.licensePlate}</p>
+                  {item.make && <p className="text-sm text-muted-foreground">{item.make} {item.model} {item.year}</p>}
                 </>
               )}
               <div className="flex items-center gap-2 flex-wrap">

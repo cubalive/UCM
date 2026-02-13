@@ -49,6 +49,15 @@ function LiveMapRoute() {
   return <LiveMapPage />;
 }
 
+function ArchiveRoute() {
+  const { user } = useAuth();
+  if (!user) return <Redirect to="/unauthorized" />;
+  const role = user.role.toUpperCase();
+  const hasAccess = ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(role);
+  if (!hasAccess) return <Redirect to="/unauthorized" />;
+  return <ArchivePage />;
+}
+
 function HomeRedirect() {
   const { user } = useAuth();
   if (!user) return null;
@@ -76,7 +85,7 @@ function Router() {
       <Route path="/cities">{() => <ProtectedRoute resource="cities" component={CitiesPage} />}</Route>
       <Route path="/users">{() => <ProtectedRoute resource="users" component={UsersPage} />}</Route>
       <Route path="/audit">{() => <ProtectedRoute resource="audit" component={AuditPage} />}</Route>
-      <Route path="/archive">{() => <ProtectedRoute resource="audit" component={ArchivePage} />}</Route>
+      <Route path="/archive">{() => <ArchiveRoute />}</Route>
       <Route path="/dispatch">{() => <ProtectedRoute resource="dispatch" component={DispatchMapPage} />}</Route>
       <Route path="/fleet">{() => <ProtectedRoute resource="dispatch" component={FleetOpsPage} />}</Route>
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>

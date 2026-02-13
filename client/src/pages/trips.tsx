@@ -25,7 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { RecurringSchedule, type TripType } from "@/components/recurring-schedule";
@@ -186,6 +186,17 @@ export default function TripsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
       toast({ title: "Trip archived" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const clinicDeleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/clinic/trips/${id}`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Trip deleted" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -380,31 +391,50 @@ export default function TripsPage() {
                             ))}
                           </SelectContent>
                         </Select>
-                        {user?.role === "SUPER_ADMIN" && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={(e) => { e.stopPropagation(); archiveMutation.mutate(trip.id); }}
-                            disabled={archiveMutation.isPending}
-                            data-testid={`button-archive-trip-${trip.id}`}
-                          >
-                            <Archive className="w-4 h-4" />
-                          </Button>
-                        )}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm("Archive this trip? This will move it to the archive.")) {
+                              archiveMutation.mutate(trip.id);
+                            }
+                          }}
+                          disabled={archiveMutation.isPending}
+                          data-testid={`button-archive-trip-${trip.id}`}
+                        >
+                          <Archive className="w-4 h-4" />
+                        </Button>
                       </>
                     )}
                     {isClinicUser && (
                       <>
                         {trip.approvalStatus === "pending" && (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={(e) => { e.stopPropagation(); setCancelRequestTrip(trip); }}
-                            data-testid={`button-cancel-pending-trip-${trip.id}`}
-                          >
-                            <Ban className="w-3 h-3 mr-1" />
-                            Cancel
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={(e) => { e.stopPropagation(); setCancelRequestTrip(trip); }}
+                              data-testid={`button-cancel-pending-trip-${trip.id}`}
+                            >
+                              <Ban className="w-3 h-3 mr-1" />
+                              Cancel
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm("Delete this pending trip? This action cannot be undone.")) {
+                                  clinicDeleteMutation.mutate(trip.id);
+                                }
+                              }}
+                              disabled={clinicDeleteMutation.isPending}
+                              data-testid={`button-clinic-delete-trip-${trip.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
                         {trip.approvalStatus === "approved" && !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status) && (
                           <Button

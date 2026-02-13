@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar } from "lucide-react";
+import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 
@@ -31,6 +31,8 @@ export default function PatientsPage() {
   const [search, setSearch] = useState("");
 
   const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH" || user?.role === "VIEWER";
+  const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
+  const isClinicUser = user?.role === "VIEWER" && !!(user as any)?.clinicId;
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -66,6 +68,28 @@ export default function PatientsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setEditPatient(null);
       toast({ title: "Patient updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/patients/${id}/archive`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Patient archived" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const clinicDeleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/clinic/patients/${id}`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Patient deleted" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -140,11 +164,43 @@ export default function PatientsPage() {
                     })()}
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    {canEdit && (
-                      <Button size="icon" variant="ghost" onClick={() => setEditPatient(p)} data-testid={`button-edit-patient-${p.id}`}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                    )}
+                    <div className="flex gap-1">
+                      {canEdit && (
+                        <Button size="icon" variant="ghost" onClick={() => setEditPatient(p)} data-testid={`button-edit-patient-${p.id}`}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {isDispatchOrAdmin && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            if (window.confirm(`Archive patient ${p.firstName} ${p.lastName}? This will move them to the archive.`)) {
+                              archiveMutation.mutate(p.id);
+                            }
+                          }}
+                          disabled={archiveMutation.isPending}
+                          data-testid={`button-archive-patient-${p.id}`}
+                        >
+                          <Archive className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {isClinicUser && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            if (window.confirm(`Delete patient ${p.firstName} ${p.lastName}? This action cannot be undone.`)) {
+                              clinicDeleteMutation.mutate(p.id);
+                            }
+                          }}
+                          disabled={clinicDeleteMutation.isPending}
+                          data-testid={`button-clinic-delete-patient-${p.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
                     <Badge variant={p.active ? "secondary" : "destructive"}>
                       {p.active ? "Active" : "Inactive"}
                     </Badge>

@@ -106,6 +106,8 @@ export const vehicles = pgTable("vehicles", {
   status: vehicleStatusEnum("status").notNull().default("ACTIVE"),
   lastServiceDate: timestamp("last_service_date"),
   maintenanceNotes: text("maintenance_notes"),
+  active: boolean("active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -158,6 +160,7 @@ export const patients = pgTable("patients", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   publicId: varchar("public_id", { length: 20 }).notNull().unique(),
   cityId: integer("city_id").notNull().references(() => cities.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   phone: text("phone"),

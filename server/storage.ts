@@ -101,11 +101,13 @@ export interface IStorage {
   getArchivedPatients(): Promise<Patient[]>;
   getArchivedUsers(): Promise<Omit<User, "password">[]>;
   getArchivedTrips(): Promise<Trip[]>;
+  getArchivedVehicles(): Promise<Vehicle[]>;
 
   // Active trip guard queries
   hasActiveTripsForClinic(clinicId: number): Promise<boolean>;
   hasActiveTripsForDriver(driverId: number): Promise<boolean>;
   hasActiveTripsForPatient(patientId: number): Promise<boolean>;
+  hasActiveTripsForVehicle(vehicleId: number): Promise<boolean>;
 
   // Permanent delete
   deleteClinic(id: number): Promise<void>;
@@ -113,6 +115,7 @@ export interface IStorage {
   deletePatient(id: number): Promise<void>;
   deleteUser(id: number): Promise<void>;
   deleteTrip(id: number): Promise<void>;
+  deleteVehicle(id: number): Promise<void>;
 
   // Update user (for admin password reset)
   updateUser(id: number, data: Partial<User>): Promise<Omit<User, "password"> | undefined>;
@@ -186,9 +189,9 @@ export class DatabaseStorage implements IStorage {
 
   async getVehicles(cityId?: number): Promise<Vehicle[]> {
     if (cityId) {
-      return db.select().from(vehicles).where(eq(vehicles.cityId, cityId)).orderBy(vehicles.name);
+      return db.select().from(vehicles).where(and(eq(vehicles.cityId, cityId), eq(vehicles.active, true), isNull(vehicles.deletedAt))).orderBy(vehicles.name);
     }
-    return db.select().from(vehicles).orderBy(vehicles.name);
+    return db.select().from(vehicles).where(and(eq(vehicles.active, true), isNull(vehicles.deletedAt))).orderBy(vehicles.name);
   }
 
   async getVehicle(id: number): Promise<Vehicle | undefined> {
@@ -653,6 +656,33 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(trips).where(
       sql`${trips.deletedAt} IS NOT NULL`
     ).orderBy(desc(trips.deletedAt));
+  }
+
+  async getArchivedVehicles(): Promise<Vehicle[]> {
+    return db.select().from(vehicles).where(
+      or(eq(vehicles.active, false), sql`${vehicles.deletedAt} IS NOT NULL`)
+    ).orderBy(desc(vehicles.deletedAt));
+  }
+
+  async hasActiveTripsForVehicle(vehicleId: number): Promise<boolean> {
+    const [row] = await db
+      .select({ cnt: count() })
+      .from(trips)
+      .where(
+        and(
+          eq(trips.vehicleId, vehicleId),
+          or(
+            eq(trips.status, "SCHEDULED"),
+            eq(trips.status, "ASSIGNED"),
+            eq(trips.status, "IN_PROGRESS"),
+          ),
+        )
+      );
+    return (row?.cnt ?? 0) > 0;
+  }
+
+  async deleteVehicle(id: number): Promise<void> {
+    await db.delete(vehicles).where(eq(vehicles.id, id));
   }
 
   // Archive management methods

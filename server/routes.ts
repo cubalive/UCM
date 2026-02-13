@@ -1592,7 +1592,7 @@ export async function registerRoutes(
   });
 
   // SUPER_ADMIN archive (soft-delete) a trip
-  app.patch("/api/admin/trips/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/trips/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
@@ -1613,8 +1613,7 @@ export async function registerRoutes(
     }
   });
 
-  // SUPER_ADMIN restore an archived trip
-  app.patch("/api/admin/trips/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/trips/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
@@ -1636,8 +1635,7 @@ export async function registerRoutes(
     }
   });
 
-  // SUPER_ADMIN permanently delete a trip (must be archived first)
-  app.delete("/api/admin/trips/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.delete("/api/admin/trips/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
@@ -2657,22 +2655,28 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/archived", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.get("/api/admin/archived", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const entity = req.query.entity as string;
+      const role = (await storage.getUser(req.user!.userId))?.role;
       switch (entity) {
         case "clinics":
+          if (role !== "SUPER_ADMIN") return res.status(403).json({ message: "Only super admin can view archived clinics" });
           return res.json(await storage.getArchivedClinics());
         case "drivers":
           return res.json(await storage.getArchivedDrivers());
         case "patients":
           return res.json(await storage.getArchivedPatients());
         case "users":
+          if (role !== "SUPER_ADMIN") return res.status(403).json({ message: "Only super admin can view archived users" });
           return res.json(await storage.getArchivedUsers());
         case "trips":
           return res.json(await storage.getArchivedTrips());
+        case "vehicles":
+          if (role !== "SUPER_ADMIN") return res.status(403).json({ message: "Only super admin can view archived vehicles" });
+          return res.json(await storage.getArchivedVehicles());
         default:
-          return res.status(400).json({ message: "Invalid entity type. Must be clinics, drivers, patients, users, or trips" });
+          return res.status(400).json({ message: "Invalid entity type. Must be clinics, drivers, patients, users, trips, or vehicles" });
       }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -2762,7 +2766,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/drivers/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/drivers/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -2790,7 +2794,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/drivers/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/drivers/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -2815,7 +2819,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/drivers/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.delete("/api/admin/drivers/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -2845,7 +2849,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/patients/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/patients/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -2873,7 +2877,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/admin/patients/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.patch("/api/admin/patients/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -2898,7 +2902,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/admin/patients/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.delete("/api/admin/patients/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -3173,6 +3177,138 @@ export async function registerRoutes(
       });
 
       res.json({ ok: true, tempPassword, emailSent });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Vehicle archive/restore/permanent delete (SUPER_ADMIN only)
+  app.patch("/api/admin/vehicles/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const vehicle = await storage.getVehicle(id);
+      if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
+      const hasActive = await storage.hasActiveTripsForVehicle(id);
+      if (hasActive) return res.status(409).json({ message: "Cannot archive vehicle with active trips" });
+      const updated = await storage.updateVehicle(id, { active: false, deletedAt: new Date() });
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ARCHIVE",
+        entity: "vehicle",
+        entityId: id,
+        details: `Archived vehicle ${vehicle.name}`,
+        cityId: vehicle.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/vehicles/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const vehicle = await storage.getVehicle(id);
+      if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
+      const updated = await storage.updateVehicle(id, { active: true, deletedAt: null } as any);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "RESTORE",
+        entity: "vehicle",
+        entityId: id,
+        details: `Restored vehicle ${vehicle.name}`,
+        cityId: vehicle.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/vehicles/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const vehicle = await storage.getVehicle(id);
+      if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
+      if (vehicle.active) return res.status(400).json({ message: "Must archive before permanent delete" });
+      const hasActive = await storage.hasActiveTripsForVehicle(id);
+      if (hasActive) return res.status(409).json({ message: "Cannot delete vehicle with active trips" });
+      await storage.deleteVehicle(id);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "PERMANENT_DELETE",
+        entity: "vehicle",
+        entityId: id,
+        details: `Permanently deleted vehicle ${vehicle.name}`,
+        cityId: vehicle.cityId,
+      });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Clinic user: delete own patient (VIEWER+clinicId, patient must belong to clinic, no active trips)
+  app.delete("/api/clinic/patients/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user || user.role !== "VIEWER" || !user.clinicId) {
+        return res.status(403).json({ message: "Only clinic users can use this endpoint" });
+      }
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const patient = await storage.getPatient(id);
+      if (!patient) return res.status(404).json({ message: "Patient not found" });
+      if (patient.clinicId !== user.clinicId) {
+        return res.status(403).json({ message: "You can only delete patients belonging to your clinic" });
+      }
+      const hasActive = await storage.hasActiveTripsForPatient(id);
+      if (hasActive) return res.status(409).json({ message: "Cannot delete patient with active trips" });
+      const updated = await storage.updatePatient(id, { active: false, deletedAt: new Date() });
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ARCHIVE",
+        entity: "patient",
+        entityId: id,
+        details: `Clinic user archived patient ${patient.firstName} ${patient.lastName}`,
+        cityId: patient.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Clinic user: delete own pending trip (VIEWER+clinicId, trip must be pending approval)
+  app.delete("/api/clinic/trips/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user || user.role !== "VIEWER" || !user.clinicId) {
+        return res.status(403).json({ message: "Only clinic users can use this endpoint" });
+      }
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (trip.clinicId !== user.clinicId) {
+        return res.status(403).json({ message: "You can only delete trips belonging to your clinic" });
+      }
+      if (trip.approvalStatus !== "pending") {
+        return res.status(400).json({ message: "Can only delete trips with pending approval status" });
+      }
+      const updated = await storage.updateTrip(id, { deletedAt: new Date() } as any);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ARCHIVE",
+        entity: "trip",
+        entityId: id,
+        details: `Clinic user deleted pending trip ${trip.publicId}`,
+        cityId: trip.cityId,
+      });
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

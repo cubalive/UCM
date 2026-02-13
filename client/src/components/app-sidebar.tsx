@@ -78,7 +78,10 @@ export function AppSidebar() {
     if (item.url === "/live-map" && ["VIEWER", "DRIVER"].includes(upperRole)) return true;
     return can(role, item.resource);
   });
-  const visibleAdmin = adminItems.filter((item) => can(role, item.resource));
+  const visibleAdmin = adminItems.filter((item) => {
+    if (item.url === "/archive" && ["DISPATCH", "ADMIN", "SUPER_ADMIN"].includes(upperRole)) return true;
+    return can(role, item.resource);
+  });
 
   const initials = user
     ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()

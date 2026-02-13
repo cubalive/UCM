@@ -19,11 +19,11 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Truck, Search, Accessibility, Pencil, Wrench } from "lucide-react";
+import { Plus, Truck, Search, Accessibility, Pencil, Wrench, Archive } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function VehiclesPage() {
-  const { token, selectedCity } = useAuth();
+  const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [editVehicle, setEditVehicle] = useState<any>(null);
@@ -68,6 +68,17 @@ export default function VehiclesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setEditVehicle(null);
       toast({ title: "Vehicle updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/vehicles/${id}/archive`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Vehicle archived" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -157,14 +168,31 @@ export default function VehiclesPage() {
                     {v.wheelchairAccessible && (
                       <Badge variant="secondary"><Accessibility className="w-3 h-3 mr-1" />WC</Badge>
                     )}
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setEditVehicle(v)}
-                      data-testid={`button-edit-vehicle-${v.id}`}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setEditVehicle(v)}
+                        data-testid={`button-edit-vehicle-${v.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      {user?.role === "SUPER_ADMIN" && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            if (window.confirm(`Archive vehicle ${v.name} (${v.licensePlate})? This will move it to the archive.`)) {
+                              archiveMutation.mutate(v.id);
+                            }
+                          }}
+                          disabled={archiveMutation.isPending}
+                          data-testid={`button-archive-vehicle-${v.id}`}
+                        >
+                          <Archive className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </CardContent>
