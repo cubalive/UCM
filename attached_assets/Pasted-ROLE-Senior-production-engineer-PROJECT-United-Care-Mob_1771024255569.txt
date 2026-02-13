@@ -1,0 +1,131 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Finish core admin/dispatch operations with production-grade stability:
+1) Full edit for drivers (currently cannot edit) and reliable edit for vehicles.
+2) Archive/Delete framework with Archived tabs and optional hard delete.
+3) Dispatch can cancel trips (pending + approved) with cancel types; only super_admin can archive/delete trips.
+4) Quick reassignment tools: reassign vehicle and swap driver for a shift/date, optionally apply to active trips.
+5) Enforce city/clinic scope everywhere server-side.
+
+----------------------------------------------------
+PHASE 1 — FIX DRIVER EDIT (CRITICAL)
+----------------------------------------------------
+- Ensure drivers update endpoint exists and works:
+  PATCH /api/drivers/:id
+  allowed: super_admin, dispatch (scoped by city)
+- Fields editable:
+  name, phone, email, license_number (must auto-uppercase), city_id, status/on_hold
+- Ensure driver list/detail updates reflect changes immediately.
+- Add strong validation and return clear errors.
+
+----------------------------------------------------
+PHASE 2 — ARCHIVE FRAMEWORK (USERS/DRIVERS/PATIENTS/VEHICLES/TRIPS)
+----------------------------------------------------
+Add soft-delete fields to tables if missing:
+deleted_at timestamptz null
+deleted_by uuid null
+delete_reason text null
+
+Default list endpoints must exclude deleted rows.
+Add includeDeleted flag for super_admin archived views.
+
+UI:
+- Add “Archived” tab for:
+  Users (super_admin)
+  Drivers (admin/dispatch scope)
+  Vehicles (admin/dispatch scope)
+  Patients (admin/dispatch + clinic scope)
+  Trips (super_admin only)
+
+Actions:
+- Archive (soft delete) from active list
+- Restore from Archived
+- Delete Forever only from Archived:
+   * Users: super_admin only (also disable/delete Supabase auth on hard delete)
+   * Drivers/Vehicles/Patients: super_admin only
+   * Trips: super_admin only
+
+Hard delete must show irreversible confirmation (type DELETE).
+
+----------------------------------------------------
+PHASE 3 — TRIP POLICY (FINAL)
+----------------------------------------------------
+- Dispatch cannot delete/archive trips.
+- Dispatch can cancel trips (pending + approved) with two cancel types.
+
+Implement:
+POST /api/trips/:id/cancel  (dispatch or super_admin)
+body: { type: 'soft'|'hard', reason: string }
+effect:
+ approval_status='cancelled'
+ cancel_type=type
+ cancel_reason=reason
+ cancelled_at=now
+ cancelled_by=current_user
+
+Trip delete/archive:
+DELETE /api/trips/:id  => super_admin only (archive)
+POST /api/trips/:id/hard-delete => super_admin only (archived only)
+POST /api/trips/:id/restore => super_admin only
+
+Clinic trips:
+- Clinic can edit/delete ONLY while approval_status='pending'
+- After approved: clinic can only request cancel
+
+----------------------------------------------------
+PHASE 4 — ASSIGNMENTS: REASSIGN VEHICLE & SWAP DRIVER
+----------------------------------------------------
+Create minimal table if missing:
+driver_vehicle_assignments
+(id uuid pk, city_id, shift_date date, shift_type text, driver_id, vehicle_id, status, created_at/by, updated_at/by, notes)
+
+Endpoints (dispatch + super_admin):
+POST /api/assignments/reassign-vehicle
+{ city_id, shift_date, driver_id, to_vehicle_id, apply_to_trips boolean }
+
+POST /api/assignments/swap-driver
+{ city_id, shift_date, from_driver_id, to_driver_id, keep_vehicle:'from'|'to'|'manual', manual_vehicle_id?, apply_to_trips boolean }
+
+Rules:
+- validate same city
+- prevent assigning deleted drivers/vehicles
+- if apply_to_trips=true, update only non-completed/non-cancelled trips for that date
+
+UI:
+Add Assignments screen:
+- select City + Date
+- list drivers with assigned vehicle
+- actions: Reassign Vehicle, Swap Driver
+Trip detail (dispatch/admin):
+- allow changing driver/vehicle with safeguards + audit log
+
+----------------------------------------------------
+PHASE 5 — AUDIT LOG
+----------------------------------------------------
+Log actions:
+archive/restore/hard-delete
+driver edits
+vehicle edits
+trip cancel (type + reason)
+assignment reassign/swap
+Include actor, entity ids, timestamp.
+
+----------------------------------------------------
+VERIFY (must do)
+----------------------------------------------------
+- Driver edit works (license auto uppercases)
+- Archive/restore works everywhere
+- Dispatch cancel works; dispatch cannot delete trips (403)
+- Super admin can archive + hard delete from Archived only
+- Assignment reassign/swap works and can apply to trips
+- No city scope leaks; unauthorized actions return 403
+Verify before exit.

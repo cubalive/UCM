@@ -2,8 +2,8 @@ import { db } from "./db";
 import { storage } from "./storage";
 import { hashPassword } from "./auth";
 import { generatePublicId } from "./public-id";
-import { users, cities } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { users, cities, vehicleMakes, vehicleModels, vehicles } from "@shared/schema";
+import { eq, sql, isNull } from "drizzle-orm";
 
 export async function seedSuperAdmin() {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
@@ -82,4 +82,51 @@ export async function seedData() {
   await storage.createTrip({ publicId: await generatePublicId(), cityId: houston.id, patientId: p1.id, driverId: d1.id, vehicleId: v1.id, clinicId: c1.id, pickupAddress: "6411 Fannin St, Houston, TX 77030", dropoffAddress: "1234 Main St, Houston, TX 77002", scheduledDate: "2026-02-12", scheduledTime: "11:00", status: "COMPLETED", notes: "Return trip" });
 
   console.log("Seed data created successfully");
+}
+
+const MAKES_AND_MODELS: Record<string, string[]> = {
+  "Toyota": ["Camry", "Corolla", "RAV4", "Sienna", "Other"],
+  "Honda": ["Civic", "Accord", "CR-V", "Odyssey", "Other"],
+  "Ford": ["Fusion", "Escape", "Explorer", "Transit", "Transit Connect", "Other"],
+  "Chevrolet": ["Malibu", "Equinox", "Traverse", "Express", "Other"],
+  "Kia": ["Forte", "Optima (K5)", "Sorento", "Sedona (Carnival)", "Other"],
+  "Hyundai": ["Elantra", "Sonata", "Santa Fe", "Tucson", "Other"],
+  "Nissan": ["Other"],
+  "Dodge": ["Grand Caravan", "Other"],
+  "Chrysler": ["Pacifica", "Other"],
+  "GMC": ["Other"],
+  "Ram": ["Other"],
+  "Tesla": ["Model 3", "Model Y", "Other"],
+  "Other": ["Other"],
+};
+
+export async function seedVehicleMakesModels() {
+  const existingMakes = await db.select().from(vehicleMakes);
+  if (existingMakes.length > 0) return;
+
+  console.log("Seeding vehicle makes and models...");
+
+  for (const [makeName, modelNames] of Object.entries(MAKES_AND_MODELS)) {
+    const [make] = await db.insert(vehicleMakes).values({ name: makeName }).onConflictDoNothing().returning();
+    if (!make) continue;
+    for (const modelName of modelNames) {
+      await db.insert(vehicleModels).values({ makeId: make.id, name: modelName }).onConflictDoNothing();
+    }
+  }
+
+  const allMakes = await db.select().from(vehicleMakes);
+  const allModels = await db.select().from(vehicleModels);
+  const unmapped = await db.select().from(vehicles).where(isNull(vehicles.makeId));
+  for (const v of unmapped) {
+    if (!v.make) continue;
+    const matchedMake = allMakes.find(m => m.name.toLowerCase() === v.make!.toLowerCase());
+    if (!matchedMake) continue;
+    const matchedModel = v.model ? allModels.find(m => m.makeId === matchedMake.id && m.name.toLowerCase() === v.model!.toLowerCase()) : null;
+    await db.update(vehicles).set({
+      makeId: matchedMake.id,
+      modelId: matchedModel?.id || null,
+    }).where(eq(vehicles.id, v.id));
+  }
+
+  console.log("Vehicle makes/models seeded");
 }

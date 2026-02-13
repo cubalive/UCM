@@ -61,9 +61,10 @@ app.use((req, res, next) => {
 
 (async () => {
   try {
-    const { seedSuperAdmin, seedData } = await import("./seed");
+    const { seedSuperAdmin, seedData, seedVehicleMakesModels } = await import("./seed");
     await seedSuperAdmin();
     await seedData();
+    await seedVehicleMakesModels();
   } catch (err) {
     console.error("Seed error:", err);
   }

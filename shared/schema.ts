@@ -99,6 +99,21 @@ export const userCityAccess = pgTable("user_city_access", {
   cityId: integer("city_id").notNull().references(() => cities.id),
 });
 
+export const vehicleMakes = pgTable("vehicle_makes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull().unique(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const vehicleModels = pgTable("vehicle_models", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  makeId: integer("make_id").notNull().references(() => vehicleMakes.id),
+  name: text("name").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const vehicles = pgTable("vehicles", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   publicId: varchar("public_id", { length: 20 }).notNull().unique(),
@@ -108,6 +123,10 @@ export const vehicles = pgTable("vehicles", {
   colorHex: text("color_hex").notNull().default("#6366F1"),
   make: text("make"),
   model: text("model"),
+  makeId: integer("make_id").references(() => vehicleMakes.id),
+  modelId: integer("model_id").references(() => vehicleModels.id),
+  makeText: text("make_text"),
+  modelText: text("model_text"),
   year: integer("year"),
   capacity: integer("capacity").notNull().default(4),
   wheelchairAccessible: boolean("wheelchair_accessible").notNull().default(false),
@@ -382,6 +401,9 @@ export type TripShareToken = typeof tripShareTokens.$inferSelect;
 export type InsertTripShareToken = z.infer<typeof insertTripShareTokenSchema>;
 export type TripSmsLog = typeof tripSmsLog.$inferSelect;
 export type InsertTripSmsLog = z.infer<typeof insertTripSmsLogSchema>;
+
+export type VehicleMake = typeof vehicleMakes.$inferSelect;
+export type VehicleModel = typeof vehicleModels.$inferSelect;
 
 export const loginTokens = pgTable("login_tokens", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

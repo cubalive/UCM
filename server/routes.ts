@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, clinics, patients } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, clinics, patients, vehicleMakes, vehicleModels } from "@shared/schema";
 import { z } from "zod";
 import { eq, sql } from "drizzle-orm";
 import { db } from "./db";
@@ -370,6 +370,28 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/vehicle-makes", authMiddleware, async (_req: AuthRequest, res) => {
+    try {
+      const makes = await db.select().from(vehicleMakes).where(eq(vehicleMakes.isActive, true)).orderBy(vehicleMakes.name);
+      res.json(makes);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/vehicle-models", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const makeId = parseInt(req.query.make_id as string);
+      if (!makeId) return res.status(400).json({ message: "make_id is required" });
+      const models = await db.select().from(vehicleModels)
+        .where(sql`${vehicleModels.makeId} = ${makeId} AND ${vehicleModels.isActive} = true`)
+        .orderBy(vehicleModels.name);
+      res.json(models);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/vehicles", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const cityId = await getAllowedCityId(req);
@@ -402,7 +424,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this vehicle" });
       }
 
-      const { name, licensePlate, colorHex, make, model, year, capacity, wheelchairAccessible, status, cityId, lastServiceDate, maintenanceNotes } = req.body;
+      const { name, licensePlate, colorHex, make, model, makeId, modelId, makeText, modelText, year, capacity, wheelchairAccessible, status, cityId, lastServiceDate, maintenanceNotes } = req.body;
 
       if (!colorHex || !colorHex.trim()) {
         return res.status(400).json({ message: "Vehicle color is required" });
@@ -426,6 +448,10 @@ export async function registerRoutes(
 
       const updated = await storage.updateVehicle(vehicleId, {
         name, licensePlate: plate, colorHex, make, model, year, capacity, wheelchairAccessible, status,
+        ...(makeId !== undefined ? { makeId: makeId || null } : {}),
+        ...(modelId !== undefined ? { modelId: modelId || null } : {}),
+        ...(makeText !== undefined ? { makeText: makeText || null } : {}),
+        ...(modelText !== undefined ? { modelText: modelText || null } : {}),
         ...(cityId ? { cityId } : {}),
         ...(lastServiceDate !== undefined ? { lastServiceDate: lastServiceDate ? new Date(lastServiceDate) : null } : {}),
         ...(maintenanceNotes !== undefined ? { maintenanceNotes } : {}),

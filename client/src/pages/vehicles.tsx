@@ -228,11 +228,14 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
   loading: boolean;
   isEdit?: boolean;
 }) {
+  const { token } = useAuth();
+
   const [form, setForm] = useState({
     name: initialData?.name || "",
     licensePlate: initialData?.licensePlate || "",
-    make: initialData?.make || "",
-    model: initialData?.model || "",
+    makeId: initialData?.makeId?.toString() || "",
+    modelId: initialData?.modelId?.toString() || "",
+    modelText: initialData?.modelText || "",
     year: initialData?.year?.toString() || "",
     capacity: initialData?.capacity?.toString() || "4",
     wheelchairAccessible: initialData?.wheelchairAccessible || false,
@@ -243,13 +246,53 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
     maintenanceNotes: initialData?.maintenanceNotes || "",
   });
 
+  const { data: makes } = useQuery<any[]>({
+    queryKey: ["/api/vehicle-makes"],
+    queryFn: () => apiFetch("/api/vehicle-makes", token),
+    enabled: !!token,
+  });
+
+  const { data: models } = useQuery<any[]>({
+    queryKey: ["/api/vehicle-models", form.makeId],
+    queryFn: () => apiFetch(`/api/vehicle-models?make_id=${form.makeId}`, token),
+    enabled: !!token && !!form.makeId,
+  });
+
+  const selectedMake = makes?.find((m: any) => m.id.toString() === form.makeId);
+  const selectedModel = models?.find((m: any) => m.id.toString() === form.modelId);
+  const isOtherModel = selectedModel?.name === "Other";
+
+  const handleMakeChange = (v: string) => {
+    setForm({ ...form, makeId: v, modelId: "", modelText: "" });
+  };
+
+  const handleModelChange = (v: string) => {
+    const mdl = models?.find((m: any) => m.id.toString() === v);
+    setForm({ ...form, modelId: v, modelText: mdl?.name === "Other" ? "" : "" });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const makeObj = makes?.find((m: any) => m.id.toString() === form.makeId);
+    const modelObj = models?.find((m: any) => m.id.toString() === form.modelId);
+    const makeName = makeObj?.name || "";
+    const modelName = modelObj?.name === "Other" ? (form.modelText || "Other") : (modelObj?.name || "");
+
     onSubmit({
-      ...form,
+      name: form.name,
+      licensePlate: form.licensePlate,
+      colorHex: form.colorHex,
+      make: makeName,
+      model: modelName,
+      makeId: form.makeId ? parseInt(form.makeId) : null,
+      modelId: form.modelId ? parseInt(form.modelId) : null,
+      makeText: makeName === "Other" ? makeName : null,
+      modelText: isOtherModel ? form.modelText : null,
       year: form.year ? parseInt(form.year) : null,
       capacity: parseInt(form.capacity),
       cityId: parseInt(form.cityId),
+      wheelchairAccessible: form.wheelchairAccessible,
+      status: form.status,
       lastServiceDate: form.lastServiceDate || null,
       maintenanceNotes: form.maintenanceNotes || null,
     });
@@ -298,18 +341,44 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div className="space-y-2">
-          <Label>Make</Label>
-          <Input value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} data-testid="input-vehicle-make" />
+          <Label>Make *</Label>
+          <Select value={form.makeId} onValueChange={handleMakeChange}>
+            <SelectTrigger data-testid="select-vehicle-make"><SelectValue placeholder="Select make" /></SelectTrigger>
+            <SelectContent>
+              {makes?.map((m: any) => (
+                <SelectItem key={m.id} value={m.id.toString()}>{m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
-          <Label>Model</Label>
-          <Input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} data-testid="input-vehicle-model" />
+          <Label>Model *</Label>
+          <Select value={form.modelId} onValueChange={handleModelChange} disabled={!form.makeId}>
+            <SelectTrigger data-testid="select-vehicle-model"><SelectValue placeholder={form.makeId ? "Select model" : "Select make first"} /></SelectTrigger>
+            <SelectContent>
+              {models?.map((m: any) => (
+                <SelectItem key={m.id} value={m.id.toString()}>{m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label>Year</Label>
           <Input type="number" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} data-testid="input-vehicle-year" />
         </div>
       </div>
+      {isOtherModel && (
+        <div className="space-y-2">
+          <Label>Model Name *</Label>
+          <Input
+            value={form.modelText}
+            onChange={(e) => setForm({ ...form, modelText: e.target.value })}
+            placeholder="Enter model name"
+            required
+            data-testid="input-vehicle-model-text"
+          />
+        </div>
+      )}
       <div className="space-y-2">
         <Label>Capacity</Label>
         <Input type="number" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} data-testid="input-vehicle-capacity" />
@@ -351,7 +420,7 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
           </div>
         </>
       )}
-      <Button type="submit" className="w-full" disabled={loading || !form.cityId || !form.colorHex.trim()} data-testid="button-submit-vehicle">
+      <Button type="submit" className="w-full" disabled={loading || !form.cityId || !form.colorHex.trim() || !form.makeId || (!form.modelId && !isOtherModel) || (isOtherModel && !form.modelText.trim())} data-testid="button-submit-vehicle">
         {loading ? (isEdit ? "Saving..." : "Adding...") : (isEdit ? "Save Changes" : "Add Vehicle")}
       </Button>
     </form>
