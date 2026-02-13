@@ -1,0 +1,62 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+BUG:
+A clinic can be created with an address in a different city/state than the operational/service city, causing clinics to see/operate in the wrong city (e.g., Phoenix address but clinic sees Dallas data).
+
+DECISION:
+Rule A (STRICT): Block save if clinic address city/state does NOT match the selected Service City (city_id). No exceptions.
+
+GOAL:
+Make clinic service area city_id required and enforce address-to-city match both UI and server-side.
+Clinic users must never inherit a default city; their effective city is always clinic.city_id.
+
+REQUIREMENTS:
+
+1) Data model
+- Ensure clinics table has: city_id uuid NOT NULL REFERENCES cities(id)
+- Ensure cities table has: name (city), state, timezone
+- Clinic effective timezone comes from cities.timezone (no separate clinic timezone needed unless already used)
+
+2) Admin/Dispatch UI (Create/Edit Clinic)
+- Add required dropdown: "Service City" (from cities)
+- Clinic Address must use Google Places Autocomplete and store:
+  street, city, state, zip, lat, lng (all required)
+- On Save, validate:
+  - address city/state MUST equal the selected Service City's name/state
+  - If mismatch -> block save and show:
+    "Clinic address must be inside the selected Service City. Please choose the correct Service City or pick an address within it."
+
+3) Backend enforcement (non-negotiable)
+- On clinic create/update endpoints:
+  - Require city_id
+  - Require address_zip and address_lat/lng
+  - Validate address city/state match selected city_id (cities.name + cities.state)
+  - If mismatch -> return 400 with same message above
+- Never allow clinic create/update without city_id and valid matching address.
+
+4) Role-based filtering
+- For clinic_user:
+  - All data queries must be filtered server-side by clinic.city_id
+  - Remove any UI/default-city fallback for clinic role
+  - Clinic users cannot switch cities
+
+5) Migration & cleanup
+- Add an admin-only diagnostic endpoint or script:
+  - Lists clinics whose address city/state do not match clinic.city_id
+- Provide a safe fix script:
+  - Either update clinic.city_id to match address if that city exists
+  - OR flag as "needs admin review" if the city does not exist
+
+VERIFICATION CHECKLIST:
+- Attempt: Service City = Dallas, Address = Phoenix -> SAVE BLOCKED (UI + backend)
+- Service City = Phoenix, Address = Phoenix -> SAVE OK
+- Clinic user sees only their city resources (drivers/vehicles/trips)
+- No regression for existing clinics
