@@ -184,6 +184,24 @@ export const smsOptOut = pgTable("sms_opt_out", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const invoiceStatusEnum = pgEnum("invoice_status", [
+  "pending",
+  "approved",
+  "paid",
+]);
+
+export const invoices = pgTable("invoices", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  tripId: integer("trip_id").references(() => trips.id),
+  patientName: text("patient_name").notNull(),
+  serviceDate: text("service_date").notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  status: invoiceStatusEnum("status").notNull().default("pending"),
+  pdfUrl: text("pdf_url"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const auditLog = pgTable("audit_log", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").references(() => users.id),
@@ -202,6 +220,7 @@ export const insertDriverSchema = createInsertSchema(drivers).omit({ id: true, c
 export const insertClinicSchema = createInsertSchema(clinics).omit({ id: true, createdAt: true });
 export const insertPatientSchema = createInsertSchema(patients).omit({ id: true, createdAt: true });
 export const insertTripSchema = createInsertSchema(trips).omit({ id: true, createdAt: true });
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true, createdAt: true });
 
 export type InsertCity = z.infer<typeof insertCitySchema>;
@@ -211,6 +230,7 @@ export type InsertDriver = z.infer<typeof insertDriverSchema>;
 export type InsertClinic = z.infer<typeof insertClinicSchema>;
 export type InsertPatient = z.infer<typeof insertPatientSchema>;
 export type InsertTrip = z.infer<typeof insertTripSchema>;
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 
 export type City = typeof cities.$inferSelect;
@@ -221,6 +241,7 @@ export type Driver = typeof drivers.$inferSelect;
 export type Clinic = typeof clinics.$inferSelect;
 export type Patient = typeof patients.$inferSelect;
 export type Trip = typeof trips.$inferSelect;
+export type Invoice = typeof invoices.$inferSelect;
 export type AuditLog = typeof auditLog.$inferSelect;
 export type SmsOptOut = typeof smsOptOut.$inferSelect;
 
