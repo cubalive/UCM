@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
+import { eq, and, or, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
 import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
   citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog,
@@ -87,6 +87,11 @@ export interface IStorage {
 
   createTripSmsLog(data: InsertTripSmsLog): Promise<TripSmsLog>;
   hasSmsBeenSent(tripId: number, kind: string): Promise<boolean>;
+
+  getActiveDriverIdsForClinic(cityId: number, clinicId: number): Promise<number[]>;
+  getActiveDriverIdForPatient(patientId: number): Promise<number | null>;
+  getActiveTripsForClinic(cityId: number, clinicId: number): Promise<Trip[]>;
+  getActiveTripForPatient(patientId: number): Promise<Trip | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -519,6 +524,79 @@ export class DatabaseStorage implements IStorage {
         eq(tripSmsLog.kind, kind),
       ));
     return (row?.cnt ?? 0) > 0;
+  }
+
+  async getActiveDriverIdsForClinic(cityId: number, clinicId: number): Promise<number[]> {
+    const activeStatuses = ["ASSIGNED", "IN_PROGRESS"];
+    const rows = await db
+      .selectDistinct({ driverId: trips.driverId })
+      .from(trips)
+      .where(
+        and(
+          eq(trips.cityId, cityId),
+          eq(trips.clinicId, clinicId),
+          or(
+            eq(trips.status, activeStatuses[0]),
+            eq(trips.status, activeStatuses[1]),
+          ),
+          sql`${trips.driverId} IS NOT NULL`,
+        )
+      );
+    return rows.map((r) => r.driverId!).filter(Boolean);
+  }
+
+  async getActiveDriverIdForPatient(patientId: number): Promise<number | null> {
+    const [row] = await db
+      .select({ driverId: trips.driverId })
+      .from(trips)
+      .where(
+        and(
+          eq(trips.patientId, patientId),
+          or(
+            eq(trips.status, "ASSIGNED"),
+            eq(trips.status, "IN_PROGRESS"),
+          ),
+          sql`${trips.driverId} IS NOT NULL`,
+        )
+      )
+      .orderBy(desc(trips.scheduledDate))
+      .limit(1);
+    return row?.driverId ?? null;
+  }
+
+  async getActiveTripsForClinic(cityId: number, clinicId: number): Promise<Trip[]> {
+    return db
+      .select()
+      .from(trips)
+      .where(
+        and(
+          eq(trips.cityId, cityId),
+          eq(trips.clinicId, clinicId),
+          or(
+            eq(trips.status, "ASSIGNED"),
+            eq(trips.status, "IN_PROGRESS"),
+          ),
+        )
+      )
+      .orderBy(desc(trips.scheduledDate));
+  }
+
+  async getActiveTripForPatient(patientId: number): Promise<Trip | undefined> {
+    const [row] = await db
+      .select()
+      .from(trips)
+      .where(
+        and(
+          eq(trips.patientId, patientId),
+          or(
+            eq(trips.status, "ASSIGNED"),
+            eq(trips.status, "IN_PROGRESS"),
+          ),
+        )
+      )
+      .orderBy(desc(trips.scheduledDate))
+      .limit(1);
+    return row;
   }
 }
 

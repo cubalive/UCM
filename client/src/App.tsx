@@ -38,6 +38,15 @@ function ProtectedRoute({ resource, component: Component }: { resource: Resource
   return <Component />;
 }
 
+function LiveMapRoute() {
+  const { user } = useAuth();
+  if (!user) return <Redirect to="/unauthorized" />;
+  const role = user.role.toUpperCase();
+  const hasAccess = can(user.role, "dispatch") || ["VIEWER", "DRIVER"].includes(role);
+  if (!hasAccess) return <Redirect to="/unauthorized" />;
+  return <LiveMapPage />;
+}
+
 function HomeRedirect() {
   const { user } = useAuth();
   if (!user) return null;
@@ -67,7 +76,7 @@ function Router() {
       <Route path="/audit">{() => <ProtectedRoute resource="audit" component={AuditPage} />}</Route>
       <Route path="/dispatch">{() => <ProtectedRoute resource="dispatch" component={DispatchMapPage} />}</Route>
       <Route path="/fleet">{() => <ProtectedRoute resource="dispatch" component={FleetOpsPage} />}</Route>
-      <Route path="/live-map">{() => <ProtectedRoute resource="dispatch" component={LiveMapPage} />}</Route>
+      <Route path="/live-map">{() => <LiveMapRoute />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />

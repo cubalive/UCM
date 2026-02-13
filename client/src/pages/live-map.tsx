@@ -275,19 +275,298 @@ const CITY_DEFAULTS: Record<string, { lat: number; lng: number }> = {
   default: { lat: 39.8283, lng: -98.5795 },
 };
 
-export default function LiveMapPage() {
-  const { token, selectedCity, cities, setSelectedCity } = useAuth();
-  const [localCityId, setLocalCityId] = useState<number | null>(selectedCity?.id || null);
+interface ActiveTripInfo {
+  id: number;
+  publicId: string;
+  status: string;
+  pickupAddress: string;
+  pickupTime: string;
+  scheduledDate: string;
+  driver?: { id: number; firstName: string; lastName: string } | null;
+  patient?: { id: number; firstName: string; lastName: string } | null;
+}
 
-  useEffect(() => {
-    if (selectedCity?.id) {
-      setLocalCityId(selectedCity.id);
-    }
-  }, [selectedCity?.id]);
+function ClinicMapView({ token, cityId, mapsReady, renderError, keyLoading, mapsLoaded }: {
+  token: string | null;
+  cityId: number | null;
+  mapsReady: boolean;
+  renderError: any;
+  keyLoading: boolean;
+  mapsLoaded: boolean;
+}) {
+  const { data: driverLocations, isLoading: driversLoading, refetch, dataUpdatedAt } = useQuery<DriverLocation[]>({
+    queryKey: ["/api/ops/driver-locations", cityId],
+    queryFn: async () => {
+      const res = await fetch(`/api/ops/driver-locations?city_id=${cityId}`, {
+        headers: authHeaders(token),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!cityId && !!token,
+    refetchInterval: 10000,
+  });
 
-  const { data: keyData, isLoading: keyLoading, error: keyError } = useGoogleMapsApiKey();
-  const { loaded: mapsLoaded, error: mapsError } = useLoadGoogleMapsScript(keyData?.key);
+  const { data: tripData } = useQuery<{ role: string; clinicId: number; trips: ActiveTripInfo[] }>({
+    queryKey: ["/api/ops/my-active-trips", cityId],
+    queryFn: async () => {
+      const res = await fetch(`/api/ops/my-active-trips?city_id=${cityId}`, {
+        headers: authHeaders(token),
+      });
+      if (!res.ok) return { role: "clinic", clinicId: 0, trips: [] };
+      return res.json();
+    },
+    enabled: !!cityId && !!token,
+    refetchInterval: 15000,
+  });
 
+  const drivers = driverLocations || [];
+  const activeTrips = tripData?.trips || [];
+  const mapCenter = CITY_DEFAULTS.default;
+
+  return (
+    <div className="p-4 space-y-4 h-full flex flex-col" data-testid="page-live-map">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-semibold" data-testid="text-live-map-title">My Clinic Trips</h1>
+          <p className="text-sm text-muted-foreground">
+            Active trip drivers for your clinic
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => refetch()}
+          data-testid="button-refresh-locations"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
+      </div>
+
+      {activeTrips.length > 0 && (
+        <div className="space-y-2">
+          {activeTrips.map((trip) => (
+            <Card key={trip.id}>
+              <CardContent className="p-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium" data-testid={`text-trip-id-${trip.id}`}>
+                      Trip {trip.publicId}
+                    </p>
+                    <p className="text-xs text-muted-foreground" data-testid={`text-trip-pickup-${trip.id}`}>
+                      {trip.pickupAddress}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {trip.scheduledDate} at {trip.pickupTime}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="secondary" data-testid={`badge-trip-status-${trip.id}`}>
+                      {trip.status}
+                    </Badge>
+                    {trip.driver && (
+                      <Badge variant="outline" data-testid={`badge-trip-driver-${trip.id}`}>
+                        <MapPin className="w-3 h-3 mr-1" />
+                        {trip.driver.firstName} {trip.driver.lastName}
+                      </Badge>
+                    )}
+                    {trip.patient && (
+                      <span className="text-xs text-muted-foreground">
+                        Patient: {trip.patient.firstName} {trip.patient.lastName}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <div className="flex-1 min-h-0">
+        {renderError ? (
+          <Card className="h-full flex items-center justify-center" style={{ minHeight: "400px" }}>
+            <CardContent className="text-center p-6">
+              <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-3" />
+              <p className="text-destructive font-medium" data-testid="text-map-error">Maps unavailable</p>
+              <p className="text-sm text-muted-foreground mt-1">Google Maps API key is not configured.</p>
+            </CardContent>
+          </Card>
+        ) : keyLoading || !mapsLoaded ? (
+          <Skeleton className="w-full rounded-md" style={{ minHeight: "400px" }} data-testid="skeleton-map" />
+        ) : driversLoading ? (
+          <Skeleton className="w-full rounded-md" style={{ minHeight: "400px" }} data-testid="skeleton-drivers" />
+        ) : (
+          <div className="relative h-full" style={{ minHeight: "400px" }}>
+            <GoogleMapView drivers={drivers} center={mapCenter} zoom={5} />
+            {drivers.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="bg-card/90 border rounded-md p-4 text-center pointer-events-auto">
+                  <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground" data-testid="text-no-driver-locations">
+                    No active trip drivers to display
+                  </p>
+                </div>
+              </div>
+            )}
+            {dataUpdatedAt && (
+              <div className="absolute bottom-3 left-3">
+                <Badge variant="secondary" className="text-xs" data-testid="badge-last-updated">
+                  Last poll: {new Date(dataUpdatedAt).toLocaleTimeString()}
+                </Badge>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PatientMapView({ token, mapsReady, renderError, keyLoading, mapsLoaded, isDriver = false }: {
+  token: string | null;
+  mapsReady: boolean;
+  renderError: any;
+  keyLoading: boolean;
+  mapsLoaded: boolean;
+  isDriver?: boolean;
+}) {
+  const { data: driverLocations, isLoading: driversLoading, refetch, dataUpdatedAt } = useQuery<DriverLocation[]>({
+    queryKey: ["/api/ops/driver-locations"],
+    queryFn: async () => {
+      const res = await fetch("/api/ops/driver-locations", {
+        headers: authHeaders(token),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!token,
+    refetchInterval: 10000,
+  });
+
+  const { data: tripData } = useQuery<{ role: string; patientId: number; trip: ActiveTripInfo | null }>({
+    queryKey: ["/api/ops/my-active-trips"],
+    queryFn: async () => {
+      const res = await fetch("/api/ops/my-active-trips", {
+        headers: authHeaders(token),
+      });
+      if (!res.ok) return { role: "patient", patientId: 0, trip: null };
+      return res.json();
+    },
+    enabled: !!token,
+    refetchInterval: 15000,
+  });
+
+  const drivers = driverLocations || [];
+  const trip = tripData?.trip || null;
+  const mapCenter = CITY_DEFAULTS.default;
+
+  if (!trip) {
+    return (
+      <div className="p-4 h-full flex items-center justify-center" data-testid="page-live-map">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-6 text-center">
+            <MapPin className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+            <h2 className="text-lg font-semibold mb-1" data-testid="text-no-active-trip">{isDriver ? "No Location Data" : "No Active Trip"}</h2>
+            <p className="text-sm text-muted-foreground">
+              {isDriver
+                ? "Your location data is not available yet. Make sure location sharing is enabled."
+                : "You don't have any active trips right now. When a driver is assigned to your trip, you'll see their location here."}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 space-y-4 h-full flex flex-col" data-testid="page-live-map">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-semibold" data-testid="text-live-map-title">{isDriver ? "My Location" : "Your Trip"}</h1>
+          <p className="text-sm text-muted-foreground">{isDriver ? "Your current location on the map" : "Track your driver in real-time"}</p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => refetch()}
+          data-testid="button-refresh-locations"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
+      </div>
+
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-sm font-medium" data-testid="text-patient-trip-id">Trip {trip.publicId}</p>
+              <p className="text-xs text-muted-foreground" data-testid="text-patient-pickup">{trip.pickupAddress}</p>
+              <p className="text-xs text-muted-foreground">{trip.scheduledDate} at {trip.pickupTime}</p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="secondary" data-testid="badge-patient-trip-status">{trip.status}</Badge>
+              {trip.driver && (
+                <Badge variant="outline" data-testid="badge-patient-driver">
+                  <MapPin className="w-3 h-3 mr-1" />
+                  {trip.driver.firstName}
+                </Badge>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex-1 min-h-0">
+        {renderError ? (
+          <Card className="h-full flex items-center justify-center" style={{ minHeight: "400px" }}>
+            <CardContent className="text-center p-6">
+              <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-3" />
+              <p className="text-destructive font-medium" data-testid="text-map-error">Maps unavailable</p>
+            </CardContent>
+          </Card>
+        ) : keyLoading || !mapsLoaded ? (
+          <Skeleton className="w-full rounded-md" style={{ minHeight: "400px" }} data-testid="skeleton-map" />
+        ) : driversLoading ? (
+          <Skeleton className="w-full rounded-md" style={{ minHeight: "400px" }} data-testid="skeleton-drivers" />
+        ) : (
+          <div className="relative h-full" style={{ minHeight: "400px" }}>
+            <GoogleMapView drivers={drivers} center={mapCenter} zoom={5} />
+            {drivers.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="bg-card/90 border rounded-md p-4 text-center pointer-events-auto">
+                  <MapPin className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground" data-testid="text-no-driver-locations">
+                    Driver location not yet available
+                  </p>
+                </div>
+              </div>
+            )}
+            {dataUpdatedAt && (
+              <div className="absolute bottom-3 left-3">
+                <Badge variant="secondary" className="text-xs" data-testid="badge-last-updated">
+                  Last poll: {new Date(dataUpdatedAt).toLocaleTimeString()}
+                </Badge>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DispatchMapView({ token, localCityId, cities, setSelectedCity, setLocalCityId, renderError, keyLoading, mapsLoaded, mapsError }: {
+  token: string | null;
+  localCityId: number | null;
+  cities: any[];
+  setSelectedCity: (city: any) => void;
+  setLocalCityId: (id: number) => void;
+  renderError: any;
+  keyLoading: boolean;
+  mapsLoaded: boolean;
+  mapsError: string | null;
+}) {
   const { data: driverLocations, isLoading: driversLoading, refetch, dataUpdatedAt } = useQuery<DriverLocation[]>({
     queryKey: ["/api/ops/driver-locations", localCityId],
     queryFn: async () => {
@@ -319,8 +598,6 @@ export default function LiveMapPage() {
       setLocalCityId(city.id);
     }
   }, [cities, setSelectedCity]);
-
-  const renderError = keyError || mapsError || (keyData && !keyData.key);
 
   return (
     <div className="p-4 space-y-4 h-full flex flex-col" data-testid="page-live-map">
@@ -488,5 +765,48 @@ export default function LiveMapPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+export default function LiveMapPage() {
+  const { token, selectedCity, cities, setSelectedCity, user } = useAuth();
+  const [localCityId, setLocalCityId] = useState<number | null>(selectedCity?.id || null);
+
+  useEffect(() => {
+    if (selectedCity?.id) {
+      setLocalCityId(selectedCity.id);
+    }
+  }, [selectedCity?.id]);
+
+  const { data: keyData, isLoading: keyLoading, error: keyError } = useGoogleMapsApiKey();
+  const { loaded: mapsLoaded, error: mapsError } = useLoadGoogleMapsScript(keyData?.key);
+
+  const renderError = keyError || mapsError || (keyData && !keyData.key);
+
+  const role = (user?.role || "").toUpperCase();
+  const isClinicUser = role === "VIEWER" && (user as any)?.clinicId != null;
+  const isPatientUser = role === "VIEWER" && (user as any)?.patientId != null && !(user as any)?.clinicId;
+  const isDriverUser = role === "DRIVER";
+
+  if (isClinicUser) {
+    return <ClinicMapView token={token} cityId={localCityId} mapsReady={mapsLoaded && !renderError} renderError={renderError} keyLoading={keyLoading} mapsLoaded={mapsLoaded} />;
+  }
+
+  if (isPatientUser || isDriverUser) {
+    return <PatientMapView token={token} mapsReady={mapsLoaded && !renderError} renderError={renderError} keyLoading={keyLoading} mapsLoaded={mapsLoaded} isDriver={isDriverUser} />;
+  }
+
+  return (
+    <DispatchMapView
+      token={token}
+      localCityId={localCityId}
+      cities={cities}
+      setSelectedCity={setSelectedCity}
+      setLocalCityId={setLocalCityId}
+      renderError={renderError}
+      keyLoading={keyLoading}
+      mapsLoaded={mapsLoaded}
+      mapsError={typeof mapsError === "string" ? mapsError : null}
+    />
   );
 }

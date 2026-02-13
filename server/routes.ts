@@ -1683,38 +1683,171 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/ops/driver-locations", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/driver-locations", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "DRIVER"), async (req: AuthRequest, res) => {
     try {
+      const role = req.user!.role;
+      const userId = req.user!.userId;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(401).json({ message: "User not found" });
+
+      const isDispatchLevel = ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(role);
+      const isClinicUser = role === "VIEWER" && user.clinicId != null;
+      const isPatientUser = role === "VIEWER" && user.patientId != null && !user.clinicId;
+      const isDriverUser = role === "DRIVER" && user.driverId != null;
+
+      let allowedDriverIds: number[] | null = null;
+
+      if (isDispatchLevel) {
+        const cityId = parseInt(req.query.city_id as string);
+        if (isNaN(cityId)) return res.status(400).json({ message: "city_id is required" });
+        const hasAccess = await checkCityAccess(req, cityId);
+        if (!hasAccess) return res.status(403).json({ message: "No access to this city" });
+
+        const allDrivers = await storage.getDrivers(cityId);
+        const allVehicles = await storage.getVehicles(cityId);
+        const vehicleMap = new Map(allVehicles.map((v: any) => [v.id, v]));
+        const activeDrivers = allDrivers.filter((d: any) => d.status === "ACTIVE");
+
+        const locations = activeDrivers
+          .filter((d: any) => d.lastLat != null && d.lastLng != null)
+          .map((d: any) => {
+            const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
+            return {
+              driver_id: d.id,
+              driver_name: `${d.firstName} ${d.lastName}`,
+              city_id: d.cityId,
+              lat: d.lastLat,
+              lng: d.lastLng,
+              updated_at: d.lastSeenAt ? new Date(d.lastSeenAt).toISOString() : null,
+              status: d.dispatchStatus,
+              vehicle_id: vehicle?.id ?? null,
+              vehicle_label: vehicle ? `${vehicle.name}` : null,
+              vehicle_color: vehicle?.colorHex ?? null,
+            };
+          });
+
+        return res.json(locations);
+      }
+
+      if (isClinicUser) {
+        const cityId = parseInt(req.query.city_id as string);
+        if (isNaN(cityId)) return res.status(400).json({ message: "city_id is required" });
+        allowedDriverIds = await storage.getActiveDriverIdsForClinic(cityId, user.clinicId!);
+      } else if (isPatientUser) {
+        const activeDriverId = await storage.getActiveDriverIdForPatient(user.patientId!);
+        allowedDriverIds = activeDriverId ? [activeDriverId] : [];
+      } else if (isDriverUser) {
+        allowedDriverIds = [user.driverId!];
+      } else {
+        return res.status(403).json({ message: "No map access for this role" });
+      }
+
+      if (!allowedDriverIds || allowedDriverIds.length === 0) {
+        return res.json([]);
+      }
+
+      const driverIds = new Set(allowedDriverIds);
       const cityId = parseInt(req.query.city_id as string);
-      if (isNaN(cityId)) return res.status(400).json({ message: "city_id is required" });
+      const driverCity = !isNaN(cityId) ? cityId : undefined;
 
-      const hasAccess = await checkCityAccess(req, cityId);
-      if (!hasAccess) return res.status(403).json({ message: "No access to this city" });
+      const allDrivers = driverCity
+        ? await storage.getDrivers(driverCity)
+        : await storage.getDrivers();
+      const filteredDrivers = allDrivers.filter((d: any) => driverIds.has(d.id) && d.lastLat != null && d.lastLng != null);
 
-      const allDrivers = await storage.getDrivers(cityId);
-      const allVehicles = await storage.getVehicles(cityId);
+      const vehicleCities = [...new Set(filteredDrivers.map((d: any) => d.cityId))];
+      let allVehicles: any[] = [];
+      for (const cid of vehicleCities) {
+        allVehicles = allVehicles.concat(await storage.getVehicles(cid));
+      }
       const vehicleMap = new Map(allVehicles.map((v: any) => [v.id, v]));
-      const activeDrivers = allDrivers.filter((d: any) => d.status === "ACTIVE");
 
-      const locations = activeDrivers
-        .filter((d: any) => d.lastLat != null && d.lastLng != null)
-        .map((d: any) => {
-          const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
-          return {
-            driver_id: d.id,
-            driver_name: `${d.firstName} ${d.lastName}`,
-            city_id: d.cityId,
-            lat: d.lastLat,
-            lng: d.lastLng,
-            updated_at: d.lastSeenAt ? new Date(d.lastSeenAt).toISOString() : null,
-            status: d.dispatchStatus,
-            vehicle_id: vehicle?.id ?? null,
-            vehicle_label: vehicle ? `${vehicle.name}` : null,
-            vehicle_color: vehicle?.colorHex ?? null,
-          };
-        });
+      const locations = filteredDrivers.map((d: any) => {
+        const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
+        return {
+          driver_id: d.id,
+          driver_name: `${d.firstName} ${d.lastName}`,
+          city_id: d.cityId,
+          lat: d.lastLat,
+          lng: d.lastLng,
+          updated_at: d.lastSeenAt ? new Date(d.lastSeenAt).toISOString() : null,
+          status: d.dispatchStatus,
+          vehicle_id: vehicle?.id ?? null,
+          vehicle_label: vehicle ? `${vehicle.name}` : null,
+          vehicle_color: vehicle?.colorHex ?? null,
+        };
+      });
 
       res.json(locations);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ops/my-active-trips", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.userId;
+      const role = req.user!.role;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(401).json({ message: "User not found" });
+
+      const isClinicUser = role === "VIEWER" && user.clinicId != null;
+      const isPatientUser = role === "VIEWER" && user.patientId != null && !user.clinicId;
+
+      if (isClinicUser) {
+        const cityId = parseInt(req.query.city_id as string);
+        if (isNaN(cityId)) return res.status(400).json({ message: "city_id is required" });
+        const activeTrips = await storage.getActiveTripsForClinic(cityId, user.clinicId!);
+        const tripData = [];
+        for (const trip of activeTrips) {
+          let driverInfo = null;
+          let patientInfo = null;
+          if (trip.driverId) {
+            const driver = await storage.getDriver(trip.driverId);
+            if (driver) driverInfo = { id: driver.id, firstName: driver.firstName, lastName: driver.lastName };
+          }
+          if (trip.patientId) {
+            const patient = await storage.getPatient(trip.patientId);
+            if (patient) patientInfo = { id: patient.id, firstName: patient.firstName, lastName: patient.lastName };
+          }
+          tripData.push({
+            id: trip.id,
+            publicId: trip.publicId,
+            status: trip.status,
+            pickupAddress: trip.pickupAddress,
+            pickupTime: trip.pickupTime,
+            scheduledDate: trip.scheduledDate,
+            driver: driverInfo,
+            patient: patientInfo,
+          });
+        }
+        return res.json({ role: "clinic", clinicId: user.clinicId, trips: tripData });
+      }
+
+      if (isPatientUser) {
+        const trip = await storage.getActiveTripForPatient(user.patientId!);
+        if (!trip) return res.json({ role: "patient", patientId: user.patientId, trip: null });
+        let driverInfo = null;
+        if (trip.driverId) {
+          const driver = await storage.getDriver(trip.driverId);
+          if (driver) driverInfo = { id: driver.id, firstName: driver.firstName, lastName: driver.lastName };
+        }
+        return res.json({
+          role: "patient",
+          patientId: user.patientId,
+          trip: {
+            id: trip.id,
+            publicId: trip.publicId,
+            status: trip.status,
+            pickupAddress: trip.pickupAddress,
+            pickupTime: trip.pickupTime,
+            scheduledDate: trip.scheduledDate,
+            driver: driverInfo,
+          },
+        });
+      }
+
+      return res.json({ role, trips: [] });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

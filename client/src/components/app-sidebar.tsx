@@ -71,7 +71,11 @@ export function AppSidebar() {
 
   const role = user?.role || "";
 
-  const visibleNav = navItems.filter((item) => can(role, item.resource));
+  const upperRole = role.toUpperCase();
+  const visibleNav = navItems.filter((item) => {
+    if (item.url === "/live-map" && ["VIEWER", "DRIVER"].includes(upperRole)) return true;
+    return can(role, item.resource);
+  });
   const visibleAdmin = adminItems.filter((item) => can(role, item.resource));
 
   const initials = user
