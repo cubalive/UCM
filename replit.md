@@ -32,7 +32,7 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 
 ### Key Schema Fields
 - **vehicles**: colorHex (hex color for map markers)
-- **drivers**: vehicleId (FK to vehicles), lastLat/lastLng/lastSeenAt (GPS tracking), dispatchStatus (available/enroute/hold/off)
+- **drivers**: vehicleId (FK to vehicles), authUserId (Supabase auth UUID), lastLat/lastLng/lastSeenAt (GPS tracking), dispatchStatus (available/enroute/hold/off)
 - **trips**: driverId, vehicleId, pickupLat/pickupLng, dropoffLat/dropoffLng, lastEtaMinutes, distanceMiles, durationMinutes, routePolyline
 - **sms_opt_out**: phone (PK), optedOut, updatedAt
 
@@ -128,3 +128,9 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: Clinic email: email (unique) column added, required for new clinics, edit dialog for legacy clinics with missing-email warning
 - 2026-02-13: Auto user creation: when clinic created/updated with email, VIEWER user auto-created with city access granted
 - 2026-02-13: PATCH /api/clinics/:id: update clinic fields (name, address, email, phone, contactName, facilityType, active)
+- 2026-02-13: Driver auth provisioning: Supabase auth user auto-created on driver create (authUserId stored on drivers table)
+- 2026-02-13: POST /api/admin/drivers/:id/send-invite: send login link via Supabase (SUPER_ADMIN/DISPATCH)
+- 2026-02-13: POST /api/admin/drivers/backfill-auth: bulk provision auth for drivers with email but no auth link (SUPER_ADMIN)
+- 2026-02-13: GET /api/auth/health: returns Supabase connectivity + canCreateUsers status
+- `server/lib/driverAuth.ts` - ensureAuthUserForDriver helper, invite link generation, Supabase health check
+- 2026-02-13: Drivers UI: auth status badges (Auth linked / No auth), Send Driver Login Link button, Provision Auth backfill button

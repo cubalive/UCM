@@ -438,18 +438,33 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
       const publicId = await generatePublicId();
-      const driverData = { ...parsed.data, publicId };
+      const driverData: any = { ...parsed.data, publicId };
       if (driverData.phone) {
         const { normalizePhone } = await import("./lib/twilioSms");
         driverData.phone = normalizePhone(driverData.phone) || driverData.phone;
       }
+
+      let authProvisioned = false;
+      try {
+        const { ensureAuthUserForDriver } = await import("./lib/driverAuth");
+        const { userId: authUserId, isNew } = await ensureAuthUserForDriver({
+          name: `${driverData.firstName} ${driverData.lastName}`,
+          email: driverData.email,
+        });
+        driverData.authUserId = authUserId;
+        authProvisioned = true;
+        console.log(`[driverCreate] Auth user ${isNew ? "created" : "linked"}: ${authUserId}`);
+      } catch (authErr: any) {
+        console.error("[driverCreate] Auth provisioning failed (non-fatal):", authErr.message);
+      }
+
       const driver = await storage.createDriver(driverData);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
         entity: "driver",
         entityId: driver.id,
-        details: `Created driver ${driver.firstName} ${driver.lastName}`,
+        details: `Created driver ${driver.firstName} ${driver.lastName}${authProvisioned ? " (auth provisioned)" : ""}`,
         cityId: driver.cityId,
       });
       res.json(driver);
@@ -782,6 +797,103 @@ export async function registerRoutes(
       const cityId = await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       res.json(await storage.getAuditLogs(cityId));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/auth/health", async (_req, res) => {
+    try {
+      const { checkSupabaseHealth } = await import("./lib/driverAuth");
+      const result = await checkSupabaseHealth();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.post("/api/admin/drivers/:id/send-invite", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const driverId = parseInt(req.params.id);
+      if (isNaN(driverId)) return res.status(400).json({ message: "Invalid driver ID" });
+
+      const driver = await storage.getDriver(driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+      if (!driver.email) return res.status(400).json({ message: "Driver has no email address" });
+
+      if (!driver.authUserId) {
+        try {
+          const { ensureAuthUserForDriver } = await import("./lib/driverAuth");
+          const { userId: authUserId } = await ensureAuthUserForDriver({
+            name: `${driver.firstName} ${driver.lastName}`,
+            email: driver.email,
+          });
+          await storage.updateDriver(driverId, { authUserId } as any);
+        } catch (provErr: any) {
+          return res.status(500).json({ message: `Failed to provision auth: ${provErr.message}` });
+        }
+      }
+
+      const { generateInviteLink } = await import("./lib/driverAuth");
+      const result = await generateInviteLink(driver.email);
+      if (!result.success) {
+        return res.status(500).json({ message: result.error || "Failed to send invite" });
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "SEND_INVITE",
+        entity: "driver",
+        entityId: driverId,
+        details: `Sent login invite to driver ${driver.firstName} ${driver.lastName} (${driver.email})`,
+        cityId: driver.cityId,
+      });
+
+      res.json({ success: true, message: `Login link sent to ${driver.email}` });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/drivers/backfill-auth", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const allDrivers = await storage.getDrivers();
+      const results = { processed: 0, created: 0, linked: 0, skipped: 0, errors: [] as string[] };
+
+      for (const driver of allDrivers) {
+        if (!driver.email) {
+          results.skipped++;
+          continue;
+        }
+        if (driver.authUserId) {
+          results.skipped++;
+          continue;
+        }
+        results.processed++;
+        try {
+          const { ensureAuthUserForDriver } = await import("./lib/driverAuth");
+          const { userId: authUserId, isNew } = await ensureAuthUserForDriver({
+            name: `${driver.firstName} ${driver.lastName}`,
+            email: driver.email,
+          });
+          await storage.updateDriver(driver.id, { authUserId } as any);
+          if (isNew) results.created++;
+          else results.linked++;
+        } catch (err: any) {
+          results.errors.push(`Driver ${driver.id} (${driver.email}): ${err.message}`);
+        }
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "BACKFILL_AUTH",
+        entity: "driver",
+        entityId: null,
+        details: `Backfill auth: processed=${results.processed}, created=${results.created}, linked=${results.linked}, skipped=${results.skipped}`,
+        cityId: null,
+      });
+
+      res.json(results);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

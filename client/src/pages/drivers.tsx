@@ -17,15 +17,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function DriversPage() {
-  const { token, selectedCity } = useAuth();
+  const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
+
+  const canManageAuth = user?.role === "SUPER_ADMIN" || user?.role === "DISPATCH";
 
   const { data: drivers, isLoading } = useQuery<any[]>({
     queryKey: ["/api/drivers", selectedCity?.id],
@@ -60,11 +62,42 @@ export default function DriversPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const inviteMutation = useMutation({
+    mutationFn: (driverId: number) =>
+      apiFetch(`/api/admin/drivers/${driverId}/send-invite`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (data: any) => {
+      toast({ title: "Invite sent", description: data.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to send invite", description: err.message, variant: "destructive" }),
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/admin/drivers/backfill-auth", token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: (data: any) => {
+      toast({
+        title: "Backfill complete",
+        description: `Processed: ${data.processed}, Created: ${data.created}, Linked: ${data.linked}, Skipped: ${data.skipped}`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
+    },
+    onError: (err: any) => toast({ title: "Backfill failed", description: err.message, variant: "destructive" }),
+  });
+
   const filtered = drivers?.filter(
     (d: any) =>
       `${d.firstName} ${d.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
       d.publicId?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const driversWithoutAuth = drivers?.filter((d: any) => d.email && !d.authUserId) || [];
 
   const statusColors: Record<string, string> = { ACTIVE: "secondary", INACTIVE: "destructive", ON_LEAVE: "secondary" };
 
@@ -72,24 +105,37 @@ export default function DriversPage() {
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Drivers</h1>
+          <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-drivers-heading">Drivers</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage driver assignments</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-add-driver"><Plus className="w-4 h-4 mr-2" />Add Driver</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Add Driver</DialogTitle></DialogHeader>
-            <DriverForm
-              cities={cities || []}
-              vehicles={vehicles || []}
-              defaultCityId={selectedCity?.id}
-              onSubmit={(d) => createMutation.mutate(d)}
-              loading={createMutation.isPending}
-            />
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2 flex-wrap">
+          {canManageAuth && user?.role === "SUPER_ADMIN" && driversWithoutAuth.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => backfillMutation.mutate()}
+              disabled={backfillMutation.isPending}
+              data-testid="button-backfill-auth"
+            >
+              <ShieldCheck className="w-4 h-4 mr-2" />
+              {backfillMutation.isPending ? "Processing..." : `Provision Auth (${driversWithoutAuth.length})`}
+            </Button>
+          )}
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-add-driver"><Plus className="w-4 h-4 mr-2" />Add Driver</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Add Driver</DialogTitle></DialogHeader>
+              <DriverForm
+                cities={cities || []}
+                vehicles={vehicles || []}
+                defaultCityId={selectedCity?.id}
+                onSubmit={(d) => createMutation.mutate(d)}
+                loading={createMutation.isPending}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="relative max-w-sm">
@@ -117,12 +163,37 @@ export default function DriversPage() {
                   <div className="space-y-1 min-w-0">
                     <p className="font-medium" data-testid={`text-driver-name-${d.id}`}>{d.firstName} {d.lastName}</p>
                     <p className="text-xs font-mono text-muted-foreground">{d.publicId}</p>
-                    {d.email && <p className="text-sm text-muted-foreground">{d.email}</p>}
+                    {d.email && <p className="text-sm text-muted-foreground" data-testid={`text-driver-email-${d.id}`}>{d.email}</p>}
                     <p className="text-sm text-muted-foreground">{d.phone}</p>
                     {d.licenseNumber && <p className="text-xs text-muted-foreground">License: {d.licenseNumber}</p>}
                   </div>
-                  <Badge variant={statusColors[d.status] as any || "secondary"}>{d.status}</Badge>
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge variant={statusColors[d.status] as any || "secondary"}>{d.status}</Badge>
+                    {d.authUserId ? (
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-auth-linked-${d.id}`}>
+                        <ShieldCheck className="w-3 h-3 mr-1" />Auth linked
+                      </Badge>
+                    ) : d.email ? (
+                      <Badge variant="outline" className="text-xs text-muted-foreground" data-testid={`badge-auth-missing-${d.id}`}>
+                        <ShieldAlert className="w-3 h-3 mr-1" />No auth
+                      </Badge>
+                    ) : null}
+                  </div>
                 </div>
+                {canManageAuth && d.email && (
+                  <div className="mt-3 pt-3 border-t">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => inviteMutation.mutate(d.id)}
+                      disabled={inviteMutation.isPending}
+                      data-testid={`button-send-invite-${d.id}`}
+                    >
+                      <Mail className="w-3 h-3 mr-2" />
+                      Send Driver Login Link
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
@@ -175,6 +246,7 @@ function DriverForm({
           required
           data-testid="input-driver-email"
         />
+        <p className="text-xs text-muted-foreground">Driver will use this email to log in</p>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
