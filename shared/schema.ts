@@ -96,6 +96,7 @@ export const drivers = pgTable("drivers", {
   cityId: integer("city_id").notNull().references(() => cities.id),
   userId: integer("user_id").references(() => users.id),
   vehicleId: integer("vehicle_id").references(() => vehicles.id),
+  email: text("email").unique(),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   phone: text("phone").notNull(),

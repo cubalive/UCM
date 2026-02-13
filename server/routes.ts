@@ -362,6 +362,21 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid driver data" });
       }
+      if (!parsed.data.email || !parsed.data.email.trim()) {
+        return res.status(400).json({ message: "Driver email is required" });
+      }
+      if (!parsed.data.cityId) {
+        return res.status(400).json({ message: "City is required" });
+      }
+      if (parsed.data.vehicleId) {
+        const vehicle = await storage.getVehicle(parsed.data.vehicleId);
+        if (!vehicle) {
+          return res.status(400).json({ message: "Vehicle not found" });
+        }
+        if (vehicle.cityId !== parsed.data.cityId) {
+          return res.status(400).json({ message: "Vehicle must belong to the same city as the driver" });
+        }
+      }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
       }

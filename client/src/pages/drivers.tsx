@@ -9,6 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, UserCheck, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -26,11 +33,23 @@ export default function DriversPage() {
     enabled: !!token,
   });
 
+  const { data: cities } = useQuery<any[]>({
+    queryKey: ["/api/cities"],
+    queryFn: () => apiFetch("/api/cities", token),
+    enabled: !!token,
+  });
+
+  const { data: vehicles } = useQuery<any[]>({
+    queryKey: ["/api/vehicles"],
+    queryFn: () => apiFetch("/api/vehicles", token),
+    enabled: !!token,
+  });
+
   const createMutation = useMutation({
     mutationFn: (data: any) =>
       apiFetch("/api/drivers", token, {
         method: "POST",
-        body: JSON.stringify({ ...data, cityId: selectedCity?.id }),
+        body: JSON.stringify(data),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
@@ -62,7 +81,13 @@ export default function DriversPage() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Add Driver</DialogTitle></DialogHeader>
-            <DriverForm onSubmit={(d) => createMutation.mutate(d)} loading={createMutation.isPending} />
+            <DriverForm
+              cities={cities || []}
+              vehicles={vehicles || []}
+              defaultCityId={selectedCity?.id}
+              onSubmit={(d) => createMutation.mutate(d)}
+              loading={createMutation.isPending}
+            />
           </DialogContent>
         </Dialog>
       </div>
@@ -92,6 +117,7 @@ export default function DriversPage() {
                   <div className="space-y-1 min-w-0">
                     <p className="font-medium" data-testid={`text-driver-name-${d.id}`}>{d.firstName} {d.lastName}</p>
                     <p className="text-xs font-mono text-muted-foreground">{d.publicId}</p>
+                    {d.email && <p className="text-sm text-muted-foreground">{d.email}</p>}
                     <p className="text-sm text-muted-foreground">{d.phone}</p>
                     {d.licenseNumber && <p className="text-xs text-muted-foreground">License: {d.licenseNumber}</p>}
                   </div>
@@ -106,16 +132,50 @@ export default function DriversPage() {
   );
 }
 
-function DriverForm({ onSubmit, loading }: { onSubmit: (data: any) => void; loading: boolean }) {
-  const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", licenseNumber: "" });
+function DriverForm({
+  cities,
+  vehicles,
+  defaultCityId,
+  onSubmit,
+  loading,
+}: {
+  cities: any[];
+  vehicles: any[];
+  defaultCityId?: number;
+  onSubmit: (data: any) => void;
+  loading: boolean;
+}) {
+  const [form, setForm] = useState({
+    email: "",
+    firstName: "",
+    lastName: "",
+    phone: "",
+    licenseNumber: "",
+    cityId: defaultCityId || 0,
+    vehicleId: null as number | null,
+  });
+
+  const cityVehicles = vehicles.filter((v: any) => v.cityId === form.cityId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(form);
+    const payload: any = { ...form };
+    if (!payload.vehicleId) delete payload.vehicleId;
+    onSubmit(payload);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Email *</Label>
+        <Input
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          required
+          data-testid="input-driver-email"
+        />
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>First Name *</Label>
@@ -134,7 +194,50 @@ function DriverForm({ onSubmit, loading }: { onSubmit: (data: any) => void; load
         <Label>License Number</Label>
         <Input value={form.licenseNumber} onChange={(e) => setForm({ ...form, licenseNumber: e.target.value })} data-testid="input-driver-license" />
       </div>
-      <Button type="submit" className="w-full" disabled={loading} data-testid="button-submit-driver">
+      <div className="space-y-2">
+        <Label>City *</Label>
+        <Select
+          value={form.cityId ? String(form.cityId) : ""}
+          onValueChange={(v) => setForm({ ...form, cityId: Number(v), vehicleId: null })}
+        >
+          <SelectTrigger data-testid="select-driver-city">
+            <SelectValue placeholder="Select city" />
+          </SelectTrigger>
+          <SelectContent>
+            {cities.map((c: any) => (
+              <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>Vehicle</Label>
+        <Select
+          value={form.vehicleId ? String(form.vehicleId) : "none"}
+          onValueChange={(v) => setForm({ ...form, vehicleId: v === "none" ? null : Number(v) })}
+        >
+          <SelectTrigger data-testid="select-driver-vehicle">
+            <SelectValue placeholder="Select vehicle (optional)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No vehicle</SelectItem>
+            {cityVehicles.map((v: any) => (
+              <SelectItem key={v.id} value={String(v.id)}>
+                {v.name} — {v.licensePlate}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {form.cityId > 0 && cityVehicles.length === 0 && (
+          <p className="text-xs text-muted-foreground">No vehicles in selected city</p>
+        )}
+      </div>
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={loading || !form.email || !form.cityId}
+        data-testid="button-submit-driver"
+      >
         {loading ? "Adding..." : "Add Driver"}
       </Button>
     </form>
