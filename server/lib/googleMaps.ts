@@ -45,7 +45,7 @@ class TTLCache<T> {
 
 const geocodeCache = new TTLCache<GeocodeResult>(30 * 24 * 3600);
 const autocompleteCache = new TTLCache<AutocompleteResult[]>(600);
-const etaCache = new TTLCache<ETAResult>(90);
+const etaCache = new TTLCache<ETAResult>(60);
 const routeCache = new TTLCache<RouteResult>(90);
 
 export interface GeocodeResult {
