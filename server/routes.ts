@@ -1142,5 +1142,59 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/clinic/invoices", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      if (user.role === "SUPER_ADMIN" || user.role === "ADMIN" || user.role === "DISPATCH") {
+        const allInvoices = await storage.getInvoices();
+        return res.json(allInvoices);
+      }
+
+      if (!user.clinicId) {
+        return res.status(403).json({ message: "No clinic linked to this account" });
+      }
+
+      const clinicInvoices = await storage.getInvoices(user.clinicId);
+      res.json(clinicInvoices);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/clinic/invoices/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      if (user.role === "SUPER_ADMIN" || user.role === "ADMIN" || user.role === "DISPATCH") {
+        return res.json(invoice);
+      }
+
+      if (!user.clinicId || user.clinicId !== invoice.clinicId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(invoice);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/invoices", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (_req: AuthRequest, res) => {
+    try {
+      res.json(await storage.getInvoices());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }
