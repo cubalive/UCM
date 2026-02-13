@@ -82,9 +82,8 @@ export default function ClinicsPage() {
 
   const inviteMutation = useMutation({
     mutationFn: (clinicId: number) =>
-      apiFetch(`/api/admin/send-login-link`, token, {
+      apiFetch(`/api/admin/clinics/${clinicId}/send-invite`, token, {
         method: "POST",
-        body: JSON.stringify({ targetType: "clinic", targetId: String(clinicId) }),
       }),
     onSuccess: (data: any) => {
       toast({ title: "Login link sent", description: data.message });

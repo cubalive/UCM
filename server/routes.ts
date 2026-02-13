@@ -1626,23 +1626,38 @@ export async function registerRoutes(
       if (!driver) return res.status(404).json({ message: "Driver not found" });
       if (!driver.email) return res.status(400).json({ message: "Driver has no email address" });
 
+      let tempPassword: string | undefined;
+
       if (!driver.authUserId) {
         try {
           const { ensureAuthUserForDriver } = await import("./lib/driverAuth");
-          const { userId: authUserId } = await ensureAuthUserForDriver({
+          const result = await ensureAuthUserForDriver({
             name: `${driver.firstName} ${driver.lastName}`,
             email: driver.email,
           });
-          await storage.updateDriver(driverId, { authUserId } as any);
+          await storage.updateDriver(driverId, { authUserId: result.userId } as any);
+          tempPassword = result.tempPassword;
         } catch (provErr: any) {
           return res.status(500).json({ message: `Failed to provision auth: ${provErr.message}` });
         }
       }
 
-      const { generateInviteLink } = await import("./lib/driverAuth");
-      const result = await generateInviteLink(driver.email);
-      if (!result.success) {
-        return res.status(500).json({ message: result.error || "Failed to send invite" });
+      if (!tempPassword) {
+        const { generateTempPassword } = await import("./lib/driverAuth");
+        tempPassword = generateTempPassword();
+      }
+
+      const driverUser = await storage.getUserByDriverId(driverId);
+      if (driverUser) {
+        const hashed = await hashPassword(tempPassword);
+        await db.update(users).set({ password: hashed, mustChangePassword: true }).where(eq(users.id, driverUser.id));
+      }
+
+      const { sendDriverTempPassword } = await import("./services/emailService");
+      const driverName = `${driver.firstName} ${driver.lastName}`;
+      const emailResult = await sendDriverTempPassword(driver.email, tempPassword, driverName);
+      if (!emailResult.success) {
+        return res.status(500).json({ message: emailResult.error || "Failed to send credentials email" });
       }
 
       await storage.createAuditLog({
@@ -1650,11 +1665,11 @@ export async function registerRoutes(
         action: "SEND_INVITE",
         entity: "driver",
         entityId: driverId,
-        details: `Sent login invite to driver ${driver.firstName} ${driver.lastName} (${driver.email})`,
+        details: `Sent temp password email to driver ${driverName} (${driver.email})`,
         cityId: driver.cityId,
       });
 
-      res.json({ success: true, message: `Login link sent to ${driver.email}` });
+      res.json({ success: true, message: `Credentials sent to ${driver.email}` });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1726,10 +1741,10 @@ export async function registerRoutes(
         }
       }
 
-      const { generateInviteLink } = await import("./lib/driverAuth");
-      const result = await generateInviteLink(clinic.email);
+      const { sendClinicLoginLink } = await import("./services/emailService");
+      const result = await sendClinicLoginLink(clinic.email, clinic.name);
       if (!result.success) {
-        return res.status(500).json({ message: result.error || "Failed to send invite" });
+        return res.status(500).json({ message: result.error || "Failed to send login link email" });
       }
 
       await storage.createAuditLog({
@@ -1737,7 +1752,7 @@ export async function registerRoutes(
         action: "SEND_INVITE",
         entity: "clinic",
         entityId: clinicId,
-        details: `Sent login invite to clinic ${clinic.name} (${clinic.email})`,
+        details: `Sent login link email to clinic ${clinic.name} (${clinic.email})`,
         cityId: clinic.cityId,
       });
 
@@ -1753,8 +1768,8 @@ export async function registerRoutes(
       if (!targetType || !targetId) {
         return res.status(400).json({ message: "targetType and targetId are required" });
       }
-      if (!["clinic", "driver"].includes(targetType)) {
-        return res.status(400).json({ message: "targetType must be 'clinic' or 'driver'" });
+      if (!["clinic", "driver", "dispatch"].includes(targetType)) {
+        return res.status(400).json({ message: "targetType must be 'clinic', 'driver', or 'dispatch'" });
       }
 
       const id = parseInt(targetId);
@@ -1774,7 +1789,7 @@ export async function registerRoutes(
         recipientName = clinic.name;
         clinicId = clinic.id;
         role = "VIEWER";
-      } else {
+      } else if (targetType === "driver") {
         const driver = await storage.getDriver(id);
         if (!driver) return res.status(404).json({ message: "Driver not found" });
         if (!driver.email) return res.status(400).json({ message: "Driver has no email address" });
@@ -1782,14 +1797,22 @@ export async function registerRoutes(
         recipientName = `${driver.firstName} ${driver.lastName}`;
         driverId = driver.id;
         role = "DRIVER";
+      } else {
+        const targetUser = await storage.getUser(id);
+        if (!targetUser) return res.status(404).json({ message: "User not found" });
+        if (!targetUser.email) return res.status(400).json({ message: "User has no email address" });
+        email = targetUser.email;
+        recipientName = targetUser.name || targetUser.email;
+        role = targetUser.role;
       }
 
       const crypto = await import("crypto");
       const { loginTokens } = await import("@shared/schema");
-      const { sendEmail, buildLoginLinkEmail } = await import("./lib/email");
 
       const recentCheck = await db.select().from(loginTokens)
-        .where(sql`role = ${role} AND (${clinicId ? sql`clinic_id = ${clinicId}` : sql`driver_id = ${driverId}`}) AND created_at > NOW() - INTERVAL '60 seconds'`)
+        .where(sql`created_at > NOW() - INTERVAL '60 seconds' AND (
+          ${clinicId ? sql`clinic_id = ${clinicId}` : driverId ? sql`driver_id = ${driverId}` : sql`role = ${role} AND user_id = ${id}`}
+        )`)
         .limit(1);
       if (recentCheck.length > 0) {
         return res.status(429).json({ message: "A login link was sent recently. Please wait 60 seconds." });
@@ -1802,7 +1825,9 @@ export async function registerRoutes(
 
       const user = targetType === "clinic"
         ? await storage.getUserByClinicId(clinicId!)
-        : await storage.getUserByDriverId(driverId!);
+        : targetType === "driver"
+        ? await storage.getUserByDriverId(driverId!)
+        : await storage.getUser(id);
 
       await db.insert(loginTokens).values({
         tokenHash,
@@ -1817,13 +1842,14 @@ export async function registerRoutes(
       const appUrl = process.env.APP_PUBLIC_URL || `https://${process.env.REPLIT_DOMAINS?.split(",")[0] || "localhost:5000"}`;
       const loginUrl = `${appUrl}/login?token=${rawToken}`;
 
+      const { sendEmail: sendEmailFn, buildLoginLinkEmail } = await import("./lib/email");
       const { subject, html } = buildLoginLinkEmail({
         recipientName,
         loginUrl,
         expiresMinutes: 15,
       });
 
-      const emailResult = await sendEmail({ to: email, subject, html });
+      const emailResult = await sendEmailFn({ to: email, subject, html });
 
       await storage.createAuditLog({
         userId: req.user!.userId,
@@ -1842,6 +1868,48 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("[SEND_LOGIN_LINK] Error:", err.message);
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: "Invalid email format" });
+      }
+
+      const allUsers = await storage.getUsers();
+      const user = allUsers.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+
+      if (!user) {
+        return res.json({ success: true, message: "If an account exists with that email, a password reset link has been sent." });
+      }
+
+      const { sendForgotPasswordLink } = await import("./services/emailService");
+      const result = await sendForgotPasswordLink(email);
+
+      if (!result.success) {
+        console.error("[FORGOT_PASSWORD] Email failed:", result.error);
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "FORGOT_PASSWORD",
+        entity: "user",
+        entityId: user.id,
+        details: `Password reset requested for ${email}`,
+        cityId: null,
+      });
+
+      res.json({ success: true, message: "If an account exists with that email, a password reset link has been sent." });
+    } catch (err: any) {
+      console.error("[FORGOT_PASSWORD] Error:", err.message);
+      res.json({ success: true, message: "If an account exists with that email, a password reset link has been sent." });
     }
   });
 
@@ -2702,6 +2770,16 @@ export async function registerRoutes(
           }
         } catch (sbErr: any) {
           console.error("[adminResetPassword] Supabase password sync failed (non-fatal):", sbErr.message);
+        }
+
+        try {
+          const { sendResetPasswordEmail } = await import("./services/emailService");
+          const emailResult = await sendResetPasswordEmail(targetUser.email, tempPassword, targetUser.name || targetUser.email);
+          if (!emailResult.success) {
+            console.error("[adminResetPassword] Email send failed (non-fatal):", emailResult.error);
+          }
+        } catch (emailErr: any) {
+          console.error("[adminResetPassword] Email exception (non-fatal):", emailErr.message);
         }
       }
 

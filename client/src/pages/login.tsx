@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Shield, Loader2 } from "lucide-react";
+import { Shield, Loader2, ArrowLeft, Mail } from "lucide-react";
 import { LogoTileAnimation } from "@/components/logo-tile-animation";
 import { useSearch } from "wouter";
 
@@ -17,6 +17,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [tokenLoading, setTokenLoading] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
   const searchString = useSearch();
 
   useEffect(() => {
@@ -67,6 +71,35 @@ export default function LoginPage() {
     }
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotLoading(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to send reset link");
+      }
+      setForgotSent(true);
+      toast({
+        title: "Reset Link Sent",
+        description: "Check your email for password reset instructions.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to send reset link",
+        variant: "destructive",
+      });
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
   if (tokenLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -114,50 +147,132 @@ export default function LoginPage() {
           </Card>
         )}
 
-        <Card>
-          <CardHeader className="pb-4">
-            <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Secure Login</span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="admin@unitedcare.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  data-testid="input-email"
-                />
+        {forgotMode ? (
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Reset Password</span>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  data-testid="input-password"
-                />
+            </CardHeader>
+            <CardContent>
+              {forgotSent ? (
+                <div className="space-y-4 text-center">
+                  <p className="text-sm" data-testid="text-forgot-sent">
+                    If an account exists with that email, a password reset link has been sent. Please check your inbox.
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => { setForgotMode(false); setForgotSent(false); setForgotEmail(""); }}
+                    data-testid="button-back-to-login"
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back to Sign In
+                  </Button>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotPassword} className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Enter your email address and we'll send you a link to reset your password.
+                  </p>
+                  <div className="space-y-2">
+                    <Label htmlFor="forgot-email">Email</Label>
+                    <Input
+                      id="forgot-email"
+                      type="email"
+                      placeholder="your@email.com"
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      required
+                      data-testid="input-forgot-email"
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={forgotLoading}
+                    data-testid="button-send-reset"
+                  >
+                    {forgotLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      "Send Reset Link"
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full"
+                    onClick={() => { setForgotMode(false); setForgotEmail(""); }}
+                    data-testid="button-cancel-forgot"
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back to Sign In
+                  </Button>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Secure Login</span>
               </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={loading}
-                data-testid="button-login"
-              >
-                {loading ? "Signing in..." : "Sign In"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="admin@unitedcare.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    data-testid="input-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    data-testid="input-password"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={loading}
+                  data-testid="button-login"
+                >
+                  {loading ? "Signing in..." : "Sign In"}
+                </Button>
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => setForgotMode(true)}
+                    className="text-sm text-muted-foreground hover:underline"
+                    data-testid="link-forgot-password"
+                  >
+                    Forgot your password?
+                  </button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        )}
 
         <p className="text-center text-xs text-muted-foreground">
           v1.0 &middot; United Care Mobility System
