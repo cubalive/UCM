@@ -47,12 +47,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [devLoginAttempts, setDevLoginAttempts] = useState(0);
   const [devBypassed, setDevBypassed] = useState(false);
 
-  const isSuperAdmin = user?.role === "SUPER_ADMIN" || user?.role === "super_admin";
+  const isSuperAdmin = user?.role === "SUPER_ADMIN" || (user?.role as string) === "super_admin";
 
   const hasAccess = useCallback(
     (cityId: number) => {
       if (!user) return false;
-      if (user.role === "SUPER_ADMIN" || user.role === "super_admin") return true;
+      if (user.role === "SUPER_ADMIN" || (user.role as string) === "super_admin") return true;
       return user.cityAccess.includes(cityId);
     },
     [user]
@@ -152,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
     });
     if (!res.ok) {
       const err = await res.json();

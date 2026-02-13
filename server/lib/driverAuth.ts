@@ -146,7 +146,7 @@ export async function adminSetPassword(userId: string, newPassword: string): Pro
     return { success: false, error: "Supabase is not configured." };
   }
 
-  const { error } = await supabase.auth.admin.updateUser(userId, {
+  const { error } = await (supabase.auth.admin as any).updateUserById(userId, {
     password: newPassword,
     user_metadata: { must_change_password: false },
   });

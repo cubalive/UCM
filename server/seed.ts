@@ -6,7 +6,7 @@ import { users, cities } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 export async function seedSuperAdmin() {
-  const email = process.env.ADMIN_EMAIL;
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD;
 
   if (!email || !password) {
@@ -16,7 +16,14 @@ export async function seedSuperAdmin() {
 
   const existing = await storage.getUserByEmail(email);
   if (existing) {
-    console.log(`SUPER_ADMIN already exists: ${email}`);
+    const passwordMatch = await import("./auth").then(m => m.comparePassword(password, existing.password));
+    if (!passwordMatch) {
+      const hashed = await hashPassword(password);
+      await db.update(users).set({ password: hashed }).where(eq(users.id, existing.id));
+      console.log(`SUPER_ADMIN password re-synced for: ${email}`);
+    } else {
+      console.log(`SUPER_ADMIN already exists: ${email}`);
+    }
     return;
   }
 

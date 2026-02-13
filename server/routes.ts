@@ -5,7 +5,7 @@ import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, 
 import { generatePublicId } from "./public-id";
 import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users } from "@shared/schema";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "./db";
 import { getSupabaseServer } from "../lib/supabaseClient";
 import { registerMapsRoutes } from "./lib/mapsRoutes";
@@ -76,13 +76,16 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid email or password format" });
       }
 
-      const user = await storage.getUserByEmail(parsed.data.email);
+      const normalizedEmail = parsed.data.email.trim().toLowerCase();
+      const user = await storage.getUserByEmail(normalizedEmail);
       if (!user) {
+        console.log(`[AUTH] Login failed: no user found for email=${normalizedEmail}`);
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
       const valid = await comparePassword(parsed.data.password, user.password);
       if (!valid) {
+        console.log(`[AUTH] Login failed: password mismatch for email=${normalizedEmail}`);
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
@@ -931,9 +934,45 @@ export async function registerRoutes(
 
   app.get("/api/auth/health", async (_req, res) => {
     try {
-      const { checkSupabaseHealth } = await import("./lib/driverAuth");
-      const result = await checkSupabaseHealth();
-      res.json(result);
+      const hasJwtSecret = !!process.env.JWT_SECRET;
+      const hasAdminEmail = !!process.env.ADMIN_EMAIL;
+      const hasAdminPassword = !!process.env.ADMIN_PASSWORD;
+      const hasSupabaseUrl = !!process.env.SUPABASE_URL;
+      const hasAnonKey = !!process.env.SUPABASE_ANON_KEY;
+      const hasServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const hasDatabaseUrl = !!process.env.DATABASE_URL;
+      const nodeEnv = process.env.NODE_ENV || "development";
+
+      let dbConnected = false;
+      let userCount = 0;
+      try {
+        const result = await db.select({ count: sql<number>`count(*)` }).from(users);
+        dbConnected = true;
+        userCount = Number(result[0]?.count || 0);
+      } catch {}
+
+      let adminExists = false;
+      if (process.env.ADMIN_EMAIL) {
+        const admin = await storage.getUserByEmail(process.env.ADMIN_EMAIL.trim().toLowerCase());
+        adminExists = !!admin;
+      }
+
+      res.json({
+        ok: dbConnected && (hasAdminEmail && adminExists),
+        nodeEnv,
+        hasJwtSecret,
+        jwtMode: hasJwtSecret ? "env" : "fallback",
+        hasAdminEmail,
+        hasAdminPassword,
+        adminExists,
+        hasSupabaseUrl,
+        hasAnonKey,
+        hasServiceRole,
+        hasDatabaseUrl,
+        dbConnected,
+        userCount,
+        siteUrl: process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS}` : "unknown",
+      });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
     }
