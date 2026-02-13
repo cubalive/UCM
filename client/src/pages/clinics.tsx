@@ -19,6 +19,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 
 const facilityTypeLabels: Record<string, string> = {
   clinic: "Clinic",
@@ -115,6 +116,7 @@ export default function ClinicsPage() {
             <ClinicForm
               onSubmit={(d) => createMutation.mutate(d)}
               loading={createMutation.isPending}
+              token={token}
             />
           </DialogContent>
         </Dialog>
@@ -212,6 +214,7 @@ export default function ClinicsPage() {
               initialData={editClinic}
               onSubmit={(d) => updateMutation.mutate({ id: editClinic.id, data: d })}
               loading={updateMutation.isPending}
+              token={token}
             />
           )}
         </DialogContent>
@@ -265,24 +268,60 @@ function ClinicForm({
   initialData,
   onSubmit,
   loading,
+  token,
 }: {
   initialData?: any;
   onSubmit: (data: any) => void;
   loading: boolean;
+  token: string | null;
 }) {
   const isEdit = !!initialData;
   const [form, setForm] = useState({
     name: initialData?.name || "",
-    address: initialData?.address || "",
     email: initialData?.email || "",
     phone: initialData?.phone || "",
     contactName: initialData?.contactName || "",
     facilityType: initialData?.facilityType || "clinic",
   });
 
+  const [addressValue, setAddressValue] = useState<StructuredAddress | null>(() => {
+    if (initialData?.address && initialData?.lat != null && initialData?.lng != null) {
+      return {
+        formattedAddress: initialData.address,
+        street: initialData.addressStreet || "",
+        city: initialData.addressCity || "",
+        state: initialData.addressState || "",
+        zip: initialData.addressZip || "",
+        lat: initialData.lat,
+        lng: initialData.lng,
+      };
+    }
+    return null;
+  });
+
+  const [addressError, setAddressError] = useState("");
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(form);
+    if (!addressValue) {
+      setAddressError("Select an address from the list");
+      return;
+    }
+    if (!addressValue.zip) {
+      setAddressError("ZIP code is required");
+      return;
+    }
+    setAddressError("");
+    onSubmit({
+      ...form,
+      address: addressValue.formattedAddress,
+      addressStreet: addressValue.street,
+      addressCity: addressValue.city,
+      addressState: addressValue.state,
+      addressZip: addressValue.zip,
+      lat: addressValue.lat,
+      lng: addressValue.lng,
+    });
   };
 
   return (
@@ -307,10 +346,23 @@ function ClinicForm({
           </p>
         )}
       </div>
-      <div className="space-y-2">
-        <Label>Address *</Label>
-        <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} required data-testid="input-clinic-address" />
-      </div>
+      <AddressAutocomplete
+        label="Address"
+        value={addressValue}
+        onSelect={(addr) => {
+          setAddressValue(addr);
+          setAddressError("");
+        }}
+        token={token}
+        testIdPrefix="clinic-address"
+        required
+      />
+      {addressError && (
+        <p className="text-xs text-destructive flex items-center gap-1" data-testid="text-clinic-address-error">
+          <AlertTriangle className="w-3 h-3" />
+          {addressError}
+        </p>
+      )}
       <div className="space-y-2">
         <Label>Facility Type *</Label>
         <Select value={form.facilityType} onValueChange={(v) => setForm({ ...form, facilityType: v })}>

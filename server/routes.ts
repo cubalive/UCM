@@ -813,6 +813,12 @@ export async function registerRoutes(
       if (!emailRegex.test(parsed.data.email)) {
         return res.status(400).json({ message: "Invalid email format" });
       }
+      if (!parsed.data.addressZip || !parsed.data.addressZip.trim()) {
+        return res.status(400).json({ message: "ZIP code is required for clinic address" });
+      }
+      if (parsed.data.lat == null || parsed.data.lng == null) {
+        return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
+      }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
       }
@@ -900,10 +906,19 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
 
-      const allowed = ["name", "address", "email", "phone", "contactName", "facilityType", "active"];
+      const allowed = ["name", "address", "addressStreet", "addressCity", "addressState", "addressZip", "lat", "lng", "email", "phone", "contactName", "facilityType", "active"];
       const updateData: any = {};
       for (const key of allowed) {
         if (req.body[key] !== undefined) updateData[key] = req.body[key];
+      }
+
+      if (updateData.address !== undefined) {
+        if (!updateData.addressZip || !updateData.addressZip.trim()) {
+          return res.status(400).json({ message: "ZIP code is required for clinic address" });
+        }
+        if (updateData.lat == null || updateData.lng == null) {
+          return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
+        }
       }
 
       if (updateData.email) {
