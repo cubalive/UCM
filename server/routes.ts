@@ -845,6 +845,9 @@ export async function registerRoutes(
       if (parsed.data.dropoffAddress && !parsed.data.dropoffZip) {
         return res.status(400).json({ message: "Dropoff ZIP code is required" });
       }
+      if (parsed.data.pickupTime && parsed.data.estimatedArrivalTime && parsed.data.pickupTime >= parsed.data.estimatedArrivalTime) {
+        return res.status(400).json({ message: "Pickup time must be before estimated arrival time" });
+      }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
       }

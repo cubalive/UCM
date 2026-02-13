@@ -237,8 +237,7 @@ export default function TripsPage() {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {trip.scheduledDate} at {trip.scheduledTime} | Pickup: {trip.pickupTime}
-                      {trip.estimatedArrivalTime && ` | ETA: ${trip.estimatedArrivalTime}`}
+                      {trip.scheduledDate} | Pickup: {trip.pickupTime} | ETA: {trip.estimatedArrivalTime}
                     </p>
                     <p className="text-sm">
                       <span className="text-muted-foreground">From:</span> {trip.pickupAddress}
@@ -335,11 +334,9 @@ function TripDetailDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <h3 className="text-sm font-medium text-muted-foreground">Schedule</h3>
-            <p className="text-sm" data-testid="text-trip-schedule">{trip.scheduledDate} at {trip.scheduledTime}</p>
+            <p className="text-sm" data-testid="text-trip-schedule">{trip.scheduledDate}</p>
             <p className="text-sm" data-testid="text-trip-pickup-time">Pickup: {trip.pickupTime}</p>
-            {trip.estimatedArrivalTime && (
-              <p className="text-sm" data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</p>
-            )}
+            <p className="text-sm" data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</p>
             {trip.recurringDays?.length > 0 && (
               <p className="text-sm" data-testid="text-trip-recurring-days">Recurring: {trip.recurringDays.join(", ")}</p>
             )}
@@ -557,7 +554,6 @@ function TripForm({
   const [vehicleId, setVehicleId] = useState("");
   const [clinicId, setClinicId] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
-  const [scheduledTime, setScheduledTime] = useState("");
   const [pickupTime, setPickupTime] = useState("");
   const [estimatedArrivalTime, setEstimatedArrivalTime] = useState("");
   const [notes, setNotes] = useState("");
@@ -595,6 +591,10 @@ function TripForm({
       toast({ title: "Trip date cannot be in the past", variant: "destructive" });
       return;
     }
+    if (pickupTime >= estimatedArrivalTime) {
+      toast({ title: "Pickup time must be before estimated arrival time", variant: "destructive" });
+      return;
+    }
     if (tripType === "recurring" && recurringDays.length === 0) {
       toast({ title: "Please select at least one recurring day", variant: "destructive" });
       return;
@@ -620,9 +620,9 @@ function TripForm({
       dropoffLat: dropoffAddr.lat,
       dropoffLng: dropoffAddr.lng,
       scheduledDate,
-      scheduledTime,
+      scheduledTime: pickupTime,
       pickupTime,
-      estimatedArrivalTime: estimatedArrivalTime || null,
+      estimatedArrivalTime,
       tripType,
       recurringDays: tripType === "recurring" ? recurringDays : null,
       notes: notes || null,
@@ -715,10 +715,6 @@ function TripForm({
             </p>
           )}
         </div>
-        <div className="space-y-2">
-          <Label>Time *</Label>
-          <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} required data-testid="input-trip-time" />
-        </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
@@ -726,8 +722,8 @@ function TripForm({
           <Input type="time" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} required data-testid="input-trip-pickup-time" />
         </div>
         <div className="space-y-2">
-          <Label>Est. Arrival Time</Label>
-          <Input type="time" value={estimatedArrivalTime} onChange={(e) => setEstimatedArrivalTime(e.target.value)} data-testid="input-trip-est-arrival" />
+          <Label>Est. Arrival Time *</Label>
+          <Input type="time" value={estimatedArrivalTime} onChange={(e) => setEstimatedArrivalTime(e.target.value)} required data-testid="input-trip-est-arrival" />
         </div>
       </div>
 
@@ -791,7 +787,7 @@ function TripForm({
       <Button
         type="submit"
         className="w-full"
-        disabled={loading || !patientId || !pickupAddr || !dropoffAddr || !scheduledDate || !scheduledTime || !pickupTime || !!dateIsPast}
+        disabled={loading || !patientId || !pickupAddr || !dropoffAddr || !scheduledDate || !pickupTime || !estimatedArrivalTime || !!dateIsPast}
         data-testid="button-submit-trip"
       >
         {loading ? "Creating..." : "Schedule Trip"}
