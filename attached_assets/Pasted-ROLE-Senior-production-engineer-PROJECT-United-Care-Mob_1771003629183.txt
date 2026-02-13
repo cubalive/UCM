@@ -1,0 +1,165 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Implement patient pickup info via SMS + a secure “live tracking” link (no login) using a per-trip token.
+This must be stable, privacy-safe, and production-ready.
+
+NON-NEGOTIABLE:
+- No medical info in SMS.
+- Link must be token-based, expiring, and revocable.
+- If Directions/Maps fail, UI must not crash (fallback text).
+
+------------------------------------------------------------
+A) DATA MODEL
+------------------------------------------------------------
+1) Create table trip_share_tokens:
+- id uuid primary key default gen_random_uuid()
+- trip_id uuid not null references trips(id) on delete cascade
+- token text not null unique
+- created_at timestamptz not null default now()
+- expires_at timestamptz not null
+- revoked boolean not null default false
+
+Indexes: token unique, trip_id.
+
+2) Ensure trips contain required tracking fields:
+- pickup_lat, pickup_lng (required for tracking link usefulness)
+- patient_phone_e164 (or from patient profile phone in E.164)
+- status
+
+3) Driver location source:
+Use existing driver live location table/source already used for Ops Live Map.
+We need to query current lat/lng for the assigned driver.
+
+------------------------------------------------------------
+B) BACKEND ENDPOINTS
+------------------------------------------------------------
+1) Create/rotate token:
+POST /api/trips/:id/share-token
+Auth: super_admin OR dispatch
+Behavior:
+- revoke existing non-revoked token for that trip (set revoked=true)
+- create new token (secure random 32-48 chars)
+- expires_at = now + 48 hours (or end of trip + buffer)
+Return:
+{ ok:true, url:"https://app.unitedcaremobility.com/t/{token}", expires_at }
+
+2) Public tracking endpoint (NO AUTH):
+GET /api/public/trips/track/:token
+Behavior:
+- validate token exists, not revoked, not expired
+- load trip basic logistics:
+  pickup_time, pickup address summary (street/city/state/zip), status
+- if driver assigned:
+  include driver_name and driver current location (lat/lng, updated_at)
+- compute ETA to pickup if possible:
+  - if Directions API configured and both origin/destination exist -> include eta_minutes
+  - else omit ETA (do not fail)
+Return JSON:
+{
+  ok:true,
+  trip: { id, status, pickup_time, pickup_address },
+  driver: { name, lat, lng, updated_at } | null,
+  eta: { minutes, distance_text, updated_at } | null
+}
+
+3) Revoke token:
+POST /api/trips/:id/share-token/revoke
+Auth: super_admin OR dispatch
+-> set revoked=true for active tokens
+
+------------------------------------------------------------
+C) FRONTEND: PUBLIC TRACKING PAGE
+------------------------------------------------------------
+Create route/page:
+GET /t/:token  (public, no login)
+
+UI:
+- Show:
+  - Pickup time
+  - Trip status
+  - Driver name (if assigned)
+  - ETA minutes (if available)
+- Map:
+  - If Google Maps available: show pickup pin + driver “car marker” (simple marker ok)
+  - If Maps fails: show text-only view (no crash)
+
+Auto-refresh:
+- refresh tracking data every 15 seconds (simple polling)
+- if driver location stale > 2 minutes show “Last update X minutes ago”
+
+Security:
+- Page must not expose any internal IDs beyond what is necessary.
+- Do not show clinic name, diagnosis, or dropoff details if you consider it sensitive.
+- Keep it logistics only.
+
+------------------------------------------------------------
+D) SMS: PATIENT NOTIFICATIONS WITH TRACKING LINK
+------------------------------------------------------------
+Use existing Twilio send helper and opt-out table.
+
+1) Message templates (no medical info):
+- scheduled:
+  "United Care Mobility: Your ride is scheduled for {pickup_time}. Reply STOP to opt out."
+- driver_assigned:
+  "Driver assigned: {driver_name}. Vehicle: {vehicle_label}. Track: {tracking_url}"
+- en_route:
+  "{driver_name} is on the way. ETA: {eta_minutes} min. Track: {tracking_url}"
+- five_min:
+  "{driver_name} is 5 minutes away. Track: {tracking_url}"
+- arrived:
+  "{driver_name} has arrived."
+- canceled:
+  "Trip canceled. Call Dispatch: {dispatch_phone}."
+
+2) Trigger rules:
+- When trip is created/scheduled -> send scheduled (include STOP language if first message)
+- When driver assigned -> ensure token exists (create if missing) then send driver_assigned
+- When status -> en_route -> compute ETA if possible, send en_route
+- When ETA <= 5 and not sent before -> send five_min (one-time per trip)
+- When arrived -> send arrived
+- When completed/canceled -> revoke token
+
+3) Dedup:
+Create a simple per-trip sms log table to prevent duplicates, e.g. trip_sms_log(trip_id, kind, sent_at).
+Or store flags on trips: sms_sent_en_route, sms_sent_five_min, etc.
+Do not spam.
+
+4) Phone validation:
+- Must be E.164.
+- If missing -> show clear UI error and skip.
+
+------------------------------------------------------------
+E) DISPATCH UI
+------------------------------------------------------------
+In Trip details (dispatch/admin):
+- Add button "Copy Tracking Link"
+  - calls POST /api/trips/:id/share-token
+  - shows link + copy button
+- Add button "Revoke Link"
+
+------------------------------------------------------------
+F) VERIFICATION (MUST PASS)
+------------------------------------------------------------
+1) Create trip with patient phone in E.164
+2) Assign driver -> tracking link generated -> SMS template includes link
+3) Open link /t/{token} on mobile -> shows status + driver + pickup pin
+4) If driver moves -> page updates
+5) Cancel trip -> token revoked -> link shows “Link expired or revoked”
+6) If Directions API fails -> still works without ETA
+7) Opt-out STOP -> no further SMS
+
+OUTPUT:
+- List all files changed
+- Provide exact URLs to test:
+  /t/{token}
+  /api/public/trips/track/{token}
+  /api/trips/:id/share-token
