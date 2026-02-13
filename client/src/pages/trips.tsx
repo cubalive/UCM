@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth, authHeaders } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,16 +24,21 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Route, Search } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function TripsPage() {
-  const { token, selectedCity } = useAuth();
+  const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [detailTrip, setDetailTrip] = useState<any>(null);
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
+
+  const canSendSms =
+    user?.role === "SUPER_ADMIN" ||
+    user?.role === "DISPATCH";
 
   const { data: trips, isLoading } = useQuery<any[]>({
     queryKey: ["/api/trips", selectedCity?.id],
@@ -109,6 +114,14 @@ export default function TripsPage() {
     NO_SHOW: "destructive",
   };
 
+  const getPatientForTrip = (trip: any) => {
+    return patients?.find((p: any) => p.id === trip.patientId);
+  };
+
+  const getDriverForTrip = (trip: any) => {
+    return drivers?.find((d: any) => d.id === trip.driverId);
+  };
+
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -164,7 +177,7 @@ export default function TripsPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map((trip: any) => (
-            <Card key={trip.id}>
+            <Card key={trip.id} className="hover-elevate cursor-pointer" onClick={() => setDetailTrip(trip)} data-testid={`card-trip-${trip.id}`}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="space-y-1 min-w-0 flex-1">
@@ -186,12 +199,24 @@ export default function TripsPage() {
                       <span className="text-muted-foreground">To:</span> {trip.dropoffAddress}
                     </p>
                   </div>
-                  <div className="flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => { e.stopPropagation(); setDetailTrip(trip); }}
+                      data-testid={`button-view-trip-${trip.id}`}
+                    >
+                      <Eye className="w-4 h-4" />
+                    </Button>
                     <Select
                       value={trip.status}
                       onValueChange={(status) => updateStatusMutation.mutate({ id: trip.id, status })}
                     >
-                      <SelectTrigger className="w-36" data-testid={`select-trip-status-${trip.id}`}>
+                      <SelectTrigger
+                        className="w-36"
+                        data-testid={`select-trip-status-${trip.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -207,7 +232,234 @@ export default function TripsPage() {
           ))}
         </div>
       )}
+
+      {detailTrip && (
+        <TripDetailDialog
+          trip={detailTrip}
+          patient={getPatientForTrip(detailTrip)}
+          driver={getDriverForTrip(detailTrip)}
+          canSendSms={canSendSms}
+          token={token}
+          onClose={() => setDetailTrip(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function TripDetailDialog({
+  trip,
+  patient,
+  driver,
+  canSendSms,
+  token,
+  onClose,
+}: {
+  trip: any;
+  patient: any;
+  driver: any;
+  canSendSms: boolean;
+  token: string | null;
+  onClose: () => void;
+}) {
+  const [smsOpen, setSmsOpen] = useState(false);
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <span className="font-mono">{trip.publicId}</span>
+            <Badge variant={trip.status === "CANCELLED" || trip.status === "NO_SHOW" ? "destructive" : "secondary"}>
+              {trip.status.replace("_", " ")}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-muted-foreground">Schedule</h3>
+            <p className="text-sm" data-testid="text-trip-schedule">{trip.scheduledDate} at {trip.scheduledTime}</p>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-muted-foreground">Pickup</h3>
+            <p className="text-sm" data-testid="text-trip-pickup">{trip.pickupAddress}</p>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-muted-foreground">Dropoff</h3>
+            <p className="text-sm" data-testid="text-trip-dropoff">{trip.dropoffAddress}</p>
+          </div>
+
+          {driver && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-muted-foreground">Driver</h3>
+              <p className="text-sm" data-testid="text-trip-driver">{driver.firstName} {driver.lastName}</p>
+            </div>
+          )}
+
+          {trip.notes && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-muted-foreground">Notes</h3>
+              <p className="text-sm" data-testid="text-trip-notes">{trip.notes}</p>
+            </div>
+          )}
+
+          <div className="border-t pt-4 space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <User className="w-4 h-4" />
+              Patient Communication
+            </h3>
+
+            {patient ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Name:</span>
+                  <span className="text-sm" data-testid="text-patient-name">{patient.firstName} {patient.lastName}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Phone:</span>
+                  {patient.phone ? (
+                    <span className="text-sm font-mono" data-testid="text-patient-phone">{patient.phone}</span>
+                  ) : (
+                    <span className="text-sm text-destructive flex items-center gap-1" data-testid="text-patient-phone-missing">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      Patient phone not available
+                    </span>
+                  )}
+                </div>
+
+                {canSendSms && patient.phone && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setSmsOpen(true)}
+                    data-testid="button-send-sms"
+                  >
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Send SMS
+                  </Button>
+                )}
+
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground" data-testid="text-no-patient">No patient linked to this trip</p>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+
+      {smsOpen && patient?.phone && (
+        <SendSmsDialog
+          phone={patient.phone}
+          patientName={`${patient.firstName} ${patient.lastName}`}
+          token={token}
+          onClose={() => setSmsOpen(false)}
+        />
+      )}
+    </Dialog>
+  );
+}
+
+function SendSmsDialog({
+  phone,
+  patientName,
+  token,
+  onClose,
+}: {
+  phone: string;
+  patientName: string;
+  token: string | null;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [message, setMessage] = useState("");
+
+  const templates = [
+    { label: "Driver Assigned", text: "United Care Mobility: Your driver has been assigned." },
+    { label: "On the Way", text: "United Care Mobility: Your driver is on the way." },
+    { label: "Arrived", text: "United Care Mobility: Your driver has arrived." },
+    { label: "Cancelled", text: "United Care Mobility: Your ride was cancelled." },
+  ];
+
+  const sendMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/sms/send", token, {
+        method: "POST",
+        body: JSON.stringify({ to: phone, message }),
+      }),
+    onSuccess: () => {
+      toast({ title: "SMS sent successfully" });
+      onClose();
+    },
+    onError: (err: any) => {
+      toast({ title: "SMS failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MessageSquare className="w-5 h-5" />
+            Send SMS
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">To</Label>
+            <div className="flex items-center gap-2">
+              <Phone className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm" data-testid="text-sms-recipient">{patientName}</span>
+              <span className="text-sm font-mono text-muted-foreground" data-testid="text-sms-phone">{phone}</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Quick Templates</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {templates.map((t) => (
+                <Button
+                  key={t.label}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMessage(t.text)}
+                  data-testid={`button-template-${t.label.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  {t.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Message</Label>
+            <Textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Type your message or select a template above..."
+              rows={4}
+              data-testid="textarea-sms-message"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose} data-testid="button-sms-cancel">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => sendMutation.mutate()}
+              disabled={!message.trim() || sendMutation.isPending}
+              data-testid="button-sms-send"
+            >
+              {sendMutation.isPending ? "Sending..." : "Send SMS"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
