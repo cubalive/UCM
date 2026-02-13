@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAuth, authHeaders } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
 import type { Invoice } from "@shared/schema";
@@ -13,7 +14,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { FileText, Download, Receipt } from "lucide-react";
+import { FileText, Download, Receipt, MapPin } from "lucide-react";
+
+function InvoiceMapThumb({ tripId, token }: { tripId: number | null; token: string | null }) {
+  const [failed, setFailed] = useState(false);
+  if (!tripId || !token || failed) {
+    return (
+      <div className="w-16 h-8 bg-muted rounded flex items-center justify-center">
+        <MapPin className="w-3 h-3 text-muted-foreground" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={`/api/trips/${tripId}/static-map/thumb?t=${encodeURIComponent(token)}`}
+      alt="Route"
+      className="w-16 h-8 object-cover rounded"
+      loading="lazy"
+      onError={() => setFailed(true)}
+      data-testid={`img-invoice-map-${tripId}`}
+    />
+  );
+}
 
 function statusVariant(status: string) {
   switch (status) {
@@ -103,6 +125,7 @@ export default function ClinicInvoicesPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-20">Route</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Patient</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
@@ -113,6 +136,9 @@ export default function ClinicInvoicesPage() {
                 <TableBody>
                   {invoicesList.map((inv) => (
                     <TableRow key={inv.id} data-testid={`row-invoice-${inv.id}`}>
+                      <TableCell>
+                        <InvoiceMapThumb tripId={inv.tripId} token={token} />
+                      </TableCell>
                       <TableCell data-testid={`text-invoice-date-${inv.id}`}>
                         {formatDate(inv.serviceDate)}
                       </TableCell>

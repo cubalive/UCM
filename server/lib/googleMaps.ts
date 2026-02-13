@@ -297,3 +297,31 @@ export async function buildRoute(
   routeCache.set(key, result);
   return result;
 }
+
+export interface StaticMapUrls {
+  thumbUrl: string;
+  fullUrl: string;
+}
+
+export function buildStaticMapUrls(
+  pickupLat: number,
+  pickupLng: number,
+  dropoffLat: number,
+  dropoffLng: number
+): StaticMapUrls | null {
+  if (!GOOGLE_MAPS_KEY) return null;
+
+  const markers = [
+    `markers=color:green|label:A|${pickupLat},${pickupLng}`,
+    `markers=color:red|label:B|${dropoffLat},${dropoffLng}`,
+  ].join("&");
+
+  const path = `path=weight:3|color:0x4285F4|${pickupLat},${pickupLng}|${dropoffLat},${dropoffLng}`;
+
+  const base = `https://maps.googleapis.com/maps/api/staticmap`;
+
+  const thumbUrl = `${base}?size=320x160&${markers}&${path}&key=${GOOGLE_MAPS_KEY}`;
+  const fullUrl = `${base}?size=640x320&scale=2&${markers}&${path}&key=${GOOGLE_MAPS_KEY}`;
+
+  return { thumbUrl, fullUrl };
+}

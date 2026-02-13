@@ -28,6 +28,7 @@ import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pe
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { RecurringSchedule, type TripType } from "@/components/recurring-schedule";
+import { TripStaticMap } from "@/components/trip-static-map";
 
 function normalizePhoneToE164(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -218,6 +219,14 @@ export default function TripsPage() {
             <Card key={trip.id} className="hover-elevate cursor-pointer" onClick={() => setDetailTrip(trip)} data-testid={`card-trip-${trip.id}`}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <TripStaticMap
+                    tripId={trip.id}
+                    pickupLat={trip.pickupLat}
+                    dropoffLat={trip.dropoffLat}
+                    size="thumb"
+                    token={token}
+                    className="w-[120px] h-[60px] flex-shrink-0 hidden sm:block"
+                  />
                   <div className="space-y-1 min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-mono font-medium" data-testid={`text-trip-id-${trip.id}`}>
@@ -495,6 +504,15 @@ function TripDetailDialog({
                 <p className="text-xs text-muted-foreground" data-testid="text-trip-dropoff-zip">ZIP: {trip.dropoffZip}</p>
               )}
             </div>
+
+            <TripStaticMap
+              tripId={trip.id}
+              pickupLat={trip.pickupLat}
+              dropoffLat={trip.dropoffLat}
+              size="full"
+              token={token}
+              className="w-full h-40"
+            />
 
             {driver && (
               <div className="space-y-2">

@@ -2,7 +2,7 @@ import type { Express } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
-import { etaMinutes } from "./googleMaps";
+import { etaMinutes, buildStaticMapUrls } from "./googleMaps";
 import { GOOGLE_MAPS_SERVER_KEY, GOOGLE_MAPS_BROWSER_KEY } from "../../lib/mapsConfig";
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 
@@ -93,6 +93,136 @@ export function registerTrackingRoutes(app: Express) {
       }
     }
   );
+
+  async function ensureStaticMap(trip: any): Promise<{ thumbUrl: string | null; fullUrl: string | null }> {
+    if (trip.staticMapThumbUrl && trip.staticMapFullUrl) {
+      return { thumbUrl: trip.staticMapThumbUrl, fullUrl: trip.staticMapFullUrl };
+    }
+    if (!trip.pickupLat || !trip.pickupLng || !trip.dropoffLat || !trip.dropoffLng) {
+      return { thumbUrl: null, fullUrl: null };
+    }
+    const urls = buildStaticMapUrls(trip.pickupLat, trip.pickupLng, trip.dropoffLat, trip.dropoffLng);
+    if (!urls) return { thumbUrl: null, fullUrl: null };
+
+    try {
+      await storage.updateTrip(trip.id, {
+        staticMapThumbUrl: urls.thumbUrl,
+        staticMapFullUrl: urls.fullUrl,
+        staticMapGeneratedAt: new Date(),
+      } as any);
+    } catch {}
+
+    return { thumbUrl: urls.thumbUrl, fullUrl: urls.fullUrl };
+  }
+
+  app.get(
+    "/api/trips/:id/static-map",
+    authMiddleware,
+    async (req: AuthRequest, res) => {
+      try {
+        const tripId = parseInt(req.params.id as string);
+        if (isNaN(tripId)) return res.status(400).json({ ok: false, message: "Invalid trip ID" });
+
+        const trip = await storage.getTrip(tripId);
+        if (!trip) return res.status(404).json({ ok: false, message: "Trip not found" });
+
+        const { thumbUrl, fullUrl } = await ensureStaticMap(trip);
+
+        res.json({
+          ok: true,
+          thumb_url: thumbUrl ? `/api/trips/${tripId}/static-map/thumb` : null,
+          full_url: fullUrl ? `/api/trips/${tripId}/static-map/full` : null,
+        });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, message: err.message });
+      }
+    }
+  );
+
+  app.get(
+    "/api/trips/:id/static-map/:size",
+    (req: AuthRequest, res, next) => {
+      const qToken = req.query.t as string;
+      if (qToken) {
+        try {
+          const { verifyToken } = require("../auth");
+          req.user = verifyToken(qToken);
+          return next();
+        } catch {
+          return res.status(401).json({ message: "Invalid token" });
+        }
+      }
+      return authMiddleware(req, res, next);
+    },
+    async (req: AuthRequest, res) => {
+      try {
+        const tripId = parseInt(req.params.id as string);
+        const size = req.params.size as string;
+        if (isNaN(tripId) || (size !== "thumb" && size !== "full")) {
+          return res.status(400).json({ message: "Invalid request" });
+        }
+
+        const trip = await storage.getTrip(tripId);
+        if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+        const { thumbUrl, fullUrl } = await ensureStaticMap(trip);
+        const targetUrl = size === "thumb" ? thumbUrl : fullUrl;
+
+        if (!targetUrl) {
+          return res.status(404).json({ message: "Static map not available" });
+        }
+
+        const imgRes = await fetch(targetUrl);
+        if (!imgRes.ok) {
+          return res.status(502).json({ message: "Failed to fetch map image" });
+        }
+
+        res.setHeader("Content-Type", imgRes.headers.get("content-type") || "image/png");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        const buffer = Buffer.from(await imgRes.arrayBuffer());
+        res.send(buffer);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.get("/api/public/trips/static-map/:token/:size", async (req, res) => {
+    try {
+      const tokenValue = req.params.token;
+      const size = req.params.size;
+      if (!tokenValue || tokenValue.length < 16 || (size !== "thumb" && size !== "full")) {
+        return res.status(400).json({ message: "Invalid request" });
+      }
+
+      const tokenRecord = await storage.getTokenByValue(tokenValue);
+      if (!tokenRecord || tokenRecord.revoked || new Date() > tokenRecord.expiresAt) {
+        return res.status(404).json({ message: "Not found" });
+      }
+
+      const trip = await storage.getTrip(tokenRecord.tripId);
+      if (!trip) return res.status(404).json({ message: "Not found" });
+
+      const { thumbUrl, fullUrl } = await ensureStaticMap(trip);
+      const targetUrl = size === "thumb" ? thumbUrl : fullUrl;
+
+      if (!targetUrl) {
+        return res.status(404).json({ message: "Map not available" });
+      }
+
+      const imgRes = await fetch(targetUrl);
+      if (!imgRes.ok) {
+        return res.status(502).json({ message: "Failed to fetch map image" });
+      }
+
+      res.setHeader("Content-Type", imgRes.headers.get("content-type") || "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      const buffer = Buffer.from(await imgRes.arrayBuffer());
+      res.send(buffer);
+    } catch {
+      res.status(500).json({ message: "Internal error" });
+    }
+  });
 
   app.post(
     "/api/trips/:id/share-token",

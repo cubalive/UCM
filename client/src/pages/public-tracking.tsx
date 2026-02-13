@@ -5,6 +5,21 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Clock, MapPin, Navigation, AlertTriangle, Car, CheckCircle2, XCircle } from "lucide-react";
 
+function StaticMapImage({ token, ...props }: { token: string; "data-testid"?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    <img
+      src={`/api/public/trips/static-map/${token}/full`}
+      alt="Trip route"
+      className="w-full h-40 object-cover rounded-md"
+      loading="lazy"
+      onError={() => setFailed(true)}
+      data-testid={props["data-testid"]}
+    />
+  );
+}
+
 interface TrackingData {
   ok: boolean;
   error?: string;
@@ -326,9 +341,16 @@ export default function PublicTrackingPage() {
 
         {showMap && !mapAvailable && (
           <Card>
-            <CardContent className="p-4 text-center">
-              <Navigation className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">Live map unavailable. Your driver is on the way.</p>
+            <CardContent className="p-0">
+              <StaticMapImage token={token!} data-testid="img-public-static-map" />
+            </CardContent>
+          </Card>
+        )}
+
+        {!showMap && trip.pickup_lat && (
+          <Card>
+            <CardContent className="p-0">
+              <StaticMapImage token={token!} data-testid="img-public-static-map" />
             </CardContent>
           </Card>
         )}
