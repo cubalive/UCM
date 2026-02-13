@@ -165,6 +165,9 @@ export class DatabaseStorage implements IStorage {
 
   async updateDriver(id: number, data: Partial<Driver>): Promise<Driver | undefined> {
     const { id: _id, ...updateData } = data as any;
+    if (updateData.licenseNumber) {
+      updateData.licenseNumber = updateData.licenseNumber.trim().toUpperCase();
+    }
     const [driver] = await db.update(drivers).set(updateData).where(eq(drivers.id, id)).returning();
     return driver;
   }
