@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 
 export default function PatientsPage() {
   const { token, selectedCity, user } = useAuth();
@@ -29,7 +30,7 @@ export default function PatientsPage() {
   const [editPatient, setEditPatient] = useState<any>(null);
   const [search, setSearch] = useState("");
 
-  const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
+  const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH" || user?.role === "VIEWER";
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -198,13 +199,26 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
   initialData?: any;
   isEdit?: boolean;
 }) {
+  const { token } = useAuth();
+  const { toast } = useToast();
   const parsed = parseStructuredNotes(initialData?.notes || "");
+
+  const initialAddress: StructuredAddress | null = initialData?.address
+    ? {
+        formattedAddress: initialData.address,
+        street: initialData.addressStreet || "",
+        city: initialData.addressCity || "",
+        state: initialData.addressState || "",
+        zip: initialData.addressZip || "",
+        lat: initialData.lat || 0,
+        lng: initialData.lng || 0,
+      }
+    : null;
 
   const [form, setForm] = useState({
     firstName: initialData?.firstName || "",
     lastName: initialData?.lastName || "",
     phone: initialData?.phone || "",
-    address: initialData?.address || "",
     dateOfBirth: initialData?.dateOfBirth || "",
     insuranceId: initialData?.insuranceId || "",
     notes: parsed.notes,
@@ -213,14 +227,30 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
     active: initialData?.active ?? true,
   });
 
+  const [addressData, setAddressData] = useState<StructuredAddress | null>(initialAddress);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!addressData) {
+      toast({ title: "Address required", description: "Please select an address from the autocomplete suggestions.", variant: "destructive" });
+      return;
+    }
+    if (!addressData.zip) {
+      toast({ title: "ZIP code required", description: "Please select an address that includes a ZIP code.", variant: "destructive" });
+      return;
+    }
     const combinedNotes = buildStructuredNotes(form.notes, form.recurringSchedule);
     onSubmit({
       firstName: form.firstName,
       lastName: form.lastName,
       phone: form.phone,
-      address: form.address,
+      address: addressData?.formattedAddress || "",
+      addressStreet: addressData?.street || "",
+      addressCity: addressData?.city || "",
+      addressState: addressData?.state || "",
+      addressZip: addressData?.zip || "",
+      lat: addressData?.lat || null,
+      lng: addressData?.lng || null,
       dateOfBirth: form.dateOfBirth,
       insuranceId: form.insuranceId,
       notes: combinedNotes,
@@ -245,10 +275,14 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
         <Label>Phone</Label>
         <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="input-patient-phone" />
       </div>
-      <div className="space-y-2">
-        <Label>Address</Label>
-        <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} data-testid="input-patient-address" />
-      </div>
+      <AddressAutocomplete
+        label="Address"
+        value={addressData}
+        onSelect={setAddressData}
+        token={token}
+        testIdPrefix="patient"
+        required
+      />
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Date of Birth</Label>

@@ -722,11 +722,14 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
       const parsed = insertPatientSchema.omit({ publicId: true }).safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid patient data" });
+      }
+      if (parsed.data.address && !parsed.data.addressZip) {
+        return res.status(400).json({ message: "ZIP code is required when providing an address" });
       }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
@@ -752,7 +755,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/patients/:id", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.patch("/api/patients/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid patient ID" });
@@ -764,7 +767,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
 
-      const allowedFields = ["phone", "address", "notes", "insuranceId", "wheelchairRequired", "active", "firstName", "lastName", "dateOfBirth", "cityId"];
+      const allowedFields = ["phone", "address", "addressStreet", "addressCity", "addressState", "addressZip", "lat", "lng", "notes", "insuranceId", "wheelchairRequired", "active", "firstName", "lastName", "dateOfBirth", "cityId"];
       const updateData: Record<string, any> = {};
       for (const key of allowedFields) {
         if (req.body[key] !== undefined) {
@@ -829,12 +832,18 @@ export async function registerRoutes(
     { message: "Recurring trips must have at least one day selected", path: ["recurringDays"] }
   );
 
-  app.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
       const parsed = createTripSchema.safeParse(req.body);
       if (!parsed.success) {
         const firstIssue = parsed.error.issues[0];
         return res.status(400).json({ message: firstIssue?.message || "Invalid trip data" });
+      }
+      if (parsed.data.pickupAddress && !parsed.data.pickupZip) {
+        return res.status(400).json({ message: "Pickup ZIP code is required" });
+      }
+      if (parsed.data.dropoffAddress && !parsed.data.dropoffZip) {
+        return res.status(400).json({ message: "Dropoff ZIP code is required" });
       }
       if (!(await checkCityAccess(req, parsed.data.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
