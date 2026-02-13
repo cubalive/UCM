@@ -27,6 +27,27 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
+function normalizePhoneToE164(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (phone.startsWith("+") && /^\+[1-9]\d{1,14}$/.test(phone)) return phone;
+  return null;
+}
+
+function formatPhoneDisplay(phone: string): string {
+  const normalized = normalizePhoneToE164(phone);
+  if (!normalized) return phone;
+  const digits = normalized.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) {
+    const area = digits.substring(1, 4);
+    const prefix = digits.substring(4, 7);
+    const line = digits.substring(7, 11);
+    return `(${area}) ${prefix}-${line}`;
+  }
+  return phone;
+}
+
 export default function TripsPage() {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
@@ -321,7 +342,7 @@ function TripDetailDialog({
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Phone:</span>
                   {patient.phone ? (
-                    <span className="text-sm font-mono" data-testid="text-patient-phone">{patient.phone}</span>
+                    <span className="text-sm font-mono" data-testid="text-patient-phone">{formatPhoneDisplay(patient.phone)}</span>
                   ) : (
                     <span className="text-sm text-destructive flex items-center gap-1" data-testid="text-patient-phone-missing">
                       <AlertTriangle className="w-3.5 h-3.5" />
@@ -330,7 +351,7 @@ function TripDetailDialog({
                   )}
                 </div>
 
-                {canSendSms && patient.phone && (
+                {canSendSms && patient.phone && normalizePhoneToE164(patient.phone) && (
                   <Button
                     variant="outline"
                     onClick={() => setSmsOpen(true)}
@@ -413,7 +434,7 @@ function SendSmsDialog({
             <div className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-muted-foreground" />
               <span className="text-sm" data-testid="text-sms-recipient">{patientName}</span>
-              <span className="text-sm font-mono text-muted-foreground" data-testid="text-sms-phone">{phone}</span>
+              <span className="text-sm font-mono text-muted-foreground" data-testid="text-sms-phone">{formatPhoneDisplay(phone)}</span>
             </div>
           </div>
 

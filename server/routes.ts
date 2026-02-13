@@ -401,7 +401,12 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
       const publicId = await generatePublicId();
-      const patient = await storage.createPatient({ ...parsed.data, publicId });
+      const patientData = { ...parsed.data, publicId };
+      if (patientData.phone) {
+        const { normalizePhone } = await import("./lib/twilioSms");
+        patientData.phone = normalizePhone(patientData.phone) || patientData.phone;
+      }
+      const patient = await storage.createPatient(patientData);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",

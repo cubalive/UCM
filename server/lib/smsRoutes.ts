@@ -6,6 +6,7 @@ import {
   sendSms,
   isTwilioConfigured,
   isValidE164,
+  normalizePhone,
   buildNotifyMessage,
   getDispatchPhone,
   type TripNotifyStatus,
@@ -54,10 +55,11 @@ export function registerSmsRoutes(app: Express) {
           return res.status(400).json({ message: "Invalid request: 'to' and 'message' required" });
         }
 
-        const { to, message } = parsed.data;
+        const { message } = parsed.data;
+        const to = normalizePhone(parsed.data.to);
 
-        if (!isValidE164(to)) {
-          return res.status(400).json({ message: "Phone number must be E.164 format (e.g. +15551234567)" });
+        if (!to) {
+          return res.status(400).json({ message: "Could not normalize phone number. Provide a valid US number." });
         }
 
         const optedOut = await storage.isPhoneOptedOut(to);
@@ -114,11 +116,12 @@ export function registerSmsRoutes(app: Express) {
           return res.status(404).json({ message: "Patient not found" });
         }
 
-        if (!patient.phone || !isValidE164(patient.phone)) {
-          return res.status(422).json({ message: "Patient phone missing or invalid E.164 format" });
+        const patientPhone = patient.phone ? normalizePhone(patient.phone) : null;
+        if (!patientPhone) {
+          return res.status(422).json({ message: "Patient phone missing or could not be normalized" });
         }
 
-        const optedOut = await storage.isPhoneOptedOut(patient.phone);
+        const optedOut = await storage.isPhoneOptedOut(patientPhone);
         if (optedOut) {
           return res.status(422).json({ message: "Patient has opted out of SMS" });
         }
@@ -163,7 +166,7 @@ export function registerSmsRoutes(app: Express) {
           dispatch_phone: getDispatchPhone(),
         });
 
-        const result = await sendSms(patient.phone, message);
+        const result = await sendSms(patientPhone, message);
         if (!result.success) {
           return res.status(502).json({ message: result.error || "SMS send failed" });
         }

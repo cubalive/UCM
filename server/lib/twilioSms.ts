@@ -25,6 +25,14 @@ export function isValidE164(phone: string): boolean {
   return /^\+[1-9]\d{1,14}$/.test(phone);
 }
 
+export function normalizePhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (phone.startsWith("+") && isValidE164(phone)) return phone;
+  return null;
+}
+
 export interface SendSmsResult {
   success: boolean;
   sid?: string;
