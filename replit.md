@@ -151,3 +151,11 @@ Supabase tables: profiles (uuid, linked to auth.users), cities (uuid, with RLS)
 - 2026-02-13: Safe unique indexes: LOWER(email) WHERE NOT NULL on drivers + clinics tables
 - 2026-02-13: Driver/clinic creation auto-links users.driverId/clinicId + drivers.userId bidirectionally
 - 2026-02-13: Branding: logo-horizontal.png on login, logo-small.png on sidebar, manifest.json + favicon + splash
+- 2026-02-13: RBAC enforcement: shared/permissions.ts single source of truth role-permissions map
+- 2026-02-13: Backend RBAC: requireRole middleware on all /api routes (vehicles, drivers, clinics, patients, trips, stats, maps)
+- 2026-02-13: VIEWER restricted: only patients (clinic-scoped), trips (clinic-scoped), invoices (clinic-scoped); no drivers/vehicles/clinics/users/audit/stats
+- 2026-02-13: DISPATCH restricted: all ops except users/audit/cities
+- 2026-02-13: Frontend route guards: ProtectedRoute component redirects unauthorized to /unauthorized
+- 2026-02-13: Sidebar filters nav items by role permissions using shared/permissions.ts
+- `shared/permissions.ts` - Role-permission map, can() helper, getVisibleNavItems()
+- `client/src/pages/unauthorized.tsx` - Access Denied page with redirect to home

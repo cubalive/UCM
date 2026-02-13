@@ -363,7 +363,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/vehicles", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/vehicles", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const cityId = await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
@@ -404,7 +404,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/drivers", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/drivers", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const cityId = await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
@@ -513,7 +513,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/clinics", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/clinics", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const cityId = await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
@@ -698,8 +698,17 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/patients", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
+      const user = await storage.getUser(req.user!.userId);
+      if (user?.role === "VIEWER" && user.clinicId) {
+        const clinic = await storage.getClinic(user.clinicId);
+        if (clinic) {
+          const patients = await storage.getPatients(clinic.cityId);
+          return res.json(patients);
+        }
+        return res.status(403).json({ message: "No clinic linked" });
+      }
       const cityId = await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       res.json(await storage.getPatients(cityId));
@@ -784,8 +793,17 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/trips", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
+      const user = await storage.getUser(req.user!.userId);
+      if (user?.role === "VIEWER" && user.clinicId) {
+        const clinic = await storage.getClinic(user.clinicId);
+        if (clinic) {
+          const trips = await storage.getTrips(clinic.cityId);
+          return res.json(trips);
+        }
+        return res.status(403).json({ message: "No clinic linked" });
+      }
       const cityId = await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
@@ -853,7 +871,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stats", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/stats", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const cityId = await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
@@ -863,7 +881,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stats/trip-status", authMiddleware, async (req: AuthRequest, res) => {
+  app.get("/api/stats/trip-status", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const cityId = await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });

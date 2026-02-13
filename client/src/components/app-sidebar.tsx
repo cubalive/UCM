@@ -1,5 +1,6 @@
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { can, type Resource } from "@shared/permissions";
 import {
   Sidebar,
   SidebarContent,
@@ -36,26 +37,38 @@ import {
   FileText,
 } from "lucide-react";
 
-const navItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Dispatch", url: "/dispatch", icon: Radio },
-  { title: "Trips", url: "/trips", icon: Route },
-  { title: "Patients", url: "/patients", icon: HeartPulse },
-  { title: "Drivers", url: "/drivers", icon: UserCheck },
-  { title: "Vehicles", url: "/vehicles", icon: Truck },
-  { title: "Clinics", url: "/clinics", icon: Building2 },
-  { title: "Invoices", url: "/invoices", icon: FileText },
+interface NavItem {
+  title: string;
+  url: string;
+  icon: typeof LayoutDashboard;
+  resource: Resource;
+}
+
+const navItems: NavItem[] = [
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, resource: "dashboard" },
+  { title: "Dispatch", url: "/dispatch", icon: Radio, resource: "dispatch" },
+  { title: "Trips", url: "/trips", icon: Route, resource: "trips" },
+  { title: "Patients", url: "/patients", icon: HeartPulse, resource: "patients" },
+  { title: "Drivers", url: "/drivers", icon: UserCheck, resource: "drivers" },
+  { title: "Vehicles", url: "/vehicles", icon: Truck, resource: "vehicles" },
+  { title: "Clinics", url: "/clinics", icon: Building2, resource: "clinics" },
+  { title: "Invoices", url: "/invoices", icon: FileText, resource: "invoices" },
 ];
 
-const adminItems = [
-  { title: "Cities", url: "/cities", icon: MapPin },
-  { title: "Users", url: "/users", icon: Users },
-  { title: "Audit Log", url: "/audit", icon: ClipboardList },
+const adminItems: NavItem[] = [
+  { title: "Cities", url: "/cities", icon: MapPin, resource: "cities" },
+  { title: "Users", url: "/users", icon: Users, resource: "users" },
+  { title: "Audit Log", url: "/audit", icon: ClipboardList, resource: "audit" },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { user, cities, selectedCity, setSelectedCity, logout, isSuperAdmin } = useAuth();
+  const { user, cities, selectedCity, setSelectedCity, logout } = useAuth();
+
+  const role = user?.role || "";
+
+  const visibleNav = navItems.filter((item) => can(role, item.resource));
+  const visibleAdmin = adminItems.filter((item) => can(role, item.resource));
 
   const initials = user
     ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
@@ -97,33 +110,35 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Operations</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === item.url}
-                  >
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {visibleNav.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Operations</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visibleNav.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === item.url}
+                    >
+                      <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        {(isSuperAdmin || user?.role === "ADMIN") && (
+        {visibleAdmin.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>Administration</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {adminItems.map((item) => (
+                {visibleAdmin.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild

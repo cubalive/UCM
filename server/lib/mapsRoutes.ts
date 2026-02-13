@@ -3,6 +3,7 @@ import { z } from "zod";
 import { GOOGLE_MAPS_KEY } from "../../lib/mapsConfig";
 import { geocodeAddress, placesAutocomplete, etaMinutes, buildRoute } from "./googleMaps";
 import { checkRateLimit } from "./rateLimiter";
+import { authMiddleware, requireRole, type AuthRequest } from "../auth";
 
 function getRateLimitKey(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
@@ -58,7 +59,7 @@ export function registerMapsRoutes(app: Express): void {
     });
   });
 
-  app.post("/api/maps/geocode", async (req: Request, res: Response) => {
+  app.post("/api/maps/geocode", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = geocodeSchema.safeParse(req.body);
@@ -74,7 +75,7 @@ export function registerMapsRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/maps/places/autocomplete", async (req: Request, res: Response) => {
+  app.post("/api/maps/places/autocomplete", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = autocompleteSchema.safeParse(req.body);
@@ -90,7 +91,7 @@ export function registerMapsRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/maps/eta", async (req: Request, res: Response) => {
+  app.post("/api/maps/eta", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = etaSchema.safeParse(req.body);
@@ -106,7 +107,7 @@ export function registerMapsRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/maps/route", async (req: Request, res: Response) => {
+  app.post("/api/maps/route", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = routeSchema.safeParse(req.body);

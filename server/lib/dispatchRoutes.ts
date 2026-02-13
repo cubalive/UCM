@@ -365,6 +365,7 @@ export function registerDispatchRoutes(app: Express) {
 
   app.post("/api/drivers/location",
     authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "DRIVER"),
     async (req: AuthRequest, res) => {
       try {
         const parsed = driverLocationSchema.safeParse(req.body);
