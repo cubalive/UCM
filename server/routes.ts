@@ -3980,7 +3980,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/trips/:id/invoice", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+  app.get("/api/trips/:id/invoice", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
     try {
       const tripId = parseInt(req.params.id);
       if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
@@ -3992,8 +3992,21 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const invoice = await storage.getInvoiceByTripId(tripId);
-      res.json({ invoice: invoice || null });
+      if (req.user!.role === "CLINIC_USER") {
+        const user = await storage.getUser(req.user!.userId);
+        if (!user?.clinicId || user.clinicId !== trip.clinicId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      let invoice = trip.invoiceId ? await storage.getInvoice(trip.invoiceId) : null;
+      if (!invoice) {
+        invoice = (await storage.getInvoiceByTripId(tripId)) || null;
+        if (invoice && !trip.invoiceId) {
+          await storage.updateTrip(trip.id, { invoiceId: invoice.id });
+        }
+      }
+      res.json({ invoice });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -4041,10 +4054,10 @@ export async function registerRoutes(
 
       await storage.createAuditLog({
         userId: req.user!.userId,
-        action: "CREATE_INVOICE",
-        entity: "invoice",
-        entityId: invoice.id,
-        details: `Invoice created for trip #${trip.publicId}, amount: $${amount}${notes ? `, notes: ${notes}` : ""}`,
+        action: "invoice_created",
+        entity: "trip",
+        entityId: trip.id,
+        details: `Invoice #${invoice.id} created for trip #${trip.publicId}, amount: $${parseFloat(amount).toFixed(2)}${notes ? `, notes: ${notes}` : ""}`,
         cityId: trip.cityId,
       });
 
@@ -4073,21 +4086,29 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Cannot edit a paid invoice" });
       }
 
-      const { amount, notes } = req.body;
+      const { amount, status, notes } = req.body;
       const updateData: any = {};
       if (amount !== undefined) {
         if (isNaN(parseFloat(amount))) return res.status(400).json({ message: "Invalid amount" });
         updateData.amount = parseFloat(amount).toFixed(2);
+      }
+      if (status !== undefined) {
+        const validStatuses = ["pending", "approved", "paid"];
+        if (!validStatuses.includes(status)) return res.status(400).json({ message: "Invalid status. Must be: pending, approved, or paid" });
+        updateData.status = status;
+      }
+      if (notes !== undefined) {
+        updateData.notes = notes || null;
       }
 
       const updated = await storage.updateInvoice(invoiceId, updateData);
 
       await storage.createAuditLog({
         userId: req.user!.userId,
-        action: "UPDATE_INVOICE",
+        action: "invoice_updated",
         entity: "invoice",
         entityId: invoiceId,
-        details: `Invoice updated${amount ? `, new amount: $${amount}` : ""}${notes ? `, notes: ${notes}` : ""}`,
+        details: `Invoice updated${amount ? `, amount: $${parseFloat(amount).toFixed(2)}` : ""}${status ? `, status: ${status}` : ""}${notes !== undefined ? `, notes: ${notes || "(cleared)"}` : ""}`,
         cityId: null,
       });
 
@@ -4128,6 +4149,80 @@ export async function registerRoutes(
       });
 
       res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/invoices/:id/pdf", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      if (req.user!.role === "CLINIC_USER") {
+        const user = await storage.getUser(req.user!.userId);
+        if (!user?.clinicId || user.clinicId !== invoice.clinicId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (req.user!.companyId && invoice.tripId) {
+        const trip = await storage.getTrip(invoice.tripId);
+        if (trip && trip.companyId && req.user!.companyId !== trip.companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const clinic = await storage.getClinic(invoice.clinicId);
+      const clinicName = clinic?.name || "Unknown Clinic";
+
+      let tripData: any = null;
+      if (invoice.tripId) {
+        tripData = await storage.getTrip(invoice.tripId);
+      }
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="invoice-${invoice.id}.pdf"`);
+
+      const doc = new PDFDocument({ margin: 50, size: "LETTER" });
+      doc.pipe(res);
+
+      doc.fontSize(20).text("INVOICE", { align: "center" });
+      doc.moveDown(0.5);
+      doc.fontSize(10).fillColor("#666").text("United Care Mobility", { align: "center" });
+      doc.moveDown(1);
+
+      doc.fillColor("#000").fontSize(11);
+      doc.text(`Invoice #: ${invoice.id}`);
+      doc.text(`Clinic: ${clinicName}`);
+      doc.text(`Patient: ${invoice.patientName}`);
+      doc.text(`Service Date: ${invoice.serviceDate}`);
+      doc.text(`Status: ${invoice.status.toUpperCase()}`);
+      doc.text(`Generated: ${new Date(invoice.createdAt).toLocaleDateString()}`);
+      if (invoice.notes) {
+        doc.text(`Notes: ${invoice.notes}`);
+      }
+      doc.moveDown(1);
+
+      if (tripData) {
+        doc.fontSize(13).text("Trip Details", { underline: true });
+        doc.moveDown(0.5);
+        doc.fontSize(10).fillColor("#000");
+        doc.text(`Trip ID: ${tripData.publicId || tripData.id}`);
+        doc.text(`Scheduled Date: ${tripData.scheduledDate || "N/A"}`);
+        doc.text(`Pickup: ${tripData.pickupAddress || "N/A"}`);
+        doc.text(`Dropoff: ${tripData.dropoffAddress || "N/A"}`);
+        doc.text(`Pickup Time: ${tripData.pickupTime || "N/A"}`);
+        doc.text(`Status: ${tripData.status}`);
+        doc.moveDown(1);
+      }
+
+      doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ccc");
+      doc.moveDown(0.5);
+      doc.fontSize(14).fillColor("#000").text(`Total Amount: $${parseFloat(invoice.amount).toFixed(2)}`);
+
+      doc.end();
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

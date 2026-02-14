@@ -942,17 +942,24 @@ function TripEventsSection({ tripId, token }: { tripId: number; token: string | 
 
 const INVOICE_ROLES = ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"];
 
-function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | null }) {
+function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: number; tripStatus: string; token: string | null; userRole?: string }) {
   const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
+  const [editStatus, setEditStatus] = useState("");
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const TERMINAL_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+  const isTerminal = TERMINAL_STATUSES.includes(tripStatus);
+  const isBillable = tripStatus === "COMPLETED";
+  const canEdit = userRole && ["SUPER_ADMIN", "DISPATCH"].includes(userRole);
 
   const invoiceQuery = useQuery<any>({
     queryKey: ["/api/trips", tripId, "invoice"],
     queryFn: () => apiFetch(`/api/trips/${tripId}/invoice`, token),
-    enabled: !!token && !!tripId,
+    enabled: !!token && !!tripId && isBillable,
   });
 
   const createMutation = useMutation({
@@ -969,7 +976,7 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { amount: string }) => {
+    mutationFn: async (data: { amount?: string; status?: string; notes?: string }) => {
       const inv = invoiceQuery.data?.invoice;
       return apiFetch(`/api/invoices/${inv.id}`, token, { method: "PATCH", body: JSON.stringify(data) });
     },
@@ -981,17 +988,45 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const markPaidMutation = useMutation({
-    mutationFn: async () => {
-      const inv = invoiceQuery.data?.invoice;
-      return apiFetch(`/api/invoices/${inv.id}/mark-paid`, token, { method: "PATCH" });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "invoice"] });
-      toast({ title: "Invoice marked as paid" });
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
+  const handleDownloadPdf = async () => {
+    const inv = invoiceQuery.data?.invoice;
+    if (!inv) return;
+    setPdfLoading(true);
+    try {
+      const res = await fetch(`/api/invoices/${inv.id}/pdf`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${inv.id}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  if (!isTerminal) return null;
+
+  if (!isBillable) {
+    return (
+      <div className="border-t pt-4 space-y-2">
+        <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+          <DollarSign className="w-4 h-4" />
+          Invoice
+        </h3>
+        <p className="text-sm text-muted-foreground" data-testid="text-invoice-not-billable">
+          Trip not billable. No invoice.
+        </p>
+      </div>
+    );
+  }
 
   if (invoiceQuery.isLoading) return <Skeleton className="h-16 w-full" />;
 
@@ -1004,15 +1039,22 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
           <DollarSign className="w-4 h-4" />
           Invoice
         </h3>
-        <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-create-invoice" className="gap-1">
-          <Plus className="w-3.5 h-3.5" />
-          Create Invoice
-        </Button>
+        {canEdit ? (
+          <>
+            <p className="text-sm text-muted-foreground" data-testid="text-invoice-not-generated">Invoice not generated yet.</p>
+            <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-create-invoice" className="gap-1">
+              <Plus className="w-3.5 h-3.5" />
+              Create Invoice
+            </Button>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground" data-testid="text-invoice-not-generated">Invoice not generated yet.</p>
+        )}
       </div>
     );
   }
 
-  if (showCreate) {
+  if (showCreate && canEdit) {
     return (
       <div className="border-t pt-4 space-y-3">
         <h3 className="text-sm font-medium flex items-center gap-1.5">
@@ -1025,7 +1067,7 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
             id="inv-amount"
             type="number"
             step="0.01"
-            min="0"
+            min="0.01"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
@@ -1034,11 +1076,12 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
         </div>
         <div className="space-y-2">
           <Label htmlFor="inv-notes">Notes (optional)</Label>
-          <Input
+          <Textarea
             id="inv-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Optional notes"
+            rows={2}
             data-testid="input-invoice-notes"
           />
         </div>
@@ -1046,12 +1089,12 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
           <Button
             size="sm"
             onClick={() => createMutation.mutate({ amount, notes })}
-            disabled={!amount || createMutation.isPending}
+            disabled={!amount || parseFloat(amount) <= 0 || createMutation.isPending}
             data-testid="button-submit-invoice"
           >
-            {createMutation.isPending ? "Creating..." : "Create"}
+            {createMutation.isPending ? "Creating..." : "Create Invoice"}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowCreate(false)} data-testid="button-cancel-invoice">
+          <Button size="sm" variant="outline" onClick={() => { setShowCreate(false); setAmount(""); setNotes(""); }} data-testid="button-cancel-invoice">
             Cancel
           </Button>
         </div>
@@ -1059,12 +1102,12 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
     );
   }
 
-  if (editMode) {
+  if (editMode && canEdit) {
     return (
       <div className="border-t pt-4 space-y-3">
         <h3 className="text-sm font-medium flex items-center gap-1.5">
           <Pencil className="w-4 h-4" />
-          Edit Invoice
+          Edit Invoice #{invoice.id}
         </h3>
         <div className="space-y-2">
           <Label htmlFor="inv-edit-amount">Amount ($)</Label>
@@ -1072,20 +1115,50 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
             id="inv-edit-amount"
             type="number"
             step="0.01"
-            min="0"
+            min="0.01"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             data-testid="input-edit-invoice-amount"
           />
         </div>
+        <div className="space-y-2">
+          <Label htmlFor="inv-edit-status">Status</Label>
+          <Select value={editStatus} onValueChange={setEditStatus}>
+            <SelectTrigger data-testid="select-edit-invoice-status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="paid">Paid</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="inv-edit-notes">Notes</Label>
+          <Textarea
+            id="inv-edit-notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes"
+            rows={2}
+            data-testid="input-edit-invoice-notes"
+          />
+        </div>
         <div className="flex gap-2">
           <Button
             size="sm"
-            onClick={() => updateMutation.mutate({ amount })}
-            disabled={!amount || updateMutation.isPending}
+            onClick={() => {
+              const data: any = {};
+              if (amount && amount !== invoice.amount) data.amount = amount;
+              if (editStatus && editStatus !== invoice.status) data.status = editStatus;
+              if (notes !== (invoice.notes || "")) data.notes = notes;
+              updateMutation.mutate(data);
+            }}
+            disabled={updateMutation.isPending}
             data-testid="button-save-invoice"
           >
-            {updateMutation.isPending ? "Saving..." : "Save"}
+            {updateMutation.isPending ? "Saving..." : "Save Changes"}
           </Button>
           <Button size="sm" variant="outline" onClick={() => setEditMode(false)} data-testid="button-cancel-edit-invoice">
             Cancel
@@ -1101,34 +1174,12 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
     paid: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   };
 
-  const handleDownloadPdf = () => {
-    const inv = invoice;
-    const content = [
-      `INVOICE`,
-      `Invoice ID: ${inv.id}`,
-      `Patient: ${inv.patientName}`,
-      `Service Date: ${inv.serviceDate}`,
-      `Amount: $${parseFloat(inv.amount).toFixed(2)}`,
-      `Status: ${inv.status.toUpperCase()}`,
-      `Created: ${new Date(inv.createdAt).toLocaleDateString()}`,
-    ].join("\n");
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `invoice_${inv.id}_trip_${tripId}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="border-t pt-4 space-y-2">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-sm font-medium">Invoice</span>
+          <span className="text-sm font-medium">Invoice #{invoice.id}</span>
           <Badge className={statusColors[invoice.status] || ""} data-testid="badge-invoice-status">
             {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
           </Badge>
@@ -1137,44 +1188,44 @@ function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | n
           ${parseFloat(invoice.amount).toFixed(2)}
         </span>
       </div>
-      <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
-        <span>{invoice.patientName}</span>
-        <span>{invoice.serviceDate}</span>
+      <div className="text-xs text-muted-foreground space-y-0.5">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span data-testid="text-invoice-patient">{invoice.patientName}</span>
+          <span data-testid="text-invoice-service-date">{invoice.serviceDate}</span>
+          <span data-testid="text-invoice-created">Created: {new Date(invoice.createdAt).toLocaleDateString()}</span>
+        </div>
+        {invoice.notes && (
+          <p data-testid="text-invoice-notes" className="italic">Notes: {invoice.notes}</p>
+        )}
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        {invoice.status !== "paid" && (
-          <>
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1"
-              onClick={() => { setAmount(invoice.amount); setEditMode(true); }}
-              data-testid="button-edit-invoice"
-            >
-              <Pencil className="w-3 h-3" />
-              Edit
-            </Button>
-            <Button
-              size="sm"
-              className="gap-1"
-              onClick={() => markPaidMutation.mutate()}
-              disabled={markPaidMutation.isPending}
-              data-testid="button-mark-paid"
-            >
-              <CreditCard className="w-3 h-3" />
-              {markPaidMutation.isPending ? "Updating..." : "Mark Paid"}
-            </Button>
-          </>
+        {canEdit && invoice.status !== "paid" && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            onClick={() => {
+              setAmount(invoice.amount);
+              setEditStatus(invoice.status);
+              setNotes(invoice.notes || "");
+              setEditMode(true);
+            }}
+            data-testid="button-edit-invoice"
+          >
+            <Pencil className="w-3 h-3" />
+            Edit
+          </Button>
         )}
         <Button
           size="sm"
           variant="outline"
           className="gap-1"
           onClick={handleDownloadPdf}
+          disabled={pdfLoading}
           data-testid="button-download-invoice"
         >
           <FileText className="w-3 h-3" />
-          Download
+          {pdfLoading ? "Generating..." : "Download PDF"}
         </Button>
       </div>
     </div>
@@ -1542,8 +1593,8 @@ function TripDetailDialog({
               </div>
             )}
 
-            {trip.status === "COMPLETED" && userRole && INVOICE_ROLES.includes(userRole) && (
-              <TripInvoicePanel tripId={trip.id} token={token} />
+            {userRole && INVOICE_ROLES.includes(userRole) && (
+              <TripInvoicePanel tripId={trip.id} tripStatus={trip.status} token={token} userRole={userRole} />
             )}
 
             <div className="border-t pt-4 space-y-3">

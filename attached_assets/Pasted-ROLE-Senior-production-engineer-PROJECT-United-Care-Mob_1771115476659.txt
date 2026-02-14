@@ -1,0 +1,171 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel agents
+- Do NOT reset DB
+- Do NOT recreate existing tables
+- Extend current schema only
+- Verify before exit
+
+OBJECTIVE:
+Implement full OPERATIONS layer:
+1) Clinic OPS dashboard
+2) Dispatch OPS health
+3) Round-trip system (auto return)
+4) Metrics + alerts
+5) Invoice slot on completed trip
+
+-----------------------------------
+PHASE 1 — ROUND TRIP SYSTEM
+-----------------------------------
+
+REQUIREMENTS:
+
+Trips must support:
+- outbound trip
+- return trip
+- recurring round trip
+
+DB CHANGES (SAFE ADD ONLY):
+
+ALTER TABLE trips
+ADD COLUMN is_round_trip boolean DEFAULT true NOT NULL;
+
+ALTER TABLE trips
+ADD COLUMN return_pickup_time text;
+
+ALTER TABLE trips
+ADD COLUMN return_status trip_status;
+
+ALTER TABLE trips
+ADD COLUMN parent_trip_id integer;
+
+ALTER TABLE trips
+ADD COLUMN is_return boolean DEFAULT false;
+
+LOGIC:
+
+When creating a trip:
+IF is_round_trip = true
+→ auto create return trip
+→ copy patient, clinic, addresses reversed
+→ set parent_trip_id
+→ set is_return=true
+→ scheduled_time = return_pickup_time
+
+UI:
+Trip form must show:
+[✓] Round Trip (default ON)
+Return pickup time field
+Return notes
+
+Dispatch can uncheck.
+
+-----------------------------------
+PHASE 2 — CLINIC OPS DASHBOARD
+-----------------------------------
+
+NEW TABS:
+
+LIVE
+- only trips going to clinic OR returning
+- show ETA minutes
+- show status badge
+- no full route polyline
+- only vehicle icon + ETA
+
+SCHEDULED
+COMPLETED
+CANCELLED
+NO-SHOW
+RECURRING PATIENTS
+
+METRICS PANEL (top):
+
+Today On-time %
+Trips today
+No-shows today
+Patients arriving next 60 min
+Average wait time
+
+API ENDPOINT:
+GET /clinic/:id/ops
+
+Return:
+liveTrips
+scheduled
+completed
+metrics
+
+-----------------------------------
+PHASE 3 — DISPATCH OPS HEALTH
+-----------------------------------
+
+NEW PAGE:
+Dispatch → OPS
+
+SHOW:
+
+Drivers:
+- ONLINE
+- ENROUTE
+- HOLD
+- OFF
+
+Trips:
+- scheduled today
+- late risk
+- no driver
+- unconfirmed
+
+ALERT ENGINE:
+
+If trip within 30 min and no driver:
+→ create ops alert
+
+If driver late >15:
+→ create ops alert
+
+Store in ops_alert_log
+
+-----------------------------------
+PHASE 4 — INVOICE SLOT ON COMPLETE
+-----------------------------------
+
+When trip status = COMPLETED:
+
+Show billing panel:
+- amount
+- notes
+- attach invoice
+- generate PDF
+
+Link trip.invoice_id
+
+-----------------------------------
+PHASE 5 — MULTILANGUAGE + DARK MODE
+-----------------------------------
+
+GLOBAL UI SETTINGS:
+
+Add language toggle:
+EN / ES
+
+Add theme toggle:
+LIGHT / DARK
+
+Persist per user in localStorage.
+
+-----------------------------------
+VERIFICATION BEFORE EXIT
+-----------------------------------
+
+1. Create round trip → return auto appears
+2. Clinic sees live arrivals
+3. Dispatch OPS page shows drivers
+4. Completed trip shows invoice box
+5. Dark mode toggle works
+6. Language switch works
+
+DO NOT EXIT until all verified.
