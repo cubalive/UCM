@@ -201,10 +201,111 @@ export default function ClinicTripsPage() {
   );
 }
 
+function DialysisReturnDialog({ tripId, onDismiss }: { tripId: number; onDismiss: () => void }) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+
+  const checkQuery = useQuery<any>({
+    queryKey: ["/api/trips", tripId, "dialysis-return-check"],
+    queryFn: () => apiFetch(`/api/trips/${tripId}/dialysis-return-check`, token),
+    enabled: !!token && !!tripId,
+  });
+
+  const adjustMutation = useMutation({
+    mutationFn: async (payload: { action: string; returnTripId: number; proposedPickupTime?: string }) => {
+      return apiFetch(`/api/trips/${tripId}/dialysis-return-adjust`, token, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: (data: any) => {
+      if (data.action === "confirmed") {
+        toast({ title: "Return time updated", description: `Return pickup time changed to ${data.newTime}` });
+      } else {
+        toast({ title: "Time kept", description: "Return pickup time was not changed." });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/ops"] });
+      onDismiss();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const data = checkQuery.data;
+
+  useEffect(() => {
+    if (!checkQuery.isLoading && data && (!data.applicable || !data.needsAdjustment)) {
+      onDismiss();
+    }
+  }, [checkQuery.isLoading, data, onDismiss]);
+
+  if (checkQuery.isLoading) return null;
+  if (!data?.applicable || !data?.needsAdjustment) return null;
+
+  return (
+    <Dialog open={true} onOpenChange={(open) => { if (!open) onDismiss(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2" data-testid="text-dialysis-return-title">
+            <Repeat className="w-4 h-4 text-blue-500" />
+            Dialysis Return Trip Adjustment
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Outbound dialysis trip <span className="font-semibold text-foreground">{data.outboundPublicId}</span> completed.
+            The linked return trip may need its pickup time adjusted.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Card>
+              <CardContent className="py-3 px-4 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Current Return Time</p>
+                <p className="text-lg font-bold" data-testid="text-current-return-time">{data.currentReturnPickupTime}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="py-3 px-4 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Proposed Time</p>
+                <p className="text-lg font-bold text-blue-600 dark:text-blue-400" data-testid="text-proposed-return-time">{data.proposedReturnPickupTime}</p>
+              </CardContent>
+            </Card>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Proposed = dropoff time + {data.bufferMinutes} min buffer.
+            Return trip: <span className="font-medium">{data.returnPublicId}</span>
+          </p>
+          <div className="flex gap-3">
+            <Button
+              className="flex-1"
+              onClick={() => adjustMutation.mutate({ action: "confirm", returnTripId: data.returnTripId, proposedPickupTime: data.proposedReturnPickupTime })}
+              disabled={adjustMutation.isPending}
+              data-testid="button-confirm-return-adjust"
+            >
+              <CheckCircle className="w-4 h-4 mr-1.5" />
+              {adjustMutation.isPending ? "Updating..." : "Confirm New Time"}
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => adjustMutation.mutate({ action: "keep", returnTripId: data.returnTripId })}
+              disabled={adjustMutation.isPending}
+              data-testid="button-keep-return-time"
+            >
+              Keep Current
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OpsDashboard() {
   const { token } = useAuth();
   const [trackingTripId, setTrackingTripId] = useState<number | null>(null);
   const [selectedOpsTrip, setSelectedOpsTrip] = useState<any>(null);
+  const [dialysisCheckTripId, setDialysisCheckTripId] = useState<number | null>(null);
+  const [dismissedDialysis, setDismissedDialysis] = useState<Set<number>>(new Set());
 
   const opsQuery = useQuery<any>({
     queryKey: ["/api/clinic/ops"],
@@ -218,6 +319,25 @@ function OpsDashboard() {
   const activeTrips = opsData?.activeTrips || [];
   const alerts = opsData?.alerts || [];
   const clinic = opsData?.clinic;
+
+  const completedDialysisQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/trips", "completed", "dialysis"],
+    queryFn: () => apiFetch("/api/clinic/trips?status=completed&tripType=dialysis", token),
+    enabled: !!token,
+    refetchInterval: 30000,
+  });
+
+  useEffect(() => {
+    const completedDialysis = completedDialysisQuery.data || [];
+    const todayDate = new Date().toISOString().split("T")[0];
+    const todayCompleted = completedDialysis.filter((t: any) => t.scheduledDate === todayDate);
+    for (const trip of todayCompleted) {
+      if (!dismissedDialysis.has(trip.id) && !dialysisCheckTripId) {
+        setDialysisCheckTripId(trip.id);
+        break;
+      }
+    }
+  }, [completedDialysisQuery.data, dismissedDialysis, dialysisCheckTripId]);
 
   return (
     <div className="space-y-6">
@@ -752,6 +872,15 @@ function ArrivalsBoard({ activeTrips, onTrack }: { activeTrips: any[]; onTrack: 
           </TableBody>
         </Table>
       </Card>
+      {dialysisCheckTripId && (
+        <DialysisReturnDialog
+          tripId={dialysisCheckTripId}
+          onDismiss={() => {
+            setDismissedDialysis(prev => new Set(prev).add(dialysisCheckTripId));
+            setDialysisCheckTripId(null);
+          }}
+        />
+      )}
     </div>
   );
 }

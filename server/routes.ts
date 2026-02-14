@@ -2344,6 +2344,162 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/trips/:id/dialysis-return-check", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+      if (req.user!.role === "CLINIC_USER") {
+        const user = await storage.getUser(req.user!.userId);
+        if (!user?.clinicId || user.clinicId !== trip.clinicId) {
+          return res.status(403).json({ message: "Access denied: trip belongs to a different clinic" });
+        }
+      }
+      if (req.user!.companyId && trip.companyId && req.user!.companyId !== trip.companyId) {
+        return res.status(403).json({ message: "Access denied: trip belongs to a different company" });
+      }
+
+      if (trip.tripType !== "dialysis") {
+        return res.json({ ok: true, applicable: false, reason: "Not a dialysis trip" });
+      }
+      if (trip.status !== "COMPLETED") {
+        return res.json({ ok: true, applicable: false, reason: "Trip not completed" });
+      }
+
+      const clinic = trip.clinicId ? await storage.getClinic(trip.clinicId) : null;
+      const isOutbound = clinic && clinic.lat && clinic.lng && trip.dropoffLat && trip.dropoffLng
+        && (Math.abs(trip.dropoffLat - clinic.lat) + Math.abs(trip.dropoffLng - clinic.lng)) < 0.01;
+
+      if (!isOutbound) {
+        return res.json({ ok: true, applicable: false, reason: "Not an outbound trip to clinic" });
+      }
+
+      const sameDayDialysis = await db.select().from(trips).where(
+        and(
+          eq(trips.patientId, trip.patientId),
+          eq(trips.scheduledDate, trip.scheduledDate),
+          eq(trips.tripType, "dialysis"),
+          isNull(trips.deletedAt),
+          sql`${trips.id} != ${trip.id}`,
+          sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
+        )
+      );
+
+      const returnTrip = sameDayDialysis.find(t => {
+        if (!clinic?.lat || !clinic?.lng || !t.pickupLat || !t.pickupLng) return false;
+        return (Math.abs(t.pickupLat - clinic.lat) + Math.abs(t.pickupLng - clinic.lng)) < 0.01;
+      });
+
+      if (!returnTrip) {
+        return res.json({ ok: true, applicable: false, reason: "No linked return trip found" });
+      }
+
+      const BUFFER_MINUTES = 30;
+      const completedAt = trip.completedAt || trip.arrivedDropoffAt || new Date();
+      const completedTime = new Date(completedAt);
+      const proposedTime = new Date(completedTime.getTime() + BUFFER_MINUTES * 60000);
+      const proposedPickupTime = `${String(proposedTime.getHours()).padStart(2, "0")}:${String(proposedTime.getMinutes()).padStart(2, "0")}`;
+
+      const currentReturnPickupTime = returnTrip.pickupTime;
+      const needsAdjustment = proposedPickupTime !== currentReturnPickupTime;
+
+      res.json({
+        ok: true,
+        applicable: true,
+        needsAdjustment,
+        outboundTripId: trip.id,
+        outboundPublicId: trip.publicId,
+        returnTripId: returnTrip.id,
+        returnPublicId: returnTrip.publicId,
+        completedAtTime: completedTime.toISOString(),
+        currentReturnPickupTime,
+        proposedReturnPickupTime: proposedPickupTime,
+        bufferMinutes: BUFFER_MINUTES,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/trips/:id/dialysis-return-adjust", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
+    try {
+      const outboundId = parseInt(req.params.id);
+      if (isNaN(outboundId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+      const { action, returnTripId, proposedPickupTime } = req.body;
+      if (!action || !returnTripId) {
+        return res.status(400).json({ message: "action and returnTripId are required" });
+      }
+      if (!["confirm", "keep"].includes(action)) {
+        return res.status(400).json({ message: "action must be 'confirm' or 'keep'" });
+      }
+
+      const outbound = await storage.getTrip(outboundId);
+      if (!outbound) return res.status(404).json({ message: "Outbound trip not found" });
+
+      if (req.user!.role === "CLINIC_USER") {
+        const user = await storage.getUser(req.user!.userId);
+        if (!user?.clinicId || user.clinicId !== outbound.clinicId) {
+          return res.status(403).json({ message: "Access denied: trip belongs to a different clinic" });
+        }
+      }
+      if (req.user!.companyId && outbound.companyId && req.user!.companyId !== outbound.companyId) {
+        return res.status(403).json({ message: "Access denied: trip belongs to a different company" });
+      }
+
+      const returnTrip = await storage.getTrip(returnTripId);
+      if (!returnTrip) return res.status(404).json({ message: "Return trip not found" });
+
+      if (returnTrip.patientId !== outbound.patientId || returnTrip.scheduledDate !== outbound.scheduledDate) {
+        return res.status(400).json({ message: "Return trip does not match outbound trip" });
+      }
+
+      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (terminalStatuses.includes(returnTrip.status)) {
+        return res.status(400).json({ message: "Return trip is already in a terminal status" });
+      }
+
+      if (action === "confirm") {
+        if (!proposedPickupTime) {
+          return res.status(400).json({ message: "proposedPickupTime is required for confirm action" });
+        }
+
+        const previousTime = returnTrip.pickupTime;
+        await db.update(trips).set({
+          pickupTime: proposedPickupTime,
+          scheduledTime: proposedPickupTime,
+          updatedAt: new Date(),
+        }).where(eq(trips.id, returnTripId));
+
+        await storage.createAuditLog({
+          userId: req.user!.userId,
+          action: "DIALYSIS_RETURN_ADJUST",
+          entity: "trip",
+          entityId: returnTripId,
+          details: `Dialysis return trip pickup time adjusted from ${previousTime} to ${proposedPickupTime} (linked to outbound trip #${outbound.publicId})`,
+          cityId: outbound.cityId,
+        });
+
+        return res.json({ ok: true, action: "confirmed", returnTripId, previousTime, newTime: proposedPickupTime });
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "DIALYSIS_RETURN_KEEP",
+        entity: "trip",
+        entityId: returnTripId,
+        details: `Dialysis return trip pickup time kept at ${returnTrip.pickupTime} (linked to outbound trip #${outbound.publicId})`,
+        cityId: outbound.cityId,
+      });
+
+      return res.json({ ok: true, action: "kept", returnTripId, currentTime: returnTrip.pickupTime });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Trip approval endpoint - dispatch/admin approves pending trips
   app.patch("/api/trips/:id/approve", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
