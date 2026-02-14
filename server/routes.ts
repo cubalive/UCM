@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers } from "@shared/schema";
 import { z } from "zod";
 import { eq, ne, sql, and, or, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
@@ -1661,6 +1661,255 @@ export async function registerRoutes(
         updateData.lastLng = lng;
       }
       await db.update(drivers).set(updateData).where(eq(drivers.id, user.driverId));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Go-Time: upcoming trips approaching pickup time
+  app.get("/api/driver/upcoming-go-time", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+      if (driver.dispatchStatus === "off") return res.json({ goTimeTrips: [] });
+
+      const city = await storage.getCity(driver.cityId);
+      const tz = city?.timezone || "America/New_York";
+
+      const settings = await db.select().from(citySettings).where(eq(citySettings.cityId, driver.cityId)).limit(1);
+      const goTimeMinutes = settings[0]?.driverGoTimeMinutes ?? 20;
+      const repeatMinutes = settings[0]?.driverGoTimeRepeatMinutes ?? 5;
+
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+      const nowMs = Date.now();
+
+      const upcoming = await db.select().from(trips).where(
+        and(
+          eq(trips.driverId, user.driverId),
+          eq(trips.scheduledDate, today),
+          inArray(trips.status, ["SCHEDULED", "ASSIGNED"] as any),
+          isNull(trips.deletedAt)
+        )
+      );
+
+      const goTimeTrips: any[] = [];
+      for (const trip of upcoming) {
+        const timeStr = trip.pickupTime || trip.scheduledTime || "";
+        if (!timeStr) continue;
+
+        const [hh, mm] = timeStr.split(":").map(Number);
+        if (isNaN(hh) || isNaN(mm)) continue;
+
+        const pickupDate = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+        pickupDate.setHours(hh, mm, 0, 0);
+        const pickupMs = pickupDate.getTime();
+
+        const goTimeMs = pickupMs - goTimeMinutes * 60 * 1000;
+        const windowEndMs = pickupMs + 5 * 60 * 1000;
+
+        if (nowMs >= goTimeMs && nowMs <= windowEndMs) {
+          const secondsUntilPickup = Math.max(0, Math.floor((pickupMs - nowMs) / 1000));
+
+          const existingAlert = await db.select().from(driverTripAlerts).where(
+            and(
+              eq(driverTripAlerts.tripId, trip.id),
+              eq(driverTripAlerts.driverId, user.driverId),
+              eq(driverTripAlerts.kind, "go_time")
+            )
+          ).limit(1);
+
+          let alertRecord = existingAlert[0] || null;
+          let shouldShowAlert = true;
+
+          if (alertRecord) {
+            if (alertRecord.acknowledgedAt) {
+              shouldShowAlert = false;
+            } else {
+              const lastShown = alertRecord.lastShownAt.getTime();
+              if (nowMs - lastShown < repeatMinutes * 60 * 1000) {
+                shouldShowAlert = true;
+              }
+              await db.update(driverTripAlerts).set({ lastShownAt: new Date() }).where(eq(driverTripAlerts.id, alertRecord.id));
+            }
+          } else {
+            const [newAlert] = await db.insert(driverTripAlerts).values({
+              tripId: trip.id,
+              driverId: user.driverId,
+              kind: "go_time",
+              firstShownAt: new Date(),
+              lastShownAt: new Date(),
+            }).returning();
+            alertRecord = newAlert;
+          }
+
+          const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+
+          goTimeTrips.push({
+            tripId: trip.id,
+            publicId: trip.publicId,
+            pickupTime: timeStr,
+            pickupAddress: trip.pickupAddress,
+            pickupLat: trip.pickupLat,
+            pickupLng: trip.pickupLng,
+            dropoffAddress: trip.dropoffAddress,
+            dropoffLat: trip.dropoffLat,
+            dropoffLng: trip.dropoffLng,
+            patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
+            status: trip.status,
+            secondsUntilPickup,
+            goTimeMinutes,
+            acknowledged: !!alertRecord?.acknowledgedAt,
+            alertId: alertRecord?.id,
+          });
+        }
+      }
+
+      res.json({ goTimeTrips });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Acknowledge go-time alert (driver tapped Start Route)
+  app.post("/api/driver/go-time/:alertId/acknowledge", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const alertId = parseInt(req.params.alertId);
+      if (isNaN(alertId)) return res.status(400).json({ message: "Invalid alert ID" });
+
+      const [alert] = await db.select().from(driverTripAlerts).where(
+        and(
+          eq(driverTripAlerts.id, alertId),
+          eq(driverTripAlerts.driverId, user.driverId)
+        )
+      );
+      if (!alert) return res.status(404).json({ message: "Alert not found" });
+
+      await db.update(driverTripAlerts).set({ acknowledgedAt: new Date() }).where(eq(driverTripAlerts.id, alertId));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Driver offers: get active pending offers
+  app.get("/api/driver/offers/active", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const now = new Date();
+
+      await db.update(driverOffers).set({ status: "expired" }).where(
+        and(
+          eq(driverOffers.driverId, user.driverId),
+          eq(driverOffers.status, "pending"),
+          sql`${driverOffers.expiresAt} <= ${now}`
+        )
+      );
+
+      const pendingOffers = await db.select().from(driverOffers).where(
+        and(
+          eq(driverOffers.driverId, user.driverId),
+          eq(driverOffers.status, "pending"),
+          sql`${driverOffers.expiresAt} > ${now}`
+        )
+      ).orderBy(desc(driverOffers.offeredAt));
+
+      const enriched = await Promise.all(pendingOffers.map(async (offer) => {
+        const trip = await db.select().from(trips).where(eq(trips.id, offer.tripId)).limit(1);
+        const t = trip[0];
+        if (!t) return null;
+        const patient = t.patientId ? await storage.getPatient(t.patientId) : null;
+        const secondsRemaining = Math.max(0, Math.floor((offer.expiresAt.getTime() - now.getTime()) / 1000));
+        return {
+          offerId: offer.id,
+          tripId: t.id,
+          publicId: t.publicId,
+          pickupAddress: t.pickupAddress,
+          pickupLat: t.pickupLat,
+          pickupLng: t.pickupLng,
+          dropoffAddress: t.dropoffAddress,
+          dropoffLat: t.dropoffLat,
+          dropoffLng: t.dropoffLng,
+          pickupTime: t.pickupTime,
+          scheduledDate: t.scheduledDate,
+          patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
+          status: t.status,
+          secondsRemaining,
+          expiresAt: offer.expiresAt.toISOString(),
+        };
+      }));
+
+      res.json({ offers: enriched.filter(Boolean) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Accept a driver offer
+  app.post("/api/driver/offers/:offerId/accept", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const offerId = parseInt(req.params.offerId);
+      if (isNaN(offerId)) return res.status(400).json({ message: "Invalid offer ID" });
+
+      const [offer] = await db.select().from(driverOffers).where(
+        and(
+          eq(driverOffers.id, offerId),
+          eq(driverOffers.driverId, user.driverId)
+        )
+      );
+      if (!offer) return res.status(404).json({ message: "Offer not found" });
+      if (offer.status !== "pending") return res.status(400).json({ message: `Offer already ${offer.status}` });
+
+      const now = new Date();
+      if (now > offer.expiresAt) {
+        await db.update(driverOffers).set({ status: "expired" }).where(eq(driverOffers.id, offerId));
+        return res.status(400).json({ message: "Offer has expired" });
+      }
+
+      await db.update(driverOffers).set({ status: "accepted", acceptedAt: now }).where(eq(driverOffers.id, offerId));
+
+      const [trip] = await db.select().from(trips).where(eq(trips.id, offer.tripId));
+      if (trip && (trip.status === "SCHEDULED" || !trip.driverId)) {
+        await db.update(trips).set({
+          driverId: user.driverId,
+          status: "ASSIGNED",
+          assignedAt: now,
+          assignmentSource: "driver_accept",
+        }).where(eq(trips.id, offer.tripId));
+      }
+
+      res.json({ ok: true, tripId: offer.tripId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Decline a driver offer
+  app.post("/api/driver/offers/:offerId/decline", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const offerId = parseInt(req.params.offerId);
+      if (isNaN(offerId)) return res.status(400).json({ message: "Invalid offer ID" });
+
+      const [offer] = await db.select().from(driverOffers).where(
+        and(
+          eq(driverOffers.id, offerId),
+          eq(driverOffers.driverId, user.driverId)
+        )
+      );
+      if (!offer) return res.status(404).json({ message: "Offer not found" });
+      if (offer.status !== "pending") return res.status(400).json({ message: `Offer already ${offer.status}` });
+
+      await db.update(driverOffers).set({ status: "cancelled" }).where(eq(driverOffers.id, offerId));
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

@@ -360,6 +360,9 @@ export const citySettings = pgTable("city_settings", {
   autoAssignEnabled: boolean("auto_assign_enabled").notNull().default(true),
   autoAssignDays: text("auto_assign_days").array().notNull().default(sql`ARRAY['Mon','Tue','Wed','Thu','Fri','Sat']`),
   autoAssignMinutesBefore: integer("auto_assign_minutes_before").notNull().default(60),
+  driverGoTimeMinutes: integer("driver_go_time_minutes").notNull().default(20),
+  driverGoTimeRepeatMinutes: integer("driver_go_time_repeat_minutes").notNull().default(5),
+  offerTtlSeconds: integer("offer_ttl_seconds").notNull().default(90),
 });
 
 export const driverVehicleAssignments = pgTable("driver_vehicle_assignments", {
@@ -694,3 +697,43 @@ export const recurringSchedules = pgTable("recurring_schedules", {
 export const insertRecurringScheduleSchema = createInsertSchema(recurringSchedules).omit({ id: true, createdAt: true });
 export type RecurringSchedule = typeof recurringSchedules.$inferSelect;
 export type InsertRecurringSchedule = z.infer<typeof insertRecurringScheduleSchema>;
+
+export const driverTripAlertKindEnum = pgEnum("driver_trip_alert_kind", [
+  "go_time",
+]);
+
+export const driverTripAlerts = pgTable("driver_trip_alerts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  kind: driverTripAlertKindEnum("kind").notNull(),
+  firstShownAt: timestamp("first_shown_at").notNull().defaultNow(),
+  lastShownAt: timestamp("last_shown_at").notNull().defaultNow(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+});
+
+export const insertDriverTripAlertSchema = createInsertSchema(driverTripAlerts).omit({ id: true });
+export type DriverTripAlert = typeof driverTripAlerts.$inferSelect;
+export type InsertDriverTripAlert = z.infer<typeof insertDriverTripAlertSchema>;
+
+export const offerStatusEnum = pgEnum("offer_status", [
+  "pending",
+  "accepted",
+  "expired",
+  "cancelled",
+]);
+
+export const driverOffers = pgTable("driver_offers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  offeredAt: timestamp("offered_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  status: offerStatusEnum("status").notNull().default("pending"),
+  acceptedAt: timestamp("accepted_at"),
+  createdBy: integer("created_by").references(() => users.id),
+});
+
+export const insertDriverOfferSchema = createInsertSchema(driverOffers).omit({ id: true });
+export type DriverOffer = typeof driverOffers.$inferSelect;
+export type InsertDriverOffer = z.infer<typeof insertDriverOfferSchema>;

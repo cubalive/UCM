@@ -200,9 +200,11 @@ function createFallbackIcon(stale: boolean, statusColor: string) {
 function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
-  const labelsRef = useRef<google.maps.Marker[]>([]);
+  const markerMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
+  const labelMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const driversDataRef = useRef<Map<number, DriverLocation>>(new Map());
+  const initialBoundsFitRef = useRef(false);
 
   useEffect(() => {
     if (!mapRef.current || !window.google?.maps) return;
@@ -226,102 +228,132 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
   useEffect(() => {
     if (!mapInstanceRef.current || !window.google?.maps) return;
 
-    markersRef.current.forEach((m) => m.setMap(null));
-    markersRef.current = [];
-    labelsRef.current.forEach((m) => m.setMap(null));
-    labelsRef.current = [];
+    const currentIds = new Set(drivers.map((d) => d.driver_id));
+    const existingIds = new Set(markerMapRef.current.keys());
+
+    for (const id of existingIds) {
+      if (!currentIds.has(id)) {
+        markerMapRef.current.get(id)?.setMap(null);
+        markerMapRef.current.delete(id);
+        labelMapRef.current.get(id)?.setMap(null);
+        labelMapRef.current.delete(id);
+        driversDataRef.current.delete(id);
+      }
+    }
 
     drivers.forEach((driver) => {
       const stale = isStale(driver.updated_at);
       const statusColor = STATUS_COLORS[driver.status] || STATUS_COLORS.off;
       const hasVehicle = driver.vehicle_id != null;
-
       const icon = hasVehicle
         ? createCarIcon(driver.vehicle_color_hex || driver.vehicle_color, stale, statusColor, driver.vehicle_model, driver.vehicle_make)
         : createFallbackIcon(stale, statusColor);
+      const pos = { lat: driver.lat, lng: driver.lng };
 
-      const marker = new google.maps.Marker({
-        position: { lat: driver.lat, lng: driver.lng },
-        map: mapInstanceRef.current!,
-        icon,
-        title: driver.driver_name,
-        zIndex: stale ? 1 : 10,
-      });
+      driversDataRef.current.set(driver.driver_id, driver);
 
-      const firstName = driver.driver_name.split(" ")[0];
-      const labelMarker = new google.maps.Marker({
-        position: { lat: driver.lat, lng: driver.lng },
-        map: mapInstanceRef.current!,
-        icon: {
-          url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'),
-          scaledSize: new google.maps.Size(1, 1),
-          anchor: new google.maps.Point(0, 0),
-        },
-        label: {
-          text: firstName,
-          color: "#1e293b",
-          fontSize: "11px",
-          fontWeight: "600",
-          className: "driver-map-label",
-        },
-        clickable: false,
-        zIndex: stale ? 0 : 5,
-      });
+      const existingMarker = markerMapRef.current.get(driver.driver_id);
+      const existingLabel = labelMapRef.current.get(driver.driver_id);
 
-      marker.addListener("click", () => {
-        const statusLabel = STATUS_LABELS[driver.status] || driver.status;
-        const timeAgo = formatTimeAgo(driver.updated_at);
-        const staleTag = stale
-          ? `<div style="color:#d97706;font-weight:600;font-size:11px;margin-top:4px;">STALE</div>`
-          : "";
-        const vehicleMakeModel = driver.vehicle_make && driver.vehicle_model
-          ? `${driver.vehicle_make} ${driver.vehicle_model}`
-          : driver.vehicle_make || driver.vehicle_model || null;
-        const vehicleInfo = driver.vehicle_label
-          ? `<div style="font-size:11px;color:#666;margin-top:2px;">Vehicle: ${driver.vehicle_label}${vehicleMakeModel ? ` (${vehicleMakeModel})` : ""}</div>`
-          : `<div style="font-size:11px;color:#999;margin-top:2px;font-style:italic;">No vehicle assigned</div>`;
+      if (existingMarker) {
+        existingMarker.setPosition(pos);
+        existingMarker.setIcon(icon);
+        existingMarker.setZIndex(stale ? 1 : 10);
+        if (existingLabel) {
+          existingLabel.setPosition(pos);
+          existingLabel.setZIndex(stale ? 0 : 5);
+        }
+      } else {
+        const marker = new google.maps.Marker({
+          position: pos,
+          map: mapInstanceRef.current!,
+          icon,
+          title: driver.driver_name,
+          zIndex: stale ? 1 : 10,
+        });
 
-        const tripStatusColors: Record<string, string> = {
-          SCHEDULED: "#3b82f6",
-          EN_ROUTE_PICKUP: "#f59e0b",
-          AT_PICKUP: "#8b5cf6",
-          IN_TRANSIT: "#ef4444",
-          AT_DROPOFF: "#06b6d4",
-          COMPLETED: "#22c55e",
-        };
-        const tripBadge = driver.active_trip_status
-          ? `<div style="margin-top:4px;padding:3px 6px;border-radius:4px;background:${tripStatusColors[driver.active_trip_status] || '#6b7280'};color:#fff;font-size:10px;font-weight:600;display:inline-block;">${driver.active_trip_status.replace(/_/g, ' ')}</div>
-             ${driver.active_trip_id ? `<div style="font-size:10px;color:#666;margin-top:2px;">Trip: ${driver.active_trip_id}</div>` : ""}
-             ${driver.active_trip_patient ? `<div style="font-size:10px;color:#666;">Patient: ${driver.active_trip_patient}</div>` : ""}`
-          : `<div style="margin-top:4px;font-size:10px;color:#999;font-style:italic;">No active trip</div>`;
+        const firstName = driver.driver_name.split(" ")[0];
+        const labelMarker = new google.maps.Marker({
+          position: pos,
+          map: mapInstanceRef.current!,
+          icon: {
+            url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'),
+            scaledSize: new google.maps.Size(1, 1),
+            anchor: new google.maps.Point(0, 0),
+          },
+          label: {
+            text: firstName,
+            color: "#1e293b",
+            fontSize: "11px",
+            fontWeight: "600",
+            className: "driver-map-label",
+          },
+          clickable: false,
+          zIndex: stale ? 0 : 5,
+        });
 
-        infoWindowRef.current?.setContent(`
-          <div style="padding:4px;min-width:160px;">
-            <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${driver.driver_name}</div>
-            <div style="font-size:12px;color:#666;">
-              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:4px;"></span>
-              ${statusLabel}
+        marker.addListener("click", () => {
+          const d = driversDataRef.current.get(driver.driver_id);
+          if (!d) return;
+          const dStale = isStale(d.updated_at);
+          const dStatusColor = STATUS_COLORS[d.status] || STATUS_COLORS.off;
+          const statusLabel = STATUS_LABELS[d.status] || d.status;
+          const timeAgo = formatTimeAgo(d.updated_at);
+          const staleTag = dStale
+            ? `<div style="color:#d97706;font-weight:600;font-size:11px;margin-top:4px;">STALE</div>`
+            : "";
+          const vehicleMakeModel = d.vehicle_make && d.vehicle_model
+            ? `${d.vehicle_make} ${d.vehicle_model}`
+            : d.vehicle_make || d.vehicle_model || null;
+          const vehicleInfo = d.vehicle_label
+            ? `<div style="font-size:11px;color:#666;margin-top:2px;">Vehicle: ${d.vehicle_label}${vehicleMakeModel ? ` (${vehicleMakeModel})` : ""}</div>`
+            : `<div style="font-size:11px;color:#999;margin-top:2px;font-style:italic;">No vehicle assigned</div>`;
+
+          const tripStatusColors: Record<string, string> = {
+            SCHEDULED: "#3b82f6",
+            EN_ROUTE_PICKUP: "#f59e0b",
+            AT_PICKUP: "#8b5cf6",
+            IN_TRANSIT: "#ef4444",
+            AT_DROPOFF: "#06b6d4",
+            COMPLETED: "#22c55e",
+          };
+          const tripBadge = d.active_trip_status
+            ? `<div style="margin-top:4px;padding:3px 6px;border-radius:4px;background:${tripStatusColors[d.active_trip_status] || '#6b7280'};color:#fff;font-size:10px;font-weight:600;display:inline-block;">${d.active_trip_status.replace(/_/g, ' ')}</div>
+               ${d.active_trip_id ? `<div style="font-size:10px;color:#666;margin-top:2px;">Trip: ${d.active_trip_id}</div>` : ""}
+               ${d.active_trip_patient ? `<div style="font-size:10px;color:#666;">Patient: ${d.active_trip_patient}</div>` : ""}`
+            : `<div style="margin-top:4px;font-size:10px;color:#999;font-style:italic;">No active trip</div>`;
+
+          infoWindowRef.current?.setContent(`
+            <div style="padding:4px;min-width:160px;">
+              <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${d.driver_name}</div>
+              <div style="font-size:12px;color:#666;">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dStatusColor};margin-right:4px;"></span>
+                ${statusLabel}
+              </div>
+              ${vehicleInfo}
+              <div style="font-size:11px;color:#888;margin-top:2px;">Updated: ${timeAgo}</div>
+              ${staleTag}
+              ${tripBadge}
             </div>
-            ${vehicleInfo}
-            <div style="font-size:11px;color:#888;margin-top:2px;">Updated: ${timeAgo}</div>
-            ${staleTag}
-            ${tripBadge}
-          </div>
-        `);
-        infoWindowRef.current?.open(mapInstanceRef.current!, marker);
-      });
+          `);
+          infoWindowRef.current?.open(mapInstanceRef.current!, marker);
+        });
 
-      markersRef.current.push(marker);
-      labelsRef.current.push(labelMarker);
+        markerMapRef.current.set(driver.driver_id, marker);
+        labelMapRef.current.set(driver.driver_id, labelMarker);
+      }
     });
 
-    if (drivers.length > 1) {
-      const bounds = new google.maps.LatLngBounds();
-      drivers.forEach((d) => bounds.extend({ lat: d.lat, lng: d.lng }));
-      mapInstanceRef.current.fitBounds(bounds, { top: 50, right: 50, bottom: 50, left: 50 });
-    } else if (drivers.length === 1) {
-      mapInstanceRef.current.setCenter({ lat: drivers[0].lat, lng: drivers[0].lng });
-      mapInstanceRef.current.setZoom(14);
+    if (!initialBoundsFitRef.current && drivers.length > 0) {
+      initialBoundsFitRef.current = true;
+      if (drivers.length > 1) {
+        const bounds = new google.maps.LatLngBounds();
+        drivers.forEach((d) => bounds.extend({ lat: d.lat, lng: d.lng }));
+        mapInstanceRef.current.fitBounds(bounds, { top: 50, right: 50, bottom: 50, left: 50 });
+      } else {
+        mapInstanceRef.current.setCenter({ lat: drivers[0].lat, lng: drivers[0].lng });
+        mapInstanceRef.current.setZoom(14);
+      }
     }
   }, [drivers]);
 

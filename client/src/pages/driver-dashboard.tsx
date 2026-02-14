@@ -31,7 +31,11 @@ import {
   ArrowRight,
   LocateFixed,
   Timer,
+  ExternalLink,
+  MapPinned,
+  Bell,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -256,6 +260,49 @@ function getNavigateUrl(trip: ActiveTripData) {
     return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}`;
   }
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destAddr)}`;
+}
+
+type NavApp = "google" | "waze" | "apple";
+
+function getNavUrlForApp(trip: ActiveTripData, app: NavApp): string {
+  const isPickupPhase = PICKUP_STAGES.includes(trip.status);
+  const destLat = isPickupPhase ? trip.pickupLat : trip.dropoffLat;
+  const destLng = isPickupPhase ? trip.pickupLng : trip.dropoffLng;
+  const destAddr = isPickupPhase ? trip.pickupAddress : trip.dropoffAddress;
+
+  switch (app) {
+    case "google":
+      if (destLat && destLng) return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}`;
+      return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destAddr)}`;
+    case "waze":
+      if (destLat && destLng) return `https://waze.com/ul?ll=${destLat},${destLng}&navigate=yes`;
+      return `https://waze.com/ul?q=${encodeURIComponent(destAddr)}&navigate=yes`;
+    case "apple":
+      if (destLat && destLng) return `https://maps.apple.com/?daddr=${destLat},${destLng}`;
+      return `https://maps.apple.com/?daddr=${encodeURIComponent(destAddr)}`;
+  }
+}
+
+function getSavedNavApp(): NavApp | null {
+  try {
+    const val = localStorage.getItem("ucm_driver_nav_app");
+    if (val === "google" || val === "waze" || val === "apple") return val;
+  } catch {}
+  return null;
+}
+
+function setSavedNavApp(app: NavApp | null) {
+  try {
+    if (app) localStorage.setItem("ucm_driver_nav_app", app);
+    else localStorage.removeItem("ucm_driver_nav_app");
+  } catch {}
+}
+
+function formatCountdown(seconds: number): string {
+  if (seconds <= 0) return "0:00";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function FullScreenMap({
@@ -550,6 +597,169 @@ export default function DriverDashboard() {
     },
   });
 
+  const [navChooserTrip, setNavChooserTrip] = useState<ActiveTripData | null>(null);
+  const [showNavChooser, setShowNavChooser] = useState(false);
+  const [rememberNav, setRememberNav] = useState(false);
+
+  const goTimeQuery = useQuery<{ goTimeTrips: any[] }>({
+    queryKey: ["/api/driver/upcoming-go-time"],
+    queryFn: () => apiFetch("/api/driver/upcoming-go-time", token),
+    enabled: !!token && isDriverActive,
+    refetchInterval: 60000,
+  });
+
+  const offersQuery = useQuery<{ offers: any[] }>({
+    queryKey: ["/api/driver/offers/active"],
+    queryFn: () => apiFetch("/api/driver/offers/active", token),
+    enabled: !!token && isDriverActive,
+    refetchInterval: 10000,
+  });
+
+  const goTimeTrips = goTimeQuery.data?.goTimeTrips || [];
+  const goTimeTrip = goTimeTrips.length > 0 ? goTimeTrips[0] : null;
+
+  const [goTimeCountdown, setGoTimeCountdown] = useState<number>(0);
+  useEffect(() => {
+    if (goTimeTrip?.secondsUntilPickup != null) {
+      setGoTimeCountdown(goTimeTrip.secondsUntilPickup);
+    }
+  }, [goTimeTrip?.secondsUntilPickup, goTimeTrip?.alertId]);
+
+  useEffect(() => {
+    if (!goTimeTrip) return;
+    const iv = setInterval(() => {
+      setGoTimeCountdown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [goTimeTrip?.alertId]);
+
+  const offers = offersQuery.data?.offers || [];
+  const currentOfferRef = useRef<string | null>(null);
+  const [stableOffer, setStableOffer] = useState<any>(null);
+  const [offerCountdown, setOfferCountdown] = useState<number>(0);
+  const [offerExpiredMsg, setOfferExpiredMsg] = useState(false);
+
+  useEffect(() => {
+    if (offers.length > 0) {
+      const offer = offers[0];
+      if (currentOfferRef.current !== offer.offerId) {
+        currentOfferRef.current = offer.offerId;
+        setStableOffer(offer);
+        setOfferCountdown(offer.secondsRemaining || 0);
+        setOfferExpiredMsg(false);
+      }
+    } else if (currentOfferRef.current && !offerExpiredMsg) {
+      currentOfferRef.current = null;
+      setStableOffer(null);
+    }
+  }, [offers, offerExpiredMsg]);
+
+  useEffect(() => {
+    if (!stableOffer) return;
+    const iv = setInterval(() => {
+      setOfferCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(iv);
+          setOfferExpiredMsg(true);
+          setTimeout(() => {
+            setOfferExpiredMsg(false);
+            setStableOffer(null);
+            currentOfferRef.current = null;
+          }, 3000);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [stableOffer?.offerId]);
+
+  const acknowledgeMutation = useMutation({
+    mutationFn: (alertId: string) =>
+      apiFetch(`/api/driver/go-time/${alertId}/acknowledge`, token, {
+        method: "POST",
+      }),
+  });
+
+  const acceptOfferMutation = useMutation({
+    mutationFn: (offerId: string) =>
+      apiFetch(`/api/driver/offers/${offerId}/accept`, token, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      toast({ title: "Request accepted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/offers/active"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+      setStableOffer(null);
+      currentOfferRef.current = null;
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const declineOfferMutation = useMutation({
+    mutationFn: (offerId: string) =>
+      apiFetch(`/api/driver/offers/${offerId}/decline`, token, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/offers/active"] });
+      setStableOffer(null);
+      currentOfferRef.current = null;
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const openNavigation = useCallback((trip: ActiveTripData) => {
+    const savedApp = getSavedNavApp();
+    if (savedApp) {
+      window.open(getNavUrlForApp(trip, savedApp), "_blank");
+    } else {
+      setNavChooserTrip(trip);
+      setShowNavChooser(true);
+    }
+  }, []);
+
+  const handleNavSelect = useCallback((app: NavApp) => {
+    if (!navChooserTrip) return;
+    if (rememberNav) {
+      setSavedNavApp(app);
+    }
+    window.open(getNavUrlForApp(navChooserTrip, app), "_blank");
+    setShowNavChooser(false);
+    setNavChooserTrip(null);
+    setRememberNav(false);
+  }, [navChooserTrip, rememberNav]);
+
+  const handleGoTimeStartRoute = useCallback(async (alert: any) => {
+    try {
+      await acknowledgeMutation.mutateAsync(alert.alertId);
+    } catch {}
+    statusMutation.mutate({ tripId: alert.tripId, status: "EN_ROUTE_TO_PICKUP" });
+    const tripForNav: ActiveTripData = {
+      id: alert.tripId,
+      publicId: alert.publicId || "",
+      status: "ASSIGNED",
+      pickupAddress: alert.pickupAddress || "",
+      pickupLat: alert.pickupLat || null,
+      pickupLng: alert.pickupLng || null,
+      dropoffAddress: alert.dropoffAddress || "",
+      dropoffLat: alert.dropoffLat || null,
+      dropoffLng: alert.dropoffLng || null,
+      routePolyline: null,
+      lastEtaMinutes: null,
+      lastEtaUpdatedAt: null,
+      scheduledDate: alert.scheduledDate || "",
+      pickupTime: alert.pickupTime || "",
+      patientName: alert.patientName || null,
+    };
+    openNavigation(tripForNav);
+  }, [acknowledgeMutation, statusMutation, openNavigation]);
+
   const activeTrips = todayTrips.filter((t: any) => ACTIVE_STATUSES.includes(t.status));
   const completedToday = todayTrips.filter((t: any) => t.status === "COMPLETED");
   const scheduledToday = todayTrips.filter((t: any) => t.status === "SCHEDULED");
@@ -734,11 +944,47 @@ export default function DriverDashboard() {
           gpsWatchError={geoWatchError}
         />
 
+        {goTimeTrip && (
+          <div
+            className="absolute top-10 left-3 right-3 z-20 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md shadow-lg px-3 py-2.5"
+            data-testid="banner-go-time"
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <Bell className="w-4 h-4 flex-shrink-0" />
+                <span className="font-semibold text-sm" data-testid="text-go-time-countdown">
+                  Pickup in {formatCountdown(goTimeCountdown)}
+                </span>
+                <span className="text-xs truncate opacity-90" data-testid="text-go-time-address">
+                  {goTimeTrip.pickupAddress?.length > 30
+                    ? goTimeTrip.pickupAddress.substring(0, 30) + "..."
+                    : goTimeTrip.pickupAddress}
+                </span>
+                {goTimeTrip.patientName && (
+                  <span className="text-xs opacity-80 flex-shrink-0" data-testid="text-go-time-patient">
+                    {goTimeTrip.patientName}
+                  </span>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => handleGoTimeStartRoute(goTimeTrip)}
+                disabled={acknowledgeMutation.isPending || statusMutation.isPending}
+                data-testid="button-go-time-start-route"
+              >
+                <Navigation className="w-4 h-4 mr-1" />
+                Start Route
+              </Button>
+            </div>
+          </div>
+        )}
+
         {activeTrip && (
           <div className="absolute top-3 right-3 z-10">
             <Button
               size="sm"
-              onClick={() => window.open(getNavigateUrl(activeTrip), "_blank")}
+              onClick={() => openNavigation(activeTrip)}
               className="shadow-lg"
               data-testid="button-navigate"
             >
@@ -748,6 +994,73 @@ export default function DriverDashboard() {
           </div>
         )}
       </div>
+
+      {(stableOffer || offerExpiredMsg) && (
+        <div className="relative z-30 px-3 pb-1" data-testid="card-driver-offer">
+          <Card>
+            <CardContent className="py-3 space-y-2">
+              {offerExpiredMsg ? (
+                <p className="text-center text-sm font-medium text-muted-foreground" data-testid="text-offer-expired">
+                  Request expired
+                </p>
+              ) : stableOffer && (
+                <>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <MapPinned className="w-4 h-4 text-primary flex-shrink-0" />
+                      <span className="font-mono text-xs font-medium" data-testid="text-offer-public-id">{stableOffer.publicId}</span>
+                    </div>
+                    <Badge variant="secondary" data-testid="badge-offer-countdown">
+                      <Timer className="w-3 h-3 mr-1" />
+                      Expires in {formatCountdown(offerCountdown)}
+                    </Badge>
+                  </div>
+                  {stableOffer.patientName && (
+                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <User className="w-3.5 h-3.5" />
+                      <span data-testid="text-offer-patient">{stableOffer.patientName}</span>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <div className="flex items-start gap-1 text-sm">
+                      <Navigation className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-green-600" />
+                      <span className="truncate" data-testid="text-offer-pickup">{stableOffer.pickupAddress}</span>
+                    </div>
+                    <div className="flex items-start gap-1 text-sm">
+                      <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-red-600" />
+                      <span className="truncate" data-testid="text-offer-dropoff">{stableOffer.dropoffAddress}</span>
+                    </div>
+                  </div>
+                  {stableOffer.pickupTime && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3" />
+                      <span data-testid="text-offer-pickup-time">{stableOffer.pickupTime}</span>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      className="flex-1"
+                      onClick={() => acceptOfferMutation.mutate(stableOffer.offerId)}
+                      disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
+                      data-testid="button-accept-offer"
+                    >
+                      ACCEPT REQUEST
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => declineOfferMutation.mutate(stableOffer.offerId)}
+                      disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
+                      data-testid="button-decline-offer"
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div
         className={`bg-background border-t border-border transition-all duration-300 ease-in-out ${
@@ -922,6 +1235,67 @@ export default function DriverDashboard() {
           )}
         </div>
       </div>
+
+      {showNavChooser && navChooserTrip && (
+        <div className="fixed inset-0 bg-background/80 z-50 flex items-end justify-center p-4 sm:items-center" data-testid="overlay-nav-chooser">
+          <Card className="w-full max-w-md">
+            <div className="flex items-center justify-between gap-2 p-3 border-b">
+              <span className="text-base font-semibold">Choose Navigation App</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setShowNavChooser(false); setNavChooserTrip(null); setRememberNav(false); }}
+                data-testid="button-close-nav-chooser"
+              >
+                Close
+              </Button>
+            </div>
+            <CardContent className="py-4 space-y-3">
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-3"
+                onClick={() => handleNavSelect("google")}
+                data-testid="button-nav-google"
+              >
+                <MapPin className="w-5 h-5 text-blue-500" />
+                <span>Google Maps</span>
+                <ExternalLink className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-3"
+                onClick={() => handleNavSelect("waze")}
+                data-testid="button-nav-waze"
+              >
+                <Navigation className="w-5 h-5 text-cyan-500" />
+                <span>Waze</span>
+                <ExternalLink className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-3"
+                onClick={() => handleNavSelect("apple")}
+                data-testid="button-nav-apple"
+              >
+                <MapPinned className="w-5 h-5 text-green-500" />
+                <span>Apple Maps</span>
+                <ExternalLink className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+              </Button>
+              <div className="flex items-center gap-2 pt-2">
+                <Checkbox
+                  id="remember-nav"
+                  checked={rememberNav}
+                  onCheckedChange={(checked) => setRememberNav(checked === true)}
+                  data-testid="checkbox-remember-nav"
+                />
+                <label htmlFor="remember-nav" className="text-sm text-muted-foreground cursor-pointer">
+                  Always use this app
+                </label>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {chatTripId && (
         <TripChat
