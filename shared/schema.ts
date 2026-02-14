@@ -305,6 +305,7 @@ export const trips = pgTable("trips", {
   arrivedDropoffAt: timestamp("arrived_dropoff_at"),
   completedAt: timestamp("completed_at"),
   companyId: integer("company_id").references(() => companies.id),
+  invoiceId: integer("invoice_id").references(() => invoices.id),
   deletedAt: timestamp("deleted_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -343,6 +344,7 @@ export const invoices = pgTable("invoices", {
   serviceDate: text("service_date").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   status: invoiceStatusEnum("status").notNull().default("pending"),
+  notes: text("notes"),
   pdfUrl: text("pdf_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

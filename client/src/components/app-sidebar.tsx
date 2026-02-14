@@ -48,6 +48,7 @@ import {
   History,
   ClipboardCheck,
   Stethoscope,
+  Receipt,
 } from "lucide-react";
 
 interface NavItem {
@@ -69,6 +70,7 @@ const navItems: NavItem[] = [
   { titleKey: "nav.vehicles", url: "/vehicles", icon: Truck, resource: "vehicles" },
   { titleKey: "nav.clinics", url: "/clinics", icon: Building2, resource: "clinics" },
   { titleKey: "nav.invoices", url: "/invoices", icon: FileText, resource: "invoices" },
+  { titleKey: "nav.billing", url: "/billing", icon: Receipt, resource: "invoices" },
   { titleKey: "nav.dispatchBoard", url: "/dispatch-board", icon: ClipboardCheck, resource: "dispatch" },
   { titleKey: "nav.opsHealth", url: "/ops-health", icon: Activity, resource: "dispatch" },
   { titleKey: "nav.autoAssign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },

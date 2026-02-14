@@ -75,6 +75,10 @@ export interface IStorage {
   getInvoiceByTripId(tripId: number): Promise<Invoice | undefined>;
   createInvoice(data: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice>;
+  getWeeklyInvoices(clinicId?: number): Promise<Invoice[]>;
+  getUninvoicedCompletedTrips(clinicId: number, startDate: string, endDate: string, companyId?: number | null): Promise<Trip[]>;
+  linkTripsToInvoice(tripIds: number[], invoiceId: number): Promise<void>;
+  getTripsByInvoiceId(invoiceId: number): Promise<Trip[]>;
 
   isPhoneOptedOut(phone: string): Promise<boolean>;
   setPhoneOptOut(phone: string, optedOut: boolean): Promise<void>;
@@ -507,6 +511,37 @@ export class DatabaseStorage implements IStorage {
   async updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice> {
     const [invoice] = await db.update(invoices).set(data).where(eq(invoices.id, id)).returning();
     return invoice;
+  }
+
+  async getWeeklyInvoices(clinicId?: number): Promise<Invoice[]> {
+    if (clinicId) {
+      return db.select().from(invoices).where(and(isNull(invoices.tripId), eq(invoices.clinicId, clinicId))).orderBy(desc(invoices.createdAt));
+    }
+    return db.select().from(invoices).where(isNull(invoices.tripId)).orderBy(desc(invoices.createdAt));
+  }
+
+  async getUninvoicedCompletedTrips(clinicId: number, startDate: string, endDate: string, companyId?: number | null): Promise<Trip[]> {
+    const conditions = [
+      eq(trips.status, "COMPLETED"),
+      eq(trips.clinicId, clinicId),
+      isNull(trips.invoiceId),
+      isNull(trips.deletedAt),
+      sql`${trips.scheduledDate} >= ${startDate}`,
+      sql`${trips.scheduledDate} <= ${endDate}`,
+    ];
+    if (companyId) {
+      conditions.push(eq(trips.companyId, companyId));
+    }
+    return db.select().from(trips).where(and(...conditions)).orderBy(trips.scheduledDate);
+  }
+
+  async linkTripsToInvoice(tripIds: number[], invoiceId: number): Promise<void> {
+    if (tripIds.length === 0) return;
+    await db.update(trips).set({ invoiceId }).where(inArray(trips.id, tripIds));
+  }
+
+  async getTripsByInvoiceId(invoiceId: number): Promise<Trip[]> {
+    return db.select().from(trips).where(eq(trips.invoiceId, invoiceId)).orderBy(trips.scheduledDate);
   }
 
   async isPhoneOptedOut(phone: string): Promise<boolean> {

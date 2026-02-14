@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import PDFDocument from "pdfkit";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, type AuthRequest } from "./auth";
@@ -4033,7 +4034,10 @@ export async function registerRoutes(
         serviceDate: trip.scheduledDate,
         amount: parseFloat(amount).toFixed(2),
         status: "pending",
+        notes: notes || null,
       });
+
+      await storage.updateTrip(trip.id, { invoiceId: invoice.id });
 
       await storage.createAuditLog({
         userId: req.user!.userId,
@@ -4124,6 +4128,237 @@ export async function registerRoutes(
       });
 
       res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/billing/weekly", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
+      const companyId = req.user!.companyId;
+      let result: any[];
+      if (companyId) {
+        const allWeekly = await storage.getWeeklyInvoices(clinicId);
+        const clinicIds = (await storage.getClinics()).filter((c: any) => c.companyId === companyId).map((c: any) => c.id);
+        result = allWeekly.filter((inv: any) => clinicIds.includes(inv.clinicId));
+      } else {
+        result = await storage.getWeeklyInvoices(clinicId);
+      }
+
+      const enriched = await Promise.all(result.map(async (inv: any) => {
+        const linkedTrips = await storage.getTripsByInvoiceId(inv.id);
+        const clinic = await storage.getClinic(inv.clinicId);
+        return { ...inv, tripCount: linkedTrips.length, clinicName: clinic?.name || "Unknown" };
+      }));
+
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/billing/weekly/preview", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.query.clinic_id as string);
+      const startDate = req.query.start_date as string;
+      const endDate = req.query.end_date as string;
+      if (isNaN(clinicId) || !startDate || !endDate) {
+        return res.status(400).json({ message: "clinic_id, start_date, and end_date are required" });
+      }
+      const companyId = req.user!.companyId || null;
+      const uninvoicedTrips = await storage.getUninvoicedCompletedTrips(clinicId, startDate, endDate, companyId);
+      const patients = new Map<number, any>();
+      for (const t of uninvoicedTrips) {
+        if (!patients.has(t.patientId)) {
+          const p = await storage.getPatient(t.patientId);
+          if (p) patients.set(t.patientId, p);
+        }
+      }
+      const tripsWithPatient = uninvoicedTrips.map((t: any) => {
+        const p = patients.get(t.patientId);
+        return { ...t, patientName: p ? `${p.firstName} ${p.lastName}` : "Unknown" };
+      });
+      res.json({ trips: tripsWithPatient, count: tripsWithPatient.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/billing/weekly/generate", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { clinicId, startDate, endDate, amount } = req.body;
+      if (!clinicId || !startDate || !endDate || amount === undefined) {
+        return res.status(400).json({ message: "clinicId, startDate, endDate, and amount are required" });
+      }
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount) || parsedAmount < 0) {
+        return res.status(400).json({ message: "Invalid amount" });
+      }
+
+      const companyId = req.user!.companyId || null;
+      const uninvoicedTrips = await storage.getUninvoicedCompletedTrips(parseInt(clinicId), startDate, endDate, companyId);
+      if (uninvoicedTrips.length === 0) {
+        return res.status(400).json({ message: "No uninvoiced completed trips found for this clinic and date range" });
+      }
+
+      const clinic = await storage.getClinic(parseInt(clinicId));
+      const clinicName = clinic?.name || "Unknown Clinic";
+      const rangeLabel = `${startDate} to ${endDate}`;
+
+      const invoice = await storage.createInvoice({
+        clinicId: parseInt(clinicId),
+        tripId: null as any,
+        patientName: `Weekly: ${clinicName}`,
+        serviceDate: rangeLabel,
+        amount: parsedAmount.toFixed(2),
+        status: "pending",
+        notes: `Weekly invoice for ${clinicName}, ${rangeLabel}, ${uninvoicedTrips.length} trips`,
+      });
+
+      const tripIds = uninvoicedTrips.map((t: any) => t.id);
+      await storage.linkTripsToInvoice(tripIds, invoice.id);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "CREATE_WEEKLY_INVOICE",
+        entity: "invoice",
+        entityId: invoice.id,
+        details: `Weekly invoice created for ${clinicName}, ${rangeLabel}, ${uninvoicedTrips.length} trips, amount: $${parsedAmount.toFixed(2)}`,
+        cityId: null,
+      });
+
+      res.status(201).json({ invoice, tripCount: uninvoicedTrips.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/billing/weekly/:id/trips", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      if (req.user!.companyId) {
+        const clinic = await storage.getClinic(invoice.clinicId);
+        if (clinic && clinic.companyId && req.user!.companyId !== clinic.companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const linkedTrips = await storage.getTripsByInvoiceId(invoiceId);
+      const patients = new Map<number, any>();
+      for (const t of linkedTrips) {
+        if (!patients.has(t.patientId)) {
+          const p = await storage.getPatient(t.patientId);
+          if (p) patients.set(t.patientId, p);
+        }
+      }
+      const tripsWithPatient = linkedTrips.map((t: any) => {
+        const p = patients.get(t.patientId);
+        return { ...t, patientName: p ? `${p.firstName} ${p.lastName}` : "Unknown" };
+      });
+
+      const clinic = await storage.getClinic(invoice.clinicId);
+
+      res.json({
+        invoice,
+        clinic: clinic ? { id: clinic.id, name: clinic.name } : null,
+        trips: tripsWithPatient,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/billing/weekly/:id/pdf", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      if (req.user!.companyId) {
+        const clinic = await storage.getClinic(invoice.clinicId);
+        if (clinic && clinic.companyId && req.user!.companyId !== clinic.companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const linkedTrips = await storage.getTripsByInvoiceId(invoiceId);
+      const clinic = await storage.getClinic(invoice.clinicId);
+      const clinicName = clinic?.name || "Unknown Clinic";
+
+      const patients = new Map<number, any>();
+      for (const t of linkedTrips) {
+        if (!patients.has(t.patientId)) {
+          const p = await storage.getPatient(t.patientId);
+          if (p) patients.set(t.patientId, p);
+        }
+      }
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="invoice-${invoice.id}-weekly.pdf"`);
+
+      const doc = new PDFDocument({ margin: 50, size: "LETTER" });
+      doc.pipe(res);
+
+      doc.fontSize(20).text("INVOICE", { align: "center" });
+      doc.moveDown(0.5);
+      doc.fontSize(10).fillColor("#666").text("United Care Mobility", { align: "center" });
+      doc.moveDown(1);
+
+      doc.fillColor("#000").fontSize(11);
+      doc.text(`Invoice #: ${invoice.id}`);
+      doc.text(`Clinic: ${clinicName}`);
+      doc.text(`Period: ${invoice.serviceDate}`);
+      doc.text(`Status: ${invoice.status.toUpperCase()}`);
+      doc.text(`Generated: ${new Date(invoice.createdAt).toLocaleDateString()}`);
+      doc.moveDown(1);
+
+      doc.fontSize(13).text("Trip Details", { underline: true });
+      doc.moveDown(0.5);
+
+      const tableTop = doc.y;
+      const col = { num: 50, date: 80, patient: 180, pickup: 330 };
+      doc.fontSize(9).fillColor("#444");
+      doc.text("#", col.num, tableTop);
+      doc.text("Date", col.date, tableTop);
+      doc.text("Patient", col.patient, tableTop);
+      doc.text("Pickup Address", col.pickup, tableTop);
+      doc.moveTo(50, tableTop + 14).lineTo(560, tableTop + 14).stroke("#ccc");
+
+      let y = tableTop + 20;
+      doc.fillColor("#000").fontSize(9);
+      linkedTrips.forEach((t: any, i: number) => {
+        if (y > 700) {
+          doc.addPage();
+          y = 50;
+        }
+        const p = patients.get(t.patientId);
+        const patientName = p ? `${p.firstName} ${p.lastName}` : "Unknown";
+        const pickup = (t.pickupAddress || "").substring(0, 40);
+        doc.text(String(i + 1), col.num, y, { width: 25 });
+        doc.text(t.scheduledDate || "", col.date, y, { width: 95 });
+        doc.text(patientName, col.patient, y, { width: 145 });
+        doc.text(pickup, col.pickup, y, { width: 230 });
+        y += 16;
+      });
+
+      y += 10;
+      if (y > 700) { doc.addPage(); y = 50; }
+      doc.moveTo(50, y).lineTo(560, y).stroke("#ccc");
+      y += 8;
+      doc.fontSize(11).fillColor("#000");
+      doc.text(`Total Trips: ${linkedTrips.length}`, 50, y);
+      y += 16;
+      doc.fontSize(13).text(`Total Amount: $${parseFloat(invoice.amount).toFixed(2)}`, 50, y);
+
+      doc.end();
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
