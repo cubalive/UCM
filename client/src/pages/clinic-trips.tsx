@@ -24,6 +24,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { useTranslation } from "react-i18next";
 import {
@@ -50,6 +63,15 @@ import {
   Map as MapIcon,
   WifiOff,
   RefreshCw,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  TrendingUp,
+  BarChart3,
+  XCircle,
+  ArrowUpRight,
+  ArrowDownRight,
+  Download,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -116,34 +138,38 @@ function todayStr(): string {
   return new Date().toISOString().split("T")[0];
 }
 
+function sevenDaysAgoStr(): string {
+  return new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0];
+}
+
 export default function ClinicTripsPage() {
-  const [mainTab, setMainTab] = useState("dashboard");
+  const [mainTab, setMainTab] = useState("ops");
   const { t } = useTranslation();
 
   return (
-    <div className="p-4 space-y-4 max-w-5xl mx-auto">
+    <div className="p-4 space-y-4 max-w-6xl mx-auto">
       <div>
         <h1 className="text-xl font-semibold" data-testid="text-clinic-portal-title">
-          {t("clinic.title")}
+          Clinic Operations Control Panel
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          {t("clinic.dashboard")}, {t("clinic.trips").toLowerCase()}, {t("clinic.patients").toLowerCase()}, {t("clinic.reports").toLowerCase()}
+          Real-time operations, trips, performance, patients, and reports
         </p>
       </div>
 
       <Tabs value={mainTab} onValueChange={setMainTab}>
         <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="dashboard" data-testid="tab-clinic-dashboard" className="gap-1.5">
+          <TabsTrigger value="ops" data-testid="tab-clinic-ops" className="gap-1.5">
             <LayoutDashboard className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{t("clinic.dashboard")}</span>
-          </TabsTrigger>
-          <TabsTrigger value="livemap" data-testid="tab-clinic-livemap" className="gap-1.5">
-            <MapIcon className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Live Map</span>
+            <span className="hidden sm:inline">Ops Dashboard</span>
           </TabsTrigger>
           <TabsTrigger value="trips" data-testid="tab-clinic-trips" className="gap-1.5">
             <ClipboardList className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">{t("clinic.trips")}</span>
+          </TabsTrigger>
+          <TabsTrigger value="performance" data-testid="tab-clinic-performance" className="gap-1.5">
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Performance</span>
           </TabsTrigger>
           <TabsTrigger value="patients" data-testid="tab-clinic-patients" className="gap-1.5">
             <Users className="w-3.5 h-3.5" />
@@ -155,14 +181,14 @@ export default function ClinicTripsPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="dashboard" className="mt-4">
-          <DashboardSection onSwitchTab={setMainTab} />
-        </TabsContent>
-        <TabsContent value="livemap" className="mt-4">
-          <ClinicLiveMapSection />
+        <TabsContent value="ops" className="mt-4">
+          <OpsDashboard />
         </TabsContent>
         <TabsContent value="trips" className="mt-4">
           <TripsSection />
+        </TabsContent>
+        <TabsContent value="performance" className="mt-4">
+          <PerformanceSection />
         </TabsContent>
         <TabsContent value="patients" className="mt-4">
           <PatientsSection />
@@ -175,230 +201,177 @@ export default function ClinicTripsPage() {
   );
 }
 
-function DashboardSection({ onSwitchTab }: { onSwitchTab: (tab: string) => void }) {
+function OpsDashboard() {
   const { token } = useAuth();
   const [trackingTripId, setTrackingTripId] = useState<number | null>(null);
+  const [selectedOpsTrip, setSelectedOpsTrip] = useState<any>(null);
 
-  const todayTripsQuery = useQuery<any[]>({
-    queryKey: ["/api/clinic/trips", "today"],
-    queryFn: () => apiFetch(`/api/clinic/trips?status=today`, token),
+  const opsQuery = useQuery<any>({
+    queryKey: ["/api/clinic/ops"],
+    queryFn: () => apiFetch("/api/clinic/ops", token),
     enabled: !!token,
     refetchInterval: 15000,
   });
 
-  const activeTripsQuery = useQuery<any[]>({
-    queryKey: ["/api/clinic/trips", "active"],
-    queryFn: () => apiFetch(`/api/clinic/trips?status=active`, token),
-    enabled: !!token,
-    refetchInterval: 15000,
-  });
-
-  const scheduledTripsQuery = useQuery<any[]>({
-    queryKey: ["/api/clinic/trips", "scheduled"],
-    queryFn: () => apiFetch(`/api/clinic/trips?status=scheduled`, token),
-    enabled: !!token,
-  });
-
-  const schedulesQuery = useQuery<any[]>({
-    queryKey: ["/api/clinic/recurring-schedules"],
-    queryFn: () => apiFetch("/api/clinic/recurring-schedules", token),
-    enabled: !!token,
-  });
-
-  const patientsQuery = useQuery<any[]>({
-    queryKey: ["/api/clinic/patients"],
-    queryFn: () => apiFetch("/api/clinic/patients", token),
-    enabled: !!token,
-  });
-
-  const todayTrips = todayTripsQuery.data || [];
-  const activeTrips = (activeTripsQuery.data || []).filter(t => ACTIVE_TRIP_STATUSES.includes(t.status));
-  const scheduledTrips = scheduledTripsQuery.data || [];
-  const schedules = schedulesQuery.data || [];
-  const patients = patientsQuery.data || [];
-
-  const patientMap = new Map(patients.map(p => [p.id, `${p.firstName} ${p.lastName}`]));
+  const opsData = opsQuery.data;
+  const kpis = opsData?.kpis || {};
+  const activeTrips = opsData?.activeTrips || [];
+  const alerts = opsData?.alerts || [];
+  const clinic = opsData?.clinic;
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card data-testid="card-stat-today">
-          <CardContent className="py-3 px-4 text-center">
-            <p className="text-2xl font-bold">{todayTrips.length}</p>
-            <p className="text-xs text-muted-foreground">Today's Trips</p>
-          </CardContent>
-        </Card>
-        <Card data-testid="card-stat-active">
-          <CardContent className="py-3 px-4 text-center">
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{activeTrips.length}</p>
-            <p className="text-xs text-muted-foreground">Active Now</p>
-          </CardContent>
-        </Card>
-        <Card data-testid="card-stat-scheduled">
-          <CardContent className="py-3 px-4 text-center">
-            <p className="text-2xl font-bold">{scheduledTrips.length}</p>
-            <p className="text-xs text-muted-foreground">Scheduled</p>
-          </CardContent>
-        </Card>
-        <Card data-testid="card-stat-patients">
-          <CardContent className="py-3 px-4 text-center">
-            <p className="text-2xl font-bold">{patients.length}</p>
-            <p className="text-xs text-muted-foreground">Patients</p>
-          </CardContent>
-        </Card>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <LayoutDashboard className="w-4 h-4 text-blue-500" />
+          <h2 className="text-sm font-semibold" data-testid="text-ops-title">Operations Overview</h2>
+          {clinic?.name && (
+            <Badge variant="secondary" data-testid="text-clinic-name">{clinic.name}</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <RefreshCw className={`w-3 h-3 ${opsQuery.isFetching ? "animate-spin" : ""}`} />
+          Auto-refresh 15s
+        </div>
       </div>
 
-      {activeTrips.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <Activity className="w-4 h-4 text-blue-500" />
-            <h2 className="text-sm font-semibold">Active Trips - Live Tracking</h2>
-          </div>
-          <div className="space-y-2">
-            {activeTrips.map(trip => (
-              <Card key={trip.id} className="hover-elevate cursor-pointer" onClick={() => setTrackingTripId(trip.id)} data-testid={`card-active-trip-${trip.id}`}>
-                <CardContent className="py-3 px-4">
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium">{trip.publicId}</span>
-                        <Badge className={STATUS_COLORS[trip.status] || ""}>
-                          {STATUS_LABELS[trip.status] || trip.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                        {trip.patientName && (
-                          <span className="flex items-center gap-1">
-                            <User className="w-3 h-3" /> {trip.patientName}
-                          </span>
-                        )}
-                        {trip.driverName && (
-                          <span className="flex items-center gap-1 text-foreground font-medium">
-                            <Car className="w-3 h-3" /> {trip.driverName}
-                          </span>
-                        )}
-                        {trip.lastEtaMinutes != null && (
-                          <span className="flex items-center gap-1 font-medium text-blue-600 dark:text-blue-400">
-                            <Navigation className="w-3 h-3" /> ETA: {trip.lastEtaMinutes} min
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <Button size="sm" variant="outline" className="gap-1" data-testid={`button-track-trip-${trip.id}`}>
-                      <MapPinned className="w-3.5 h-3.5" />
-                      Track
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+      {opsQuery.isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map(i => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
-      )}
-
-      <div>
-        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">Today's Trips</h2>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => onSwitchTab("trips")} data-testid="button-view-all-trips">
-            View All
-          </Button>
-        </div>
-        {todayTripsQuery.isLoading ? (
-          <div className="space-y-2">
-            {[1, 2].map(i => <Skeleton key={i} className="h-16 w-full" />)}
-          </div>
-        ) : todayTrips.length === 0 ? (
-          <Card>
-            <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-no-today-trips">
-              No trips scheduled for today
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="grid-kpi-cards">
+          <Card data-testid="card-kpi-en-route">
+            <CardContent className="py-3 px-4 text-center">
+              <ArrowUpRight className="w-5 h-5 mx-auto mb-1 text-blue-500" />
+              <p className="text-2xl font-bold" data-testid="text-kpi-en-route">{kpis.enRouteToClinic ?? 0}</p>
+              <p className="text-xs text-muted-foreground">En Route to Clinic</p>
             </CardContent>
           </Card>
-        ) : (
-          <div className="space-y-2" data-testid="list-today-trips">
-            {todayTrips.map(trip => (
-              <Card key={trip.id} data-testid={`card-today-trip-${trip.id}`}>
-                <CardContent className="py-3 px-4">
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium">{trip.publicId}</span>
-                        <Badge className={STATUS_COLORS[trip.status] || ""}>
-                          {STATUS_LABELS[trip.status] || trip.status}
-                        </Badge>
-                        {trip.approvalStatus === "pending" && (
-                          <Badge variant="secondary">Pending Approval</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                        {trip.patientName && (
-                          <span className="flex items-center gap-1">
-                            <User className="w-3 h-3" /> {trip.patientName}
-                          </span>
-                        )}
-                        {trip.pickupTime && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> {trip.pickupTime}
-                          </span>
-                        )}
-                        {trip.driverName && (
-                          <span className="flex items-center gap-1">
-                            <Car className="w-3 h-3" /> {trip.driverName}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {ACTIVE_TRIP_STATUSES.includes(trip.status) && (
-                      <Button size="sm" variant="outline" className="gap-1" onClick={() => setTrackingTripId(trip.id)} data-testid={`button-track-today-${trip.id}`}>
-                        <MapPinned className="w-3.5 h-3.5" />
-                        Track
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {schedules.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <Repeat className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">Recurring Schedules</h2>
-          </div>
-          <div className="space-y-2" data-testid="list-recurring-schedules">
-            {schedules.map((sched: any) => (
-              <Card key={sched.id} data-testid={`card-schedule-${sched.id}`}>
-                <CardContent className="py-3 px-4">
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5" />
-                        {patientMap.get(sched.patientId) || `Patient #${sched.patientId}`}
-                      </p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {sched.pickupTime}
-                        </span>
-                        <span>
-                          {(sched.days || []).map((d: string) => DAY_LABELS[d] || d).join(", ")}
-                        </span>
-                      </div>
-                    </div>
-                    <Badge variant={sched.active ? "default" : "secondary"}>
-                      {sched.active ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <Card data-testid="card-kpi-leaving">
+            <CardContent className="py-3 px-4 text-center">
+              <ArrowDownRight className="w-5 h-5 mx-auto mb-1 text-purple-500" />
+              <p className="text-2xl font-bold" data-testid="text-kpi-leaving">{kpis.leavingClinic ?? 0}</p>
+              <p className="text-xs text-muted-foreground">Leaving Clinic</p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-kpi-arrivals60">
+            <CardContent className="py-3 px-4 text-center">
+              <Clock className="w-5 h-5 mx-auto mb-1 text-green-500" />
+              <p className="text-2xl font-bold" data-testid="text-kpi-arrivals60">{kpis.arrivalsNext60 ?? 0}</p>
+              <p className="text-xs text-muted-foreground">Arrivals Next 60 Min</p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-kpi-late-risk">
+            <CardContent className="py-3 px-4 text-center">
+              <AlertTriangle className={`w-5 h-5 mx-auto mb-1 text-red-500 ${(kpis.lateRisk ?? 0) > 0 ? "animate-pulse" : ""}`} />
+              <p className={`text-2xl font-bold ${(kpis.lateRisk ?? 0) > 0 ? "text-red-600 dark:text-red-400" : ""}`} data-testid="text-kpi-late-risk">{kpis.lateRisk ?? 0}</p>
+              <p className="text-xs text-muted-foreground">Late Risk</p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-kpi-no-driver">
+            <CardContent className="py-3 px-4 text-center">
+              <Car className="w-5 h-5 mx-auto mb-1 text-orange-500" />
+              <p className="text-2xl font-bold" data-testid="text-kpi-no-driver">{kpis.noDriverAssigned ?? 0}</p>
+              <p className="text-xs text-muted-foreground">No Driver Assigned</p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-kpi-completed">
+            <CardContent className="py-3 px-4 text-center">
+              <CheckCircle className="w-5 h-5 mx-auto mb-1 text-emerald-500" />
+              <p className="text-2xl font-bold" data-testid="text-kpi-completed">{kpis.completedToday ?? 0}</p>
+              <p className="text-xs text-muted-foreground">Completed Today</p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-kpi-no-shows">
+            <CardContent className="py-3 px-4 text-center">
+              <XCircle className="w-5 h-5 mx-auto mb-1 text-red-500" />
+              <p className="text-2xl font-bold" data-testid="text-kpi-no-shows">{kpis.noShowsToday ?? 0}</p>
+              <p className="text-xs text-muted-foreground">No-Shows Today</p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-kpi-recurring">
+            <CardContent className="py-3 px-4 text-center">
+              <Repeat className="w-5 h-5 mx-auto mb-1 text-blue-500" />
+              <p className="text-2xl font-bold" data-testid="text-kpi-recurring">{kpis.recurringActive ?? 0}</p>
+              <p className="text-xs text-muted-foreground">Recurring Active</p>
+            </CardContent>
+          </Card>
         </div>
       )}
+
+      {alerts.length > 0 && <AlertPanel alerts={alerts} />}
+
+      <OpsMapSection
+        activeTrips={activeTrips}
+        clinic={clinic}
+        selectedTrip={selectedOpsTrip}
+        onSelectTrip={setSelectedOpsTrip}
+      />
+
+      {selectedOpsTrip && (
+        <Card data-testid="card-ops-selected-trip">
+          <CardContent className="py-3 px-4 space-y-2">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold">{selectedOpsTrip.publicId}</span>
+                <Badge className={STATUS_COLORS[selectedOpsTrip.status] || ""}>
+                  {STATUS_LABELS[selectedOpsTrip.status] || selectedOpsTrip.status}
+                </Badge>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedOpsTrip(null)} data-testid="button-deselect-ops-trip">
+                Deselect
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              {selectedOpsTrip.patient && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Patient</p>
+                  <p className="font-medium flex items-center gap-1">
+                    <User className="w-3.5 h-3.5" />
+                    {selectedOpsTrip.patient.firstName} {selectedOpsTrip.patient.lastName}
+                  </p>
+                  {selectedOpsTrip.patient.phone && (
+                    <a href={`tel:${selectedOpsTrip.patient.phone}`} className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1" data-testid="link-call-patient">
+                      <Phone className="w-3 h-3" /> {selectedOpsTrip.patient.phone}
+                    </a>
+                  )}
+                </div>
+              )}
+              {selectedOpsTrip.driver && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Driver</p>
+                  <p className="font-medium flex items-center gap-1">
+                    <Car className="w-3.5 h-3.5" />
+                    {selectedOpsTrip.driver.firstName} {selectedOpsTrip.driver.lastName}
+                  </p>
+                  {selectedOpsTrip.driver.phone && (
+                    <a href={`tel:${selectedOpsTrip.driver.phone}`} className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1" data-testid="link-call-driver">
+                      <Phone className="w-3 h-3" /> {selectedOpsTrip.driver.phone}
+                    </a>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    GPS: {formatTimeAgo(selectedOpsTrip.driver.lastSeenAt)}
+                  </p>
+                </div>
+              )}
+            </div>
+            {selectedOpsTrip.eta && (
+              <p className="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1" data-testid="text-ops-eta">
+                <Navigation className="w-3.5 h-3.5" />
+                ETA: {selectedOpsTrip.eta.minutes} min
+              </p>
+            )}
+            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+              <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-emerald-500" /> {selectedOpsTrip.pickupAddress || "Pickup"}</span>
+              <ArrowRight className="w-3 h-3" />
+              <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-red-500" /> {selectedOpsTrip.dropoffAddress || "Dropoff"}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <ArrivalsBoard activeTrips={activeTrips} onTrack={setTrackingTripId} />
 
       <Dialog open={!!trackingTripId} onOpenChange={(open) => { if (!open) setTrackingTripId(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
@@ -407,6 +380,1015 @@ function DashboardSection({ onSwitchTab }: { onSwitchTab: (tab: string) => void 
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function AlertPanel({ alerts }: { alerts: any[] }) {
+  const [open, setOpen] = useState(true);
+
+  const dangerAlerts = alerts.filter(a => a.severity === "danger");
+  const warningAlerts = alerts.filter(a => a.severity === "warning");
+  const infoAlerts = alerts.filter(a => a.severity === "info");
+
+  function severityColor(severity: string) {
+    if (severity === "danger") return "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800";
+    if (severity === "warning") return "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800";
+    return "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800";
+  }
+
+  function severityIcon(severity: string) {
+    if (severity === "danger") return <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />;
+    if (severity === "warning") return <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0" />;
+    return <Activity className="w-4 h-4 text-blue-500 flex-shrink-0" />;
+  }
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" className="w-full justify-between gap-2" data-testid="button-toggle-alerts">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            <span className="text-sm font-medium">Alerts</span>
+            <Badge variant="secondary" data-testid="text-alert-count">{alerts.length}</Badge>
+            {dangerAlerts.length > 0 && (
+              <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">{dangerAlerts.length} critical</Badge>
+            )}
+          </div>
+          {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="space-y-2 mt-2" data-testid="list-alerts">
+          {alerts.map((alert, idx) => (
+            <div
+              key={idx}
+              className={`flex items-start gap-2 p-3 rounded-md border ${severityColor(alert.severity)}`}
+              data-testid={`alert-item-${idx}`}
+            >
+              {severityIcon(alert.severity)}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm">{alert.message}</p>
+                {alert.tripPublicId && (
+                  <p className="text-xs text-muted-foreground mt-0.5">Trip: {alert.tripPublicId}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
+  activeTrips: any[];
+  clinic: any;
+  selectedTrip: any;
+  onSelectTrip: (trip: any) => void;
+}) {
+  const { token } = useAuth();
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const mapsLoadedRef = useRef(false);
+  const [mapAvailable, setMapAvailable] = useState(true);
+
+  function lateStatusColor(lateStatus: string, isOnline: boolean): string {
+    if (!isOnline) return "#9ca3af";
+    if (lateStatus === "late") return "#ef4444";
+    if (lateStatus === "at_risk") return "#eab308";
+    return "#22c55e";
+  }
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+    if (activeTrips.length === 0 && !clinic) return;
+
+    if (mapsLoadedRef.current && mapInstanceRef.current) {
+      updateOpsMarkers();
+      return;
+    }
+
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    fetch("/api/maps/client-key", { headers })
+      .then(r => r.ok ? r.json() : fetch("/api/public/maps/key").then(rr => rr.json()))
+      .then(json => {
+        if (!json.key) { setMapAvailable(false); return; }
+        if (window.google?.maps) {
+          mapsLoadedRef.current = true;
+          initOpsMap();
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${json.key}&libraries=geometry,places`;
+        script.async = true;
+        script.onload = () => { mapsLoadedRef.current = true; initOpsMap(); };
+        script.onerror = () => setMapAvailable(false);
+        document.head.appendChild(script);
+      })
+      .catch(() => setMapAvailable(false));
+  }, [activeTrips.length > 0 || !!clinic, token]);
+
+  useEffect(() => {
+    if (mapsLoadedRef.current && mapInstanceRef.current) {
+      updateOpsMarkers();
+    }
+  }, [activeTrips, selectedTrip]);
+
+  function initOpsMap() {
+    if (!mapContainerRef.current) return;
+    const center = clinic?.lat && clinic?.lng
+      ? { lat: clinic.lat, lng: clinic.lng }
+      : { lat: 29.76, lng: -95.36 };
+    const map = new google.maps.Map(mapContainerRef.current, {
+      center,
+      zoom: 12,
+      disableDefaultUI: true,
+      zoomControl: true,
+      styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }],
+    });
+    mapInstanceRef.current = map;
+    updateOpsMarkers();
+  }
+
+  function updateOpsMarkers() {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const bounds = new google.maps.LatLngBounds();
+    const currentKeys = new Set<string>();
+
+    if (clinic?.lat && clinic?.lng) {
+      const clinicKey = "clinic-marker";
+      currentKeys.add(clinicKey);
+      const pos = { lat: clinic.lat, lng: clinic.lng };
+      bounds.extend(pos);
+      if (!markersRef.current.has(clinicKey)) {
+        const marker = new google.maps.Marker({
+          position: pos,
+          map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: "#3b82f6",
+            fillOpacity: 1,
+            strokeWeight: 3,
+            strokeColor: "#fff",
+            scale: 10,
+          },
+          title: clinic.name || "Clinic",
+          zIndex: 20,
+        });
+        markersRef.current.set(clinicKey, marker);
+      }
+    }
+
+    activeTrips.forEach(trip => {
+      if (!trip.driver?.lastLat || !trip.driver?.lastLng) return;
+      const key = `driver-${trip.tripId}`;
+      currentKeys.add(key);
+      const pos = { lat: trip.driver.lastLat, lng: trip.driver.lastLng };
+      bounds.extend(pos);
+      const color = lateStatusColor(trip.lateStatus || "on_time", trip.driver.isOnline !== false);
+
+      if (!markersRef.current.has(key)) {
+        const marker = new google.maps.Marker({
+          position: pos,
+          map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: color,
+            fillOpacity: 1,
+            strokeWeight: 2,
+            strokeColor: "#fff",
+            scale: 8,
+          },
+          title: `${trip.patient?.firstName || ""} ${trip.patient?.lastName || ""} - ${trip.publicId}`,
+          zIndex: 10,
+        });
+        marker.addListener("click", () => onSelectTrip(trip));
+        markersRef.current.set(key, marker);
+      } else {
+        const existing = markersRef.current.get(key)!;
+        existing.setPosition(pos);
+        existing.setIcon({
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeWeight: 2,
+          strokeColor: "#fff",
+          scale: 8,
+        });
+      }
+    });
+
+    markersRef.current.forEach((marker, key) => {
+      if (!currentKeys.has(key)) {
+        marker.setMap(null);
+        markersRef.current.delete(key);
+      }
+    });
+
+    if (!bounds.isEmpty() && activeTrips.length > 0) {
+      map.fitBounds(bounds, 60);
+    }
+  }
+
+  const hasDrivers = activeTrips.some(t => t.driver?.lastLat && t.driver?.lastLng);
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <MapIcon className="w-4 h-4 text-blue-500" />
+        <h3 className="text-sm font-semibold" data-testid="text-ops-map-title">Active Trips Map</h3>
+        <Badge variant="secondary">{activeTrips.length} trips</Badge>
+      </div>
+      {mapAvailable && (hasDrivers || (clinic?.lat && clinic?.lng)) ? (
+        <div ref={mapContainerRef} className="w-full h-64 sm:h-80 rounded-md border bg-muted" data-testid="div-ops-map" />
+      ) : activeTrips.length === 0 ? (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-ops-map-empty">
+            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p>No active trips with driver locations</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">
+            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p>Map not available</p>
+          </CardContent>
+        </Card>
+      )}
+      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> On Time</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> At Risk</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Late</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-gray-400 inline-block" /> Offline</span>
+      </div>
+    </div>
+  );
+}
+
+function ArrivalsBoard({ activeTrips, onTrack }: { activeTrips: any[]; onTrack: (id: number) => void }) {
+  const sorted = [...activeTrips].sort((a, b) => {
+    const etaA = a.eta?.minutes ?? 9999;
+    const etaB = b.eta?.minutes ?? 9999;
+    return etaA - etaB;
+  });
+
+  function rowBg(lateStatus: string) {
+    if (lateStatus === "late") return "bg-red-50 dark:bg-red-950/30";
+    if (lateStatus === "at_risk") return "bg-yellow-50 dark:bg-yellow-950/30";
+    return "";
+  }
+
+  if (sorted.length === 0) {
+    return (
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Activity className="w-4 h-4 text-blue-500" />
+          <h3 className="text-sm font-semibold" data-testid="text-arrivals-title">Live Arrivals Board</h3>
+        </div>
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-arrivals-empty">
+            No active arrivals
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <Activity className="w-4 h-4 text-blue-500" />
+        <h3 className="text-sm font-semibold" data-testid="text-arrivals-title">Live Arrivals Board</h3>
+        <Badge variant="secondary">{sorted.length}</Badge>
+      </div>
+      <Card>
+        <Table data-testid="table-arrivals">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Patient</TableHead>
+              <TableHead className="hidden sm:table-cell">From/To</TableHead>
+              <TableHead>Scheduled</TableHead>
+              <TableHead>ETA</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="hidden sm:table-cell">Driver</TableHead>
+              <TableHead>Late</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sorted.map(trip => (
+              <TableRow
+                key={trip.tripId}
+                className={`cursor-pointer ${rowBg(trip.lateStatus || "on_time")}`}
+                onClick={() => onTrack(trip.tripId)}
+                data-testid={`row-arrival-${trip.tripId}`}
+              >
+                <TableCell className="py-2">
+                  <span className="text-sm font-medium" data-testid={`text-arrival-patient-${trip.tripId}`}>
+                    {trip.patient?.firstName} {trip.patient?.lastName}
+                  </span>
+                </TableCell>
+                <TableCell className="py-2 hidden sm:table-cell">
+                  <div className="text-xs text-muted-foreground">
+                    <span className="truncate max-w-[120px] inline-block align-middle">
+                      {trip.pickupAddress ? (trip.pickupAddress.length > 25 ? trip.pickupAddress.substring(0, 25) + "..." : trip.pickupAddress) : "N/A"}
+                    </span>
+                    <ArrowRight className="w-3 h-3 inline mx-1" />
+                    <span className="truncate max-w-[120px] inline-block align-middle">
+                      {trip.dropoffAddress ? (trip.dropoffAddress.length > 25 ? trip.dropoffAddress.substring(0, 25) + "..." : trip.dropoffAddress) : "N/A"}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="py-2">
+                  <span className="text-xs">{trip.pickupTime || "N/A"}</span>
+                </TableCell>
+                <TableCell className="py-2">
+                  {trip.eta?.minutes != null ? (
+                    <span className="text-sm font-bold text-blue-600 dark:text-blue-400" data-testid={`text-arrival-eta-${trip.tripId}`}>
+                      {trip.eta.minutes}m
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">--</span>
+                  )}
+                </TableCell>
+                <TableCell className="py-2">
+                  <Badge className={`${STATUS_COLORS[trip.status] || ""} text-xs`}>
+                    {STATUS_LABELS[trip.status] || trip.status}
+                  </Badge>
+                </TableCell>
+                <TableCell className="py-2 hidden sm:table-cell">
+                  <span className="text-xs">
+                    {trip.driver ? `${trip.driver.firstName} ${trip.driver.lastName}` : "Unassigned"}
+                  </span>
+                </TableCell>
+                <TableCell className="py-2">
+                  {trip.lateStatus === "late" ? (
+                    <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 animate-pulse" data-testid={`badge-late-${trip.tripId}`}>
+                      LATE
+                    </Badge>
+                  ) : trip.lateStatus === "at_risk" ? (
+                    <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" data-testid={`badge-at-risk-${trip.tripId}`}>
+                      AT RISK
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" data-testid={`badge-on-time-${trip.tripId}`}>OK</Badge>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
+  );
+}
+
+function TripsSection() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [tripTab, setTripTab] = useState("live");
+  const [tripTypeFilter, setTripTypeFilter] = useState("all");
+  const [selectedTripId, setSelectedTripId] = useState<number | null>(null);
+  const [showCreateTrip, setShowCreateTrip] = useState(false);
+  const [trackingTripId, setTrackingTripId] = useState<number | null>(null);
+
+  const queryParams = new URLSearchParams();
+  queryParams.set("status", tripTab);
+  if (tripTypeFilter !== "all") queryParams.set("tripType", tripTypeFilter);
+
+  const tripsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/trips", tripTab, tripTypeFilter],
+    queryFn: () => apiFetch(`/api/clinic/trips?${queryParams.toString()}`, token),
+    enabled: !!token,
+    refetchInterval: tripTab === "live" ? 15000 : 30000,
+  });
+
+  const tripDetailQuery = useQuery<any>({
+    queryKey: ["/api/clinic/trips", selectedTripId],
+    queryFn: () => apiFetch(`/api/clinic/trips/${selectedTripId}`, token),
+    enabled: !!token && !!selectedTripId,
+    refetchInterval: 30000,
+  });
+
+  const patientsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/patients"],
+    queryFn: () => apiFetch("/api/clinic/patients", token),
+    enabled: !!token,
+  });
+
+  const clinicQuery = useQuery<any>({
+    queryKey: ["/api/clinic/profile"],
+    queryFn: () => apiFetch("/api/clinic/profile", token),
+    enabled: !!token,
+  });
+
+  const createTripMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiFetch("/api/trips", token, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/trips"] });
+      setShowCreateTrip(false);
+      toast({ title: "Trip requested", description: "Your trip request has been submitted for approval." });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const tripsList = tripsQuery.data || [];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <Tabs value={tripTab} onValueChange={setTripTab}>
+          <TabsList>
+            <TabsTrigger value="live" data-testid="tab-trips-live">Live</TabsTrigger>
+            <TabsTrigger value="scheduled" data-testid="tab-trips-scheduled">Scheduled</TabsTrigger>
+            <TabsTrigger value="pending" data-testid="tab-trips-pending">Pending</TabsTrigger>
+            <TabsTrigger value="completed" data-testid="tab-trips-completed">Completed</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <Button size="sm" onClick={() => setShowCreateTrip(true)} data-testid="button-create-trip" className="gap-1">
+          <Plus className="w-3.5 h-3.5" />
+          Request Trip
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-muted-foreground">Filter:</span>
+        <Button
+          size="sm"
+          variant={tripTypeFilter === "all" ? "default" : "outline"}
+          onClick={() => setTripTypeFilter("all")}
+          data-testid="button-filter-all"
+          className="toggle-elevate"
+        >
+          All
+        </Button>
+        <Button
+          size="sm"
+          variant={tripTypeFilter === "recurring" ? "default" : "outline"}
+          onClick={() => setTripTypeFilter("recurring")}
+          data-testid="button-filter-recurring"
+          className="toggle-elevate"
+        >
+          Recurring
+        </Button>
+        <Button
+          size="sm"
+          variant={tripTypeFilter === "one_time" ? "default" : "outline"}
+          onClick={() => setTripTypeFilter("one_time")}
+          data-testid="button-filter-onetime"
+          className="toggle-elevate"
+        >
+          One-time
+        </Button>
+      </div>
+
+      {tripsQuery.isLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
+        </div>
+      ) : tripsList.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground" data-testid="text-empty-trips">
+          No {tripTab} trips
+        </div>
+      ) : (
+        <div className="space-y-2" data-testid="list-clinic-trips">
+          {tripsList.map((trip) => (
+            <ClinicTripCard
+              key={trip.id}
+              trip={trip}
+              isCompleted={tripTab === "completed"}
+              onSelect={() => setSelectedTripId(trip.id)}
+              onTrack={ACTIVE_TRIP_STATUSES.includes(trip.status) ? () => setTrackingTripId(trip.id) : undefined}
+            />
+          ))}
+        </div>
+      )}
+
+      <Dialog open={!!selectedTripId} onOpenChange={(open) => { if (!open) setSelectedTripId(null); }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Trip Details
+              {tripDetailQuery.data && (
+                <Badge className={STATUS_COLORS[tripDetailQuery.data.status] || ""}>
+                  {STATUS_LABELS[tripDetailQuery.data.status] || tripDetailQuery.data.status}
+                </Badge>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {tripDetailQuery.isLoading ? (
+            <div className="space-y-3 py-4">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-32 w-full" />
+            </div>
+          ) : tripDetailQuery.data ? (
+            <TripDetail trip={tripDetailQuery.data} onTrack={() => { setSelectedTripId(null); setTrackingTripId(tripDetailQuery.data.id); }} />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCreateTrip} onOpenChange={setShowCreateTrip}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Request a Trip</DialogTitle>
+          </DialogHeader>
+          <CreateTripForm
+            patients={patientsQuery.data || []}
+            clinic={clinicQuery.data}
+            loading={createTripMutation.isPending}
+            onSubmit={(data) => createTripMutation.mutate(data)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!trackingTripId} onOpenChange={(open) => { if (!open) setTrackingTripId(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {trackingTripId && (
+            <TripTrackingView tripId={trackingTripId} onClose={() => setTrackingTripId(null)} />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function PerformanceSection() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [startDate, setStartDate] = useState(sevenDaysAgoStr());
+  const [endDate, setEndDate] = useState(todayStr());
+  const [exporting, setExporting] = useState(false);
+
+  const metricsQuery = useQuery<any>({
+    queryKey: ["/api/clinic/metrics", startDate, endDate],
+    queryFn: () => apiFetch(`/api/clinic/metrics?startDate=${startDate}&endDate=${endDate}`, token),
+    enabled: !!token && !!startDate && !!endDate,
+  });
+
+  const metrics = metricsQuery.data?.metrics || {};
+  const dailyData = metricsQuery.data?.dailyData || [];
+
+  function rateColor(rate: number): string {
+    if (rate >= 80) return "text-green-600 dark:text-green-400";
+    if (rate >= 60) return "text-yellow-600 dark:text-yellow-400";
+    return "text-red-600 dark:text-red-400";
+  }
+
+  const handleWeeklyExport = async () => {
+    setExporting(true);
+    try {
+      const response = await fetch(`/api/clinic/trips/export?startDate=${startDate}&endDate=${endDate}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `performance_${startDate}_to_${endDate}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast({ title: "Export downloaded" });
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const maxDailyTotal = Math.max(1, ...dailyData.map((d: any) => d.total || 0));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-blue-500" />
+          <h2 className="text-sm font-semibold" data-testid="text-performance-title">Performance Metrics</h2>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Input
+            type="date"
+            value={startDate}
+            onChange={e => setStartDate(e.target.value)}
+            className="max-w-[150px]"
+            data-testid="input-perf-start"
+          />
+          <span className="text-xs text-muted-foreground">to</span>
+          <Input
+            type="date"
+            value={endDate}
+            onChange={e => setEndDate(e.target.value)}
+            className="max-w-[150px]"
+            data-testid="input-perf-end"
+          />
+        </div>
+      </div>
+
+      {metricsQuery.isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-24 w-full" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" data-testid="grid-metric-cards">
+          <Card data-testid="card-metric-ontime">
+            <CardContent className="py-3 px-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">On-Time Rate</p>
+              <p className={`text-3xl font-bold ${rateColor(metrics.onTimeRate ?? 0)}`} data-testid="text-metric-ontime">
+                {(metrics.onTimeRate ?? 0).toFixed(1)}%
+              </p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-metric-delay">
+            <CardContent className="py-3 px-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Avg Delay</p>
+              <p className="text-3xl font-bold" data-testid="text-metric-delay">
+                {(metrics.avgDelayMinutes ?? 0).toFixed(1)}
+              </p>
+              <p className="text-xs text-muted-foreground">minutes</p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-metric-noshow">
+            <CardContent className="py-3 px-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">No-Show Rate</p>
+              <p className="text-3xl font-bold text-red-600 dark:text-red-400" data-testid="text-metric-noshow">
+                {(metrics.noShowRate ?? 0).toFixed(1)}%
+              </p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-metric-tripsperday">
+            <CardContent className="py-3 px-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Trips Per Day</p>
+              <p className="text-3xl font-bold" data-testid="text-metric-tripsperday">
+                {(metrics.tripsPerDay ?? 0).toFixed(1)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-metric-recurring-reliability">
+            <CardContent className="py-3 px-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Recurring Reliability</p>
+              <p className={`text-3xl font-bold ${rateColor(metrics.recurringReliability ?? 0)}`} data-testid="text-metric-recurring-reliability">
+                {(metrics.recurringReliability ?? 0).toFixed(1)}%
+              </p>
+            </CardContent>
+          </Card>
+          <Card data-testid="card-metric-cancellation">
+            <CardContent className="py-3 px-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Cancellation Rate</p>
+              <p className="text-3xl font-bold" data-testid="text-metric-cancellation">
+                {(metrics.cancellationRate ?? 0).toFixed(1)}%
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {dailyData.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-2">
+            <CardTitle className="text-base">Daily Trip Volume</CardTitle>
+            <BarChart3 className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="space-y-2" data-testid="chart-daily-volume">
+            {dailyData.map((day: any, idx: number) => {
+              const pct = maxDailyTotal > 0 ? (day.total / maxDailyTotal) * 100 : 0;
+              const completedPct = maxDailyTotal > 0 ? (day.completed / maxDailyTotal) * 100 : 0;
+              const latePct = maxDailyTotal > 0 ? ((day.late || 0) / maxDailyTotal) * 100 : 0;
+              const dateLabel = new Date(day.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+              return (
+                <div key={idx} className="flex items-center gap-3" data-testid={`bar-day-${idx}`}>
+                  <span className="text-xs text-muted-foreground w-24 flex-shrink-0 text-right">{dateLabel}</span>
+                  <div className="flex-1 flex items-center gap-1">
+                    <div className="flex-1 bg-muted rounded-sm overflow-visible h-5 relative">
+                      <div
+                        className="absolute left-0 top-0 h-5 bg-emerald-500 rounded-sm"
+                        style={{ width: `${completedPct}%` }}
+                      />
+                      <div
+                        className="absolute top-0 h-5 bg-red-400 rounded-sm"
+                        style={{ left: `${completedPct}%`, width: `${latePct}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-medium w-8 text-right">{day.total}</span>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex items-center gap-4 text-xs text-muted-foreground mt-2 flex-wrap">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block" /> Completed</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-red-400 inline-block" /> Late</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Button onClick={handleWeeklyExport} disabled={exporting} className="gap-1.5" data-testid="button-export-weekly">
+        <Download className="w-3.5 h-3.5" />
+        {exporting ? "Exporting..." : "Download Weekly Summary CSV"}
+      </Button>
+    </div>
+  );
+}
+
+function PatientsSection() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [showAddPatient, setShowAddPatient] = useState(false);
+  const [editPatient, setEditPatient] = useState<any>(null);
+  const [search, setSearch] = useState("");
+
+  const patientsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/patients"],
+    queryFn: () => apiFetch("/api/clinic/patients", token),
+    enabled: !!token,
+  });
+
+  const clinicQuery = useQuery<any>({
+    queryKey: ["/api/clinic/profile"],
+    queryFn: () => apiFetch("/api/clinic/profile", token),
+    enabled: !!token,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiFetch("/api/patients", token, {
+        method: "POST",
+        body: JSON.stringify({ ...data, cityId: clinicQuery.data?.cityId }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/patients"] });
+      setShowAddPatient(false);
+      toast({ title: "Patient added" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      return apiFetch(`/api/patients/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/patients"] });
+      setEditPatient(null);
+      toast({ title: "Patient updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const patientsList = (patientsQuery.data || []).filter(p => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    return `${p.firstName} ${p.lastName}`.toLowerCase().includes(s) || (p.phone || "").includes(s);
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <Input
+          placeholder="Search patients..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="max-w-xs"
+          data-testid="input-search-patients"
+        />
+        <Button size="sm" onClick={() => setShowAddPatient(true)} data-testid="button-add-patient" className="gap-1">
+          <Plus className="w-3.5 h-3.5" />
+          Add Patient
+        </Button>
+      </div>
+
+      {patientsQuery.isLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+        </div>
+      ) : patientsList.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground" data-testid="text-empty-patients">
+          No patients found
+        </div>
+      ) : (
+        <div className="space-y-2" data-testid="list-clinic-patients">
+          {patientsList.map(p => (
+            <Card key={p.id} className="cursor-pointer hover-elevate" onClick={() => setEditPatient(p)} data-testid={`card-patient-${p.id}`}>
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-medium flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5" />
+                      {p.firstName} {p.lastName}
+                    </p>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                      {p.phone && <span>{p.phone}</span>}
+                      {p.address && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {p.address.length > 40 ? p.address.substring(0, 40) + "..." : p.address}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <Button size="sm" variant="outline" data-testid={`button-edit-patient-${p.id}`}>
+                    Edit
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={showAddPatient} onOpenChange={setShowAddPatient}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Add Patient</DialogTitle></DialogHeader>
+          <ClinicPatientForm loading={createMutation.isPending} onSubmit={(data) => createMutation.mutate(data)} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editPatient} onOpenChange={(open) => { if (!open) setEditPatient(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Edit Patient</DialogTitle></DialogHeader>
+          {editPatient && (
+            <ClinicPatientForm
+              initialData={editPatient}
+              isEdit
+              loading={updateMutation.isPending}
+              onSubmit={(data) => updateMutation.mutate({ id: editPatient.id, data })}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ReportsSection() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const today = todayStr();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+  const [startDate, setStartDate] = useState(thirtyDaysAgo);
+  const [endDate, setEndDate] = useState(today);
+  const [exporting, setExporting] = useState(false);
+
+  const weeklyMetricsQuery = useQuery<any>({
+    queryKey: ["/api/clinic/metrics", "weekly-summary"],
+    queryFn: () => apiFetch(`/api/clinic/metrics?startDate=${sevenDaysAgoStr()}&endDate=${todayStr()}`, token),
+    enabled: !!token,
+  });
+
+  const weeklyMetrics = weeklyMetricsQuery.data?.metrics || {};
+
+  const handleExport = async () => {
+    if (!startDate || !endDate) {
+      toast({ title: "Please select both dates", variant: "destructive" });
+      return;
+    }
+    setExporting(true);
+    try {
+      const response = await fetch(`/api/clinic/trips/export?startDate=${startDate}&endDate=${endDate}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `trips_${startDate}_to_${endDate}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast({ title: "Export downloaded" });
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleWeeklySummaryExport = async () => {
+    setExporting(true);
+    try {
+      const sd = sevenDaysAgoStr();
+      const ed = todayStr();
+      const response = await fetch(`/api/clinic/trips/export?startDate=${sd}&endDate=${ed}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `weekly_summary_${sd}_to_${ed}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast({ title: "Weekly summary downloaded" });
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-2">
+          <CardTitle className="text-base">Trip Report Export</CardTitle>
+          <FileDown className="w-4 h-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Download a CSV report of all trips for your clinic within a date range.
+            Includes patient name, addresses, pickup time, status, driver, ETA, and mileage.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Start Date</Label>
+              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} data-testid="input-export-start" />
+            </div>
+            <div className="space-y-2">
+              <Label>End Date</Label>
+              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} data-testid="input-export-end" />
+            </div>
+          </div>
+          <Button onClick={handleExport} disabled={exporting} className="gap-1.5" data-testid="button-export-csv">
+            <FileDown className="w-3.5 h-3.5" />
+            {exporting ? "Exporting..." : "Download CSV"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-weekly-summary">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-2">
+          <CardTitle className="text-base">Weekly Summary (Last 7 Days)</CardTitle>
+          <TrendingUp className="w-4 h-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {weeklyMetricsQuery.isLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-6 w-full" />
+              <Skeleton className="h-6 w-full" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" data-testid="grid-weekly-summary">
+              <div>
+                <p className="text-xs text-muted-foreground">Total Trips</p>
+                <p className="text-lg font-bold" data-testid="text-weekly-total">{weeklyMetrics.totalTrips ?? 0}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Completed</p>
+                <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-weekly-completed">{weeklyMetrics.completedTrips ?? 0}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">On-Time Rate</p>
+                <p className="text-lg font-bold" data-testid="text-weekly-ontime">{(weeklyMetrics.onTimeRate ?? 0).toFixed(1)}%</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">No-Shows</p>
+                <p className="text-lg font-bold text-red-600 dark:text-red-400" data-testid="text-weekly-noshows">{weeklyMetrics.noShowTrips ?? 0}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Cancelled</p>
+                <p className="text-lg font-bold" data-testid="text-weekly-cancelled">{weeklyMetrics.cancelledTrips ?? 0}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Avg Delay</p>
+                <p className="text-lg font-bold" data-testid="text-weekly-delay">{(weeklyMetrics.avgDelayMinutes ?? 0).toFixed(1)} min</p>
+              </div>
+            </div>
+          )}
+          <Button onClick={handleWeeklySummaryExport} disabled={exporting} variant="outline" className="gap-1.5" data-testid="button-export-weekly-summary">
+            <Download className="w-3.5 h-3.5" />
+            {exporting ? "Exporting..." : "Download Weekly Summary"}
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -768,486 +1750,6 @@ function TripProgressBar({ status }: { status: string }) {
   );
 }
 
-function ClinicLiveMapSection() {
-  const { token } = useAuth();
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
-  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
-  const mapsLoadedRef = useRef(false);
-  const [mapAvailable, setMapAvailable] = useState(true);
-  const [selectedTrip, setSelectedTrip] = useState<any>(null);
-
-  const mapQuery = useQuery<any>({
-    queryKey: ["/api/clinic/map"],
-    queryFn: () => apiFetch("/api/clinic/map", token),
-    enabled: !!token,
-    refetchInterval: 10000,
-  });
-
-  const mapTrips: any[] = mapQuery.data?.trips || [];
-
-  function createCarSvg(color: string) {
-    const fill = color || "#3b82f6";
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24">
-      <path d="M5 17a1 1 0 0 1-1-1v-5l2-6h12l2 6v5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H8v1a1 1 0 0 1-1 1H5z"
-        fill="${fill}" stroke="#fff" stroke-width="1"/>
-      <circle cx="7.5" cy="14.5" r="1.5" fill="#fff"/>
-      <circle cx="16.5" cy="14.5" r="1.5" fill="#fff"/>
-      <path d="M6.5 8L8 4h8l1.5 4H6.5z" fill="${fill}" opacity="0.6" stroke="#fff" stroke-width="0.5"/>
-    </svg>`;
-  }
-
-  useEffect(() => {
-    if (!mapContainerRef.current) return;
-    if (mapTrips.length === 0) return;
-
-    if (mapsLoadedRef.current && mapInstanceRef.current) {
-      updateMapView();
-      return;
-    }
-
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    fetch("/api/maps/client-key", { headers })
-      .then(r => r.ok ? r.json() : fetch("/api/public/maps/key").then(rr => rr.json()))
-      .then(json => {
-        if (!json.key) { setMapAvailable(false); return; }
-        if (window.google?.maps) {
-          mapsLoadedRef.current = true;
-          initLiveMap();
-          return;
-        }
-        const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${json.key}&libraries=geometry,places`;
-        script.async = true;
-        script.onload = () => { mapsLoadedRef.current = true; initLiveMap(); };
-        script.onerror = () => setMapAvailable(false);
-        document.head.appendChild(script);
-      })
-      .catch(() => setMapAvailable(false));
-  }, [mapTrips.length > 0, token]);
-
-  useEffect(() => {
-    if (mapsLoadedRef.current && mapInstanceRef.current && mapTrips.length > 0) {
-      updateMapView();
-    }
-  }, [mapTrips]);
-
-  function initLiveMap() {
-    if (!mapContainerRef.current) return;
-    const map = new google.maps.Map(mapContainerRef.current, {
-      center: { lat: 29.76, lng: -95.36 },
-      zoom: 11,
-      disableDefaultUI: true,
-      zoomControl: true,
-      styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }],
-    });
-    mapInstanceRef.current = map;
-    directionsRendererRef.current = new google.maps.DirectionsRenderer({
-      map,
-      suppressMarkers: true,
-      polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 4, strokeOpacity: 0.7 },
-    });
-    updateMapView();
-  }
-
-  function updateMapView() {
-    const map = mapInstanceRef.current;
-    if (!map) return;
-
-    const bounds = new google.maps.LatLngBounds();
-    const currentKeys = new Set<string>();
-
-    mapTrips.forEach(trip => {
-      if (trip.pickupLat && trip.pickupLng) {
-        const key = `pickup-${trip.tripId}`;
-        currentKeys.add(key);
-        const pos = { lat: trip.pickupLat, lng: trip.pickupLng };
-        bounds.extend(pos);
-        if (!markersRef.current.has(key)) {
-          const marker = new google.maps.Marker({
-            position: pos, map,
-            icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: "#22c55e", fillOpacity: 1, strokeWeight: 2, strokeColor: "#fff", scale: 7 },
-            title: `Pickup: ${trip.publicId}`, zIndex: 3,
-          });
-          marker.addListener("click", () => setSelectedTrip(trip));
-          markersRef.current.set(key, marker);
-        } else {
-          markersRef.current.get(key)!.setPosition(pos);
-        }
-      }
-
-      if (trip.dropoffLat && trip.dropoffLng) {
-        const key = `dropoff-${trip.tripId}`;
-        currentKeys.add(key);
-        const pos = { lat: trip.dropoffLat, lng: trip.dropoffLng };
-        bounds.extend(pos);
-        if (!markersRef.current.has(key)) {
-          const marker = new google.maps.Marker({
-            position: pos, map,
-            icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: "#ef4444", fillOpacity: 1, strokeWeight: 2, strokeColor: "#fff", scale: 7 },
-            title: `Dropoff: ${trip.publicId}`, zIndex: 3,
-          });
-          marker.addListener("click", () => setSelectedTrip(trip));
-          markersRef.current.set(key, marker);
-        } else {
-          markersRef.current.get(key)!.setPosition(pos);
-        }
-      }
-
-      if (trip.driver?.lastLat && trip.driver?.lastLng) {
-        const key = `driver-${trip.tripId}`;
-        currentKeys.add(key);
-        const pos = { lat: trip.driver.lastLat, lng: trip.driver.lastLng };
-        bounds.extend(pos);
-        const vColor = trip.driver.vehicleColor || "#3b82f6";
-        if (!markersRef.current.has(key)) {
-          const marker = new google.maps.Marker({
-            position: pos, map,
-            icon: {
-              url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(createCarSvg(vColor)),
-              scaledSize: new google.maps.Size(36, 36),
-              anchor: new google.maps.Point(18, 18),
-            },
-            title: `${trip.driver.firstName} ${trip.driver.lastName}`,
-            zIndex: 10,
-          });
-          marker.addListener("click", () => setSelectedTrip(trip));
-          markersRef.current.set(key, marker);
-        } else {
-          markersRef.current.get(key)!.setPosition(pos);
-        }
-      }
-    });
-
-    markersRef.current.forEach((marker, key) => {
-      if (!currentKeys.has(key)) {
-        marker.setMap(null);
-        markersRef.current.delete(key);
-      }
-    });
-
-    if (mapTrips.length > 0 && !bounds.isEmpty()) {
-      map.fitBounds(bounds, 60);
-    }
-
-    if (selectedTrip && directionsRendererRef.current) {
-      const trip = mapTrips.find(t => t.tripId === selectedTrip.tripId);
-      if (trip?.driver?.lastLat && trip?.driver?.lastLng && trip.pickupLat) {
-        const origin = { lat: trip.driver.lastLat, lng: trip.driver.lastLng };
-        const dest = ["PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"].includes(trip.status)
-          ? { lat: trip.dropoffLat, lng: trip.dropoffLng }
-          : { lat: trip.pickupLat, lng: trip.pickupLng };
-        if (dest.lat && dest.lng) {
-          new google.maps.DirectionsService().route(
-            { origin, destination: dest, travelMode: google.maps.TravelMode.DRIVING },
-            (result, status) => {
-              if (status === "OK" && result) directionsRendererRef.current?.setDirections(result);
-            }
-          );
-        }
-      }
-    } else if (directionsRendererRef.current) {
-      directionsRendererRef.current.setDirections({ routes: [] } as any);
-    }
-  }
-
-  const onlineTrips = mapTrips.filter(t => t.driver?.isOnline);
-  const offlineTrips = mapTrips.filter(t => t.driver && !t.driver.isOnline);
-  const noDriverTrips = mapTrips.filter(t => !t.driver);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <MapIcon className="w-4 h-4 text-blue-500" />
-          <h2 className="text-sm font-semibold" data-testid="text-livemap-title">Live Map</h2>
-          <Badge variant="secondary" className="gap-1">
-            <Activity className="w-3 h-3 text-emerald-500" />
-            {mapTrips.length} active
-          </Badge>
-        </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <RefreshCw className={`w-3 h-3 ${mapQuery.isFetching ? "animate-spin" : ""}`} />
-          Auto-refresh 10s
-        </div>
-      </div>
-
-      {mapAvailable && mapTrips.length > 0 ? (
-        <div ref={mapContainerRef} className="w-full h-64 sm:h-80 md:h-96 rounded-md border bg-muted" data-testid="div-clinic-livemap" />
-      ) : mapTrips.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground" data-testid="text-livemap-empty">
-            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p>No active trips right now</p>
-            <p className="text-xs mt-1">Active trips will appear here with live driver tracking</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p>Map not available</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {selectedTrip && (
-        <Card data-testid="card-selected-trip">
-          <CardContent className="py-3 px-4 space-y-2">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold">{selectedTrip.publicId}</span>
-                <Badge className={STATUS_COLORS[selectedTrip.status] || ""}>
-                  {STATUS_LABELS[selectedTrip.status] || selectedTrip.status}
-                </Badge>
-                {selectedTrip.driver?.isOnline && (
-                  <Badge variant="secondary" className="gap-1">
-                    <Activity className="w-3 h-3 text-emerald-500" /> Live
-                  </Badge>
-                )}
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => setSelectedTrip(null)} data-testid="button-deselect-trip">
-                Deselect
-              </Button>
-            </div>
-            {selectedTrip.driver && (
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 text-sm">
-                  <Car className="w-4 h-4" style={{ color: selectedTrip.driver.vehicleColor || "#3b82f6" }} />
-                  <span>{selectedTrip.driver.firstName} {selectedTrip.driver.lastName}</span>
-                  {selectedTrip.driver.vehicleLabel && (
-                    <span className="text-xs text-muted-foreground">{selectedTrip.driver.vehicleLabel}</span>
-                  )}
-                </div>
-                <div className="text-right">
-                  {selectedTrip.eta && selectedTrip.driver.isOnline ? (
-                    <p className="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1" data-testid="text-eta-value">
-                      <Navigation className="w-3.5 h-3.5" />
-                      Arriving in {selectedTrip.eta.minutes} min
-                    </p>
-                  ) : selectedTrip.driver && !selectedTrip.driver.isOnline ? (
-                    <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid="text-driver-offline">
-                      <WifiOff className="w-3 h-3" />
-                      Driver offline - last seen {formatTimeAgo(selectedTrip.driver.lastSeenAt)}
-                    </p>
-                  ) : null}
-                  {selectedTrip.eta?.updatedAt && (
-                    <p className="text-xs text-muted-foreground">Updated {formatTimeAgo(selectedTrip.eta.updatedAt)}</p>
-                  )}
-                </div>
-              </div>
-            )}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-              <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-emerald-500" /> {selectedTrip.pickupAddress || "Pickup"}</span>
-              <ArrowRight className="w-3 h-3" />
-              <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-red-500" /> {selectedTrip.dropoffAddress || "Dropoff"}</span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="space-y-2" data-testid="list-livemap-trips">
-        {mapTrips.map(trip => {
-          const isSelected = selectedTrip?.tripId === trip.tripId;
-          return (
-            <Card
-              key={trip.tripId}
-              className={`hover-elevate cursor-pointer ${isSelected ? "ring-2 ring-primary" : ""}`}
-              onClick={() => setSelectedTrip(isSelected ? null : trip)}
-              data-testid={`card-livemap-trip-${trip.tripId}`}
-            >
-              <CardContent className="py-3 px-4">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium">{trip.publicId}</span>
-                      <Badge className={STATUS_COLORS[trip.status] || ""}>
-                        {STATUS_LABELS[trip.status] || trip.status}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                      {trip.driver ? (
-                        <span className="flex items-center gap-1 text-foreground font-medium">
-                          <Car className="w-3 h-3" style={{ color: trip.driver.vehicleColor || "#3b82f6" }} />
-                          {trip.driver.firstName} {trip.driver.lastName}
-                        </span>
-                      ) : (
-                        <span className="italic">No driver assigned</span>
-                      )}
-                      {trip.pickupTime && (
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {trip.pickupTime}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-right space-y-0.5 flex-shrink-0">
-                    {trip.eta && trip.driver?.isOnline ? (
-                      <p className="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                        <Navigation className="w-3.5 h-3.5" />
-                        {trip.eta.minutes} min
-                      </p>
-                    ) : trip.driver && !trip.driver.isOnline ? (
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <WifiOff className="w-3 h-3" />
-                        Offline
-                      </p>
-                    ) : null}
-                    {trip.driver?.isOnline && (
-                      <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                        <Radio className="w-3 h-3" /> Live
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function TripsSection() {
-  const { token } = useAuth();
-  const { toast } = useToast();
-  const [tripTab, setTripTab] = useState("active");
-  const [selectedTripId, setSelectedTripId] = useState<number | null>(null);
-  const [showCreateTrip, setShowCreateTrip] = useState(false);
-  const [trackingTripId, setTrackingTripId] = useState<number | null>(null);
-
-  const tripsQuery = useQuery<any[]>({
-    queryKey: ["/api/clinic/trips", tripTab],
-    queryFn: () => apiFetch(`/api/clinic/trips?status=${tripTab}`, token),
-    enabled: !!token,
-    refetchInterval: tripTab === "active" ? 15000 : 30000,
-  });
-
-  const tripDetailQuery = useQuery<any>({
-    queryKey: ["/api/clinic/trips", selectedTripId],
-    queryFn: () => apiFetch(`/api/clinic/trips/${selectedTripId}`, token),
-    enabled: !!token && !!selectedTripId,
-    refetchInterval: 30000,
-  });
-
-  const patientsQuery = useQuery<any[]>({
-    queryKey: ["/api/clinic/patients"],
-    queryFn: () => apiFetch("/api/clinic/patients", token),
-    enabled: !!token,
-  });
-
-  const clinicQuery = useQuery<any>({
-    queryKey: ["/api/clinic/profile"],
-    queryFn: () => apiFetch("/api/clinic/profile", token),
-    enabled: !!token,
-  });
-
-  const createTripMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return apiFetch("/api/trips", token, {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/clinic/trips"] });
-      setShowCreateTrip(false);
-      toast({ title: "Trip requested", description: "Your trip request has been submitted for approval." });
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
-
-  const tripsList = tripsQuery.data || [];
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Tabs value={tripTab} onValueChange={setTripTab}>
-          <TabsList>
-            <TabsTrigger value="active" data-testid="tab-trips-active">Active</TabsTrigger>
-            <TabsTrigger value="scheduled" data-testid="tab-trips-scheduled">Scheduled</TabsTrigger>
-            <TabsTrigger value="completed" data-testid="tab-trips-completed">Completed</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <Button size="sm" onClick={() => setShowCreateTrip(true)} data-testid="button-create-trip" className="gap-1">
-          <Plus className="w-3.5 h-3.5" />
-          Request Trip
-        </Button>
-      </div>
-
-      {tripsQuery.isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
-        </div>
-      ) : tripsList.length === 0 ? (
-        <div className="py-12 text-center text-sm text-muted-foreground" data-testid="text-empty-trips">
-          No {tripTab} trips
-        </div>
-      ) : (
-        <div className="space-y-2" data-testid="list-clinic-trips">
-          {tripsList.map((trip) => (
-            <ClinicTripCard
-              key={trip.id}
-              trip={trip}
-              isCompleted={tripTab === "completed"}
-              onSelect={() => setSelectedTripId(trip.id)}
-              onTrack={ACTIVE_TRIP_STATUSES.includes(trip.status) ? () => setTrackingTripId(trip.id) : undefined}
-            />
-          ))}
-        </div>
-      )}
-
-      <Dialog open={!!selectedTripId} onOpenChange={(open) => { if (!open) setSelectedTripId(null); }}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              Trip Details
-              {tripDetailQuery.data && (
-                <Badge className={STATUS_COLORS[tripDetailQuery.data.status] || ""}>
-                  {STATUS_LABELS[tripDetailQuery.data.status] || tripDetailQuery.data.status}
-                </Badge>
-              )}
-            </DialogTitle>
-          </DialogHeader>
-          {tripDetailQuery.isLoading ? (
-            <div className="space-y-3 py-4">
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-32 w-full" />
-            </div>
-          ) : tripDetailQuery.data ? (
-            <TripDetail trip={tripDetailQuery.data} onTrack={() => { setSelectedTripId(null); setTrackingTripId(tripDetailQuery.data.id); }} />
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showCreateTrip} onOpenChange={setShowCreateTrip}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Request a Trip</DialogTitle>
-          </DialogHeader>
-          <CreateTripForm
-            patients={patientsQuery.data || []}
-            clinic={clinicQuery.data}
-            loading={createTripMutation.isPending}
-            onSubmit={(data) => createTripMutation.mutate(data)}
-          />
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!trackingTripId} onOpenChange={(open) => { if (!open) setTrackingTripId(null); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
-          {trackingTripId && (
-            <TripTrackingView tripId={trackingTripId} onClose={() => setTrackingTripId(null)} />
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
 function CreateTripForm({ patients, clinic, loading, onSubmit }: {
   patients: any[];
   clinic: any;
@@ -1369,140 +1871,6 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
   );
 }
 
-function PatientsSection() {
-  const { token } = useAuth();
-  const { toast } = useToast();
-  const [showAddPatient, setShowAddPatient] = useState(false);
-  const [editPatient, setEditPatient] = useState<any>(null);
-  const [search, setSearch] = useState("");
-
-  const patientsQuery = useQuery<any[]>({
-    queryKey: ["/api/clinic/patients"],
-    queryFn: () => apiFetch("/api/clinic/patients", token),
-    enabled: !!token,
-  });
-
-  const clinicQuery = useQuery<any>({
-    queryKey: ["/api/clinic/profile"],
-    queryFn: () => apiFetch("/api/clinic/profile", token),
-    enabled: !!token,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return apiFetch("/api/patients", token, {
-        method: "POST",
-        body: JSON.stringify({ ...data, cityId: clinicQuery.data?.cityId }),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/clinic/patients"] });
-      setShowAddPatient(false);
-      toast({ title: "Patient added" });
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: any }) => {
-      return apiFetch(`/api/patients/${id}`, token, {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/clinic/patients"] });
-      setEditPatient(null);
-      toast({ title: "Patient updated" });
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
-
-  const patientsList = (patientsQuery.data || []).filter(p => {
-    if (!search) return true;
-    const s = search.toLowerCase();
-    return `${p.firstName} ${p.lastName}`.toLowerCase().includes(s) || (p.phone || "").includes(s);
-  });
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Input
-          placeholder="Search patients..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="max-w-xs"
-          data-testid="input-search-patients"
-        />
-        <Button size="sm" onClick={() => setShowAddPatient(true)} data-testid="button-add-patient" className="gap-1">
-          <Plus className="w-3.5 h-3.5" />
-          Add Patient
-        </Button>
-      </div>
-
-      {patientsQuery.isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
-        </div>
-      ) : patientsList.length === 0 ? (
-        <div className="py-12 text-center text-sm text-muted-foreground" data-testid="text-empty-patients">
-          No patients found
-        </div>
-      ) : (
-        <div className="space-y-2" data-testid="list-clinic-patients">
-          {patientsList.map(p => (
-            <Card key={p.id} className="cursor-pointer hover-elevate" onClick={() => setEditPatient(p)} data-testid={`card-patient-${p.id}`}>
-              <CardContent className="py-3 px-4">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5" />
-                      {p.firstName} {p.lastName}
-                    </p>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                      {p.phone && <span>{p.phone}</span>}
-                      {p.address && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {p.address.length > 40 ? p.address.substring(0, 40) + "..." : p.address}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <Button size="sm" variant="outline" data-testid={`button-edit-patient-${p.id}`}>
-                    Edit
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      <Dialog open={showAddPatient} onOpenChange={setShowAddPatient}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Add Patient</DialogTitle></DialogHeader>
-          <ClinicPatientForm loading={createMutation.isPending} onSubmit={(data) => createMutation.mutate(data)} />
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!editPatient} onOpenChange={(open) => { if (!open) setEditPatient(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Edit Patient</DialogTitle></DialogHeader>
-          {editPatient && (
-            <ClinicPatientForm
-              initialData={editPatient}
-              isEdit
-              loading={updateMutation.isPending}
-              onSubmit={(data) => updateMutation.mutate({ id: editPatient.id, data })}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
 function ClinicPatientForm({ onSubmit, loading, initialData, isEdit }: {
   onSubmit: (data: any) => void;
   loading: boolean;
@@ -1573,78 +1941,6 @@ function ClinicPatientForm({ onSubmit, loading, initialData, isEdit }: {
   );
 }
 
-function ReportsSection() {
-  const { token } = useAuth();
-  const { toast } = useToast();
-  const today = todayStr();
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-  const [startDate, setStartDate] = useState(thirtyDaysAgo);
-  const [endDate, setEndDate] = useState(today);
-  const [exporting, setExporting] = useState(false);
-
-  const handleExport = async () => {
-    if (!startDate || !endDate) {
-      toast({ title: "Please select both dates", variant: "destructive" });
-      return;
-    }
-    setExporting(true);
-    try {
-      const response = await fetch(`/api/clinic/trips/export?startDate=${startDate}&endDate=${endDate}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || "Export failed");
-      }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `trips_${startDate}_to_${endDate}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      toast({ title: "Export downloaded" });
-    } catch (err: any) {
-      toast({ title: "Export failed", description: err.message, variant: "destructive" });
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 pb-2">
-          <CardTitle className="text-base">Trip Report Export</CardTitle>
-          <FileDown className="w-4 h-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Download a CSV report of all trips for your clinic within a date range.
-            Includes patient name, addresses, pickup time, status, driver, ETA, and mileage.
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>Start Date</Label>
-              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} data-testid="input-export-start" />
-            </div>
-            <div className="space-y-2">
-              <Label>End Date</Label>
-              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} data-testid="input-export-end" />
-            </div>
-          </div>
-          <Button onClick={handleExport} disabled={exporting} className="gap-1.5" data-testid="button-export-csv">
-            <FileDown className="w-3.5 h-3.5" />
-            {exporting ? "Exporting..." : "Download CSV"}
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
 function ClinicTripCard({ trip, isCompleted, onSelect, onTrack }: { trip: any; isCompleted: boolean; onSelect: () => void; onTrack?: () => void }) {
   return (
     <Card
@@ -1662,6 +1958,15 @@ function ClinicTripCard({ trip, isCompleted, onSelect, onTrack }: { trip: any; i
               </Badge>
               {trip.approvalStatus === "pending" && (
                 <Badge variant="secondary">Pending Approval</Badge>
+              )}
+              {trip.tripType === "recurring" && (
+                <Badge variant="secondary" className="gap-1">
+                  <Repeat className="w-3 h-3" />
+                  Recurring
+                </Badge>
+              )}
+              {trip.direction && (
+                <Badge variant="outline">{trip.direction === "to_clinic" ? "To Clinic" : "From Clinic"}</Badge>
               )}
               {isCompleted && (
                 <Badge variant="secondary" className="gap-1">

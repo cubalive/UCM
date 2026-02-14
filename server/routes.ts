@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog } from "@shared/schema";
 import { z } from "zod";
 import { eq, ne, sql, and, or, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
@@ -3207,6 +3207,294 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/clinic/ops", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+      const clinic = await storage.getClinic(user.clinicId);
+      if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+      const todayDate = new Date().toISOString().split("T")[0];
+      const PRESENCE_TIMEOUT = 120_000;
+      const LATE_THRESHOLD_MINUTES = 10;
+
+      const clinicTrips = await db.select().from(trips).where(
+        and(eq(trips.clinicId, user.clinicId), isNull(trips.deletedAt))
+      );
+
+      const todayTrips = clinicTrips.filter(t => t.scheduledDate === todayDate);
+      const activeStatuses = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+      const activeTrips = todayTrips.filter(t => activeStatuses.includes(t.status));
+
+      const isToClinic = (trip: any) => {
+        if (!clinic.lat || !clinic.lng) return false;
+        if (trip.dropoffLat && trip.dropoffLng) {
+          const dist = Math.abs(trip.dropoffLat - clinic.lat) + Math.abs(trip.dropoffLng - clinic.lng);
+          if (dist < 0.01) return true;
+        }
+        return false;
+      };
+
+      const isFromClinic = (trip: any) => {
+        if (!clinic.lat || !clinic.lng) return false;
+        if (trip.pickupLat && trip.pickupLng) {
+          const dist = Math.abs(trip.pickupLat - clinic.lat) + Math.abs(trip.pickupLng - clinic.lng);
+          if (dist < 0.01) return true;
+        }
+        return false;
+      };
+
+      const enRouteToClinic = activeTrips.filter(t => isToClinic(t) && ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF"].includes(t.status));
+      const leavingClinic = activeTrips.filter(t => isFromClinic(t) && ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF"].includes(t.status));
+
+      const arrivalsNext60 = activeTrips.filter(t => {
+        if (!isToClinic(t)) return false;
+        if (t.lastEtaMinutes != null && t.lastEtaMinutes <= 60) return true;
+        if (t.estimatedArrivalTime) {
+          const [h, m] = t.estimatedArrivalTime.split(":").map(Number);
+          const now = new Date();
+          const arrivalToday = new Date(now);
+          arrivalToday.setHours(h, m, 0, 0);
+          const diffMin = (arrivalToday.getTime() - now.getTime()) / 60000;
+          return diffMin >= 0 && diffMin <= 60;
+        }
+        return false;
+      });
+
+      const lateRisk = todayTrips.filter(t => {
+        if (["COMPLETED", "CANCELLED", "NO_SHOW"].includes(t.status)) return false;
+        if (t.lastEtaMinutes != null && t.estimatedArrivalTime) {
+          const [h, m] = t.estimatedArrivalTime.split(":").map(Number);
+          const now = new Date();
+          const arrivalTarget = new Date(now);
+          arrivalTarget.setHours(h, m, 0, 0);
+          const scheduledMinutesFromNow = (arrivalTarget.getTime() - now.getTime()) / 60000;
+          if (t.lastEtaMinutes > scheduledMinutesFromNow + LATE_THRESHOLD_MINUTES) return true;
+        }
+        if (t.noShowRisk) return true;
+        return false;
+      });
+
+      const noDriverAssigned = todayTrips.filter(t =>
+        !t.driverId && !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(t.status)
+      );
+      const completedToday = todayTrips.filter(t => t.status === "COMPLETED");
+      const noShowsToday = todayTrips.filter(t => t.status === "NO_SHOW");
+
+      const clinicPatientIds = await db.select({ id: patients.id }).from(patients).where(
+        and(eq(patients.clinicId, user.clinicId), eq(patients.active, true), isNull(patients.deletedAt))
+      );
+      const patientIds = clinicPatientIds.map(p => p.id);
+      let recurringActiveCount = 0;
+      if (patientIds.length > 0) {
+        const schedules = await db.select().from(recurringSchedules).where(
+          and(inArray(recurringSchedules.patientId, patientIds), eq(recurringSchedules.active, true))
+        );
+        recurringActiveCount = schedules.length;
+      }
+
+      const alerts: { type: string; severity: string; message: string; tripId?: number; tripPublicId?: string }[] = [];
+
+      for (const trip of activeTrips) {
+        if (trip.driverId) {
+          const driver = await storage.getDriver(trip.driverId);
+          if (driver) {
+            const lastSeenMs = driver.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
+            if (lastSeenMs > PRESENCE_TIMEOUT) {
+              alerts.push({ type: "driver_offline", severity: "warning", message: `Driver ${driver.firstName} ${driver.lastName} offline during trip ${trip.publicId}`, tripId: trip.id, tripPublicId: trip.publicId });
+            }
+          }
+        }
+
+        if (trip.lastEtaUpdatedAt) {
+          const etaAge = (Date.now() - new Date(trip.lastEtaUpdatedAt).getTime()) / 60000;
+          if (etaAge > 5) {
+            alerts.push({ type: "eta_stale", severity: "info", message: `ETA stale for trip ${trip.publicId} (${Math.round(etaAge)} min old)`, tripId: trip.id, tripPublicId: trip.publicId });
+          }
+        }
+      }
+
+      for (const trip of lateRisk) {
+        alerts.push({ type: "late_risk", severity: "danger", message: `Late risk: Trip ${trip.publicId}`, tripId: trip.id, tripPublicId: trip.publicId });
+      }
+
+      for (const trip of noDriverAssigned) {
+        alerts.push({ type: "no_driver", severity: "warning", message: `No driver assigned to trip ${trip.publicId}`, tripId: trip.id, tripPublicId: trip.publicId });
+      }
+
+      const enrichedActiveTrips = await Promise.all(activeTrips.map(async (trip) => {
+        const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+        let driverData = null;
+        if (trip.driverId) {
+          const driver = await storage.getDriver(trip.driverId);
+          if (driver) {
+            const lastSeenMs = driver.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
+            const isOnline = lastSeenMs < PRESENCE_TIMEOUT && driver.dispatchStatus !== "off" && driver.dispatchStatus !== "hold";
+            const vehicle = driver.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
+            driverData = {
+              id: driver.id, firstName: driver.firstName, lastName: driver.lastName,
+              phone: driver.phone, lastLat: driver.lastLat, lastLng: driver.lastLng,
+              lastSeenAt: driver.lastSeenAt, isOnline,
+              vehicleColor: vehicle?.color || null,
+              vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
+            };
+          }
+        }
+
+        const direction = isToClinic(trip) ? "TO_CLINIC" : isFromClinic(trip) ? "FROM_CLINIC" : "UNKNOWN";
+        let lateStatus = "on_time";
+        if (trip.estimatedArrivalTime && trip.lastEtaMinutes != null) {
+          const [h, m] = trip.estimatedArrivalTime.split(":").map(Number);
+          const now = new Date();
+          const target = new Date(now);
+          target.setHours(h, m, 0, 0);
+          const scheduledMinFromNow = (target.getTime() - now.getTime()) / 60000;
+          if (trip.lastEtaMinutes > scheduledMinFromNow + LATE_THRESHOLD_MINUTES) lateStatus = "late";
+          else if (trip.lastEtaMinutes > scheduledMinFromNow) lateStatus = "at_risk";
+        }
+
+        return {
+          tripId: trip.id, publicId: trip.publicId, status: trip.status,
+          pickupAddress: trip.pickupAddress, dropoffAddress: trip.dropoffAddress,
+          pickupLat: trip.pickupLat, pickupLng: trip.pickupLng,
+          dropoffLat: trip.dropoffLat, dropoffLng: trip.dropoffLng,
+          scheduledDate: trip.scheduledDate, pickupTime: trip.pickupTime,
+          estimatedArrivalTime: trip.estimatedArrivalTime,
+          tripType: trip.tripType, tripSeriesId: trip.tripSeriesId,
+          direction, lateStatus,
+          patient: patient ? { id: patient.id, firstName: patient.firstName, lastName: patient.lastName, phone: patient.phone } : null,
+          driver: driverData,
+          eta: trip.lastEtaMinutes != null ? { minutes: trip.lastEtaMinutes, updatedAt: trip.lastEtaUpdatedAt?.toISOString() || null } : null,
+        };
+      }));
+
+      res.json({
+        ok: true,
+        clinic: { id: clinic.id, name: clinic.name, lat: clinic.lat, lng: clinic.lng, address: clinic.address },
+        kpis: {
+          enRouteToClinic: enRouteToClinic.length,
+          leavingClinic: leavingClinic.length,
+          arrivalsNext60: arrivalsNext60.length,
+          lateRisk: lateRisk.length,
+          noDriverAssigned: noDriverAssigned.length,
+          completedToday: completedToday.length,
+          noShowsToday: noShowsToday.length,
+          recurringActive: recurringActiveCount,
+        },
+        activeTrips: enrichedActiveTrips,
+        alerts,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, message: err.message });
+    }
+  });
+
+  app.get("/api/clinic/metrics", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+      const now = new Date();
+      const endDate = req.query.endDate as string || now.toISOString().split("T")[0];
+      const startDefault = new Date(now.getTime() - 7 * 86400000).toISOString().split("T")[0];
+      const startDate = req.query.startDate as string || startDefault;
+
+      const clinicTrips = await db.select().from(trips).where(
+        and(
+          eq(trips.clinicId, user.clinicId),
+          isNull(trips.deletedAt),
+          gte(trips.scheduledDate, startDate),
+          sql`${trips.scheduledDate} <= ${endDate}`,
+        )
+      );
+
+      const total = clinicTrips.length;
+      const completed = clinicTrips.filter(t => t.status === "COMPLETED");
+      const cancelled = clinicTrips.filter(t => t.status === "CANCELLED");
+      const noShows = clinicTrips.filter(t => t.status === "NO_SHOW");
+
+      let totalDelayMinutes = 0;
+      let delayCount = 0;
+      let onTimeCount = 0;
+
+      for (const trip of completed) {
+        if (trip.lastEtaMinutes != null && trip.estimatedArrivalTime) {
+          const [h, m] = trip.estimatedArrivalTime.split(":").map(Number);
+          if (!isNaN(h) && !isNaN(m)) {
+            if (trip.completedAt) {
+              const completedTime = new Date(trip.completedAt);
+              const targetTime = new Date(completedTime);
+              targetTime.setHours(h, m, 0, 0);
+              const delayMin = (completedTime.getTime() - targetTime.getTime()) / 60000;
+              if (delayMin > 0) {
+                totalDelayMinutes += delayMin;
+                delayCount++;
+              } else {
+                onTimeCount++;
+              }
+            } else {
+              onTimeCount++;
+            }
+          }
+        } else {
+          onTimeCount++;
+        }
+      }
+
+      const onTimeRate = completed.length > 0 ? Math.round((onTimeCount / completed.length) * 100) : 100;
+      const avgDelayMinutes = delayCount > 0 ? Math.round(totalDelayMinutes / delayCount) : 0;
+      const noShowRate = total > 0 ? Math.round((noShows.length / total) * 100) : 0;
+      const cancellationRate = total > 0 ? Math.round((cancelled.length / total) * 100) : 0;
+
+      const dayMap: Record<string, { total: number; completed: number; late: number; noShows: number }> = {};
+      for (const trip of clinicTrips) {
+        if (!dayMap[trip.scheduledDate]) dayMap[trip.scheduledDate] = { total: 0, completed: 0, late: 0, noShows: 0 };
+        dayMap[trip.scheduledDate].total++;
+        if (trip.status === "COMPLETED") dayMap[trip.scheduledDate].completed++;
+        if (trip.status === "NO_SHOW") dayMap[trip.scheduledDate].noShows++;
+      }
+
+      const dailyData = Object.entries(dayMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, data]) => ({ date, ...data }));
+      const daysInRange = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
+      const tripsPerDay = Math.round((total / daysInRange) * 10) / 10;
+
+      const recurringTrips = clinicTrips.filter(t => t.tripType === "dialysis" || t.tripType === "recurring" || t.tripSeriesId);
+      const recurringCompleted = recurringTrips.filter(t => t.status === "COMPLETED");
+      const recurringReliability = recurringTrips.length > 0 ? Math.round((recurringCompleted.length / recurringTrips.length) * 100) : 100;
+
+      let busiestDay = "";
+      let busiestCount = 0;
+      for (const [date, data] of Object.entries(dayMap)) {
+        if (data.total > busiestCount) { busiestCount = data.total; busiestDay = date; }
+      }
+
+      res.json({
+        ok: true,
+        period: { startDate, endDate },
+        metrics: {
+          totalTrips: total,
+          completedTrips: completed.length,
+          cancelledTrips: cancelled.length,
+          noShowTrips: noShows.length,
+          onTimeRate,
+          avgDelayMinutes,
+          noShowRate,
+          cancellationRate,
+          tripsPerDay,
+          recurringReliability,
+          busiestDay,
+          busiestDayCount: busiestCount,
+        },
+        dailyData,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, message: err.message });
+    }
+  });
+
   app.get("/api/clinic/map", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
@@ -3344,10 +3632,28 @@ export async function registerRoutes(
         conditions.push(
           inArray(trips.status, ["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"])
         );
+      } else if (statusFilter === "live") {
+        conditions.push(
+          inArray(trips.status, ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"])
+        );
       } else if (statusFilter === "scheduled") {
         conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));
+      } else if (statusFilter === "pending") {
+        conditions.push(eq(trips.approvalStatus, "pending"));
+        conditions.push(sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`);
       } else if (statusFilter === "completed") {
         conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
+      }
+
+      const tripTypeFilter = req.query.tripType as string;
+      if (tripTypeFilter === "recurring") {
+        conditions.push(or(
+          inArray(trips.tripType, ["recurring", "dialysis"]),
+          sql`${trips.tripSeriesId} IS NOT NULL`
+        )!);
+      } else if (tripTypeFilter === "one_time") {
+        conditions.push(eq(trips.tripType, "one_time"));
+        conditions.push(isNull(trips.tripSeriesId));
       }
 
       const result = await db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt));
