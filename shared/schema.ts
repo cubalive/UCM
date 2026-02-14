@@ -61,6 +61,7 @@ export const dispatchStatusEnum = pgEnum("dispatch_status", [
 export const tripTypeEnum = pgEnum("trip_type", [
   "one_time",
   "recurring",
+  "dialysis",
 ]);
 
 export const assignmentStatusEnum = pgEnum("assignment_status", [
@@ -273,6 +274,9 @@ export const trips = pgTable("trips", {
   confirmationTime: timestamp("confirmation_time"),
   routeBatchId: integer("route_batch_id"),
   routeOrder: integer("route_order"),
+  assignmentBatchId: integer("assignment_batch_id"),
+  assignmentSource: text("assignment_source"),
+  assignmentReason: text("assignment_reason"),
   deletedAt: timestamp("deleted_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -572,6 +576,24 @@ export type InsertClinicAlertLog = z.infer<typeof insertClinicAlertLogSchema>;
 export type ClinicHelpRequest = typeof clinicHelpRequests.$inferSelect;
 export type InsertClinicHelpRequest = z.infer<typeof insertClinicHelpRequestSchema>;
 
+export const assignmentBatchStatusEnum = pgEnum("assignment_batch_status", [
+  "proposed",
+  "applied",
+  "cancelled",
+]);
+
+export const assignmentBatches = pgTable("assignment_batches", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  runAt: timestamp("run_at").notNull().defaultNow(),
+  date: text("date").notNull(),
+  status: text("status").notNull().default("proposed"),
+  createdBy: integer("created_by").references(() => users.id),
+  notes: text("notes"),
+  tripCount: integer("trip_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const routeBatches = pgTable("route_batches", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   cityId: integer("city_id").notNull().references(() => cities.id),
@@ -606,3 +628,7 @@ export type RouteBatch = typeof routeBatches.$inferSelect;
 export type InsertRouteBatch = z.infer<typeof insertRouteBatchSchema>;
 export type DriverScore = typeof driverScores.$inferSelect;
 export type InsertDriverScore = z.infer<typeof insertDriverScoreSchema>;
+
+export const insertAssignmentBatchSchema = createInsertSchema(assignmentBatches).omit({ id: true, createdAt: true });
+export type AssignmentBatch = typeof assignmentBatches.$inferSelect;
+export type InsertAssignmentBatch = z.infer<typeof insertAssignmentBatchSchema>;

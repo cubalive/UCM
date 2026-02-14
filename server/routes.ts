@@ -17,6 +17,7 @@ import { registerTripSeriesRoutes } from "./lib/tripSeriesRoutes";
 import { registerReportRoutes } from "./lib/reportRoutes";
 import { registerOpsRoutes, startOpsAlertScheduler } from "./lib/opsRoutes";
 import { registerAutomationRoutes } from "./lib/automationRoutes";
+import { registerAssignmentRoutes } from "./lib/assignmentRoutes";
 import { startRouteScheduler } from "./lib/routeEngine";
 import { startNoShowScheduler } from "./lib/noShowEngine";
 
@@ -90,6 +91,7 @@ export async function registerRoutes(
   registerReportRoutes(app);
   registerOpsRoutes(app);
   registerAutomationRoutes(app);
+  registerAssignmentRoutes(app, authMiddleware);
   startOpsAlertScheduler();
   startRouteScheduler();
   startNoShowScheduler();

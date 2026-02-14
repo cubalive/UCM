@@ -31,6 +31,7 @@ import FinancialPage from "@/pages/financial";
 import OpsHealthPage from "@/pages/ops-health";
 import LiveMapPage from "@/pages/live-map";
 import ArchivePage from "@/pages/archive";
+import AutoAssignmentPage from "@/pages/auto-assignment";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
 import NotFound from "@/pages/not-found";
@@ -97,6 +98,7 @@ function Router() {
       <Route path="/financial">{() => <ProtectedRoute resource="audit" component={FinancialPage} />}</Route>
       <Route path="/ops-health">{() => <ProtectedRoute resource="dispatch" component={OpsHealthPage} />}</Route>
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>
+      <Route path="/auto-assignment">{() => <ProtectedRoute resource="dispatch" component={AutoAssignmentPage} />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />

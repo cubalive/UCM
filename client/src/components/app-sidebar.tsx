@@ -42,6 +42,7 @@ import {
   BarChart3,
   Activity,
   DollarSign,
+  Zap,
 } from "lucide-react";
 
 interface NavItem {
@@ -64,6 +65,7 @@ const navItems: NavItem[] = [
   { title: "Clinics", url: "/clinics", icon: Building2, resource: "clinics" },
   { title: "Invoices", url: "/invoices", icon: FileText, resource: "invoices" },
   { title: "Ops Health", url: "/ops-health", icon: Activity, resource: "dispatch" },
+  { title: "Auto Assign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
 ];
 
 const adminItems: NavItem[] = [
