@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, type AuthRequest } from "./auth";
+import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
 import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies } from "@shared/schema";
 import { z } from "zod";
@@ -67,17 +67,6 @@ function enforceCityContext(req: AuthRequest, res: any): number | undefined | fa
     return cityId;
   }
   return cityId || undefined;
-}
-
-function applyCompanyFilter<T extends { companyId?: number | null }>(items: T[], companyId: number | null): T[] {
-  if (!companyId) return items;
-  return items.filter(item => item.companyId === companyId || item.companyId === null);
-}
-
-function checkCompanyOwnership(entity: { companyId?: number | null } | undefined, companyId: number | null): boolean {
-  if (!entity) return false;
-  if (!companyId) return true;
-  return entity.companyId === companyId || entity.companyId === null;
 }
 
 export async function registerRoutes(

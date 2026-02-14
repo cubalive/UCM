@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
 import { etaMinutes } from "./googleMaps";
 import { z } from "zod";
 import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
@@ -86,9 +86,12 @@ export function registerDispatchRoutes(app: Express) {
 
         const driver = await storage.getDriver(driver_id);
         if (!driver) return res.status(404).json({ message: "Driver not found" });
+        const companyId = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(driver, companyId)) return res.status(403).json({ message: "Access denied" });
 
         const vehicle = await storage.getVehicle(vehicle_id);
         if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
+        if (!checkCompanyOwnership(vehicle, companyId)) return res.status(403).json({ message: "Access denied" });
 
         if (driver.cityId !== vehicle.cityId) {
           return res.status(400).json({ message: "Driver and vehicle must belong to the same city" });
@@ -137,9 +140,12 @@ export function registerDispatchRoutes(app: Express) {
 
         const trip = await storage.getTrip(trip_id);
         if (!trip) return res.status(404).json({ message: "Trip not found" });
+        const companyId = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(trip, companyId)) return res.status(403).json({ message: "Access denied" });
 
         const driver = await storage.getDriver(driver_id);
         if (!driver) return res.status(404).json({ message: "Driver not found" });
+        if (!checkCompanyOwnership(driver, companyId)) return res.status(403).json({ message: "Access denied" });
 
         if (driver.status !== "ACTIVE") {
           return res.status(400).json({ message: `Driver status is ${driver.status}, must be ACTIVE` });
@@ -231,12 +237,16 @@ export function registerDispatchRoutes(app: Express) {
         const city = await storage.getCity(city_id);
         if (!city) return res.status(404).json({ message: "City not found" });
 
-        const unassignedTrips = await storage.getUnassignedTrips(city_id);
+        const companyIdAA = getCompanyIdFromAuth(req);
+        const { applyCompanyFilter: acf } = await import("../auth");
+        const rawUnassignedTrips = await storage.getUnassignedTrips(city_id);
+        const unassignedTrips = acf(rawUnassignedTrips, companyIdAA);
         if (unassignedTrips.length === 0) {
           return res.json({ assigned: 0, skipped: 0, message: "No unassigned trips" });
         }
 
-        const allDrivers = await storage.getDrivers(city_id);
+        const rawAllDrivers = await storage.getDrivers(city_id);
+        const allDrivers = acf(rawAllDrivers, companyIdAA);
         const availableDrivers = allDrivers.filter(
           (d) => d.status === "ACTIVE" &&
             d.dispatchStatus === "available" &&
@@ -338,6 +348,8 @@ export function registerDispatchRoutes(app: Express) {
 
         const driver = await storage.getDriver(driver_id);
         if (!driver) return res.status(404).json({ message: "Driver not found" });
+        const companyId2 = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(driver, companyId2)) return res.status(403).json({ message: "Access denied" });
 
         const updatedDriver = await storage.updateDriver(driver_id, { dispatchStatus: status } as any);
 
@@ -391,6 +403,8 @@ export function registerDispatchRoutes(app: Express) {
 
         const driver = await storage.getDriver(driver_id);
         if (!driver) return res.status(404).json({ message: "Driver not found" });
+        const companyId3 = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(driver, companyId3)) return res.status(403).json({ message: "Access denied" });
 
         const updatedDriver = await storage.updateDriver(driver_id, {
           lastLat: lat,
@@ -412,12 +426,19 @@ export function registerDispatchRoutes(app: Express) {
       try {
         const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
 
-        const [allDrivers, allTrips, allVehicles, allClinics] = await Promise.all([
+        const companyId = getCompanyIdFromAuth(req);
+        const [rawDrivers, rawTrips, rawVehicles, rawClinics] = await Promise.all([
           storage.getDrivers(cityId),
           storage.getTrips(cityId),
           storage.getVehicles(cityId),
           storage.getClinics(cityId),
         ]);
+
+        const { applyCompanyFilter } = await import("../auth");
+        const allDrivers = applyCompanyFilter(rawDrivers, companyId);
+        const allTrips = applyCompanyFilter(rawTrips, companyId);
+        const allVehicles = applyCompanyFilter(rawVehicles, companyId);
+        const allClinics = applyCompanyFilter(rawClinics, companyId);
 
         const activeTrips = allTrips.filter((t) =>
           ["SCHEDULED", "ASSIGNED", "IN_PROGRESS"].includes(t.status)
@@ -455,6 +476,8 @@ export function registerDispatchRoutes(app: Express) {
 
         const driver = await storage.getDriver(parsed.data.driver_id);
         if (!driver) return res.status(404).json({ message: "Driver not found" });
+        const companyIdU = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(driver, companyIdU)) return res.status(403).json({ message: "Access denied" });
 
         const updatedDriver = await storage.updateDriver(parsed.data.driver_id, { vehicleId: null } as any);
 

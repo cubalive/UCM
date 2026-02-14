@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
 import { tripLockedGuard } from "./tripLockGuard";
 import { etaMinutes, buildStaticMapUrls } from "./googleMaps";
 import { GOOGLE_MAPS_SERVER_KEY, GOOGLE_MAPS_BROWSER_KEY } from "../../lib/mapsConfig";
@@ -47,6 +47,8 @@ export function registerTrackingRoutes(app: Express) {
 
         const trip = await storage.getTrip(tripId);
         if (!trip) return res.status(404).json({ ok: false, message: "Trip not found" });
+        const companyId = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(trip, companyId)) return res.status(403).json({ ok: false, message: "Access denied" });
 
         if (!trip.driverId) {
           return res.json({ ok: false, message: "No driver assigned" });
@@ -142,6 +144,8 @@ export function registerTrackingRoutes(app: Express) {
 
         const trip = await storage.getTrip(tripId);
         if (!trip) return res.status(404).json({ ok: false, message: "Trip not found" });
+        const cId = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(trip, cId)) return res.status(403).json({ ok: false, message: "Access denied" });
 
         const { thumbUrl, fullUrl } = await ensureStaticMap(trip);
 
@@ -183,11 +187,14 @@ export function registerTrackingRoutes(app: Express) {
         if (!trip) return res.status(404).json({ message: "Trip not found" });
 
         if (req.user) {
+          const cId = getCompanyIdFromAuth(req);
+          if (!checkCompanyOwnership(trip, cId)) return res.status(403).json({ message: "Access denied" });
+
           const user = await storage.getUser(req.user.userId);
           if (user) {
             const role = user.role;
-            if (role !== "SUPER_ADMIN" && role !== "ADMIN" && role !== "DISPATCH") {
-              if (role === "VIEWER" && user.clinicId) {
+            if (role !== "SUPER_ADMIN" && role !== "ADMIN" && role !== "DISPATCH" && role !== "COMPANY_ADMIN") {
+              if ((role === "VIEWER" || role === "CLINIC_USER") && user.clinicId) {
                 if (trip.clinicId !== user.clinicId) {
                   return res.status(403).json({ message: "Access denied" });
                 }

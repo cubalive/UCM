@@ -70,6 +70,17 @@ export function getCompanyIdFromAuth(req: AuthRequest): number | null {
   return req.user.companyId || null;
 }
 
+export function applyCompanyFilter<T extends { companyId?: number | null }>(items: T[], companyId: number | null): T[] {
+  if (!companyId) return items;
+  return items.filter(item => item.companyId === companyId || item.companyId === null);
+}
+
+export function checkCompanyOwnership(entity: { companyId?: number | null } | undefined, companyId: number | null): boolean {
+  if (!entity) return false;
+  if (!companyId) return true;
+  return entity.companyId === companyId || entity.companyId === null;
+}
+
 export async function getUserCityIds(userId: number, role: string): Promise<number[]> {
   if (role === "SUPER_ADMIN") return [];
   const access = await db

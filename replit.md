@@ -12,7 +12,7 @@ The application follows a client-server architecture.
 - **Backend**: An Express.js API in the `server/` directory, handling business logic, data access, and integrations.
 - **Database**: PostgreSQL with Drizzle ORM for primary data; Replit DB for operational data.
 - **Authentication**: JWT-based with `bcryptjs` for password hashing.
-- **Authorization**: Role-Based Access Control (RBAC) supporting SUPER_ADMIN, ADMIN, DISPATCH, DRIVER, VIEWER roles.
+- **Authorization**: Role-Based Access Control (RBAC) supporting SUPER_ADMIN, ADMIN, DISPATCH, DRIVER, VIEWER, COMPANY_ADMIN, CLINIC_USER roles.
 - **Multi-city Support**: Data segregation by city for core entities.
 - **Public ID System**: Standardized `01UCM000001` format for public identifiers.
 - **Dispatch Engine**: Manages driver-vehicle assignment, trip assignment with ETA, automated dispatching, and real-time driver tracking, incorporating safety rules.
@@ -51,6 +51,7 @@ The application follows a client-server architecture.
 - **Clinic Portal**: Comprehensive portal for clinics (`/clinic-trips`) with tabs for Dashboard, Trips, Patients, and Reports. Dashboard shows today's trips, active trips with live tracking, recurring schedules, and patient counts. Live map tracking with driver marker (vehicle-colored), route, ETA, status badge. Trips tab has create/view/track. Patients tab has search/add/edit. Reports tab has CSV export. All data clinic-scoped with server-side RBAC enforcement.
 - **Clinic Trip Tracking**: GET `/api/clinic/trips/:id/tracking` returns live driver location, vehicle color, route data, ETA. Auto-hides when trip reaches terminal status (COMPLETED/CANCELLED/NO_SHOW). Enforces clinicId ownership (403 on cross-clinic access).
 - **Driver Presence System**: Heartbeat endpoint updates `lastSeenAt` for drivers. Dashboard displays driver stats (IN_ROUTE, ACTIVE, OFFLINE/HOLD) based on presence and dispatch status.
+- **Multi-company Isolation**: `companies` table with `company_id` on all core entities (users, drivers, vehicles, clinics, patients, trips). JWT includes `companyId`. Server-side company filtering on GET list endpoints (AND with city filter). 403 enforcement on GET-by-ID and mutation endpoints via `checkCompanyOwnership`. SUPER_ADMIN bypasses company filters (companyId=null). Company management API: `GET/POST /api/companies` (SUPER_ADMIN), `POST /api/companies/:id/admin` creates COMPANY_ADMIN user. Company scoping applied in routes.ts and lib routes (dispatch, tracking). Shared helpers: `getCompanyIdFromAuth`, `applyCompanyFilter`, `checkCompanyOwnership` in `server/auth.ts`.
 
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
