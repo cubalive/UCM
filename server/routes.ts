@@ -6,7 +6,7 @@ import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, 
 import { generatePublicId } from "./public-id";
 import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers } from "@shared/schema";
 import { z } from "zod";
-import { eq, ne, sql, and, or, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
+import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
 import { getSupabaseServer } from "../lib/supabaseClient";
 import { registerMapsRoutes } from "./lib/mapsRoutes";
@@ -1574,6 +1574,39 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/driver/me/break", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+      const { onBreak } = req.body;
+      if (typeof onBreak !== "boolean") return res.status(400).json({ message: "onBreak must be boolean" });
+      if (onBreak) {
+        if (driver.dispatchStatus === "off") {
+          return res.status(400).json({ message: "Cannot go on break while offline. Go online first." });
+        }
+        const TERMINAL = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+        const activeTrips = await db.select({ id: trips.id }).from(trips).where(
+          and(eq(trips.driverId, driver.id), not(inArray(trips.status, TERMINAL as any)))
+        ).limit(1);
+        if (activeTrips.length > 0) {
+          return res.status(400).json({ message: "Cannot go on break while you have active trips." });
+        }
+        await db.update(drivers).set({ dispatchStatus: "hold", lastSeenAt: new Date() }).where(eq(drivers.id, driver.id));
+      } else {
+        if (driver.dispatchStatus !== "hold") {
+          return res.status(400).json({ message: "You are not currently on break." });
+        }
+        await db.update(drivers).set({ dispatchStatus: "available", lastSeenAt: new Date() }).where(eq(drivers.id, driver.id));
+      }
+      const updated = await storage.getDriver(user.driverId);
+      res.json({ driver: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/auth/driver-logout", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
@@ -2196,6 +2229,10 @@ export async function registerRoutes(
       const assignCheck = isDriverAssignable(driver);
       if (!assignCheck.ok) {
         return res.status(400).json({ message: assignCheck.reason });
+      }
+      const forceAssign = req.body.force === true;
+      if (assignCheck.warning && !forceAssign) {
+        return res.status(409).json({ message: assignCheck.warning, requiresConfirmation: true });
       }
       const updateData: any = { driverId, status: "ASSIGNED", assignedAt: new Date(), assignedBy: req.user!.userId };
       if (vehicleId) updateData.vehicleId = vehicleId;

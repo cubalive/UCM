@@ -178,9 +178,9 @@ describe("isDriverVisibleOnMap — logged_out never appears", () => {
     expect(isDriverVisibleOnMap(d)).toBe(true);
   });
 
-  it("includes hold driver with GPS (still shows on map while online)", () => {
+  it("hides hold (break) driver from map even with GPS", () => {
     const d = makeDriver({ dispatchStatus: "hold" });
-    expect(isDriverVisibleOnMap(d)).toBe(true);
+    expect(isDriverVisibleOnMap(d)).toBe(false);
   });
 
   it("logged_out drivers NEVER visible on map", () => {
@@ -216,11 +216,11 @@ describe("isDriverAssignable — rejects logged_out/hold/stale", () => {
     expect(result.reason).toContain("logged out");
   });
 
-  it("rejects dispatch_status=hold", () => {
+  it("allows dispatch_status=hold with warning", () => {
     const d = makeDriver({ dispatchStatus: "hold" });
     const result = isDriverAssignable(d);
-    expect(result.ok).toBe(false);
-    expect(result.reason).toContain("hold");
+    expect(result.ok).toBe(true);
+    expect(result.warning).toContain("break");
   });
 
   it("allows paused driver with warning (old lastSeenAt)", () => {
@@ -238,15 +238,18 @@ describe("isDriverAssignable — rejects logged_out/hold/stale", () => {
     expect(result.reason).toContain("never checked in");
   });
 
-  it("logged_out and hold drivers NEVER assignable", () => {
+  it("logged_out and never-seen drivers NOT assignable, hold assignable with warning", () => {
     const offDrivers = [
       makeDriver({ id: 1, dispatchStatus: "off" }),
-      makeDriver({ id: 2, dispatchStatus: "hold" }),
       makeDriver({ id: 3, dispatchStatus: "available", lastSeenAt: null }),
     ];
     for (const d of offDrivers) {
       expect(isDriverAssignable(d).ok).toBe(false);
     }
+    const holdDriver = makeDriver({ id: 2, dispatchStatus: "hold" });
+    const holdResult = isDriverAssignable(holdDriver);
+    expect(holdResult.ok).toBe(true);
+    expect(holdResult.warning).toBeTruthy();
   });
 });
 

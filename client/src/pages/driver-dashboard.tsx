@@ -34,6 +34,7 @@ import {
   ExternalLink,
   MapPinned,
   Bell,
+  Coffee,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -636,9 +637,11 @@ export default function DriverDashboard() {
   const allTrips = tripsQuery.data?.allTrips || [];
 
   const isDriverActive = driver?.dispatchStatus === "available";
+  const isOnBreak = driver?.dispatchStatus === "hold";
+  const isDriverOnline = isDriverActive || isOnBreak;
   const hasActiveTrip = todayTrips.some((t: any) => ACTIVE_STATUSES.includes(t.status));
 
-  const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverActive || hasActiveTrip);
+  const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverOnline || hasActiveTrip);
 
   const lastSentRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const gpsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -655,7 +658,7 @@ export default function DriverDashboard() {
   }, [token]);
 
   useEffect(() => {
-    const shouldTrack = isDriverActive || hasActiveTrip;
+    const shouldTrack = isDriverOnline || hasActiveTrip;
     if (!shouldTrack || !geoLocation) {
       if (gpsTimerRef.current) { clearInterval(gpsTimerRef.current); gpsTimerRef.current = null; }
       return;
@@ -708,7 +711,7 @@ export default function DriverDashboard() {
     return () => {
       if (gpsTimerRef.current) { clearInterval(gpsTimerRef.current); gpsTimerRef.current = null; }
     };
-  }, [isDriverActive, hasActiveTrip, geoLocation?.lat, geoLocation?.lng, sendLocation]);
+  }, [isDriverOnline, hasActiveTrip, geoLocation?.lat, geoLocation?.lng, sendLocation]);
 
   const toggleActiveMutation = useMutation({
     mutationFn: (active: boolean) =>
@@ -719,6 +722,21 @@ export default function DriverDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
       toast({ title: isDriverActive ? "You are now offline" : "You are now online" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const breakMutation = useMutation({
+    mutationFn: (onBreak: boolean) =>
+      apiFetch("/api/driver/me/break", token, {
+        method: "POST",
+        body: JSON.stringify({ onBreak }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
+      toast({ title: isOnBreak ? "Break ended — you are back online" : "You are now on break" });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -1233,8 +1251,12 @@ export default function DriverDashboard() {
                 <User className="w-4 h-4 text-muted-foreground" />
                 <span className="font-medium text-sm" data-testid="text-driver-name">{driver.firstName} {driver.lastName}</span>
               </div>
-              <Badge variant={isDriverActive ? "default" : "secondary"} data-testid="badge-dispatch-status">
-                {isDriverActive ? "Online" : "Offline"}
+              <Badge
+                variant={isOnBreak ? "outline" : isDriverActive ? "default" : "secondary"}
+                className={isOnBreak ? "border-amber-500 text-amber-700 dark:text-amber-400" : ""}
+                data-testid="badge-dispatch-status"
+              >
+                {isOnBreak ? "On Break" : isDriverActive ? "Online" : "Offline"}
               </Badge>
               {geoLocation && !geoWatchError && (
                 <div className="flex items-center gap-0.5 text-xs text-emerald-600 dark:text-emerald-400">
@@ -1242,16 +1264,31 @@ export default function DriverDashboard() {
                 </div>
               )}
             </div>
-            <Button
-              variant={isDriverActive ? "destructive" : "default"}
-              size="sm"
-              onClick={() => toggleActiveMutation.mutate(!isDriverActive)}
-              disabled={toggleActiveMutation.isPending}
-              data-testid="button-toggle-active"
-            >
-              {isDriverActive ? <PowerOff className="w-4 h-4 mr-1.5" /> : <Power className="w-4 h-4 mr-1.5" />}
-              {isDriverActive ? "Go Offline" : "Go Online"}
-            </Button>
+            <div className="flex items-center gap-1.5">
+              {isDriverOnline && !hasActiveTrip && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => breakMutation.mutate(!isOnBreak)}
+                  disabled={breakMutation.isPending}
+                  className={isOnBreak ? "border-green-500 text-green-700 dark:text-green-400" : "border-amber-500 text-amber-700 dark:text-amber-400"}
+                  data-testid="button-toggle-break"
+                >
+                  {isOnBreak ? <PlayCircle className="w-4 h-4 mr-1.5" /> : <Coffee className="w-4 h-4 mr-1.5" />}
+                  {isOnBreak ? "Resume" : "Break"}
+                </Button>
+              )}
+              <Button
+                variant={isDriverOnline ? "destructive" : "default"}
+                size="sm"
+                onClick={() => toggleActiveMutation.mutate(!isDriverOnline)}
+                disabled={toggleActiveMutation.isPending}
+                data-testid="button-toggle-active"
+              >
+                {isDriverOnline ? <PowerOff className="w-4 h-4 mr-1.5" /> : <Power className="w-4 h-4 mr-1.5" />}
+                {isDriverOnline ? "Go Offline" : "Go Online"}
+              </Button>
+            </div>
           </div>
 
           {activeTrip && (

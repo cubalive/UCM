@@ -159,6 +159,7 @@ export default function DispatchBoardPage() {
   const [assignTrip, setAssignTrip] = useState<any | null>(null);
   const [showAllDrivers, setShowAllDrivers] = useState(false);
   const [reassignTrip, setReassignTrip] = useState<any | null>(null);
+  const [confirmAssign, setConfirmAssign] = useState<{ tripId: number; driverId: number; vehicleId?: number; warning: string } | null>(null);
 
   const cityId = selectedCity?.id;
 
@@ -182,14 +183,15 @@ export default function DispatchBoardPage() {
   });
 
   const assignDriverMutation = useMutation({
-    mutationFn: ({ tripId, driverId, vehicleId }: { tripId: number; driverId: number; vehicleId?: number }) =>
+    mutationFn: ({ tripId, driverId, vehicleId, force }: { tripId: number; driverId: number; vehicleId?: number; force?: boolean }) =>
       apiFetch(`/api/trips/${tripId}/assign`, token, {
         method: "PATCH",
-        body: JSON.stringify({ driverId, vehicleId }),
+        body: JSON.stringify({ driverId, vehicleId, force: force || false }),
       }),
     onSuccess: () => {
       toast({ title: "Driver assigned successfully" });
       setAssignTrip(null);
+      setConfirmAssign(null);
       queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dispatch/drivers/status"] });
     },
@@ -342,10 +344,59 @@ export default function DispatchBoardPage() {
             showAll={showAllDrivers}
             onToggleShowAll={() => setShowAllDrivers(!showAllDrivers)}
             onAssign={(driverId, vehicleId) => {
-              if (assignTrip) assignDriverMutation.mutate({ tripId: assignTrip.id, driverId, vehicleId });
+              if (!assignTrip) return;
+              const allDrivers = [...(driverStatus.available || []), ...(driverStatus.on_trip || []), ...(driverStatus.paused || []), ...(driverStatus.hold || [])];
+              const driver = allDrivers.find(d => d.id === driverId);
+              const needsConfirm = driver && (driver.group === "paused" || driver.group === "hold");
+              if (needsConfirm) {
+                const warning = driver.group === "hold"
+                  ? "This driver is on break. They may not see the trip until they resume."
+                  : "This driver's GPS is paused. They may not see the trip immediately.";
+                setConfirmAssign({ tripId: assignTrip.id, driverId, vehicleId, warning });
+              } else {
+                assignDriverMutation.mutate({ tripId: assignTrip.id, driverId, vehicleId, force: true });
+              }
             }}
             loading={assignDriverMutation.isPending}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!confirmAssign} onOpenChange={(open) => { if (!open) setConfirmAssign(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              Confirm Assignment
+            </DialogTitle>
+          </DialogHeader>
+          {confirmAssign && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground" data-testid="text-confirm-warning">
+                {confirmAssign.warning}
+              </p>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setConfirmAssign(null)} data-testid="button-cancel-confirm">
+                  Cancel
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={() => {
+                    assignDriverMutation.mutate({
+                      tripId: confirmAssign.tripId,
+                      driverId: confirmAssign.driverId,
+                      vehicleId: confirmAssign.vehicleId,
+                      force: true,
+                    });
+                  }}
+                  disabled={assignDriverMutation.isPending}
+                  data-testid="button-force-assign"
+                >
+                  Assign Anyway
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

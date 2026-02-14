@@ -107,7 +107,7 @@ export function isDriverAssignable(d: { dispatchStatus: string | null; lastSeenA
     return { ok: false, reason: "Driver is logged out (dispatch_status=off). Only available drivers can be assigned trips." };
   }
   if (d.dispatchStatus === "hold") {
-    return { ok: false, reason: "Driver is on hold/break. Remove hold status before assigning trips." };
+    return { ok: true, warning: "Driver is on break. Trip can be assigned but driver may not see it until they resume." };
   }
   if (!d.lastSeenAt) {
     return { ok: false, reason: "Driver has never checked in (no GPS signal). Cannot assign trips to an unreachable driver." };
@@ -122,6 +122,7 @@ export function isDriverAssignable(d: { dispatchStatus: string | null; lastSeenA
 
 export function isDriverVisibleOnMap(d: { dispatchStatus: string | null; lastSeenAt: string | Date | null; lastLat: number | null; lastLng: number | null }): boolean {
   if (d.dispatchStatus === "off") return false;
+  if (d.dispatchStatus === "hold") return false;
   if (d.lastLat == null || d.lastLng == null) return false;
   return isDriverOnline(d);
 }
