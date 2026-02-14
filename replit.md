@@ -48,7 +48,8 @@ The application follows a client-server architecture.
     - **Ops Health System**: `/api/ops/health` endpoint providing system status (GREEN/YELLOW/RED) with computed alerts.
 - **Public Booking API**: Unauthenticated endpoints for quotes, booking requests, and status checks, with CORS restrictions and rate limiting. Includes a private pricing engine and optional Stripe integration.
 - **Recurring Patient Schedules**: `recurring_schedules` table for patient-specific recurring schedules. Midnight scheduler generates trips for the next 7 days based on active schedules.
-- **Clinic Portal**: Comprehensive portal for clinics (`/clinic-trips`) with tabs for Trips, Patients, and Reports. Allows clinic-scoped patient management and trip creation.
+- **Clinic Portal**: Comprehensive portal for clinics (`/clinic-trips`) with tabs for Dashboard, Trips, Patients, and Reports. Dashboard shows today's trips, active trips with live tracking, recurring schedules, and patient counts. Live map tracking with driver marker (vehicle-colored), route, ETA, status badge. Trips tab has create/view/track. Patients tab has search/add/edit. Reports tab has CSV export. All data clinic-scoped with server-side RBAC enforcement.
+- **Clinic Trip Tracking**: GET `/api/clinic/trips/:id/tracking` returns live driver location, vehicle color, route data, ETA. Auto-hides when trip reaches terminal status (COMPLETED/CANCELLED/NO_SHOW). Enforces clinicId ownership (403 on cross-clinic access).
 - **Driver Presence System**: Heartbeat endpoint updates `lastSeenAt` for drivers. Dashboard displays driver stats (IN_ROUTE, ACTIVE, OFFLINE/HOLD) based on presence and dispatch status.
 
 ## External Dependencies

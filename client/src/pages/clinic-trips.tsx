@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -42,6 +41,11 @@ import {
   FileDown,
   Calendar,
   ClipboardList,
+  LayoutDashboard,
+  Eye,
+  MapPinned,
+  Repeat,
+  Activity,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -83,6 +87,16 @@ const TRIP_PROGRESS_STEPS = [
   { key: "COMPLETED", label: "Completed" },
 ];
 
+const ACTIVE_TRIP_STATUSES = [
+  "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP",
+  "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"
+];
+
+const DAY_LABELS: Record<string, string> = {
+  Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday",
+  Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
+};
+
 function formatTimeAgo(dateStr: string | null): string {
   if (!dateStr) return "N/A";
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -94,8 +108,12 @@ function formatTimeAgo(dateStr: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function todayStr(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
 export default function ClinicTripsPage() {
-  const [mainTab, setMainTab] = useState("trips");
+  const [mainTab, setMainTab] = useState("dashboard");
 
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
@@ -104,12 +122,16 @@ export default function ClinicTripsPage() {
           Clinic Portal
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Manage patients, trips, and reports
+          Dashboard, trips, patients, and reports
         </p>
       </div>
 
       <Tabs value={mainTab} onValueChange={setMainTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="dashboard" data-testid="tab-clinic-dashboard" className="gap-1.5">
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            Dashboard
+          </TabsTrigger>
           <TabsTrigger value="trips" data-testid="tab-clinic-trips" className="gap-1.5">
             <ClipboardList className="w-3.5 h-3.5" />
             Trips
@@ -124,6 +146,9 @@ export default function ClinicTripsPage() {
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="dashboard" className="mt-4">
+          <DashboardSection onSwitchTab={setMainTab} />
+        </TabsContent>
         <TabsContent value="trips" className="mt-4">
           <TripsSection />
         </TabsContent>
@@ -138,12 +163,606 @@ export default function ClinicTripsPage() {
   );
 }
 
+function DashboardSection({ onSwitchTab }: { onSwitchTab: (tab: string) => void }) {
+  const { token } = useAuth();
+  const [trackingTripId, setTrackingTripId] = useState<number | null>(null);
+
+  const todayTripsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/trips", "today"],
+    queryFn: () => apiFetch(`/api/clinic/trips?status=today`, token),
+    enabled: !!token,
+    refetchInterval: 15000,
+  });
+
+  const activeTripsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/trips", "active"],
+    queryFn: () => apiFetch(`/api/clinic/trips?status=active`, token),
+    enabled: !!token,
+    refetchInterval: 15000,
+  });
+
+  const scheduledTripsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/trips", "scheduled"],
+    queryFn: () => apiFetch(`/api/clinic/trips?status=scheduled`, token),
+    enabled: !!token,
+  });
+
+  const schedulesQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/recurring-schedules"],
+    queryFn: () => apiFetch("/api/clinic/recurring-schedules", token),
+    enabled: !!token,
+  });
+
+  const patientsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/patients"],
+    queryFn: () => apiFetch("/api/clinic/patients", token),
+    enabled: !!token,
+  });
+
+  const todayTrips = todayTripsQuery.data || [];
+  const activeTrips = (activeTripsQuery.data || []).filter(t => ACTIVE_TRIP_STATUSES.includes(t.status));
+  const scheduledTrips = scheduledTripsQuery.data || [];
+  const schedules = schedulesQuery.data || [];
+  const patients = patientsQuery.data || [];
+
+  const patientMap = new Map(patients.map(p => [p.id, `${p.firstName} ${p.lastName}`]));
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card data-testid="card-stat-today">
+          <CardContent className="py-3 px-4 text-center">
+            <p className="text-2xl font-bold">{todayTrips.length}</p>
+            <p className="text-xs text-muted-foreground">Today's Trips</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-stat-active">
+          <CardContent className="py-3 px-4 text-center">
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{activeTrips.length}</p>
+            <p className="text-xs text-muted-foreground">Active Now</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-stat-scheduled">
+          <CardContent className="py-3 px-4 text-center">
+            <p className="text-2xl font-bold">{scheduledTrips.length}</p>
+            <p className="text-xs text-muted-foreground">Scheduled</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-stat-patients">
+          <CardContent className="py-3 px-4 text-center">
+            <p className="text-2xl font-bold">{patients.length}</p>
+            <p className="text-xs text-muted-foreground">Patients</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {activeTrips.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Activity className="w-4 h-4 text-blue-500" />
+            <h2 className="text-sm font-semibold">Active Trips - Live Tracking</h2>
+          </div>
+          <div className="space-y-2">
+            {activeTrips.map(trip => (
+              <Card key={trip.id} className="hover-elevate cursor-pointer" onClick={() => setTrackingTripId(trip.id)} data-testid={`card-active-trip-${trip.id}`}>
+                <CardContent className="py-3 px-4">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{trip.publicId}</span>
+                        <Badge className={STATUS_COLORS[trip.status] || ""}>
+                          {STATUS_LABELS[trip.status] || trip.status}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                        {trip.patientName && (
+                          <span className="flex items-center gap-1">
+                            <User className="w-3 h-3" /> {trip.patientName}
+                          </span>
+                        )}
+                        {trip.driverName && (
+                          <span className="flex items-center gap-1 text-foreground font-medium">
+                            <Car className="w-3 h-3" /> {trip.driverName}
+                          </span>
+                        )}
+                        {trip.lastEtaMinutes != null && (
+                          <span className="flex items-center gap-1 font-medium text-blue-600 dark:text-blue-400">
+                            <Navigation className="w-3 h-3" /> ETA: {trip.lastEtaMinutes} min
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Button size="sm" variant="outline" className="gap-1" data-testid={`button-track-trip-${trip.id}`}>
+                      <MapPinned className="w-3.5 h-3.5" />
+                      Track
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold">Today's Trips</h2>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => onSwitchTab("trips")} data-testid="button-view-all-trips">
+            View All
+          </Button>
+        </div>
+        {todayTripsQuery.isLoading ? (
+          <div className="space-y-2">
+            {[1, 2].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+          </div>
+        ) : todayTrips.length === 0 ? (
+          <Card>
+            <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-no-today-trips">
+              No trips scheduled for today
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2" data-testid="list-today-trips">
+            {todayTrips.map(trip => (
+              <Card key={trip.id} data-testid={`card-today-trip-${trip.id}`}>
+                <CardContent className="py-3 px-4">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{trip.publicId}</span>
+                        <Badge className={STATUS_COLORS[trip.status] || ""}>
+                          {STATUS_LABELS[trip.status] || trip.status}
+                        </Badge>
+                        {trip.approvalStatus === "pending" && (
+                          <Badge variant="secondary">Pending Approval</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                        {trip.patientName && (
+                          <span className="flex items-center gap-1">
+                            <User className="w-3 h-3" /> {trip.patientName}
+                          </span>
+                        )}
+                        {trip.pickupTime && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> {trip.pickupTime}
+                          </span>
+                        )}
+                        {trip.driverName && (
+                          <span className="flex items-center gap-1">
+                            <Car className="w-3 h-3" /> {trip.driverName}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {ACTIVE_TRIP_STATUSES.includes(trip.status) && (
+                      <Button size="sm" variant="outline" className="gap-1" onClick={() => setTrackingTripId(trip.id)} data-testid={`button-track-today-${trip.id}`}>
+                        <MapPinned className="w-3.5 h-3.5" />
+                        Track
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {schedules.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Repeat className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold">Recurring Schedules</h2>
+          </div>
+          <div className="space-y-2" data-testid="list-recurring-schedules">
+            {schedules.map((sched: any) => (
+              <Card key={sched.id} data-testid={`card-schedule-${sched.id}`}>
+                <CardContent className="py-3 px-4">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5" />
+                        {patientMap.get(sched.patientId) || `Patient #${sched.patientId}`}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {sched.pickupTime}
+                        </span>
+                        <span>
+                          {(sched.days || []).map((d: string) => DAY_LABELS[d] || d).join(", ")}
+                        </span>
+                      </div>
+                    </div>
+                    <Badge variant={sched.active ? "default" : "secondary"}>
+                      {sched.active ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Dialog open={!!trackingTripId} onOpenChange={(open) => { if (!open) setTrackingTripId(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {trackingTripId && (
+            <TripTrackingView tripId={trackingTripId} onClose={() => setTrackingTripId(null)} />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => void }) {
+  const { token } = useAuth();
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const driverMarkerRef = useRef<google.maps.Marker | null>(null);
+  const pickupMarkerRef = useRef<google.maps.Marker | null>(null);
+  const dropoffMarkerRef = useRef<google.maps.Marker | null>(null);
+  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
+  const mapsLoadedRef = useRef(false);
+  const [mapAvailable, setMapAvailable] = useState(true);
+
+  const trackingQuery = useQuery<any>({
+    queryKey: ["/api/clinic/trips", tripId, "tracking"],
+    queryFn: () => apiFetch(`/api/clinic/trips/${tripId}/tracking`, token),
+    enabled: !!token && !!tripId,
+    refetchInterval: 10000,
+  });
+
+  const data = trackingQuery.data;
+
+  useEffect(() => {
+    if (!data?.driver?.lat || !mapRef.current) return;
+    if (data.completed) return;
+
+    if (mapsLoadedRef.current) {
+      updateMapMarkers(data);
+      return;
+    }
+
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    fetch("/api/maps/client-key", { headers })
+      .then(r => r.ok ? r.json() : fetch("/api/public/maps/key").then(rr => rr.json()))
+      .then(json => {
+        if (!json.key) {
+          setMapAvailable(false);
+          return;
+        }
+        if (window.google?.maps) {
+          mapsLoadedRef.current = true;
+          initMap(data);
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${json.key}&libraries=geometry,places`;
+        script.async = true;
+        script.onload = () => {
+          mapsLoadedRef.current = true;
+          initMap(data);
+        };
+        script.onerror = () => setMapAvailable(false);
+        document.head.appendChild(script);
+      })
+      .catch(() => setMapAvailable(false));
+  }, [data, token]);
+
+  function createCarSvg(color: string) {
+    const fill = color || "#3b82f6";
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24">
+      <path d="M5 17a1 1 0 0 1-1-1v-5l2-6h12l2 6v5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H8v1a1 1 0 0 1-1 1H5z"
+        fill="${fill}" stroke="#fff" stroke-width="1"/>
+      <circle cx="7.5" cy="14.5" r="1.5" fill="#fff"/>
+      <circle cx="16.5" cy="14.5" r="1.5" fill="#fff"/>
+      <path d="M6.5 8L8 4h8l1.5 4H6.5z" fill="${fill}" opacity="0.6" stroke="#fff" stroke-width="0.5"/>
+    </svg>`;
+  }
+
+  function initMap(trackingData: any) {
+    if (!mapRef.current || !trackingData.driver) return;
+    const driverPos = { lat: trackingData.driver.lat, lng: trackingData.driver.lng };
+    const map = new google.maps.Map(mapRef.current, {
+      center: driverPos,
+      zoom: 13,
+      disableDefaultUI: true,
+      zoomControl: true,
+      styles: [
+        { featureType: "poi", stylers: [{ visibility: "off" }] },
+      ],
+    });
+    mapInstanceRef.current = map;
+    directionsRendererRef.current = new google.maps.DirectionsRenderer({
+      map,
+      suppressMarkers: true,
+      polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 4, strokeOpacity: 0.7 },
+    });
+    updateMapMarkers(trackingData);
+  }
+
+  function updateMapMarkers(trackingData: any) {
+    if (!mapInstanceRef.current || !trackingData.driver) return;
+    const map = mapInstanceRef.current;
+    const driverPos = { lat: trackingData.driver.lat, lng: trackingData.driver.lng };
+    const vColor = trackingData.driver.vehicleColor || "#3b82f6";
+
+    if (driverMarkerRef.current) {
+      driverMarkerRef.current.setPosition(driverPos);
+    } else {
+      driverMarkerRef.current = new google.maps.Marker({
+        position: driverPos,
+        map,
+        icon: {
+          url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(createCarSvg(vColor)),
+          scaledSize: new google.maps.Size(36, 36),
+          anchor: new google.maps.Point(18, 18),
+        },
+        title: trackingData.driver.name || "Driver",
+        zIndex: 10,
+      });
+    }
+
+    const route = trackingData.route;
+    if (route?.pickupLat && route?.pickupLng) {
+      const pickupPos = { lat: route.pickupLat, lng: route.pickupLng };
+      if (!pickupMarkerRef.current) {
+        pickupMarkerRef.current = new google.maps.Marker({
+          position: pickupPos,
+          map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: "#22c55e",
+            fillOpacity: 1,
+            strokeWeight: 2,
+            strokeColor: "#fff",
+            scale: 8,
+          },
+          title: "Pickup",
+          zIndex: 5,
+        });
+      }
+    }
+
+    if (route?.dropoffLat && route?.dropoffLng) {
+      const dropoffPos = { lat: route.dropoffLat, lng: route.dropoffLng };
+      if (!dropoffMarkerRef.current) {
+        dropoffMarkerRef.current = new google.maps.Marker({
+          position: dropoffPos,
+          map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: "#ef4444",
+            fillOpacity: 1,
+            strokeWeight: 2,
+            strokeColor: "#fff",
+            scale: 8,
+          },
+          title: "Dropoff",
+          zIndex: 5,
+        });
+      }
+    }
+
+    const bounds = new google.maps.LatLngBounds();
+    bounds.extend(driverPos);
+    if (route?.pickupLat && route?.pickupLng) bounds.extend({ lat: route.pickupLat, lng: route.pickupLng });
+    if (route?.dropoffLat && route?.dropoffLng) bounds.extend({ lat: route.dropoffLat, lng: route.dropoffLng });
+    map.fitBounds(bounds, 60);
+
+    if (directionsRendererRef.current && route?.pickupLat && route?.dropoffLat) {
+      const origin = driverPos;
+      const destination = ["PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"].includes(trackingData.status)
+        ? { lat: route.dropoffLat, lng: route.dropoffLng }
+        : { lat: route.pickupLat, lng: route.pickupLng };
+
+      const directionsService = new google.maps.DirectionsService();
+      directionsService.route(
+        { origin, destination, travelMode: google.maps.TravelMode.DRIVING },
+        (result, status) => {
+          if (status === "OK" && result) {
+            directionsRendererRef.current?.setDirections(result);
+          }
+        }
+      );
+    }
+  }
+
+  if (trackingQuery.isLoading) {
+    return (
+      <div className="p-6 space-y-4">
+        <Skeleton className="h-6 w-1/2" />
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-20 w-full" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="p-6 text-center text-sm text-muted-foreground">
+        Unable to load tracking data
+      </div>
+    );
+  }
+
+  if (data.completed) {
+    return (
+      <div className="p-6 space-y-4">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            Trip {data.publicId || `#${data.tripId}`}
+            <Badge className={STATUS_COLORS[data.status] || ""}>
+              {STATUS_LABELS[data.status] || data.status}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-8 text-center">
+          <Lock className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+          <p className="text-sm text-muted-foreground">This trip has been completed</p>
+          <p className="text-xs text-muted-foreground mt-1">Live tracking is no longer available</p>
+        </div>
+      </div>
+    );
+  }
+
+  const driver = data.driver;
+  const route = data.route;
+  const hasDriverLocation = driver && driver.lat && driver.lng;
+  const statusColor = driver?.connected ? "text-emerald-500" : "text-muted-foreground";
+
+  return (
+    <div className="flex flex-col">
+      <div className="px-4 pt-4 pb-2 border-b">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            <span>Trip {data.publicId || `#${data.tripId}`}</span>
+            <Badge className={STATUS_COLORS[data.status] || ""}>
+              {STATUS_LABELS[data.status] || data.status}
+            </Badge>
+            {driver?.connected && (
+              <Badge variant="secondary" className="gap-1">
+                <Activity className="w-3 h-3 text-emerald-500" />
+                Live
+              </Badge>
+            )}
+          </DialogTitle>
+        </DialogHeader>
+      </div>
+
+      {hasDriverLocation && mapAvailable ? (
+        <div ref={mapRef} className="w-full h-64 sm:h-80 bg-muted" data-testid="div-tracking-map" />
+      ) : !hasDriverLocation ? (
+        <div className="w-full h-48 bg-muted flex items-center justify-center">
+          <div className="text-center text-muted-foreground">
+            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p className="text-sm">Driver location not available yet</p>
+          </div>
+        </div>
+      ) : (
+        <div className="w-full h-48 bg-muted flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">Map not available</p>
+        </div>
+      )}
+
+      <div className="p-4 space-y-4">
+        {driver && (
+          <Card>
+            <CardContent className="py-3 px-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    <Car className="w-4 h-4" style={{ color: driver.vehicleColor || "#3b82f6" }} />
+                    {driver.name}
+                  </p>
+                  {driver.vehicleLabel && (
+                    <p className="text-xs text-muted-foreground">{driver.vehicleLabel}</p>
+                  )}
+                  {driver.phone && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Phone className="w-3 h-3" /> {driver.phone}
+                    </p>
+                  )}
+                </div>
+                <div className="text-right space-y-1">
+                  {route?.etaMinutes != null && (
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                      <Navigation className="w-4 h-4" />
+                      {route.etaMinutes} min
+                    </p>
+                  )}
+                  {route?.distanceMiles != null && (
+                    <p className="text-xs text-muted-foreground">{route.distanceMiles} mi</p>
+                  )}
+                  <p className={`text-xs flex items-center gap-1 justify-end ${statusColor}`}>
+                    <Radio className="w-3 h-3" />
+                    {driver.connected ? "Connected" : `Last seen ${formatTimeAgo(driver.lastSeenAt)}`}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {route && (
+          <div className="grid grid-cols-1 gap-2 text-sm">
+            <div className="flex items-start gap-2">
+              <MapPin className="w-4 h-4 mt-0.5 text-emerald-500 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground">Pickup</p>
+                <p>{route.pickupAddress}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <MapPin className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground">Dropoff</p>
+                <p>{route.dropoffAddress}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {data.pickupTime && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="w-3.5 h-3.5" />
+            {data.pickupTime} on {data.scheduledDate}
+          </div>
+        )}
+
+        <TripProgressBar status={data.status} />
+      </div>
+    </div>
+  );
+}
+
+function TripProgressBar({ status }: { status: string }) {
+  const currentStepIndex = TRIP_PROGRESS_STEPS.findIndex(s => s.key === status);
+
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground mb-2">Trip Progress</p>
+      <div className="space-y-1">
+        {TRIP_PROGRESS_STEPS.map((step, idx) => {
+          const isPast = idx <= currentStepIndex;
+          const isCurrent = idx === currentStepIndex;
+          return (
+            <div
+              key={step.key}
+              className={`flex items-center gap-2 py-1 px-2 rounded text-sm ${
+                isCurrent ? "bg-primary/10 font-medium text-primary"
+                : isPast ? "text-muted-foreground"
+                : "text-muted-foreground/40"
+              }`}
+              data-testid={`step-${step.key}`}
+            >
+              {isPast ? (
+                <CheckCircle className={`w-4 h-4 flex-shrink-0 ${isCurrent ? "text-primary" : "text-emerald-500"}`} />
+              ) : (
+                <div className="w-4 h-4 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
+              )}
+              <span>{step.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function TripsSection() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const { toast } = useToast();
   const [tripTab, setTripTab] = useState("active");
   const [selectedTripId, setSelectedTripId] = useState<number | null>(null);
   const [showCreateTrip, setShowCreateTrip] = useState(false);
+  const [trackingTripId, setTrackingTripId] = useState<number | null>(null);
 
   const tripsQuery = useQuery<any[]>({
     queryKey: ["/api/clinic/trips", tripTab],
@@ -187,8 +806,6 @@ function TripsSection() {
   });
 
   const tripsList = tripsQuery.data || [];
-  const patientsList = patientsQuery.data || [];
-  const clinic = clinicQuery.data;
 
   return (
     <div className="space-y-4">
@@ -222,6 +839,7 @@ function TripsSection() {
               trip={trip}
               isCompleted={tripTab === "completed"}
               onSelect={() => setSelectedTripId(trip.id)}
+              onTrack={ACTIVE_TRIP_STATUSES.includes(trip.status) ? () => setTrackingTripId(trip.id) : undefined}
             />
           ))}
         </div>
@@ -245,7 +863,7 @@ function TripsSection() {
               <Skeleton className="h-32 w-full" />
             </div>
           ) : tripDetailQuery.data ? (
-            <TripDetail trip={tripDetailQuery.data} />
+            <TripDetail trip={tripDetailQuery.data} onTrack={() => { setSelectedTripId(null); setTrackingTripId(tripDetailQuery.data.id); }} />
           ) : null}
         </DialogContent>
       </Dialog>
@@ -256,11 +874,19 @@ function TripsSection() {
             <DialogTitle>Request a Trip</DialogTitle>
           </DialogHeader>
           <CreateTripForm
-            patients={patientsList}
-            clinic={clinic}
+            patients={patientsQuery.data || []}
+            clinic={clinicQuery.data}
             loading={createTripMutation.isPending}
             onSubmit={(data) => createTripMutation.mutate(data)}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!trackingTripId} onOpenChange={(open) => { if (!open) setTrackingTripId(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {trackingTripId && (
+            <TripTrackingView tripId={trackingTripId} onClose={() => setTrackingTripId(null)} />
+          )}
         </DialogContent>
       </Dialog>
     </div>
@@ -275,7 +901,7 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
 }) {
   const [form, setForm] = useState({
     patientId: "",
-    scheduledDate: new Date().toISOString().split("T")[0],
+    scheduledDate: todayStr(),
     pickupTime: "09:00",
     estimatedArrivalTime: "10:00",
     pickupAddress: "",
@@ -595,7 +1221,7 @@ function ClinicPatientForm({ onSubmit, loading, initialData, isEdit }: {
 function ReportsSection() {
   const { token } = useAuth();
   const { toast } = useToast();
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayStr();
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
   const [startDate, setStartDate] = useState(thirtyDaysAgo);
   const [endDate, setEndDate] = useState(today);
@@ -664,7 +1290,7 @@ function ReportsSection() {
   );
 }
 
-function ClinicTripCard({ trip, isCompleted, onSelect }: { trip: any; isCompleted: boolean; onSelect: () => void }) {
+function ClinicTripCard({ trip, isCompleted, onSelect, onTrack }: { trip: any; isCompleted: boolean; onSelect: () => void; onTrack?: () => void }) {
   return (
     <Card
       className="cursor-pointer hover-elevate"
@@ -726,17 +1352,26 @@ function ClinicTripCard({ trip, isCompleted, onSelect }: { trip: any; isComplete
               </span>
             </div>
           </div>
-          <Button size="sm" variant="outline" onClick={onSelect} data-testid={`button-view-trip-${trip.id}`}>
-            View
-          </Button>
+          <div className="flex flex-col gap-1">
+            {onTrack && (
+              <Button size="sm" variant="outline" className="gap-1" onClick={(e) => { e.stopPropagation(); onTrack(); }} data-testid={`button-track-trip-${trip.id}`}>
+                <MapPinned className="w-3.5 h-3.5" />
+                Track
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onSelect(); }} data-testid={`button-view-trip-${trip.id}`}>
+              <Eye className="w-3.5 h-3.5" />
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function TripDetail({ trip }: { trip: any }) {
+function TripDetail({ trip, onTrack }: { trip: any; onTrack: () => void }) {
   const isCompleted = trip.status === "COMPLETED" || trip.status === "CANCELLED";
+  const isActive = ACTIVE_TRIP_STATUSES.includes(trip.status);
   const currentStepIndex = TRIP_PROGRESS_STEPS.findIndex((s) => s.key === trip.status);
 
   return (
@@ -744,11 +1379,19 @@ function TripDetail({ trip }: { trip: any }) {
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <span className="text-sm font-semibold">{trip.publicId}</span>
-          {trip.patientName && (
-            <span className="text-sm text-muted-foreground flex items-center gap-1">
-              <User className="w-3.5 h-3.5" /> {trip.patientName}
-            </span>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {trip.patientName && (
+              <span className="text-sm text-muted-foreground flex items-center gap-1">
+                <User className="w-3.5 h-3.5" /> {trip.patientName}
+              </span>
+            )}
+            {isActive && (
+              <Button size="sm" variant="outline" className="gap-1" onClick={onTrack} data-testid="button-detail-track">
+                <MapPinned className="w-3.5 h-3.5" />
+                Live Track
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-2 text-sm">
@@ -820,35 +1463,7 @@ function TripDetail({ trip }: { trip: any }) {
         </Card>
       )}
 
-      <div>
-        <p className="text-xs text-muted-foreground mb-2">Trip Progress</p>
-        <div className="space-y-1">
-          {TRIP_PROGRESS_STEPS.map((step, idx) => {
-            const isPast = idx <= currentStepIndex;
-            const isCurrent = idx === currentStepIndex;
-            return (
-              <div
-                key={step.key}
-                className={`flex items-center gap-2 py-1 px-2 rounded text-sm ${
-                  isCurrent
-                    ? "bg-primary/10 font-medium text-primary"
-                    : isPast
-                    ? "text-muted-foreground"
-                    : "text-muted-foreground/40"
-                }`}
-                data-testid={`step-${step.key}`}
-              >
-                {isPast ? (
-                  <CheckCircle className={`w-4 h-4 flex-shrink-0 ${isCurrent ? "text-primary" : "text-emerald-500"}`} />
-                ) : (
-                  <div className="w-4 h-4 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
-                )}
-                <span>{step.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <TripProgressBar status={trip.status} />
 
       {trip.notes && (
         <div>

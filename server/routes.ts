@@ -1635,6 +1635,9 @@ export async function registerRoutes(
         driverLastSeenAt: driver?.lastSeenAt || null,
         vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
         vehicleType: vehicle?.type || null,
+        vehicleColor: vehicle?.color || null,
+        vehicleMake: vehicle?.make || null,
+        vehicleModel: vehicle?.model || null,
         cityName: city?.name || null,
       };
     }));
@@ -3134,7 +3137,10 @@ export async function registerRoutes(
         isNull(trips.deletedAt),
       ];
 
-      if (statusFilter === "active") {
+      if (statusFilter === "today") {
+        const todayDate = new Date().toISOString().split("T")[0];
+        conditions.push(eq(trips.scheduledDate, todayDate));
+      } else if (statusFilter === "active") {
         conditions.push(
           inArray(trips.status, ["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"])
         );
@@ -3166,6 +3172,76 @@ export async function registerRoutes(
 
       const [enriched] = await enrichTripsWithRelations([trip]);
       res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/clinic/trips/:id/tracking", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(tripId);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (trip.clinicId !== user.clinicId) {
+        return res.status(403).json({ message: "You can only track your clinic's trips" });
+      }
+
+      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (terminalStatuses.includes(trip.status)) {
+        return res.json({
+          ok: true,
+          tripId: trip.id,
+          status: trip.status,
+          completed: true,
+          driver: null,
+          route: null,
+        });
+      }
+
+      const driver = trip.driverId ? await storage.getDriver(trip.driverId) : null;
+      const vehicle = driver?.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
+
+      const driverData = driver ? {
+        id: driver.id,
+        name: `${driver.firstName} ${driver.lastName}`,
+        phone: driver.phone,
+        lat: driver.lastLat,
+        lng: driver.lastLng,
+        lastSeenAt: driver.lastSeenAt,
+        connected: driver.lastSeenAt ? (Date.now() - new Date(driver.lastSeenAt).getTime()) < 120000 : false,
+        vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
+        vehicleColor: vehicle?.color || null,
+        vehicleMake: vehicle?.make || null,
+        vehicleModel: vehicle?.model || null,
+      } : null;
+
+      const routeData = {
+        pickupAddress: trip.pickupAddress,
+        pickupLat: trip.pickupLat,
+        pickupLng: trip.pickupLng,
+        dropoffAddress: trip.dropoffAddress,
+        dropoffLat: trip.dropoffLat,
+        dropoffLng: trip.dropoffLng,
+        etaMinutes: trip.lastEtaMinutes,
+        distanceMiles: trip.distanceMiles,
+      };
+
+      res.json({
+        ok: true,
+        tripId: trip.id,
+        publicId: trip.publicId,
+        status: trip.status,
+        scheduledDate: trip.scheduledDate,
+        pickupTime: trip.pickupTime,
+        completed: false,
+        driver: driverData,
+        route: routeData,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
