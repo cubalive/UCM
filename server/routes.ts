@@ -3747,7 +3747,8 @@ export async function registerRoutes(
       );
 
       const todayTrips = clinicTrips.filter(t => t.scheduledDate === todayDate);
-      const activeStatuses = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+      const activeStatuses = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+      const mapVisibleStatuses = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF"];
       const activeTrips = todayTrips.filter(t => activeStatuses.includes(t.status));
 
       const isToClinic = (trip: any) => {
@@ -3879,6 +3880,8 @@ export async function registerRoutes(
 
         const driverVisible = trip.lastEtaMinutes != null && trip.lastEtaMinutes < 15;
 
+        const mapVisible = mapVisibleStatuses.includes(trip.status) && !!trip.driverId;
+
         return {
           tripId: trip.id, publicId: trip.publicId, status: trip.status,
           pickupAddress: trip.pickupAddress, dropoffAddress: trip.dropoffAddress,
@@ -3887,7 +3890,7 @@ export async function registerRoutes(
           scheduledDate: trip.scheduledDate, pickupTime: trip.pickupTime,
           estimatedArrivalTime: trip.estimatedArrivalTime,
           tripType: trip.tripType, tripSeriesId: trip.tripSeriesId,
-          direction, lateStatus, driverVisible,
+          direction, lateStatus, driverVisible, mapVisible,
           patient: patient ? { id: patient.id, firstName: patient.firstName, lastName: patient.lastName, phone: patient.phone } : null,
           driver: driverData ? {
             ...driverData,
@@ -4029,13 +4032,13 @@ export async function registerRoutes(
       if (!user) return res.status(404).json({ message: "User not found" });
       if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
-      const TERMINAL = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      const CLINIC_MAP_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF"];
       const PRESENCE_TIMEOUT = 120_000;
 
       const clinicTrips = await db.select().from(trips).where(
         and(
           eq(trips.clinicId, user.clinicId),
-          sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
+          inArray(trips.status, CLINIC_MAP_STATUSES),
           isNull(trips.deletedAt),
         )
       );

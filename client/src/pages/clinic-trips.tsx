@@ -694,7 +694,8 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
       }
     }
 
-    activeTrips.forEach(trip => {
+    const visibleTrips = activeTrips.filter((t: any) => t.mapVisible !== false);
+    visibleTrips.forEach(trip => {
       if (!trip.driver?.lastLat || !trip.driver?.lastLng) return;
       const key = `driver-${trip.tripId}`;
       currentKeys.add(key);
@@ -740,20 +741,36 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
       }
     });
 
-    if (!entry.boundsFit && !bounds.isEmpty() && activeTrips.length > 0) {
+    if (!entry.boundsFit && !bounds.isEmpty() && visibleTrips.length > 0) {
       entry.boundsFit = true;
       map.fitBounds(bounds, 60);
     }
   }
 
-  const hasDrivers = activeTrips.some(t => t.driver?.lastLat && t.driver?.lastLng);
+  const mapTrips = activeTrips.filter((t: any) => t.mapVisible !== false);
+  const hasDrivers = mapTrips.some(t => t.driver?.lastLat && t.driver?.lastLng);
+  const hasMapTrips = mapTrips.length > 0;
+
+  if (!hasMapTrips) {
+    return (
+      <div data-testid="div-clinic-map-empty">
+        <Card>
+          <CardContent className="py-12 text-center">
+            <MapPinned className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+            <h3 className="text-base font-semibold mb-1" data-testid="text-no-active-routes-title">No active routes for your clinic</h3>
+            <p className="text-sm text-muted-foreground" data-testid="text-no-active-routes-subtitle">The map will appear once a driver is assigned to a patient.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
         <MapIcon className="w-4 h-4 text-blue-500" />
         <h3 className="text-sm font-semibold" data-testid="text-ops-map-title">Active Trips Map</h3>
-        <Badge variant="secondary">{activeTrips.length} trips</Badge>
+        <Badge variant="secondary">{mapTrips.length} trip{mapTrips.length !== 1 ? "s" : ""}</Badge>
       </div>
       <div className="relative">
         <div
@@ -763,29 +780,22 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
           style={{ display: mapAvailable && (hasDrivers || (clinic?.lat && clinic?.lng)) ? "block" : "none" }}
         />
       </div>
-      {!(mapAvailable && (hasDrivers || (clinic?.lat && clinic?.lng))) && activeTrips.length === 0 ? (
-        <Card>
-          <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-ops-map-empty">
-            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p>No active trips with driver locations</p>
-          </CardContent>
-        </Card>
-      ) : !hasDrivers && activeTrips.length > 0 ? (
+      {!(mapAvailable && (hasDrivers || (clinic?.lat && clinic?.lng))) && !hasDrivers && mapTrips.length > 0 ? (
         <Card>
           <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-ops-map-hidden">
             <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
             <p>Driver markers appear when ETA is under 15 min</p>
-            <p className="text-xs mt-1">{activeTrips.length} active trip{activeTrips.length !== 1 ? "s" : ""} in progress</p>
+            <p className="text-xs mt-1">{mapTrips.length} active trip{mapTrips.length !== 1 ? "s" : ""} in progress</p>
           </CardContent>
         </Card>
-      ) : (
+      ) : !mapAvailable ? (
         <Card>
           <CardContent className="py-6 text-center text-sm text-muted-foreground">
             <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
             <p>Map not available</p>
           </CardContent>
         </Card>
-      )}
+      ) : null}
       <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> On Time</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> At Risk</span>
