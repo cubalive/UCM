@@ -79,8 +79,13 @@ const STATUS_LABELS: Record<string, string> = {
 
 const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
 
+const isStandalone =
+  typeof window !== "undefined" &&
+  (window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as any).standalone === true);
+
 function useGeolocation(isActive: boolean) {
-  const [permission, setPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown");
+  const [permission, setPermission] = useState<"granted" | "denied" | "prompt">("prompt");
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [watchError, setWatchError] = useState(false);
   const watchRef = useRef<number | null>(null);
@@ -88,43 +93,52 @@ function useGeolocation(isActive: boolean) {
   const retryCountRef = useRef(0);
 
   useEffect(() => {
+    console.log("[GPS] mode:", isStandalone ? "standalone (PWA)" : "browser");
     if (!navigator.geolocation) {
+      console.warn("[GPS] Geolocation API not available");
       setPermission("denied");
-      return;
     }
-    navigator.permissions?.query({ name: "geolocation" }).then((result) => {
-      setPermission(result.state);
-      result.onchange = () => setPermission(result.state);
-    }).catch(() => {
-      setPermission("prompt");
-    });
   }, []);
 
   const requestPermission = useCallback(() => {
     if (!navigator.geolocation) return;
+    console.log("[GPS] requestPermission called, attempting getCurrentPosition (highAccuracy)");
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        console.log("[GPS] Position acquired:", pos.coords.latitude.toFixed(5), pos.coords.longitude.toFixed(5));
         setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setPermission("granted");
         setWatchError(false);
         retryCountRef.current = 0;
       },
       (err) => {
+        console.warn("[GPS] getCurrentPosition error:", err.code, err.message);
         if (err.code === 1) {
           setPermission("denied");
-        } else {
-          setPermission("prompt");
+        } else if (err.code === 3) {
+          console.log("[GPS] Timeout — retrying with enableHighAccuracy:false");
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              console.log("[GPS] Fallback position acquired:", pos.coords.latitude.toFixed(5), pos.coords.longitude.toFixed(5));
+              setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+              setPermission("granted");
+              setWatchError(false);
+              retryCountRef.current = 0;
+            },
+            (err2) => {
+              console.warn("[GPS] Fallback also failed:", err2.code, err2.message);
+              if (err2.code === 1) {
+                setPermission("denied");
+              }
+            },
+            { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 }
+          );
         }
       },
-      { enableHighAccuracy: true, timeout: 15000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, []);
-
-  useEffect(() => {
-    if (permission === "denied" || permission === "granted") return;
-    if (!navigator.geolocation) return;
-    requestPermission();
-  }, [permission, requestPermission]);
 
   useEffect(() => {
     if (!isActive || !navigator.geolocation || permission !== "granted") return;
@@ -134,13 +148,15 @@ function useGeolocation(isActive: boolean) {
         navigator.geolocation.clearWatch(watchRef.current);
       }
       setWatchError(false);
+      console.log("[GPS] Starting watchPosition");
       watchRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           setWatchError(false);
           retryCountRef.current = 0;
         },
-        () => {
+        (err) => {
+          console.warn("[GPS] watchPosition error:", err.code, err.message);
           setWatchError(true);
           const delay = Math.min(5000 * Math.pow(2, retryCountRef.current), 60000);
           retryCountRef.current++;
@@ -164,7 +180,7 @@ function useGeolocation(isActive: boolean) {
     };
   }, [isActive, permission]);
 
-  return { permission, location, watchError, requestPermission };
+  return { permission, location, watchError, requestPermission, isStandalone };
 }
 
 export default function DriverDashboard() {
@@ -248,7 +264,7 @@ export default function DriverDashboard() {
   const activeTrips = todayTrips.filter((t: any) => ACTIVE_STATUSES.includes(t.status));
   const completedToday = todayTrips.filter((t: any) => t.status === "COMPLETED");
 
-  if (geoPermission === "prompt" || geoPermission === "unknown") {
+  if (geoPermission === "prompt") {
     return (
       <div className="flex items-center justify-center min-h-[60vh] p-4">
         <Card className="max-w-md w-full">
@@ -281,14 +297,31 @@ export default function DriverDashboard() {
               </p>
             </div>
             <div className="text-left space-y-2 bg-muted/50 rounded-md p-4">
-              <p className="text-sm font-medium">For iPhone / iPad (Safari):</p>
-              <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
-                <li>Open <strong>Settings</strong> on your device</li>
-                <li>Scroll down and tap <strong>Safari</strong> (or your browser)</li>
-                <li>Tap <strong>Location</strong></li>
-                <li>Set to <strong>Allow</strong> or <strong>Ask</strong></li>
-                <li>Return here and tap <strong>Try Again</strong></li>
-              </ol>
+              {isStandalone ? (
+                <>
+                  <p className="text-sm font-medium">iPhone / iPad (Home Screen App):</p>
+                  <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
+                    <li>Open <strong>Settings</strong> on your device</li>
+                    <li>Tap <strong>Privacy &amp; Security</strong></li>
+                    <li>Tap <strong>Location Services</strong> (make sure it is ON)</li>
+                    <li>Scroll down, tap <strong>Safari Websites</strong></li>
+                    <li>Set to <strong>While Using</strong></li>
+                    <li>Enable <strong>Precise Location</strong></li>
+                    <li>Return here and tap <strong>Try Again</strong></li>
+                  </ol>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">For iPhone / iPad (Safari):</p>
+                  <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
+                    <li>Open <strong>Settings</strong> on your device</li>
+                    <li>Scroll down and tap <strong>Safari</strong></li>
+                    <li>Tap <strong>Location</strong></li>
+                    <li>Set to <strong>Allow</strong> or <strong>Ask</strong></li>
+                    <li>Return here and tap <strong>Try Again</strong></li>
+                  </ol>
+                </>
+              )}
               <p className="text-sm font-medium mt-3">For Android (Chrome):</p>
               <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
                 <li>Tap the <strong>lock icon</strong> in the address bar</li>
