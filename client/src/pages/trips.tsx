@@ -25,7 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { useTranslation } from "react-i18next";
@@ -940,6 +940,247 @@ function TripEventsSection({ tripId, token }: { tripId: number; token: string | 
   );
 }
 
+const INVOICE_ROLES = ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"];
+
+function TripInvoicePanel({ tripId, token }: { tripId: number; token: string | null }) {
+  const { toast } = useToast();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const invoiceQuery = useQuery<any>({
+    queryKey: ["/api/trips", tripId, "invoice"],
+    queryFn: () => apiFetch(`/api/trips/${tripId}/invoice`, token),
+    enabled: !!token && !!tripId,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: { amount: string; notes: string }) =>
+      apiFetch(`/api/trips/${tripId}/invoice`, token, { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "invoice"] });
+      setShowCreate(false);
+      setAmount("");
+      setNotes("");
+      toast({ title: "Invoice created" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: { amount: string }) => {
+      const inv = invoiceQuery.data?.invoice;
+      return apiFetch(`/api/invoices/${inv.id}`, token, { method: "PATCH", body: JSON.stringify(data) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "invoice"] });
+      setEditMode(false);
+      toast({ title: "Invoice updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: async () => {
+      const inv = invoiceQuery.data?.invoice;
+      return apiFetch(`/api/invoices/${inv.id}/mark-paid`, token, { method: "PATCH" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "invoice"] });
+      toast({ title: "Invoice marked as paid" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  if (invoiceQuery.isLoading) return <Skeleton className="h-16 w-full" />;
+
+  const invoice = invoiceQuery.data?.invoice;
+
+  if (!invoice && !showCreate) {
+    return (
+      <div className="border-t pt-4 space-y-2">
+        <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+          <DollarSign className="w-4 h-4" />
+          Invoice
+        </h3>
+        <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-create-invoice" className="gap-1">
+          <Plus className="w-3.5 h-3.5" />
+          Create Invoice
+        </Button>
+      </div>
+    );
+  }
+
+  if (showCreate) {
+    return (
+      <div className="border-t pt-4 space-y-3">
+        <h3 className="text-sm font-medium flex items-center gap-1.5">
+          <DollarSign className="w-4 h-4" />
+          Create Invoice
+        </h3>
+        <div className="space-y-2">
+          <Label htmlFor="inv-amount">Amount ($)</Label>
+          <Input
+            id="inv-amount"
+            type="number"
+            step="0.01"
+            min="0"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            data-testid="input-invoice-amount"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="inv-notes">Notes (optional)</Label>
+          <Input
+            id="inv-notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Optional notes"
+            data-testid="input-invoice-notes"
+          />
+        </div>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            onClick={() => createMutation.mutate({ amount, notes })}
+            disabled={!amount || createMutation.isPending}
+            data-testid="button-submit-invoice"
+          >
+            {createMutation.isPending ? "Creating..." : "Create"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowCreate(false)} data-testid="button-cancel-invoice">
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (editMode) {
+    return (
+      <div className="border-t pt-4 space-y-3">
+        <h3 className="text-sm font-medium flex items-center gap-1.5">
+          <Pencil className="w-4 h-4" />
+          Edit Invoice
+        </h3>
+        <div className="space-y-2">
+          <Label htmlFor="inv-edit-amount">Amount ($)</Label>
+          <Input
+            id="inv-edit-amount"
+            type="number"
+            step="0.01"
+            min="0"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            data-testid="input-edit-invoice-amount"
+          />
+        </div>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            onClick={() => updateMutation.mutate({ amount })}
+            disabled={!amount || updateMutation.isPending}
+            data-testid="button-save-invoice"
+          >
+            {updateMutation.isPending ? "Saving..." : "Save"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setEditMode(false)} data-testid="button-cancel-edit-invoice">
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const statusColors: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    approved: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    paid: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
+  };
+
+  const handleDownloadPdf = () => {
+    const inv = invoice;
+    const content = [
+      `INVOICE`,
+      `Invoice ID: ${inv.id}`,
+      `Patient: ${inv.patientName}`,
+      `Service Date: ${inv.serviceDate}`,
+      `Amount: $${parseFloat(inv.amount).toFixed(2)}`,
+      `Status: ${inv.status.toUpperCase()}`,
+      `Created: ${new Date(inv.createdAt).toLocaleDateString()}`,
+    ].join("\n");
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `invoice_${inv.id}_trip_${tripId}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="border-t pt-4 space-y-2">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <span className="text-sm font-medium">Invoice</span>
+          <Badge className={statusColors[invoice.status] || ""} data-testid="badge-invoice-status">
+            {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+          </Badge>
+        </div>
+        <span className="text-lg font-bold" data-testid="text-invoice-amount">
+          ${parseFloat(invoice.amount).toFixed(2)}
+        </span>
+      </div>
+      <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
+        <span>{invoice.patientName}</span>
+        <span>{invoice.serviceDate}</span>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        {invoice.status !== "paid" && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1"
+              onClick={() => { setAmount(invoice.amount); setEditMode(true); }}
+              data-testid="button-edit-invoice"
+            >
+              <Pencil className="w-3 h-3" />
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              className="gap-1"
+              onClick={() => markPaidMutation.mutate()}
+              disabled={markPaidMutation.isPending}
+              data-testid="button-mark-paid"
+            >
+              <CreditCard className="w-3 h-3" />
+              {markPaidMutation.isPending ? "Updating..." : "Mark Paid"}
+            </Button>
+          </>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1"
+          onClick={handleDownloadPdf}
+          data-testid="button-download-invoice"
+        >
+          <FileText className="w-3 h-3" />
+          Download
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function TripDetailDialog({
   trip,
   patient,
@@ -1299,6 +1540,10 @@ function TripDetailDialog({
                 <h3 className="text-sm font-medium text-muted-foreground">Notes</h3>
                 <p className="text-sm" data-testid="text-trip-notes">{trip.notes}</p>
               </div>
+            )}
+
+            {trip.status === "COMPLETED" && userRole && INVOICE_ROLES.includes(userRole) && (
+              <TripInvoicePanel tripId={trip.id} token={token} />
             )}
 
             <div className="border-t pt-4 space-y-3">

@@ -3979,6 +3979,156 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/trips/:id/invoice", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+      const trip = await storage.getTrip(tripId);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+      if (req.user!.companyId && trip.companyId && req.user!.companyId !== trip.companyId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const invoice = await storage.getInvoiceByTripId(tripId);
+      res.json({ invoice: invoice || null });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/trips/:id/invoice", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+      const trip = await storage.getTrip(tripId);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (trip.status !== "COMPLETED") {
+        return res.status(400).json({ message: "Invoice can only be created for completed trips" });
+      }
+
+      if (req.user!.companyId && trip.companyId && req.user!.companyId !== trip.companyId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const existing = await storage.getInvoiceByTripId(tripId);
+      if (existing) {
+        return res.status(409).json({ message: "Invoice already exists for this trip", invoice: existing });
+      }
+
+      const { amount, notes } = req.body;
+      if (!amount || isNaN(parseFloat(amount))) {
+        return res.status(400).json({ message: "Valid amount is required" });
+      }
+
+      const patient = await storage.getPatient(trip.patientId);
+      const patientName = patient ? `${patient.firstName} ${patient.lastName}` : "Unknown";
+
+      const invoice = await storage.createInvoice({
+        clinicId: trip.clinicId!,
+        tripId: trip.id,
+        patientName,
+        serviceDate: trip.scheduledDate,
+        amount: parseFloat(amount).toFixed(2),
+        status: "pending",
+      });
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "CREATE_INVOICE",
+        entity: "invoice",
+        entityId: invoice.id,
+        details: `Invoice created for trip #${trip.publicId}, amount: $${amount}${notes ? `, notes: ${notes}` : ""}`,
+        cityId: trip.cityId,
+      });
+
+      res.status(201).json(invoice);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/invoices/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      if (invoice.tripId && req.user!.companyId) {
+        const trip = await storage.getTrip(invoice.tripId);
+        if (trip && trip.companyId && req.user!.companyId !== trip.companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      if (invoice.status === "paid") {
+        return res.status(400).json({ message: "Cannot edit a paid invoice" });
+      }
+
+      const { amount, notes } = req.body;
+      const updateData: any = {};
+      if (amount !== undefined) {
+        if (isNaN(parseFloat(amount))) return res.status(400).json({ message: "Invalid amount" });
+        updateData.amount = parseFloat(amount).toFixed(2);
+      }
+
+      const updated = await storage.updateInvoice(invoiceId, updateData);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "UPDATE_INVOICE",
+        entity: "invoice",
+        entityId: invoiceId,
+        details: `Invoice updated${amount ? `, new amount: $${amount}` : ""}${notes ? `, notes: ${notes}` : ""}`,
+        cityId: null,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/invoices/:id/mark-paid", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      if (invoice.tripId && req.user!.companyId) {
+        const trip = await storage.getTrip(invoice.tripId);
+        if (trip && trip.companyId && req.user!.companyId !== trip.companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      if (invoice.status === "paid") {
+        return res.status(400).json({ message: "Invoice is already marked as paid" });
+      }
+
+      const updated = await storage.updateInvoice(invoiceId, { status: "paid" } as any);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "MARK_INVOICE_PAID",
+        entity: "invoice",
+        entityId: invoiceId,
+        details: `Invoice marked as paid, amount: $${invoice.amount}`,
+        cityId: null,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/ops/driver-locations", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "DRIVER"), async (req: AuthRequest, res) => {
     try {
       const role = req.user!.role;

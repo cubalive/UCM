@@ -72,6 +72,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Download,
+  DollarSign,
+  FileText,
+  Pencil,
+  CreditCard,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -2247,10 +2251,265 @@ function ClinicTripCard({ trip, isCompleted, onSelect, onTrack }: { trip: any; i
   );
 }
 
+const INVOICE_ROLES = ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"];
+
+function InvoicePanel({ tripId }: { tripId: number }) {
+  const { token, user } = useAuth();
+  const { toast } = useToast();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const invoiceQuery = useQuery<any>({
+    queryKey: ["/api/trips", tripId, "invoice"],
+    queryFn: () => apiFetch(`/api/trips/${tripId}/invoice`, token),
+    enabled: !!token && !!tripId,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: { amount: string; notes: string }) =>
+      apiFetch(`/api/trips/${tripId}/invoice`, token, { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "invoice"] });
+      setShowCreate(false);
+      setAmount("");
+      setNotes("");
+      toast({ title: "Invoice created" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: { amount: string; notes?: string }) => {
+      const inv = invoiceQuery.data?.invoice;
+      return apiFetch(`/api/invoices/${inv.id}`, token, { method: "PATCH", body: JSON.stringify(data) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "invoice"] });
+      setEditMode(false);
+      toast({ title: "Invoice updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: async () => {
+      const inv = invoiceQuery.data?.invoice;
+      return apiFetch(`/api/invoices/${inv.id}/mark-paid`, token, { method: "PATCH" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "invoice"] });
+      toast({ title: "Invoice marked as paid" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  if (invoiceQuery.isLoading) {
+    return <Skeleton className="h-16 w-full" />;
+  }
+
+  const invoice = invoiceQuery.data?.invoice;
+
+  if (!invoice && !showCreate) {
+    return (
+      <Card>
+        <CardContent className="py-3 px-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">No invoice for this trip</span>
+          </div>
+          <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-create-invoice" className="gap-1">
+            <Plus className="w-3.5 h-3.5" />
+            Create Invoice
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (showCreate) {
+    return (
+      <Card>
+        <CardContent className="py-4 px-4 space-y-3">
+          <p className="text-sm font-medium flex items-center gap-2">
+            <DollarSign className="w-4 h-4" />
+            Create Invoice
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="inv-amount">Amount ($)</Label>
+            <Input
+              id="inv-amount"
+              type="number"
+              step="0.01"
+              min="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              data-testid="input-invoice-amount"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="inv-notes">Notes (optional)</Label>
+            <Input
+              id="inv-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional notes"
+              data-testid="input-invoice-notes"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => createMutation.mutate({ amount, notes })}
+              disabled={!amount || createMutation.isPending}
+              data-testid="button-submit-invoice"
+            >
+              {createMutation.isPending ? "Creating..." : "Create"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowCreate(false)} data-testid="button-cancel-invoice">
+              Cancel
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (editMode) {
+    return (
+      <Card>
+        <CardContent className="py-4 px-4 space-y-3">
+          <p className="text-sm font-medium flex items-center gap-2">
+            <Pencil className="w-4 h-4" />
+            Edit Invoice
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="inv-edit-amount">Amount ($)</Label>
+            <Input
+              id="inv-edit-amount"
+              type="number"
+              step="0.01"
+              min="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              data-testid="input-edit-invoice-amount"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => updateMutation.mutate({ amount })}
+              disabled={!amount || updateMutation.isPending}
+              data-testid="button-save-invoice"
+            >
+              {updateMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditMode(false)} data-testid="button-cancel-edit-invoice">
+              Cancel
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const statusColors: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    approved: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    paid: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
+  };
+
+  const handleDownloadPdf = () => {
+    const inv = invoice;
+    const content = [
+      `INVOICE`,
+      `Invoice ID: ${inv.id}`,
+      `Patient: ${inv.patientName}`,
+      `Service Date: ${inv.serviceDate}`,
+      `Amount: $${parseFloat(inv.amount).toFixed(2)}`,
+      `Status: ${inv.status.toUpperCase()}`,
+      `Created: ${new Date(inv.createdAt).toLocaleDateString()}`,
+    ].join("\n");
+
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `invoice_${inv.id}_trip_${tripId}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Card>
+      <CardContent className="py-3 px-4 space-y-2">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-sm font-medium">Invoice</span>
+            <Badge className={statusColors[invoice.status] || ""} data-testid="badge-invoice-status">
+              {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+            </Badge>
+          </div>
+          <span className="text-lg font-bold" data-testid="text-invoice-amount">
+            ${parseFloat(invoice.amount).toFixed(2)}
+          </span>
+        </div>
+        <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
+          <span>{invoice.patientName}</span>
+          <span>{invoice.serviceDate}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {invoice.status !== "paid" && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                onClick={() => { setAmount(invoice.amount); setEditMode(true); }}
+                data-testid="button-edit-invoice"
+              >
+                <Pencil className="w-3 h-3" />
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1"
+                onClick={() => markPaidMutation.mutate()}
+                disabled={markPaidMutation.isPending}
+                data-testid="button-mark-paid"
+              >
+                <CreditCard className="w-3 h-3" />
+                {markPaidMutation.isPending ? "Updating..." : "Mark Paid"}
+              </Button>
+            </>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            onClick={handleDownloadPdf}
+            data-testid="button-download-invoice"
+          >
+            <FileText className="w-3 h-3" />
+            Download
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function TripDetail({ trip, onTrack }: { trip: any; onTrack: () => void }) {
+  const { user } = useAuth();
   const isCompleted = trip.status === "COMPLETED" || trip.status === "CANCELLED" || trip.status === "NO_SHOW";
   const isActive = ACTIVE_TRIP_STATUSES.includes(trip.status);
   const currentStepIndex = TRIP_PROGRESS_STEPS.findIndex((s) => s.key === trip.status);
+  const canSeeInvoice = user && INVOICE_ROLES.includes(user.role) && trip.status === "COMPLETED";
 
   return (
     <div className="space-y-4">
@@ -2348,6 +2607,10 @@ function TripDetail({ trip, onTrack }: { trip: any; onTrack: () => void }) {
           <p className="text-xs text-muted-foreground mb-1">Notes</p>
           <p className="text-sm">{trip.notes}</p>
         </div>
+      )}
+
+      {canSeeInvoice && (
+        <InvoicePanel tripId={trip.id} />
       )}
 
       {isCompleted && (

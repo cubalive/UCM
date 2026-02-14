@@ -72,7 +72,9 @@ export interface IStorage {
 
   getInvoices(clinicId?: number): Promise<Invoice[]>;
   getInvoice(id: number): Promise<Invoice | undefined>;
+  getInvoiceByTripId(tripId: number): Promise<Invoice | undefined>;
   createInvoice(data: InsertInvoice): Promise<Invoice>;
+  updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice>;
 
   isPhoneOptedOut(phone: string): Promise<boolean>;
   setPhoneOptOut(phone: string, optedOut: boolean): Promise<void>;
@@ -494,6 +496,16 @@ export class DatabaseStorage implements IStorage {
 
   async createInvoice(data: InsertInvoice): Promise<Invoice> {
     const [invoice] = await db.insert(invoices).values(data).returning();
+    return invoice;
+  }
+
+  async getInvoiceByTripId(tripId: number): Promise<Invoice | undefined> {
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.tripId, tripId));
+    return invoice;
+  }
+
+  async updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice> {
+    const [invoice] = await db.update(invoices).set(data).where(eq(invoices.id, id)).returning();
     return invoice;
   }
 
