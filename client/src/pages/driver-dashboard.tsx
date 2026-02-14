@@ -239,9 +239,67 @@ interface ActiveTripData {
   routePolyline: string | null;
   lastEtaMinutes: number | null;
   lastEtaUpdatedAt: string | null;
+  distanceMiles: number | null;
   scheduledDate: string;
   pickupTime: string;
   patientName: string | null;
+}
+
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function useAutoReroute(
+  activeTrip: ActiveTripData | null,
+  driverLocation: { lat: number; lng: number } | null,
+  token: string | null,
+) {
+  const lastRecomputeRef = useRef<{ lat: number; lng: number; time: number; status: string } | null>(null);
+  const pendingRef = useRef(false);
+  const THROTTLE_MS = 20000;
+  const MIN_DISTANCE_MI = 0.025;
+
+  useEffect(() => {
+    if (!activeTrip || !driverLocation || !token) return;
+    if (pendingRef.current) return;
+
+    const now = Date.now();
+    const last = lastRecomputeRef.current;
+
+    let shouldRecompute = false;
+    if (!last) {
+      shouldRecompute = true;
+    } else if (last.status !== activeTrip.status) {
+      shouldRecompute = true;
+    } else if (now - last.time >= THROTTLE_MS) {
+      const dist = haversineDistance(last.lat, last.lng, driverLocation.lat, driverLocation.lng);
+      if (dist >= MIN_DISTANCE_MI) {
+        shouldRecompute = true;
+      }
+    }
+
+    if (!shouldRecompute) return;
+
+    pendingRef.current = true;
+    fetch(`/api/trips/${activeTrip.id}/route/recompute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ originLat: driverLocation.lat, originLng: driverLocation.lng }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.ok) {
+          lastRecomputeRef.current = { lat: driverLocation.lat, lng: driverLocation.lng, time: Date.now(), status: activeTrip.status };
+          queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+        }
+      })
+      .catch(() => {})
+      .finally(() => { pendingRef.current = false; });
+  }, [activeTrip?.id, activeTrip?.status, driverLocation?.lat, driverLocation?.lng, token]);
 }
 
 const PICKUP_STAGES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP"];
@@ -775,6 +833,7 @@ export default function DriverDashboard() {
       routePolyline: null,
       lastEtaMinutes: null,
       lastEtaUpdatedAt: null,
+      distanceMiles: null,
       scheduledDate: alert.scheduledDate || "",
       pickupTime: alert.pickupTime || "",
       patientName: alert.patientName || null,
@@ -786,6 +845,8 @@ export default function DriverDashboard() {
   const completedToday = todayTrips.filter((t: any) => t.status === "COMPLETED");
   const scheduledToday = todayTrips.filter((t: any) => t.status === "SCHEDULED");
   const activeTrip = activeTripQuery.data?.trip || null;
+
+  useAutoReroute(activeTrip, geoLocation, token);
 
   if (geoPermission === "prompt") {
     return (
@@ -1140,9 +1201,10 @@ export default function DriverDashboard() {
                         {STATUS_LABELS[activeTrip.status] || activeTrip.status}
                       </Badge>
                       {activeTrip.lastEtaMinutes != null && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                        <span className="text-xs text-muted-foreground flex items-center gap-0.5" data-testid="text-active-trip-eta">
                           <Timer className="w-3 h-3" />
-                          {activeTrip.lastEtaMinutes} min
+                          ~{activeTrip.lastEtaMinutes} min
+                          {activeTrip.distanceMiles != null && ` / ${activeTrip.distanceMiles} mi`}
                         </span>
                       )}
                     </div>

@@ -633,6 +633,12 @@ function LiveTripCards({ trips, selectedTrip, onSelectTrip }: {
                   )}
                 </div>
               </div>
+              {trip.lastEtaMinutes != null && !trip.stale && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5" data-testid={`text-route-eta-${trip.tripId}`}>
+                  <Navigation className="w-3 h-3 text-indigo-500" />
+                  <span>Route: ~{trip.lastEtaMinutes} min{trip.distanceMiles != null && ` / ${trip.distanceMiles} mi`}</span>
+                </div>
+              )}
               <div className="flex items-center gap-4 text-xs text-muted-foreground mt-2 flex-wrap">
                 {trip.driver && (
                   <span className="flex items-center gap-1">
@@ -738,6 +744,7 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
     map: google.maps.Map;
     container: HTMLDivElement;
     markers: Map<string, google.maps.Marker>;
+    polylines: Map<string, google.maps.Polyline>;
     boundsFit: boolean;
   }
   function getOpsMapStore(): OpsMapStore | null {
@@ -813,7 +820,7 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
       zoomControl: true,
       styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }],
     });
-    const entry: OpsMapStore = { map, container, markers: new Map(), boundsFit: false };
+    const entry: OpsMapStore = { map, container, markers: new Map(), polylines: new Map(), boundsFit: false };
     (window as any).__UCM_MAP__[opsMapKeyRef.current] = entry;
     opsMapWrapperRef.current.appendChild(container);
     updateOpsMarkers();
@@ -888,6 +895,85 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
           strokeColor: "#fff",
           scale: 8,
         });
+      }
+    });
+
+    const currentPolyKeys = new Set<string>();
+    visibleTrips.forEach(trip => {
+      const pKey = `poly-${trip.tripId}`;
+      currentPolyKeys.add(pKey);
+      if (trip.routePolyline && window.google?.maps?.geometry?.encoding) {
+        try {
+          const path = google.maps.geometry.encoding.decodePath(trip.routePolyline);
+          const isSelected = selectedTrip?.tripId === trip.tripId;
+          if (!entry.polylines.has(pKey)) {
+            const polyline = new google.maps.Polyline({
+              map,
+              path,
+              strokeColor: isSelected ? "#3b82f6" : "#6366f1",
+              strokeWeight: isSelected ? 5 : 3,
+              strokeOpacity: isSelected ? 0.9 : 0.5,
+              zIndex: isSelected ? 5 : 2,
+            });
+            entry.polylines.set(pKey, polyline);
+          } else {
+            const existing = entry.polylines.get(pKey)!;
+            existing.setPath(path);
+            existing.setOptions({
+              strokeColor: isSelected ? "#3b82f6" : "#6366f1",
+              strokeWeight: isSelected ? 5 : 3,
+              strokeOpacity: isSelected ? 0.9 : 0.5,
+              zIndex: isSelected ? 5 : 2,
+            });
+          }
+        } catch {}
+      }
+
+      if (trip.pickupLat && trip.pickupLng) {
+        const pkKey = `pickup-${trip.tripId}`;
+        currentKeys.add(pkKey);
+        const pkPos = { lat: Number(trip.pickupLat), lng: Number(trip.pickupLng) };
+        bounds.extend(pkPos);
+        if (!entry.markers.has(pkKey)) {
+          const marker = new google.maps.Marker({
+            position: pkPos,
+            map,
+            icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: "#22c55e", fillOpacity: 1, strokeWeight: 2, strokeColor: "#fff", scale: 7 },
+            title: `Pickup - ${trip.publicId}`,
+            zIndex: 3,
+          });
+          marker.addListener("click", () => onSelectTrip(trip));
+          entry.markers.set(pkKey, marker);
+        } else {
+          entry.markers.get(pkKey)!.setPosition(pkPos);
+        }
+      }
+
+      if (trip.dropoffLat && trip.dropoffLng) {
+        const doKey = `dropoff-${trip.tripId}`;
+        currentKeys.add(doKey);
+        const doPos = { lat: Number(trip.dropoffLat), lng: Number(trip.dropoffLng) };
+        bounds.extend(doPos);
+        if (!entry.markers.has(doKey)) {
+          const marker = new google.maps.Marker({
+            position: doPos,
+            map,
+            icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: "#ef4444", fillOpacity: 1, strokeWeight: 2, strokeColor: "#fff", scale: 7 },
+            title: `Dropoff - ${trip.publicId}`,
+            zIndex: 3,
+          });
+          marker.addListener("click", () => onSelectTrip(trip));
+          entry.markers.set(doKey, marker);
+        } else {
+          entry.markers.get(doKey)!.setPosition(doPos);
+        }
+      }
+    });
+
+    entry.polylines.forEach((poly, key) => {
+      if (!currentPolyKeys.has(key)) {
+        poly.setMap(null);
+        entry.polylines.delete(key);
       }
     });
 
@@ -1732,6 +1818,7 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
     driverMarker: google.maps.Marker | null;
     pickupMarker: google.maps.Marker | null;
     dropoffMarker: google.maps.Marker | null;
+    polyline: google.maps.Polyline | null;
     boundsFit: boolean;
   }
   function getTrackingStore(): ClinicTrackingMapStore | null {
@@ -1822,7 +1909,7 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
           { featureType: "poi", stylers: [{ visibility: "off" }] },
         ],
       });
-      entry = { map, container, driverMarker: null, pickupMarker: null, dropoffMarker: null, boundsFit: false };
+      entry = { map, container, driverMarker: null, pickupMarker: null, dropoffMarker: null, polyline: null, boundsFit: false };
       store[trackingMapKeyRef.current] = entry;
       trackingWrapperRef.current.appendChild(container);
     } else {
@@ -1896,6 +1983,27 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
           zIndex: 5,
         });
       }
+    }
+
+    if (route?.routePolyline && window.google?.maps?.geometry?.encoding) {
+      try {
+        const path = google.maps.geometry.encoding.decodePath(route.routePolyline);
+        if (!entry.polyline) {
+          entry.polyline = new google.maps.Polyline({
+            map,
+            path,
+            strokeColor: "#3b82f6",
+            strokeWeight: 5,
+            strokeOpacity: 0.8,
+            zIndex: 2,
+          });
+        } else {
+          entry.polyline.setPath(path);
+        }
+      } catch {}
+    } else if (entry.polyline) {
+      entry.polyline.setMap(null);
+      entry.polyline = null;
     }
 
     if (!entry.boundsFit) {

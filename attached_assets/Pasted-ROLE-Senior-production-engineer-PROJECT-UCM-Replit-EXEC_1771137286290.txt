@@ -1,0 +1,92 @@
+ROLE: Senior production engineer
+PROJECT: UCM (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Clinic can REQUEST cancellation (never directly cancel). Dispatch approves/rejects. Works for trips that are scheduled or in-progress (including driver en route to pickup).
+
+----------------------------
+PHASE 1 — UI: CLINIC REQUEST CANCEL
+----------------------------
+In Clinic Live Trips (and Scheduled/Pending trip detail):
+Add button: "Request Cancel"
+
+Show button when:
+- trip.status NOT IN ('COMPLETED','CANCELLED')
+(keep it visible even if driver is en route to pickup or picked up)
+
+On click:
+Open modal:
+- Reason (required dropdown): Patient not ready / Clinic schedule change / No longer needed / Duplicate / Other
+- Notes (optional text)
+
+Submit does NOT cancel the trip.
+Instead:
+- set trips.approval_status = 'cancel_requested'
+- set trips.cancelled_reason = "<reason + notes>"
+- set trips.cancelled_at = now()
+- write audit_log:
+  action='clinic_cancel_request', entity='trip', entity_id=trip.id, details includes reason/notes, clinic_id, user_id
+
+In clinic UI:
+- show a badge/status chip on trip: "Cancel Requested"
+- keep trip visible in its normal tab by status (do NOT auto-cancel or hide)
+- disable repeated requests (if already cancel_requested, button becomes disabled "Requested")
+
+----------------------------
+PHASE 2 — BACKEND: ENDPOINTS + AUTHZ
+----------------------------
+Create endpoint:
+POST /api/clinic/trips/:id/cancel-request
+
+Rules:
+- Caller must be role CLINIC_USER
+- trip.clinic_id must match caller clinic_id
+- trip.approval_status must NOT already be 'cancelled'
+- trip.status must NOT be 'CANCELLED' or 'COMPLETED'
+
+Return updated trip with approval_status.
+
+----------------------------
+PHASE 3 — DISPATCH QUEUE
+----------------------------
+Add Dispatch view section:
+"Cancel Requests"
+
+List:
+- trips where approval_status = 'cancel_requested'
+- show clinic, patient, driver, status, scheduled time, notes
+
+Actions:
+A) Approve Cancel:
+- set trips.approval_status='cancelled'
+- set trips.status='CANCELLED'
+- set trips.updated_at=now()
+- audit_log action='dispatch_cancel_approved'
+
+B) Reject Cancel:
+- set trips.approval_status='approved'
+- keep trip.status unchanged
+- audit_log action='dispatch_cancel_rejected'
+
+----------------------------
+PHASE 4 — DRIVER NOTIFICATION (BASIC)
+----------------------------
+When a trip becomes cancel_requested:
+- show in driver trip screen a small banner:
+  "Clinic requested cancellation — awaiting dispatch decision."
+- Do NOT auto-remove trip from driver.
+
+----------------------------
+VERIFY
+1) Clinic requests cancel on scheduled trip -> status chip "Cancel Requested" appears
+2) Clinic requests cancel while driver en route -> still only a request
+3) Dispatch sees it in queue and can approve/reject
+4) Approve sets status=CANCELLED; Reject restores approval_status=approved
+5) Clinic cannot cancel other clinic trips; backend enforces it

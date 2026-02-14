@@ -1,0 +1,70 @@
+ROLE: Senior production engineer
+PROJECT: UCM (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Implement TRUE route polylines (not straight line) for Driver + Clinic live trips, and auto-reroute so the polyline updates when driver position changes.
+
+CONSTRAINTS:
+- Driver can still choose external navigation app (Google/Apple/Waze) but UCM map must show route polyline + ETA in-app.
+- Clinic must ONLY see routes for trips belonging to their clinic. Never show other drivers/trips.
+
+REQUIREMENTS (API / Keys):
+1) Use Google Maps JS for map rendering.
+2) Use Google Directions to compute route (either DirectionsService in client or a backend endpoint that calls Directions API).
+3) Read key from env: VITE_GOOGLE_MAPS_API_KEY.
+4) Ensure allowed hosts include:
+   - app.unitedcaremobility.com
+   - unitedcaremobility.com
+   - www.unitedcaremobility.com
+5) Never expose server-only keys if used; if using client-only key, restrict by HTTP referrers in Google Cloud Console.
+
+DRIVER EXPERIENCE:
+1) On Driver active trip screen, show:
+   - Route polyline between current position (origin) and target (pickup or dropoff depending on status)
+   - ETA minutes + distance
+2) Auto-reroute:
+   - Watch driver GPS updates.
+   - Throttle route recompute to every 15–30 seconds OR when moved >= 100–150 meters OR bearing change is large.
+   - If trip status changes (pickup -> dropoff), immediately recompute route.
+3) Smooth update:
+   - Do NOT clear the entire map on each refresh.
+   - Update only the polyline layer + marker positions.
+   - Avoid flicker by reusing map instance and renderer objects.
+4) Navigation button:
+   - Keep the “Choose app” modal (Google/Apple/Waze) and open external navigation.
+   - Even if external nav is used, keep in-app route polyline updated.
+
+CLINIC EXPERIENCE:
+1) Add Clinic tab: Live Trips
+   - Show only trips with clinic_id = current clinic and status in (ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, PICKED_UP, EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF, IN_PROGRESS).
+2) Live Trips map shows:
+   - Driver marker (only for those trips)
+   - Pickup/Dropoff markers
+   - Route polyline and ETA
+3) If no active trips:
+   - Show banner: “No live routes for your clinic right now.”
+4) NO full-fleet map for clinic. NO other drivers visible.
+
+BACKEND / DATA:
+1) Store computed route polyline + eta in trips:
+   - route_polyline, duration_minutes, distance_miles, last_eta_minutes, last_eta_updated_at
+2) Add endpoint:
+   - POST /api/trips/:id/route/recompute
+   - Auth: driver of trip OR dispatch OR clinic that owns trip (clinic only if trip belongs to them)
+   - Input: origin lat/lng (driver position), target based on trip status
+   - Output: polyline + eta + distance; persist to DB
+3) Driver app calls recompute with throttle; Clinic can read persisted polyline/eta and optionally request recompute only if updated_at is stale > 60s.
+
+VERIFY:
+- Driver sees real curved route line (not straight).
+- When driver moves or deviates, line updates without flicker.
+- Clinic only sees its trips. No other drivers.
+- “No live routes” banner shows when none.
+- Works on iOS Safari PWA and Android Chrome.

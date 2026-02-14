@@ -1685,6 +1685,7 @@ export async function registerRoutes(
           routePolyline: trip.routePolyline,
           lastEtaMinutes: trip.lastEtaMinutes,
           lastEtaUpdatedAt: trip.lastEtaUpdatedAt,
+          distanceMiles: trip.distanceMiles ? Number(trip.distanceMiles) : null,
           scheduledDate: trip.scheduledDate,
           pickupTime: trip.pickupTime,
           patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
@@ -3003,6 +3004,69 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/trips/:id/route/recompute", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+      const TERMINAL = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (TERMINAL.includes(trip.status)) return res.status(400).json({ message: "Trip is in terminal status" });
+
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const isDriver = user.role === "DRIVER" && user.driverId && trip.driverId === user.driverId;
+      const isDispatch = ["ADMIN", "DISPATCH", "SUPER_ADMIN"].includes(user.role);
+      const isClinic = user.role === "CLINIC_USER" && user.clinicId && trip.clinicId === user.clinicId;
+      if (!isDriver && !isDispatch && !isClinic) {
+        return res.status(403).json({ message: "Not authorized for this trip" });
+      }
+
+      const { originLat, originLng } = req.body;
+      if (typeof originLat !== "number" || typeof originLng !== "number") {
+        return res.status(400).json({ message: "originLat and originLng are required numbers" });
+      }
+
+      const PICKUP_STAGES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "SCHEDULED"];
+      const isPickupPhase = PICKUP_STAGES.includes(trip.status);
+      const targetLat = isPickupPhase ? trip.pickupLat : trip.dropoffLat;
+      const targetLng = isPickupPhase ? trip.pickupLng : trip.dropoffLng;
+
+      if (!targetLat || !targetLng) {
+        return res.status(400).json({ message: "Trip missing target coordinates" });
+      }
+
+      const { buildRoute } = await import("./lib/googleMaps");
+      const route = await buildRoute(
+        { lat: originLat, lng: originLng },
+        { lat: Number(targetLat), lng: Number(targetLng) }
+      );
+
+      const updateData: any = {
+        routePolyline: route.polyline,
+        lastEtaMinutes: route.totalMinutes,
+        durationMinutes: route.totalMinutes,
+        distanceMiles: String(route.totalMiles),
+        lastEtaUpdatedAt: new Date(),
+      };
+
+      await storage.updateTrip(id, updateData);
+
+      res.json({
+        ok: true,
+        polyline: route.polyline,
+        etaMinutes: route.totalMinutes,
+        distanceMiles: route.totalMiles,
+        updatedAt: updateData.lastEtaUpdatedAt.toISOString(),
+      });
+    } catch (err: any) {
+      console.error("[ROUTE-RECOMPUTE]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // SUPER_ADMIN archive (soft-delete) a trip
   app.patch("/api/admin/trips/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
@@ -4035,6 +4099,10 @@ export async function registerRoutes(
           dropoffLat: trip.dropoffLat,
           dropoffLng: trip.dropoffLng,
           tripType: trip.tripType,
+          routePolyline: trip.routePolyline || null,
+          lastEtaMinutes: trip.lastEtaMinutes ?? null,
+          distanceMiles: trip.distanceMiles ? Number(trip.distanceMiles) : null,
+          lastEtaUpdatedAt: trip.lastEtaUpdatedAt ? new Date(trip.lastEtaUpdatedAt).toISOString() : null,
           patient: patient ? {
             id: patient.id,
             firstName: patient.firstName,
@@ -4410,7 +4478,8 @@ export async function registerRoutes(
         dropoffLat: trip.dropoffLat,
         dropoffLng: trip.dropoffLng,
         etaMinutes: trip.lastEtaMinutes,
-        distanceMiles: trip.distanceMiles,
+        distanceMiles: trip.distanceMiles ? Number(trip.distanceMiles) : null,
+        routePolyline: trip.routePolyline || null,
       };
 
       res.json({
