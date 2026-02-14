@@ -2,21 +2,23 @@ import { storage } from "../storage";
 import { generatePublicId } from "../public-id";
 import type { RecurringSchedule, Patient } from "@shared/schema";
 import { db } from "../db";
-import { trips, patients } from "@shared/schema";
+import { trips, patients, clinics } from "@shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
 
 const DAY_MAP: Record<string, number> = {
   Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
 };
 
-function getNextNDates(days: string[], n: number, timezone: string): string[] {
+function getDatesInRollingWindow(days: string[], timezone: string, startDate: string, endDate?: string | null): string[] {
   const dates: string[] = [];
   const now = new Date();
-  for (let i = 0; i < 14 && dates.length < n; i++) {
+  for (let i = 0; i < 7; i++) {
     const d = new Date(now.getTime() + i * 86400000);
     const dayName = d.toLocaleDateString("en-US", { timeZone: timezone, weekday: "short" }).substring(0, 3);
     if (days.includes(dayName)) {
       const dateStr = d.toLocaleDateString("en-CA", { timeZone: timezone });
+      if (dateStr < startDate) continue;
+      if (endDate && dateStr > endDate) continue;
       dates.push(dateStr);
     }
   }
@@ -35,17 +37,33 @@ async function tripExistsForDate(patientId: number, date: string, pickupTime: st
   return existing.length > 0;
 }
 
+async function getClinicForPatient(patient: Patient): Promise<{ address: string; lat: string | null; lng: string | null } | null> {
+  if (!patient.clinicId) return null;
+  const [clinic] = await db.select().from(clinics).where(eq(clinics.id, patient.clinicId)).limit(1);
+  if (!clinic || !clinic.address) return null;
+  return { address: clinic.address, lat: clinic.lat, lng: clinic.lng };
+}
+
 export async function generateTripsForSchedule(
   schedule: RecurringSchedule,
   patient: Patient,
   timezone: string
 ): Promise<number> {
-  const dates = getNextNDates(schedule.days, 7, timezone);
+  if (!patient.address) {
+    console.log(`[RECURRING-SCHEDULE] Skipping schedule #${schedule.id}: patient ${patient.id} has no address`);
+    return 0;
+  }
+
+  const endDate = schedule.endDate || null;
+  const dates = getDatesInRollingWindow(schedule.days, timezone, schedule.startDate, endDate);
   let created = 0;
 
-  for (const date of dates) {
-    if (date < schedule.startDate) continue;
+  const clinicData = await getClinicForPatient(patient);
+  const dropoffAddress = clinicData?.address || "TBD - Clinic";
+  const dropoffLat = clinicData?.lat || null;
+  const dropoffLng = clinicData?.lng || null;
 
+  for (const date of dates) {
     const exists = await tripExistsForDate(patient.id, date, schedule.pickupTime);
     if (exists) continue;
 
@@ -63,7 +81,9 @@ export async function generateTripsForSchedule(
       pickupPlaceId: patient.addressPlaceId,
       pickupLat: patient.lat,
       pickupLng: patient.lng,
-      dropoffAddress: "TBD - Clinic",
+      dropoffAddress,
+      dropoffLat,
+      dropoffLng,
       scheduledDate: date,
       scheduledTime: schedule.pickupTime,
       pickupTime: schedule.pickupTime,

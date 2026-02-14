@@ -667,6 +667,7 @@ export const recurringSchedules = pgTable("recurring_schedules", {
   days: text("days").array().notNull(),
   pickupTime: text("pickup_time").notNull(),
   startDate: text("start_date").notNull(),
+  endDate: text("end_date"),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

@@ -50,6 +50,7 @@ export default function PatientsPage() {
         body: JSON.stringify({ ...patientData, cityId: selectedCity?.id }),
       });
       if (scheduleDays?.length > 0 && scheduleTime && selectedCity?.id) {
+        const startDate = data.scheduleStartDate || new Date().toISOString().split("T")[0];
         await apiFetch("/api/recurring-schedules", token, {
           method: "POST",
           body: JSON.stringify({
@@ -57,7 +58,8 @@ export default function PatientsPage() {
             cityId: selectedCity.id,
             days: scheduleDays,
             pickupTime: scheduleTime,
-            startDate: new Date().toISOString().split("T")[0],
+            startDate,
+            endDate: data.scheduleEndDate || null,
           }),
         });
       }
@@ -82,12 +84,15 @@ export default function PatientsPage() {
       });
       const existing = await apiFetch(`/api/recurring-schedules?patientId=${id}`, token).catch(() => []);
       if (scheduleDays?.length > 0 && scheduleTime && selectedCity?.id) {
+        const startDate = data.scheduleStartDate || new Date().toISOString().split("T")[0];
         if (existing?.length > 0) {
           await apiFetch(`/api/recurring-schedules/${existing[0].id}`, token, {
             method: "PATCH",
             body: JSON.stringify({
               days: scheduleDays,
               pickupTime: scheduleTime,
+              startDate: startDate,
+              endDate: data.scheduleEndDate || null,
               active: true,
             }),
           });
@@ -99,7 +104,8 @@ export default function PatientsPage() {
               cityId: selectedCity.id,
               days: scheduleDays,
               pickupTime: scheduleTime,
-              startDate: new Date().toISOString().split("T")[0],
+              startDate,
+              endDate: data.scheduleEndDate || null,
             }),
           });
         }
@@ -366,6 +372,8 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
     notes: parsed.notes,
     scheduleDays: parsedDays as string[],
     scheduleTime: parsedTime,
+    scheduleStartDate: initialData?.scheduleStartDate || new Date().toISOString().split("T")[0],
+    scheduleEndDate: initialData?.scheduleEndDate || "",
     mobilityType: initialData?.wheelchairRequired ? "wheelchair" : "ambulatory",
     active: initialData?.active ?? true,
   });
@@ -409,6 +417,8 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
       active: form.active,
       scheduleDays: form.scheduleDays,
       scheduleTime: form.scheduleTime,
+      scheduleStartDate: form.scheduleStartDate,
+      scheduleEndDate: form.scheduleEndDate || null,
     });
   };
 
@@ -479,16 +489,40 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
           ))}
         </div>
         {form.scheduleDays.length > 0 && (
-          <div className="flex items-center gap-2 mt-2">
-            <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-            <Input
-              type="time"
-              value={form.scheduleTime}
-              onChange={(e) => setForm({ ...form, scheduleTime: e.target.value })}
-              className="w-36"
-              data-testid="input-schedule-time"
-            />
-            <span className="text-xs text-muted-foreground">Pickup time</span>
+          <div className="space-y-2 mt-2">
+            <div className="flex items-center gap-2">
+              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+              <Input
+                type="time"
+                value={form.scheduleTime}
+                onChange={(e) => setForm({ ...form, scheduleTime: e.target.value })}
+                className="w-36"
+                data-testid="input-schedule-time"
+                required
+              />
+              <span className="text-xs text-muted-foreground">Pickup time (PT)</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Start Date *</Label>
+                <Input
+                  type="date"
+                  value={form.scheduleStartDate}
+                  onChange={(e) => setForm({ ...form, scheduleStartDate: e.target.value })}
+                  data-testid="input-schedule-start-date"
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">End Date (optional)</Label>
+                <Input
+                  type="date"
+                  value={form.scheduleEndDate}
+                  onChange={(e) => setForm({ ...form, scheduleEndDate: e.target.value })}
+                  data-testid="input-schedule-end-date"
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>

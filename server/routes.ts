@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules } from "@shared/schema";
 import { z } from "zod";
 import { eq, ne, sql, and, or, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
@@ -1292,12 +1292,19 @@ export async function registerRoutes(
 
   app.post("/api/recurring-schedules", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const { patientId, cityId, days, pickupTime, startDate } = req.body;
+      const { patientId, cityId, days, pickupTime, startDate, endDate } = req.body;
       if (!patientId || !cityId || !days?.length || !pickupTime || !startDate) {
         return res.status(400).json({ message: "patientId, cityId, days, pickupTime, and startDate are required" });
       }
       if (!(await checkCityAccess(req, cityId))) {
         return res.status(403).json({ message: "No access to this city" });
+      }
+      const patient = await storage.getPatient(patientId);
+      if (!patient) {
+        return res.status(404).json({ message: "Patient not found" });
+      }
+      if (!patient.address) {
+        return res.status(400).json({ message: "Cannot create recurring schedule: patient has no address on file. Please add an address first." });
       }
       const schedule = await storage.createRecurringSchedule({
         patientId,
@@ -1305,6 +1312,7 @@ export async function registerRoutes(
         days,
         pickupTime,
         startDate,
+        endDate: endDate || null,
         active: true,
       });
       await storage.createAuditLog({
@@ -1324,6 +1332,23 @@ export async function registerRoutes(
   app.patch("/api/recurring-schedules/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const id = Number(req.params.id);
+      const current = (await db.select().from(recurringSchedules).where(eq(recurringSchedules.id, id)).limit(1))[0];
+      if (!current) return res.status(404).json({ message: "Schedule not found" });
+
+      const merged = { ...current, ...req.body };
+      if (merged.active) {
+        if (!merged.days?.length || !merged.pickupTime) {
+          return res.status(400).json({ message: "Cannot activate schedule without days and pickup time" });
+        }
+        const patient = await storage.getPatient(merged.patientId);
+        if (!patient?.address) {
+          return res.status(400).json({ message: "Cannot activate schedule: patient has no address on file" });
+        }
+      }
+      if (merged.endDate && merged.startDate && merged.endDate < merged.startDate) {
+        return res.status(400).json({ message: "End date must be on or after start date" });
+      }
+
       const schedule = await storage.updateRecurringSchedule(id, req.body);
       if (!schedule) return res.status(404).json({ message: "Schedule not found" });
       res.json(schedule);
