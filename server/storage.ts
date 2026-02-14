@@ -3,7 +3,7 @@ import { eq, and, or, desc, sql, inArray, count, ne, isNull } from "drizzle-orm"
 import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
   citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog, tripSeries,
-  tripEvents, driverBonusRules,
+  tripEvents, driverBonusRules, opsAlertLog, clinicAlertLog, clinicHelpRequests,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
   type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog, type InsertInvoice,
   type InsertCitySettings, type InsertDriverVehicleAssignment, type InsertVehicleAssignmentHistory,
@@ -12,6 +12,8 @@ import {
   type TripShareToken, type InsertTripShareToken, type TripSmsLog, type InsertTripSmsLog,
   type TripSeries, type InsertTripSeries,
   type TripEvent, type InsertTripEvent, type DriverBonusRule, type InsertDriverBonusRule,
+  type OpsAlertLog, type InsertOpsAlertLog, type ClinicAlertLog, type InsertClinicAlertLog,
+  type ClinicHelpRequest, type InsertClinicHelpRequest,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -139,6 +141,22 @@ export interface IStorage {
   getDriverBonusRule(cityId: number): Promise<DriverBonusRule | undefined>;
   getAllDriverBonusRules(): Promise<DriverBonusRule[]>;
   upsertDriverBonusRule(data: Partial<DriverBonusRule> & { cityId: number }): Promise<DriverBonusRule>;
+
+  getActiveCities(): Promise<City[]>;
+  getTripsForCityAndDate(cityId: number, date: string): Promise<Trip[]>;
+  getTripsForClinicToday(clinicId: number, date: string): Promise<Trip[]>;
+
+  createOpsAlertLog(data: InsertOpsAlertLog): Promise<OpsAlertLog>;
+  getRecentOpsAlerts(cityId: number, date: string, minutesBack: number): Promise<OpsAlertLog[]>;
+  getOpsAlertsByCityAndDate(cityId: number, date: string): Promise<OpsAlertLog[]>;
+
+  createClinicAlertLog(data: InsertClinicAlertLog): Promise<ClinicAlertLog>;
+  getRecentClinicAlerts(clinicId: number, minutesBack: number): Promise<ClinicAlertLog[]>;
+  getClinicAlertsByClinicId(clinicId: number, limit?: number): Promise<ClinicAlertLog[]>;
+
+  createClinicHelpRequest(data: InsertClinicHelpRequest): Promise<ClinicHelpRequest>;
+  getClinicHelpRequests(clinicId?: number): Promise<ClinicHelpRequest[]>;
+  resolveClinicHelpRequest(id: number, userId: number): Promise<ClinicHelpRequest | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -912,6 +930,100 @@ export class DatabaseStorage implements IStorage {
       return row;
     }
     const [row] = await db.insert(driverBonusRules).values(data as any).returning();
+    return row;
+  }
+
+  async getActiveCities(): Promise<City[]> {
+    return db.select().from(cities).where(eq(cities.active, true)).orderBy(cities.name);
+  }
+
+  async getTripsForCityAndDate(cityId: number, date: string): Promise<Trip[]> {
+    return db.select().from(trips).where(
+      and(
+        eq(trips.cityId, cityId),
+        eq(trips.scheduledDate, date),
+        isNull(trips.deletedAt),
+      )
+    );
+  }
+
+  async getTripsForClinicToday(clinicId: number, date: string): Promise<Trip[]> {
+    return db.select().from(trips).where(
+      and(
+        eq(trips.clinicId, clinicId),
+        eq(trips.scheduledDate, date),
+        isNull(trips.deletedAt),
+      )
+    );
+  }
+
+  async createOpsAlertLog(data: InsertOpsAlertLog): Promise<OpsAlertLog> {
+    const [row] = await db.insert(opsAlertLog).values(data).returning();
+    return row;
+  }
+
+  async getRecentOpsAlerts(cityId: number, date: string, minutesBack: number): Promise<OpsAlertLog[]> {
+    const cutoff = new Date(Date.now() - minutesBack * 60 * 1000);
+    return db.select().from(opsAlertLog).where(
+      and(
+        eq(opsAlertLog.cityId, cityId),
+        eq(opsAlertLog.date, date),
+        sql`${opsAlertLog.sentAt} >= ${cutoff}`,
+      )
+    ).orderBy(desc(opsAlertLog.sentAt));
+  }
+
+  async getOpsAlertsByCityAndDate(cityId: number, date: string): Promise<OpsAlertLog[]> {
+    return db.select().from(opsAlertLog).where(
+      and(
+        eq(opsAlertLog.cityId, cityId),
+        eq(opsAlertLog.date, date),
+      )
+    ).orderBy(desc(opsAlertLog.sentAt));
+  }
+
+  async createClinicAlertLog(data: InsertClinicAlertLog): Promise<ClinicAlertLog> {
+    const [row] = await db.insert(clinicAlertLog).values(data).returning();
+    return row;
+  }
+
+  async getRecentClinicAlerts(clinicId: number, minutesBack: number): Promise<ClinicAlertLog[]> {
+    const cutoff = new Date(Date.now() - minutesBack * 60 * 1000);
+    return db.select().from(clinicAlertLog).where(
+      and(
+        eq(clinicAlertLog.clinicId, clinicId),
+        sql`${clinicAlertLog.sentAt} >= ${cutoff}`,
+      )
+    ).orderBy(desc(clinicAlertLog.sentAt));
+  }
+
+  async getClinicAlertsByClinicId(clinicId: number, limit?: number): Promise<ClinicAlertLog[]> {
+    const q = db.select().from(clinicAlertLog)
+      .where(eq(clinicAlertLog.clinicId, clinicId))
+      .orderBy(desc(clinicAlertLog.sentAt));
+    if (limit) return q.limit(limit);
+    return q;
+  }
+
+  async createClinicHelpRequest(data: InsertClinicHelpRequest): Promise<ClinicHelpRequest> {
+    const [row] = await db.insert(clinicHelpRequests).values(data).returning();
+    return row;
+  }
+
+  async getClinicHelpRequests(clinicId?: number): Promise<ClinicHelpRequest[]> {
+    if (clinicId) {
+      return db.select().from(clinicHelpRequests)
+        .where(eq(clinicHelpRequests.clinicId, clinicId))
+        .orderBy(desc(clinicHelpRequests.createdAt));
+    }
+    return db.select().from(clinicHelpRequests).orderBy(desc(clinicHelpRequests.createdAt));
+  }
+
+  async resolveClinicHelpRequest(id: number, userId: number): Promise<ClinicHelpRequest | undefined> {
+    const [row] = await db.update(clinicHelpRequests)
+      .set({ resolved: true, resolvedBy: userId, resolvedAt: new Date() })
+      .where(eq(clinicHelpRequests.id, id))
+      .returning();
     return row;
   }
 }

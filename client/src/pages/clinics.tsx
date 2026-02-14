@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
+import { ClinicHealthBanner } from "@/components/clinic-health-banner";
 
 const facilityTypeLabels: Record<string, string> = {
   clinic: "Clinic",
@@ -159,7 +160,9 @@ export default function ClinicsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((c: any) => (
-            <Card key={c.id}>
+            <div key={c.id} className="space-y-2">
+              <ClinicHealthBanner clinicId={c.id} />
+            <Card>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0">
@@ -232,6 +235,7 @@ export default function ClinicsPage() {
                 )}
               </CardContent>
             </Card>
+            </div>
           ))}
         </div>
       )}

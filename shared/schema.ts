@@ -519,3 +519,50 @@ export const loginSchema = z.object({
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
+
+export const opsAlertLog = pgTable("ops_alert_log", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  date: text("date").notNull(),
+  alertFingerprint: text("alert_fingerprint").notNull(),
+  overall: text("overall").notNull(),
+  criticalCodes: text("critical_codes").array(),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+  sentTo: text("sent_to"),
+  providerSid: text("provider_sid"),
+  error: text("error"),
+});
+
+export const clinicAlertLog = pgTable("clinic_alert_log", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  alertFingerprint: text("alert_fingerprint").notNull(),
+  alertType: text("alert_type").notNull(),
+  overall: text("overall").notNull(),
+  criticalCodes: text("critical_codes").array(),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+  sentTo: text("sent_to"),
+  providerSid: text("provider_sid"),
+  error: text("error"),
+});
+
+export const clinicHelpRequests = pgTable("clinic_help_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  message: text("message").notNull(),
+  resolved: boolean("resolved").notNull().default(false),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertOpsAlertLogSchema = createInsertSchema(opsAlertLog).omit({ id: true, sentAt: true });
+export const insertClinicAlertLogSchema = createInsertSchema(clinicAlertLog).omit({ id: true, sentAt: true });
+export const insertClinicHelpRequestSchema = createInsertSchema(clinicHelpRequests).omit({ id: true, createdAt: true, resolved: true, resolvedBy: true, resolvedAt: true });
+
+export type OpsAlertLog = typeof opsAlertLog.$inferSelect;
+export type InsertOpsAlertLog = z.infer<typeof insertOpsAlertLogSchema>;
+export type ClinicAlertLog = typeof clinicAlertLog.$inferSelect;
+export type InsertClinicAlertLog = z.infer<typeof insertClinicAlertLogSchema>;
+export type ClinicHelpRequest = typeof clinicHelpRequests.$inferSelect;
+export type InsertClinicHelpRequest = z.infer<typeof insertClinicHelpRequestSchema>;

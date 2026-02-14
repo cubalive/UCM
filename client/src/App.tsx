@@ -27,6 +27,7 @@ import ClinicInvoicesPage from "@/pages/clinic-invoices";
 import FleetOpsPage from "@/pages/fleet-ops";
 import AssignmentsPage from "@/pages/assignments";
 import ReportsPage from "@/pages/reports";
+import OpsHealthPage from "@/pages/ops-health";
 import LiveMapPage from "@/pages/live-map";
 import ArchivePage from "@/pages/archive";
 import UnauthorizedPage from "@/pages/unauthorized";
@@ -92,6 +93,7 @@ function Router() {
       <Route path="/fleet">{() => <ProtectedRoute resource="dispatch" component={FleetOpsPage} />}</Route>
       <Route path="/assignments">{() => <ProtectedRoute resource="dispatch" component={AssignmentsPage} />}</Route>
       <Route path="/reports">{() => <ProtectedRoute resource="audit" component={ReportsPage} />}</Route>
+      <Route path="/ops-health">{() => <ProtectedRoute resource="dispatch" component={OpsHealthPage} />}</Route>
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />

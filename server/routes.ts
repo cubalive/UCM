@@ -15,6 +15,7 @@ import { registerVehicleAssignRoutes } from "./lib/vehicleAssignRoutes";
 import { registerTrackingRoutes } from "./lib/trackingRoutes";
 import { registerTripSeriesRoutes } from "./lib/tripSeriesRoutes";
 import { registerReportRoutes } from "./lib/reportRoutes";
+import { registerOpsRoutes, startOpsAlertScheduler } from "./lib/opsRoutes";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -84,6 +85,8 @@ export async function registerRoutes(
   registerTrackingRoutes(app);
   registerTripSeriesRoutes(app);
   registerReportRoutes(app);
+  registerOpsRoutes(app);
+  startOpsAlertScheduler();
 
   app.post("/api/auth/login", async (req, res) => {
     try {
