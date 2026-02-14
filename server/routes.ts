@@ -1971,7 +1971,7 @@ export async function registerRoutes(
   setInterval(async () => {
     try {
       const cutoff = new Date(Date.now() - HEARTBEAT_STALE_SEC * 1000);
-      const staleDrivers = await db.select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName })
+      const staleDrivers = await db.select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName, dispatchStatus: drivers.dispatchStatus })
         .from(drivers)
         .where(
           and(
@@ -1982,26 +1982,16 @@ export async function registerRoutes(
           )
         );
       if (staleDrivers.length > 0) {
-        await db.update(drivers).set({
-          dispatchStatus: "off",
-          lastLat: null,
-          lastLng: null,
-        }).where(
-          and(
-            inArray(drivers.id, staleDrivers.map(d => d.id)),
-            sql`${drivers.lastSeenAt} < ${cutoff}`
-          )
-        );
-        console.log(`[HEARTBEAT] Auto-offlined ${staleDrivers.length} stale driver(s): ${staleDrivers.map(d => `${d.firstName} ${d.lastName}`).join(", ")}`);
+        console.log(`[HEARTBEAT] ${staleDrivers.length} driver(s) PAUSED (GPS stale >90s): ${staleDrivers.map(d => `${d.firstName} ${d.lastName} (${d.dispatchStatus})`).join(", ")}`);
       }
     } catch (err: any) {
       console.error("[HEARTBEAT] Error in stale driver check:", err.message);
     }
   }, 30000);
-  console.log("[HEARTBEAT] Stale driver monitor started (checks every 30s, timeout: 90s)");
+  console.log("[HEARTBEAT] Stale driver monitor started (checks every 30s, threshold: 90s, mode: PAUSED)");
 
   // Dashboard driver stats with presence buckets
-  const PRESENCE_TIMEOUT_SEC = 120;
+  const PRESENCE_TIMEOUT_SEC = 90;
   const ON_TRIP_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
 
   app.get("/api/dashboard/driver-stats", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {

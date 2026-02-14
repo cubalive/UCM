@@ -77,14 +77,14 @@ describe("classifyDriverGroup", () => {
     expect(classifyDriverGroup(d, false)).toBe("available");
   });
 
-  it("classifies online + enroute driver as busy", () => {
+  it("classifies online + enroute driver as on_trip", () => {
     const d = makeDriver({ dispatchStatus: "enroute" });
-    expect(classifyDriverGroup(d, false)).toBe("busy");
+    expect(classifyDriverGroup(d, false)).toBe("on_trip");
   });
 
-  it("classifies online + available driver WITH active trip as busy", () => {
+  it("classifies online + available driver WITH active trip as on_trip", () => {
     const d = makeDriver({ dispatchStatus: "available" });
-    expect(classifyDriverGroup(d, true)).toBe("busy");
+    expect(classifyDriverGroup(d, true)).toBe("on_trip");
   });
 
   it("classifies online + hold driver as hold", () => {
@@ -97,10 +97,10 @@ describe("classifyDriverGroup", () => {
     expect(classifyDriverGroup(d, false)).toBe("logged_out");
   });
 
-  it("classifies stale driver as logged_out even if dispatch=available", () => {
+  it("classifies stale driver as paused when dispatch=available", () => {
     const stale = new Date(Date.now() - ONLINE_CUTOFF_MS - 10000).toISOString();
     const d = makeDriver({ dispatchStatus: "available", lastSeenAt: stale });
-    expect(classifyDriverGroup(d, false)).toBe("logged_out");
+    expect(classifyDriverGroup(d, false)).toBe("paused");
   });
 
   it("classifies driver with null lastSeenAt as logged_out", () => {
@@ -110,7 +110,7 @@ describe("classifyDriverGroup", () => {
 });
 
 describe("classifyDrivers — counts match group lengths", () => {
-  it("correctly separates mixed drivers into 4 groups", () => {
+  it("correctly separates mixed drivers into 5 groups", () => {
     const now = new Date().toISOString();
     const stale = new Date(Date.now() - ONLINE_CUTOFF_MS - 60000).toISOString();
 
@@ -132,18 +132,20 @@ describe("classifyDrivers — counts match group lengths", () => {
     const groups = classifyDrivers(drivers, activeTripsMap, vehicleMap);
 
     expect(groups.available.length).toBe(2);
-    expect(groups.busy.length).toBe(1);
+    expect(groups.on_trip.length).toBe(1);
+    expect(groups.paused.length).toBe(1);
     expect(groups.hold.length).toBe(1);
-    expect(groups.logged_out.length).toBe(3);
+    expect(groups.logged_out.length).toBe(2);
 
-    const total = groups.available.length + groups.busy.length + groups.hold.length + groups.logged_out.length;
+    const total = groups.available.length + groups.on_trip.length + groups.paused.length + groups.hold.length + groups.logged_out.length;
     expect(total).toBe(drivers.length);
   });
 
   it("returns empty groups when no drivers", () => {
     const groups = classifyDrivers([], new Map(), new Map());
     expect(groups.available).toEqual([]);
-    expect(groups.busy).toEqual([]);
+    expect(groups.on_trip).toEqual([]);
+    expect(groups.paused).toEqual([]);
     expect(groups.hold).toEqual([]);
     expect(groups.logged_out).toEqual([]);
   });
@@ -221,12 +223,12 @@ describe("isDriverAssignable — rejects logged_out/hold/stale", () => {
     expect(result.reason).toContain("hold");
   });
 
-  it("rejects stale driver (old lastSeenAt)", () => {
+  it("allows paused driver with warning (old lastSeenAt)", () => {
     const stale = new Date(Date.now() - ONLINE_CUTOFF_MS - 60000).toISOString();
     const d = makeDriver({ dispatchStatus: "available", lastSeenAt: stale });
     const result = isDriverAssignable(d);
-    expect(result.ok).toBe(false);
-    expect(result.reason).toContain("stale");
+    expect(result.ok).toBe(true);
+    expect(result.warning).toContain("paused");
   });
 
   it("rejects driver with no lastSeenAt (never checked in)", () => {
@@ -236,13 +238,11 @@ describe("isDriverAssignable — rejects logged_out/hold/stale", () => {
     expect(result.reason).toContain("never checked in");
   });
 
-  it("logged_out drivers NEVER assignable", () => {
-    const stale = new Date(Date.now() - ONLINE_CUTOFF_MS - 60000).toISOString();
+  it("logged_out and hold drivers NEVER assignable", () => {
     const offDrivers = [
       makeDriver({ id: 1, dispatchStatus: "off" }),
       makeDriver({ id: 2, dispatchStatus: "hold" }),
-      makeDriver({ id: 3, dispatchStatus: "available", lastSeenAt: stale }),
-      makeDriver({ id: 4, dispatchStatus: "available", lastSeenAt: null }),
+      makeDriver({ id: 3, dispatchStatus: "available", lastSeenAt: null }),
     ];
     for (const d of offDrivers) {
       expect(isDriverAssignable(d).ok).toBe(false);

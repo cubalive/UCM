@@ -760,10 +760,10 @@ function AssignDriverPanel({
     enabled: !!token && !!trip,
   });
 
-  const driverStatus = driverStatusQuery.data || { available: [], busy: [], hold: [], logged_out: [] };
+  const driverStatus = driverStatusQuery.data || { available: [], on_trip: [], paused: [], hold: [], logged_out: [] };
   const availableDrivers = driverStatus.available || [];
   const allAssignable = showAll
-    ? [...availableDrivers, ...(driverStatus.busy || []), ...(driverStatus.hold || [])]
+    ? [...availableDrivers, ...(driverStatus.on_trip || []), ...(driverStatus.paused || []), ...(driverStatus.hold || [])]
     : availableDrivers;
 
   return (

@@ -45,6 +45,7 @@ import {
   CircleDot,
   Coffee,
   LogOut,
+  PauseCircle,
   Car,
   Navigation,
   ArrowRight,
@@ -106,7 +107,8 @@ interface DriverStatusInfo {
 
 interface DriverStatusData {
   available: DriverStatusInfo[];
-  busy: DriverStatusInfo[];
+  on_trip: DriverStatusInfo[];
+  paused: DriverStatusInfo[];
   hold: DriverStatusInfo[];
   logged_out: DriverStatusInfo[];
 }
@@ -748,7 +750,7 @@ function ManualAssignTab({ cityId, token }: { cityId: number | null; token: stri
   });
 
   const unassignedTrips = unassignedTripsQuery.data || [];
-  const driverStatus = driverStatusQuery.data || { available: [], busy: [], hold: [], logged_out: [] };
+  const driverStatus = driverStatusQuery.data || { available: [], on_trip: [], paused: [], hold: [], logged_out: [] };
 
   if (!cityId) {
     return (
@@ -763,7 +765,7 @@ function ManualAssignTab({ cityId, token }: { cityId: number | null; token: stri
 
   const availableDrivers = driverStatus.available || [];
   const allAssignable = showAllDrivers
-    ? [...availableDrivers, ...(driverStatus.busy || []), ...(driverStatus.hold || [])]
+    ? [...availableDrivers, ...(driverStatus.on_trip || []), ...(driverStatus.paused || []), ...(driverStatus.hold || [])]
     : availableDrivers;
 
   return (
@@ -862,11 +864,28 @@ function ManualAssignTab({ cityId, token }: { cityId: number | null; token: stri
                 assignPending={assignMutation.isPending}
               />
               <ManualDriverSection
-                title="On Trip / Busy"
+                title="On Trip"
                 icon={<Truck className="w-4 h-4 text-blue-600 dark:text-blue-400" />}
-                drivers={driverStatus.busy}
-                variant="busy"
+                drivers={driverStatus.on_trip}
+                variant="on_trip"
                 selectedTrip={selectedTrip}
+              />
+              <ManualDriverSection
+                title="Paused (GPS Idle)"
+                icon={<PauseCircle className="w-4 h-4 text-orange-500 dark:text-orange-400" />}
+                drivers={driverStatus.paused}
+                variant="paused"
+                selectedTrip={selectedTrip}
+                onAssign={(driver) => {
+                  if (selectedTrip) {
+                    assignMutation.mutate({
+                      tripId: selectedTrip.id,
+                      driverId: driver.id,
+                      vehicleId: driver.vehicle_id || undefined,
+                    });
+                  }
+                }}
+                assignPending={assignMutation.isPending}
               />
               <ManualDriverSection
                 title="Hold / Break"
@@ -961,13 +980,13 @@ function ManualDriverSection({
   title: string;
   icon: React.ReactNode;
   drivers: DriverStatusInfo[];
-  variant: "available" | "busy" | "hold" | "logged_out";
+  variant: "available" | "on_trip" | "paused" | "hold" | "logged_out";
   selectedTrip: any | null;
   onAssign?: (driver: DriverStatusInfo) => void;
   assignPending?: boolean;
 }) {
   const isLoggedOut = variant === "logged_out";
-  const canAssign = variant === "available" && !!onAssign && !!selectedTrip;
+  const canAssign = (variant === "available" || variant === "paused") && !!onAssign && !!selectedTrip;
 
   return (
     <Card data-testid={`manual-section-${variant}`}>
@@ -992,7 +1011,8 @@ function ManualDriverSection({
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <CircleDot className={`w-3 h-3 flex-shrink-0 ${
                     variant === "available" ? "text-green-500" :
-                    variant === "busy" ? "text-blue-500" :
+                    variant === "on_trip" ? "text-blue-500" :
+                    variant === "paused" ? "text-orange-500" :
                     variant === "hold" ? "text-amber-500" :
                     "text-muted-foreground"
                   }`} />

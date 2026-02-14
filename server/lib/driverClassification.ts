@@ -1,6 +1,6 @@
 export const ONLINE_CUTOFF_MS = 90 * 1000;
 
-export type DriverGroup = "available" | "busy" | "hold" | "logged_out";
+export type DriverGroup = "on_trip" | "available" | "paused" | "hold" | "logged_out";
 
 export interface ClassifiedDriver {
   id: number;
@@ -23,8 +23,9 @@ export interface ClassifiedDriver {
 }
 
 export interface DriverStatusGroups {
+  on_trip: ClassifiedDriver[];
   available: ClassifiedDriver[];
-  busy: ClassifiedDriver[];
+  paused: ClassifiedDriver[];
   hold: ClassifiedDriver[];
   logged_out: ClassifiedDriver[];
 }
@@ -36,14 +37,28 @@ export function isDriverOnline(d: { dispatchStatus: string | null; lastSeenAt: s
   return elapsed <= ONLINE_CUTOFF_MS;
 }
 
+export function isDriverPaused(d: { dispatchStatus: string | null; lastSeenAt: string | Date | null }): boolean {
+  if (d.dispatchStatus === "off") return false;
+  if (!d.lastSeenAt) return false;
+  const elapsed = Date.now() - new Date(d.lastSeenAt as string).getTime();
+  return elapsed > ONLINE_CUTOFF_MS;
+}
+
 export function classifyDriverGroup(
   d: { dispatchStatus: string | null; lastSeenAt: string | Date | null },
   hasActiveTrip: boolean
 ): DriverGroup {
+  if (d.dispatchStatus === "off") return "logged_out";
+
   const online = isDriverOnline(d);
-  if (!online) return "logged_out";
+
+  if (!online) {
+    if (isDriverPaused(d)) return "paused";
+    return "logged_out";
+  }
+
   if (d.dispatchStatus === "hold") return "hold";
-  if (d.dispatchStatus === "enroute" || hasActiveTrip) return "busy";
+  if (hasActiveTrip || d.dispatchStatus === "enroute") return "on_trip";
   if (d.dispatchStatus === "available") return "available";
   return "logged_out";
 }
@@ -53,7 +68,7 @@ export function classifyDrivers(
   activeTripsMap: Map<number, any>,
   vehicleMap: Map<number, any>
 ): DriverStatusGroups {
-  const groups: DriverStatusGroups = { available: [], busy: [], hold: [], logged_out: [] };
+  const groups: DriverStatusGroups = { on_trip: [], available: [], paused: [], hold: [], logged_out: [] };
 
   for (const d of drivers) {
     const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
@@ -87,7 +102,7 @@ export function classifyDrivers(
   return groups;
 }
 
-export function isDriverAssignable(d: { dispatchStatus: string | null; lastSeenAt: string | Date | null }): { ok: boolean; reason?: string } {
+export function isDriverAssignable(d: { dispatchStatus: string | null; lastSeenAt: string | Date | null }): { ok: boolean; reason?: string; warning?: string } {
   if (d.dispatchStatus === "off") {
     return { ok: false, reason: "Driver is logged out (dispatch_status=off). Only available drivers can be assigned trips." };
   }
@@ -100,7 +115,7 @@ export function isDriverAssignable(d: { dispatchStatus: string | null; lastSeenA
   const elapsed = Date.now() - new Date(d.lastSeenAt as string).getTime();
   if (elapsed > ONLINE_CUTOFF_MS) {
     const mins = Math.round(elapsed / 60000);
-    return { ok: false, reason: `Driver last seen ${mins} minutes ago (stale GPS). Only recently active drivers can be assigned trips.` };
+    return { ok: true, warning: `Driver GPS paused (last seen ${mins}m ago). Trip can be assigned but driver may not see it immediately.` };
   }
   return { ok: true };
 }
