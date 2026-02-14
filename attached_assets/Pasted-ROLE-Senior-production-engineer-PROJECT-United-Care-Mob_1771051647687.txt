@@ -1,0 +1,126 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Make the existing web app a proper production PWA on a SINGLE URL:
+https://app.unitedcaremobility.com
+with role-based routing for admin/dispatch/clinic/driver, iPhone “Add to Home Screen” support,
+fullscreen standalone mode, stable reload (no white screen), and reliable location permission prompts.
+
+-------------------------------------------------------
+A) PWA FOUNDATION (must implement)
+-------------------------------------------------------
+1) Add a web app manifest served from /manifest.webmanifest
+Required fields:
+- name: "United Care Mobility"
+- short_name: "UCM"
+- start_url: "/"
+- scope: "/"
+- display: "standalone"
+- background_color: "#ffffff"
+- theme_color: "#0B2A4A" (or match existing brand)
+- icons: include at least:
+  - 192x192 png
+  - 512x512 png
+  - apple-touch-icon 180x180 (separately in HTML)
+If icons already exist in repo, reuse them; otherwise generate simple placeholders or reuse existing logo.
+
+2) Add Apple PWA meta tags in the main HTML template (index.html or equivalent):
+- <meta name="apple-mobile-web-app-capable" content="yes">
+- <meta name="apple-mobile-web-app-status-bar-style" content="default">
+- <meta name="apple-mobile-web-app-title" content="UCM">
+- <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+- <meta name="theme-color" content="#0B2A4A">
+
+3) Add Service Worker for app-shell caching to prevent blank screen on refresh:
+- Implement a minimal SW (Workbox ok if already in stack; otherwise vanilla)
+- Cache: main HTML, JS/CSS bundles, manifest, icons
+- Network-first for API calls; stale-while-revalidate for static assets
+- Ensure SW updates safely and does not cache API responses incorrectly
+
+4) Add a lightweight offline/refresh-safe fallback:
+- If app shell loads but API fails, show a friendly “Connection issue, retry” UI.
+
+-------------------------------------------------------
+B) ROLE-BASED ROUTING (must be correct)
+-------------------------------------------------------
+1) On login success, redirect based on role:
+- super_admin -> /admin
+- dispatch -> /dispatch
+- clinic_user -> /clinic
+- driver -> /driver
+
+2) Add route guards:
+- If a user tries to access a route not allowed by role, show Access Denied and a button to go to their home route.
+
+3) City selection to prevent confusion (admin/dispatch only):
+- After login (before loading data), show a required modal:
+  "Select working city"
+  list only cities that exist in DB
+- Persist selected city in localStorage and in user session state
+- All admin/dispatch trip queries MUST include cityId
+- Driver/clinic should derive city from assigned trips or clinic city; do NOT show modal to them unless needed.
+
+-------------------------------------------------------
+C) LOCATION (GPS) REQUIREMENTS
+-------------------------------------------------------
+1) Add an explicit “Enable Location” gate for DRIVER only:
+- On /driver, if geolocation permission not granted:
+  show a card explaining it’s required + button “Enable Location”
+- Clicking triggers navigator.geolocation.getCurrentPosition
+- If denied, show step-by-step instructions for iOS Safari permissions
+
+2) When driver is logged in and on /driver, start foreground tracking:
+- Use watchPosition with high accuracy true
+- Update location to backend every N seconds (e.g., 10–15s) ONLY while app is open
+- Stop tracking on logout or when user leaves driver area
+- Make it resilient: if watch fails, retry with backoff and show status indicator
+
+3) Ensure map loads:
+- Confirm the frontend has the correct maps key usage (client-side key) if required
+- Do not embed server-only keys in the browser
+
+-------------------------------------------------------
+D) PUBLISH / DOMAIN NOTES (must not break prod)
+-------------------------------------------------------
+1) Ensure the app works both on the Replit URL and on app.unitedcaremobility.com
+2) Ensure CORS and cookies/session behavior works on the custom domain
+3) Do not depend on Replit Neon DB; we use Supabase. Ignore “database diff” warnings.
+
+-------------------------------------------------------
+E) VERIFICATION CHECKLIST (must run)
+-------------------------------------------------------
+1) On iPhone Safari:
+- load app.unitedcaremobility.com
+- Share -> Add to Home Screen -> open from icon
+- confirm standalone mode (no Safari address bar)
+- login works
+
+2) Driver:
+- after login -> /driver
+- location prompt appears and works
+- watchPosition updates
+- map displays current position
+
+3) Admin/Dispatch:
+- after login -> city selection modal appears
+- selecting city filters trips correctly (no “no active drivers in city” confusion)
+- forbidden routes show Access Denied
+
+4) Refresh:
+- hard refresh does NOT white-screen
+- service worker registered and active
+
+Deliverables:
+- files added/changed list
+- manifest contents
+- SW strategy explained briefly
+- screenshots/logs optional

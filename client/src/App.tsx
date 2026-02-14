@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -159,8 +160,22 @@ function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
+function useDriverGpsPrompt(role?: string) {
+  useEffect(() => {
+    if (!role) return;
+    if (role.toUpperCase() !== "DRIVER") return;
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      () => {},
+      () => {},
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }, [role]);
+}
+
 function AuthenticatedApp() {
   const { user, loading, error, retry, mustChangePassword, cityRequired } = useAuth();
+  useDriverGpsPrompt(user?.role);
 
   if (loading) {
     return (

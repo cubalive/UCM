@@ -1,4 +1,4 @@
-const CACHE_NAME = "ucm-cache-v1";
+const CACHE_NAME = "ucm-cache-v2";
 const OFFLINE_URL = "/offline.html";
 
 const PRECACHE_URLS = [
@@ -8,6 +8,8 @@ const PRECACHE_URLS = [
   "/branding/icon-192.png",
   "/branding/icon-512.png",
   "/branding/logo-small.png",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
 ];
 
 const STATIC_EXTENSIONS = [
