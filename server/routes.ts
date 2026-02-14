@@ -3355,6 +3355,8 @@ export async function registerRoutes(
           else if (trip.lastEtaMinutes > scheduledMinFromNow) lateStatus = "at_risk";
         }
 
+        const driverVisible = trip.lastEtaMinutes != null && trip.lastEtaMinutes < 15;
+
         return {
           tripId: trip.id, publicId: trip.publicId, status: trip.status,
           pickupAddress: trip.pickupAddress, dropoffAddress: trip.dropoffAddress,
@@ -3363,9 +3365,13 @@ export async function registerRoutes(
           scheduledDate: trip.scheduledDate, pickupTime: trip.pickupTime,
           estimatedArrivalTime: trip.estimatedArrivalTime,
           tripType: trip.tripType, tripSeriesId: trip.tripSeriesId,
-          direction, lateStatus,
+          direction, lateStatus, driverVisible,
           patient: patient ? { id: patient.id, firstName: patient.firstName, lastName: patient.lastName, phone: patient.phone } : null,
-          driver: driverData,
+          driver: driverData ? {
+            ...driverData,
+            lastLat: driverVisible ? driverData.lastLat : null,
+            lastLng: driverVisible ? driverData.lastLng : null,
+          } : null,
           eta: trip.lastEtaMinutes != null ? { minutes: trip.lastEtaMinutes, updatedAt: trip.lastEtaUpdatedAt?.toISOString() || null } : null,
         };
       }));
@@ -3537,6 +3543,8 @@ export async function registerRoutes(
           }
         }
 
+        const driverVisible = trip.lastEtaMinutes != null && trip.lastEtaMinutes < 15;
+
         return {
           tripId: trip.id,
           publicId: trip.publicId,
@@ -3549,7 +3557,12 @@ export async function registerRoutes(
           dropoffAddress: trip.dropoffAddress,
           scheduledDate: trip.scheduledDate,
           pickupTime: trip.pickupTime,
-          driver: driverData,
+          driverVisible,
+          driver: driverData ? {
+            ...driverData,
+            lastLat: driverVisible ? driverData.lastLat : null,
+            lastLng: driverVisible ? driverData.lastLng : null,
+          } : null,
           eta: trip.lastEtaMinutes != null ? {
             minutes: trip.lastEtaMinutes,
             updatedAt: trip.lastEtaUpdatedAt?.toISOString() || null,
@@ -3711,18 +3724,21 @@ export async function registerRoutes(
       const driver = trip.driverId ? await storage.getDriver(trip.driverId) : null;
       const vehicle = driver?.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
 
+      const driverVisible = trip.lastEtaMinutes != null && trip.lastEtaMinutes < 15;
+
       const driverData = driver ? {
         id: driver.id,
         name: `${driver.firstName} ${driver.lastName}`,
         phone: driver.phone,
-        lat: driver.lastLat,
-        lng: driver.lastLng,
+        lat: driverVisible ? driver.lastLat : null,
+        lng: driverVisible ? driver.lastLng : null,
         lastSeenAt: driver.lastSeenAt,
         connected: driver.lastSeenAt ? (Date.now() - new Date(driver.lastSeenAt).getTime()) < 120000 : false,
         vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
         vehicleColor: vehicle?.color || null,
         vehicleMake: vehicle?.make || null,
         vehicleModel: vehicle?.model || null,
+        driverVisible,
       } : null;
 
       const routeData = {
@@ -3744,6 +3760,7 @@ export async function registerRoutes(
         scheduledDate: trip.scheduledDate,
         pickupTime: trip.pickupTime,
         completed: false,
+        driverVisible,
         driver: driverData,
         route: routeData,
       });

@@ -613,6 +613,14 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
             <p>No active trips with driver locations</p>
           </CardContent>
         </Card>
+      ) : !hasDrivers && activeTrips.length > 0 ? (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-ops-map-hidden">
+            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p>Driver markers appear when ETA is under 15 min</p>
+            <p className="text-xs mt-1">{activeTrips.length} active trip{activeTrips.length !== 1 ? "s" : ""} in progress</p>
+          </CardContent>
+        </Card>
       ) : (
         <Card>
           <CardContent className="py-6 text-center text-sm text-muted-foreground">
@@ -1614,7 +1622,7 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
         <div className="w-full h-48 bg-muted flex items-center justify-center">
           <div className="text-center text-muted-foreground">
             <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p className="text-sm">Driver location not available yet</p>
+            <p className="text-sm">{driver && !data.driverVisible ? "Driver location visible when ETA is under 15 min" : "Driver location not available yet"}</p>
           </div>
         </div>
       ) : (
