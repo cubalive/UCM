@@ -71,3 +71,12 @@ The application follows a client-server architecture.
 - **Supabase Storage**: `private_requests` table in Supabase (auto-created via RPC if missing). Stores passenger info, addresses, quote, payment status.
 - **Stripe Integration**: Optional payment intent verification on booking requests. Returns 402 if payment not succeeded, 503 if Stripe not configured.
 - **Dispatch Notifications**: Email sent to ADMIN_EMAIL via Resend on new booking requests with full details.
+
+## Recurring Patient Schedules (Feb 2026)
+- **recurring_schedules Table**: `recurring_schedules` table stores patient-specific recurring schedules with `patientId`, `cityId`, `days` (text array e.g. ["Mon","Wed","Fri"]), `pickupTime` (24h format), `startDate`, `active` flag.
+- **Schema & Types**: Defined in `shared/schema.ts` with `insertRecurringScheduleSchema`, `RecurringSchedule`, `InsertRecurringSchedule` types.
+- **Storage CRUD**: Full CRUD in `server/storage.ts` - `getRecurringSchedulesByPatient`, `getRecurringSchedulesByCity`, `getActiveRecurringSchedules`, `createRecurringSchedule`, `updateRecurringSchedule`, `deleteRecurringSchedule`.
+- **API Endpoints**: GET/POST/PATCH/DELETE `/api/recurring-schedules` with RBAC (SUPER_ADMIN, ADMIN, DISPATCH). POST `/api/recurring-schedules/generate` (SUPER_ADMIN) for manual trigger.
+- **Patient Form UI**: Day selector toggle buttons (Mon-Sun) + time picker replaces old text input. Schedule data saved both to notes `[SCHEDULE: ...]` and to `recurring_schedules` table.
+- **Midnight Scheduler**: `server/lib/recurringScheduleEngine.ts` - Checks every 60s for midnight window, generates trips for next 7 days based on active schedules. Skips dates before startDate, avoids duplicate trips (checks patientId + date + pickupTime). Trips created as SCHEDULED with tripType "recurring".
+- **Manual Generate**: POST `/api/recurring-schedules/generate` allows SUPER_ADMIN to trigger trip generation on-demand.

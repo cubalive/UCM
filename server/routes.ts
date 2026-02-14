@@ -21,6 +21,7 @@ import { registerAssignmentRoutes } from "./lib/assignmentRoutes";
 import { registerPublicApiRoutes } from "./lib/publicApiRoutes";
 import { startRouteScheduler } from "./lib/routeEngine";
 import { startNoShowScheduler } from "./lib/noShowEngine";
+import { startRecurringScheduleScheduler, runRecurringScheduleGenerator } from "./lib/recurringScheduleEngine";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -126,6 +127,7 @@ export async function registerRoutes(
   startOpsAlertScheduler();
   startRouteScheduler();
   startNoShowScheduler();
+  startRecurringScheduleScheduler();
 
   app.post("/api/auth/login", async (req, res) => {
     try {
@@ -1335,6 +1337,15 @@ export async function registerRoutes(
       const id = Number(req.params.id);
       await storage.deleteRecurringSchedule(id);
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/recurring-schedules/generate", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const result = await runRecurringScheduleGenerator();
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

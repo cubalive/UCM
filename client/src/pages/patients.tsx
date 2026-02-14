@@ -80,8 +80,8 @@ export default function PatientsPage() {
         method: "PATCH",
         body: JSON.stringify(patientData),
       });
+      const existing = await apiFetch(`/api/recurring-schedules?patientId=${id}`, token).catch(() => []);
       if (scheduleDays?.length > 0 && scheduleTime && selectedCity?.id) {
-        const existing = await apiFetch(`/api/recurring-schedules?patientId=${id}`, token);
         if (existing?.length > 0) {
           await apiFetch(`/api/recurring-schedules/${existing[0].id}`, token, {
             method: "PATCH",
@@ -103,6 +103,11 @@ export default function PatientsPage() {
             }),
           });
         }
+      } else if (existing?.length > 0) {
+        await apiFetch(`/api/recurring-schedules/${existing[0].id}`, token, {
+          method: "PATCH",
+          body: JSON.stringify({ active: false }),
+        });
       }
       return patient;
     },
