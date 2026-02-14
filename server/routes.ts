@@ -1571,6 +1571,57 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/driver/active-trip", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const companyId = getCompanyIdFromAuth(req);
+      const TERMINAL = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      const conditions = [
+        eq(trips.driverId, user.driverId),
+        isNull(trips.deletedAt),
+        sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
+      ];
+      if (companyId) {
+        conditions.push(eq(trips.companyId, companyId));
+      }
+
+      const activeTrip = await db.select().from(trips).where(
+        and(...conditions)
+      ).orderBy(desc(trips.updatedAt)).limit(1);
+
+      if (activeTrip.length === 0) {
+        return res.json({ trip: null });
+      }
+
+      const trip = activeTrip[0];
+      const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+
+      res.json({
+        trip: {
+          id: trip.id,
+          publicId: trip.publicId,
+          status: trip.status,
+          pickupAddress: trip.pickupAddress,
+          pickupLat: trip.pickupLat,
+          pickupLng: trip.pickupLng,
+          dropoffAddress: trip.dropoffAddress,
+          dropoffLat: trip.dropoffLat,
+          dropoffLng: trip.dropoffLng,
+          routePolyline: trip.routePolyline,
+          lastEtaMinutes: trip.lastEtaMinutes,
+          lastEtaUpdatedAt: trip.lastEtaUpdatedAt,
+          scheduledDate: trip.scheduledDate,
+          pickupTime: trip.pickupTime,
+          patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Driver presence heartbeat
   app.post("/api/driver/presence/heartbeat", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
     try {

@@ -31,6 +31,10 @@ import {
   ArrowRight,
   PhoneCall,
   LocateFixed,
+  Map,
+  List,
+  ExternalLink,
+  Timer,
 } from "lucide-react";
 
 function getToday(): string {
@@ -183,12 +187,330 @@ function useGeolocation(isActive: boolean) {
   return { permission, location, watchError, requestPermission, isStandalone };
 }
 
+function useLoadGoogleMaps(token: string | null) {
+  const [loaded, setLoaded] = useState(false);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/maps/client-key", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled || !json.key) return;
+        setApiKey(json.key);
+
+        if (window.google?.maps) {
+          setLoaded(true);
+          return;
+        }
+        const existing = document.querySelector('script[src*="maps.googleapis.com"]');
+        if (existing) {
+          existing.addEventListener("load", () => setLoaded(true));
+          if (window.google?.maps) setLoaded(true);
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${json.key}&libraries=geometry`;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => setLoaded(true);
+        document.head.appendChild(script);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  return { loaded, apiKey };
+}
+
+interface ActiveTripData {
+  id: number;
+  publicId: string;
+  status: string;
+  pickupAddress: string;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  dropoffAddress: string;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
+  routePolyline: string | null;
+  lastEtaMinutes: number | null;
+  lastEtaUpdatedAt: string | null;
+  scheduledDate: string;
+  pickupTime: string;
+  patientName: string | null;
+}
+
+const PICKUP_STAGES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP"];
+
+function getNavigateUrl(trip: ActiveTripData) {
+  const isPickupPhase = PICKUP_STAGES.includes(trip.status);
+  const destLat = isPickupPhase ? trip.pickupLat : trip.dropoffLat;
+  const destLng = isPickupPhase ? trip.pickupLng : trip.dropoffLng;
+  const destAddr = isPickupPhase ? trip.pickupAddress : trip.dropoffAddress;
+
+  if (destLat && destLng) {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      return `https://maps.apple.com/?daddr=${destLat},${destLng}`;
+    }
+    return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}`;
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destAddr)}`;
+}
+
+function DriverLiveMap({
+  driverLocation,
+  activeTrip,
+  mapsLoaded,
+  gpsWatchError,
+}: {
+  driverLocation: { lat: number; lng: number } | null;
+  activeTrip: ActiveTripData | null;
+  mapsLoaded: boolean;
+  gpsWatchError: boolean;
+}) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const driverMarkerRef = useRef<google.maps.Marker | null>(null);
+  const pickupMarkerRef = useRef<google.maps.Marker | null>(null);
+  const dropoffMarkerRef = useRef<google.maps.Marker | null>(null);
+  const polylineRef = useRef<google.maps.Polyline | null>(null);
+  const lastFitRef = useRef<string>("");
+  const lastGpsTimeRef = useRef<number>(Date.now());
+  const prevLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    if (
+      driverLocation &&
+      (!prevLocationRef.current ||
+        prevLocationRef.current.lat !== driverLocation.lat ||
+        prevLocationRef.current.lng !== driverLocation.lng)
+    ) {
+      lastGpsTimeRef.current = Date.now();
+      prevLocationRef.current = driverLocation;
+    }
+  }, [driverLocation]);
+
+  const [staleNow, setStaleNow] = useState(false);
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setStaleNow(Date.now() - lastGpsTimeRef.current > 120000);
+    }, 10000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const isGpsStale = staleNow || gpsWatchError;
+
+  useEffect(() => {
+    if (!mapsLoaded || !mapRef.current || mapInstanceRef.current) return;
+
+    const center = driverLocation || { lat: 33.749, lng: -84.388 };
+    mapInstanceRef.current = new google.maps.Map(mapRef.current, {
+      center,
+      zoom: 14,
+      disableDefaultUI: true,
+      zoomControl: true,
+      gestureHandling: "greedy",
+      styles: [
+        { featureType: "poi", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+      ],
+    });
+  }, [mapsLoaded]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapsLoaded) return;
+
+    if (driverLocation) {
+      const pos = new google.maps.LatLng(driverLocation.lat, driverLocation.lng);
+      if (!driverMarkerRef.current) {
+        driverMarkerRef.current = new google.maps.Marker({
+          map,
+          position: pos,
+          title: "Your Location",
+          zIndex: 999,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            fillColor: "#3b82f6",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 3,
+          },
+        });
+      } else {
+        driverMarkerRef.current.setPosition(pos);
+      }
+    }
+
+    if (activeTrip?.pickupLat && activeTrip?.pickupLng) {
+      const pickupPos = { lat: activeTrip.pickupLat, lng: activeTrip.pickupLng };
+      if (!pickupMarkerRef.current) {
+        pickupMarkerRef.current = new google.maps.Marker({
+          map,
+          position: pickupPos,
+          title: "Pickup (A)",
+          label: { text: "A", color: "#ffffff", fontWeight: "bold" },
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 14,
+            fillColor: "#22c55e",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+          },
+        });
+      } else {
+        pickupMarkerRef.current.setPosition(pickupPos);
+      }
+    } else if (pickupMarkerRef.current) {
+      pickupMarkerRef.current.setMap(null);
+      pickupMarkerRef.current = null;
+    }
+
+    if (activeTrip?.dropoffLat && activeTrip?.dropoffLng) {
+      const dropoffPos = { lat: activeTrip.dropoffLat, lng: activeTrip.dropoffLng };
+      if (!dropoffMarkerRef.current) {
+        dropoffMarkerRef.current = new google.maps.Marker({
+          map,
+          position: dropoffPos,
+          title: "Dropoff (B)",
+          label: { text: "B", color: "#ffffff", fontWeight: "bold" },
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 14,
+            fillColor: "#ef4444",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+          },
+        });
+      } else {
+        dropoffMarkerRef.current.setPosition(dropoffPos);
+      }
+    } else if (dropoffMarkerRef.current) {
+      dropoffMarkerRef.current.setMap(null);
+      dropoffMarkerRef.current = null;
+    }
+
+    if (!activeTrip) {
+      if (pickupMarkerRef.current) { pickupMarkerRef.current.setMap(null); pickupMarkerRef.current = null; }
+      if (dropoffMarkerRef.current) { dropoffMarkerRef.current.setMap(null); dropoffMarkerRef.current = null; }
+      if (polylineRef.current) { polylineRef.current.setMap(null); polylineRef.current = null; }
+    }
+
+    if (activeTrip?.routePolyline) {
+      const path = google.maps.geometry.encoding.decodePath(activeTrip.routePolyline);
+      if (!polylineRef.current) {
+        polylineRef.current = new google.maps.Polyline({
+          map,
+          path,
+          strokeColor: "#3b82f6",
+          strokeWeight: 5,
+          strokeOpacity: 0.8,
+        });
+      } else {
+        polylineRef.current.setPath(path);
+      }
+    } else if (polylineRef.current) {
+      polylineRef.current.setMap(null);
+      polylineRef.current = null;
+    }
+
+    const fitKey = [
+      driverLocation?.lat, driverLocation?.lng,
+      activeTrip?.pickupLat, activeTrip?.pickupLng,
+      activeTrip?.dropoffLat, activeTrip?.dropoffLng,
+      activeTrip?.id,
+    ].join(",");
+
+    if (fitKey !== lastFitRef.current) {
+      lastFitRef.current = fitKey;
+      const bounds = new google.maps.LatLngBounds();
+      let hasPoints = false;
+      if (driverLocation) { bounds.extend(driverLocation); hasPoints = true; }
+      if (activeTrip?.pickupLat && activeTrip?.pickupLng) { bounds.extend({ lat: activeTrip.pickupLat, lng: activeTrip.pickupLng }); hasPoints = true; }
+      if (activeTrip?.dropoffLat && activeTrip?.dropoffLng) { bounds.extend({ lat: activeTrip.dropoffLat, lng: activeTrip.dropoffLng }); hasPoints = true; }
+      if (hasPoints) {
+        map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+        const maxZoom = 16;
+        google.maps.event.addListenerOnce(map, "idle", () => {
+          if ((map.getZoom() || 0) > maxZoom) map.setZoom(maxZoom);
+        });
+      }
+    }
+  }, [driverLocation, activeTrip, mapsLoaded]);
+
+  if (!mapsLoaded) {
+    return <Skeleton className="w-full h-[300px] rounded-md" data-testid="skeleton-map" />;
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-0 relative">
+        <div ref={mapRef} className="w-full h-[300px] rounded-md" data-testid="div-driver-live-map" />
+
+        {isGpsStale && (
+          <div className="absolute top-2 left-2 bg-amber-600 text-white text-xs font-medium px-2 py-1 rounded-md flex items-center gap-1" data-testid="badge-gps-stale">
+            <AlertTriangle className="w-3 h-3" />
+            GPS Stale
+          </div>
+        )}
+
+        {activeTrip && (
+          <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2">
+            <div className="bg-background/90 backdrop-blur-sm rounded-md px-3 py-2 flex items-center gap-2 flex-1 min-w-0">
+              <Badge className={STATUS_COLORS[activeTrip.status] || ""} data-testid="badge-map-trip-status">
+                {STATUS_LABELS[activeTrip.status] || activeTrip.status}
+              </Badge>
+              {activeTrip.lastEtaMinutes != null && (
+                <span className="text-xs font-medium flex items-center gap-1" data-testid="text-map-eta">
+                  <Timer className="w-3 h-3" />
+                  {activeTrip.lastEtaMinutes} min
+                </span>
+              )}
+              {activeTrip.patientName && (
+                <span className="text-xs text-muted-foreground truncate">{activeTrip.patientName}</span>
+              )}
+            </div>
+            <Button
+              size="sm"
+              onClick={() => window.open(getNavigateUrl(activeTrip), "_blank")}
+              data-testid="button-navigate"
+            >
+              <Navigation className="w-4 h-4 mr-1" />
+              Navigate
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DriverDashboard() {
   const { token, user } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabType>("today");
   const [selectedDate, setSelectedDate] = useState(getToday());
   const [chatTripId, setChatTripId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"map" | "list">("map");
+
+  const { loaded: mapsLoaded } = useLoadGoogleMaps(token);
+
+  const activeTripQuery = useQuery<{ trip: ActiveTripData | null }>({
+    queryKey: ["/api/driver/active-trip"],
+    queryFn: () => apiFetch("/api/driver/active-trip", token),
+    enabled: !!token,
+    refetchInterval: 10000,
+  });
 
   const profileQuery = useQuery<any>({
     queryKey: ["/api/driver/profile"],
@@ -257,6 +579,7 @@ export default function DriverDashboard() {
     onSuccess: () => {
       toast({ title: "Trip status updated" });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -422,6 +745,40 @@ export default function DriverDashboard() {
             <p className="text-muted-foreground" data-testid="text-no-driver-profile">No driver profile linked to your account.</p>
           </CardContent>
         </Card>
+      )}
+
+      {driver && geoPermission === "granted" && (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex gap-1">
+            <Button
+              variant={viewMode === "map" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setViewMode("map")}
+              data-testid="button-view-map"
+            >
+              <Map className="w-4 h-4 mr-1" />
+              Map
+            </Button>
+            <Button
+              variant={viewMode === "list" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setViewMode("list")}
+              data-testid="button-view-list"
+            >
+              <List className="w-4 h-4 mr-1" />
+              List
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {driver && geoPermission === "granted" && viewMode === "map" && (
+        <DriverLiveMap
+          driverLocation={geoLocation}
+          activeTrip={activeTripQuery.data?.trip || null}
+          mapsLoaded={mapsLoaded}
+          gpsWatchError={geoWatchError}
+        />
       )}
 
       <div className="flex gap-2">

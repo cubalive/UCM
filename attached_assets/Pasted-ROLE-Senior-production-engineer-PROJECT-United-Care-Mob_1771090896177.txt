@@ -1,0 +1,66 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK: Implement "Uber-like" Driver Live Map in Driver Dashboard.
+
+CONTEXT:
+- Codebase has client/ and server/ folders.
+- Driver GPS cadence already exists (10s active trip, 30s active online, 0 otherwise).
+- drivers table has: last_lat, last_lng, last_seen_at, dispatch_status.
+- trips table has pickup/dropoff lat/lng, route_polyline, last_eta_minutes, last_eta_updated_at, and status transitions.
+
+REQUIREMENTS:
+1) Driver Dashboard must show a Map as the primary view (top section) with:
+   - Driver current position marker (update live)
+   - If driver has an active trip (status not terminal): show:
+     a) Pickup marker (A) + Dropoff marker (B)
+     b) Route polyline (use trips.route_polyline if present; else request Directions once and store it)
+     c) ETA minutes (computed and displayed, refreshed periodically)
+     d) A "Navigate" button that opens Apple Maps/Google Maps with pickup or dropoff based on trip stage.
+
+2) Active Trip logic:
+   - Determine active trip by driver_id and status NOT IN (COMPLETED, CANCELLED, NO_SHOW).
+   - Show a small "Trip Stage" label:
+     - EN_ROUTE_TO_PICKUP / ARRIVED_PICKUP / PICKED_UP / EN_ROUTE_TO_DROPOFF / ARRIVED_DROPOFF
+
+3) GPS permissions UX:
+   - If location denied, show a clean instruction panel and a "Try Again" button.
+   - Must work in Safari and PWA bookmark mode.
+   - Ensure geolocation call uses https origin and handles iOS PWA quirks (retry + fallback).
+
+4) Server endpoints (if missing, create them):
+   - GET /api/driver/me (returns driver + user + dispatch_status)
+   - GET /api/driver/active-trip (returns active trip + route info)
+   - POST /api/driver/location (body: lat,lng) updates drivers.last_lat,last_lng,last_seen_at
+   - GET /api/driver/live-route (optional) returns polyline + ETA
+
+5) Data correctness:
+   - last_seen_at update on every location POST.
+   - Treat driver "ONLINE" if dispatch_status != 'off' AND last_seen_at within 120s.
+   - If PWA blocks background updates, do not crash; show "GPS stale" indicator after 120s.
+
+6) UI:
+   - Keep existing design system.
+   - Map must fit mobile screen without distortion.
+   - Add a toggle: "Map / List" but default to Map.
+   - Do NOT remove existing trip list; just add map above it.
+
+7) Verification checklist (must complete):
+   - Driver can go Online → map shows live position
+   - Start a trip → route + pickup/dropoff markers show
+   - Location denied → panel shows and Try Again works
+   - Completed trip → route disappears and only driver marker remains
+   - No console errors in production build
+
+OUTPUT:
+- Implement changes with minimal files touched.
+- Provide exact files changed and why.
+- Provide manual test steps.
