@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages } from "@shared/schema";
 import { z } from "zod";
 import { eq, sql, and, isNull, inArray, desc } from "drizzle-orm";
 import { db } from "./db";
@@ -1302,8 +1302,9 @@ export async function registerRoutes(
       const { active } = req.body;
       if (typeof active !== "boolean") return res.status(400).json({ message: "active must be boolean" });
       const newStatus = active ? "available" : "off";
-      const updateData: any = { dispatchStatus: newStatus };
-      if (active) updateData.lastActiveAt = new Date();
+      const now = new Date();
+      const updateData: any = { dispatchStatus: newStatus, lastSeenAt: now };
+      if (active) updateData.lastActiveAt = now;
       await db.update(drivers).set(updateData).where(eq(drivers.id, user.driverId));
       const driver = await storage.getDriver(user.driverId);
       res.json({ driver });
@@ -1319,7 +1320,7 @@ export async function registerRoutes(
       if (enforced === false) return;
       const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-      let query = db.select().from(drivers).where(
+      const activeDrivers = await db.select().from(drivers).where(
         and(
           eq(drivers.dispatchStatus, "available"),
           eq(drivers.active, true),
@@ -1327,8 +1328,19 @@ export async function registerRoutes(
           ...(cityId && cityId > 0 ? [eq(drivers.cityId, cityId)] : [])
         )
       );
-      const activeDrivers = await query;
-      res.json(activeDrivers);
+      const allCities = await storage.getCities();
+      const cityMap = new Map(allCities.map(c => [c.id, c]));
+      const enriched = await Promise.all(activeDrivers.map(async (d) => {
+        const vehicle = d.vehicleId ? await storage.getVehicle(d.vehicleId) : null;
+        const city = cityMap.get(d.cityId);
+        return {
+          ...d,
+          vehicleName: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
+          vehicleType: vehicle?.type || null,
+          cityName: city?.name || null,
+        };
+      }));
+      res.json(enriched);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1374,6 +1386,9 @@ export async function registerRoutes(
       }
       if (driver.dispatchStatus === "hold") {
         return res.status(400).json({ message: "Driver is on hold" });
+      }
+      if (driver.dispatchStatus === "off") {
+        return res.status(400).json({ message: "Driver is offline. Only active drivers can be assigned trips." });
       }
       const updateData: any = { driverId, status: "ASSIGNED", assignedAt: new Date(), assignedBy: req.user!.userId };
       if (vehicleId) updateData.vehicleId = vehicleId;

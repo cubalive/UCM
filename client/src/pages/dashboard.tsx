@@ -2,9 +2,10 @@ import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity } from "lucide-react";
+import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity, Radio, Clock, Car } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { authHeaders } from "@/lib/auth";
+import { apiFetch } from "@/lib/api";
 
 export default function DashboardPage() {
   const { user, token, selectedCity, isSuperAdmin } = useAuth();
@@ -79,6 +80,10 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {user && ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role) && (
+        <ActiveDriversPanel />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
@@ -163,6 +168,95 @@ function RecentTrips() {
         </div>
       ))}
     </div>
+  );
+}
+
+function formatTimeAgo(dateStr: string | null): string {
+  if (!dateStr) return "Never";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function ActiveDriversPanel() {
+  const { token, selectedCity } = useAuth();
+  const cityId = selectedCity?.id;
+
+  const { data: activeDrivers, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/dispatch/drivers/active", cityId],
+    queryFn: () => apiFetch(`/api/dispatch/drivers/active${cityId ? `?cityId=${cityId}` : ""}`, token),
+    enabled: !!token,
+    refetchInterval: 15000,
+  });
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Radio className="w-4 h-4 text-emerald-500" />
+          Active Drivers
+          {activeDrivers && (
+            <Badge variant="secondary" className="ml-1" data-testid="badge-active-driver-count">
+              {activeDrivers.length}
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        ) : !activeDrivers?.length ? (
+          <div className="py-6 text-center text-sm text-muted-foreground" data-testid="text-no-active-drivers">
+            No drivers currently active
+          </div>
+        ) : (
+          <div className="space-y-2" data-testid="list-active-drivers">
+            {activeDrivers.map((d: any) => (
+              <div
+                key={d.id}
+                className="flex items-center justify-between gap-3 py-2 border-b last:border-0"
+                data-testid={`row-active-driver-${d.id}`}
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate" data-testid={`text-driver-name-${d.id}`}>
+                      {d.firstName} {d.lastName}
+                    </p>
+                    <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
+                      {d.cityName && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {d.cityName}
+                        </span>
+                      )}
+                      {d.vehicleName && (
+                        <span className="flex items-center gap-1">
+                          <Car className="w-3 h-3" />
+                          {d.vehicleName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground flex-shrink-0" data-testid={`text-driver-lastseen-${d.id}`}>
+                  <Clock className="w-3 h-3" />
+                  {formatTimeAgo(d.lastSeenAt)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
