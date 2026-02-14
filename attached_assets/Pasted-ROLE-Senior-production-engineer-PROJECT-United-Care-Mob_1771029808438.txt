@@ -1,0 +1,220 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Send automatic SMS alerts to Dispatch when Ops Health enters CRITICAL (RED) or when new CRITICAL alert types appear, without spamming.
+
+SECRETS REQUIRED:
+- DISPATCH_PHONE_NUMBER (E.164)
+- TWILIO_ACCOUNT_SID
+- TWILIO_AUTH_TOKEN
+- TWILIO_FROM_NUMBER
+
+ASSUMPTION:
+Ops Health endpoint exists:
+GET /api/ops/health?city_id=...&date=YYYY-MM-DD
+Returns overall + alerts with severity.
+
+PHASE 1 — ALERT DELIVERY RULES (ANTI-SPAM)
+Create table if missing:
+ops_alert_log
+- id uuid pk
+- city_id text
+- date date
+- alert_fingerprint text unique
+- overall text
+- critical_codes text[] or jsonb
+- sent_at timestamptz default now()
+- sent_to text
+- provider_sid text null
+- error text null
+
+Define fingerprint:
+hash(city_id + date + overall + sorted(list_of_critical_codes) + counts_bucket)
+Counts bucket can be simplified (just codes) to avoid spam from tiny count changes.
+
+Send SMS only when:
+A) overall becomes "red" and no alert sent in last 30 minutes for same city/date
+OR
+B) a new CRITICAL alert code appears that was not in the last sent fingerprint
+
+Cooldown:
+- Minimum 30 minutes between CRITICAL SMS per city (unless a brand-new CRITICAL code appears)
+
+PHASE 2 — MESSAGE FORMAT (SHORT + ACTIONABLE)
+SMS format:
+"UCM OPS ALERT ({CITY}) RED:
+{CODE1}:{COUNT1}, {CODE2}:{COUNT2}
+Open: {OPS_URL}"
+
+Where:
+OPS_URL = APP_PUBLIC_URL + "/ops-health?city={city_id}"
+
+If message too long, include top 3 critical alerts only.
+
+PHASE 3 — SCHEDULER
+Run ops check every 5 minutes per city:
+- Determine active cities from cities table where is_active=true
+- For each city, call ops health internally (no external HTTP; call the function directly)
+- If shouldSendSms(...) => send via Twilio helper and write ops_alert_log record
+
+Add endpoints:
+GET /api/ops/alerts/health => { ok:true, dispatchPhoneConfigured:boolean }
+POST /api/ops/alerts/run-once (super_admin only) => triggers one cycle for all active cities (testing)
+
+PHASE 4 — UI (OPTIONAL BUT QUICK)
+In Ops Health page:
+- Show "Last SMS sent" timestamp for that city
+- Button "Send test ops SMS" (super_admin only)
+
+VERIFY:
+- If Ops Health is GREEN => no SMS
+- If it turns RED => 1 SMS sent
+- Repeated RED checks do not spam (cooldown enforced)
+- If a new CRITICAL code appears => SMS sent even within cooldown
+- Logs recorded in ops_alert_log
+Verify before exit. Ojo con esto ************** ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Enable Clinic Ops Health with full alerting:
+Dashboard alerts + email + SMS for critical issues, scoped per clinic.
+
+SECRETS REQUIRED:
+- TWILIO_ACCOUNT_SID
+- TWILIO_AUTH_TOKEN
+- TWILIO_FROM_NUMBER
+- RESEND_API_KEY (or existing SMTP via Supabase)
+- APP_PUBLIC_URL
+
+DATA REQUIREMENTS:
+Clinics table must include:
+- id
+- name
+- email (required for email alerts)
+- phone_e164 (optional but recommended for SMS alerts)
+- city_id
+
+Trips table must include:
+- clinic_id
+- pickup_datetime
+- status
+- approval_status
+- driver_id
+- eta_minutes (if available)
+
+PHASE 1 — CLINIC OPS HEALTH ENDPOINT
+GET /api/ops/clinic-health?clinic_id=...
+
+Returns:
+{
+  overall: "green|yellow|red",
+  clinic_id,
+  alerts: [
+    {
+      code,
+      severity,
+      title,
+      count,
+      action_url
+    }
+  ]
+}
+
+CRITICAL ALERT RULES:
+1) TRIPS_PENDING_APPROVAL > 15 min
+2) DRIVER_LATE > 10 min
+3) TRIPS_NO_DRIVER_ASSIGNED within next 60 min
+4) TRIPS_NO_ETA for trips starting within 60 min
+5) TRIPS_CANCELLED_TODAY
+
+WARNING:
+6) UPCOMING_PICKUPS_60_MIN
+7) PATIENT_NO_SHOW_RECENT (last 7 days)
+
+PHASE 2 — DASHBOARD UI
+At top of clinic dashboard:
+- status banner color
+- alert cards
+- button: View affected trips
+
+PHASE 3 — EMAIL ALERTS (CRITICAL ONLY)
+When overall becomes RED:
+Send email to clinic.email
+
+Subject:
+"UCM Alert for {clinic_name}"
+
+Body:
+List top 3 critical alerts
+Include link:
+{APP_PUBLIC_URL}/clinic/dashboard
+
+Anti-spam:
+Do not send more than 1 email per 30 minutes per clinic
+unless new critical alert type appears.
+
+Create table:
+clinic_alert_log
+- id
+- clinic_id
+- alert_fingerprint
+- sent_at
+- type ('email','sms')
+
+PHASE 4 — SMS ALERTS (CRITICAL ONLY)
+If clinic.phone_e164 exists:
+Send SMS:
+
+"UCM ALERT:
+{clinic_name}
+{code1}:{count}
+Open dashboard."
+
+Rules:
+- send only when overall turns RED
+- cooldown 30 min
+- skip if opted out
+
+Reuse sms_opt_out table.
+
+PHASE 5 — HELP DISPATCH BUTTON
+On clinic dashboard:
+Button: "Request Dispatch Help"
+
+POST /api/ops/clinic-help
+body:
+{ clinic_id, message }
+
+Creates record:
+clinic_help_requests
+- id
+- clinic_id
+- message
+- created_at
+- resolved boolean default false
+
+Also triggers dispatch notification (internal only).
+
+PHASE 6 — VERIFY
+- Clinic sees only its alerts
+- Email sends on RED
+- SMS sends on RED
+- Cooldown prevents spam
+- Help button creates request
+- No crashes
+Verify before exit.
