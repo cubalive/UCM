@@ -281,7 +281,7 @@ function DriverPresencePanel() {
               emptyText="No offline or hold drivers"
               renderBadge={(d: any) => (
                 <Badge variant={d.reason === "hold" ? "secondary" : "outline"}>
-                  {d.reason === "hold" ? "HOLD" : "OFFLINE"}
+                  {d.reason === "hold" ? "HOLD" : d.reason === "disconnected" ? "DISCONNECTED" : "OFF"}
                 </Badge>
               )}
               testIdPrefix="offline"

@@ -1370,7 +1370,7 @@ function ClinicTripCard({ trip, isCompleted, onSelect, onTrack }: { trip: any; i
 }
 
 function TripDetail({ trip, onTrack }: { trip: any; onTrack: () => void }) {
-  const isCompleted = trip.status === "COMPLETED" || trip.status === "CANCELLED";
+  const isCompleted = trip.status === "COMPLETED" || trip.status === "CANCELLED" || trip.status === "NO_SHOW";
   const isActive = ACTIVE_TRIP_STATUSES.includes(trip.status);
   const currentStepIndex = TRIP_PROGRESS_STEPS.findIndex((s) => s.key === trip.status);
 

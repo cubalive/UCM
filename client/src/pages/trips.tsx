@@ -487,7 +487,7 @@ export default function TripsPage() {
                             Assign Driver
                           </Button>
                         )}
-                        {trip.status !== "COMPLETED" && (
+                        {!["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status) && (
                         <Select
                           value={trip.status}
                           onValueChange={(status) => updateStatusMutation.mutate({ id: trip.id, status })}
@@ -774,6 +774,7 @@ function TripEventsSection({ tripId, token }: { tripId: number; token: string | 
   const [eventType, setEventType] = useState<string>("");
   const [minutesLate, setMinutesLate] = useState("");
   const [eventNotes, setEventNotes] = useState("");
+  const [pendingEventType, setPendingEventType] = useState<string | null>(null);
 
   const { data: events, isLoading } = useQuery<any[]>({
     queryKey: ["/api/trips", tripId, "events"],
@@ -781,34 +782,49 @@ function TripEventsSection({ tripId, token }: { tripId: number; token: string | 
     enabled: !!token,
   });
 
+  const hasNoShowDriver = events?.some((e: any) => e.eventType === "no_show_driver") ?? false;
+  const hasNoShowPatient = events?.some((e: any) => e.eventType === "no_show_patient") ?? false;
+
   const createEventMutation = useMutation({
     mutationFn: (data: any) =>
       apiFetch(`/api/trips/${tripId}/events`, token, {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    onSuccess: () => {
+    onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "events"] });
-      toast({ title: "Trip event recorded" });
+      if (result?.deduped) {
+        toast({ title: "Event already recorded", description: "Duplicate event was prevented." });
+      } else {
+        toast({ title: "Trip event recorded" });
+      }
       setShowAddEvent(false);
       setEventType("");
       setMinutesLate("");
       setEventNotes("");
+      setPendingEventType(null);
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+      setPendingEventType(null);
+    },
   });
 
   const handleQuickEvent = (type: string) => {
+    if (createEventMutation.isPending) return;
+    setPendingEventType(type);
     if (type === "late_driver" || type === "late_patient") {
       setEventType(type);
       setShowAddEvent(true);
+      setPendingEventType(null);
     } else {
       createEventMutation.mutate({ eventType: type, notes: null, minutesLate: null });
     }
   };
 
   const handleSubmitEvent = () => {
-    if (!eventType) return;
+    if (!eventType || createEventMutation.isPending) return;
+    setPendingEventType(eventType);
     const isLateType = eventType === "late_driver" || eventType === "late_patient";
     const mins = isLateType && minutesLate ? parseInt(minutesLate) : null;
     createEventMutation.mutate({
@@ -846,19 +862,19 @@ function TripEventsSection({ tripId, token }: { tripId: number; token: string | 
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" onClick={() => handleQuickEvent("late_driver")} disabled={createEventMutation.isPending} data-testid="button-mark-driver-late">
           <ClockAlert className="w-4 h-4 mr-1" />
-          Driver Late
+          {pendingEventType === "late_driver" ? "Recording..." : "Driver Late"}
         </Button>
         <Button size="sm" variant="outline" onClick={() => handleQuickEvent("late_patient")} disabled={createEventMutation.isPending} data-testid="button-mark-patient-late">
           <ClockAlert className="w-4 h-4 mr-1" />
-          Patient Late
+          {pendingEventType === "late_patient" ? "Recording..." : "Patient Late"}
         </Button>
-        <Button size="sm" variant="destructive" onClick={() => handleQuickEvent("no_show_driver")} disabled={createEventMutation.isPending} data-testid="button-mark-driver-noshow">
+        <Button size="sm" variant="destructive" onClick={() => handleQuickEvent("no_show_driver")} disabled={createEventMutation.isPending || hasNoShowDriver} data-testid="button-mark-driver-noshow">
           <UserX className="w-4 h-4 mr-1" />
-          Driver No-Show
+          {pendingEventType === "no_show_driver" ? "Recording..." : hasNoShowDriver ? "Driver No-Show (Recorded)" : "Driver No-Show"}
         </Button>
-        <Button size="sm" variant="destructive" onClick={() => handleQuickEvent("no_show_patient")} disabled={createEventMutation.isPending} data-testid="button-mark-patient-noshow">
+        <Button size="sm" variant="destructive" onClick={() => handleQuickEvent("no_show_patient")} disabled={createEventMutation.isPending || hasNoShowPatient} data-testid="button-mark-patient-noshow">
           <UserX className="w-4 h-4 mr-1" />
-          Patient No-Show
+          {pendingEventType === "no_show_patient" ? "Recording..." : hasNoShowPatient ? "Patient No-Show (Recorded)" : "Patient No-Show"}
         </Button>
       </div>
 
@@ -961,7 +977,9 @@ function TripDetailDialog({
   const [editEstArrival, setEditEstArrival] = useState(trip.estimatedArrivalTime || "");
   const [editNotes, setEditNotes] = useState(trip.notes || "");
 
-  const isTripLocked = trip.status === "COMPLETED";
+  const TERMINAL_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+  const isTripLocked = TERMINAL_STATUSES.includes(trip.status);
+  const canOverride = userRole === "SUPER_ADMIN" && import.meta.env.VITE_ALLOW_COMPLETED_EDIT === "true";
 
   const todayStr = getTodayInTimezone(cityTimezone);
 
@@ -1060,10 +1078,12 @@ function TripDetailDialog({
           </DialogTitle>
         </DialogHeader>
 
-        {isTripLocked && (
+        {isTripLocked && !canOverride && (
           <div className="flex items-center gap-2 rounded-md bg-muted/50 border px-3 py-2" data-testid="banner-trip-locked">
             <Lock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            <span className="text-sm text-muted-foreground">Completed trip — editing is locked.</span>
+            <span className="text-sm text-muted-foreground">
+              Locked ({trip.status === "COMPLETED" ? "Completed" : trip.status === "CANCELLED" ? "Cancelled" : "No-Show"}) — editing is disabled.
+            </span>
           </div>
         )}
 
@@ -1142,7 +1162,7 @@ function TripDetailDialog({
               {trip.cancelledReason && (
                 <span className="text-xs text-muted-foreground italic">Reason: {trip.cancelledReason}</span>
               )}
-              {(!isClinicUser || trip.approvalStatus === "pending" || trip.approvalStatus === "approved") && trip.approvalStatus !== "cancelled" && !isTripLocked && (
+              {(!isClinicUser || trip.approvalStatus === "pending" || trip.approvalStatus === "approved") && trip.approvalStatus !== "cancelled" && (!isTripLocked || canOverride) && (
                 <Button size="sm" variant="outline" onClick={() => setEditing(true)} data-testid="button-edit-trip">
                   <Pencil className="w-4 h-4 mr-1" />
                   {isClinicUser && trip.approvalStatus !== "pending" ? "Add Notes" : "Edit"}

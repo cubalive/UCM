@@ -6,6 +6,7 @@ import { z } from "zod";
 import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 import { autoNotifyPatient } from "./dispatchAutoSms";
+import { tripLockedGuard } from "./tripLockGuard";
 
 const assignDriverVehicleSchema = z.object({
   driver_id: z.number().int().positive(),
@@ -142,6 +143,8 @@ export function registerDispatchRoutes(app: Express) {
         if (!trip) return res.status(404).json({ message: "Trip not found" });
         const companyId = getCompanyIdFromAuth(req);
         if (!checkCompanyOwnership(trip, companyId)) return res.status(403).json({ message: "Access denied" });
+
+        if (tripLockedGuard(trip, req, res)) return;
 
         const driver = await storage.getDriver(driver_id);
         if (!driver) return res.status(404).json({ message: "Driver not found" });

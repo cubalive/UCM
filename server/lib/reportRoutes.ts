@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "../db";
 import { trips, tripEvents, drivers } from "@shared/schema";
 import { eq, and, sql, isNull } from "drizzle-orm";
+import { tripLockedGuard } from "./tripLockGuard";
 
 export function registerReportRoutes(app: Express) {
 
@@ -44,6 +45,8 @@ export function registerReportRoutes(app: Express) {
           return res.status(403).json({ message: "Access denied" });
         }
 
+        if (tripLockedGuard(trip, req, res)) return;
+
         const schema = z.object({
           eventType: z.enum(["late_driver", "late_patient", "no_show_driver", "no_show_patient", "complaint", "incident"]),
           minutesLate: z.number().int().min(1).max(999).nullable().optional(),
@@ -55,9 +58,27 @@ export function registerReportRoutes(app: Express) {
           return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
         }
 
+        const { eventType } = parsed.data;
+        const isTerminalEvent = eventType === "no_show_driver" || eventType === "no_show_patient";
+
+        const existingEvents = await db.select().from(tripEvents).where(
+          and(
+            eq(tripEvents.tripId, tripId),
+            eq(tripEvents.eventType, eventType),
+            ...(isTerminalEvent
+              ? []
+              : [sql`${tripEvents.createdAt} >= NOW() - INTERVAL '5 minutes'`]
+            )
+          )
+        );
+
+        if (existingEvents.length > 0) {
+          return res.status(200).json({ ok: true, deduped: true, existingEventId: existingEvents[0].id, ...existingEvents[0] });
+        }
+
         const event = await storage.createTripEvent({
           tripId,
-          eventType: parsed.data.eventType,
+          eventType,
           minutesLate: parsed.data.minutesLate ?? null,
           notes: parsed.data.notes ?? null,
           createdBy: req.user!.userId,
@@ -68,11 +89,11 @@ export function registerReportRoutes(app: Express) {
           action: "CREATE_TRIP_EVENT",
           entity: "trip_events",
           entityId: event.id,
-          details: `${parsed.data.eventType} on trip ${trip.publicId}${parsed.data.minutesLate ? ` (${parsed.data.minutesLate} min)` : ""}`,
+          details: `${eventType} on trip ${trip.publicId}${parsed.data.minutesLate ? ` (${parsed.data.minutesLate} min)` : ""}`,
           cityId: trip.cityId,
         });
 
-        res.json(event);
+        res.json({ ok: true, deduped: false, ...event });
       } catch (err: any) {
         res.status(500).json({ message: err.message });
       }

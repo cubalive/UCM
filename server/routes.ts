@@ -1691,12 +1691,26 @@ export async function registerRoutes(
 
       for (const d of allDrivers) {
         const connected = d.lastSeenAt ? new Date(d.lastSeenAt).getTime() > cutoff : false;
-        const online = d.dispatchStatus === "available";
-        const paused = d.dispatchStatus === "hold";
+        const isOffOrHold = d.dispatchStatus === "off" || d.dispatchStatus === "hold";
         const onTrip = driverTripMap.has(d.id);
         const tripInfo = driverTripMap.get(d.id);
 
-        if (connected && online && onTrip && tripInfo) {
+        if (!connected || isOffOrHold) {
+          let reason = "offline";
+          if (d.dispatchStatus === "hold") reason = "hold";
+          else if (d.dispatchStatus === "off") reason = "off";
+          else if (!connected) reason = "disconnected";
+          offlineOrPausedDrivers.push({
+            id: d.id,
+            publicId: d.publicId,
+            name: `${d.firstName} ${d.lastName}`,
+            isOnline: connected,
+            onHold: d.dispatchStatus === "hold",
+            lastSeenAt: d.lastSeenAt,
+            dispatchStatus: d.dispatchStatus,
+            reason,
+          });
+        } else if (connected && onTrip && tripInfo) {
           inRouteDrivers.push({
             id: d.id,
             publicId: d.publicId,
@@ -1705,27 +1719,15 @@ export async function registerRoutes(
             tripPublicId: tripInfo.tripPublicId,
             tripStatus: tripInfo.tripStatus,
             lastSeenAt: d.lastSeenAt,
+            dispatchStatus: d.dispatchStatus,
           });
-        } else if (connected && online && !onTrip && !paused) {
+        } else {
           activeDrivers.push({
             id: d.id,
             publicId: d.publicId,
             name: `${d.firstName} ${d.lastName}`,
             lastSeenAt: d.lastSeenAt,
-          });
-        } else {
-          let reason = "offline";
-          if (paused) reason = "hold";
-          else if (!connected && online) reason = "disconnected";
-          else if (d.dispatchStatus === "off") reason = "offline";
-          offlineOrPausedDrivers.push({
-            id: d.id,
-            publicId: d.publicId,
-            name: `${d.firstName} ${d.lastName}`,
-            isOnline: online,
-            onHold: paused,
-            lastSeenAt: d.lastSeenAt,
-            reason,
+            dispatchStatus: d.dispatchStatus,
           });
         }
       }
