@@ -1751,7 +1751,14 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
     dropoffAddress: clinic?.address || "",
     tripType: "one_time",
     notes: "",
+    direction: "" as "" | "to_clinic" | "from_clinic",
+    roundTrip: false,
+    returnPickupTime: "",
   });
+
+  const isDialysis = form.tripType === "dialysis";
+  const roundTripLocked = isDialysis;
+  const roundTripEnabled = isDialysis ? true : form.roundTrip;
 
   const selectedPatient = patients.find(p => p.id === Number(form.patientId));
 
@@ -1764,29 +1771,63 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.patientId) return;
-    onSubmit({
+  const handleTripTypeChange = (v: string) => {
+    if (v === "dialysis") {
+      setForm({ ...form, tripType: v, roundTrip: true });
+    } else {
+      setForm({ ...form, tripType: v });
+    }
+  };
+
+  const patientAddr = form.pickupAddress || selectedPatient?.address || "TBD";
+  const patientLat = selectedPatient?.lat || null;
+  const patientLng = selectedPatient?.lng || null;
+  const patientZip = selectedPatient?.addressZip || "00000";
+  const clinicAddr = form.dropoffAddress || clinic?.address || "TBD";
+  const clinicLat = clinic?.lat || null;
+  const clinicLng = clinic?.lng || null;
+  const clinicZip = clinic?.addressZip || "00000";
+
+  function buildTrip(dir: "to_clinic" | "from_clinic", pickupTime: string, arrivalTime: string) {
+    const isTo = dir === "to_clinic";
+    return {
       patientId: Number(form.patientId),
       cityId: clinic?.cityId,
       clinicId: clinic?.id,
       scheduledDate: form.scheduledDate,
-      scheduledTime: form.pickupTime,
-      pickupTime: form.pickupTime,
-      estimatedArrivalTime: form.estimatedArrivalTime,
-      pickupAddress: form.pickupAddress || selectedPatient?.address || "TBD",
-      pickupLat: selectedPatient?.lat || null,
-      pickupLng: selectedPatient?.lng || null,
-      pickupZip: selectedPatient?.addressZip || "00000",
-      dropoffAddress: form.dropoffAddress || clinic?.address || "TBD",
-      dropoffLat: clinic?.lat || null,
-      dropoffLng: clinic?.lng || null,
-      dropoffZip: clinic?.addressZip || "00000",
+      scheduledTime: pickupTime,
+      pickupTime,
+      estimatedArrivalTime: arrivalTime,
+      pickupAddress: isTo ? patientAddr : clinicAddr,
+      pickupLat: isTo ? patientLat : clinicLat,
+      pickupLng: isTo ? patientLng : clinicLng,
+      pickupZip: isTo ? patientZip : clinicZip,
+      dropoffAddress: isTo ? clinicAddr : patientAddr,
+      dropoffLat: isTo ? clinicLat : patientLat,
+      dropoffLng: isTo ? clinicLng : patientLng,
+      dropoffZip: isTo ? clinicZip : patientZip,
       tripType: form.tripType,
       status: "SCHEDULED",
       notes: form.notes,
-    });
+    };
+  }
+
+  const canSubmit = form.patientId
+    && form.direction
+    && (!roundTripEnabled || form.returnPickupTime);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+
+    const outbound = buildTrip(form.direction as "to_clinic" | "from_clinic", form.pickupTime, form.estimatedArrivalTime);
+    onSubmit(outbound);
+
+    if (roundTripEnabled && form.returnPickupTime) {
+      const returnDir = form.direction === "to_clinic" ? "from_clinic" : "to_clinic";
+      const returnTrip = buildTrip(returnDir, form.returnPickupTime, "");
+      setTimeout(() => onSubmit(returnTrip), 300);
+    }
   };
 
   return (
@@ -1812,8 +1853,8 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
           <Input type="date" value={form.scheduledDate} onChange={e => setForm({ ...form, scheduledDate: e.target.value })} required data-testid="input-trip-date" />
         </div>
         <div className="space-y-2">
-          <Label>Trip Type</Label>
-          <Select value={form.tripType} onValueChange={v => setForm({ ...form, tripType: v })}>
+          <Label>Trip Type *</Label>
+          <Select value={form.tripType} onValueChange={handleTripTypeChange}>
             <SelectTrigger data-testid="select-trip-type">
               <SelectValue />
             </SelectTrigger>
@@ -1825,6 +1866,20 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
           </Select>
         </div>
       </div>
+
+      <div className="space-y-2">
+        <Label>Direction *</Label>
+        <Select value={form.direction} onValueChange={v => setForm({ ...form, direction: v as any })}>
+          <SelectTrigger data-testid="select-trip-direction">
+            <SelectValue placeholder="Select direction" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="to_clinic">To Clinic (Patient Home → Clinic)</SelectItem>
+            <SelectItem value="from_clinic">From Clinic (Clinic → Patient Home)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Pickup Time *</Label>
@@ -1835,6 +1890,7 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
           <Input type="time" value={form.estimatedArrivalTime} onChange={e => setForm({ ...form, estimatedArrivalTime: e.target.value })} required data-testid="input-trip-arrival-time" />
         </div>
       </div>
+
       <div className="space-y-2">
         <Label>Pickup Address</Label>
         <Input value={form.pickupAddress} onChange={e => setForm({ ...form, pickupAddress: e.target.value })} placeholder="Patient's address (auto-filled)" data-testid="input-trip-pickup" />
@@ -1843,15 +1899,62 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
         <Label>Dropoff Address</Label>
         <Input value={form.dropoffAddress} onChange={e => setForm({ ...form, dropoffAddress: e.target.value })} placeholder="Clinic address (auto-filled)" data-testid="input-trip-dropoff" />
       </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <Label className="flex items-center gap-2">
+            <Repeat className="w-3.5 h-3.5" />
+            Round-Trip
+          </Label>
+          <Button
+            type="button"
+            size="sm"
+            variant={roundTripEnabled ? "default" : "outline"}
+            disabled={roundTripLocked}
+            onClick={() => { if (!roundTripLocked) setForm({ ...form, roundTrip: !form.roundTrip }); }}
+            data-testid="button-toggle-round-trip"
+            className="toggle-elevate"
+          >
+            {roundTripEnabled ? "Enabled" : "Disabled"}
+            {roundTripLocked && <Lock className="w-3 h-3 ml-1" />}
+          </Button>
+        </div>
+        {isDialysis && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1" data-testid="text-dialysis-round-trip-notice">
+            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+            Dialysis trips always require return transportation.
+          </p>
+        )}
+      </div>
+
+      {roundTripEnabled && (
+        <div className="space-y-2 p-3 rounded-md border bg-muted/50">
+          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+            <ArrowRight className="w-3 h-3" />
+            Return Trip ({form.direction === "to_clinic" ? "Clinic → Patient Home" : "Patient Home → Clinic"})
+          </p>
+          <div className="space-y-2">
+            <Label>Return Pickup Time *</Label>
+            <Input
+              type="time"
+              value={form.returnPickupTime}
+              onChange={e => setForm({ ...form, returnPickupTime: e.target.value })}
+              required
+              data-testid="input-trip-return-pickup-time"
+            />
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label>Notes</Label>
         <Textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Additional notes..." data-testid="input-trip-notes" />
       </div>
-      <Button type="submit" className="w-full" disabled={loading || !form.patientId} data-testid="button-submit-trip">
-        {loading ? "Submitting..." : "Submit Trip Request"}
+      <Button type="submit" className="w-full" disabled={loading || !canSubmit} data-testid="button-submit-trip">
+        {loading ? "Submitting..." : roundTripEnabled ? "Submit Round-Trip Request" : "Submit Trip Request"}
       </Button>
       <p className="text-xs text-muted-foreground text-center">
-        Trip requests require dispatch approval before scheduling
+        {roundTripEnabled ? "Two trips (outbound + return) will be created" : "Trip requests require dispatch approval before scheduling"}
       </p>
     </form>
   );
