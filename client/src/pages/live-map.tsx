@@ -222,6 +222,7 @@ function getOrCreateGlobalMap(key: string, center: { lat: number; lng: number },
   container.style.minHeight = "500px";
   container.setAttribute("data-testid", "div-google-map");
 
+  console.log("MAP INIT live-map-dispatch");
   const map = new google.maps.Map(container, {
     center,
     zoom,

@@ -648,6 +648,7 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
     const container = document.createElement("div");
     container.className = "w-full h-full ucm-map-container";
     container.style.minHeight = "300px";
+    console.log("MAP INIT clinic-ops-map");
     const map = new google.maps.Map(container, {
       center,
       zoom: 12,
@@ -1659,6 +1660,7 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
       const container = document.createElement("div");
       container.className = "w-full h-full ucm-map-container";
       container.style.minHeight = "256px";
+      console.log("MAP INIT clinic-tracking");
       const map = new google.maps.Map(container, {
         center: driverPos,
         zoom: 13,
@@ -1816,16 +1818,16 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
         </DialogHeader>
       </div>
 
-      {hasDriverLocation && mapAvailable ? (
-        <div ref={trackingWrapperRef} className="w-full h-64 sm:h-80 bg-muted" data-testid="div-tracking-map" />
-      ) : !hasDriverLocation ? (
+      <div ref={trackingWrapperRef} className="w-full h-64 sm:h-80 bg-muted" data-testid="div-tracking-map" style={{ display: hasDriverLocation && mapAvailable ? "block" : "none" }} />
+      {!hasDriverLocation && (
         <div className="w-full h-48 bg-muted flex items-center justify-center">
           <div className="text-center text-muted-foreground">
             <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
             <p className="text-sm">{driver && !data.driverVisible ? "Driver location visible when ETA is under 15 min" : "Driver location not available yet"}</p>
           </div>
         </div>
-      ) : (
+      )}
+      {hasDriverLocation && !mapAvailable && (
         <div className="w-full h-48 bg-muted flex items-center justify-center">
           <p className="text-sm text-muted-foreground">Map not available</p>
         </div>

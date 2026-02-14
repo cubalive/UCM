@@ -312,7 +312,7 @@ interface DriverMapStore {
   pickupMarker: google.maps.Marker | null;
   dropoffMarker: google.maps.Marker | null;
   polyline: google.maps.Polyline | null;
-  lastFitKey: string;
+  boundsFit: boolean;
 }
 
 function getOrCreateDriverMap(key: string, center: { lat: number; lng: number }): DriverMapStore | null {
@@ -325,6 +325,7 @@ function getOrCreateDriverMap(key: string, center: { lat: number; lng: number })
   container.className = "w-full h-full ucm-map-container";
   container.setAttribute("data-testid", "div-driver-live-map");
 
+  console.log("MAP INIT driver-fullscreen");
   const map = new google.maps.Map(container, {
     center,
     zoom: 14,
@@ -337,7 +338,7 @@ function getOrCreateDriverMap(key: string, center: { lat: number; lng: number })
     ],
   });
 
-  const entry: DriverMapStore = { map, container, driverMarker: null, pickupMarker: null, dropoffMarker: null, polyline: null, lastFitKey: "" };
+  const entry: DriverMapStore = { map, container, driverMarker: null, pickupMarker: null, dropoffMarker: null, polyline: null, boundsFit: false };
   store[key] = entry;
   return entry;
 }
@@ -494,21 +495,14 @@ function FullScreenMap({
       entry.polyline = null;
     }
 
-    const fitKey = [
-      driverLocation?.lat, driverLocation?.lng,
-      activeTrip?.pickupLat, activeTrip?.pickupLng,
-      activeTrip?.dropoffLat, activeTrip?.dropoffLng,
-      activeTrip?.id,
-    ].join(",");
-
-    if (fitKey !== entry.lastFitKey) {
-      entry.lastFitKey = fitKey;
+    if (!entry.boundsFit) {
       const bounds = new google.maps.LatLngBounds();
       let hasPoints = false;
       if (driverLocation) { bounds.extend(driverLocation); hasPoints = true; }
       if (activeTrip?.pickupLat && activeTrip?.pickupLng) { bounds.extend({ lat: activeTrip.pickupLat, lng: activeTrip.pickupLng }); hasPoints = true; }
       if (activeTrip?.dropoffLat && activeTrip?.dropoffLng) { bounds.extend({ lat: activeTrip.dropoffLat, lng: activeTrip.dropoffLng }); hasPoints = true; }
       if (hasPoints) {
+        entry.boundsFit = true;
         map.fitBounds(bounds, { top: 40, right: 40, bottom: 200, left: 40 });
         const maxZoom = 16;
         google.maps.event.addListenerOnce(map, "idle", () => {

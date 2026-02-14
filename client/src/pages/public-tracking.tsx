@@ -101,6 +101,7 @@ export default function PublicTrackingPage() {
     pickupMarker: google.maps.Marker | null;
     directionsRenderer: google.maps.DirectionsRenderer | null;
     boundsFit: boolean;
+    directionsRendered: boolean;
   }
 
   function getTrackingMapStore(): TrackingMapStore | null {
@@ -154,6 +155,7 @@ export default function PublicTrackingPage() {
       container.className = "w-full h-full rounded-md ucm-map-container";
       container.style.minHeight = "300px";
 
+      console.log("MAP INIT public-tracking");
       const map = new google.maps.Map(container, {
         center: driverPos,
         zoom: 13,
@@ -170,7 +172,7 @@ export default function PublicTrackingPage() {
         polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 4, strokeOpacity: 0.7 },
       });
 
-      entry = { map, container, driverMarker: null, pickupMarker: null, directionsRenderer, boundsFit: false };
+      entry = { map, container, driverMarker: null, pickupMarker: null, directionsRenderer, boundsFit: false, directionsRendered: false };
       store[mapKeyRef.current] = entry;
     }
 
@@ -242,7 +244,8 @@ export default function PublicTrackingPage() {
         entry.map.fitBounds(bounds, 60);
       }
 
-      if (entry.directionsRenderer) {
+      if (entry.directionsRenderer && !entry.directionsRendered) {
+        entry.directionsRendered = true;
         const directionsService = new google.maps.DirectionsService();
         directionsService.route(
           {
@@ -364,17 +367,15 @@ export default function PublicTrackingPage() {
           </CardContent>
         </Card>
 
-        {showMap && mapAvailable && (
-          <Card>
-            <CardContent className="p-0">
-              <div
-                ref={wrapperRef}
-                className="w-full h-64 rounded-md"
-                data-testid="map-tracking"
-              />
-            </CardContent>
-          </Card>
-        )}
+        <Card style={{ display: showMap && mapAvailable ? "block" : "none" }}>
+          <CardContent className="p-0">
+            <div
+              ref={wrapperRef}
+              className="w-full h-64 rounded-md"
+              data-testid="map-tracking"
+            />
+          </CardContent>
+        </Card>
 
         {showMap && !mapAvailable && (
           <Card>
