@@ -310,6 +310,30 @@ export function registerSmsRoutes(app: Express) {
     }
   );
 
+  app.get("/api/eta/health", async (_req, res) => {
+    try {
+      const { isEtaEngineRunning } = await import("./etaEngine");
+      res.json({ ok: true, scheduler: isEtaEngineRunning() });
+    } catch (err: any) {
+      res.json({ ok: false, scheduler: false, error: err.message });
+    }
+  });
+
+  app.post(
+    "/api/eta/run-once",
+    authMiddleware,
+    requireRole("SUPER_ADMIN"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const { runEtaCycleOnce } = await import("./etaEngine");
+        const result = await runEtaCycleOnce();
+        res.json({ ok: true, ...result });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
   app.post("/api/twilio/inbound", async (req, res) => {
     try {
       const body = (req.body.Body || "").trim().toUpperCase();

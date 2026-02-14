@@ -367,7 +367,10 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(trips).where(
       and(
         inArray(trips.status, ["ASSIGNED", "IN_PROGRESS"]),
-        sql`${trips.driverId} IS NOT NULL`
+        sql`${trips.driverId} IS NOT NULL`,
+        sql`${trips.pickupLat} IS NOT NULL`,
+        sql`${trips.pickupLng} IS NOT NULL`,
+        isNull(trips.deletedAt),
       )
     );
   }

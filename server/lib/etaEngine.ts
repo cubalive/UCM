@@ -9,10 +9,16 @@ const TEN_MIN_THRESHOLD = 10;
 const FIVE_MIN_THRESHOLD = 5;
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
+let running = false;
 
 async function recalculateActiveETAs() {
   if (!GOOGLE_MAPS_KEY) return;
+  if (running) {
+    console.log("[ETA-ENGINE] Skipping cycle — previous cycle still running");
+    return;
+  }
 
+  running = true;
   try {
     const activeTrips = await storage.getActiveEnRouteTrips();
     if (activeTrips.length === 0) return;
@@ -22,16 +28,13 @@ async function recalculateActiveETAs() {
         if (!trip.driverId) continue;
 
         const driver = await storage.getDriver(trip.driverId);
-        if (!driver || driver.dispatchStatus !== "enroute") continue;
+        if (!driver) continue;
         if (!driver.lastLat || !driver.lastLng) continue;
-
-        const destination = (trip.pickupLat && trip.pickupLng)
-          ? { lat: trip.pickupLat, lng: trip.pickupLng }
-          : trip.pickupAddress;
+        if (!trip.pickupLat || !trip.pickupLng) continue;
 
         const eta = await etaMinutes(
           { lat: driver.lastLat, lng: driver.lastLng },
-          destination
+          { lat: trip.pickupLat, lng: trip.pickupLng }
         );
 
         await storage.updateTrip(trip.id, {
@@ -43,7 +46,7 @@ async function recalculateActiveETAs() {
         if (eta.minutes <= TEN_MIN_THRESHOLD) {
           const alreadySent10 = await storage.hasSmsBeenSent(trip.id, "eta_10");
           if (!alreadySent10) {
-            autoNotifyPatient(trip.id, "eta_10", { eta_minutes: eta.minutes });
+            await autoNotifyPatient(trip.id, "eta_10", { eta_minutes: eta.minutes });
             console.log(`[ETA-ENGINE] 10-min alert triggered for trip ${trip.id}, ETA: ${eta.minutes}min`);
           }
         }
@@ -51,7 +54,7 @@ async function recalculateActiveETAs() {
         if (eta.minutes <= FIVE_MIN_THRESHOLD) {
           const alreadySent5 = await storage.hasSmsBeenSent(trip.id, "eta_5");
           if (!alreadySent5) {
-            autoNotifyPatient(trip.id, "eta_5", { eta_minutes: eta.minutes });
+            await autoNotifyPatient(trip.id, "eta_5", { eta_minutes: eta.minutes });
             console.log(`[ETA-ENGINE] 5-min alert triggered for trip ${trip.id}, ETA: ${eta.minutes}min`);
           }
         }
@@ -63,7 +66,21 @@ async function recalculateActiveETAs() {
     }
   } catch (err: any) {
     console.error(`[ETA-ENGINE] Cycle error: ${err.message}`);
+  } finally {
+    running = false;
   }
+}
+
+export async function runEtaCycleOnce(): Promise<{ tripsProcessed: number; skipped: boolean }> {
+  if (running) {
+    return { tripsProcessed: 0, skipped: true };
+  }
+  await recalculateActiveETAs();
+  return { tripsProcessed: 0, skipped: false };
+}
+
+export function isEtaEngineRunning(): boolean {
+  return intervalHandle !== null;
 }
 
 export function startEtaEngine() {
