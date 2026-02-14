@@ -178,12 +178,14 @@ export function registerSmsRoutes(app: Express) {
         }
 
         const message = buildNotifyMessage(parsed.data.status, {
-          pickup_time: `${trip.scheduledDate} ${trip.scheduledTime}`,
+          pickup_time: `${trip.scheduledDate} ${trip.pickupTime || trip.scheduledTime}`,
           driver_name: driverName,
           vehicle_label: vehicleLabel,
           eta_minutes: etaMinutes,
           dispatch_phone: getDispatchPhone(),
           tracking_url: trackingUrl,
+          pickup_lat: trip.pickupLat ?? null,
+          pickup_lng: trip.pickupLng ?? null,
         });
 
         const result = await sendSms(patientPhone, message);
@@ -215,15 +217,44 @@ export function registerSmsRoutes(app: Express) {
     }
   );
 
+  app.get("/api/sms/test", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const to = req.query.to as string;
+      if (!to) {
+        return res.status(400).json({ message: "Query parameter 'to' is required (phone number)" });
+      }
+      if (!isTwilioConfigured()) {
+        return res.status(503).json({ message: "Twilio is not configured" });
+      }
+      const normalized = normalizePhone(to);
+      if (!normalized) {
+        return res.status(400).json({ message: "Invalid phone number format" });
+      }
+      const optedOut = await storage.isPhoneOptedOut(normalized);
+      if (optedOut) {
+        return res.status(422).json({ message: "Phone number has opted out of SMS" });
+      }
+      const result = await sendSms(normalized, "United Care Mobility test message. Reply STOP to opt out.");
+      if (!result.success) {
+        return res.status(502).json({ message: result.error || "SMS send failed" });
+      }
+      res.json({ ok: true, sid: result.sid, to: normalized });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/twilio/inbound", async (req, res) => {
     try {
       const body = (req.body.Body || "").trim().toUpperCase();
-      const from = req.body.From || "";
+      const rawFrom = req.body.From || "";
 
-      if (!from) {
+      if (!rawFrom) {
         res.type("text/xml").send("<Response></Response>");
         return;
       }
+
+      const from = normalizePhone(rawFrom) || rawFrom;
 
       const stopWords = ["STOP", "UNSUBSCRIBE", "CANCEL", "QUIT", "END"];
       const startWords = ["START", "YES", "UNSTOP"];

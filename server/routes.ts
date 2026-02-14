@@ -1319,6 +1319,13 @@ export async function registerRoutes(
         details: `Created trip ${publicId}${isClinic ? " (pending approval)" : ""}`,
         cityId: trip.cityId,
       });
+
+      import("./lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+        autoNotifyPatient(trip.id, "scheduled");
+      }).catch((err) => {
+        console.error(`[SMS-AUTO] Failed to send scheduled SMS for trip ${trip.id}:`, err.message);
+      });
+
       res.json(trip);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -1498,6 +1505,12 @@ export async function registerRoutes(
         autoNotifyPatient(id, "arrived");
       }
 
+      if (parsed.data.status === "CANCELLED") {
+        import("./lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+          autoNotifyPatient(id, "canceled");
+        }).catch(() => {});
+      }
+
       const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
       if (terminalStatuses.includes(parsed.data.status)) {
         storage.revokeTokensForTrip(id).catch((err: any) => {
@@ -1576,6 +1589,11 @@ export async function registerRoutes(
           details: `Clinic cancelled pending trip ${trip.publicId}`,
           cityId: trip.cityId,
         });
+
+        import("./lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+          autoNotifyPatient(id, "canceled");
+        }).catch(() => {});
+
         return res.json(updated);
       }
       if (trip.approvalStatus !== "approved") {
@@ -1631,6 +1649,11 @@ export async function registerRoutes(
         details: `Cancelled trip ${trip.publicId} (${cancelType}): ${req.body.reason || "No reason given"}`,
         cityId: trip.cityId,
       });
+
+      import("./lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+        autoNotifyPatient(id, "canceled");
+      }).catch(() => {});
+
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

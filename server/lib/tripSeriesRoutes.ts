@@ -278,6 +278,14 @@ export function registerTripSeriesRoutes(app: Express) {
           createdTrips.push(trip);
         }
 
+        if (createdTrips.length > 0) {
+          import("./dispatchAutoSms").then(({ autoNotifyPatient }) => {
+            autoNotifyPatient(createdTrips[0].id, "scheduled");
+          }).catch((err) => {
+            console.error(`[SMS-AUTO] Failed to send scheduled SMS for series trip:`, err.message);
+          });
+        }
+
         await storage.createAuditLog({
           userId: req.user!.userId,
           action: "CREATE",

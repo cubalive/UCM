@@ -69,12 +69,14 @@ export async function autoNotifyPatient(
     }
 
     const message = buildNotifyMessage(status, {
-      pickup_time: `${trip.scheduledDate} ${trip.scheduledTime}`,
+      pickup_time: `${trip.scheduledDate} ${trip.pickupTime || trip.scheduledTime}`,
       driver_name: driverName,
       vehicle_label: vehicleLabel,
       eta_minutes: extraVars?.eta_minutes ?? null,
       dispatch_phone: getDispatchPhone(),
       tracking_url: trackingUrl,
+      pickup_lat: trip.pickupLat ?? null,
+      pickup_lng: trip.pickupLng ?? null,
     });
 
     const result = await sendSms(phone, message);
