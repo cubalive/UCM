@@ -18,6 +18,7 @@ import { registerReportRoutes } from "./lib/reportRoutes";
 import { registerOpsRoutes, startOpsAlertScheduler } from "./lib/opsRoutes";
 import { registerAutomationRoutes } from "./lib/automationRoutes";
 import { registerAssignmentRoutes } from "./lib/assignmentRoutes";
+import { registerPublicApiRoutes } from "./lib/publicApiRoutes";
 import { startRouteScheduler } from "./lib/routeEngine";
 import { startNoShowScheduler } from "./lib/noShowEngine";
 
@@ -119,6 +120,7 @@ export async function registerRoutes(
   registerOpsRoutes(app);
   registerAutomationRoutes(app);
   registerAssignmentRoutes(app, authMiddleware);
+  registerPublicApiRoutes(app);
   startOpsAlertScheduler();
   startRouteScheduler();
   startNoShowScheduler();

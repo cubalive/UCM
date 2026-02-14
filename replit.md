@@ -63,3 +63,11 @@ The application follows a client-server architecture.
 - **Terminal Status Lockdown**: COMPLETED, CANCELLED, NO_SHOW are terminal statuses. Server-side enforcement blocks: trip edits (PATCH /api/trips/:id), driver assignment (PATCH /api/trips/:id/assign), status changes (PATCH /api/trips/:id/status), messaging (POST /api/trips/:id/messages), cancellation, and approval changes.
 - **SMS Config Check**: Frontend queries /api/sms/health to check Twilio configuration. SMS buttons hidden when Twilio not configured, with warning indicator shown. Server-side also rejects /api/sms/send and /api/trips/:id/notify with 503 when Twilio not configured.
 - **Ops Health System**: /api/ops/health returns GREEN/YELLOW/RED status with computed alerts (pending approvals, unassigned trips, late drivers, missing ETAs, cancellations). Full UI at /ops-health page with alert history, scheduler status, and SMS alert system.
+
+## Public Booking API (Feb 2026)
+- **Public API Routes**: `server/lib/publicApiRoutes.ts` - Unauthenticated endpoints at `/api/public/*` for Lovable frontend integration. CORS restricted to `ALLOWED_ORIGIN_1` env var. Per-IP rate limiting.
+- **Endpoints**: GET `/api/public/health` (service status), POST `/api/public/quote` (price calculation), POST `/api/public/request` (submit booking), POST `/api/public/status` (check request status by UUID).
+- **Private Pricing Engine**: `server/lib/privatePricing.ts` - $2.50/mi base, 15% buffer, peak-hour surcharge (6-9AM, 4-7PM at 15%), WAV surcharge ($15), round-trip multiplier (1.85x), $0.50 rounding, min $35 / max $750.
+- **Supabase Storage**: `private_requests` table in Supabase (auto-created via RPC if missing). Stores passenger info, addresses, quote, payment status.
+- **Stripe Integration**: Optional payment intent verification on booking requests. Returns 402 if payment not succeeded, 503 if Stripe not configured.
+- **Dispatch Notifications**: Email sent to ADMIN_EMAIL via Resend on new booking requests with full details.
