@@ -48,7 +48,7 @@ const STATUS_LABELS: Record<string, string> = {
   off: "Off Duty",
 };
 
-const STALE_THRESHOLD_MS = 2 * 60 * 1000;
+const STALE_THRESHOLD_MS = 90 * 1000;
 
 function isStale(updatedAt: string | null): boolean {
   if (!updatedAt) return true;

@@ -1,4 +1,4 @@
-export const ONLINE_CUTOFF_MS = 120 * 1000;
+export const ONLINE_CUTOFF_MS = 90 * 1000;
 
 export type DriverGroup = "available" | "busy" | "hold" | "logged_out";
 

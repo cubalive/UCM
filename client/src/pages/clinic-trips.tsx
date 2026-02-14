@@ -1148,6 +1148,44 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
     }
   }
 
+  const clinicRerouteRef = useRef<{ tripId: number; time: number } | null>(null);
+
+  useEffect(() => {
+    if (!selectedTrip || !token) return;
+    const CLINIC_REROUTE_INTERVAL_MS = 60000;
+    const CLINIC_STALE_THRESHOLD_MS = 90000;
+
+    const trip = activeTrips.find((t: any) => t.tripId === selectedTrip.tripId);
+    if (!trip) return;
+
+    const driverLastSeen = trip.driver?.lastSeenAt;
+    if (!driverLastSeen) return;
+    const driverAge = Date.now() - new Date(driverLastSeen).getTime();
+    if (driverAge > CLINIC_STALE_THRESHOLD_MS) return;
+
+    if (!trip.driver?.lastLat || !trip.driver?.lastLng) return;
+
+    const last = clinicRerouteRef.current;
+    if (last && last.tripId === selectedTrip.tripId && (Date.now() - last.time) < CLINIC_REROUTE_INTERVAL_MS) return;
+
+    const etaAge = trip.lastEtaUpdatedAt ? Date.now() - new Date(trip.lastEtaUpdatedAt).getTime() : Infinity;
+    if (etaAge < CLINIC_REROUTE_INTERVAL_MS) return;
+
+    clinicRerouteRef.current = { tripId: selectedTrip.tripId, time: Date.now() };
+    fetch(`/api/trips/${trip.tripId}/route/recompute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ originLat: trip.driver.lastLat, originLng: trip.driver.lastLng }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.ok) {
+          queryClient.invalidateQueries({ queryKey: ["/api/clinic/active-trips"] });
+        }
+      })
+      .catch(() => {});
+  }, [selectedTrip?.tripId, activeTrips, token]);
+
   const hasDrivers = activeTrips.some(t => t.driver?.lastLat && t.driver?.lastLng);
 
   return (

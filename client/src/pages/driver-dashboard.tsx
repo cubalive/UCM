@@ -260,8 +260,17 @@ function useAutoReroute(
 ) {
   const lastRecomputeRef = useRef<{ lat: number; lng: number; time: number; status: string } | null>(null);
   const pendingRef = useRef(false);
-  const THROTTLE_MS = 20000;
-  const MIN_DISTANCE_MI = 0.025;
+  const SOFT_THROTTLE_MS = 20000;
+  const HARD_THROTTLE_MS = 10000;
+  const MIN_DISTANCE_M = 120;
+
+  function distMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
 
   useEffect(() => {
     if (!activeTrip || !driverLocation || !token) return;
@@ -270,14 +279,19 @@ function useAutoReroute(
     const now = Date.now();
     const last = lastRecomputeRef.current;
 
+    if (last && (now - last.time) < HARD_THROTTLE_MS) return;
+
     let shouldRecompute = false;
     if (!last) {
       shouldRecompute = true;
     } else if (last.status !== activeTrip.status) {
       shouldRecompute = true;
-    } else if (now - last.time >= THROTTLE_MS) {
-      const dist = haversineDistance(last.lat, last.lng, driverLocation.lat, driverLocation.lng);
-      if (dist >= MIN_DISTANCE_MI) {
+    } else {
+      const dist = distMeters(last.lat, last.lng, driverLocation.lat, driverLocation.lng);
+      const elapsed = now - last.time;
+      if (dist >= MIN_DISTANCE_M) {
+        shouldRecompute = true;
+      } else if (elapsed >= SOFT_THROTTLE_MS) {
         shouldRecompute = true;
       }
     }
@@ -626,25 +640,75 @@ export default function DriverDashboard() {
 
   const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverActive || hasActiveTrip);
 
-  const locationHeartbeat = useCallback(async () => {
-    if (!geoLocation || !token) return;
+  const lastSentRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
+  const gpsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const sendLocation = useCallback(async (lat: number, lng: number) => {
+    if (!token) return;
     try {
       await apiFetch("/api/driver/me/location", token, {
         method: "POST",
-        body: JSON.stringify({ lat: geoLocation.lat, lng: geoLocation.lng }),
+        body: JSON.stringify({ lat, lng }),
       });
+      lastSentRef.current = { lat, lng, time: Date.now() };
     } catch {}
-  }, [geoLocation, token]);
-
-  const gpsIntervalMs = hasActiveTrip ? 10000 : isDriverActive ? 30000 : 0;
+  }, [token]);
 
   useEffect(() => {
-    if (gpsIntervalMs === 0) return;
-    if (!geoLocation) return;
-    locationHeartbeat();
-    const interval = setInterval(locationHeartbeat, gpsIntervalMs);
-    return () => clearInterval(interval);
-  }, [gpsIntervalMs, locationHeartbeat, geoLocation]);
+    const shouldTrack = isDriverActive || hasActiveTrip;
+    if (!shouldTrack || !geoLocation) {
+      if (gpsTimerRef.current) { clearInterval(gpsTimerRef.current); gpsTimerRef.current = null; }
+      return;
+    }
+
+    const GPS_MIN_DISTANCE_M = 30;
+    const GPS_MIN_INTERVAL_MS = 20000;
+    const GPS_IDLE_INTERVAL_MS = 30000;
+    const GPS_IDLE_SPEED_MPS = 1;
+
+    function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function checkAndSend() {
+      if (!geoLocation) return;
+      const now = Date.now();
+      const last = lastSentRef.current;
+
+      if (!last) {
+        sendLocation(geoLocation.lat, geoLocation.lng);
+        return;
+      }
+
+      const elapsed = now - last.time;
+      const dist = distanceMeters(last.lat, last.lng, geoLocation.lat, geoLocation.lng);
+      const speed = elapsed > 0 ? dist / (elapsed / 1000) : 0;
+
+      if (speed < GPS_IDLE_SPEED_MPS) {
+        if (elapsed >= GPS_IDLE_INTERVAL_MS) {
+          sendLocation(geoLocation.lat, geoLocation.lng);
+        }
+        return;
+      }
+
+      if (dist >= GPS_MIN_DISTANCE_M || elapsed >= GPS_MIN_INTERVAL_MS) {
+        sendLocation(geoLocation.lat, geoLocation.lng);
+      }
+    }
+
+    checkAndSend();
+
+    if (gpsTimerRef.current) clearInterval(gpsTimerRef.current);
+    gpsTimerRef.current = setInterval(checkAndSend, 5000);
+
+    return () => {
+      if (gpsTimerRef.current) { clearInterval(gpsTimerRef.current); gpsTimerRef.current = null; }
+    };
+  }, [isDriverActive, hasActiveTrip, geoLocation?.lat, geoLocation?.lng, sendLocation]);
 
   const toggleActiveMutation = useMutation({
     mutationFn: (active: boolean) =>

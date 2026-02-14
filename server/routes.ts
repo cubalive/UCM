@@ -4234,7 +4234,7 @@ export async function registerRoutes(
       if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
       const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"];
-      const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+      const STALE_THRESHOLD_MS = 90 * 1000;
 
       const clinicTrips = await db.select().from(trips).where(
         and(
