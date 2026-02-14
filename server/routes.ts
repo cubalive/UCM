@@ -5,7 +5,7 @@ import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, 
 import { generatePublicId } from "./public-id";
 import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages } from "@shared/schema";
 import { z } from "zod";
-import { eq, sql, and, isNull, inArray, desc } from "drizzle-orm";
+import { eq, ne, sql, and, or, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
 import { getSupabaseServer } from "../lib/supabaseClient";
 import { registerMapsRoutes } from "./lib/mapsRoutes";
@@ -1450,6 +1450,121 @@ export async function registerRoutes(
         lastSeenAt: new Date(),
       }).where(eq(drivers.id, user.driverId));
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Driver presence heartbeat
+  app.post("/api/driver/presence/heartbeat", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const { lat, lng, accuracy } = req.body;
+      const updateData: any = { lastSeenAt: new Date() };
+      if (typeof lat === "number" && typeof lng === "number") {
+        updateData.lastLat = lat;
+        updateData.lastLng = lng;
+      }
+      await db.update(drivers).set(updateData).where(eq(drivers.id, user.driverId));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Dashboard driver stats with presence buckets
+  const PRESENCE_TIMEOUT_SEC = 120;
+  const ON_TRIP_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+
+  app.get("/api/dashboard/driver-stats", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
+      if (cityId === -1) return res.status(403).json({ message: "Access denied" });
+
+      const allDrivers = await db.select().from(drivers).where(
+        and(
+          eq(drivers.active, true),
+          isNull(drivers.deletedAt),
+          ...(cityId && cityId > 0 ? [eq(drivers.cityId, cityId)] : [])
+        )
+      );
+
+      const activeTripRows = await db.select({
+        driverId: trips.driverId,
+        tripId: trips.id,
+        tripPublicId: trips.publicId,
+        tripStatus: trips.status,
+      }).from(trips).where(
+        and(
+          inArray(trips.status, ON_TRIP_STATUSES as any),
+          isNull(trips.cancelledBy),
+          sql`${trips.driverId} IS NOT NULL`
+        )
+      );
+      const driverTripMap = new Map<number, { tripId: number; tripPublicId: string; tripStatus: string }>();
+      for (const row of activeTripRows) {
+        if (row.driverId) driverTripMap.set(row.driverId, { tripId: row.tripId, tripPublicId: row.tripPublicId, tripStatus: row.tripStatus });
+      }
+
+      const now = Date.now();
+      const cutoff = now - PRESENCE_TIMEOUT_SEC * 1000;
+
+      const activeDrivers: any[] = [];
+      const inRouteDrivers: any[] = [];
+      const offlineOrPausedDrivers: any[] = [];
+
+      for (const d of allDrivers) {
+        const connected = d.lastSeenAt ? new Date(d.lastSeenAt).getTime() > cutoff : false;
+        const online = d.dispatchStatus === "available";
+        const paused = d.dispatchStatus === "hold";
+        const onTrip = driverTripMap.has(d.id);
+        const tripInfo = driverTripMap.get(d.id);
+
+        if (connected && online && onTrip && tripInfo) {
+          inRouteDrivers.push({
+            id: d.id,
+            publicId: d.publicId,
+            name: `${d.firstName} ${d.lastName}`,
+            tripId: tripInfo.tripId,
+            tripPublicId: tripInfo.tripPublicId,
+            tripStatus: tripInfo.tripStatus,
+            lastSeenAt: d.lastSeenAt,
+          });
+        } else if (connected && online && !onTrip && !paused) {
+          activeDrivers.push({
+            id: d.id,
+            publicId: d.publicId,
+            name: `${d.firstName} ${d.lastName}`,
+            lastSeenAt: d.lastSeenAt,
+          });
+        } else {
+          let reason = "offline";
+          if (paused) reason = "paused";
+          else if (!connected && online) reason = "disconnected";
+          else if (d.dispatchStatus === "off") reason = "offline";
+          offlineOrPausedDrivers.push({
+            id: d.id,
+            publicId: d.publicId,
+            name: `${d.firstName} ${d.lastName}`,
+            isOnline: online,
+            onHold: paused,
+            lastSeenAt: d.lastSeenAt,
+            reason,
+          });
+        }
+      }
+
+      res.json({
+        activeCount: activeDrivers.length,
+        inRouteCount: inRouteDrivers.length,
+        offlineOrPausedCount: offlineOrPausedDrivers.length,
+        activeDrivers,
+        inRouteDrivers,
+        offlineOrPausedDrivers,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
