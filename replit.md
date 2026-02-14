@@ -80,3 +80,13 @@ The application follows a client-server architecture.
 - **Patient Form UI**: Day selector toggle buttons (Mon-Sun) + time picker replaces old text input. Schedule data saved both to notes `[SCHEDULE: ...]` and to `recurring_schedules` table.
 - **Midnight Scheduler**: `server/lib/recurringScheduleEngine.ts` - Checks every 60s for midnight window, generates trips for next 7 days based on active schedules. Skips dates before startDate, avoids duplicate trips (checks patientId + date + pickupTime). Trips created as SCHEDULED with tripType "recurring".
 - **Manual Generate**: POST `/api/recurring-schedules/generate` allows SUPER_ADMIN to trigger trip generation on-demand.
+
+## Driver Presence System (Feb 2026)
+- **Heartbeat Endpoint**: POST `/api/driver/presence/heartbeat` - Driver app sends every 30s while open. Updates `lastSeenAt` and optionally `lastLat`/`lastLng`. Validates driver is active and not deleted.
+- **Presence Definition**: `connected` = `lastSeenAt` within 120 seconds. `online` = `dispatchStatus === "available"`. `paused` = `dispatchStatus === "hold"`.
+- **Dashboard Driver Stats**: GET `/api/dashboard/driver-stats` returns buckets:
+  - **IN_ROUTE**: connected && online && has active trip (ASSIGNED through ARRIVED_DROPOFF)
+  - **ACTIVE**: connected && online && no active trip && not paused
+  - **OFFLINE/PAUSED**: everything else (offline, disconnected, paused, on hold)
+- **Dashboard UI**: `DriverPresencePanel` replaces old `ActiveDriversPanel`. Shows 3 summary cards (Active, In Route, Offline/Paused) with counts, plus 3 tabs with driver lists. Each row shows driver name, status badge (ACTIVE/IN ROUTE/OFFLINE/PAUSED), trip info (for In Route), and "Last seen: Xm ago".
+- **City Scoping**: Both driver list and trip lookup are scoped to selected city. Uses `enforceCityContext` for RBAC.

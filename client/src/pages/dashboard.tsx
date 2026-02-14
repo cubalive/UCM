@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity, Radio, Clock, Car, Navigation, CirclePause, WifiOff } from "lucide-react";
+import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity, Radio, Clock, Navigation, WifiOff } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { authHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";

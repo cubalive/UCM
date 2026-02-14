@@ -1460,7 +1460,11 @@ export async function registerRoutes(
     try {
       const user = await storage.getUser(req.user!.userId);
       if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
-      const { lat, lng, accuracy } = req.body;
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver || !driver.active || driver.deletedAt) {
+        return res.status(403).json({ message: "Driver profile inactive or deleted" });
+      }
+      const { lat, lng } = req.body;
       const updateData: any = { lastSeenAt: new Date() };
       if (typeof lat === "number" && typeof lng === "number") {
         updateData.lastLat = lat;
@@ -1492,7 +1496,8 @@ export async function registerRoutes(
         )
       );
 
-      const activeTripRows = await db.select({
+      const driverIds = allDrivers.map(d => d.id);
+      const activeTripRows = driverIds.length > 0 ? await db.select({
         driverId: trips.driverId,
         tripId: trips.id,
         tripPublicId: trips.publicId,
@@ -1501,9 +1506,10 @@ export async function registerRoutes(
         and(
           inArray(trips.status, ON_TRIP_STATUSES as any),
           isNull(trips.cancelledBy),
-          sql`${trips.driverId} IS NOT NULL`
+          sql`${trips.driverId} IS NOT NULL`,
+          inArray(trips.driverId, driverIds)
         )
-      );
+      ) : [];
       const driverTripMap = new Map<number, { tripId: number; tripPublicId: string; tripStatus: string }>();
       for (const row of activeTripRows) {
         if (row.driverId) driverTripMap.set(row.driverId, { tripId: row.tripId, tripPublicId: row.tripPublicId, tripStatus: row.tripStatus });
