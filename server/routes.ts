@@ -67,6 +67,16 @@ export async function registerRoutes(
     });
   });
 
+  app.get("/api/pwa/health", (_req, res) => {
+    res.json({
+      ok: true,
+      pwa: true,
+      serviceWorker: "sw.js",
+      manifest: "/manifest.json",
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   registerMapsRoutes(app);
   registerDispatchRoutes(app);
   registerSmsRoutes(app);
