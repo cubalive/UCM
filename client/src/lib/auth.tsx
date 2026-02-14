@@ -24,7 +24,7 @@ interface AuthContextType {
   mustChangePassword: boolean;
   cityRequired: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void> | void;
   retry: () => void;
   setSelectedCity: (city: City | null) => void;
   selectWorkingCity: (city: City | null) => void;
@@ -241,7 +241,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   };
 
-  const logout = () => {
+  const logout = async () => {
+    if (token && user?.role?.toUpperCase() === "DRIVER") {
+      try {
+        await fetch("/api/auth/driver-logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        });
+      } catch {}
+    }
     setToken(null);
     setUser(null);
     setCities([]);

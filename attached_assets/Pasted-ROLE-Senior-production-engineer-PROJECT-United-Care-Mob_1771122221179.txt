@@ -1,0 +1,60 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Verify before exit
+
+TASK:
+Fix Google Maps flicker by keeping ONE map instance and updating markers in-place (no re-mount, no script reload, no key changes).
+
+TARGET:
+Driver map screen and any dispatch/clinic maps that flicker on refresh.
+
+REQUIREMENTS (Google Maps + React):
+1) Load Google Maps script ONCE globally (singleton).
+   - If using @react-google-maps/api:
+     - ensure <LoadScript> is NOT mounted/unmounted during polling
+     - prefer useJsApiLoader at app root; do not wrap map per-page in LoadScript
+2) Map must NOT re-mount:
+   - Remove any changing `key` prop on <GoogleMap>
+   - Avoid conditional rendering that replaces the map DOM node
+   - Keep container <div id="map"> stable (always rendered)
+3) Keep map object stable:
+   - store map instance in useRef (mapRef.current)
+   - onLoad sets mapRef.current = map
+   - never create new map during polling
+4) Markers must be updated in-place:
+   - Keep markers in markersRef.current: Map<string, google.maps.Marker>
+   - On new data:
+     a) if marker exists: marker.setPosition(new LatLng(lat,lng))
+     b) else: create marker once and store
+     c) remove stale markers not in data
+   - Do NOT render markers as React components on every poll (avoid <Marker> list re-render)
+5) Do NOT reset camera on refresh:
+   - never call fitBounds/setCenter/setZoom inside polling effect
+   - only recenter when user taps a button or on first load
+6) Smooth updates:
+   - throttle marker updates to <= 2 per second
+   - optional animate marker move over 300–500ms (rAF interpolation)
+7) Preserve user interactions:
+   - if user pans/zooms, polling must not snap map back
+
+IMPLEMENTATION NOTES:
+- Refactor polling hook to call applyMarkerDiff(data) instead of setState that re-renders the entire <GoogleMap> tree.
+- If still using React markers:
+  - memoize markers list
+  - ensure marker props objects are stable (useMemo) to avoid re-create
+  - but preferred approach is imperative markers for live updates.
+
+VERIFY:
+- Run polling at 2s for 2 minutes
+- No visible flicker/flash
+- Marker moves without blink
+- User can pan without snapping back
+- Works in iOS Safari PWA
+
+DELIVERABLE:
+- Files changed + explanation of where flicker came from and how it was eliminated.

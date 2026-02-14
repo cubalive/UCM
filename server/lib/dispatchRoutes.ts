@@ -449,7 +449,20 @@ export function registerDispatchRoutes(app: Express) {
 
         const vehicleMap = new Map(allVehicles.map((v) => [v.id, v]));
 
-        const driversWithVehicles = allDrivers.map((d) => ({
+        const VISIBLE_STATUSES = ["available", "enroute", "hold"];
+        const VISIBILITY_CUTOFF_MS = 60 * 1000;
+        const now = Date.now();
+
+        const visibleDrivers = allDrivers.filter((d) => {
+          if (!VISIBLE_STATUSES.includes(d.dispatchStatus)) return false;
+          if (d.lastLat == null || d.lastLng == null) return false;
+          if (!d.lastSeenAt) return false;
+          const lastSeen = new Date(d.lastSeenAt).getTime();
+          if (now - lastSeen > VISIBILITY_CUTOFF_MS) return false;
+          return true;
+        });
+
+        const driversWithVehicles = visibleDrivers.map((d) => ({
           ...d,
           vehicle: d.vehicleId ? vehicleMap.get(d.vehicleId) || null : null,
         }));

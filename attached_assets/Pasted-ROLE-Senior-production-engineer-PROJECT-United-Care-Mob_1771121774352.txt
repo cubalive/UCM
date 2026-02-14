@@ -1,0 +1,58 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK:
+Redesign Driver navigation (map-first) and enforce strict OFFLINE behavior so logged-out drivers never appear on any map.
+
+UI/UX (Driver):
+1) MAP-FIRST HOME
+   - Driver login → full-screen map.
+   - Bottom sheet with: Online toggle, Active trip card, Scheduled list shortcut, basic metrics.
+   - Remove "Live Map" from Driver drawer. Keep only: My Trips, Trip History.
+
+2) ASSIGNMENT FLOW
+   - If dispatch assigns an immediate trip → show accept banner on map. On accept → route to pickup displayed.
+   - If scheduled → appears under Scheduled in My Trips.
+
+OFFLINE / LOGOUT GUARANTEE:
+3) HARD OFFLINE ON LOGOUT
+   - On driver logout:
+     a) Set drivers.dispatch_status = 'off'
+     b) Clear drivers.last_lat, drivers.last_lng
+     c) Set drivers.last_seen_at = now()
+     d) Broadcast socket/event "driver_offline"
+   - Remove driver from:
+     • Dispatch live map
+     • Clinic live views
+     • Any public/share tracking lists (unless tied to an active trip already completed)
+
+4) MAP VISIBILITY RULES (SERVER-ENFORCED)
+   - A driver appears on any live map ONLY IF:
+     drivers.dispatch_status IN ('available','enroute','hold') AND
+     drivers.last_lat IS NOT NULL AND
+     drivers.last_seen_at within last 60 seconds AND
+     user session is active.
+   - If dispatch_status = 'off' OR user logged out → driver MUST NOT render on maps.
+
+5) HEARTBEAT SAFETY
+   - Driver app sends location ping every 15–30s while online.
+   - If no ping for >90s → auto-set dispatch_status='off' and hide from maps.
+
+6) TESTS (must pass before exit)
+   - Driver logs out → disappears from dispatch map within ≤5s.
+   - Driver logs out → cannot be assigned until logging back in and going Online.
+   - Stale app (killed) → after 90s driver auto-hidden.
+   - No console errors; no ghost drivers on map.
+
+Deliverable:
+- Updated driver drawer (no Live Map item)
+- Map-first driver home with bottom sheet
+- Backend guards for logout/offline visibility
+- Verified end-to-end.

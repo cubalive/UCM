@@ -1,0 +1,80 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Verify before exit
+
+TASK:
+Improve overall UI readability (bigger text + bold titles, tasteful) + make driver request/assignment acceptance buttons visually strong (blue) + enforce an acceptance window (request stays active for a fixed time; cannot disappear too fast).
+
+UI REQUIREMENTS (global):
+1) Typography:
+   - Increase base font size slightly across the app (NOT huge):
+     * base: +10–15% (e.g., 16px -> 18px)
+     * section titles: 18–20px, font-weight 700 (bold)
+     * labels: 14–15px, weight 600
+   - Ensure line-height is comfortable (1.35–1.5).
+2) Visual hierarchy:
+   - Titles bold, key numbers slightly larger, secondary text muted.
+   - Keep spacing consistent; no “giant UI”, just more readable.
+3) Buttons:
+   - Primary action buttons (Accept/Start/Confirm) must be BLUE and consistent everywhere.
+   - Use one primary blue (e.g. #2563EB or existing theme primary if already set).
+   - Add hover/pressed states and disabled state.
+   - Accept button must be prominent and full-width on mobile cards.
+
+DRIVER REQUEST ACCEPTANCE (CRITICAL):
+Goal: When dispatch sends an assignment/request to a driver, the request remains visible/active for an acceptance window and does not disappear quickly.
+
+Backend rules:
+A) Define request TTL:
+   - Default: 90 seconds (configurable; can be in city_settings or env).
+B) If an assignment is offered:
+   - Persist an "offer" record with:
+     offer_id, trip_id, driver_id, offered_at, expires_at, status('pending','accepted','expired','cancelled')
+   - If you already have a mechanism for dispatch->driver requests, extend it with expires_at + status and enforce TTL.
+C) Endpoint behavior:
+   - Driver polling endpoint must return pending offers that have not expired.
+   - Do NOT remove pending offers from UI until:
+     1) driver accepts, OR
+     2) expires_at reached (then mark expired server-side), OR
+     3) dispatch cancels/reassigns (mark cancelled).
+D) Acceptance validation:
+   - POST /api/driver/offers/:offer_id/accept must:
+     - verify offer belongs to this driver
+     - verify status == 'pending'
+     - verify now() <= expires_at
+     - then mark accepted and assign trip to driver (atomic transaction).
+E) UI countdown:
+   - Show countdown timer on the request card:
+     "Expires in 01:29"
+   - When expired, show "Request expired" and remove after 3 seconds (or move to a small “Expired” section).
+
+Driver UI behavior:
+1) Request Card must be sticky/obvious (top of My Trips screen or Map overlay).
+2) Accept button:
+   - Primary blue, full-width, clear label "ACCEPT REQUEST"
+   - Add secondary "Decline" (neutral/outline) if supported; if not, omit.
+3) Prevent flicker:
+   - Keep card stable across polls; do not hide/show rapidly.
+   - Use optimistic UI only after accept response success.
+4) If request is "scheduled for later":
+   - After accept, it moves to Scheduled list.
+5) If request is "immediate":
+   - After accept, automatically open route card (Start Route) and switch map to pickup destination.
+
+TESTS (must pass):
+1) Offer appears and stays for full TTL even with polling.
+2) Offer does not disappear unless accepted/expired/cancelled.
+3) Accept works only before expires_at; after TTL server rejects with clear error.
+4) UI shows countdown; accept button blue and readable.
+5) Typography changes apply across app without layout breakage.
+
+DELIVERABLE:
+- Updated global typography + bold section titles
+- Updated primary button styling (blue) + consistent states
+- Request TTL enforced backend-side + countdown UI + no flicker
+- Verified on iOS Safari and Android Chrome PWA.

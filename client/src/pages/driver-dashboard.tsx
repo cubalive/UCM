@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,11 +29,7 @@ import {
   MessageSquare,
   Lock,
   ArrowRight,
-  PhoneCall,
   LocateFixed,
-  Map,
-  List,
-  ExternalLink,
   Timer,
 } from "lucide-react";
 
@@ -41,7 +37,7 @@ function getToday(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-type TabType = "today" | "history";
+type ViewType = "map" | "mytrips" | "history";
 
 const STATUS_FLOW: Record<string, { next: string; label: string; icon: any }> = {
   ASSIGNED: { next: "EN_ROUTE_TO_PICKUP", label: "Start Trip", icon: PlayCircle },
@@ -189,7 +185,6 @@ function useGeolocation(isActive: boolean) {
 
 function useLoadGoogleMaps(token: string | null) {
   const [loaded, setLoaded] = useState(false);
-  const [apiKey, setApiKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -202,7 +197,6 @@ function useLoadGoogleMaps(token: string | null) {
         if (!res.ok) return;
         const json = await res.json();
         if (cancelled || !json.key) return;
-        setApiKey(json.key);
 
         if (window.google?.maps) {
           setLoaded(true);
@@ -225,7 +219,7 @@ function useLoadGoogleMaps(token: string | null) {
     return () => { cancelled = true; };
   }, [token]);
 
-  return { loaded, apiKey };
+  return loaded;
 }
 
 interface ActiveTripData {
@@ -264,7 +258,7 @@ function getNavigateUrl(trip: ActiveTripData) {
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destAddr)}`;
 }
 
-function DriverLiveMap({
+function FullScreenMap({
   driverLocation,
   activeTrip,
   mapsLoaded,
@@ -439,7 +433,7 @@ function DriverLiveMap({
       if (activeTrip?.pickupLat && activeTrip?.pickupLng) { bounds.extend({ lat: activeTrip.pickupLat, lng: activeTrip.pickupLng }); hasPoints = true; }
       if (activeTrip?.dropoffLat && activeTrip?.dropoffLng) { bounds.extend({ lat: activeTrip.dropoffLat, lng: activeTrip.dropoffLng }); hasPoints = true; }
       if (hasPoints) {
-        map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+        map.fitBounds(bounds, { top: 40, right: 40, bottom: 200, left: 40 });
         const maxZoom = 16;
         google.maps.event.addListenerOnce(map, "idle", () => {
           if ((map.getZoom() || 0) > maxZoom) map.setZoom(maxZoom);
@@ -449,61 +443,31 @@ function DriverLiveMap({
   }, [driverLocation, activeTrip, mapsLoaded]);
 
   if (!mapsLoaded) {
-    return <Skeleton className="w-full h-[300px] rounded-md" data-testid="skeleton-map" />;
+    return <div className="w-full h-full bg-muted animate-pulse" data-testid="skeleton-map" />;
   }
 
   return (
-    <Card>
-      <CardContent className="p-0 relative">
-        <div ref={mapRef} className="w-full h-[300px] rounded-md" data-testid="div-driver-live-map" />
-
-        {isGpsStale && (
-          <div className="absolute top-2 left-2 bg-amber-600 text-white text-xs font-medium px-2 py-1 rounded-md flex items-center gap-1" data-testid="badge-gps-stale">
-            <AlertTriangle className="w-3 h-3" />
-            GPS Stale
-          </div>
-        )}
-
-        {activeTrip && (
-          <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-2">
-            <div className="bg-background/90 backdrop-blur-sm rounded-md px-3 py-2 flex items-center gap-2 flex-1 min-w-0">
-              <Badge className={STATUS_COLORS[activeTrip.status] || ""} data-testid="badge-map-trip-status">
-                {STATUS_LABELS[activeTrip.status] || activeTrip.status}
-              </Badge>
-              {activeTrip.lastEtaMinutes != null && (
-                <span className="text-xs font-medium flex items-center gap-1" data-testid="text-map-eta">
-                  <Timer className="w-3 h-3" />
-                  {activeTrip.lastEtaMinutes} min
-                </span>
-              )}
-              {activeTrip.patientName && (
-                <span className="text-xs text-muted-foreground truncate">{activeTrip.patientName}</span>
-              )}
-            </div>
-            <Button
-              size="sm"
-              onClick={() => window.open(getNavigateUrl(activeTrip), "_blank")}
-              data-testid="button-navigate"
-            >
-              <Navigation className="w-4 h-4 mr-1" />
-              Navigate
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="relative w-full h-full">
+      <div ref={mapRef} className="w-full h-full" data-testid="div-driver-live-map" />
+      {isGpsStale && (
+        <div className="absolute top-3 left-3 bg-amber-600 text-white text-xs font-medium px-2.5 py-1.5 rounded-md flex items-center gap-1.5 shadow-md" data-testid="badge-gps-stale">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          GPS Signal Lost
+        </div>
+      )}
+    </div>
   );
 }
 
 export default function DriverDashboard() {
   const { token, user } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<TabType>("today");
   const [selectedDate, setSelectedDate] = useState(getToday());
   const [chatTripId, setChatTripId] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<"map" | "list">("map");
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [currentView, setCurrentView] = useState<ViewType>("map");
 
-  const { loaded: mapsLoaded } = useLoadGoogleMaps(token);
+  const mapsLoaded = useLoadGoogleMaps(token);
 
   const activeTripQuery = useQuery<{ trip: ActiveTripData | null }>({
     queryKey: ["/api/driver/active-trip"],
@@ -563,7 +527,7 @@ export default function DriverDashboard() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
-      toast({ title: isDriverActive ? "You are now offline" : "You are now active" });
+      toast({ title: isDriverActive ? "You are now offline" : "You are now online" });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -588,6 +552,8 @@ export default function DriverDashboard() {
 
   const activeTrips = todayTrips.filter((t: any) => ACTIVE_STATUSES.includes(t.status));
   const completedToday = todayTrips.filter((t: any) => t.status === "COMPLETED");
+  const scheduledToday = todayTrips.filter((t: any) => t.status === "SCHEDULED");
+  const activeTrip = activeTripQuery.data?.trip || null;
 
   if (geoPermission === "prompt") {
     return (
@@ -670,138 +636,42 @@ export default function DriverDashboard() {
     );
   }
 
-  return (
-    <div className="p-4 space-y-4 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <Car className="w-6 h-6" />
-          <h1 className="text-xl font-semibold" data-testid="text-driver-dashboard-title">
-            Driver Dashboard
-          </h1>
+  if (!driver) {
+    if (profileQuery.isLoading) {
+      return (
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Skeleton className="h-24 w-64" />
         </div>
-        {driver && (
-          <Button
-            variant={isDriverActive ? "destructive" : "default"}
-            onClick={() => toggleActiveMutation.mutate(!isDriverActive)}
-            disabled={toggleActiveMutation.isPending}
-            data-testid="button-toggle-active"
-          >
-            {isDriverActive ? <PowerOff className="w-4 h-4 mr-2" /> : <Power className="w-4 h-4 mr-2" />}
-            {isDriverActive ? "Go Offline" : "Go Active"}
-          </Button>
-        )}
-      </div>
-
-      {profileQuery.isLoading ? (
-        <Skeleton className="h-24 w-full" />
-      ) : driver ? (
-        <Card>
-          <CardContent className="py-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <User className="w-5 h-5 text-muted-foreground" />
-                <div>
-                  <p className="font-medium" data-testid="text-driver-name">{driver.firstName} {driver.lastName}</p>
-                  <p className="text-xs text-muted-foreground">{driver.publicId}</p>
-                </div>
-              </div>
-              {vehicle && (
-                <div className="flex items-center gap-2">
-                  <Car className="w-5 h-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm" data-testid="text-vehicle-name">{vehicle.name}</p>
-                    <p className="text-xs text-muted-foreground">{vehicle.licensePlate}</p>
-                  </div>
-                </div>
-              )}
-              <Badge variant={isDriverActive ? "default" : "secondary"} data-testid="badge-dispatch-status">
-                {isDriverActive ? "Active" : "Offline"}
-              </Badge>
-              {geoLocation && !geoWatchError && (
-                <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                  <LocateFixed className="w-3.5 h-3.5" />
-                  <span data-testid="text-gps-status">GPS Active</span>
-                </div>
-              )}
-              {geoWatchError && (
-                <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  <span data-testid="text-gps-reconnecting">GPS Reconnecting...</span>
-                </div>
-              )}
-              {!geoLocation && !geoWatchError && geoPermission === "granted" && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <LocateFixed className="w-3.5 h-3.5 animate-pulse" />
-                  <span data-testid="text-gps-acquiring">Acquiring GPS...</span>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
+      );
+    }
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] p-4">
+        <Card className="max-w-md w-full">
           <CardContent className="py-6 text-center">
             <AlertTriangle className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
             <p className="text-muted-foreground" data-testid="text-no-driver-profile">No driver profile linked to your account.</p>
           </CardContent>
         </Card>
-      )}
-
-      {driver && geoPermission === "granted" && (
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex gap-1">
-            <Button
-              variant={viewMode === "map" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setViewMode("map")}
-              data-testid="button-view-map"
-            >
-              <Map className="w-4 h-4 mr-1" />
-              Map
-            </Button>
-            <Button
-              variant={viewMode === "list" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setViewMode("list")}
-              data-testid="button-view-list"
-            >
-              <List className="w-4 h-4 mr-1" />
-              List
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {driver && geoPermission === "granted" && viewMode === "map" && (
-        <DriverLiveMap
-          driverLocation={geoLocation}
-          activeTrip={activeTripQuery.data?.trip || null}
-          mapsLoaded={mapsLoaded}
-          gpsWatchError={geoWatchError}
-        />
-      )}
-
-      <div className="flex gap-2">
-        <Button
-          variant={activeTab === "today" ? "default" : "outline"}
-          onClick={() => setActiveTab("today")}
-          data-testid="button-tab-today"
-        >
-          <CalendarDays className="w-4 h-4 mr-2" />
-          Today's Trips
-        </Button>
-        <Button
-          variant={activeTab === "history" ? "default" : "outline"}
-          onClick={() => setActiveTab("history")}
-          data-testid="button-tab-history"
-        >
-          <History className="w-4 h-4 mr-2" />
-          Trip History
-        </Button>
       </div>
+    );
+  }
 
-      {activeTab === "today" && (
-        <div className="space-y-4">
+  if (currentView === "mytrips" || currentView === "history") {
+    const displayTrips = currentView === "mytrips" ? todayTrips : allTrips;
+    const title = currentView === "mytrips" ? "My Trips" : "Trip History";
+    const emptyIcon = currentView === "mytrips" ? CalendarDays : History;
+    const emptyText = currentView === "mytrips" ? "No trips scheduled for this date." : "No trip history available.";
+    return (
+      <div className="p-4 space-y-4 max-w-4xl mx-auto">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => setCurrentView("map")} data-testid="button-back-to-map">
+            <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
+            Back to Map
+          </Button>
+          <h1 className="text-lg font-semibold" data-testid="text-trips-title">{title}</h1>
+        </div>
+
+        {currentView === "mytrips" && (
           <div className="flex items-center gap-2">
             <Label>Date</Label>
             <Input
@@ -812,79 +682,246 @@ export default function DriverDashboard() {
               data-testid="input-driver-date"
             />
           </div>
+        )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Card>
-              <CardContent className="py-3 text-center">
-                <p className="text-2xl font-bold" data-testid="text-total-trips">{todayTrips.length}</p>
-                <p className="text-xs text-muted-foreground">Total</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="py-3 text-center">
-                <p className="text-2xl font-bold" data-testid="text-active-trips">{activeTrips.length}</p>
-                <p className="text-xs text-muted-foreground">Active</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="py-3 text-center">
-                <p className="text-2xl font-bold" data-testid="text-completed-trips">{completedToday.length}</p>
-                <p className="text-xs text-muted-foreground">Completed</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="py-3 text-center">
-                <p className="text-2xl font-bold" data-testid="text-pending-trips">{todayTrips.filter((t: any) => t.status === "SCHEDULED").length}</p>
-                <p className="text-xs text-muted-foreground">Pending</p>
-              </CardContent>
-            </Card>
+        {tripsQuery.isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full" />
+          </div>
+        ) : displayTrips.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center">
+              {(() => { const Icon = emptyIcon; return <Icon className="w-8 h-8 mx-auto text-muted-foreground mb-2" />; })()}
+              <p className="text-muted-foreground" data-testid="text-no-trips">{emptyText}</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {displayTrips.map((trip: any) => (
+              <TripCard
+                key={trip.id}
+                trip={trip}
+                onStatusChange={currentView === "mytrips" ? (status) => statusMutation.mutate({ tripId: trip.id, status }) : undefined}
+                isPending={statusMutation.isPending}
+                readonly={currentView === "history"}
+                onOpenChat={currentView === "mytrips" && ACTIVE_STATUSES.includes(trip.status) ? () => setChatTripId(trip.id) : undefined}
+                token={token}
+              />
+            ))}
+          </div>
+        )}
+
+        {chatTripId && (
+          <TripChat
+            tripId={chatTripId}
+            token={token}
+            onClose={() => setChatTripId(null)}
+            userId={user?.id}
+          />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full h-[calc(100vh-3.5rem)] flex flex-col" data-testid="div-driver-map-home">
+      <div className="flex-1 relative">
+        <FullScreenMap
+          driverLocation={geoLocation}
+          activeTrip={activeTrip}
+          mapsLoaded={mapsLoaded}
+          gpsWatchError={geoWatchError}
+        />
+
+        {activeTrip && (
+          <div className="absolute top-3 right-3 z-10">
+            <Button
+              size="sm"
+              onClick={() => window.open(getNavigateUrl(activeTrip), "_blank")}
+              className="shadow-lg"
+              data-testid="button-navigate"
+            >
+              <Navigation className="w-4 h-4 mr-1" />
+              Navigate
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div
+        className={`bg-background border-t border-border transition-all duration-300 ease-in-out ${
+          sheetExpanded ? "max-h-[60vh]" : "max-h-[220px]"
+        } overflow-hidden flex flex-col`}
+        data-testid="div-bottom-sheet"
+      >
+        <button
+          onClick={() => setSheetExpanded(!sheetExpanded)}
+          className="w-full flex items-center justify-center py-1.5 hover-elevate"
+          data-testid="button-sheet-toggle"
+        >
+          <div className="w-10 h-1 bg-muted-foreground/30 rounded-full" />
+        </button>
+
+        <div className="px-4 pb-3 overflow-y-auto flex-1 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <User className="w-4 h-4 text-muted-foreground" />
+                <span className="font-medium text-sm" data-testid="text-driver-name">{driver.firstName} {driver.lastName}</span>
+              </div>
+              <Badge variant={isDriverActive ? "default" : "secondary"} data-testid="badge-dispatch-status">
+                {isDriverActive ? "Online" : "Offline"}
+              </Badge>
+              {geoLocation && !geoWatchError && (
+                <div className="flex items-center gap-0.5 text-xs text-emerald-600 dark:text-emerald-400">
+                  <LocateFixed className="w-3 h-3" />
+                </div>
+              )}
+            </div>
+            <Button
+              variant={isDriverActive ? "destructive" : "default"}
+              size="sm"
+              onClick={() => toggleActiveMutation.mutate(!isDriverActive)}
+              disabled={toggleActiveMutation.isPending}
+              data-testid="button-toggle-active"
+            >
+              {isDriverActive ? <PowerOff className="w-4 h-4 mr-1.5" /> : <Power className="w-4 h-4 mr-1.5" />}
+              {isDriverActive ? "Go Offline" : "Go Online"}
+            </Button>
           </div>
 
-          {tripsQuery.isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-            </div>
-          ) : todayTrips.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <CalendarDays className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-muted-foreground" data-testid="text-no-trips">No trips scheduled for this date.</p>
+          {activeTrip && (
+            <Card data-testid="card-active-trip">
+              <CardContent className="py-3">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-medium">{activeTrip.publicId}</span>
+                      <Badge className={STATUS_COLORS[activeTrip.status] || ""} data-testid="badge-active-trip-status">
+                        {STATUS_LABELS[activeTrip.status] || activeTrip.status}
+                      </Badge>
+                      {activeTrip.lastEtaMinutes != null && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                          <Timer className="w-3 h-3" />
+                          {activeTrip.lastEtaMinutes} min
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-start gap-1 text-xs">
+                      <Navigation className="w-3 h-3 mt-0.5 flex-shrink-0 text-green-600" />
+                      <span className="truncate">{activeTrip.pickupAddress}</span>
+                    </div>
+                    <div className="flex items-start gap-1 text-xs">
+                      <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0 text-red-600" />
+                      <span className="truncate">{activeTrip.dropoffAddress}</span>
+                    </div>
+                    {activeTrip.patientName && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <User className="w-3 h-3" />
+                        <span>{activeTrip.patientName}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5 items-end">
+                    {STATUS_FLOW[activeTrip.status] && (
+                      <Button
+                        size="sm"
+                        onClick={() => statusMutation.mutate({ tripId: activeTrip.id, status: STATUS_FLOW[activeTrip.status].next })}
+                        disabled={statusMutation.isPending}
+                        data-testid="button-active-trip-action"
+                      >
+                        {(() => { const Icon = STATUS_FLOW[activeTrip.status].icon; return <Icon className="w-4 h-4 mr-1" />; })()}
+                        {STATUS_FLOW[activeTrip.status].label}
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </CardContent>
             </Card>
-          ) : (
-            <div className="space-y-3">
-              {todayTrips.map((trip: any) => (
-                <TripCard
-                  key={trip.id}
-                  trip={trip}
-                  onStatusChange={(status) => statusMutation.mutate({ tripId: trip.id, status })}
-                  isPending={statusMutation.isPending}
-                  onOpenChat={() => setChatTripId(trip.id)}
-                  token={token}
-                />
-              ))}
-            </div>
           )}
-        </div>
-      )}
 
-      {activeTab === "history" && (
-        <div className="space-y-3">
-          {allTrips.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <History className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-muted-foreground" data-testid="text-no-history">No trip history available.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            allTrips.map((trip: any) => (
-              <TripCard key={trip.id} trip={trip} readonly token={token} />
-            ))
+          <div className="grid grid-cols-4 gap-2">
+            <div className="text-center py-1.5">
+              <p className="text-lg font-bold" data-testid="text-total-trips">{todayTrips.length}</p>
+              <p className="text-[10px] text-muted-foreground">Total</p>
+            </div>
+            <div className="text-center py-1.5">
+              <p className="text-lg font-bold" data-testid="text-active-trips">{activeTrips.length}</p>
+              <p className="text-[10px] text-muted-foreground">Active</p>
+            </div>
+            <div className="text-center py-1.5">
+              <p className="text-lg font-bold" data-testid="text-completed-trips">{completedToday.length}</p>
+              <p className="text-[10px] text-muted-foreground">Done</p>
+            </div>
+            <div className="text-center py-1.5">
+              <p className="text-lg font-bold" data-testid="text-scheduled-trips">{scheduledToday.length}</p>
+              <p className="text-[10px] text-muted-foreground">Scheduled</p>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => setCurrentView("mytrips")}
+              data-testid="button-view-my-trips"
+            >
+              <CalendarDays className="w-4 h-4 mr-1.5" />
+              My Trips
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => setCurrentView("history")}
+              data-testid="button-view-history"
+            >
+              <History className="w-4 h-4 mr-1.5" />
+              Trip History
+            </Button>
+          </div>
+
+          {sheetExpanded && (
+            <div className="space-y-2">
+              {vehicle && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Car className="w-4 h-4" />
+                  <span data-testid="text-vehicle-name">{vehicle.name} - {vehicle.licensePlate}</span>
+                </div>
+              )}
+
+              {scheduledToday.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Upcoming</p>
+                  {scheduledToday.slice(0, 3).map((trip: any) => (
+                    <div key={trip.id} className="flex items-center justify-between gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                        <span className="font-mono text-xs">{trip.pickupTime || "TBD"}</span>
+                        <span className="truncate text-xs">{trip.pickupAddress || "Pickup TBD"}</span>
+                      </div>
+                      <Badge variant="secondary" className="text-[10px]">
+                        {trip.publicId}
+                      </Badge>
+                    </div>
+                  ))}
+                  {scheduledToday.length > 3 && (
+                    <button
+                      onClick={() => setCurrentView("mytrips")}
+                      className="text-xs text-primary hover:underline"
+                      data-testid="button-see-all-scheduled"
+                    >
+                      +{scheduledToday.length - 3} more scheduled
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
-      )}
+      </div>
 
       {chatTripId && (
         <TripChat
@@ -1033,12 +1070,12 @@ function TripChat({
   return (
     <div className="fixed inset-0 bg-background/80 z-50 flex items-end justify-center p-4 sm:items-center">
       <Card className="w-full max-w-lg max-h-[80vh] flex flex-col">
-        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-          <CardTitle className="text-base">Trip Messages</CardTitle>
+        <div className="flex items-center justify-between gap-2 p-3 border-b">
+          <span className="text-base font-semibold">Trip Messages</span>
           <Button variant="ghost" size="sm" onClick={onClose} data-testid="button-close-chat">
             Close
           </Button>
-        </CardHeader>
+        </div>
         <CardContent className="flex-1 overflow-y-auto min-h-[200px] space-y-2 pb-2">
           {messages.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">No messages yet. Start the conversation.</p>

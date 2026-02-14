@@ -98,7 +98,6 @@ export function AppSidebar() {
   const driverNavItems: NavItem[] = [
     { titleKey: "nav.myTrips", url: "/driver", icon: Car, resource: "trips" },
     { titleKey: "nav.tripHistory", url: "/driver/history", icon: History, resource: "trips" },
-    { titleKey: "nav.liveMap", url: "/live-map", icon: Map, resource: "trips" },
   ];
 
   const isClinic = !!user?.clinicId;

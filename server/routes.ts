@@ -1510,10 +1510,32 @@ export async function registerRoutes(
       const newStatus = active ? "available" : "off";
       const now = new Date();
       const updateData: any = { dispatchStatus: newStatus, lastSeenAt: now };
-      if (active) updateData.lastActiveAt = now;
+      if (active) {
+        updateData.lastActiveAt = now;
+      } else {
+        updateData.lastLat = null;
+        updateData.lastLng = null;
+      }
       await db.update(drivers).set(updateData).where(eq(drivers.id, user.driverId));
       const driver = await storage.getDriver(user.driverId);
       res.json({ driver });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/auth/driver-logout", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.json({ ok: true });
+      const now = new Date();
+      await db.update(drivers).set({
+        dispatchStatus: "off",
+        lastLat: null,
+        lastLng: null,
+        lastSeenAt: now,
+      }).where(eq(drivers.id, user.driverId));
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1644,6 +1666,39 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
+
+  const HEARTBEAT_STALE_SEC = 90;
+  setInterval(async () => {
+    try {
+      const cutoff = new Date(Date.now() - HEARTBEAT_STALE_SEC * 1000);
+      const staleDrivers = await db.select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName })
+        .from(drivers)
+        .where(
+          and(
+            inArray(drivers.dispatchStatus, ["available", "enroute", "hold"] as any),
+            eq(drivers.active, true),
+            isNull(drivers.deletedAt),
+            sql`${drivers.lastSeenAt} < ${cutoff}`
+          )
+        );
+      if (staleDrivers.length > 0) {
+        await db.update(drivers).set({
+          dispatchStatus: "off",
+          lastLat: null,
+          lastLng: null,
+        }).where(
+          and(
+            inArray(drivers.id, staleDrivers.map(d => d.id)),
+            sql`${drivers.lastSeenAt} < ${cutoff}`
+          )
+        );
+        console.log(`[HEARTBEAT] Auto-offlined ${staleDrivers.length} stale driver(s): ${staleDrivers.map(d => `${d.firstName} ${d.lastName}`).join(", ")}`);
+      }
+    } catch (err: any) {
+      console.error("[HEARTBEAT] Error in stale driver check:", err.message);
+    }
+  }, 30000);
+  console.log("[HEARTBEAT] Stale driver monitor started (checks every 30s, timeout: 90s)");
 
   // Dashboard driver stats with presence buckets
   const PRESENCE_TIMEOUT_SEC = 120;
