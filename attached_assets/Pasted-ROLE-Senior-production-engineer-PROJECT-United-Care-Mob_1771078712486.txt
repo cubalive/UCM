@@ -1,0 +1,172 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Implement Pricing Profiles per Clinic to eliminate manual pricing errors.
+Dispatch/Super Admin can set pricing rules per clinic.
+Trips auto-calculate price from clinic rules. Dispatch can override if needed.
+Invoices show final amount + breakdown and are visible to Admin/Dispatch/Clinic after completion.
+
+---------------------------------------------------------
+PHASE 1 — DATA MODEL
+---------------------------------------------------------
+1) Create table: clinic_pricing_profiles
+Columns:
+- id uuid pk
+- clinic_id uuid unique fk
+- pricing_type text NOT NULL  -- 'DIALYSIS_FLAT' | 'CONTRACT_FLAT' | 'MILEAGE' | 'PRIVATE'
+- flat_one_way_cents int null
+- flat_round_trip_cents int null
+- base_fee_cents int null
+- per_mile_cents int null
+- wait_fee_per_5min_cents int null
+- minimum_cents int null
+- maximum_cents int null
+- currency text default 'USD'
+- is_active bool default true
+- allow_dispatch_override bool default true
+- notes text null
+- updated_at timestamptz default now()
+
+2) Extend trips:
+- price_cents int null
+- price_source text default 'AUTO'   -- 'AUTO' | 'MANUAL_OVERRIDE'
+- price_breakdown jsonb null         -- store calculation detail
+- priced_by uuid null
+- priced_at timestamptz null
+- price_locked bool default false
+
+3) Invoices:
+If not existing, create invoices table:
+- id uuid pk
+- invoice_number text unique
+- trip_id uuid unique fk
+- clinic_id uuid fk
+- amount_cents int
+- currency text
+- status text default 'DRAFT'  -- DRAFT/FINAL
+- breakdown jsonb null
+- created_at timestamptz default now()
+- finalized_at timestamptz null
+
+---------------------------------------------------------
+PHASE 2 — PRICING ENGINE (SERVER-SIDE)
+---------------------------------------------------------
+4) Implement function calculateTripPrice(trip, clinicProfile):
+Inputs:
+- trip.trip_type (one_way/round_trip) if exists, else infer from legs
+- pickup/dropoff lat/lng if available (optional mileage)
+- clinic pricing profile
+
+Rules:
+A) DIALYSIS_FLAT:
+- one_way -> flat_one_way_cents
+- round_trip -> flat_round_trip_cents (or 2x one_way if round not set)
+
+B) CONTRACT_FLAT:
+- same as flat (use flat_one_way_cents or base_fee_cents)
+
+C) MILEAGE:
+- amount = base_fee_cents + (per_mile_cents * estimated_miles)
+- estimated_miles:
+  - If we have distance from Directions API saved, use it
+  - else approximate via haversine as fallback (do not break)
+- apply minimum/maximum if present
+
+D) PRIVATE:
+- allow manual pricing only (do not auto-set) OR compute with MILEAGE rules (choose simplest)
+
+Always output:
+- price_cents
+- breakdown JSON: {type, base_fee, miles, per_mile, minimum_applied, maximum_applied, computed_at}
+
+5) When to compute:
+- On dispatch approval of clinic-created trip (or when trip becomes APPROVED):
+  - load clinic_pricing_profile
+  - auto-calc and set trips.price_cents if profile active
+  - set price_source='AUTO', priced_at, price_breakdown
+
+6) Override:
+- PATCH /api/trips/:id/price (dispatch/super_admin)
+- If clinic profile allow_dispatch_override=true:
+  - set price_source='MANUAL_OVERRIDE'
+  - store priced_by, priced_at
+  - update breakdown {override:true, previous_auto:..., reason?:...}
+- If not allowed, return 403
+
+7) Locking:
+- When invoice is FINAL -> price_locked=true and block edits.
+- If trip completes before pricing is set:
+  - invoice remains DRAFT with status NEEDS_PRICING (or DRAFT + missing price)
+  - dispatch/admin must set price then finalize invoice.
+
+---------------------------------------------------------
+PHASE 3 — API ENDPOINTS
+---------------------------------------------------------
+8) Pricing profile management (super_admin + dispatch optional):
+- GET /api/clinics/:id/pricing
+- PUT /api/clinics/:id/pricing  (create/update profile)
+Permissions:
+- super_admin always
+- dispatch only if allowed (optional; default restrict to super_admin)
+
+9) Invoice endpoints:
+- GET /api/trips/:id/invoice
+- POST /api/trips/:id/invoice/finalize (dispatch/super_admin)
+Finalize requires:
+- trips.price_cents NOT NULL
+- trip is completed OR explicitly allowed (choose completed-only)
+
+10) UI must use these endpoints; no direct DB writes from client.
+
+---------------------------------------------------------
+PHASE 4 — UI (DISPATCH/ADMIN)
+---------------------------------------------------------
+11) Clinic Pricing settings page (Admin):
+Settings -> Clinics -> (Clinic) -> Pricing
+- select pricing_type
+- configure fields relevant to type
+- toggle allow_dispatch_override
+- save
+
+12) Dispatch Trip Detail:
+- show computed price + badge "AUTO" or "OVERRIDE"
+- input to override (if allowed)
+- show breakdown (collapsible)
+
+13) Add Invoices tab (Admin/Dispatch):
+- list of invoices by date, clinic, city
+- status filters: Draft/Final
+
+---------------------------------------------------------
+PHASE 5 — UI (CLINIC)
+---------------------------------------------------------
+14) Clinic Trip Detail (after completion):
+- show invoice summary (amount, invoice number, status)
+- view invoice (read-only)
+Clinic cannot edit price/profile.
+
+---------------------------------------------------------
+PHASE 6 — VERIFICATION
+---------------------------------------------------------
+15) Tests:
+A) Set dialysis flat pricing for Clinic A.
+B) Clinic creates one-way trip -> dispatch approves -> price auto-populates.
+C) Dispatch overrides price -> price_source changes -> breakdown includes override.
+D) Trip completes -> invoice generated -> finalize -> price locked.
+E) Clinic can view invoice, cannot edit.
+F) If no profile exists, dispatch sees "Price required" and can manually set.
+
+DELIVERABLE:
+- Working pricing profiles
+- Auto pricing on approval
+- Manual override with audit
+- Invoice visible to admin/dispatch/clinic after completion
+- Locked final invoices

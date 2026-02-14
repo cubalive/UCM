@@ -1415,7 +1415,7 @@ export async function registerRoutes(
         conditions.push(sql`${trips.driverId} IS NOT NULL`);
         conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));
       } else if (tab === "active") {
-        conditions.push(inArray(trips.status, ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"]));
+        conditions.push(inArray(trips.status, ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"]));
       } else if (tab === "completed") {
         conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
       } else {
@@ -1573,9 +1573,9 @@ export async function registerRoutes(
       } else if (tab === "scheduled") {
         conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));
       } else if (tab === "active") {
-        conditions.push(inArray(trips.status, ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"]));
+        conditions.push(inArray(trips.status, ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"]));
       } else if (tab === "completed") {
-        conditions.push(eq(trips.status, "COMPLETED"));
+        conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
       }
 
       let query = db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt));
@@ -1855,7 +1855,7 @@ export async function registerRoutes(
   });
 
   const updateStatusSchema = z.object({
-    status: z.enum(["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"]),
+    status: z.enum(["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"]),
   });
 
   const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -1864,7 +1864,8 @@ export async function registerRoutes(
     EN_ROUTE_TO_PICKUP: ["ARRIVED_PICKUP", "CANCELLED"],
     ARRIVED_PICKUP: ["PICKED_UP", "NO_SHOW", "CANCELLED"],
     PICKED_UP: ["EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "CANCELLED"],
-    EN_ROUTE_TO_DROPOFF: ["COMPLETED", "CANCELLED"],
+    EN_ROUTE_TO_DROPOFF: ["ARRIVED_DROPOFF", "CANCELLED"],
+    ARRIVED_DROPOFF: ["COMPLETED", "CANCELLED"],
     IN_PROGRESS: ["COMPLETED", "CANCELLED"],
     COMPLETED: [],
     CANCELLED: [],
@@ -1876,6 +1877,7 @@ export async function registerRoutes(
     ARRIVED_PICKUP: "arrivedPickupAt",
     PICKED_UP: "pickedUpAt",
     EN_ROUTE_TO_DROPOFF: "enRouteDropoffAt",
+    ARRIVED_DROPOFF: "arrivedDropoffAt",
     COMPLETED: "completedAt",
   };
 
@@ -2823,7 +2825,7 @@ export async function registerRoutes(
 
       if (statusFilter === "active") {
         conditions.push(
-          inArray(trips.status, ["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"])
+          inArray(trips.status, ["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"])
         );
       } else if (statusFilter === "scheduled") {
         conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));

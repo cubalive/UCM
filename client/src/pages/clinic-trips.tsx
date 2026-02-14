@@ -34,9 +34,11 @@ const STATUS_COLORS: Record<string, string> = {
   ARRIVED_PICKUP: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
   PICKED_UP: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200",
   EN_ROUTE_TO_DROPOFF: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+  ARRIVED_DROPOFF: "bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200",
   IN_PROGRESS: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
   COMPLETED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   CANCELLED: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+  NO_SHOW: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -46,18 +48,21 @@ const STATUS_LABELS: Record<string, string> = {
   ARRIVED_PICKUP: "Arrived at Pickup",
   PICKED_UP: "Picked Up",
   EN_ROUTE_TO_DROPOFF: "En Route to Dropoff",
+  ARRIVED_DROPOFF: "Arrived at Dropoff",
   IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
+  NO_SHOW: "No Show",
 };
 
 const TRIP_PROGRESS_STEPS = [
   { key: "SCHEDULED", label: "Scheduled" },
   { key: "ASSIGNED", label: "Assigned" },
   { key: "EN_ROUTE_TO_PICKUP", label: "Driver En Route" },
-  { key: "ARRIVED_PICKUP", label: "Arrived Pickup" },
-  { key: "PICKED_UP", label: "Picked Up" },
-  { key: "EN_ROUTE_TO_DROPOFF", label: "En Route Dropoff" },
+  { key: "ARRIVED_PICKUP", label: "Arrived at Pickup" },
+  { key: "PICKED_UP", label: "Patient Picked Up" },
+  { key: "EN_ROUTE_TO_DROPOFF", label: "En Route to Dropoff" },
+  { key: "ARRIVED_DROPOFF", label: "Arrived at Dropoff" },
   { key: "COMPLETED", label: "Completed" },
 ];
 

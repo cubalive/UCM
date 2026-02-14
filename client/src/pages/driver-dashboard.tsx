@@ -41,10 +41,11 @@ type TabType = "today" | "history";
 
 const STATUS_FLOW: Record<string, { next: string; label: string; icon: any }> = {
   ASSIGNED: { next: "EN_ROUTE_TO_PICKUP", label: "Start Trip", icon: PlayCircle },
-  EN_ROUTE_TO_PICKUP: { next: "ARRIVED_PICKUP", label: "Arrived Pickup", icon: MapPin },
-  ARRIVED_PICKUP: { next: "PICKED_UP", label: "Picked Up", icon: User },
-  PICKED_UP: { next: "EN_ROUTE_TO_DROPOFF", label: "Start Dropoff", icon: Navigation },
-  EN_ROUTE_TO_DROPOFF: { next: "COMPLETED", label: "Complete Trip", icon: CheckCircle },
+  EN_ROUTE_TO_PICKUP: { next: "ARRIVED_PICKUP", label: "Arrived at Pickup", icon: MapPin },
+  ARRIVED_PICKUP: { next: "PICKED_UP", label: "Picked Up Patient", icon: User },
+  PICKED_UP: { next: "EN_ROUTE_TO_DROPOFF", label: "En Route to Dropoff", icon: Navigation },
+  EN_ROUTE_TO_DROPOFF: { next: "ARRIVED_DROPOFF", label: "Arrived at Dropoff", icon: MapPin },
+  ARRIVED_DROPOFF: { next: "COMPLETED", label: "Complete Trip", icon: CheckCircle },
   IN_PROGRESS: { next: "COMPLETED", label: "Complete Trip", icon: CheckCircle },
 };
 
@@ -55,6 +56,7 @@ const STATUS_COLORS: Record<string, string> = {
   ARRIVED_PICKUP: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
   PICKED_UP: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200",
   EN_ROUTE_TO_DROPOFF: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+  ARRIVED_DROPOFF: "bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200",
   IN_PROGRESS: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
   COMPLETED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   CANCELLED: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
@@ -68,13 +70,14 @@ const STATUS_LABELS: Record<string, string> = {
   ARRIVED_PICKUP: "Arrived at Pickup",
   PICKED_UP: "Picked Up",
   EN_ROUTE_TO_DROPOFF: "En Route to Dropoff",
+  ARRIVED_DROPOFF: "Arrived at Dropoff",
   IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
   NO_SHOW: "No Show",
 };
 
-const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"];
+const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
 
 function useGeolocation(isActive: boolean) {
   const [permission, setPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown");

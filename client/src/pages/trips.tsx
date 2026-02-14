@@ -67,7 +67,7 @@ function getTodayInTimezone(tz: string): string {
 
 type TripTab = "all" | "unassigned" | "scheduled" | "active" | "completed";
 
-const ACTIVE_TRIP_STATUSES = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"];
+const ACTIVE_TRIP_STATUSES = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
 
 const STATUS_DISPLAY_LABELS: Record<string, string> = {
   SCHEDULED: "Scheduled",
@@ -76,6 +76,7 @@ const STATUS_DISPLAY_LABELS: Record<string, string> = {
   ARRIVED_PICKUP: "Arrived Pickup",
   PICKED_UP: "Picked Up",
   EN_ROUTE_TO_DROPOFF: "En Route Dropoff",
+  ARRIVED_DROPOFF: "Arrived Dropoff",
   IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
@@ -99,9 +100,18 @@ export default function TripsPage() {
   const [dispatchCancelReason, setDispatchCancelReason] = useState("");
   const [dispatchCancelType, setDispatchCancelType] = useState<"soft" | "hard">("soft");
 
-  const canSendSms =
+  const hasSmsPerm =
     user?.role === "SUPER_ADMIN" ||
     user?.role === "DISPATCH";
+
+  const { data: smsHealth } = useQuery<{ twilioConfigured: boolean; dispatchPhoneConfigured: boolean }>({
+    queryKey: ["/api/sms/health"],
+    queryFn: () => apiFetch("/api/sms/health", token),
+    enabled: !!token && hasSmsPerm,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const canSendSms = hasSmsPerm && smsHealth?.twilioConfigured === true;
 
   const isClinicUser = user?.role === "VIEWER" && !!user?.clinicId;
   const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
@@ -490,7 +500,7 @@ export default function TripsPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"].map((s) => (
+                            {["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"].map((s) => (
                               <SelectItem key={s} value={s}>{STATUS_DISPLAY_LABELS[s] || s.replace(/_/g, " ")}</SelectItem>
                             ))}
                           </SelectContent>
@@ -570,6 +580,8 @@ export default function TripsPage() {
           patient={getPatientForTrip(detailTrip)}
           driver={getDriverForTrip(detailTrip)}
           canSendSms={canSendSms}
+          hasSmsPerm={hasSmsPerm}
+          smsHealth={smsHealth}
           token={token}
           cityTimezone={selectedCity?.timezone || "America/New_York"}
           isClinicUser={isClinicUser}
@@ -915,6 +927,8 @@ function TripDetailDialog({
   patient,
   driver,
   canSendSms,
+  hasSmsPerm,
+  smsHealth,
   token,
   cityTimezone,
   isClinicUser,
@@ -926,6 +940,8 @@ function TripDetailDialog({
   patient: any;
   driver: any;
   canSendSms: boolean;
+  hasSmsPerm: boolean;
+  smsHealth: { twilioConfigured: boolean; dispatchPhoneConfigured: boolean } | undefined;
   token: string | null;
   cityTimezone: string;
   isClinicUser: boolean;
@@ -1277,6 +1293,13 @@ function TripDetailDialog({
                       </span>
                     )}
                   </div>
+
+                  {hasSmsPerm && !canSendSms && smsHealth && !smsHealth.twilioConfigured && (
+                    <div className="flex items-center gap-1.5 mt-1 text-xs text-amber-600 dark:text-amber-400" data-testid="text-sms-not-configured">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      SMS not configured (Twilio credentials missing)
+                    </div>
+                  )}
 
                   {canSendSms && patient.phone && normalizePhoneToE164(patient.phone) && (
                     <div className="flex flex-wrap gap-2 mt-1">
