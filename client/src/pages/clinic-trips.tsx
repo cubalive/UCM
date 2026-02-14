@@ -1400,7 +1400,6 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
   const driverMarkerRef = useRef<google.maps.Marker | null>(null);
   const pickupMarkerRef = useRef<google.maps.Marker | null>(null);
   const dropoffMarkerRef = useRef<google.maps.Marker | null>(null);
-  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
   const mapsLoadedRef = useRef(false);
   const [mapAvailable, setMapAvailable] = useState(true);
 
@@ -1473,11 +1472,6 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
       ],
     });
     mapInstanceRef.current = map;
-    directionsRendererRef.current = new google.maps.DirectionsRenderer({
-      map,
-      suppressMarkers: true,
-      polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 4, strokeOpacity: 0.7 },
-    });
     updateMapMarkers(trackingData);
   }
 
@@ -1550,22 +1544,6 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
     if (route?.dropoffLat && route?.dropoffLng) bounds.extend({ lat: route.dropoffLat, lng: route.dropoffLng });
     map.fitBounds(bounds, 60);
 
-    if (directionsRendererRef.current && route?.pickupLat && route?.dropoffLat) {
-      const origin = driverPos;
-      const destination = ["PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"].includes(trackingData.status)
-        ? { lat: route.dropoffLat, lng: route.dropoffLng }
-        : { lat: route.pickupLat, lng: route.pickupLng };
-
-      const directionsService = new google.maps.DirectionsService();
-      directionsService.route(
-        { origin, destination, travelMode: google.maps.TravelMode.DRIVING },
-        (result, status) => {
-          if (status === "OK" && result) {
-            directionsRendererRef.current?.setDirections(result);
-          }
-        }
-      );
-    }
   }
 
   if (trackingQuery.isLoading) {

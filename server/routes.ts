@@ -3554,7 +3554,6 @@ export async function registerRoutes(
             minutes: trip.lastEtaMinutes,
             updatedAt: trip.lastEtaUpdatedAt?.toISOString() || null,
           } : null,
-          polyline: trip.routePolyline || null,
         };
       }));
 
