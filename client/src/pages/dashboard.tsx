@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity, Radio, Clock, Car } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity, Radio, Clock, Car, Navigation, CirclePause, WifiOff } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { authHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -27,7 +29,7 @@ export default function DashboardPage() {
   const statCards = [
     { label: "Total Trips", value: stats?.trips ?? 0, icon: Route, color: "text-blue-500" },
     { label: "Active Patients", value: stats?.patients ?? 0, icon: HeartPulse, color: "text-rose-500" },
-    { label: "Active Drivers", value: stats?.drivers ?? 0, icon: UserCheck, color: "text-emerald-500" },
+    { label: "Drivers", value: stats?.drivers ?? 0, icon: UserCheck, color: "text-emerald-500" },
     { label: "Vehicles", value: stats?.vehicles ?? 0, icon: Truck, color: "text-amber-500" },
     { label: "Clinics", value: stats?.clinics ?? 0, icon: Building2, color: "text-violet-500" },
     { label: "Users", value: stats?.users ?? 0, icon: Users, color: "text-cyan-500" },
@@ -82,7 +84,7 @@ export default function DashboardPage() {
       </div>
 
       {user && ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role) && (
-        <ActiveDriversPanel />
+        <DriverPresencePanel />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -182,81 +184,167 @@ function formatTimeAgo(dateStr: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function ActiveDriversPanel() {
+function DriverPresencePanel() {
   const { token, selectedCity } = useAuth();
   const cityId = selectedCity?.id;
+  const [tab, setTab] = useState("active");
 
-  const { data: activeDrivers, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/dispatch/drivers/active", cityId],
-    queryFn: () => apiFetch(`/api/dispatch/drivers/active${cityId ? `?cityId=${cityId}` : ""}`, token),
+  const { data: stats, isLoading } = useQuery<any>({
+    queryKey: ["/api/dashboard/driver-stats", cityId],
+    queryFn: () => apiFetch(`/api/dashboard/driver-stats${cityId ? `?cityId=${cityId}` : ""}`, token),
     enabled: !!token,
     refetchInterval: 15000,
   });
 
+  const buckets = [
+    { key: "active", label: "Active", count: stats?.activeCount ?? 0, icon: Radio, color: "text-emerald-500", dotColor: "bg-emerald-500" },
+    { key: "inRoute", label: "In Route", count: stats?.inRouteCount ?? 0, icon: Navigation, color: "text-blue-500", dotColor: "bg-blue-500" },
+    { key: "offline", label: "Offline / Paused", count: stats?.offlineOrPausedCount ?? 0, icon: WifiOff, color: "text-muted-foreground", dotColor: "bg-muted-foreground" },
+  ];
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-        <CardTitle className="text-base font-medium flex items-center gap-2">
+        <CardTitle className="text-base font-medium flex items-center gap-2" data-testid="text-driver-presence-title">
           <Radio className="w-4 h-4 text-emerald-500" />
-          Active Drivers
-          {activeDrivers && (
-            <Badge variant="secondary" className="ml-1" data-testid="badge-active-driver-count">
-              {activeDrivers.length}
-            </Badge>
-          )}
+          Driver Presence
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
-          </div>
-        ) : !activeDrivers?.length ? (
-          <div className="py-6 text-center text-sm text-muted-foreground" data-testid="text-no-active-drivers">
-            No drivers currently active
-          </div>
-        ) : (
-          <div className="space-y-2" data-testid="list-active-drivers">
-            {activeDrivers.map((d: any) => (
-              <div
-                key={d.id}
-                className="flex items-center justify-between gap-3 py-2 border-b last:border-0"
-                data-testid={`row-active-driver-${d.id}`}
-              >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate" data-testid={`text-driver-name-${d.id}`}>
-                      {d.firstName} {d.lastName}
-                    </p>
-                    <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                      {d.cityName && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {d.cityName}
-                        </span>
-                      )}
-                      {d.vehicleName && (
-                        <span className="flex items-center gap-1">
-                          <Car className="w-3 h-3" />
-                          {d.vehicleName}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          {buckets.map((b) => (
+            <div
+              key={b.key}
+              className={`rounded-md border p-3 text-center cursor-pointer hover-elevate ${tab === b.key ? "border-primary" : ""}`}
+              onClick={() => setTab(b.key)}
+              data-testid={`card-bucket-${b.key}`}
+            >
+              <b.icon className={`w-4 h-4 mx-auto mb-1 ${b.color}`} />
+              {isLoading ? (
+                <Skeleton className="h-6 w-8 mx-auto" />
+              ) : (
+                <p className="text-xl font-bold" data-testid={`text-count-${b.key}`}>{b.count}</p>
+              )}
+              <p className="text-xs text-muted-foreground">{b.label}</p>
+            </div>
+          ))}
+        </div>
+
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="w-full">
+            <TabsTrigger value="active" className="flex-1" data-testid="tab-active">
+              Active
+              <Badge variant="secondary" className="ml-1">{stats?.activeCount ?? 0}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="inRoute" className="flex-1" data-testid="tab-inroute">
+              In Route
+              <Badge variant="secondary" className="ml-1">{stats?.inRouteCount ?? 0}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="offline" className="flex-1" data-testid="tab-offline">
+              Offline
+              <Badge variant="secondary" className="ml-1">{stats?.offlineOrPausedCount ?? 0}</Badge>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="active">
+            <DriverList
+              drivers={stats?.activeDrivers}
+              isLoading={isLoading}
+              emptyText="No active drivers"
+              renderBadge={() => <Badge variant="default" className="bg-emerald-600">ACTIVE</Badge>}
+              testIdPrefix="active"
+            />
+          </TabsContent>
+
+          <TabsContent value="inRoute">
+            <DriverList
+              drivers={stats?.inRouteDrivers}
+              isLoading={isLoading}
+              emptyText="No drivers in route"
+              renderBadge={(d: any) => (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <Badge variant="default" className="bg-blue-600">IN ROUTE</Badge>
+                  <Badge variant="secondary">{d.tripStatus?.replace(/_/g, " ")}</Badge>
                 </div>
-                <div className="flex items-center gap-1 text-xs text-muted-foreground flex-shrink-0" data-testid={`text-driver-lastseen-${d.id}`}>
-                  <Clock className="w-3 h-3" />
-                  {formatTimeAgo(d.lastSeenAt)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+              renderExtra={(d: any) => (
+                <span className="text-xs text-muted-foreground">Trip: {d.tripPublicId}</span>
+              )}
+              testIdPrefix="inroute"
+            />
+          </TabsContent>
+
+          <TabsContent value="offline">
+            <DriverList
+              drivers={stats?.offlineOrPausedDrivers}
+              isLoading={isLoading}
+              emptyText="No offline or paused drivers"
+              renderBadge={(d: any) => (
+                <Badge variant={d.reason === "paused" ? "secondary" : "outline"}>
+                  {d.reason === "paused" ? "PAUSED" : "OFFLINE"}
+                </Badge>
+              )}
+              testIdPrefix="offline"
+            />
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
+  );
+}
+
+function DriverList({ drivers, isLoading, emptyText, renderBadge, renderExtra, testIdPrefix }: {
+  drivers: any[] | undefined;
+  isLoading: boolean;
+  emptyText: string;
+  renderBadge: (d: any) => React.ReactNode;
+  renderExtra?: (d: any) => React.ReactNode;
+  testIdPrefix: string;
+}) {
+  if (isLoading) {
+    return (
+      <div className="space-y-3 py-2">
+        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
+      </div>
+    );
+  }
+
+  if (!drivers?.length) {
+    return (
+      <div className="py-6 text-center text-sm text-muted-foreground" data-testid={`text-empty-${testIdPrefix}`}>
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1" data-testid={`list-${testIdPrefix}-drivers`}>
+      {drivers.map((d: any) => (
+        <div
+          key={d.id}
+          className="flex items-center justify-between gap-3 py-2 border-b last:border-0"
+          data-testid={`row-driver-${testIdPrefix}-${d.id}`}
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium truncate" data-testid={`text-driver-name-${d.id}`}>
+              {d.name}
+            </p>
+            {renderExtra && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {renderExtra(d)}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {renderBadge(d)}
+            <span className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-lastseen-${d.id}`}>
+              <Clock className="w-3 h-3" />
+              {formatTimeAgo(d.lastSeenAt)}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
