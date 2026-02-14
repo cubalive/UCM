@@ -7,10 +7,13 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { ThemeProvider } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { can, type Resource } from "@shared/permissions";
+import { useTranslation } from "react-i18next";
+import "@/i18n";
 import { CitySelectionModal } from "@/components/city-selection-modal";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
@@ -138,12 +141,13 @@ function Router() {
 }
 
 function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-center min-h-screen" data-testid="error-panel">
       <Card className="w-full max-w-md mx-4">
         <CardHeader className="flex flex-row items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0" />
-          <CardTitle className="text-lg">Connection Error</CardTitle>
+          <CardTitle className="text-lg">{t("common.connectionError")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground" data-testid="text-error-message">
@@ -151,7 +155,7 @@ function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void
           </p>
           <Button onClick={onRetry} className="w-full" data-testid="button-retry">
             <RefreshCw className="mr-2 h-4 w-4" />
-            Retry
+            {t("common.retry")}
           </Button>
         </CardContent>
       </Card>
@@ -213,17 +217,19 @@ function AuthenticatedApp() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Switch>
-          <Route path="/t/:token" component={PublicTrackingPage} />
-          <Route>
-            <AuthProvider>
-              <AuthenticatedApp />
-            </AuthProvider>
-          </Route>
-        </Switch>
-        <Toaster />
-      </TooltipProvider>
+      <ThemeProvider>
+        <TooltipProvider>
+          <Switch>
+            <Route path="/t/:token" component={PublicTrackingPage} />
+            <Route>
+              <AuthProvider>
+                <AuthenticatedApp />
+              </AuthProvider>
+            </Route>
+          </Switch>
+          <Toaster />
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

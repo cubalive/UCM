@@ -28,6 +28,7 @@ import { DialogFooter } from "@/components/ui/dialog";
 import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
+import { useTranslation } from "react-i18next";
 import { RecurringSchedule, type TripType, type SeriesPattern, type SeriesEndType } from "@/components/recurring-schedule";
 import { TripStaticMap } from "@/components/trip-static-map";
 
@@ -86,6 +87,7 @@ const STATUS_DISPLAY_LABELS: Record<string, string> = {
 export default function TripsPage() {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [detailTrip, setDetailTrip] = useState<any>(null);
@@ -309,14 +311,14 @@ export default function TripsPage() {
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Trips</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage transportation trips</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("trips.title")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("app.subtitle")}</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-add-trip">
               <Plus className="w-4 h-4 mr-2" />
-              New Trip
+              {t("trips.newTrip")}
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -360,7 +362,7 @@ export default function TripsPage() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search trips..."
+          placeholder={t("trips.search")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -376,7 +378,7 @@ export default function TripsPage() {
         <Card>
           <CardContent className="py-12 text-center">
             <Route className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No trips found</p>
+            <p className="text-muted-foreground">{t("trips.noTrips")}</p>
           </CardContent>
         </Card>
       ) : (

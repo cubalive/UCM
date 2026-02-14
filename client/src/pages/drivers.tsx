@@ -20,6 +20,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useTranslation } from "react-i18next";
 
 const UNASSIGN_REASONS = [
   { value: "vehicle_maintenance", label: "Vehicle in maintenance" },
@@ -33,6 +34,7 @@ const UNASSIGN_REASONS = [
 export default function DriversPage() {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [editDriver, setEditDriver] = useState<any>(null);
   const [unassignDriver, setUnassignDriver] = useState<any>(null);
@@ -214,8 +216,8 @@ export default function DriversPage() {
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-drivers-heading">Drivers</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage driver assignments</p>
+          <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-drivers-heading">{t("drivers.title")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("app.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {canManageAuth && user?.role === "SUPER_ADMIN" && driversWithoutAuth.length > 0 && (
@@ -231,7 +233,7 @@ export default function DriversPage() {
           )}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button data-testid="button-add-driver"><Plus className="w-4 h-4 mr-2" />Add Driver</Button>
+              <Button data-testid="button-add-driver"><Plus className="w-4 h-4 mr-2" />{t("drivers.newDriver")}</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>Add Driver</DialogTitle></DialogHeader>
@@ -249,7 +251,7 @@ export default function DriversPage() {
 
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Search drivers..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-drivers" />
+        <Input placeholder={t("drivers.search")} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-drivers" />
       </div>
 
       {isLoading ? (
@@ -260,7 +262,7 @@ export default function DriversPage() {
         <Card>
           <CardContent className="py-12 text-center">
             <UserCheck className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No drivers found</p>
+            <p className="text-muted-foreground">{t("drivers.noDrivers")}</p>
           </CardContent>
         </Card>
       ) : (

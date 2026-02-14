@@ -1,6 +1,7 @@
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { can, type Resource } from "@shared/permissions";
+import { useTranslation } from "react-i18next";
 import {
   Sidebar,
   SidebarContent,
@@ -50,41 +51,42 @@ import {
 } from "lucide-react";
 
 interface NavItem {
-  title: string;
+  titleKey: string;
   url: string;
   icon: typeof LayoutDashboard;
   resource: Resource;
 }
 
 const navItems: NavItem[] = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard, resource: "dashboard" },
-  { title: "Dispatch", url: "/dispatch", icon: Radio, resource: "dispatch" },
-  { title: "Fleet", url: "/fleet", icon: Gauge, resource: "dispatch" },
-  { title: "Assignments", url: "/assignments", icon: CalendarCheck, resource: "dispatch" },
-  { title: "Live Map", url: "/live-map", icon: Map, resource: "dispatch" },
-  { title: "Trips", url: "/trips", icon: Route, resource: "trips" },
-  { title: "Patients", url: "/patients", icon: HeartPulse, resource: "patients" },
-  { title: "Drivers", url: "/drivers", icon: UserCheck, resource: "drivers" },
-  { title: "Vehicles", url: "/vehicles", icon: Truck, resource: "vehicles" },
-  { title: "Clinics", url: "/clinics", icon: Building2, resource: "clinics" },
-  { title: "Invoices", url: "/invoices", icon: FileText, resource: "invoices" },
-  { title: "Dispatch Board", url: "/dispatch-board", icon: ClipboardCheck, resource: "dispatch" },
-  { title: "Ops Health", url: "/ops-health", icon: Activity, resource: "dispatch" },
-  { title: "Auto Assign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
+  { titleKey: "nav.dashboard", url: "/", icon: LayoutDashboard, resource: "dashboard" },
+  { titleKey: "nav.dispatch", url: "/dispatch", icon: Radio, resource: "dispatch" },
+  { titleKey: "nav.fleet", url: "/fleet", icon: Gauge, resource: "dispatch" },
+  { titleKey: "nav.assignments", url: "/assignments", icon: CalendarCheck, resource: "dispatch" },
+  { titleKey: "nav.liveMap", url: "/live-map", icon: Map, resource: "dispatch" },
+  { titleKey: "nav.trips", url: "/trips", icon: Route, resource: "trips" },
+  { titleKey: "nav.patients", url: "/patients", icon: HeartPulse, resource: "patients" },
+  { titleKey: "nav.drivers", url: "/drivers", icon: UserCheck, resource: "drivers" },
+  { titleKey: "nav.vehicles", url: "/vehicles", icon: Truck, resource: "vehicles" },
+  { titleKey: "nav.clinics", url: "/clinics", icon: Building2, resource: "clinics" },
+  { titleKey: "nav.invoices", url: "/invoices", icon: FileText, resource: "invoices" },
+  { titleKey: "nav.dispatchBoard", url: "/dispatch-board", icon: ClipboardCheck, resource: "dispatch" },
+  { titleKey: "nav.opsHealth", url: "/ops-health", icon: Activity, resource: "dispatch" },
+  { titleKey: "nav.autoAssign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
 ];
 
 const adminItems: NavItem[] = [
-  { title: "Cities", url: "/cities", icon: MapPin, resource: "cities" },
-  { title: "Users", url: "/users", icon: Users, resource: "users" },
-  { title: "Reports", url: "/reports", icon: BarChart3, resource: "audit" },
-  { title: "Financial", url: "/financial", icon: DollarSign, resource: "audit" },
-  { title: "Audit Log", url: "/audit", icon: ClipboardList, resource: "audit" },
-  { title: "Archive", url: "/archive", icon: Archive, resource: "audit" },
+  { titleKey: "nav.cities", url: "/cities", icon: MapPin, resource: "cities" },
+  { titleKey: "nav.users", url: "/users", icon: Users, resource: "users" },
+  { titleKey: "nav.reports", url: "/reports", icon: BarChart3, resource: "audit" },
+  { titleKey: "nav.financial", url: "/financial", icon: DollarSign, resource: "audit" },
+  { titleKey: "nav.auditLog", url: "/audit", icon: ClipboardList, resource: "audit" },
+  { titleKey: "nav.archive", url: "/archive", icon: Archive, resource: "audit" },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, cities, selectedCity, setSelectedCity, logout } = useAuth();
+  const { t } = useTranslation();
 
   const role = user?.role || "";
 
@@ -92,16 +94,16 @@ export function AppSidebar() {
   const isDriver = upperRole === "DRIVER";
 
   const driverNavItems: NavItem[] = [
-    { title: "My Trips", url: "/driver", icon: Car, resource: "trips" },
-    { title: "Trip History", url: "/driver/history", icon: History, resource: "trips" },
-    { title: "Live Map", url: "/live-map", icon: Map, resource: "trips" },
+    { titleKey: "nav.myTrips", url: "/driver", icon: Car, resource: "trips" },
+    { titleKey: "nav.tripHistory", url: "/driver/history", icon: History, resource: "trips" },
+    { titleKey: "nav.liveMap", url: "/live-map", icon: Map, resource: "trips" },
   ];
 
   const isClinic = !!user?.clinicId;
 
   const clinicNavItems: NavItem[] = [
-    { title: "Clinic Portal", url: "/clinic-trips", icon: Stethoscope, resource: "trips" },
-    { title: "Invoices", url: "/invoices", icon: FileText, resource: "invoices" },
+    { titleKey: "nav.clinicPortal", url: "/clinic-trips", icon: Stethoscope, resource: "trips" },
+    { titleKey: "nav.invoices", url: "/invoices", icon: FileText, resource: "invoices" },
   ];
 
   const visibleNav = isDriver
@@ -130,7 +132,7 @@ export function AppSidebar() {
           <img src="/branding/logo-small.png" alt="UCM" className="h-9 w-auto flex-shrink-0" data-testid="img-sidebar-logo" />
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate" data-testid="text-sidebar-title">UCM</p>
-            <p className="text-xs text-muted-foreground truncate">Mobility System</p>
+            <p className="text-xs text-muted-foreground truncate">{t("nav.mobilitySystem")}</p>
           </div>
         </div>
 
@@ -161,18 +163,18 @@ export function AppSidebar() {
       <SidebarContent>
         {visibleNav.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>Operations</SidebarGroupLabel>
+            <SidebarGroupLabel>{t("nav.operations")}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {visibleNav.map((item) => (
-                  <SidebarMenuItem key={item.title}>
+                  <SidebarMenuItem key={item.titleKey}>
                     <SidebarMenuButton
                       asChild
                       isActive={location === item.url}
                     >
-                      <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
+                      <Link href={item.url} data-testid={`link-${item.url.replace(/\//g, '') || 'dashboard'}`}>
                         <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
+                        <span>{t(item.titleKey)}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -184,18 +186,18 @@ export function AppSidebar() {
 
         {visibleAdmin.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>Administration</SidebarGroupLabel>
+            <SidebarGroupLabel>{t("nav.administration")}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {visibleAdmin.map((item) => (
-                  <SidebarMenuItem key={item.title}>
+                  <SidebarMenuItem key={item.titleKey}>
                     <SidebarMenuButton
                       asChild
                       isActive={location === item.url}
                     >
-                      <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(' ', '-')}`}>
+                      <Link href={item.url} data-testid={`link-${item.url.replace(/\//g, '')}`}>
                         <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
+                        <span>{t(item.titleKey)}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

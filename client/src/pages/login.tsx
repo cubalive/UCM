@@ -8,10 +8,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Shield, Loader2, ArrowLeft, Mail } from "lucide-react";
 import { LogoTileAnimation } from "@/components/logo-tile-animation";
 import { useSearch } from "wouter";
+import { useTranslation } from "react-i18next";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -47,8 +51,8 @@ export default function LoginPage() {
       .catch((err: any) => {
         setTokenError(err.message || "Login link failed");
         toast({
-          title: "Login Link Failed",
-          description: err.message || "This link may be expired or already used.",
+          title: t("login.loginLinkFailed"),
+          description: err.message || t("login.linkExpired"),
           variant: "destructive",
         });
       })
@@ -62,8 +66,8 @@ export default function LoginPage() {
       await login(email, password);
     } catch (err: any) {
       toast({
-        title: "Login Failed",
-        description: err.message || "Invalid credentials",
+        title: t("login.loginFailed"),
+        description: err.message || t("login.invalidCredentials"),
         variant: "destructive",
       });
     } finally {
@@ -86,13 +90,13 @@ export default function LoginPage() {
       }
       setForgotSent(true);
       toast({
-        title: "Reset Link Sent",
-        description: "Check your email for password reset instructions.",
+        title: t("login.resetLinkSent"),
+        description: t("login.resetLinkSentDesc"),
       });
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to send reset link",
+        title: t("login.error"),
+        description: err.message || t("login.failedSendReset"),
         variant: "destructive",
       });
     } finally {
@@ -105,13 +109,13 @@ export default function LoginPage() {
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6 text-center">
           <LogoTileAnimation className="mb-4" />
-          <h1 className="text-2xl font-semibold tracking-tight">United Care Mobility</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("app.title")}</h1>
           <Card>
             <CardContent className="py-8">
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground" data-testid="text-token-loading">
-                  Signing you in...
+                  {t("login.signingYouIn")}
                 </p>
               </div>
             </CardContent>
@@ -127,10 +131,10 @@ export default function LoginPage() {
         <div className="text-center space-y-2">
           <LogoTileAnimation className="mb-4" />
           <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-app-title">
-            United Care Mobility
+            {t("app.title")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Medical Transportation Management
+            {t("app.subtitle")}
           </p>
         </div>
 
@@ -141,7 +145,7 @@ export default function LoginPage() {
                 {tokenError}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Please use the form below to sign in, or request a new login link from your administrator.
+                {t("login.tokenErrorHelp")}
               </p>
             </CardContent>
           </Card>
@@ -152,14 +156,14 @@ export default function LoginPage() {
             <CardHeader className="pb-4">
               <div className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Reset Password</span>
+                <span className="text-sm text-muted-foreground">{t("login.resetPassword")}</span>
               </div>
             </CardHeader>
             <CardContent>
               {forgotSent ? (
                 <div className="space-y-4 text-center">
                   <p className="text-sm" data-testid="text-forgot-sent">
-                    If an account exists with that email, a password reset link has been sent. Please check your inbox.
+                    {t("login.resetSent")}
                   </p>
                   <Button
                     variant="outline"
@@ -168,16 +172,16 @@ export default function LoginPage() {
                     data-testid="button-back-to-login"
                   >
                     <ArrowLeft className="w-4 h-4 mr-2" />
-                    Back to Sign In
+                    {t("login.backToSignIn")}
                   </Button>
                 </div>
               ) : (
                 <form onSubmit={handleForgotPassword} className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    Enter your email address and we'll send you a link to reset your password.
+                    {t("login.resetPrompt")}
                   </p>
                   <div className="space-y-2">
-                    <Label htmlFor="forgot-email">Email</Label>
+                    <Label htmlFor="forgot-email">{t("login.email")}</Label>
                     <Input
                       id="forgot-email"
                       type="email"
@@ -197,10 +201,10 @@ export default function LoginPage() {
                     {forgotLoading ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Sending...
+                        {t("login.sending")}
                       </>
                     ) : (
-                      "Send Reset Link"
+                      t("login.sendResetLink")
                     )}
                   </Button>
                   <Button
@@ -211,7 +215,7 @@ export default function LoginPage() {
                     data-testid="button-cancel-forgot"
                   >
                     <ArrowLeft className="w-4 h-4 mr-2" />
-                    Back to Sign In
+                    {t("login.backToSignIn")}
                   </Button>
                 </form>
               )}
@@ -222,17 +226,17 @@ export default function LoginPage() {
             <CardHeader className="pb-4">
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Secure Login</span>
+                <span className="text-sm text-muted-foreground">{t("login.secureLogin")}</span>
               </div>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">{t("login.email")}</Label>
                   <Input
                     id="email"
                     type="email"
-                    placeholder="admin@unitedcare.com"
+                    placeholder={t("login.emailPlaceholder")}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -240,11 +244,11 @@ export default function LoginPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">{t("login.password")}</Label>
                   <Input
                     id="password"
                     type="password"
-                    placeholder="Enter your password"
+                    placeholder={t("login.passwordPlaceholder")}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -257,7 +261,7 @@ export default function LoginPage() {
                   disabled={loading}
                   data-testid="button-login"
                 >
-                  {loading ? "Signing in..." : "Sign In"}
+                  {loading ? t("login.signingIn") : t("login.signIn")}
                 </Button>
                 <div className="text-center">
                   <button
@@ -266,7 +270,7 @@ export default function LoginPage() {
                     className="text-sm text-muted-foreground hover:underline"
                     data-testid="link-forgot-password"
                   >
-                    Forgot your password?
+                    {t("login.forgotPassword")}
                   </button>
                 </div>
               </form>
@@ -275,8 +279,13 @@ export default function LoginPage() {
         )}
 
         <p className="text-center text-xs text-muted-foreground">
-          v1.0 &middot; United Care Mobility System
+          {t("app.versionFull")}
         </p>
+
+        <div className="flex items-center justify-center gap-1">
+          <LanguageSwitcher />
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );

@@ -8,9 +8,11 @@ import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity
 import { useQuery } from "@tanstack/react-query";
 import { authHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { useTranslation } from "react-i18next";
 
 export default function DashboardPage() {
   const { user, token, selectedCity, isSuperAdmin } = useAuth();
+  const { t } = useTranslation();
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -27,12 +29,12 @@ export default function DashboardPage() {
   });
 
   const statCards = [
-    { label: "Total Trips", value: stats?.trips ?? 0, icon: Route, color: "text-blue-500" },
-    { label: "Active Patients", value: stats?.patients ?? 0, icon: HeartPulse, color: "text-rose-500" },
-    { label: "Drivers", value: stats?.drivers ?? 0, icon: UserCheck, color: "text-emerald-500" },
-    { label: "Vehicles", value: stats?.vehicles ?? 0, icon: Truck, color: "text-amber-500" },
-    { label: "Clinics", value: stats?.clinics ?? 0, icon: Building2, color: "text-violet-500" },
-    { label: "Users", value: stats?.users ?? 0, icon: Users, color: "text-cyan-500" },
+    { label: t("dashboard.totalTrips"), value: stats?.trips ?? 0, icon: Route, color: "text-blue-500" },
+    { label: t("dashboard.activePatients"), value: stats?.patients ?? 0, icon: HeartPulse, color: "text-rose-500" },
+    { label: t("dashboard.drivers"), value: stats?.drivers ?? 0, icon: UserCheck, color: "text-emerald-500" },
+    { label: t("dashboard.vehicles"), value: stats?.vehicles ?? 0, icon: Truck, color: "text-amber-500" },
+    { label: t("dashboard.clinics"), value: stats?.clinics ?? 0, icon: Building2, color: "text-violet-500" },
+    { label: t("dashboard.users"), value: stats?.users ?? 0, icon: Users, color: "text-cyan-500" },
   ];
 
   return (
@@ -40,10 +42,10 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-dashboard-title">
-            Dashboard
+            {t("dashboard.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Welcome back, {user?.firstName}
+            {t("dashboard.welcomeBack", { name: user?.firstName })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -55,7 +57,7 @@ export default function DashboardPage() {
           )}
           {isSuperAdmin && (
             <Badge variant="default" data-testid="badge-role">
-              Super Admin
+              {t("dashboard.superAdmin")}
             </Badge>
           )}
         </div>
@@ -90,7 +92,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="text-base font-medium">Recent Activity</CardTitle>
+            <CardTitle className="text-base font-medium">{t("dashboard.recentActivity")}</CardTitle>
             <Activity className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -99,7 +101,7 @@ export default function DashboardPage() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="text-base font-medium">Trip Status Overview</CardTitle>
+            <CardTitle className="text-base font-medium">{t("dashboard.upcomingTrips")}</CardTitle>
             <Route className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -186,6 +188,7 @@ function formatTimeAgo(dateStr: string | null): string {
 
 function DriverPresencePanel() {
   const { token, selectedCity } = useAuth();
+  const { t } = useTranslation();
   const cityId = selectedCity?.id;
   const [tab, setTab] = useState("active");
 
@@ -197,9 +200,9 @@ function DriverPresencePanel() {
   });
 
   const buckets = [
-    { key: "active", label: "Active", count: stats?.activeCount ?? 0, icon: Radio, color: "text-emerald-500", dotColor: "bg-emerald-500" },
-    { key: "inRoute", label: "In Route", count: stats?.inRouteCount ?? 0, icon: Navigation, color: "text-blue-500", dotColor: "bg-blue-500" },
-    { key: "offline", label: "Offline / Hold", count: stats?.offlineHoldCount ?? stats?.offlineOrPausedCount ?? 0, icon: WifiOff, color: "text-muted-foreground", dotColor: "bg-muted-foreground" },
+    { key: "active", label: t("dashboard.online"), count: stats?.activeCount ?? 0, icon: Radio, color: "text-emerald-500", dotColor: "bg-emerald-500" },
+    { key: "inRoute", label: t("dashboard.inRoute"), count: stats?.inRouteCount ?? 0, icon: Navigation, color: "text-blue-500", dotColor: "bg-blue-500" },
+    { key: "offline", label: t("dashboard.offHold"), count: stats?.offlineHoldCount ?? stats?.offlineOrPausedCount ?? 0, icon: WifiOff, color: "text-muted-foreground", dotColor: "bg-muted-foreground" },
   ];
 
   return (
@@ -207,7 +210,7 @@ function DriverPresencePanel() {
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-base font-medium flex items-center gap-2" data-testid="text-driver-presence-title">
           <Radio className="w-4 h-4 text-emerald-500" />
-          Driver Presence
+          {t("dashboard.driverPresence")}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -233,15 +236,15 @@ function DriverPresencePanel() {
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="w-full">
             <TabsTrigger value="active" className="flex-1" data-testid="tab-active">
-              Active
+              {t("dashboard.online")}
               <Badge variant="secondary" className="ml-1">{stats?.activeCount ?? 0}</Badge>
             </TabsTrigger>
             <TabsTrigger value="inRoute" className="flex-1" data-testid="tab-inroute">
-              In Route
+              {t("dashboard.inRoute")}
               <Badge variant="secondary" className="ml-1">{stats?.inRouteCount ?? 0}</Badge>
             </TabsTrigger>
             <TabsTrigger value="offline" className="flex-1" data-testid="tab-offline">
-              Offline / Hold
+              {t("dashboard.offHold")}
               <Badge variant="secondary" className="ml-1">{stats?.offlineHoldCount ?? stats?.offlineOrPausedCount ?? 0}</Badge>
             </TabsTrigger>
           </TabsList>

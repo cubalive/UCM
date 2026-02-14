@@ -12,6 +12,9 @@ import {
 import { LogOut, Settings, MapPin } from "lucide-react";
 import { Link } from "wouter";
 import { queryClient } from "@/lib/queryClient";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useTranslation } from "react-i18next";
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Admin",
@@ -23,6 +26,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function DashboardHeader() {
   const { user, selectedCity, cities, setSelectedCity, isSuperAdmin, logout } = useAuth();
+  const { t } = useTranslation();
   const roleLabel = ROLE_LABELS[user?.role?.toUpperCase() || ""] || user?.role || "";
 
   const needsCitySwitcher =
@@ -60,7 +64,7 @@ export function DashboardHeader() {
           className="text-sm font-semibold hidden sm:inline truncate"
           data-testid="text-header-title"
         >
-          United Care Mobility
+          {t("app.title")}
         </span>
       </div>
 
@@ -73,12 +77,12 @@ export function DashboardHeader() {
               onValueChange={handleCityChange}
             >
               <SelectTrigger className="w-[200px] h-8 text-sm" data-testid="select-header-city">
-                <SelectValue placeholder="Select city" />
+                <SelectValue placeholder={t("common.selectCity")} />
               </SelectTrigger>
               <SelectContent>
                 {isSuperAdmin && (
                   <SelectItem value="all" data-testid="select-header-city-all">
-                    All Cities
+                    {t("common.allCities")}
                   </SelectItem>
                 )}
                 {activeCities.map((city) => (
@@ -99,10 +103,12 @@ export function DashboardHeader() {
         ) : null}
       </div>
 
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-1 flex-shrink-0">
         <Badge variant="secondary" className="hidden sm:inline-flex" data-testid="badge-header-role">
           {roleLabel}
         </Badge>
+        <LanguageSwitcher />
+        <ThemeToggle />
         <Link href="/users">
           <Button size="icon" variant="ghost" data-testid="button-header-settings">
             <Settings className="w-4 h-4" />

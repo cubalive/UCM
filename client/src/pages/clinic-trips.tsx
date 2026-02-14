@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useTranslation } from "react-i18next";
 import {
   Clock,
   MapPin,
@@ -114,15 +115,16 @@ function todayStr(): string {
 
 export default function ClinicTripsPage() {
   const [mainTab, setMainTab] = useState("dashboard");
+  const { t } = useTranslation();
 
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
       <div>
         <h1 className="text-xl font-semibold" data-testid="text-clinic-portal-title">
-          Clinic Portal
+          {t("clinic.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Dashboard, trips, patients, and reports
+          {t("clinic.dashboard")}, {t("clinic.trips").toLowerCase()}, {t("clinic.patients").toLowerCase()}, {t("clinic.reports").toLowerCase()}
         </p>
       </div>
 
@@ -130,19 +132,19 @@ export default function ClinicTripsPage() {
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="dashboard" data-testid="tab-clinic-dashboard" className="gap-1.5">
             <LayoutDashboard className="w-3.5 h-3.5" />
-            Dashboard
+            {t("clinic.dashboard")}
           </TabsTrigger>
           <TabsTrigger value="trips" data-testid="tab-clinic-trips" className="gap-1.5">
             <ClipboardList className="w-3.5 h-3.5" />
-            Trips
+            {t("clinic.trips")}
           </TabsTrigger>
           <TabsTrigger value="patients" data-testid="tab-clinic-patients" className="gap-1.5">
             <Users className="w-3.5 h-3.5" />
-            Patients
+            {t("clinic.patients")}
           </TabsTrigger>
           <TabsTrigger value="reports" data-testid="tab-clinic-reports" className="gap-1.5">
             <FileDown className="w-3.5 h-3.5" />
-            Reports
+            {t("clinic.reports")}
           </TabsTrigger>
         </TabsList>
 
