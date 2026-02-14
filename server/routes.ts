@@ -4316,12 +4316,18 @@ export async function registerRoutes(
             etaStale = cacheEntry.stale;
           } else {
             try {
-              const { etaMinutes: getEta } = await import("./lib/googleMaps");
-              const etaResult = await getEta(
+              const { googleDistanceMatrix } = await import("./lib/googleMaps");
+              const dmResult = await googleDistanceMatrix(
                 { lat: driverLastLat, lng: driverLastLng },
-                { lat: clinic.lat, lng: clinic.lng }
+                [{ lat: clinic.lat, lng: clinic.lng }]
               );
-              etaToClinic = etaResult.minutes;
+              const el = dmResult.elements[0];
+              if (el && el.status === "OK") {
+                etaToClinic = Math.round(el.durationSeconds / 60);
+              } else {
+                const dist = haversineDistanceMiles(driverLastLat, driverLastLng, clinic.lat, clinic.lng);
+                etaToClinic = Math.round((dist / 25) * 60);
+              }
               etaUpdatedAt = new Date().toISOString();
               etaStale = false;
               clinicEtaCache.set(trip.id, { eta: etaToClinic, stale: false, updatedAt: etaUpdatedAt });

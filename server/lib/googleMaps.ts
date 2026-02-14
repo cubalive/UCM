@@ -47,6 +47,7 @@ const geocodeCache = new TTLCache<GeocodeResult>(30 * 24 * 3600);
 const autocompleteCache = new TTLCache<AutocompleteResult[]>(600);
 const etaCache = new TTLCache<ETAResult>(60);
 const routeCache = new TTLCache<RouteResult>(90);
+const distanceMatrixCache = new TTLCache<DistanceMatrixResult>(60);
 
 export interface GeocodeResult {
   formattedAddress: string;
@@ -295,6 +296,126 @@ export async function buildRoute(
   };
 
   routeCache.set(key, result);
+  return result;
+}
+
+export interface DistanceMatrixElement {
+  durationSeconds: number;
+  distanceMeters: number;
+  status: string;
+}
+
+export interface DistanceMatrixResult {
+  elements: DistanceMatrixElement[];
+}
+
+let distanceMatrixAvailable = true;
+
+export async function googleDistanceMatrix(
+  origin: { lat: number; lng: number },
+  destinations: { lat: number; lng: number }[]
+): Promise<DistanceMatrixResult> {
+  if (!GOOGLE_MAPS_KEY) {
+    throw new Error("[DistanceMatrix] GOOGLE_MAPS_API_KEY not configured");
+  }
+  if (destinations.length === 0) {
+    return { elements: [] };
+  }
+
+  const originStr = `${origin.lat},${origin.lng}`;
+  const destStrs = destinations.map(d => `${d.lat},${d.lng}`);
+  const key = cacheKey("dm", originStr, ...destStrs);
+  const cached = distanceMatrixCache.get(key);
+  if (cached) return cached;
+
+  if (!distanceMatrixAvailable) {
+    return fallbackDirectionsEta(origin, destinations);
+  }
+
+  const destParam = destStrs.join("|");
+  const url =
+    `${GOOGLE_API_BASE}/distancematrix/json` +
+    `?origins=${encodeURIComponent(originStr)}` +
+    `&destinations=${encodeURIComponent(destParam)}` +
+    `&mode=driving&units=imperial` +
+    `&departure_time=now` +
+    `&key=${GOOGLE_MAPS_KEY}`;
+
+  let data: any;
+  try {
+    data = await googleFetch(url);
+  } catch (err: any) {
+    console.warn(`[DistanceMatrix] First attempt failed: ${err.message}. Retrying...`);
+    try {
+      await new Promise(r => setTimeout(r, 500));
+      data = await googleFetch(url);
+    } catch (retryErr: any) {
+      console.error(`[DistanceMatrix] Retry also failed, falling back to Directions API`);
+      return fallbackDirectionsEta(origin, destinations);
+    }
+  }
+
+  if (data.status === "REQUEST_DENIED") {
+    console.warn(`[DistanceMatrix] API key denied for Distance Matrix. Falling back to Directions API for all future requests.`);
+    distanceMatrixAvailable = false;
+    return fallbackDirectionsEta(origin, destinations);
+  }
+
+  if (data.status !== "OK") {
+    console.warn(`[DistanceMatrix] API error: ${data.status}. Falling back to Directions API.`);
+    return fallbackDirectionsEta(origin, destinations);
+  }
+
+  const row = data.rows?.[0];
+  if (!row || !row.elements) {
+    return fallbackDirectionsEta(origin, destinations);
+  }
+
+  const elements: DistanceMatrixElement[] = row.elements.map((el: any) => ({
+    durationSeconds: el.status === "OK" ? (el.duration_in_traffic?.value ?? el.duration?.value ?? 0) : -1,
+    distanceMeters: el.status === "OK" ? (el.distance?.value ?? 0) : -1,
+    status: el.status,
+  }));
+
+  const result: DistanceMatrixResult = { elements };
+  distanceMatrixCache.set(key, result);
+  return result;
+}
+
+function haversineDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function fallbackDirectionsEta(
+  origin: { lat: number; lng: number },
+  destinations: { lat: number; lng: number }[]
+): Promise<DistanceMatrixResult> {
+  const elements: DistanceMatrixElement[] = [];
+  for (const dest of destinations) {
+    try {
+      const eta = await etaMinutes(origin, dest);
+      elements.push({
+        durationSeconds: eta.minutes * 60,
+        distanceMeters: Math.round(eta.distanceMiles * 1609.344),
+        status: "OK",
+      });
+    } catch {
+      const distMeters = haversineDistanceMeters(origin.lat, origin.lng, dest.lat, dest.lng);
+      const distMiles = distMeters / 1609.344;
+      const etaSeconds = Math.round((distMiles / 25) * 3600);
+      elements.push({ durationSeconds: etaSeconds, distanceMeters: Math.round(distMeters), status: "OK" });
+    }
+  }
+  const result: DistanceMatrixResult = { elements };
+  distanceMatrixCache.set(
+    cacheKey("dm", `${origin.lat},${origin.lng}`, ...destinations.map(d => `${d.lat},${d.lng}`)),
+    result
+  );
   return result;
 }
 

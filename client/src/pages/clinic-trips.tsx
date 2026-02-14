@@ -666,7 +666,7 @@ function LiveTripCards({ trips, selectedTrip, onSelectTrip }: {
                     ) : trip.etaToClinic != null ? (
                       <div data-testid={`text-eta-clinic-${trip.tripId}`}>
                         <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                          ~{trip.etaToClinic} min
+                          Arriving in ~{trip.etaToClinic} min
                         </span>
                         {trip.etaUpdatedAt && (
                           <p className="text-xs text-muted-foreground">

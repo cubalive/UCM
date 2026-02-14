@@ -101,6 +101,7 @@ interface DriverInfo {
   active_trip_public_id: string | null;
   active_trip_status: string | null;
   cityId: number;
+  group: string;
 }
 
 function formatTimeAgo(dateStr: string | null): string {
@@ -690,6 +691,40 @@ function AssignDriverPanel({
     ? [...availableDrivers, ...(driverStatus.on_trip || []), ...(driverStatus.paused || []), ...(driverStatus.hold || [])]
     : availableDrivers;
 
+  const availableIds = availableDrivers.map(d => d.id);
+  const hasPickupCoords = trip?.pickupLat != null && trip?.pickupLng != null;
+
+  const etaQuery = useQuery<{ drivers: { driver_id: number; eta_minutes: number | null; distance_miles: number | null }[] }>({
+    queryKey: ["/api/dispatch/nearest-driver", trip?.id, availableIds.join(",")],
+    queryFn: () => apiFetch("/api/dispatch/nearest-driver", token, {
+      method: "POST",
+      body: JSON.stringify({
+        pickupLat: trip.pickupLat,
+        pickupLng: trip.pickupLng,
+        driverIds: availableIds,
+      }),
+    }),
+    enabled: !!token && hasPickupCoords && availableIds.length > 0,
+    refetchInterval: 60000,
+    staleTime: 55000,
+  });
+
+  const etaMap = new Map<number, { eta: number | null; dist: number | null }>();
+  if (etaQuery.data?.drivers) {
+    for (const d of etaQuery.data.drivers) {
+      etaMap.set(d.driver_id, { eta: d.eta_minutes, dist: d.distance_miles });
+    }
+  }
+
+  const sortedDrivers = [...allAssignableDrivers].sort((a, b) => {
+    const etaA = etaMap.get(a.id)?.eta;
+    const etaB = etaMap.get(b.id)?.eta;
+    if (etaA != null && etaB != null) return etaA - etaB;
+    if (etaA != null) return -1;
+    if (etaB != null) return 1;
+    return 0;
+  });
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -707,7 +742,7 @@ function AssignDriverPanel({
           </Button>
         </div>
 
-        {allAssignableDrivers.length === 0 ? (
+        {sortedDrivers.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2" data-testid="text-no-drivers-available">
             No {showAll ? "online" : "available"} drivers in this city.
           </p>
@@ -717,20 +752,28 @@ function AssignDriverPanel({
               <SelectValue placeholder="Choose a driver" />
             </SelectTrigger>
             <SelectContent>
-              {allAssignableDrivers.map((d) => (
-                <SelectItem key={d.id} value={d.id.toString()} data-testid={`option-driver-${d.id}`}>
-                  <span className="flex items-center gap-2">
-                    <CircleDot className={`w-3 h-3 ${
-                      d.dispatch_status === "available" ? "text-green-500" :
-                      d.dispatch_status === "enroute" ? "text-blue-500" :
-                      "text-amber-500"
-                    }`} />
-                    {d.name}
-                    {d.vehicle_name ? ` - ${d.vehicle_name}` : " (No Vehicle)"}
-                    {d.active_trip_public_id ? ` [${d.active_trip_public_id}]` : ""}
-                  </span>
-                </SelectItem>
-              ))}
+              {sortedDrivers.map((d) => {
+                const etaInfo = etaMap.get(d.id);
+                return (
+                  <SelectItem key={d.id} value={d.id.toString()} data-testid={`option-driver-${d.id}`}>
+                    <span className="flex items-center gap-2">
+                      <CircleDot className={`w-3 h-3 ${
+                        d.dispatch_status === "available" ? "text-green-500" :
+                        d.dispatch_status === "enroute" ? "text-blue-500" :
+                        "text-amber-500"
+                      }`} />
+                      {d.name}
+                      {d.vehicle_name ? ` - ${d.vehicle_name}` : " (No Vehicle)"}
+                      {d.active_trip_public_id ? ` [${d.active_trip_public_id}]` : ""}
+                      {etaInfo?.eta != null && (
+                        <span className="text-xs text-muted-foreground" data-testid={`text-driver-eta-${d.id}`}>
+                          ({etaInfo.eta} min{etaInfo.dist != null ? ` / ${etaInfo.dist} mi` : ""})
+                        </span>
+                      )}
+                    </span>
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         )}
@@ -739,7 +782,7 @@ function AssignDriverPanel({
         <Button
           onClick={() => {
             if (!selectedDriverId) return;
-            const driver = allAssignableDrivers.find((d) => d.id === parseInt(selectedDriverId));
+            const driver = sortedDrivers.find((d) => d.id === parseInt(selectedDriverId));
             onAssign(parseInt(selectedDriverId), driver?.vehicle_id || undefined);
           }}
           disabled={loading || !selectedDriverId}
