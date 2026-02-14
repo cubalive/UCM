@@ -3,9 +3,9 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, clinics, patients, vehicleMakes, vehicleModels } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, clinics, patients, vehicleMakes, vehicleModels, trips } from "@shared/schema";
 import { z } from "zod";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, isNull } from "drizzle-orm";
 import { db } from "./db";
 import { getSupabaseServer } from "../lib/supabaseClient";
 import { registerMapsRoutes } from "./lib/mapsRoutes";
@@ -1222,6 +1222,38 @@ export async function registerRoutes(
         cityId: patient?.cityId ?? existing.cityId,
       });
       res.json(patient);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/my-trips", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const driverTrips = await storage.getTripsByDriverAndDate(user.driverId, date);
+      const allDriverTrips = await db.select().from(trips).where(
+        and(
+          eq(trips.driverId, user.driverId),
+          isNull(trips.deletedAt)
+        )
+      );
+      const todayTrips = driverTrips;
+      res.json({ todayTrips, allTrips: allDriverTrips.slice(0, 100) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/profile", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+      const vehicle = driver.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
+      res.json({ driver, vehicle });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

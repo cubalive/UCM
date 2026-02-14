@@ -43,6 +43,8 @@ import {
   Activity,
   DollarSign,
   Zap,
+  Car,
+  History,
 } from "lucide-react";
 
 interface NavItem {
@@ -84,14 +86,26 @@ export function AppSidebar() {
   const role = user?.role || "";
 
   const upperRole = role.toUpperCase();
-  const visibleNav = navItems.filter((item) => {
-    if (item.url === "/live-map" && ["VIEWER", "DRIVER"].includes(upperRole)) return true;
-    return can(role, item.resource);
-  });
-  const visibleAdmin = adminItems.filter((item) => {
-    if (item.url === "/archive" && ["DISPATCH", "ADMIN", "SUPER_ADMIN"].includes(upperRole)) return true;
-    return can(role, item.resource);
-  });
+  const isDriver = upperRole === "DRIVER";
+
+  const driverNavItems: NavItem[] = [
+    { title: "My Trips", url: "/driver", icon: Car, resource: "trips" },
+    { title: "Trip History", url: "/driver/history", icon: History, resource: "trips" },
+    { title: "Live Map", url: "/live-map", icon: Map, resource: "trips" },
+  ];
+
+  const visibleNav = isDriver
+    ? driverNavItems
+    : navItems.filter((item) => {
+        if (item.url === "/live-map" && ["VIEWER", "DRIVER"].includes(upperRole)) return true;
+        return can(role, item.resource);
+      });
+  const visibleAdmin = isDriver
+    ? []
+    : adminItems.filter((item) => {
+        if (item.url === "/archive" && ["DISPATCH", "ADMIN", "SUPER_ADMIN"].includes(upperRole)) return true;
+        return can(role, item.resource);
+      });
 
   const initials = user
     ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
