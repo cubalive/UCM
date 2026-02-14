@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, Trash2 } from "lucide-react";
+import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, Trash2, Clock, Repeat } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 
@@ -43,14 +43,30 @@ export default function PatientsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: any) =>
-      apiFetch("/api/patients", token, {
+    mutationFn: async (data: any) => {
+      const { scheduleDays, scheduleTime, ...patientData } = data;
+      const patient = await apiFetch("/api/patients", token, {
         method: "POST",
-        body: JSON.stringify({ ...data, cityId: selectedCity?.id }),
-      }),
+        body: JSON.stringify({ ...patientData, cityId: selectedCity?.id }),
+      });
+      if (scheduleDays?.length > 0 && scheduleTime && selectedCity?.id) {
+        await apiFetch("/api/recurring-schedules", token, {
+          method: "POST",
+          body: JSON.stringify({
+            patientId: patient.id,
+            cityId: selectedCity.id,
+            days: scheduleDays,
+            pickupTime: scheduleTime,
+            startDate: new Date().toISOString().split("T")[0],
+          }),
+        });
+      }
+      return patient;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/recurring-schedules"] });
       setOpen(false);
       toast({ title: "Patient added" });
     },
@@ -58,14 +74,42 @@ export default function PatientsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) =>
-      apiFetch(`/api/patients/${id}`, token, {
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const { scheduleDays, scheduleTime, ...patientData } = data;
+      const patient = await apiFetch(`/api/patients/${id}`, token, {
         method: "PATCH",
-        body: JSON.stringify(data),
-      }),
+        body: JSON.stringify(patientData),
+      });
+      if (scheduleDays?.length > 0 && scheduleTime && selectedCity?.id) {
+        const existing = await apiFetch(`/api/recurring-schedules?patientId=${id}`, token);
+        if (existing?.length > 0) {
+          await apiFetch(`/api/recurring-schedules/${existing[0].id}`, token, {
+            method: "PATCH",
+            body: JSON.stringify({
+              days: scheduleDays,
+              pickupTime: scheduleTime,
+              active: true,
+            }),
+          });
+        } else {
+          await apiFetch("/api/recurring-schedules", token, {
+            method: "POST",
+            body: JSON.stringify({
+              patientId: id,
+              cityId: selectedCity.id,
+              days: scheduleDays,
+              pickupTime: scheduleTime,
+              startDate: new Date().toISOString().split("T")[0],
+            }),
+          });
+        }
+      }
+      return patient;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/recurring-schedules"] });
       setEditPatient(null);
       toast({ title: "Patient updated" });
     },
@@ -243,6 +287,35 @@ function buildStructuredNotes(notes: string, recurringSchedule: string): string 
   return parts.join("\n");
 }
 
+const WEEKDAYS = [
+  { value: "Mon", label: "Mon" },
+  { value: "Tue", label: "Tue" },
+  { value: "Wed", label: "Wed" },
+  { value: "Thu", label: "Thu" },
+  { value: "Fri", label: "Fri" },
+  { value: "Sat", label: "Sat" },
+  { value: "Sun", label: "Sun" },
+];
+
+function parseDaysFromScheduleString(s: string): string[] {
+  const dayPart = s.split(/\s+\d/)[0] || s;
+  return dayPart.split("/").map(d => d.trim()).filter(d => WEEKDAYS.some(w => w.value === d));
+}
+
+function parseTimeFromScheduleString(s: string): string {
+  const match = s.match(/(\d{1,2}:\d{2})\s*(AM|PM)?/i);
+  if (!match) return "";
+  let [, time, ampm] = match;
+  if (ampm) {
+    const [h, m] = time.split(":");
+    let hr = parseInt(h);
+    if (ampm.toUpperCase() === "PM" && hr !== 12) hr += 12;
+    if (ampm.toUpperCase() === "AM" && hr === 12) hr = 0;
+    return `${hr.toString().padStart(2, "0")}:${m}`;
+  }
+  return time;
+}
+
 const mobilityOptions = [
   { value: "ambulatory", label: "Ambulatory" },
   { value: "wheelchair", label: "Wheelchair" },
@@ -258,6 +331,13 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
   const { token } = useAuth();
   const { toast } = useToast();
   const parsed = parseStructuredNotes(initialData?.notes || "");
+
+  const parsedDays = parsed.recurringSchedule
+    ? parseDaysFromScheduleString(parsed.recurringSchedule)
+    : [];
+  const parsedTime = parsed.recurringSchedule
+    ? parseTimeFromScheduleString(parsed.recurringSchedule)
+    : "";
 
   const initialAddress: StructuredAddress | null = initialData?.address
     ? {
@@ -279,7 +359,8 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
     dateOfBirth: initialData?.dateOfBirth || "",
     insuranceId: initialData?.insuranceId || "",
     notes: parsed.notes,
-    recurringSchedule: parsed.recurringSchedule,
+    scheduleDays: parsedDays as string[],
+    scheduleTime: parsedTime,
     mobilityType: initialData?.wheelchairRequired ? "wheelchair" : "ambulatory",
     active: initialData?.active ?? true,
   });
@@ -300,7 +381,10 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
       toast({ title: "Coordinates required", description: "Please clear and re-select the address.", variant: "destructive" });
       return;
     }
-    const combinedNotes = buildStructuredNotes(form.notes, form.recurringSchedule);
+    const scheduleStr = form.scheduleDays.length > 0 && form.scheduleTime
+      ? `${form.scheduleDays.join("/")} ${form.scheduleTime}`
+      : "";
+    const combinedNotes = buildStructuredNotes(form.notes, scheduleStr);
     onSubmit({
       firstName: form.firstName,
       lastName: form.lastName,
@@ -318,6 +402,8 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
       notes: combinedNotes,
       wheelchairRequired: form.mobilityType === "wheelchair" || form.mobilityType === "stretcher",
       active: form.active,
+      scheduleDays: form.scheduleDays,
+      scheduleTime: form.scheduleTime,
     });
   };
 
@@ -367,13 +453,39 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
         </Select>
       </div>
       <div className="space-y-2">
-        <Label>Recurring Schedule</Label>
-        <Input
-          value={form.recurringSchedule}
-          onChange={(e) => setForm({ ...form, recurringSchedule: e.target.value })}
-          placeholder="e.g. Mon/Wed/Fri 9:00 AM"
-          data-testid="input-patient-schedule"
-        />
+        <Label className="flex items-center gap-1"><Repeat className="w-3.5 h-3.5" /> Recurring Schedule</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {WEEKDAYS.map((day) => (
+            <Button
+              key={day.value}
+              type="button"
+              variant={form.scheduleDays.includes(day.value) ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                const next = form.scheduleDays.includes(day.value)
+                  ? form.scheduleDays.filter((d: string) => d !== day.value)
+                  : [...form.scheduleDays, day.value];
+                setForm({ ...form, scheduleDays: next });
+              }}
+              data-testid={`button-day-${day.value}`}
+            >
+              {day.label}
+            </Button>
+          ))}
+        </div>
+        {form.scheduleDays.length > 0 && (
+          <div className="flex items-center gap-2 mt-2">
+            <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              type="time"
+              value={form.scheduleTime}
+              onChange={(e) => setForm({ ...form, scheduleTime: e.target.value })}
+              className="w-36"
+              data-testid="input-schedule-time"
+            />
+            <span className="text-xs text-muted-foreground">Pickup time</span>
+          </div>
+        )}
       </div>
       <div className="space-y-2">
         <Label>Notes</Label>
