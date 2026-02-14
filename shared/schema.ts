@@ -659,3 +659,18 @@ export type InsertDriverScore = z.infer<typeof insertDriverScoreSchema>;
 export const insertAssignmentBatchSchema = createInsertSchema(assignmentBatches).omit({ id: true, createdAt: true });
 export type AssignmentBatch = typeof assignmentBatches.$inferSelect;
 export type InsertAssignmentBatch = z.infer<typeof insertAssignmentBatchSchema>;
+
+export const recurringSchedules = pgTable("recurring_schedules", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  days: text("days").array().notNull(),
+  pickupTime: text("pickup_time").notNull(),
+  startDate: text("start_date").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertRecurringScheduleSchema = createInsertSchema(recurringSchedules).omit({ id: true, createdAt: true });
+export type RecurringSchedule = typeof recurringSchedules.$inferSelect;
+export type InsertRecurringSchedule = z.infer<typeof insertRecurringScheduleSchema>;
