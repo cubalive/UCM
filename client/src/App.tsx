@@ -33,6 +33,8 @@ import OpsHealthPage from "@/pages/ops-health";
 import LiveMapPage from "@/pages/live-map";
 import ArchivePage from "@/pages/archive";
 import AutoAssignmentPage from "@/pages/auto-assignment";
+import DispatchBoardPage from "@/pages/dispatch-board";
+import ClinicTripsPage from "@/pages/clinic-trips";
 import DriverDashboard from "@/pages/driver-dashboard";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
@@ -51,6 +53,7 @@ function LiveMapRoute() {
   const { user } = useAuth();
   if (!user) return <Redirect to="/unauthorized" />;
   const role = user.role.toUpperCase();
+  if (user.clinicId && role === "VIEWER") return <Redirect to="/unauthorized" />;
   const hasAccess = can(user.role, "dispatch") || ["VIEWER", "DRIVER"].includes(role);
   if (!hasAccess) return <Redirect to="/unauthorized" />;
   return <LiveMapPage />;
@@ -73,12 +76,22 @@ function DriverRoute({ component: Component }: { component: React.ComponentType 
   return <Component />;
 }
 
+function ClinicRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user } = useAuth();
+  if (!user) return <Redirect to="/unauthorized" />;
+  if (!user.clinicId) return <Redirect to="/unauthorized" />;
+  return <Component />;
+}
+
 function HomeRedirect() {
   const { user } = useAuth();
   if (!user) return null;
   const role = user.role.toUpperCase();
   if (role === "DRIVER") {
     return <Redirect to="/driver" />;
+  }
+  if (user.clinicId && role === "VIEWER") {
+    return <Redirect to="/clinic-trips" />;
   }
   if (can(user.role, "dashboard")) {
     return <DashboardPage />;
@@ -113,6 +126,8 @@ function Router() {
       <Route path="/ops-health">{() => <ProtectedRoute resource="dispatch" component={OpsHealthPage} />}</Route>
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>
       <Route path="/auto-assignment">{() => <ProtectedRoute resource="dispatch" component={AutoAssignmentPage} />}</Route>
+      <Route path="/dispatch-board">{() => <ProtectedRoute resource="dispatch" component={DispatchBoardPage} />}</Route>
+      <Route path="/clinic-trips">{() => <ClinicRoute component={ClinicTripsPage} />}</Route>
       <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>

@@ -1366,6 +1366,83 @@ export async function registerRoutes(
     }
   });
 
+  async function enrichTripsWithRelations(tripList: any[]) {
+    const allCities = await storage.getCities();
+    const cityMap = new Map(allCities.map(c => [c.id, c]));
+    return Promise.all(tripList.map(async (t) => {
+      const patient = t.patientId ? await storage.getPatient(t.patientId) : null;
+      const clinic = t.clinicId ? await storage.getClinic(t.clinicId) : null;
+      const driver = t.driverId ? await storage.getDriver(t.driverId) : null;
+      const vehicle = driver?.vehicleId ? await storage.getVehicle(driver.vehicleId) : (t.vehicleId ? await storage.getVehicle(t.vehicleId) : null);
+      const city = cityMap.get(t.cityId);
+      return {
+        ...t,
+        patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
+        clinicName: clinic?.name || null,
+        driverName: driver ? `${driver.firstName} ${driver.lastName}` : null,
+        driverPhone: driver?.phone || null,
+        driverLastLat: driver?.lastLat || null,
+        driverLastLng: driver?.lastLng || null,
+        driverLastSeenAt: driver?.lastSeenAt || null,
+        vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
+        vehicleType: vehicle?.type || null,
+        cityName: city?.name || null,
+      };
+    }));
+  }
+
+  app.get("/api/dispatch/trips/:tab", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
+      if (cityId === -1) return res.status(403).json({ message: "Access denied" });
+
+      const tab = req.params.tab;
+      const search = (req.query.search as string || "").toLowerCase().trim();
+      const conditions: any[] = [isNull(trips.deletedAt)];
+      if (cityId && cityId > 0) conditions.push(eq(trips.cityId, cityId));
+
+      if (tab === "unassigned") {
+        conditions.push(isNull(trips.driverId));
+        conditions.push(
+          inArray(trips.approvalStatus, ["approved"]),
+        );
+        conditions.push(
+          inArray(trips.status, ["SCHEDULED", "ASSIGNED"]),
+        );
+      } else if (tab === "scheduled") {
+        conditions.push(sql`${trips.driverId} IS NOT NULL`);
+        conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));
+      } else if (tab === "active") {
+        conditions.push(inArray(trips.status, ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"]));
+      } else if (tab === "completed") {
+        conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
+      } else {
+        return res.status(400).json({ message: "Invalid tab. Use: unassigned, scheduled, active, completed" });
+      }
+
+      const result = await db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt));
+      const enriched = await enrichTripsWithRelations(result);
+
+      if (search) {
+        const filtered = enriched.filter((t: any) =>
+          (t.patientName && t.patientName.toLowerCase().includes(search)) ||
+          (t.clinicName && t.clinicName.toLowerCase().includes(search)) ||
+          (t.driverName && t.driverName.toLowerCase().includes(search)) ||
+          (t.publicId && t.publicId.toLowerCase().includes(search)) ||
+          (t.pickupAddress && t.pickupAddress.toLowerCase().includes(search)) ||
+          (t.dropoffAddress && t.dropoffAddress.toLowerCase().includes(search))
+        );
+        return res.json(filtered);
+      }
+
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Phase 2: Assign driver to trip
   app.patch("/api/trips/:id/assign", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
@@ -2727,6 +2804,55 @@ export async function registerRoutes(
         }
       }
       res.json({ total: allClinics.length, mismatched });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/clinic/trips", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+      const statusFilter = (req.query.status as string || "active").toLowerCase();
+      const conditions: any[] = [
+        eq(trips.clinicId, user.clinicId),
+        isNull(trips.deletedAt),
+      ];
+
+      if (statusFilter === "active") {
+        conditions.push(
+          inArray(trips.status, ["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"])
+        );
+      } else if (statusFilter === "scheduled") {
+        conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));
+      } else if (statusFilter === "completed") {
+        conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
+      }
+
+      const result = await db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt));
+      const enriched = await enrichTripsWithRelations(result);
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/clinic/trips/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(tripId);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (trip.clinicId !== user.clinicId) return res.status(403).json({ message: "Access denied" });
+
+      const [enriched] = await enrichTripsWithRelations([trip]);
+      res.json(enriched);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

@@ -45,6 +45,8 @@ import {
   Zap,
   Car,
   History,
+  ClipboardCheck,
+  Stethoscope,
 } from "lucide-react";
 
 interface NavItem {
@@ -66,6 +68,7 @@ const navItems: NavItem[] = [
   { title: "Vehicles", url: "/vehicles", icon: Truck, resource: "vehicles" },
   { title: "Clinics", url: "/clinics", icon: Building2, resource: "clinics" },
   { title: "Invoices", url: "/invoices", icon: FileText, resource: "invoices" },
+  { title: "Dispatch Board", url: "/dispatch-board", icon: ClipboardCheck, resource: "dispatch" },
   { title: "Ops Health", url: "/ops-health", icon: Activity, resource: "dispatch" },
   { title: "Auto Assign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
 ];
@@ -94,8 +97,17 @@ export function AppSidebar() {
     { title: "Live Map", url: "/live-map", icon: Map, resource: "trips" },
   ];
 
+  const isClinic = !!user?.clinicId;
+
+  const clinicNavItems: NavItem[] = [
+    { title: "My Trips", url: "/clinic-trips", icon: Stethoscope, resource: "trips" },
+    { title: "Invoices", url: "/invoices", icon: FileText, resource: "invoices" },
+  ];
+
   const visibleNav = isDriver
     ? driverNavItems
+    : isClinic && upperRole === "VIEWER"
+    ? clinicNavItems
     : navItems.filter((item) => {
         if (item.url === "/live-map" && ["VIEWER", "DRIVER"].includes(upperRole)) return true;
         return can(role, item.resource);
