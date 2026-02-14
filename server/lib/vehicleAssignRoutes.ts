@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getUserCityIds, type AuthRequest } from "../auth";
 import { z } from "zod";
-import { runVehicleAutoAssignForCity } from "./vehicleAutoAssign";
+import { runVehicleAutoAssignForCity, isAutoAssignSchedulerRunning, getLastRunTimestamp } from "./vehicleAutoAssign";
 
 export function registerVehicleAssignRoutes(app: Express) {
 
@@ -430,6 +430,56 @@ export function registerVehicleAssignRoutes(app: Express) {
         });
       } catch (err: any) {
         res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.get("/api/assignments/health", async (_req, res) => {
+    try {
+      const cities = await storage.getCities();
+      const allSettings = await storage.getAllCitySettings();
+      const enabledCities = allSettings.filter(s => s.autoAssignEnabled).length;
+      res.json({
+        ok: true,
+        schedulerRunning: isAutoAssignSchedulerRunning(),
+        lastRunAt: getLastRunTimestamp(),
+        totalCities: cities.length,
+        autoAssignEnabledCities: enabledCities,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.post("/api/assignments/run-today",
+    authMiddleware,
+    requireRole("SUPER_ADMIN"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const cities = await storage.getCities();
+        const allSettings = await storage.getAllCitySettings();
+        const results: Record<string, { assigned: number; skipped: number; reused: number; error?: string }> = {};
+
+        for (const city of cities) {
+          if (!city.active) continue;
+          const settings = allSettings.find(s => s.cityId === city.id);
+          if (!settings || !settings.autoAssignEnabled) {
+            results[city.name] = { assigned: 0, skipped: 0, reused: 0, error: "auto-assign disabled" };
+            continue;
+          }
+
+          try {
+            const result = await runVehicleAutoAssignForCity(city, settings);
+            results[city.name] = result;
+          } catch (cityErr: any) {
+            results[city.name] = { assigned: 0, skipped: 0, reused: 0, error: cityErr.message };
+            console.error(`[Assignments] run-today error for ${city.name}: ${cityErr.message}`);
+          }
+        }
+
+        res.json({ ok: true, results });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, message: err.message });
       }
     }
   );

@@ -116,6 +116,15 @@ export async function runVehicleAutoAssignForCity(city: City, settings: CitySett
 }
 
 let schedulerInterval: NodeJS.Timeout | null = null;
+let lastRunAt: Date | null = null;
+
+export function isAutoAssignSchedulerRunning(): boolean {
+  return schedulerInterval !== null;
+}
+
+export function getLastRunTimestamp(): string | null {
+  return lastRunAt ? lastRunAt.toISOString() : null;
+}
 
 export function startVehicleAutoAssignScheduler() {
   console.log("[VehicleAutoAssign] Scheduler started (checks every 60s)");
@@ -153,6 +162,7 @@ export function startVehicleAutoAssignScheduler() {
 
         console.log(`[VehicleAutoAssign] Running for ${city.name} (${today} ${triggerTime})`);
         const result = await runVehicleAutoAssignForCity(city, settings);
+        lastRunAt = new Date();
         console.log(`[VehicleAutoAssign] ${city.name}: assigned=${result.assigned}, reused=${result.reused}, skipped=${result.skipped}`);
       }
     } catch (err: any) {
