@@ -73,9 +73,9 @@ export function registerMapsRoutes(app: Express): void {
   });
 
   app.get("/api/maps/client-key", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "DRIVER"), (_req: Request, res: Response) => {
-    const clientKey = GOOGLE_MAPS_BROWSER_KEY || GOOGLE_MAPS_KEY;
+    const clientKey = GOOGLE_MAPS_BROWSER_KEY;
     if (!clientKey) {
-      return res.status(503).json({ key: null, message: "Google Maps API key not configured" });
+      return res.status(503).json({ key: null, message: "Google Maps browser API key not configured. Set GOOGLE_MAPS_BROWSER_KEY." });
     }
     res.json({ key: clientKey });
   });

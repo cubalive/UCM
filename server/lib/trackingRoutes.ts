@@ -11,8 +11,24 @@ function generateToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
+const mapsKeyRateLimit = new Map<string, { count: number; resetAt: number }>();
+const MAPS_KEY_RATE_LIMIT = 30;
+const MAPS_KEY_RATE_WINDOW = 60_000;
+
 export function registerTrackingRoutes(app: Express) {
-  app.get("/api/public/maps/key", (_req, res) => {
+  app.get("/api/public/maps/key", (req, res) => {
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+    const now = Date.now();
+    const entry = mapsKeyRateLimit.get(ip);
+    if (entry && now < entry.resetAt) {
+      entry.count++;
+      if (entry.count > MAPS_KEY_RATE_LIMIT) {
+        return res.status(429).json({ key: null, message: "Rate limit exceeded" });
+      }
+    } else {
+      mapsKeyRateLimit.set(ip, { count: 1, resetAt: now + MAPS_KEY_RATE_WINDOW });
+    }
+
     if (GOOGLE_MAPS_BROWSER_KEY) {
       res.json({ key: GOOGLE_MAPS_BROWSER_KEY });
     } else {
