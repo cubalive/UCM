@@ -1,0 +1,64 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Fix Dashboard driver metrics by separating:
+1) Enabled Drivers (active in system)
+2) On-Shift Drivers (online/available)
+3) On-Trip Drivers (currently in an active trip)
+
+REQUIREMENTS:
+A) Define server-side metrics (single source of truth):
+- enabledDrivers:
+  count drivers where driver.status in ['ACTIVE','ENABLED'] (or equivalent)
+- onShiftDrivers:
+  count drivers where driver.is_online == true AND driver.on_hold != true
+  (if no is_online field exists, use latest driver_presence heartbeat within last 2 minutes)
+- onTripDrivers:
+  count unique drivers with a trip in statuses:
+   ['ASSIGNED','ENROUTE','ARRIVED','PICKED_UP'] (exclude COMPLETED/CANCELLED)
+  AND trip.assigned_driver_id not null
+
+B) Add a single endpoint for dashboard stats:
+GET /api/dashboard/stats
+Return:
+{
+ enabledDrivers,
+ onShiftDrivers,
+ onTripDrivers,
+ connectedDrivers,   // optional: heartbeat within 2 minutes
+ generatedAt
+}
+
+C) Fix UI:
+- Replace current "Active Drivers" card with three cards:
+  "Enabled Drivers", "On Shift", "On Trip"
+- In the driver list section:
+  Default tab = "On Shift"
+  Add tab/filter = "On Trip"
+- Ensure the number in the list header matches the filter count.
+
+D) Edge cases:
+- If driver is online but also on a trip, show them in On Trip list (not in On Shift),
+  or show in both but clearly label "On Trip" (choose one and keep consistent).
+
+E) Verification:
+- With 3 enabled drivers, 1 online, 1 on trip:
+  enabledDrivers=3
+  onShiftDrivers=1 (or 0 if that 1 is the one on trip)
+  onTripDrivers=1
+- Provide screenshots or logged outputs of counts.
+
+OUTPUT:
+- Files changed
+- New/updated schema usage (no migrations unless absolutely necessary)
+- Example JSON from /api/dashboard/stats

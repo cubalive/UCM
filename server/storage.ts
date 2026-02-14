@@ -16,6 +16,7 @@ import {
   type OpsAlertLog, type InsertOpsAlertLog, type ClinicAlertLog, type InsertClinicAlertLog,
   type ClinicHelpRequest, type InsertClinicHelpRequest,
   type RouteBatch, type InsertRouteBatch, type DriverScore, type InsertDriverScore,
+  recurringSchedules, type RecurringSchedule, type InsertRecurringSchedule,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -159,6 +160,13 @@ export interface IStorage {
   createClinicHelpRequest(data: InsertClinicHelpRequest): Promise<ClinicHelpRequest>;
   getClinicHelpRequests(clinicId?: number): Promise<ClinicHelpRequest[]>;
   resolveClinicHelpRequest(id: number, userId: number): Promise<ClinicHelpRequest | undefined>;
+
+  getRecurringSchedulesByPatient(patientId: number): Promise<RecurringSchedule[]>;
+  getRecurringSchedulesByCity(cityId: number): Promise<RecurringSchedule[]>;
+  getActiveRecurringSchedules(): Promise<RecurringSchedule[]>;
+  createRecurringSchedule(data: InsertRecurringSchedule): Promise<RecurringSchedule>;
+  updateRecurringSchedule(id: number, data: Partial<RecurringSchedule>): Promise<RecurringSchedule | undefined>;
+  deleteRecurringSchedule(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1157,6 +1165,32 @@ export class DatabaseStorage implements IStorage {
       milesPerDriver,
       activeDrivers: driversWithTrips.size,
     };
+  }
+
+  async getRecurringSchedulesByPatient(patientId: number): Promise<RecurringSchedule[]> {
+    return db.select().from(recurringSchedules).where(eq(recurringSchedules.patientId, patientId)).orderBy(desc(recurringSchedules.createdAt));
+  }
+
+  async getRecurringSchedulesByCity(cityId: number): Promise<RecurringSchedule[]> {
+    return db.select().from(recurringSchedules).where(and(eq(recurringSchedules.cityId, cityId), eq(recurringSchedules.active, true))).orderBy(desc(recurringSchedules.createdAt));
+  }
+
+  async getActiveRecurringSchedules(): Promise<RecurringSchedule[]> {
+    return db.select().from(recurringSchedules).where(eq(recurringSchedules.active, true));
+  }
+
+  async createRecurringSchedule(data: InsertRecurringSchedule): Promise<RecurringSchedule> {
+    const [schedule] = await db.insert(recurringSchedules).values(data).returning();
+    return schedule;
+  }
+
+  async updateRecurringSchedule(id: number, data: Partial<RecurringSchedule>): Promise<RecurringSchedule | undefined> {
+    const [schedule] = await db.update(recurringSchedules).set(data).where(eq(recurringSchedules.id, id)).returning();
+    return schedule;
+  }
+
+  async deleteRecurringSchedule(id: number): Promise<void> {
+    await db.delete(recurringSchedules).where(eq(recurringSchedules.id, id));
   }
 }
 
