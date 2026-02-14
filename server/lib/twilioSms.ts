@@ -83,6 +83,8 @@ export type TripNotifyStatus =
   | "driver_assigned"
   | "en_route"
   | "arriving_soon"
+  | "eta_10"
+  | "eta_5"
   | "arrived"
   | "picked_up"
   | "completed"
@@ -120,6 +122,18 @@ const TEMPLATES: Record<TripNotifyStatus, (v: TemplateVars) => string> = {
       ? ` Track: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
       : v.tracking_url ? ` Track: ${v.tracking_url}` : "";
     return `${PREFIX} Your driver will arrive in ${eta}.${mapLink}${OPT_OUT}`;
+  },
+  eta_10: (v) => {
+    const mapLink = v.pickup_lat && v.pickup_lng
+      ? ` Track: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
+      : "";
+    return `${PREFIX} ${v.driver_name || "Your driver"} is about 10 minutes away.${mapLink}${OPT_OUT}`;
+  },
+  eta_5: (v) => {
+    const mapLink = v.pickup_lat && v.pickup_lng
+      ? ` Track: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
+      : "";
+    return `${PREFIX} ${v.driver_name || "Your driver"} is about 5 minutes away.${mapLink}${OPT_OUT}`;
   },
   arrived: () =>
     `${PREFIX} Your driver has arrived.${OPT_OUT}`,

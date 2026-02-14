@@ -4,7 +4,8 @@ import { autoNotifyPatient } from "./dispatchAutoSms";
 import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 
-const ETA_INTERVAL_MS = 60_000;
+const ETA_INTERVAL_MS = 120_000;
+const TEN_MIN_THRESHOLD = 10;
 const FIVE_MIN_THRESHOLD = 5;
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
@@ -39,13 +40,20 @@ async function recalculateActiveETAs() {
           lastEtaUpdatedAt: new Date(),
         } as any);
 
-        if (eta.minutes <= FIVE_MIN_THRESHOLD && !trip.fiveMinAlertSent) {
-          await storage.updateTrip(trip.id, {
-            fiveMinAlertSent: true,
-          } as any);
+        if (eta.minutes <= TEN_MIN_THRESHOLD) {
+          const alreadySent10 = await storage.hasSmsBeenSent(trip.id, "eta_10");
+          if (!alreadySent10) {
+            autoNotifyPatient(trip.id, "eta_10", { eta_minutes: eta.minutes });
+            console.log(`[ETA-ENGINE] 10-min alert triggered for trip ${trip.id}, ETA: ${eta.minutes}min`);
+          }
+        }
 
-          autoNotifyPatient(trip.id, "arriving_soon", { eta_minutes: eta.minutes });
-          console.log(`[ETA-ENGINE] 5-min alert triggered for trip ${trip.id}, ETA: ${eta.minutes}min`);
+        if (eta.minutes <= FIVE_MIN_THRESHOLD) {
+          const alreadySent5 = await storage.hasSmsBeenSent(trip.id, "eta_5");
+          if (!alreadySent5) {
+            autoNotifyPatient(trip.id, "eta_5", { eta_minutes: eta.minutes });
+            console.log(`[ETA-ENGINE] 5-min alert triggered for trip ${trip.id}, ETA: ${eta.minutes}min`);
+          }
         }
 
         console.log(`[ETA-ENGINE] Trip ${trip.id}: ETA ${eta.minutes}min, ${eta.distanceMiles}mi`);

@@ -17,6 +17,8 @@ const VALID_NOTIFY_STATUSES: TripNotifyStatus[] = [
   "driver_assigned",
   "en_route",
   "arriving_soon",
+  "eta_10",
+  "eta_5",
   "arrived",
   "picked_up",
   "completed",
@@ -34,6 +36,8 @@ const tripNotifySchema = z.object({
     "driver_assigned",
     "en_route",
     "arriving_soon",
+    "eta_10",
+    "eta_5",
     "arrived",
     "picked_up",
     "completed",
@@ -248,6 +252,63 @@ export function registerSmsRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.post(
+    "/api/sms/simulate-eta",
+    authMiddleware,
+    requireRole("SUPER_ADMIN"),
+    async (req: AuthRequest, res) => {
+      try {
+        const schema = z.object({
+          tripId: z.number(),
+          etaMinutes: z.number().min(0).max(120),
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Required: tripId (number), etaMinutes (number 0-120)" });
+        }
+
+        const { tripId, etaMinutes: simEta } = parsed.data;
+
+        const trip = await storage.getTrip(tripId);
+        if (!trip) {
+          return res.status(404).json({ message: "Trip not found" });
+        }
+
+        const results: { threshold: string; action: string }[] = [];
+
+        if (simEta <= 10) {
+          const already10 = await storage.hasSmsBeenSent(tripId, "eta_10");
+          if (already10) {
+            results.push({ threshold: "eta_10", action: "skipped (already sent)" });
+          } else {
+            const { autoNotifyPatient } = await import("./dispatchAutoSms");
+            await autoNotifyPatient(tripId, "eta_10", { eta_minutes: simEta });
+            results.push({ threshold: "eta_10", action: "sent" });
+          }
+        } else {
+          results.push({ threshold: "eta_10", action: "not triggered (ETA > 10)" });
+        }
+
+        if (simEta <= 5) {
+          const already5 = await storage.hasSmsBeenSent(tripId, "eta_5");
+          if (already5) {
+            results.push({ threshold: "eta_5", action: "skipped (already sent)" });
+          } else {
+            const { autoNotifyPatient } = await import("./dispatchAutoSms");
+            await autoNotifyPatient(tripId, "eta_5", { eta_minutes: simEta });
+            results.push({ threshold: "eta_5", action: "sent" });
+          }
+        } else {
+          results.push({ threshold: "eta_5", action: "not triggered (ETA > 5)" });
+        }
+
+        res.json({ ok: true, tripId, simulatedEta: simEta, results });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
 
   app.post("/api/twilio/inbound", async (req, res) => {
     try {
