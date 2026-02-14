@@ -30,6 +30,8 @@ async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Pr
   return allowed.includes(cityId);
 }
 
+import { tripLockedGuard } from "./lib/tripLockGuard";
+
 function getCityIdFromRequest(req: AuthRequest): number | undefined {
   const fromQuery = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
   if (fromQuery && !isNaN(fromQuery)) return fromQuery;
@@ -1452,8 +1454,9 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
       const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
-      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
-      if (terminalStatuses.includes(trip.status)) {
+      if (tripLockedGuard(trip, req, res)) return;
+      const otherTerminal = ["CANCELLED", "NO_SHOW"];
+      if (otherTerminal.includes(trip.status)) {
         return res.status(400).json({ message: `Cannot assign driver to a ${trip.status.toLowerCase()} trip` });
       }
       const { driverId, vehicleId } = req.body;
@@ -1517,8 +1520,9 @@ export async function registerRoutes(
       if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
       const trip = await storage.getTrip(tripId);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
-      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
-      if (terminalStatuses.includes(trip.status)) {
+      if (tripLockedGuard(trip, req, res)) return;
+      const otherTerminalMsg = ["CANCELLED", "NO_SHOW"];
+      if (otherTerminalMsg.includes(trip.status)) {
         return res.status(400).json({ message: `Cannot send messages on a ${trip.status.toLowerCase()} trip` });
       }
       if (req.user!.role === "DRIVER") {
@@ -1740,8 +1744,9 @@ export async function registerRoutes(
       const existing = await storage.getTrip(id);
       if (!existing) return res.status(404).json({ message: "Trip not found" });
 
-      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
-      if (terminalStatuses.includes(existing.status)) {
+      if (tripLockedGuard(existing, req, res)) return;
+      const otherTerminalEdit = ["CANCELLED", "NO_SHOW"];
+      if (otherTerminalEdit.includes(existing.status)) {
         return res.status(400).json({ message: `Trip is ${existing.status.toLowerCase()} and locked. No changes allowed.` });
       }
 
@@ -1893,8 +1898,9 @@ export async function registerRoutes(
       const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
 
-      const lockStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
-      if (lockStatuses.includes(trip.status)) {
+      if (tripLockedGuard(trip, req, res)) return;
+      const statusLockOther = ["CANCELLED", "NO_SHOW"];
+      if (statusLockOther.includes(trip.status)) {
         return res.status(400).json({ message: `Trip is ${trip.status.toLowerCase()} and locked. No status changes allowed.` });
       }
 
@@ -1987,8 +1993,9 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
       const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
-      const terminalCheck = ["COMPLETED", "CANCELLED", "NO_SHOW"];
-      if (terminalCheck.includes(trip.status)) {
+      if (tripLockedGuard(trip, req, res)) return;
+      const cancelReqTerminal = ["CANCELLED", "NO_SHOW"];
+      if (cancelReqTerminal.includes(trip.status)) {
         return res.status(400).json({ message: `Trip is ${trip.status.toLowerCase()} and locked` });
       }
       const user = await storage.getUser(req.user!.userId);
@@ -2048,9 +2055,9 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
       const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
-      const terminalCheck2 = ["COMPLETED", "NO_SHOW"];
-      if (terminalCheck2.includes(trip.status)) {
-        return res.status(400).json({ message: `Trip is ${trip.status.toLowerCase()} and locked` });
+      if (tripLockedGuard(trip, req, res)) return;
+      if (trip.status === "NO_SHOW") {
+        return res.status(400).json({ message: "Trip is no_show and locked" });
       }
       if (trip.approvalStatus === "cancelled") {
         return res.status(400).json({ message: "Trip is already cancelled" });
@@ -3941,6 +3948,12 @@ export async function registerRoutes(
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
+  });
+
+  app.get("/api/app-config", authMiddleware, (req: AuthRequest, res) => {
+    res.json({
+      allowCompletedEdit: process.env.ALLOW_COMPLETED_EDIT === "true" && req.user?.role === "SUPER_ADMIN",
+    });
   });
 
   return httpServer;

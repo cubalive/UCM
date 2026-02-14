@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { tripLockedGuard } from "./tripLockGuard";
 import {
   sendSms,
   isTwilioConfigured,
@@ -126,6 +127,7 @@ export function registerSmsRoutes(app: Express) {
         if (!trip) {
           return res.status(404).json({ message: "Trip not found" });
         }
+        if (tripLockedGuard(trip, req, res)) return;
 
         const patient = await storage.getPatient(trip.patientId);
         if (!patient) {

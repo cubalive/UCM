@@ -961,6 +961,8 @@ function TripDetailDialog({
   const [editEstArrival, setEditEstArrival] = useState(trip.estimatedArrivalTime || "");
   const [editNotes, setEditNotes] = useState(trip.notes || "");
 
+  const isTripLocked = trip.status === "COMPLETED";
+
   const todayStr = getTodayInTimezone(cityTimezone);
 
   const isActiveTrip = trip.status === "ASSIGNED" || trip.status === "IN_PROGRESS";
@@ -1058,6 +1060,13 @@ function TripDetailDialog({
           </DialogTitle>
         </DialogHeader>
 
+        {isTripLocked && (
+          <div className="flex items-center gap-2 rounded-md bg-muted/50 border px-3 py-2" data-testid="banner-trip-locked">
+            <Lock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            <span className="text-sm text-muted-foreground">Completed trip — editing is locked.</span>
+          </div>
+        )}
+
         {editing ? (
           <div className="space-y-4">
             {(!isClinicUser || trip.approvalStatus === "pending") && (
@@ -1133,7 +1142,7 @@ function TripDetailDialog({
               {trip.cancelledReason && (
                 <span className="text-xs text-muted-foreground italic">Reason: {trip.cancelledReason}</span>
               )}
-              {(!isClinicUser || trip.approvalStatus === "pending" || trip.approvalStatus === "approved") && trip.approvalStatus !== "cancelled" && (
+              {(!isClinicUser || trip.approvalStatus === "pending" || trip.approvalStatus === "approved") && trip.approvalStatus !== "cancelled" && !isTripLocked && (
                 <Button size="sm" variant="outline" onClick={() => setEditing(true)} data-testid="button-edit-trip">
                   <Pencil className="w-4 h-4 mr-1" />
                   {isClinicUser && trip.approvalStatus !== "pending" ? "Add Notes" : "Edit"}
@@ -1253,7 +1262,7 @@ function TripDetailDialog({
                     variant="outline"
                     size="sm"
                     onClick={() => createTokenMutation.mutate()}
-                    disabled={createTokenMutation.isPending}
+                    disabled={createTokenMutation.isPending || isTripLocked}
                     data-testid="button-create-tracking-link"
                   >
                     <Link2 className="w-4 h-4 mr-1" />

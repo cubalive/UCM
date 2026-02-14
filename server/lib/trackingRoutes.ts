@@ -2,6 +2,7 @@ import type { Express } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { tripLockedGuard } from "./tripLockGuard";
 import { etaMinutes, buildStaticMapUrls } from "./googleMaps";
 import { GOOGLE_MAPS_SERVER_KEY, GOOGLE_MAPS_BROWSER_KEY } from "../../lib/mapsConfig";
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
@@ -257,6 +258,7 @@ export function registerTrackingRoutes(app: Express) {
 
         const trip = await storage.getTrip(tripId);
         if (!trip) return res.status(404).json({ ok: false, message: "Trip not found" });
+        if (tripLockedGuard(trip, req, res)) return;
 
         await storage.revokeTokensForTrip(tripId);
 
