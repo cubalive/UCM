@@ -1,13 +1,15 @@
-const CACHE_NAME = "ucm-cache-v2";
+const CACHE_NAME = "ucm-cache-v3";
 const OFFLINE_URL = "/offline.html";
 
 const PRECACHE_URLS = [
   "/",
   "/offline.html",
+  "/manifest.webmanifest",
   "/manifest.json",
   "/branding/icon-192.png",
   "/branding/icon-512.png",
   "/branding/logo-small.png",
+  "/branding/apple-touch-icon.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
 ];
@@ -63,12 +65,12 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (isApiRequest(url)) {
-    event.respondWith(networkFirst(event.request));
+    event.respondWith(networkOnly(event.request));
     return;
   }
 
   if (isStaticAsset(url)) {
-    event.respondWith(cacheFirst(event.request));
+    event.respondWith(staleWhileRevalidate(event.request));
     return;
   }
 
@@ -80,18 +82,38 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(networkFirst(event.request));
 });
 
-async function cacheFirst(request) {
-  const cached = await caches.match(request);
-  if (cached) return cached;
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request);
+
+  const fetchPromise = fetch(request)
+    .then((response) => {
+      if (response.ok) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
+
+  if (cached) {
+    fetchPromise.catch(() => {});
+    return cached;
+  }
+
+  const networkResponse = await fetchPromise;
+  if (networkResponse) return networkResponse;
+
+  return new Response("", { status: 503, statusText: "Offline" });
+}
+
+async function networkOnly(request) {
   try {
-    const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(CACHE_NAME);
-      cache.put(request, response.clone());
-    }
-    return response;
+    return await fetch(request);
   } catch {
-    return new Response("", { status: 503, statusText: "Offline" });
+    return new Response(JSON.stringify({ error: "offline" }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
 

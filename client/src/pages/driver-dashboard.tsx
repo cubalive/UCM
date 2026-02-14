@@ -82,7 +82,10 @@ const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PI
 function useGeolocation(isActive: boolean) {
   const [permission, setPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown");
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [watchError, setWatchError] = useState(false);
   const watchRef = useRef<number | null>(null);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -97,44 +100,71 @@ function useGeolocation(isActive: boolean) {
     });
   }, []);
 
-  useEffect(() => {
+  const requestPermission = useCallback(() => {
     if (!navigator.geolocation) return;
-    if (permission === "denied") return;
-
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setPermission("granted");
+        setWatchError(false);
+        retryCountRef.current = 0;
       },
-      () => {
-        if (permission === "unknown") setPermission("prompt");
+      (err) => {
+        if (err.code === 1) {
+          setPermission("denied");
+        } else {
+          setPermission("prompt");
+        }
       },
-      { enableHighAccuracy: true }
+      { enableHighAccuracy: true, timeout: 15000 }
     );
-  }, [permission]);
+  }, []);
 
   useEffect(() => {
-    if (!isActive || !navigator.geolocation || permission === "denied") return;
-    if (watchRef.current !== null) {
-      navigator.geolocation.clearWatch(watchRef.current);
-    }
-    watchRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setPermission("granted");
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 5000 }
-    );
+    if (permission === "denied" || permission === "granted") return;
+    if (!navigator.geolocation) return;
+    requestPermission();
+  }, [permission, requestPermission]);
+
+  useEffect(() => {
+    if (!isActive || !navigator.geolocation || permission !== "granted") return;
+
+    const startWatch = () => {
+      if (watchRef.current !== null) {
+        navigator.geolocation.clearWatch(watchRef.current);
+      }
+      setWatchError(false);
+      watchRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setWatchError(false);
+          retryCountRef.current = 0;
+        },
+        () => {
+          setWatchError(true);
+          const delay = Math.min(5000 * Math.pow(2, retryCountRef.current), 60000);
+          retryCountRef.current++;
+          retryRef.current = setTimeout(startWatch, delay);
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+      );
+    };
+
+    startWatch();
+
     return () => {
       if (watchRef.current !== null) {
         navigator.geolocation.clearWatch(watchRef.current);
         watchRef.current = null;
       }
+      if (retryRef.current !== null) {
+        clearTimeout(retryRef.current);
+        retryRef.current = null;
+      }
     };
   }, [isActive, permission]);
 
-  return { permission, location };
+  return { permission, location, watchError, requestPermission };
 }
 
 export default function DriverDashboard() {
@@ -165,7 +195,7 @@ export default function DriverDashboard() {
   const isDriverActive = driver?.dispatchStatus === "available";
   const hasActiveTrip = todayTrips.some((t: any) => ACTIVE_STATUSES.includes(t.status));
 
-  const { permission: geoPermission, location: geoLocation } = useGeolocation(isDriverActive || hasActiveTrip);
+  const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverActive || hasActiveTrip);
 
   const locationHeartbeat = useCallback(async () => {
     if (!geoLocation || !token) return;
@@ -218,19 +248,64 @@ export default function DriverDashboard() {
   const activeTrips = todayTrips.filter((t: any) => ACTIVE_STATUSES.includes(t.status));
   const completedToday = todayTrips.filter((t: any) => t.status === "COMPLETED");
 
-  if (geoPermission === "denied") {
+  if (geoPermission === "prompt" || geoPermission === "unknown") {
     return (
       <div className="flex items-center justify-center min-h-[60vh] p-4">
         <Card className="max-w-md w-full">
           <CardContent className="py-8 text-center space-y-4">
-            <MapPinOff className="w-12 h-12 mx-auto text-destructive" />
-            <h2 className="text-lg font-semibold" data-testid="text-location-required">Location Required</h2>
+            <LocateFixed className="w-12 h-12 mx-auto text-primary" />
+            <h2 className="text-lg font-semibold" data-testid="text-location-prompt">Enable Location</h2>
             <p className="text-sm text-muted-foreground">
-              Location access is required to operate trips. Please enable location permissions in your browser settings and reload the page.
+              Location access is required to manage trips, update your position, and appear on the dispatch map.
             </p>
-            <Button onClick={() => window.location.reload()} data-testid="button-reload-location">
-              Reload Page
+            <Button onClick={requestPermission} data-testid="button-enable-location">
+              <MapPin className="w-4 h-4 mr-2" />
+              Enable Location
             </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (geoPermission === "denied") {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] p-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="py-8 space-y-4">
+            <div className="text-center">
+              <MapPinOff className="w-12 h-12 mx-auto text-destructive" />
+              <h2 className="text-lg font-semibold mt-3" data-testid="text-location-required">Location Access Denied</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Location permission was denied. Please follow the steps below to enable it, then tap the button to try again.
+              </p>
+            </div>
+            <div className="text-left space-y-2 bg-muted/50 rounded-md p-4">
+              <p className="text-sm font-medium">For iPhone / iPad (Safari):</p>
+              <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
+                <li>Open <strong>Settings</strong> on your device</li>
+                <li>Scroll down and tap <strong>Safari</strong> (or your browser)</li>
+                <li>Tap <strong>Location</strong></li>
+                <li>Set to <strong>Allow</strong> or <strong>Ask</strong></li>
+                <li>Return here and tap <strong>Try Again</strong></li>
+              </ol>
+              <p className="text-sm font-medium mt-3">For Android (Chrome):</p>
+              <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
+                <li>Tap the <strong>lock icon</strong> in the address bar</li>
+                <li>Tap <strong>Permissions</strong></li>
+                <li>Enable <strong>Location</strong></li>
+                <li>Reload the page</li>
+              </ol>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={requestPermission} data-testid="button-retry-location">
+                <LocateFixed className="w-4 h-4 mr-2" />
+                Try Again
+              </Button>
+              <Button variant="outline" onClick={() => window.location.reload()} data-testid="button-reload-location">
+                Reload Page
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -284,10 +359,22 @@ export default function DriverDashboard() {
               <Badge variant={isDriverActive ? "default" : "secondary"} data-testid="badge-dispatch-status">
                 {isDriverActive ? "Active" : "Offline"}
               </Badge>
-              {geoLocation && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              {geoLocation && !geoWatchError && (
+                <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
                   <LocateFixed className="w-3.5 h-3.5" />
                   <span data-testid="text-gps-status">GPS Active</span>
+                </div>
+              )}
+              {geoWatchError && (
+                <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span data-testid="text-gps-reconnecting">GPS Reconnecting...</span>
+                </div>
+              )}
+              {!geoLocation && !geoWatchError && geoPermission === "granted" && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <LocateFixed className="w-3.5 h-3.5 animate-pulse" />
+                  <span data-testid="text-gps-acquiring">Acquiring GPS...</span>
                 </div>
               )}
             </div>
