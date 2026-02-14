@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -408,6 +408,38 @@ export const auditLog = pgTable("audit_log", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const tripEventTypeEnum = pgEnum("trip_event_type", [
+  "late_driver",
+  "late_patient",
+  "no_show_driver",
+  "no_show_patient",
+  "complaint",
+  "incident",
+]);
+
+export const tripEvents = pgTable("trip_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  eventType: tripEventTypeEnum("event_type").notNull(),
+  minutesLate: integer("minutes_late"),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const driverBonusRules = pgTable("driver_bonus_rules", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  cityId: integer("city_id").notNull().references(() => cities.id).unique(),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  weeklyAmountCents: integer("weekly_amount_cents").notNull().default(0),
+  criteriaJson: jsonb("criteria_json"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: integer("updated_by").references(() => users.id),
+});
+
+export const insertTripEventSchema = createInsertSchema(tripEvents).omit({ id: true, createdAt: true });
+export const insertDriverBonusRuleSchema = createInsertSchema(driverBonusRules).omit({ id: true });
+
 export const insertCitySchema = createInsertSchema(cities).omit({ id: true, createdAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true, createdAt: true });
@@ -457,6 +489,11 @@ export type TripShareToken = typeof tripShareTokens.$inferSelect;
 export type InsertTripShareToken = z.infer<typeof insertTripShareTokenSchema>;
 export type TripSmsLog = typeof tripSmsLog.$inferSelect;
 export type InsertTripSmsLog = z.infer<typeof insertTripSmsLogSchema>;
+
+export type TripEvent = typeof tripEvents.$inferSelect;
+export type InsertTripEvent = z.infer<typeof insertTripEventSchema>;
+export type DriverBonusRule = typeof driverBonusRules.$inferSelect;
+export type InsertDriverBonusRule = z.infer<typeof insertDriverBonusRuleSchema>;
 
 export type VehicleMake = typeof vehicleMakes.$inferSelect;
 export type VehicleModel = typeof vehicleModels.$inferSelect;

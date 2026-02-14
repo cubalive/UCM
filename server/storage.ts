@@ -3,6 +3,7 @@ import { eq, and, or, desc, sql, inArray, count, ne, isNull } from "drizzle-orm"
 import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
   citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog, tripSeries,
+  tripEvents, driverBonusRules,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
   type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog, type InsertInvoice,
   type InsertCitySettings, type InsertDriverVehicleAssignment, type InsertVehicleAssignmentHistory,
@@ -10,6 +11,7 @@ import {
   type CitySettings, type DriverVehicleAssignment, type VehicleAssignmentHistory,
   type TripShareToken, type InsertTripShareToken, type TripSmsLog, type InsertTripSmsLog,
   type TripSeries, type InsertTripSeries,
+  type TripEvent, type InsertTripEvent, type DriverBonusRule, type InsertDriverBonusRule,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -127,6 +129,16 @@ export interface IStorage {
 
   // Update user (for admin password reset)
   updateUser(id: number, data: Partial<User>): Promise<Omit<User, "password"> | undefined>;
+
+  // Trip events
+  getTripEvents(tripId: number): Promise<TripEvent[]>;
+  createTripEvent(data: InsertTripEvent): Promise<TripEvent>;
+  getTripEventsByDateRange(cityId: number, startDate: string, endDate: string): Promise<(TripEvent & { trip: Trip })[]>;
+
+  // Driver bonus rules
+  getDriverBonusRule(cityId: number): Promise<DriverBonusRule | undefined>;
+  getAllDriverBonusRules(): Promise<DriverBonusRule[]>;
+  upsertDriverBonusRule(data: Partial<DriverBonusRule> & { cityId: number }): Promise<DriverBonusRule>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -848,6 +860,59 @@ export class DatabaseStorage implements IStorage {
     if (!user) return undefined;
     const { password, ...rest } = user;
     return rest as any;
+  }
+
+  async getTripEvents(tripId: number): Promise<TripEvent[]> {
+    return db.select().from(tripEvents)
+      .where(eq(tripEvents.tripId, tripId))
+      .orderBy(desc(tripEvents.createdAt));
+  }
+
+  async createTripEvent(data: InsertTripEvent): Promise<TripEvent> {
+    const [row] = await db.insert(tripEvents).values(data).returning();
+    return row;
+  }
+
+  async getTripEventsByDateRange(cityId: number, startDate: string, endDate: string): Promise<(TripEvent & { trip: Trip })[]> {
+    const rows = await db
+      .select({
+        event: tripEvents,
+        trip: trips,
+      })
+      .from(tripEvents)
+      .innerJoin(trips, eq(tripEvents.tripId, trips.id))
+      .where(
+        and(
+          eq(trips.cityId, cityId),
+          sql`${trips.scheduledDate} >= ${startDate}`,
+          sql`${trips.scheduledDate} <= ${endDate}`,
+          isNull(trips.deletedAt),
+        )
+      )
+      .orderBy(desc(tripEvents.createdAt));
+    return rows.map(r => ({ ...r.event, trip: r.trip }));
+  }
+
+  async getDriverBonusRule(cityId: number): Promise<DriverBonusRule | undefined> {
+    const [row] = await db.select().from(driverBonusRules).where(eq(driverBonusRules.cityId, cityId));
+    return row;
+  }
+
+  async getAllDriverBonusRules(): Promise<DriverBonusRule[]> {
+    return db.select().from(driverBonusRules);
+  }
+
+  async upsertDriverBonusRule(data: Partial<DriverBonusRule> & { cityId: number }): Promise<DriverBonusRule> {
+    const existing = await this.getDriverBonusRule(data.cityId);
+    if (existing) {
+      const [row] = await db.update(driverBonusRules)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(driverBonusRules.cityId, data.cityId))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(driverBonusRules).values(data as any).returning();
+    return row;
   }
 }
 

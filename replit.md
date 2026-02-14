@@ -39,3 +39,10 @@ The application follows a client-server architecture.
 - **Google Maps Platform**: Utilized for Maps JavaScript API, Directions API, Geocoding API, Places API for location services, ETA calculations, route optimization, and live driver map.
 - **Twilio**: Integrated for sending and receiving SMS messages and handling opt-out requests.
 - **Resend**: Used for transactional email delivery, specifically for magic link logins and other email notifications.
+
+## No-Show/Late Tracking & Driver Bonus System
+- **Trip Events**: `trip_events` table tracks events per trip (late_driver, late_patient, no_show_driver, no_show_patient, complaint, incident) with optional minutesLate and notes. UI buttons in TripDetailDialog for dispatch/admin to record events.
+- **Driver Bonus Rules**: `driver_bonus_rules` table stores per-city bonus configuration (isEnabled, weeklyAmountCents, criteriaJson with maxNoShowDriver, maxLateDriver, minCompletionRate). Managed via Reports page Bonus Rules tab.
+- **Weekly Driver Metrics**: GET /api/reports/drivers/weekly returns per-driver metrics (assigned, completed, cancellations, no-shows, late counts, avg late minutes, completion rate) for a given week.
+- **Bonus Computation**: POST /api/bonuses/compute-week evaluates drivers against city bonus criteria and returns eligible/ineligible lists with reasons. SUPER_ADMIN only. Does NOT auto-pay.
+- **Reports Page**: `/reports` route accessible to ADMIN+ roles. Three tabs: Weekly Metrics, Bonus Rules (ADMIN+), Compute Bonus (SUPER_ADMIN). Routes defined in `server/lib/reportRoutes.ts`.

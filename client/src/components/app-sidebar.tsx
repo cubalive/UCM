@@ -39,6 +39,7 @@ import {
   Map,
   Archive,
   CalendarCheck,
+  BarChart3,
 } from "lucide-react";
 
 interface NavItem {
@@ -65,6 +66,7 @@ const navItems: NavItem[] = [
 const adminItems: NavItem[] = [
   { title: "Cities", url: "/cities", icon: MapPin, resource: "cities" },
   { title: "Users", url: "/users", icon: Users, resource: "users" },
+  { title: "Reports", url: "/reports", icon: BarChart3, resource: "audit" },
   { title: "Audit Log", url: "/audit", icon: ClipboardList, resource: "audit" },
   { title: "Archive", url: "/archive", icon: Archive, resource: "audit" },
 ];

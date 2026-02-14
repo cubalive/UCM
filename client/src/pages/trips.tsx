@@ -25,7 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2 } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { RecurringSchedule, type TripType, type SeriesPattern, type SeriesEndType } from "@/components/recurring-schedule";
@@ -605,6 +605,160 @@ export default function TripsPage() {
   );
 }
 
+function TripEventsSection({ tripId, token }: { tripId: number; token: string | null }) {
+  const { toast } = useToast();
+  const [showAddEvent, setShowAddEvent] = useState(false);
+  const [eventType, setEventType] = useState<string>("");
+  const [minutesLate, setMinutesLate] = useState("");
+  const [eventNotes, setEventNotes] = useState("");
+
+  const { data: events, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/trips", tripId, "events"],
+    queryFn: () => apiFetch(`/api/trips/${tripId}/events`, token),
+    enabled: !!token,
+  });
+
+  const createEventMutation = useMutation({
+    mutationFn: (data: any) =>
+      apiFetch(`/api/trips/${tripId}/events`, token, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "events"] });
+      toast({ title: "Trip event recorded" });
+      setShowAddEvent(false);
+      setEventType("");
+      setMinutesLate("");
+      setEventNotes("");
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const handleQuickEvent = (type: string) => {
+    if (type === "late_driver" || type === "late_patient") {
+      setEventType(type);
+      setShowAddEvent(true);
+    } else {
+      createEventMutation.mutate({ eventType: type, notes: null, minutesLate: null });
+    }
+  };
+
+  const handleSubmitEvent = () => {
+    if (!eventType) return;
+    const isLateType = eventType === "late_driver" || eventType === "late_patient";
+    const mins = isLateType && minutesLate ? parseInt(minutesLate) : null;
+    createEventMutation.mutate({
+      eventType,
+      minutesLate: mins,
+      notes: eventNotes || null,
+    });
+  };
+
+  const eventLabel = (type: string) => {
+    switch (type) {
+      case "late_driver": return "Driver Late";
+      case "late_patient": return "Patient Late";
+      case "no_show_driver": return "Driver No-Show";
+      case "no_show_patient": return "Patient No-Show";
+      case "complaint": return "Complaint";
+      case "incident": return "Incident";
+      default: return type;
+    }
+  };
+
+  const eventVariant = (type: string): "destructive" | "secondary" | "outline" => {
+    if (type.includes("no_show")) return "destructive";
+    if (type.includes("late")) return "secondary";
+    return "outline";
+  };
+
+  return (
+    <div className="border-t pt-4 space-y-3">
+      <h3 className="text-sm font-semibold flex items-center gap-2">
+        <Flag className="w-4 h-4" />
+        Trip Events
+      </h3>
+
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={() => handleQuickEvent("late_driver")} disabled={createEventMutation.isPending} data-testid="button-mark-driver-late">
+          <ClockAlert className="w-4 h-4 mr-1" />
+          Driver Late
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => handleQuickEvent("late_patient")} disabled={createEventMutation.isPending} data-testid="button-mark-patient-late">
+          <ClockAlert className="w-4 h-4 mr-1" />
+          Patient Late
+        </Button>
+        <Button size="sm" variant="destructive" onClick={() => handleQuickEvent("no_show_driver")} disabled={createEventMutation.isPending} data-testid="button-mark-driver-noshow">
+          <UserX className="w-4 h-4 mr-1" />
+          Driver No-Show
+        </Button>
+        <Button size="sm" variant="destructive" onClick={() => handleQuickEvent("no_show_patient")} disabled={createEventMutation.isPending} data-testid="button-mark-patient-noshow">
+          <UserX className="w-4 h-4 mr-1" />
+          Patient No-Show
+        </Button>
+      </div>
+
+      {showAddEvent && (
+        <div className="space-y-3 p-3 border rounded-md">
+          <p className="text-sm font-medium">{eventLabel(eventType)}</p>
+          {(eventType === "late_driver" || eventType === "late_patient") && (
+            <div className="space-y-1">
+              <Label>Minutes Late</Label>
+              <Input
+                type="number"
+                min="1"
+                max="999"
+                value={minutesLate}
+                onChange={(e) => setMinutesLate(e.target.value)}
+                placeholder="e.g. 15"
+                data-testid="input-minutes-late"
+              />
+            </div>
+          )}
+          <div className="space-y-1">
+            <Label>Notes (optional)</Label>
+            <Textarea value={eventNotes} onChange={(e) => setEventNotes(e.target.value)} data-testid="input-event-notes" />
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleSubmitEvent} disabled={createEventMutation.isPending} data-testid="button-submit-event">
+              {createEventMutation.isPending ? "Saving..." : "Record Event"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => { setShowAddEvent(false); setEventType(""); }} data-testid="button-cancel-event">
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {isLoading && <Skeleton className="h-8 w-full" />}
+      {events && events.length > 0 && (
+        <div className="space-y-1">
+          {events.map((evt: any) => (
+            <div key={evt.id} className="flex items-center gap-2 flex-wrap" data-testid={`event-row-${evt.id}`}>
+              <Badge variant={eventVariant(evt.eventType)} data-testid={`badge-event-${evt.id}`}>
+                {eventLabel(evt.eventType)}
+              </Badge>
+              {evt.minutesLate && (
+                <span className="text-xs text-muted-foreground">{evt.minutesLate} min late</span>
+              )}
+              {evt.notes && (
+                <span className="text-xs text-muted-foreground italic">{evt.notes}</span>
+              )}
+              <span className="text-xs text-muted-foreground ml-auto">
+                {new Date(evt.createdAt).toLocaleString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {events && events.length === 0 && (
+        <p className="text-xs text-muted-foreground">No events recorded</p>
+      )}
+    </div>
+  );
+}
+
 function TripDetailDialog({
   trip,
   patient,
@@ -995,6 +1149,10 @@ function TripDetailDialog({
                 <p className="text-sm text-muted-foreground" data-testid="text-no-patient">No patient linked to this trip</p>
               )}
             </div>
+
+            {isDispatchOrAdmin && (
+              <TripEventsSection tripId={trip.id} token={token} />
+            )}
           </div>
         )}
       </DialogContent>
