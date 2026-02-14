@@ -263,6 +263,8 @@ export default function TripsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/drivers/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
       setAssignTrip(null);
       toast({ title: "Driver assigned to trip" });
     },
@@ -720,33 +722,46 @@ function AssignDriverPanel({
   loading: boolean;
 }) {
   const [selectedDriverId, setSelectedDriverId] = useState<string>("");
+  const [showAll, setShowAll] = useState(false);
 
-  const activeDriversQuery = useQuery<any[]>({
-    queryKey: ["/api/dispatch/drivers/active", cityId],
-    queryFn: () => apiFetch(`/api/dispatch/drivers/active${cityId ? `?cityId=${cityId}` : ""}`, token),
+  const driverStatusQuery = useQuery<any>({
+    queryKey: ["/api/dispatch/drivers/status", cityId],
+    queryFn: () => apiFetch(`/api/dispatch/drivers/status${cityId ? `?city_id=${cityId}` : ""}`, token),
     enabled: !!token && !!trip,
   });
 
-  const activeDrivers = activeDriversQuery.data || [];
+  const driverStatus = driverStatusQuery.data || { available: [], busy: [], hold: [], logged_out: [] };
+  const availableDrivers = driverStatus.available || [];
+  const allAssignable = showAll
+    ? [...availableDrivers, ...(driverStatus.busy || []), ...(driverStatus.hold || [])]
+    : availableDrivers;
 
   return (
     <div className="space-y-4">
-      <div>
-        <Label>Select Active Driver</Label>
-        {activeDriversQuery.isLoading ? (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label>{showAll ? "All Online Drivers" : "Available Drivers Only"}</Label>
+          <Button variant="outline" size="sm" onClick={() => setShowAll(!showAll)} data-testid="button-toggle-show-all-trips">
+            {showAll ? "Show Available Only" : "Show All"}
+          </Button>
+        </div>
+        {driverStatusQuery.isLoading ? (
           <Skeleton className="h-10 w-full mt-1" />
-        ) : activeDrivers.length === 0 ? (
-          <p className="text-sm text-muted-foreground mt-1">No active drivers available in this city.</p>
+        ) : allAssignable.length === 0 ? (
+          <p className="text-sm text-muted-foreground mt-1" data-testid="text-no-drivers-available">
+            No {showAll ? "online" : "available"} drivers in this city.
+          </p>
         ) : (
           <Select value={selectedDriverId} onValueChange={setSelectedDriverId}>
-            <SelectTrigger className="w-full mt-1" data-testid="select-assign-driver">
+            <SelectTrigger className="w-full" data-testid="select-assign-driver">
               <SelectValue placeholder="Choose a driver" />
             </SelectTrigger>
             <SelectContent>
-              {activeDrivers.map((d: any) => (
+              {allAssignable.map((d: any) => (
                 <SelectItem key={d.id} value={d.id.toString()}>
-                  {d.firstName} {d.lastName} ({d.publicId})
-                  {d.vehicleId ? " - Vehicle assigned" : ""}
+                  {d.name} ({d.publicId})
+                  {d.vehicle_name ? ` - ${d.vehicle_name}` : " (No Vehicle)"}
+                  {d.active_trip_public_id ? ` [${d.active_trip_public_id}]` : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -757,8 +772,8 @@ function AssignDriverPanel({
         <Button
           onClick={() => {
             if (!selectedDriverId) return;
-            const driver = activeDrivers.find((d: any) => d.id === parseInt(selectedDriverId));
-            onAssign(parseInt(selectedDriverId), driver?.vehicleId || undefined);
+            const driver = allAssignable.find((d: any) => d.id === parseInt(selectedDriverId));
+            onAssign(parseInt(selectedDriverId), driver?.vehicle_id || undefined);
           }}
           disabled={loading || !selectedDriverId}
           data-testid="button-confirm-assign"

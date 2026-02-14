@@ -1,0 +1,126 @@
+ROLE: Senior full-stack engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Prefer no schema changes, but if required add the smallest safe field
+
+REQUEST:
+Make Patients and Orders idiot-proof by separating by SOURCE:
+1) Clinic Patients (grouped by clinic)
+2) UCM/Internal Patients (created by dispatch/admin, not tied to a clinic)
+3) Private Patients/Orders (public bookings / private-pay)
+
+NON-NEGOTIABLE UX:
+A 15-year-old must understand it instantly:
+- Tabs at top: CLINICS | UCM (INTERNAL) | PRIVATE
+- Each tab shows only its category
+- Search works inside each tab
+- Counts shown on each tab
+
+---------------------------------------
+PHASE 1 — DEFINE SOURCE RULES (server truth)
+---------------------------------------
+Use existing columns first:
+
+PATIENT SOURCE:
+- CLINIC = patients.clinic_id IS NOT NULL
+- UCM_INTERNAL = patients.clinic_id IS NULL
+PRIVATE = if we can detect it from trips/requests; otherwise add a small flag.
+
+ORDER/TRIP SOURCE:
+- CLINIC_ORDER = trips.clinic_id IS NOT NULL
+- PRIVATE_ORDER = trips.clinic_id IS NULL AND (trip was created from public portal/paid flow)
+- INTERNAL_ORDER = trips.clinic_id IS NULL AND created by dispatch/admin
+
+If there is already a field indicating source (e.g. created_by_role, request_source, portal flag) USE IT.
+If not present, implement minimal safe fields:
+
+Option A (preferred): add enum request_source to trips only:
+- trips.request_source ENUM('clinic','internal','private') default 'internal'
+No other tables changed.
+
+Option B (if schema change not allowed): derive PRIVATE by:
+- trips has Stripe payment id / checkout id / payment_confirmed flag in existing columns (if present)
+If not present anywhere, then implement Option A.
+
+---------------------------------------
+PHASE 2 — BACKEND ENDPOINTS
+---------------------------------------
+Create endpoints with explicit filters:
+
+GET /api/patients?source=clinic|internal|private&clinic_id=&city_id=&company_id=
+Behavior:
+- source=clinic -> require clinic_id or return grouped by clinic
+- source=internal -> clinic_id must be NULL
+- source=private -> only private flagged patients (or derived)
+
+For clinic grouping endpoint:
+GET /api/patients/clinic-groups?city_id=&company_id=
+Return:
+[
+ { clinic_id, clinic_name, patient_count, patients:[...] }
+]
+
+Trips/orders:
+GET /api/trips?source=clinic|internal|private&status=&clinic_id=&date=
+Same idea.
+
+---------------------------------------
+PHASE 3 — UI: PATIENTS PAGE (simple tabs)
+---------------------------------------
+On Patients page:
+- Add 3 tabs:
+  1) CLINIC PATIENTS
+  2) UCM (INTERNAL)
+  3) PRIVATE
+
+Tab 1 (Clinic):
+- Left: clinic list (with counts)
+- Right: patients for selected clinic
+- Default: first clinic
+- Clear label at top: “Clinic: X”
+
+Tab 2 (Internal):
+- Flat list (patients where clinic_id null AND not private)
+- Button: “Add Internal Patient”
+
+Tab 3 (Private):
+- Flat list (private only)
+- Button: “Create Private Order” (or view orders)
+
+Add big badges:
+- CLINIC
+- INTERNAL
+- PRIVATE
+
+---------------------------------------
+PHASE 4 — UI: ORDERS/TRIPS PAGE (same concept)
+---------------------------------------
+On Trips page:
+- Same 3 tabs (Clinic / Internal / Private)
+- Clinic tab can filter by clinic
+- Private tab shows only private orders
+
+---------------------------------------
+PHASE 5 — CREATION RULES (auto-correct)
+---------------------------------------
+When creating:
+- From Clinic portal -> always source=clinic and clinic_id set
+- From Dispatch “Add patient” inside Clinic context -> source=clinic
+- From Dispatch “Add internal patient” -> source=internal
+- From Public booking / Stripe-paid -> source=private
+
+Prevent mistakes:
+- If user is in Clinic tab, default clinic_id is set and cannot be empty unless they switch to Internal/Private.
+
+---------------------------------------
+VERIFY
+---------------------------------------
+1) Patients appear in correct tab
+2) Clinic patients are grouped by clinic
+3) Internal patients never show under clinics
+4) Private orders/patients never mix with internal
+5) A new dispatcher can create each type in under 10 seconds

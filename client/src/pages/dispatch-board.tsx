@@ -3,12 +3,11 @@ import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -31,15 +30,18 @@ import {
   Clock,
   MapPin,
   Navigation,
-  CheckCircle,
   User,
-  Truck,
   Building2,
   Accessibility,
   Lock,
   Radio,
   ArrowRight,
   Car,
+  CircleDot,
+  Truck,
+  Coffee,
+  LogOut,
+  CheckCircle,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -70,6 +72,32 @@ const STATUS_LABELS: Record<string, string> = {
   NO_SHOW: "No Show",
 };
 
+interface DriverStatusData {
+  available: DriverInfo[];
+  busy: DriverInfo[];
+  hold: DriverInfo[];
+  logged_out: DriverInfo[];
+}
+
+interface DriverInfo {
+  id: number;
+  name: string;
+  firstName: string;
+  lastName: string;
+  publicId: string;
+  phone: string;
+  dispatch_status: string;
+  is_online: boolean;
+  last_seen_at: string | null;
+  vehicle_id: number | null;
+  vehicle_name: string | null;
+  vehicle_color_hex: string | null;
+  active_trip_id: number | null;
+  active_trip_public_id: string | null;
+  active_trip_status: string | null;
+  cityId: number;
+}
+
 function formatTimeAgo(dateStr: string | null): string {
   if (!dateStr) return "N/A";
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -87,6 +115,7 @@ export default function DispatchBoardPage() {
   const [activeTab, setActiveTab] = useState("unassigned");
   const [search, setSearch] = useState("");
   const [assignTrip, setAssignTrip] = useState<any | null>(null);
+  const [showAllDrivers, setShowAllDrivers] = useState(false);
 
   const cityId = selectedCity?.id;
 
@@ -102,6 +131,13 @@ export default function DispatchBoardPage() {
     refetchInterval: 15000,
   });
 
+  const driverStatusQuery = useQuery<DriverStatusData>({
+    queryKey: ["/api/dispatch/drivers/status", cityId],
+    queryFn: () => apiFetch(`/api/dispatch/drivers/status${cityId ? `?city_id=${cityId}` : ""}`, token),
+    enabled: !!token,
+    refetchInterval: 15000,
+  });
+
   const assignDriverMutation = useMutation({
     mutationFn: ({ tripId, driverId, vehicleId }: { tripId: number; driverId: number; vehicleId?: number }) =>
       apiFetch(`/api/trips/${tripId}/assign`, token, {
@@ -112,6 +148,7 @@ export default function DispatchBoardPage() {
       toast({ title: "Driver assigned successfully" });
       setAssignTrip(null);
       queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/drivers/status"] });
     },
     onError: (err: any) => {
       toast({ title: "Assignment failed", description: err.message, variant: "destructive" });
@@ -119,9 +156,10 @@ export default function DispatchBoardPage() {
   });
 
   const trips = tripsQuery.data || [];
+  const driverStatus = driverStatusQuery.data || { available: [], busy: [], hold: [], logged_out: [] };
 
   return (
-    <div className="p-4 space-y-4 max-w-7xl mx-auto">
+    <div className="p-4 space-y-4 max-w-full mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl font-semibold" data-testid="text-dispatch-board-title">
@@ -143,45 +181,88 @@ export default function DispatchBoardPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="unassigned" data-testid="tab-unassigned">
-            Unassigned
-            {activeTab === "unassigned" && trips.length > 0 && (
-              <Badge variant="secondary" className="ml-1">{trips.length}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="scheduled" data-testid="tab-scheduled">
-            Scheduled
-          </TabsTrigger>
-          <TabsTrigger value="active" data-testid="tab-active">
-            Active
-          </TabsTrigger>
-          <TabsTrigger value="completed" data-testid="tab-completed">
-            Completed
-          </TabsTrigger>
-        </TabsList>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="unassigned" data-testid="tab-unassigned">
+                Unassigned
+                {activeTab === "unassigned" && trips.length > 0 && (
+                  <Badge variant="secondary" className="ml-1">{trips.length}</Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="scheduled" data-testid="tab-scheduled">
+                Scheduled
+              </TabsTrigger>
+              <TabsTrigger value="active" data-testid="tab-active">
+                Active
+              </TabsTrigger>
+              <TabsTrigger value="completed" data-testid="tab-completed">
+                Completed
+              </TabsTrigger>
+            </TabsList>
 
-        <TabsContent value="unassigned" className="mt-4">
-          <TripList
-            trips={trips}
-            loading={tripsQuery.isLoading}
-            tab="unassigned"
-            onAssign={(trip) => setAssignTrip(trip)}
-          />
-        </TabsContent>
-        <TabsContent value="scheduled" className="mt-4">
-          <TripList trips={trips} loading={tripsQuery.isLoading} tab="scheduled" />
-        </TabsContent>
-        <TabsContent value="active" className="mt-4">
-          <TripList trips={trips} loading={tripsQuery.isLoading} tab="active" />
-        </TabsContent>
-        <TabsContent value="completed" className="mt-4">
-          <TripList trips={trips} loading={tripsQuery.isLoading} tab="completed" />
-        </TabsContent>
-      </Tabs>
+            <TabsContent value="unassigned" className="mt-4">
+              <TripList
+                trips={trips}
+                loading={tripsQuery.isLoading}
+                tab="unassigned"
+                onAssign={(trip) => setAssignTrip(trip)}
+              />
+            </TabsContent>
+            <TabsContent value="scheduled" className="mt-4">
+              <TripList trips={trips} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} />
+            </TabsContent>
+            <TabsContent value="active" className="mt-4">
+              <TripList trips={trips} loading={tripsQuery.isLoading} tab="active" />
+            </TabsContent>
+            <TabsContent value="completed" className="mt-4">
+              <TripList trips={trips} loading={tripsQuery.isLoading} tab="completed" />
+            </TabsContent>
+          </Tabs>
+        </div>
 
-      <Dialog open={!!assignTrip} onOpenChange={(open) => { if (!open) setAssignTrip(null); }}>
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground" data-testid="text-driver-panel-title">
+            Driver Status Panel
+          </h2>
+
+          {driverStatusQuery.isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
+            </div>
+          ) : (
+            <>
+              <DriverSection
+                title="Available"
+                icon={<CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />}
+                drivers={driverStatus.available}
+                variant="available"
+              />
+              <DriverSection
+                title="On Trip / Busy"
+                icon={<Truck className="w-4 h-4 text-blue-600 dark:text-blue-400" />}
+                drivers={driverStatus.busy}
+                variant="busy"
+              />
+              <DriverSection
+                title="Hold / Break"
+                icon={<Coffee className="w-4 h-4 text-amber-600 dark:text-amber-400" />}
+                drivers={driverStatus.hold}
+                variant="hold"
+              />
+              <DriverSection
+                title="Logged Out"
+                icon={<LogOut className="w-4 h-4 text-muted-foreground" />}
+                drivers={driverStatus.logged_out}
+                variant="logged_out"
+              />
+            </>
+          )}
+        </div>
+      </div>
+
+      <Dialog open={!!assignTrip} onOpenChange={(open) => { if (!open) { setAssignTrip(null); setShowAllDrivers(false); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Assign Driver to {assignTrip?.publicId}</DialogTitle>
@@ -190,6 +271,9 @@ export default function DispatchBoardPage() {
             trip={assignTrip}
             token={token}
             cityId={cityId}
+            driverStatus={driverStatus}
+            showAll={showAllDrivers}
+            onToggleShowAll={() => setShowAllDrivers(!showAllDrivers)}
             onAssign={(driverId, vehicleId) => {
               if (assignTrip) assignDriverMutation.mutate({ tripId: assignTrip.id, driverId, vehicleId });
             }}
@@ -198,6 +282,70 @@ export default function DispatchBoardPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function DriverSection({
+  title,
+  icon,
+  drivers,
+  variant,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  drivers: DriverInfo[];
+  variant: "available" | "busy" | "hold" | "logged_out";
+}) {
+  const isLoggedOut = variant === "logged_out";
+
+  return (
+    <Card data-testid={`section-drivers-${variant}`}>
+      <CardHeader className="py-2 px-3 flex flex-row items-center justify-between gap-2 space-y-0">
+        <div className="flex items-center gap-2">
+          {icon}
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        </div>
+        <Badge variant="secondary" className="text-xs">{drivers.length}</Badge>
+      </CardHeader>
+      {drivers.length > 0 && (
+        <CardContent className="px-3 pb-2 pt-0">
+          <div className="space-y-1">
+            {drivers.map((d) => (
+              <div
+                key={d.id}
+                className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-xs ${
+                  isLoggedOut ? "opacity-50" : ""
+                }`}
+                data-testid={`driver-card-${d.id}`}
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <CircleDot className={`w-3 h-3 flex-shrink-0 ${
+                    variant === "available" ? "text-green-500" :
+                    variant === "busy" ? "text-blue-500" :
+                    variant === "hold" ? "text-amber-500" :
+                    "text-muted-foreground"
+                  }`} />
+                  <span className="font-medium truncate" data-testid={`text-driver-name-${d.id}`}>{d.name}</span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {d.vehicle_name ? (
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      <Car className="w-3 h-3" />
+                      <span className="hidden xl:inline truncate max-w-[80px]">{d.vehicle_name.split("(")[0].trim()}</span>
+                    </span>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">No Vehicle</Badge>
+                  )}
+                  {d.active_trip_public_id && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{d.active_trip_public_id}</Badge>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      )}
+    </Card>
   );
 }
 
@@ -241,6 +389,7 @@ function TripList({
 
 function TripCard({ trip, tab, onAssign }: { trip: any; tab: string; onAssign?: (trip: any) => void }) {
   const isCompleted = tab === "completed" || ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status);
+  const canAssign = !isCompleted && onAssign && (tab === "unassigned" || tab === "scheduled");
 
   return (
     <Card data-testid={`card-trip-${trip.id}`}>
@@ -337,10 +486,10 @@ function TripCard({ trip, tab, onAssign }: { trip: any; tab: string; onAssign?: 
           </div>
 
           <div className="flex flex-col gap-1 flex-shrink-0">
-            {tab === "unassigned" && onAssign && (
+            {canAssign && (
               <Button
                 size="sm"
-                onClick={() => onAssign(trip)}
+                onClick={() => onAssign!(trip)}
                 data-testid={`button-assign-${trip.id}`}
               >
                 <UserPlus className="w-3.5 h-3.5 mr-1" />
@@ -358,45 +507,67 @@ function AssignDriverPanel({
   trip,
   token,
   cityId,
+  driverStatus,
+  showAll,
+  onToggleShowAll,
   onAssign,
   loading,
 }: {
   trip: any;
   token: string | null;
   cityId?: number;
+  driverStatus: DriverStatusData;
+  showAll: boolean;
+  onToggleShowAll: () => void;
   onAssign: (driverId: number, vehicleId?: number) => void;
   loading: boolean;
 }) {
   const [selectedDriverId, setSelectedDriverId] = useState<string>("");
 
-  const activeDriversQuery = useQuery<any[]>({
-    queryKey: ["/api/dispatch/drivers/active", cityId],
-    queryFn: () => apiFetch(`/api/dispatch/drivers/active${cityId ? `?cityId=${cityId}` : ""}`, token),
-    enabled: !!token && !!trip,
-  });
-
-  const activeDrivers = activeDriversQuery.data || [];
+  const availableDrivers = driverStatus.available || [];
+  const allAssignableDrivers = showAll
+    ? [...availableDrivers, ...(driverStatus.busy || []), ...(driverStatus.hold || [])]
+    : availableDrivers;
 
   return (
     <div className="space-y-4">
-      <div>
-        <Label>Select Active Driver</Label>
-        {activeDriversQuery.isLoading ? (
-          <Skeleton className="h-10 w-full mt-1" />
-        ) : activeDrivers.length === 0 ? (
-          <p className="text-sm text-muted-foreground mt-1" data-testid="text-no-drivers-available">
-            No active drivers available in this city.
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium">
+            {showAll ? "All Online Drivers" : "Available Drivers Only"}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onToggleShowAll}
+            data-testid="button-toggle-show-all"
+          >
+            {showAll ? "Show Available Only" : "Show All"}
+          </Button>
+        </div>
+
+        {allAssignableDrivers.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2" data-testid="text-no-drivers-available">
+            No {showAll ? "online" : "available"} drivers in this city.
           </p>
         ) : (
           <Select value={selectedDriverId} onValueChange={setSelectedDriverId}>
-            <SelectTrigger className="w-full mt-1" data-testid="select-assign-driver">
+            <SelectTrigger className="w-full" data-testid="select-assign-driver">
               <SelectValue placeholder="Choose a driver" />
             </SelectTrigger>
             <SelectContent>
-              {activeDrivers.map((d: any) => (
+              {allAssignableDrivers.map((d) => (
                 <SelectItem key={d.id} value={d.id.toString()} data-testid={`option-driver-${d.id}`}>
-                  {d.firstName} {d.lastName}
-                  {d.vehicleName ? ` - ${d.vehicleName}` : ""}
+                  <span className="flex items-center gap-2">
+                    <CircleDot className={`w-3 h-3 ${
+                      d.dispatch_status === "available" ? "text-green-500" :
+                      d.dispatch_status === "enroute" ? "text-blue-500" :
+                      "text-amber-500"
+                    }`} />
+                    {d.name}
+                    {d.vehicle_name ? ` - ${d.vehicle_name}` : " (No Vehicle)"}
+                    {d.active_trip_public_id ? ` [${d.active_trip_public_id}]` : ""}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -407,8 +578,8 @@ function AssignDriverPanel({
         <Button
           onClick={() => {
             if (!selectedDriverId) return;
-            const driver = activeDrivers.find((d: any) => d.id === parseInt(selectedDriverId));
-            onAssign(parseInt(selectedDriverId), driver?.vehicleId || undefined);
+            const driver = allAssignableDrivers.find((d) => d.id === parseInt(selectedDriverId));
+            onAssign(parseInt(selectedDriverId), driver?.vehicle_id || undefined);
           }}
           disabled={loading || !selectedDriverId}
           data-testid="button-confirm-assign"
