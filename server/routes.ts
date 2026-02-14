@@ -2896,6 +2896,26 @@ export async function registerRoutes(
     }
   });
 
+  function computeCancelStage(trip: any): string {
+    if (["PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"].includes(trip.status)) return "picked_up";
+    if (trip.status === "ARRIVED_PICKUP") return "arrived_pickup";
+    if (trip.status === "EN_ROUTE_TO_PICKUP") return "enroute_pickup";
+    if (trip.driverId) return "assigned";
+    return "pre_assign";
+  }
+
+  const CANCEL_FEE_SCHEDULE: Record<string, number> = {
+    pre_assign: 0,
+    assigned: 25,
+    enroute_pickup: 50,
+    arrived_pickup: 75,
+    picked_up: 0,
+  };
+
+  function computeCancelFee(cancelStage: string): number {
+    return CANCEL_FEE_SCHEDULE[cancelStage] ?? 0;
+  }
+
   // Clinic requests cancellation of an approved trip
   app.patch("/api/trips/:id/cancel-request", authMiddleware, requireRole("VIEWER"), async (req: AuthRequest, res) => {
     try {
@@ -2904,7 +2924,7 @@ export async function registerRoutes(
       const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
       if (tripLockedGuard(trip, req, res)) return;
-      const cancelReqTerminal = ["CANCELLED", "NO_SHOW"];
+      const cancelReqTerminal = ["CANCELLED", "NO_SHOW", "COMPLETED"];
       if (cancelReqTerminal.includes(trip.status)) {
         return res.status(400).json({ message: `Trip is ${trip.status.toLowerCase()} and locked` });
       }
@@ -2912,6 +2932,8 @@ export async function registerRoutes(
       if (!user?.clinicId || trip.clinicId !== user.clinicId) {
         return res.status(403).json({ message: "You can only cancel your own clinic's trips" });
       }
+      const cancelStage = computeCancelStage(trip);
+      const cancelFee = computeCancelFee(cancelStage);
       if (trip.approvalStatus === "pending") {
         const updated = await storage.updateTrip(id, {
           approvalStatus: "cancelled",
@@ -2920,13 +2942,17 @@ export async function registerRoutes(
           cancelType: "soft",
           cancelledAt: new Date(),
           status: "CANCELLED",
+          faultParty: "clinic",
+          cancelStage,
+          billable: false,
+          cancelFee: "0",
         } as any);
         await storage.createAuditLog({
           userId: req.user!.userId,
           action: "CANCEL",
           entity: "trip",
           entityId: id,
-          details: `Clinic cancelled pending trip ${trip.publicId}`,
+          details: `Clinic cancelled pending trip ${trip.publicId} (stage: ${cancelStage})`,
           cityId: trip.cityId,
         });
 
@@ -2944,13 +2970,24 @@ export async function registerRoutes(
         cancelledBy: req.user!.userId,
         cancelledReason: req.body.reason || "Cancellation requested by clinic",
         cancelledAt: new Date(),
+        faultParty: "clinic",
+        cancelStage,
+        billable: true,
+        cancelFee: String(cancelFee),
       } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "clinic_cancel_request",
         entity: "trip",
         entityId: id,
-        details: `Clinic requested cancellation for trip ${trip.publicId}: ${req.body.reason || "No reason given"}`,
+        details: JSON.stringify({
+          reason: req.body.reason || "No reason given",
+          notes: req.body.notes || null,
+          cancelStage,
+          cancelFee,
+          faultParty: "clinic",
+          clinicId: user.clinicId,
+        }),
         cityId: trip.cityId,
       });
       res.json(updated);
@@ -3019,7 +3056,7 @@ export async function registerRoutes(
     }
   });
 
-  // Dispatch/admin cancels an approved or cancel-requested trip
+  // Dispatch/admin cancels an approved or cancel-requested trip (with fault/billing)
   app.patch("/api/trips/:id/cancel", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
@@ -3037,6 +3074,21 @@ export async function registerRoutes(
       if (!["soft", "hard"].includes(cancelType)) {
         return res.status(400).json({ message: "Cancel type must be 'soft' or 'hard'" });
       }
+      const validFaultParties = ["clinic", "driver", "patient", "dispatch", "unknown"];
+      const faultParty = req.body.faultParty && validFaultParties.includes(req.body.faultParty)
+        ? req.body.faultParty
+        : (trip as any).faultParty || "unknown";
+      const isBillable = ["driver", "dispatch"].includes(faultParty) ? false : (req.body.billable !== undefined ? req.body.billable : true);
+      const cancelStage = (trip as any).cancelStage || computeCancelStage(trip);
+      let finalFee = 0;
+      if (isBillable) {
+        const baseFee = computeCancelFee(cancelStage);
+        if (req.body.feeOverride !== undefined && req.body.feeOverride !== null) {
+          finalFee = Number(req.body.feeOverride);
+        } else {
+          finalFee = baseFee;
+        }
+      }
       const updated = await storage.updateTrip(id, {
         approvalStatus: "cancelled",
         cancelledBy: req.user!.userId,
@@ -3044,14 +3096,53 @@ export async function registerRoutes(
         cancelType: cancelType,
         cancelledAt: new Date(),
         status: "CANCELLED",
+        faultParty,
+        billable: isBillable,
+        cancelStage,
+        cancelFee: String(finalFee),
+        cancelFeeOverride: req.body.feeOverride !== undefined && req.body.feeOverride !== null ? String(req.body.feeOverride) : null,
+        cancelFeeOverrideNote: req.body.overrideNote || null,
       } as any);
       storage.revokeTokensForTrip(id).catch(() => {});
+      let invoiceId: number | null = null;
+      if (isBillable && finalFee > 0 && trip.clinicId) {
+        try {
+          const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+          const invoice = await storage.createInvoice({
+            clinicId: trip.clinicId,
+            tripId: id,
+            patientName: patient ? `${patient.firstName} ${patient.lastName}` : "Unknown",
+            serviceDate: trip.scheduledDate,
+            amount: String(finalFee),
+            status: "pending",
+            notes: `Cancel fee (stage: ${cancelStage}, fault: ${faultParty})${req.body.overrideNote ? ` | Override: ${req.body.overrideNote}` : ""}`,
+            reason: `Late cancellation - ${cancelStage}`,
+            faultParty,
+            relatedTripId: id,
+          } as any);
+          invoiceId = invoice.id;
+          await storage.updateTrip(id, { invoiceId: invoice.id } as any);
+        } catch (invErr: any) {
+          console.error("[CANCEL] Invoice creation failed:", invErr.message);
+        }
+      }
       await storage.createAuditLog({
         userId: req.user!.userId,
-        action: "CANCEL",
+        action: "dispatch_cancel_approve",
         entity: "trip",
         entityId: id,
-        details: `Cancelled trip ${trip.publicId} (${cancelType}): ${req.body.reason || "No reason given"}`,
+        details: JSON.stringify({
+          publicId: trip.publicId,
+          cancelType,
+          faultParty,
+          billable: isBillable,
+          cancelStage,
+          fee: finalFee,
+          feeOverride: req.body.feeOverride ?? null,
+          overrideNote: req.body.overrideNote ?? null,
+          invoiceId,
+          reason: req.body.reason || "No reason given",
+        }),
         cityId: trip.cityId,
       });
 
@@ -3059,7 +3150,81 @@ export async function registerRoutes(
         autoNotifyPatient(id, "canceled");
       }).catch(() => {});
 
-      res.json(updated);
+      res.json({ ...updated, invoiceId, cancelFee: finalFee, billable: isBillable });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/trips/:id/return-trip", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const parentTrip = await storage.getTrip(id);
+      if (!parentTrip) return res.status(404).json({ message: "Trip not found" });
+      const companyId = getCompanyIdFromAuth(req);
+      if (!checkCompanyOwnership(parentTrip, companyId)) return res.status(403).json({ message: "Access denied" });
+      const publicId = await generatePublicId();
+      const now = new Date();
+      const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+      const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, "0")}-${now.getDate().toString().padStart(2, "0")}`;
+      const returnTrip = await storage.createTrip({
+        publicId,
+        cityId: parentTrip.cityId,
+        patientId: parentTrip.patientId,
+        clinicId: parentTrip.clinicId,
+        companyId: parentTrip.companyId,
+        pickupAddress: parentTrip.dropoffAddress,
+        pickupStreet: parentTrip.dropoffStreet,
+        pickupCity: parentTrip.dropoffCity,
+        pickupState: parentTrip.dropoffState,
+        pickupZip: parentTrip.dropoffZip,
+        pickupPlaceId: parentTrip.dropoffPlaceId,
+        pickupLat: parentTrip.dropoffLat,
+        pickupLng: parentTrip.dropoffLng,
+        dropoffAddress: parentTrip.pickupAddress,
+        dropoffStreet: parentTrip.pickupStreet,
+        dropoffCity: parentTrip.pickupCity,
+        dropoffState: parentTrip.pickupState,
+        dropoffZip: parentTrip.pickupZip,
+        dropoffPlaceId: parentTrip.pickupPlaceId,
+        dropoffLat: parentTrip.pickupLat,
+        dropoffLng: parentTrip.pickupLng,
+        scheduledDate: dateStr,
+        scheduledTime: timeStr,
+        pickupTime: timeStr,
+        estimatedArrivalTime: timeStr,
+        tripType: "one_time",
+        status: "SCHEDULED",
+        requestSource: "internal",
+        notes: `Return trip for ${parentTrip.publicId}${req.body.notes ? ` - ${req.body.notes}` : ""}`,
+      } as any);
+      await storage.updateTrip(returnTrip.id, { parentTripId: id } as any);
+      if (parentTrip.driverId) {
+        await storage.updateTrip(returnTrip.id, {
+          driverId: parentTrip.driverId,
+          vehicleId: parentTrip.vehicleId,
+          status: "ASSIGNED",
+          assignedAt: new Date(),
+          assignedBy: req.user!.userId,
+          assignmentSource: "dispatch_return",
+        } as any);
+      }
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "CREATE_RETURN_TRIP",
+        entity: "trip",
+        entityId: returnTrip.id,
+        details: JSON.stringify({
+          parentTripId: id,
+          parentPublicId: parentTrip.publicId,
+          returnPublicId: publicId,
+          driverId: parentTrip.driverId,
+        }),
+        cityId: parentTrip.cityId,
+      });
+      const finalTrip = await storage.getTrip(returnTrip.id);
+      res.json(finalTrip);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

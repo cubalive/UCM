@@ -779,11 +779,10 @@ function LiveTripCards({ trips, selectedTrip, onSelectTrip }: {
                   <SelectValue placeholder="Select a reason" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Patient no longer needs transport">Patient no longer needs transport</SelectItem>
-                  <SelectItem value="Appointment rescheduled">Appointment rescheduled</SelectItem>
-                  <SelectItem value="Appointment cancelled">Appointment cancelled</SelectItem>
-                  <SelectItem value="Patient hospitalized">Patient hospitalized</SelectItem>
-                  <SelectItem value="Duplicate booking">Duplicate booking</SelectItem>
+                  <SelectItem value="Clinic schedule change">Clinic schedule change</SelectItem>
+                  <SelectItem value="Patient not ready">Patient not ready</SelectItem>
+                  <SelectItem value="Duplicate request">Duplicate request</SelectItem>
+                  <SelectItem value="No longer needed">No longer needed</SelectItem>
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>

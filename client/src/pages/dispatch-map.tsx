@@ -23,6 +23,9 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Truck,
   UserCheck,
@@ -42,6 +45,8 @@ import {
   CheckCircle,
   Phone,
   Building2,
+  RotateCcw,
+  DollarSign,
 } from "lucide-react";
 import type { Driver, Vehicle, Trip, Patient, DriverVehicleAssignment } from "@shared/schema";
 import { CalendarDays, ArrowLeftRight } from "lucide-react";
@@ -372,12 +377,68 @@ export default function DispatchMapPage() {
     enabled: true,
   });
 
+  const [approveModalOpen, setApproveModalOpen] = useState(false);
+  const [approveTrip, setApproveTrip] = useState<any>(null);
+  const [approveFaultParty, setApproveFaultParty] = useState("clinic");
+  const [approveFeeOverride, setApproveFeeOverride] = useState("");
+  const [approveOverrideNote, setApproveOverrideNote] = useState("");
+
+  const CANCEL_FEE_SCHEDULE: Record<string, number> = {
+    pre_assign: 0,
+    assigned: 25,
+    enroute_pickup: 50,
+    arrived_pickup: 75,
+    picked_up: 0,
+  };
+
+  const STAGE_LABELS: Record<string, string> = {
+    pre_assign: "Pre-Assignment",
+    assigned: "Assigned",
+    enroute_pickup: "En Route to Pickup",
+    arrived_pickup: "Arrived at Pickup",
+    picked_up: "Patient Picked Up",
+  };
+
+  function getApproveIsBillable(faultParty: string): boolean {
+    return !["driver", "dispatch"].includes(faultParty);
+  }
+
+  function getApproveBaseFee(cancelStage: string): number {
+    return CANCEL_FEE_SCHEDULE[cancelStage] ?? 0;
+  }
+
+  function getApproveFinalFee(): number {
+    if (!approveTrip) return 0;
+    if (!getApproveIsBillable(approveFaultParty)) return 0;
+    if (approveFeeOverride !== "") return Number(approveFeeOverride) || 0;
+    return getApproveBaseFee(approveTrip.cancelStage || "pre_assign");
+  }
+
+  function openApproveModal(req: any) {
+    setApproveTrip(req);
+    setApproveFaultParty(req.faultParty || "clinic");
+    setApproveFeeOverride("");
+    setApproveOverrideNote("");
+    setApproveModalOpen(true);
+  }
+
   const approveCancelMutation = useMutation({
-    mutationFn: async (tripId: number) => {
+    mutationFn: async ({ tripId, faultParty, feeOverride, overrideNote }: {
+      tripId: number; faultParty: string; feeOverride?: number; overrideNote?: string;
+    }) => {
+      const body: any = {
+        reason: approveTrip?.cancelledReason || "Approved clinic cancellation request",
+        type: "soft",
+        faultParty,
+      };
+      if (feeOverride !== undefined) {
+        body.feeOverride = feeOverride;
+        body.overrideNote = overrideNote || "";
+      }
       const res = await fetch(`/api/trips/${tripId}/cancel`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
-        body: JSON.stringify({ reason: "Approved clinic cancellation request", type: "soft" }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -385,8 +446,11 @@ export default function DispatchMapPage() {
       }
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Cancellation approved", description: "Trip has been cancelled." });
+    onSuccess: (data: any) => {
+      const feeMsg = data.billable && data.cancelFee > 0 ? ` | Fee: $${data.cancelFee}` : "";
+      toast({ title: "Cancellation approved", description: `Trip cancelled.${feeMsg}` });
+      setApproveModalOpen(false);
+      setApproveTrip(null);
       queryClient.invalidateQueries({ queryKey: ["/api/dispatch/cancel-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dispatch/map-data"] });
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
@@ -416,6 +480,29 @@ export default function DispatchMapPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Reject failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const returnTripMutation = useMutation({
+    mutationFn: async ({ tripId, notes }: { tripId: number; notes?: string }) => {
+      const res = await fetch(`/api/trips/${tripId}/return-trip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify({ notes }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Return trip failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Return trip created", description: `Trip ${data.publicId} created to return patient.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/map-data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Return trip failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -690,72 +777,95 @@ export default function DispatchMapPage() {
                   {cancelRequests.length}
                 </Badge>
               </CardHeader>
-              <CardContent className="p-2 space-y-2 max-h-60 overflow-y-auto">
-                {cancelRequests.map((req: any) => (
-                  <div
-                    key={req.id}
-                    className="flex items-start gap-3 p-3 rounded-md border border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-950/20"
-                    data-testid={`cancel-request-${req.id}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-medium" data-testid={`text-cancel-trip-id-${req.id}`}>{req.publicId}</span>
-                        <Badge variant="outline" className="text-[10px]">{req.status?.replace("_", " ")}</Badge>
+              <CardContent className="p-2 space-y-2 max-h-72 overflow-y-auto">
+                {cancelRequests.map((req: any) => {
+                  const stage = req.cancelStage || "pre_assign";
+                  const baseFee = CANCEL_FEE_SCHEDULE[stage] ?? 0;
+                  const isPicked = stage === "picked_up";
+                  return (
+                    <div
+                      key={req.id}
+                      className="flex items-start gap-3 p-3 rounded-md border border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-950/20"
+                      data-testid={`cancel-request-${req.id}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-medium" data-testid={`text-cancel-trip-id-${req.id}`}>{req.publicId}</span>
+                          <Badge variant="outline" className="text-[10px]">{req.status?.replace(/_/g, " ")}</Badge>
+                          <Badge variant="outline" className="text-[10px]">{STAGE_LABELS[stage] || stage}</Badge>
+                        </div>
+                        {req.patient && (
+                          <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
+                            <UserCheck className="w-3 h-3 flex-shrink-0" />
+                            <span>{req.patient.firstName} {req.patient.lastName}</span>
+                            {req.patient.phone && (
+                              <a href={`tel:${req.patient.phone}`} className="text-blue-600 dark:text-blue-400 ml-1">
+                                <Phone className="w-3 h-3 inline" />
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {req.clinic && (
+                          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-muted-foreground">
+                            <Building2 className="w-3 h-3 flex-shrink-0" />
+                            <span>{req.clinic.name}</span>
+                          </div>
+                        )}
+                        {req.cancelledReason && (
+                          <p className="text-[10px] text-orange-700 dark:text-orange-300 mt-1" data-testid={`text-cancel-reason-${req.id}`}>
+                            Reason: {req.cancelledReason}
+                          </p>
+                        )}
+                        {req.cancelledByName && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Requested by: {req.cancelledByName}
+                          </p>
+                        )}
+                        {baseFee > 0 && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            <DollarSign className="w-3 h-3 inline" /> Est. fee: ${baseFee}
+                          </p>
+                        )}
                       </div>
-                      {req.patient && (
-                        <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
-                          <UserCheck className="w-3 h-3 flex-shrink-0" />
-                          <span>{req.patient.firstName} {req.patient.lastName}</span>
-                          {req.patient.phone && (
-                            <a href={`tel:${req.patient.phone}`} className="text-blue-600 dark:text-blue-400 ml-1">
-                              <Phone className="w-3 h-3 inline" />
-                            </a>
-                          )}
-                        </div>
-                      )}
-                      {req.clinic && (
-                        <div className="flex items-center gap-1 mt-0.5 text-[10px] text-muted-foreground">
-                          <Building2 className="w-3 h-3 flex-shrink-0" />
-                          <span>{req.clinic.name}</span>
-                        </div>
-                      )}
-                      {req.cancelledReason && (
-                        <p className="text-[10px] text-orange-700 dark:text-orange-300 mt-1" data-testid={`text-cancel-reason-${req.id}`}>
-                          Reason: {req.cancelledReason}
-                        </p>
-                      )}
-                      {req.cancelledByName && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          Requested by: {req.cancelledByName}
-                        </p>
-                      )}
+                      <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-green-600 dark:text-green-400"
+                          onClick={() => openApproveModal(req)}
+                          data-testid={`button-approve-cancel-${req.id}`}
+                          title="Approve cancellation"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-red-600 dark:text-red-400"
+                          onClick={() => rejectCancelMutation.mutate(req.id)}
+                          disabled={rejectCancelMutation.isPending}
+                          data-testid={`button-reject-cancel-${req.id}`}
+                          title="Reject cancellation"
+                        >
+                          <XCircle className="w-4 h-4" />
+                        </Button>
+                        {isPicked && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-blue-600 dark:text-blue-400"
+                            onClick={() => returnTripMutation.mutate({ tripId: req.id, notes: "Return after cancel request" })}
+                            disabled={returnTripMutation.isPending}
+                            data-testid={`button-return-trip-${req.id}`}
+                            title="Create return trip"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="text-green-600 dark:text-green-400"
-                        onClick={() => approveCancelMutation.mutate(req.id)}
-                        disabled={approveCancelMutation.isPending}
-                        data-testid={`button-approve-cancel-${req.id}`}
-                        title="Approve cancellation"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="text-red-600 dark:text-red-400"
-                        onClick={() => rejectCancelMutation.mutate(req.id)}
-                        disabled={rejectCancelMutation.isPending}
-                        data-testid={`button-reject-cancel-${req.id}`}
-                        title="Reject cancellation"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           )}
@@ -1230,6 +1340,154 @@ export default function DispatchMapPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      <Dialog open={approveModalOpen} onOpenChange={setApproveModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Approve Cancellation</DialogTitle>
+          </DialogHeader>
+          {approveTrip && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-md border bg-muted/30">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">{approveTrip.publicId}</span>
+                  <Badge variant="outline" className="text-xs">{STAGE_LABELS[approveTrip.cancelStage] || approveTrip.cancelStage || "Unknown"}</Badge>
+                </div>
+                {approveTrip.patient && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Patient: {approveTrip.patient.firstName} {approveTrip.patient.lastName}
+                  </p>
+                )}
+                {approveTrip.clinic && (
+                  <p className="text-xs text-muted-foreground">
+                    Clinic: {approveTrip.clinic.name}
+                  </p>
+                )}
+                {approveTrip.cancelledReason && (
+                  <p className="text-xs text-orange-700 dark:text-orange-300 mt-1">
+                    Reason: {approveTrip.cancelledReason}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <Label>Fault Party (required)</Label>
+                <Select value={approveFaultParty} onValueChange={setApproveFaultParty}>
+                  <SelectTrigger data-testid="select-fault-party">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="clinic">Clinic</SelectItem>
+                    <SelectItem value="driver">Driver</SelectItem>
+                    <SelectItem value="patient">Patient</SelectItem>
+                    <SelectItem value="dispatch">Dispatch</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="p-3 rounded-md border">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-sm">Billable</Label>
+                  <Badge className={getApproveIsBillable(approveFaultParty)
+                    ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                    : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}>
+                    {getApproveIsBillable(approveFaultParty) ? "Yes" : "No"}
+                  </Badge>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {["driver", "dispatch"].includes(approveFaultParty)
+                    ? "Non-billable: fault is on driver/dispatch"
+                    : "Billable: clinic/patient/unknown fault"}
+                </p>
+              </div>
+
+              {getApproveIsBillable(approveFaultParty) && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm">Base Fee:</span>
+                    <span className="text-sm font-medium">${getApproveBaseFee(approveTrip.cancelStage || "pre_assign")}</span>
+                  </div>
+                  {approveTrip.cancelStage === "picked_up" && (
+                    <p className="text-xs text-orange-600 dark:text-orange-400">
+                      Patient already picked up. Consider creating a return trip instead.
+                    </p>
+                  )}
+                  <div>
+                    <Label>Fee Override (optional)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder={`$${getApproveBaseFee(approveTrip.cancelStage || "pre_assign")} (default)`}
+                      value={approveFeeOverride}
+                      onChange={(e) => setApproveFeeOverride(e.target.value)}
+                      data-testid="input-fee-override"
+                    />
+                  </div>
+                  {approveFeeOverride !== "" && (
+                    <div>
+                      <Label>Override Reason (required if overriding)</Label>
+                      <Textarea
+                        placeholder="Why is the fee different?"
+                        value={approveOverrideNote}
+                        onChange={(e) => setApproveOverrideNote(e.target.value)}
+                        data-testid="input-override-note"
+                      />
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50">
+                    <span className="text-sm font-medium">Final Fee:</span>
+                    <span className="text-lg font-bold">${getApproveFinalFee().toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            {approveTrip?.cancelStage === "picked_up" && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  returnTripMutation.mutate({ tripId: approveTrip.id, notes: "Return after clinic cancel" });
+                  setApproveModalOpen(false);
+                }}
+                disabled={returnTripMutation.isPending}
+                data-testid="button-create-return-trip"
+              >
+                <RotateCcw className="w-4 h-4 mr-1" />
+                Create Return Trip
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => setApproveModalOpen(false)}
+              data-testid="button-cancel-approve-modal"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={approveCancelMutation.isPending || (approveFeeOverride !== "" && !approveOverrideNote.trim())}
+              onClick={() => {
+                if (!approveTrip) return;
+                const params: any = {
+                  tripId: approveTrip.id,
+                  faultParty: approveFaultParty,
+                };
+                if (approveFeeOverride !== "") {
+                  params.feeOverride = Number(approveFeeOverride);
+                  params.overrideNote = approveOverrideNote;
+                }
+                approveCancelMutation.mutate(params);
+              }}
+              data-testid="button-confirm-approve-cancel"
+            >
+              {approveCancelMutation.isPending ? "Processing..." : "Approve Cancellation"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
