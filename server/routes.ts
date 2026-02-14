@@ -1266,6 +1266,80 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/recurring-schedules", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const patientId = req.query.patientId ? Number(req.query.patientId) : undefined;
+      if (patientId) {
+        const schedules = await storage.getRecurringSchedulesByPatient(patientId);
+        return res.json(schedules);
+      }
+      const cityId = req.query.cityId ? Number(req.query.cityId) : undefined;
+      if (cityId) {
+        if (!(await checkCityAccess(req, cityId))) {
+          return res.status(403).json({ message: "No access to this city" });
+        }
+        const schedules = await storage.getRecurringSchedulesByCity(cityId);
+        return res.json(schedules);
+      }
+      const schedules = await storage.getActiveRecurringSchedules();
+      res.json(schedules);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/recurring-schedules", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const { patientId, cityId, days, pickupTime, startDate } = req.body;
+      if (!patientId || !cityId || !days?.length || !pickupTime || !startDate) {
+        return res.status(400).json({ message: "patientId, cityId, days, pickupTime, and startDate are required" });
+      }
+      if (!(await checkCityAccess(req, cityId))) {
+        return res.status(403).json({ message: "No access to this city" });
+      }
+      const schedule = await storage.createRecurringSchedule({
+        patientId,
+        cityId,
+        days,
+        pickupTime,
+        startDate,
+        active: true,
+      });
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "CREATE",
+        entity: "recurring_schedule",
+        entityId: schedule.id,
+        details: `Created recurring schedule for patient ${patientId}: ${days.join(",")} at ${pickupTime}`,
+        cityId,
+      });
+      res.status(201).json(schedule);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/recurring-schedules/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const id = Number(req.params.id);
+      const schedule = await storage.updateRecurringSchedule(id, req.body);
+      if (!schedule) return res.status(404).json({ message: "Schedule not found" });
+      res.json(schedule);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/recurring-schedules/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const id = Number(req.params.id);
+      await storage.deleteRecurringSchedule(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/driver/my-trips", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
