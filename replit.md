@@ -83,10 +83,10 @@ The application follows a client-server architecture.
 
 ## Driver Presence System (Feb 2026)
 - **Heartbeat Endpoint**: POST `/api/driver/presence/heartbeat` - Driver app sends every 30s while open. Updates `lastSeenAt` and optionally `lastLat`/`lastLng`. Validates driver is active and not deleted.
-- **Presence Definition**: `connected` = `lastSeenAt` within 120 seconds. `online` = `dispatchStatus === "available"`. `paused` = `dispatchStatus === "hold"`.
+- **Presence Definition**: `connected` = `lastSeenAt` within 120 seconds. `online` = `dispatchStatus === "available"`. `onHold` = `dispatchStatus === "hold"`.
 - **Dashboard Driver Stats**: GET `/api/dashboard/driver-stats` returns buckets:
   - **IN_ROUTE**: connected && online && has active trip (ASSIGNED through ARRIVED_DROPOFF)
   - **ACTIVE**: connected && online && no active trip && not paused
-  - **OFFLINE/PAUSED**: everything else (offline, disconnected, paused, on hold)
-- **Dashboard UI**: `DriverPresencePanel` replaces old `ActiveDriversPanel`. Shows 3 summary cards (Active, In Route, Offline/Paused) with counts, plus 3 tabs with driver lists. Each row shows driver name, status badge (ACTIVE/IN ROUTE/OFFLINE/PAUSED), trip info (for In Route), and "Last seen: Xm ago".
+  - **OFFLINE/HOLD**: everything else (offline, disconnected, on hold)
+- **Dashboard UI**: `DriverPresencePanel` replaces old `ActiveDriversPanel`. Shows 3 summary cards (Active, In Route, Offline/Hold) with counts, plus 3 tabs with driver lists. Each row shows driver name, status badge (ACTIVE/IN ROUTE/OFFLINE/HOLD), trip info (for In Route), and "Last seen: Xm ago".
 - **City Scoping**: Both driver list and trip lookup are scoped to selected city. Uses `enforceCityContext` for RBAC.

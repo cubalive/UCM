@@ -199,7 +199,7 @@ function DriverPresencePanel() {
   const buckets = [
     { key: "active", label: "Active", count: stats?.activeCount ?? 0, icon: Radio, color: "text-emerald-500", dotColor: "bg-emerald-500" },
     { key: "inRoute", label: "In Route", count: stats?.inRouteCount ?? 0, icon: Navigation, color: "text-blue-500", dotColor: "bg-blue-500" },
-    { key: "offline", label: "Offline / Paused", count: stats?.offlineOrPausedCount ?? 0, icon: WifiOff, color: "text-muted-foreground", dotColor: "bg-muted-foreground" },
+    { key: "offline", label: "Offline / Hold", count: stats?.offlineHoldCount ?? stats?.offlineOrPausedCount ?? 0, icon: WifiOff, color: "text-muted-foreground", dotColor: "bg-muted-foreground" },
   ];
 
   return (
@@ -241,8 +241,8 @@ function DriverPresencePanel() {
               <Badge variant="secondary" className="ml-1">{stats?.inRouteCount ?? 0}</Badge>
             </TabsTrigger>
             <TabsTrigger value="offline" className="flex-1" data-testid="tab-offline">
-              Offline
-              <Badge variant="secondary" className="ml-1">{stats?.offlineOrPausedCount ?? 0}</Badge>
+              Offline / Hold
+              <Badge variant="secondary" className="ml-1">{stats?.offlineHoldCount ?? stats?.offlineOrPausedCount ?? 0}</Badge>
             </TabsTrigger>
           </TabsList>
 
@@ -276,12 +276,12 @@ function DriverPresencePanel() {
 
           <TabsContent value="offline">
             <DriverList
-              drivers={stats?.offlineOrPausedDrivers}
+              drivers={stats?.offlineHoldDrivers ?? stats?.offlineOrPausedDrivers}
               isLoading={isLoading}
-              emptyText="No offline or paused drivers"
+              emptyText="No offline or hold drivers"
               renderBadge={(d: any) => (
-                <Badge variant={d.reason === "paused" ? "secondary" : "outline"}>
-                  {d.reason === "paused" ? "PAUSED" : "OFFLINE"}
+                <Badge variant={d.reason === "hold" ? "secondary" : "outline"}>
+                  {d.reason === "hold" ? "HOLD" : "OFFLINE"}
                 </Badge>
               )}
               testIdPrefix="offline"

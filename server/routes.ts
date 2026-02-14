@@ -1548,7 +1548,7 @@ export async function registerRoutes(
           });
         } else {
           let reason = "offline";
-          if (paused) reason = "paused";
+          if (paused) reason = "hold";
           else if (!connected && online) reason = "disconnected";
           else if (d.dispatchStatus === "off") reason = "offline";
           offlineOrPausedDrivers.push({
@@ -1566,9 +1566,11 @@ export async function registerRoutes(
       res.json({
         activeCount: activeDrivers.length,
         inRouteCount: inRouteDrivers.length,
+        offlineHoldCount: offlineOrPausedDrivers.length,
         offlineOrPausedCount: offlineOrPausedDrivers.length,
         activeDrivers,
         inRouteDrivers,
+        offlineHoldDrivers: offlineOrPausedDrivers,
         offlineOrPausedDrivers,
       });
     } catch (err: any) {
