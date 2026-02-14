@@ -38,6 +38,10 @@ import {
   AlertTriangle,
   Route,
   Bell,
+  XCircle,
+  CheckCircle,
+  Phone,
+  Building2,
 } from "lucide-react";
 import type { Driver, Vehicle, Trip, Patient, DriverVehicleAssignment } from "@shared/schema";
 import { CalendarDays, ArrowLeftRight } from "lucide-react";
@@ -362,6 +366,59 @@ export default function DispatchMapPage() {
     },
   });
 
+  const { data: cancelRequests, refetch: refetchCancelRequests } = useQuery<any[]>({
+    queryKey: ["/api/dispatch/cancel-requests", cityId ? `?cityId=${cityId}` : ""],
+    refetchInterval: 15000,
+    enabled: true,
+  });
+
+  const approveCancelMutation = useMutation({
+    mutationFn: async (tripId: number) => {
+      const res = await fetch(`/api/trips/${tripId}/cancel`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify({ reason: "Approved clinic cancellation request", type: "soft" }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Approve failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cancellation approved", description: "Trip has been cancelled." });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/cancel-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/map-data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Approve failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const rejectCancelMutation = useMutation({
+    mutationFn: async (tripId: number) => {
+      const res = await fetch(`/api/trips/${tripId}/reject-cancel`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Reject failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cancellation rejected", description: "Trip remains active." });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/cancel-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/map-data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Reject failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   async function openSmsDialog(trip: Trip) {
     setSmsTrip(trip);
     setSmsMode("template");
@@ -621,6 +678,87 @@ export default function DispatchMapPage() {
               })}
             </CardContent>
           </Card>
+
+          {cancelRequests && cancelRequests.length > 0 && (
+            <Card>
+              <CardHeader className="p-3 pb-2 flex flex-row items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <XCircle className="w-4 h-4 text-orange-500" />
+                  <CardTitle className="text-sm">Cancel Requests</CardTitle>
+                </div>
+                <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                  {cancelRequests.length}
+                </Badge>
+              </CardHeader>
+              <CardContent className="p-2 space-y-2 max-h-60 overflow-y-auto">
+                {cancelRequests.map((req: any) => (
+                  <div
+                    key={req.id}
+                    className="flex items-start gap-3 p-3 rounded-md border border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-950/20"
+                    data-testid={`cancel-request-${req.id}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-medium" data-testid={`text-cancel-trip-id-${req.id}`}>{req.publicId}</span>
+                        <Badge variant="outline" className="text-[10px]">{req.status?.replace("_", " ")}</Badge>
+                      </div>
+                      {req.patient && (
+                        <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
+                          <UserCheck className="w-3 h-3 flex-shrink-0" />
+                          <span>{req.patient.firstName} {req.patient.lastName}</span>
+                          {req.patient.phone && (
+                            <a href={`tel:${req.patient.phone}`} className="text-blue-600 dark:text-blue-400 ml-1">
+                              <Phone className="w-3 h-3 inline" />
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      {req.clinic && (
+                        <div className="flex items-center gap-1 mt-0.5 text-[10px] text-muted-foreground">
+                          <Building2 className="w-3 h-3 flex-shrink-0" />
+                          <span>{req.clinic.name}</span>
+                        </div>
+                      )}
+                      {req.cancelledReason && (
+                        <p className="text-[10px] text-orange-700 dark:text-orange-300 mt-1" data-testid={`text-cancel-reason-${req.id}`}>
+                          Reason: {req.cancelledReason}
+                        </p>
+                      )}
+                      {req.cancelledByName && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Requested by: {req.cancelledByName}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-green-600 dark:text-green-400"
+                        onClick={() => approveCancelMutation.mutate(req.id)}
+                        disabled={approveCancelMutation.isPending}
+                        data-testid={`button-approve-cancel-${req.id}`}
+                        title="Approve cancellation"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-red-600 dark:text-red-400"
+                        onClick={() => rejectCancelMutation.mutate(req.id)}
+                        disabled={rejectCancelMutation.isPending}
+                        data-testid={`button-reject-cancel-${req.id}`}
+                        title="Reject cancellation"
+                      >
+                        <XCircle className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="p-3 pb-2">

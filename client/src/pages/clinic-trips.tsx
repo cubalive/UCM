@@ -16,6 +16,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -583,6 +584,39 @@ function LiveTripCards({ trips, selectedTrip, onSelectTrip }: {
   selectedTrip: any;
   onSelectTrip: (trip: any) => void;
 }) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelTrip, setCancelTrip] = useState<any>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelNotes, setCancelNotes] = useState("");
+
+  const cancelMutation = useMutation({
+    mutationFn: async ({ tripId, reason, notes }: { tripId: number; reason: string; notes: string }) => {
+      const res = await fetch(`/api/trips/${tripId}/cancel-request`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reason: notes ? `${reason} - ${notes}` : reason }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Request failed" }));
+        throw new Error(err.message);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cancel request submitted", description: "Dispatch will review your request." });
+      setCancelModalOpen(false);
+      setCancelTrip(null);
+      setCancelReason("");
+      setCancelNotes("");
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/active-trips"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const sorted = [...trips].sort((a, b) => {
     const etaA = a.etaToClinic ?? 9999;
     const etaB = b.etaToClinic ?? 9999;
@@ -590,84 +624,209 @@ function LiveTripCards({ trips, selectedTrip, onSelectTrip }: {
   });
 
   return (
-    <div className="space-y-2" data-testid="list-live-trip-cards">
-      {sorted.map(trip => {
-        const isSelected = selectedTrip?.tripId === trip.tripId;
-        return (
-          <Card
-            key={trip.tripId}
-            className={`cursor-pointer transition-colors ${isSelected ? "ring-2 ring-blue-500" : ""}`}
-            onClick={() => onSelectTrip(trip)}
-            data-testid={`card-live-trip-${trip.tripId}`}
-          >
-            <CardContent className="py-3 px-4">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <User className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm font-semibold" data-testid={`text-live-patient-${trip.tripId}`}>
-                    {trip.patient?.firstName || "Unknown"} {trip.patient?.lastName || ""}
-                  </span>
-                  <Badge className={STATUS_COLORS[trip.status] || ""}>
-                    {STATUS_LABELS[trip.status] || trip.status}
-                  </Badge>
-                </div>
-                <div className="text-right">
-                  {trip.stale ? (
-                    <div className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400" data-testid={`text-stale-${trip.tripId}`}>
-                      <WifiOff className="w-3.5 h-3.5" />
-                      Driver location not updating
-                    </div>
-                  ) : trip.etaToClinic != null ? (
-                    <div data-testid={`text-eta-clinic-${trip.tripId}`}>
-                      <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                        ~{trip.etaToClinic} min
+    <>
+      <div className="space-y-2" data-testid="list-live-trip-cards">
+        {sorted.map(trip => {
+          const isSelected = selectedTrip?.tripId === trip.tripId;
+          const isCancelRequested = trip.approvalStatus === "cancel_requested";
+          return (
+            <Card
+              key={trip.tripId}
+              className={`cursor-pointer transition-colors ${isSelected ? "ring-2 ring-blue-500" : ""} ${isCancelRequested ? "opacity-70" : ""}`}
+              onClick={() => onSelectTrip(trip)}
+              data-testid={`card-live-trip-${trip.tripId}`}
+            >
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <User className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold" data-testid={`text-live-patient-${trip.tripId}`}>
+                      {trip.patient?.firstName || "Unknown"} {trip.patient?.lastName || ""}
+                    </span>
+                    {trip.patient?.phone && (
+                      <span className="text-xs text-muted-foreground" data-testid={`text-patient-phone-${trip.tripId}`}>
+                        {trip.patient.phone}
                       </span>
-                      {trip.etaUpdatedAt && (
-                        <p className="text-xs text-muted-foreground">
-                          Updated {formatTimeAgo(trip.etaUpdatedAt)}
-                        </p>
+                    )}
+                    <Badge className={STATUS_COLORS[trip.status] || ""}>
+                      {STATUS_LABELS[trip.status] || trip.status}
+                    </Badge>
+                    {isCancelRequested && (
+                      <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                        Cancel Requested
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    {trip.stale ? (
+                      <div className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400" data-testid={`text-stale-${trip.tripId}`}>
+                        <WifiOff className="w-3.5 h-3.5" />
+                        Driver location not updating
+                      </div>
+                    ) : trip.etaToClinic != null ? (
+                      <div data-testid={`text-eta-clinic-${trip.tripId}`}>
+                        <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                          ~{trip.etaToClinic} min
+                        </span>
+                        {trip.etaUpdatedAt && (
+                          <p className="text-xs text-muted-foreground">
+                            Updated {formatTimeAgo(trip.etaUpdatedAt)}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">ETA unavailable</span>
+                    )}
+                  </div>
+                </div>
+                {trip.lastEtaMinutes != null && !trip.stale && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5" data-testid={`text-route-eta-${trip.tripId}`}>
+                    <Navigation className="w-3 h-3 text-indigo-500" />
+                    <span>Route: ~{trip.lastEtaMinutes} min{trip.distanceMiles != null && ` / ${trip.distanceMiles} mi`}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-4 text-xs text-muted-foreground mt-2 flex-wrap">
+                  {trip.driver && (
+                    <span className="flex items-center gap-1">
+                      <Car className="w-3 h-3" />
+                      {trip.driver.firstName} {trip.driver.lastName}
+                      {trip.driver.phone && (
+                        <span className="text-muted-foreground ml-0.5">{trip.driver.phone}</span>
                       )}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">ETA unavailable</span>
+                      {trip.driver.stale && <WifiOff className="w-3 h-3 text-orange-500 ml-0.5" />}
+                    </span>
+                  )}
+                  {!trip.driver && (
+                    <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400">
+                      <Car className="w-3 h-3" /> Unassigned
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {trip.pickupTime || "N/A"}</span>
+                  <span className="flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-emerald-500" />
+                    {trip.pickupAddress ? (trip.pickupAddress.length > 25 ? trip.pickupAddress.substring(0, 25) + "..." : trip.pickupAddress) : "N/A"}
+                  </span>
+                  <ArrowRight className="w-3 h-3" />
+                  <span className="flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-red-500" />
+                    {trip.dropoffAddress ? (trip.dropoffAddress.length > 25 ? trip.dropoffAddress.substring(0, 25) + "..." : trip.dropoffAddress) : "N/A"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                  {trip.driver?.phone && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      data-testid={`button-call-driver-${trip.tripId}`}
+                    >
+                      <a href={`tel:${trip.driver.phone}`}>
+                        <Phone className="w-3 h-3 mr-1" />
+                        Call Driver
+                      </a>
+                    </Button>
+                  )}
+                  {trip.patient?.phone && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      data-testid={`button-call-patient-${trip.tripId}`}
+                    >
+                      <a href={`tel:${trip.patient.phone}`}>
+                        <Phone className="w-3 h-3 mr-1" />
+                        Call Patient
+                      </a>
+                    </Button>
+                  )}
+                  {!isCancelRequested && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 dark:text-red-400 border-red-200 dark:border-red-800"
+                      onClick={() => {
+                        setCancelTrip(trip);
+                        setCancelReason("");
+                        setCancelNotes("");
+                        setCancelModalOpen(true);
+                      }}
+                      data-testid={`button-request-cancel-${trip.tripId}`}
+                    >
+                      <XCircle className="w-3 h-3 mr-1" />
+                      Request Cancel
+                    </Button>
                   )}
                 </div>
-              </div>
-              {trip.lastEtaMinutes != null && !trip.stale && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5" data-testid={`text-route-eta-${trip.tripId}`}>
-                  <Navigation className="w-3 h-3 text-indigo-500" />
-                  <span>Route: ~{trip.lastEtaMinutes} min{trip.distanceMiles != null && ` / ${trip.distanceMiles} mi`}</span>
-                </div>
-              )}
-              <div className="flex items-center gap-4 text-xs text-muted-foreground mt-2 flex-wrap">
-                {trip.driver && (
-                  <span className="flex items-center gap-1">
-                    <Car className="w-3 h-3" />
-                    {trip.driver.firstName} {trip.driver.lastName}
-                    {trip.driver.stale && <WifiOff className="w-3 h-3 text-orange-500 ml-0.5" />}
-                  </span>
-                )}
-                {!trip.driver && (
-                  <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400">
-                    <Car className="w-3 h-3" /> Unassigned
-                  </span>
-                )}
-                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {trip.pickupTime || "N/A"}</span>
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3 h-3 text-emerald-500" />
-                  {trip.pickupAddress ? (trip.pickupAddress.length > 25 ? trip.pickupAddress.substring(0, 25) + "..." : trip.pickupAddress) : "N/A"}
-                </span>
-                <ArrowRight className="w-3 h-3" />
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3 h-3 text-red-500" />
-                  {trip.dropoffAddress ? (trip.dropoffAddress.length > 25 ? trip.dropoffAddress.substring(0, 25) + "..." : trip.dropoffAddress) : "N/A"}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      <Dialog open={cancelModalOpen} onOpenChange={setCancelModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Request Trip Cancellation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Trip {cancelTrip?.publicId} for {cancelTrip?.patient?.firstName} {cancelTrip?.patient?.lastName}
+            </p>
+            <div>
+              <Label htmlFor="cancel-reason">Reason (required)</Label>
+              <Select value={cancelReason} onValueChange={setCancelReason}>
+                <SelectTrigger data-testid="select-cancel-reason">
+                  <SelectValue placeholder="Select a reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Patient no longer needs transport">Patient no longer needs transport</SelectItem>
+                  <SelectItem value="Appointment rescheduled">Appointment rescheduled</SelectItem>
+                  <SelectItem value="Appointment cancelled">Appointment cancelled</SelectItem>
+                  <SelectItem value="Patient hospitalized">Patient hospitalized</SelectItem>
+                  <SelectItem value="Duplicate booking">Duplicate booking</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="cancel-notes">Additional notes (optional)</Label>
+              <Textarea
+                id="cancel-notes"
+                value={cancelNotes}
+                onChange={(e) => setCancelNotes(e.target.value)}
+                placeholder="Any additional details..."
+                data-testid="input-cancel-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCancelModalOpen(false)}
+              data-testid="button-cancel-modal-close"
+            >
+              Close
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!cancelReason || cancelMutation.isPending}
+              onClick={() => {
+                if (cancelTrip && cancelReason) {
+                  cancelMutation.mutate({
+                    tripId: cancelTrip.tripId,
+                    reason: cancelReason,
+                    notes: cancelNotes,
+                  });
+                }
+              }}
+              data-testid="button-submit-cancel-request"
+            >
+              {cancelMutation.isPending ? "Submitting..." : "Submit Cancel Request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

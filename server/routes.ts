@@ -2943,13 +2943,74 @@ export async function registerRoutes(
         approvalStatus: "cancel_requested",
         cancelledBy: req.user!.userId,
         cancelledReason: req.body.reason || "Cancellation requested by clinic",
+        cancelledAt: new Date(),
       } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
-        action: "CANCEL_REQUEST",
+        action: "clinic_cancel_request",
         entity: "trip",
         entityId: id,
         details: `Clinic requested cancellation for trip ${trip.publicId}: ${req.body.reason || "No reason given"}`,
+        cityId: trip.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/dispatch/cancel-requests", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const companyId = getCompanyIdFromAuth(req);
+      const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
+      const conditions = [
+        eq(trips.approvalStatus, "cancel_requested"),
+        isNull(trips.deletedAt),
+      ];
+      if (cityId) conditions.push(eq(trips.cityId, cityId));
+      const cancelRequests = await db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.updatedAt));
+      const filtered = applyCompanyFilter(cancelRequests, companyId);
+      const result = await Promise.all(filtered.map(async (trip) => {
+        const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+        const driver = trip.driverId ? await storage.getDriver(trip.driverId) : null;
+        const clinic = trip.clinicId ? await storage.getClinic(trip.clinicId) : null;
+        const cancelledByUser = trip.cancelledBy ? await storage.getUser(trip.cancelledBy) : null;
+        return {
+          ...trip,
+          patient: patient ? { id: patient.id, firstName: patient.firstName, lastName: patient.lastName, phone: patient.phone } : null,
+          driver: driver ? { id: driver.id, firstName: driver.firstName, lastName: driver.lastName, phone: driver.phone } : null,
+          clinic: clinic ? { id: clinic.id, name: clinic.name } : null,
+          cancelledByName: cancelledByUser ? `${cancelledByUser.firstName || ""} ${cancelledByUser.lastName || ""}`.trim() : null,
+        };
+      }));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/trips/:id/reject-cancel", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      const companyId = getCompanyIdFromAuth(req);
+      if (!checkCompanyOwnership(trip, companyId)) return res.status(403).json({ message: "Access denied" });
+      if (trip.approvalStatus !== "cancel_requested") {
+        return res.status(400).json({ message: `Trip is not in cancel_requested state (current: ${trip.approvalStatus})` });
+      }
+      const updated = await storage.updateTrip(id, {
+        approvalStatus: "approved",
+        cancelledBy: null,
+        cancelledReason: null,
+      } as any);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "REJECT_CANCEL_REQUEST",
+        entity: "trip",
+        entityId: id,
+        details: `Rejected clinic cancellation request for trip ${trip.publicId}`,
         cityId: trip.cityId,
       });
       res.json(updated);
@@ -4090,6 +4151,7 @@ export async function registerRoutes(
           tripId: trip.id,
           publicId: trip.publicId,
           status: trip.status,
+          approvalStatus: trip.approvalStatus,
           scheduledDate: trip.scheduledDate,
           pickupTime: trip.pickupTime,
           pickupAddress: trip.pickupAddress,
