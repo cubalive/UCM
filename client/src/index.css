@@ -26,6 +26,13 @@
   }
 }
 
+[data-testid="div-google-map"],
+.ucm-map-container {
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
 .driver-map-label {
   background: rgba(255, 255, 255, 0.85);
   padding: 1px 4px;

@@ -117,6 +117,7 @@ interface GoogleMapProps {
   drivers: DriverLocation[];
   center: { lat: number; lng: number };
   zoom: number;
+  mapsLoaded: boolean;
 }
 
 const CAR_SVG_PATH = "M 7 1 C 5.5 1 4.3 1.8 3.8 3 L 2 3 C 0.9 3 0 3.9 0 5 L 0 10 C 0 10.6 0.4 11 1 11 L 2.5 11 C 2.5 12.4 3.6 13.5 5 13.5 C 6.4 13.5 7.5 12.4 7.5 11 L 12.5 11 C 12.5 12.4 13.6 13.5 15 13.5 C 16.4 13.5 17.5 12.4 17.5 11 L 19 11 C 19.6 11 20 10.6 20 10 L 20 5 C 20 3.9 19.1 3 18 3 L 16.2 3 C 15.7 1.8 14.5 1 13 1 Z M 5 10 C 4.4 10 4 10.4 4 11 C 4 11.6 4.4 12 5 12 C 5.6 12 6 11.6 6 11 C 6 10.4 5.6 10 5 10 Z M 15 10 C 14.4 10 14 10.4 14 11 C 14 11.6 14.4 12 15 12 C 15.6 12 16 11.6 16 11 C 16 10.4 15.6 10 15 10 Z M 4 5 L 7 3 L 13 3 L 16 5 Z";
@@ -197,49 +198,86 @@ function createFallbackIcon(stale: boolean, statusColor: string) {
   return icon;
 }
 
-function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markerMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
-  const labelMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
-  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
-  const driversDataRef = useRef<Map<number, DriverLocation>>(new Map());
-  const initialBoundsFitRef = useRef(false);
+declare global {
+  interface Window {
+    __UCM_MAP__?: Record<string, {
+      map: google.maps.Map;
+      container: HTMLDivElement;
+      markers: Map<number, google.maps.Marker>;
+      labels: Map<number, google.maps.Marker>;
+      infoWindow: google.maps.InfoWindow;
+      driversData: Map<number, DriverLocation>;
+      boundsFit: boolean;
+    }>;
+  }
+}
+
+function getOrCreateGlobalMap(key: string, center: { lat: number; lng: number }, zoom: number): NonNullable<Window['__UCM_MAP__']>[string] | null {
+  if (!window.google?.maps) return null;
+  if (!window.__UCM_MAP__) window.__UCM_MAP__ = {};
+  if (window.__UCM_MAP__[key]) return window.__UCM_MAP__[key];
+
+  const container = document.createElement("div");
+  container.className = "w-full h-full rounded-md ucm-map-container";
+  container.style.minHeight = "500px";
+  container.setAttribute("data-testid", "div-google-map");
+
+  const map = new google.maps.Map(container, {
+    center,
+    zoom,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: true,
+    zoomControl: true,
+    styles: [
+      { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+    ],
+  });
+
+  window.__UCM_MAP__[key] = {
+    map,
+    container,
+    markers: new Map(),
+    labels: new Map(),
+    infoWindow: new google.maps.InfoWindow(),
+    driversData: new Map(),
+    boundsFit: false,
+  };
+
+  return window.__UCM_MAP__[key];
+}
+
+function GoogleMapView({ drivers, center, zoom, mapsLoaded }: GoogleMapProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const mapKeyRef = useRef("live-map-dispatch");
 
   useEffect(() => {
-    if (!mapRef.current || !window.google?.maps) return;
-
-    if (!mapInstanceRef.current) {
-      mapInstanceRef.current = new google.maps.Map(mapRef.current, {
-        center,
-        zoom,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: true,
-        zoomControl: true,
-        styles: [
-          { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
-        ],
-      });
-      infoWindowRef.current = new google.maps.InfoWindow();
+    if (!mapsLoaded || !wrapperRef.current || !window.google?.maps) return;
+    const entry = getOrCreateGlobalMap(mapKeyRef.current, center, zoom);
+    if (!entry) return;
+    if (entry.container.parentNode !== wrapperRef.current) {
+      wrapperRef.current.appendChild(entry.container);
+      google.maps.event.trigger(entry.map, "resize");
     }
-  }, [center, zoom]);
+  }, [mapsLoaded]);
 
   useEffect(() => {
-    if (!mapInstanceRef.current || !window.google?.maps) return;
+    if (!mapsLoaded || !window.google?.maps) return;
+    const entry = window.__UCM_MAP__?.[mapKeyRef.current];
+    if (!entry) return;
 
     const currentIds = new Set(drivers.map((d) => d.driver_id));
-    const existingIds = new Set(markerMapRef.current.keys());
+    const existingIdArray = Array.from(entry.markers.keys());
 
-    for (const id of existingIds) {
+    existingIdArray.forEach((id) => {
       if (!currentIds.has(id)) {
-        markerMapRef.current.get(id)?.setMap(null);
-        markerMapRef.current.delete(id);
-        labelMapRef.current.get(id)?.setMap(null);
-        labelMapRef.current.delete(id);
-        driversDataRef.current.delete(id);
+        entry.markers.get(id)?.setMap(null);
+        entry.markers.delete(id);
+        entry.labels.get(id)?.setMap(null);
+        entry.labels.delete(id);
+        entry.driversData.delete(id);
       }
-    }
+    });
 
     drivers.forEach((driver) => {
       const stale = isStale(driver.updated_at);
@@ -250,10 +288,10 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
         : createFallbackIcon(stale, statusColor);
       const pos = { lat: driver.lat, lng: driver.lng };
 
-      driversDataRef.current.set(driver.driver_id, driver);
+      entry.driversData.set(driver.driver_id, driver);
 
-      const existingMarker = markerMapRef.current.get(driver.driver_id);
-      const existingLabel = labelMapRef.current.get(driver.driver_id);
+      const existingMarker = entry.markers.get(driver.driver_id);
+      const existingLabel = entry.labels.get(driver.driver_id);
 
       if (existingMarker) {
         existingMarker.setPosition(pos);
@@ -266,7 +304,7 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
       } else {
         const marker = new google.maps.Marker({
           position: pos,
-          map: mapInstanceRef.current!,
+          map: entry.map,
           icon,
           title: driver.driver_name,
           zIndex: stale ? 1 : 10,
@@ -275,7 +313,7 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
         const firstName = driver.driver_name.split(" ")[0];
         const labelMarker = new google.maps.Marker({
           position: pos,
-          map: mapInstanceRef.current!,
+          map: entry.map,
           icon: {
             url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'),
             scaledSize: new google.maps.Size(1, 1),
@@ -293,7 +331,7 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
         });
 
         marker.addListener("click", () => {
-          const d = driversDataRef.current.get(driver.driver_id);
+          const d = entry.driversData.get(driver.driver_id);
           if (!d) return;
           const dStale = isStale(d.updated_at);
           const dStatusColor = STATUS_COLORS[d.status] || STATUS_COLORS.off;
@@ -323,7 +361,7 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
                ${d.active_trip_patient ? `<div style="font-size:10px;color:#666;">Patient: ${d.active_trip_patient}</div>` : ""}`
             : `<div style="margin-top:4px;font-size:10px;color:#999;font-style:italic;">No active trip</div>`;
 
-          infoWindowRef.current?.setContent(`
+          entry.infoWindow.setContent(`
             <div style="padding:4px;min-width:160px;">
               <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${d.driver_name}</div>
               <div style="font-size:12px;color:#666;">
@@ -336,31 +374,30 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
               ${tripBadge}
             </div>
           `);
-          infoWindowRef.current?.open(mapInstanceRef.current!, marker);
+          entry.infoWindow.open(entry.map, marker);
         });
 
-        markerMapRef.current.set(driver.driver_id, marker);
-        labelMapRef.current.set(driver.driver_id, labelMarker);
+        entry.markers.set(driver.driver_id, marker);
+        entry.labels.set(driver.driver_id, labelMarker);
       }
     });
 
-    if (!initialBoundsFitRef.current && drivers.length > 0) {
-      initialBoundsFitRef.current = true;
+    if (!entry.boundsFit && drivers.length > 0) {
+      entry.boundsFit = true;
       if (drivers.length > 1) {
         const bounds = new google.maps.LatLngBounds();
         drivers.forEach((d) => bounds.extend({ lat: d.lat, lng: d.lng }));
-        mapInstanceRef.current.fitBounds(bounds, { top: 50, right: 50, bottom: 50, left: 50 });
+        entry.map.fitBounds(bounds, { top: 50, right: 50, bottom: 50, left: 50 });
       } else {
-        mapInstanceRef.current.setCenter({ lat: drivers[0].lat, lng: drivers[0].lng });
-        mapInstanceRef.current.setZoom(14);
+        entry.map.setCenter({ lat: drivers[0].lat, lng: drivers[0].lng });
+        entry.map.setZoom(14);
       }
     }
-  }, [drivers]);
+  }, [drivers, mapsLoaded]);
 
   return (
     <div
-      ref={mapRef}
-      data-testid="div-google-map"
+      ref={wrapperRef}
       className="w-full h-full rounded-md"
       style={{ minHeight: "500px" }}
     />
@@ -480,40 +517,42 @@ function ClinicMapView({ token, cityId, mapsReady, renderError, keyLoading, maps
       )}
 
       <div className="flex-1 min-h-0">
-        {renderError ? (
-          <Card className="h-full flex items-center justify-center" style={{ minHeight: "400px" }}>
-            <CardContent className="text-center p-6">
-              <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-3" />
-              <p className="text-destructive font-medium" data-testid="text-map-error">Maps unavailable</p>
-              <p className="text-sm text-muted-foreground mt-1">Google Maps API key is not configured.</p>
-            </CardContent>
-          </Card>
-        ) : keyLoading || !mapsLoaded ? (
-          <Skeleton className="w-full rounded-md" style={{ minHeight: "400px" }} data-testid="skeleton-map" />
-        ) : driversLoading ? (
-          <Skeleton className="w-full rounded-md" style={{ minHeight: "400px" }} data-testid="skeleton-drivers" />
-        ) : (
-          <div className="relative h-full" style={{ minHeight: "400px" }}>
-            <GoogleMapView drivers={drivers} center={mapCenter} zoom={5} />
-            {drivers.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="bg-card/90 border rounded-md p-4 text-center pointer-events-auto">
-                  <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground" data-testid="text-no-driver-locations">
-                    No active trip drivers to display
-                  </p>
-                </div>
+        <div className="relative h-full" style={{ minHeight: "400px" }}>
+          <GoogleMapView drivers={drivers} center={mapCenter} zoom={5} mapsLoaded={mapsLoaded} />
+          {renderError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
+              <Card>
+                <CardContent className="text-center p-6">
+                  <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-3" />
+                  <p className="text-destructive font-medium" data-testid="text-map-error">Maps unavailable</p>
+                  <p className="text-sm text-muted-foreground mt-1">Google Maps API key is not configured.</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          {!renderError && (keyLoading || !mapsLoaded || driversLoading) && (
+            <div className="absolute inset-0 z-10">
+              <Skeleton className="w-full h-full rounded-md" data-testid="skeleton-map" />
+            </div>
+          )}
+          {!renderError && !keyLoading && mapsLoaded && !driversLoading && drivers.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="bg-card/90 border rounded-md p-4 text-center pointer-events-auto">
+                <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground" data-testid="text-no-driver-locations">
+                  No active trip drivers to display
+                </p>
               </div>
-            )}
-            {dataUpdatedAt && (
-              <div className="absolute bottom-3 left-3">
-                <Badge variant="secondary" className="text-xs" data-testid="badge-last-updated">
-                  Last poll: {new Date(dataUpdatedAt).toLocaleTimeString()}
-                </Badge>
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+          {!renderError && !keyLoading && mapsLoaded && dataUpdatedAt && (
+            <div className="absolute bottom-3 left-3">
+              <Badge variant="secondary" className="text-xs" data-testid="badge-last-updated">
+                Last poll: {new Date(dataUpdatedAt).toLocaleTimeString()}
+              </Badge>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -614,39 +653,41 @@ function PatientMapView({ token, mapsReady, renderError, keyLoading, mapsLoaded,
       </Card>
 
       <div className="flex-1 min-h-0">
-        {renderError ? (
-          <Card className="h-full flex items-center justify-center" style={{ minHeight: "400px" }}>
-            <CardContent className="text-center p-6">
-              <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-3" />
-              <p className="text-destructive font-medium" data-testid="text-map-error">Maps unavailable</p>
-            </CardContent>
-          </Card>
-        ) : keyLoading || !mapsLoaded ? (
-          <Skeleton className="w-full rounded-md" style={{ minHeight: "400px" }} data-testid="skeleton-map" />
-        ) : driversLoading ? (
-          <Skeleton className="w-full rounded-md" style={{ minHeight: "400px" }} data-testid="skeleton-drivers" />
-        ) : (
-          <div className="relative h-full" style={{ minHeight: "400px" }}>
-            <GoogleMapView drivers={drivers} center={mapCenter} zoom={5} />
-            {drivers.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="bg-card/90 border rounded-md p-4 text-center pointer-events-auto">
-                  <MapPin className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground" data-testid="text-no-driver-locations">
-                    Driver location not yet available
-                  </p>
-                </div>
+        <div className="relative h-full" style={{ minHeight: "400px" }}>
+          <GoogleMapView drivers={drivers} center={mapCenter} zoom={5} mapsLoaded={mapsLoaded} />
+          {renderError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
+              <Card>
+                <CardContent className="text-center p-6">
+                  <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-3" />
+                  <p className="text-destructive font-medium" data-testid="text-map-error">Maps unavailable</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          {!renderError && (keyLoading || !mapsLoaded || driversLoading) && (
+            <div className="absolute inset-0 z-10">
+              <Skeleton className="w-full h-full rounded-md" data-testid="skeleton-map" />
+            </div>
+          )}
+          {!renderError && !keyLoading && mapsLoaded && !driversLoading && drivers.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="bg-card/90 border rounded-md p-4 text-center pointer-events-auto">
+                <MapPin className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground" data-testid="text-no-driver-locations">
+                  Driver location not yet available
+                </p>
               </div>
-            )}
-            {dataUpdatedAt && (
-              <div className="absolute bottom-3 left-3">
-                <Badge variant="secondary" className="text-xs" data-testid="badge-last-updated">
-                  Last poll: {new Date(dataUpdatedAt).toLocaleTimeString()}
-                </Badge>
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+          {!renderError && !keyLoading && mapsLoaded && dataUpdatedAt && (
+            <div className="absolute bottom-3 left-3">
+              <Badge variant="secondary" className="text-xs" data-testid="badge-last-updated">
+                Last poll: {new Date(dataUpdatedAt).toLocaleTimeString()}
+              </Badge>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -771,61 +812,66 @@ function DispatchMapView({ token, localCityId, cities, setSelectedCity, setLocal
       )}
 
       <div className="flex-1 min-h-0">
-        {!localCityId ? (
-          <Card className="h-full flex items-center justify-center" style={{ minHeight: "500px" }}>
-            <CardContent className="text-center p-6">
-              <MapPin className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground" data-testid="text-select-city-prompt">
-                Select a city above to view driver locations
-              </p>
-            </CardContent>
-          </Card>
-        ) : renderError ? (
-          <Card className="h-full flex items-center justify-center" style={{ minHeight: "500px" }}>
-            <CardContent className="text-center p-6">
-              <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-3" />
-              <p className="text-destructive font-medium" data-testid="text-map-error">
-                Maps unavailable
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {typeof mapsError === "string" ? mapsError : "Google Maps API key is not configured or invalid. Contact your administrator."}
-              </p>
-            </CardContent>
-          </Card>
-        ) : keyLoading || !mapsLoaded ? (
-          <Skeleton className="w-full rounded-md" style={{ minHeight: "500px" }} data-testid="skeleton-map" />
-        ) : driversLoading ? (
-          <Skeleton className="w-full rounded-md" style={{ minHeight: "500px" }} data-testid="skeleton-drivers" />
-        ) : (
-          <div className="relative h-full" style={{ minHeight: "500px" }}>
-            <GoogleMapView drivers={drivers} center={mapCenter} zoom={mapZoom} />
-            {drivers.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="bg-card/90 border rounded-md p-4 text-center pointer-events-auto">
-                  <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground" data-testid="text-no-driver-locations">
-                    No driver locations available for this city
+        <div className="relative h-full" style={{ minHeight: "500px" }}>
+          <GoogleMapView drivers={drivers} center={mapCenter} zoom={mapZoom} mapsLoaded={mapsLoaded} />
+          {!localCityId && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
+              <Card>
+                <CardContent className="text-center p-6">
+                  <MapPin className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-muted-foreground" data-testid="text-select-city-prompt">
+                    Select a city above to view driver locations
                   </p>
-                </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          {localCityId && renderError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
+              <Card>
+                <CardContent className="text-center p-6">
+                  <AlertTriangle className="w-12 h-12 text-destructive mx-auto mb-3" />
+                  <p className="text-destructive font-medium" data-testid="text-map-error">
+                    Maps unavailable
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {typeof mapsError === "string" ? mapsError : "Google Maps API key is not configured or invalid. Contact your administrator."}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          {localCityId && !renderError && (keyLoading || !mapsLoaded || driversLoading) && (
+            <div className="absolute inset-0 z-10">
+              <Skeleton className="w-full h-full rounded-md" data-testid="skeleton-map" />
+            </div>
+          )}
+          {localCityId && !renderError && !keyLoading && mapsLoaded && !driversLoading && drivers.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="bg-card/90 border rounded-md p-4 text-center pointer-events-auto">
+                <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground" data-testid="text-no-driver-locations">
+                  No driver locations available for this city
+                </p>
               </div>
-            )}
-            {staleCount > 0 && (
-              <div className="absolute top-3 right-3">
-                <Badge variant="outline" className="bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700" data-testid="badge-stale-warning">
-                  <AlertTriangle className="w-3 h-3 mr-1" />
-                  {staleCount} stale
-                </Badge>
-              </div>
-            )}
-            {dataUpdatedAt && (
-              <div className="absolute bottom-3 left-3">
-                <Badge variant="secondary" className="text-xs" data-testid="badge-last-updated">
-                  Last poll: {new Date(dataUpdatedAt).toLocaleTimeString()}
-                </Badge>
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+          {localCityId && !renderError && !keyLoading && mapsLoaded && !driversLoading && staleCount > 0 && (
+            <div className="absolute top-3 right-3">
+              <Badge variant="outline" className="bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700" data-testid="badge-stale-warning">
+                <AlertTriangle className="w-3 h-3 mr-1" />
+                {staleCount} stale
+              </Badge>
+            </div>
+          )}
+          {localCityId && !renderError && !keyLoading && mapsLoaded && dataUpdatedAt && (
+            <div className="absolute bottom-3 left-3">
+              <Badge variant="secondary" className="text-xs" data-testid="badge-last-updated">
+                Last poll: {new Date(dataUpdatedAt).toLocaleTimeString()}
+              </Badge>
+            </div>
+          )}
+        </div>
       </div>
 
       {localCityId && drivers.length > 0 && (

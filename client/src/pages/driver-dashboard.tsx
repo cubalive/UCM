@@ -305,6 +305,43 @@ function formatCountdown(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+interface DriverMapStore {
+  map: google.maps.Map;
+  container: HTMLDivElement;
+  driverMarker: google.maps.Marker | null;
+  pickupMarker: google.maps.Marker | null;
+  dropoffMarker: google.maps.Marker | null;
+  polyline: google.maps.Polyline | null;
+  lastFitKey: string;
+}
+
+function getOrCreateDriverMap(key: string, center: { lat: number; lng: number }): DriverMapStore | null {
+  if (!window.google?.maps) return null;
+  if (!window.__UCM_MAP__) (window as any).__UCM_MAP__ = {};
+  const store = (window as any).__UCM_MAP__ as Record<string, any>;
+  if (store[key]) return store[key] as DriverMapStore;
+
+  const container = document.createElement("div");
+  container.className = "w-full h-full ucm-map-container";
+  container.setAttribute("data-testid", "div-driver-live-map");
+
+  const map = new google.maps.Map(container, {
+    center,
+    zoom: 14,
+    disableDefaultUI: true,
+    zoomControl: true,
+    gestureHandling: "greedy",
+    styles: [
+      { featureType: "poi", stylers: [{ visibility: "off" }] },
+      { featureType: "transit", stylers: [{ visibility: "off" }] },
+    ],
+  });
+
+  const entry: DriverMapStore = { map, container, driverMarker: null, pickupMarker: null, dropoffMarker: null, polyline: null, lastFitKey: "" };
+  store[key] = entry;
+  return entry;
+}
+
 function FullScreenMap({
   driverLocation,
   activeTrip,
@@ -316,13 +353,8 @@ function FullScreenMap({
   mapsLoaded: boolean;
   gpsWatchError: boolean;
 }) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const driverMarkerRef = useRef<google.maps.Marker | null>(null);
-  const pickupMarkerRef = useRef<google.maps.Marker | null>(null);
-  const dropoffMarkerRef = useRef<google.maps.Marker | null>(null);
-  const polylineRef = useRef<google.maps.Polyline | null>(null);
-  const lastFitRef = useRef<string>("");
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const mapKeyRef = useRef("driver-fullscreen");
   const lastGpsTimeRef = useRef<number>(Date.now());
   const prevLocationRef = useRef<{ lat: number; lng: number } | null>(null);
 
@@ -349,30 +381,27 @@ function FullScreenMap({
   const isGpsStale = staleNow || gpsWatchError;
 
   useEffect(() => {
-    if (!mapsLoaded || !mapRef.current || mapInstanceRef.current) return;
-
+    if (!mapsLoaded || !wrapperRef.current || !window.google?.maps) return;
     const center = driverLocation || { lat: 33.749, lng: -84.388 };
-    mapInstanceRef.current = new google.maps.Map(mapRef.current, {
-      center,
-      zoom: 14,
-      disableDefaultUI: true,
-      zoomControl: true,
-      gestureHandling: "greedy",
-      styles: [
-        { featureType: "poi", stylers: [{ visibility: "off" }] },
-        { featureType: "transit", stylers: [{ visibility: "off" }] },
-      ],
-    });
+    const entry = getOrCreateDriverMap(mapKeyRef.current, center);
+    if (!entry) return;
+    if (entry.container.parentNode !== wrapperRef.current) {
+      wrapperRef.current.appendChild(entry.container);
+      google.maps.event.trigger(entry.map, "resize");
+    }
   }, [mapsLoaded]);
 
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapsLoaded) return;
+    if (!mapsLoaded || !window.google?.maps) return;
+    const store = (window as any).__UCM_MAP__ as Record<string, any> | undefined;
+    const entry = store?.[mapKeyRef.current] as DriverMapStore | undefined;
+    if (!entry) return;
+    const map = entry.map;
 
     if (driverLocation) {
       const pos = new google.maps.LatLng(driverLocation.lat, driverLocation.lng);
-      if (!driverMarkerRef.current) {
-        driverMarkerRef.current = new google.maps.Marker({
+      if (!entry.driverMarker) {
+        entry.driverMarker = new google.maps.Marker({
           map,
           position: pos,
           title: "Your Location",
@@ -387,14 +416,14 @@ function FullScreenMap({
           },
         });
       } else {
-        driverMarkerRef.current.setPosition(pos);
+        entry.driverMarker.setPosition(pos);
       }
     }
 
     if (activeTrip?.pickupLat && activeTrip?.pickupLng) {
       const pickupPos = { lat: activeTrip.pickupLat, lng: activeTrip.pickupLng };
-      if (!pickupMarkerRef.current) {
-        pickupMarkerRef.current = new google.maps.Marker({
+      if (!entry.pickupMarker) {
+        entry.pickupMarker = new google.maps.Marker({
           map,
           position: pickupPos,
           title: "Pickup (A)",
@@ -409,17 +438,17 @@ function FullScreenMap({
           },
         });
       } else {
-        pickupMarkerRef.current.setPosition(pickupPos);
+        entry.pickupMarker.setPosition(pickupPos);
       }
-    } else if (pickupMarkerRef.current) {
-      pickupMarkerRef.current.setMap(null);
-      pickupMarkerRef.current = null;
+    } else if (entry.pickupMarker) {
+      entry.pickupMarker.setMap(null);
+      entry.pickupMarker = null;
     }
 
     if (activeTrip?.dropoffLat && activeTrip?.dropoffLng) {
       const dropoffPos = { lat: activeTrip.dropoffLat, lng: activeTrip.dropoffLng };
-      if (!dropoffMarkerRef.current) {
-        dropoffMarkerRef.current = new google.maps.Marker({
+      if (!entry.dropoffMarker) {
+        entry.dropoffMarker = new google.maps.Marker({
           map,
           position: dropoffPos,
           title: "Dropoff (B)",
@@ -434,23 +463,23 @@ function FullScreenMap({
           },
         });
       } else {
-        dropoffMarkerRef.current.setPosition(dropoffPos);
+        entry.dropoffMarker.setPosition(dropoffPos);
       }
-    } else if (dropoffMarkerRef.current) {
-      dropoffMarkerRef.current.setMap(null);
-      dropoffMarkerRef.current = null;
+    } else if (entry.dropoffMarker) {
+      entry.dropoffMarker.setMap(null);
+      entry.dropoffMarker = null;
     }
 
     if (!activeTrip) {
-      if (pickupMarkerRef.current) { pickupMarkerRef.current.setMap(null); pickupMarkerRef.current = null; }
-      if (dropoffMarkerRef.current) { dropoffMarkerRef.current.setMap(null); dropoffMarkerRef.current = null; }
-      if (polylineRef.current) { polylineRef.current.setMap(null); polylineRef.current = null; }
+      if (entry.pickupMarker) { entry.pickupMarker.setMap(null); entry.pickupMarker = null; }
+      if (entry.dropoffMarker) { entry.dropoffMarker.setMap(null); entry.dropoffMarker = null; }
+      if (entry.polyline) { entry.polyline.setMap(null); entry.polyline = null; }
     }
 
     if (activeTrip?.routePolyline) {
       const path = google.maps.geometry.encoding.decodePath(activeTrip.routePolyline);
-      if (!polylineRef.current) {
-        polylineRef.current = new google.maps.Polyline({
+      if (!entry.polyline) {
+        entry.polyline = new google.maps.Polyline({
           map,
           path,
           strokeColor: "#3b82f6",
@@ -458,11 +487,11 @@ function FullScreenMap({
           strokeOpacity: 0.8,
         });
       } else {
-        polylineRef.current.setPath(path);
+        entry.polyline.setPath(path);
       }
-    } else if (polylineRef.current) {
-      polylineRef.current.setMap(null);
-      polylineRef.current = null;
+    } else if (entry.polyline) {
+      entry.polyline.setMap(null);
+      entry.polyline = null;
     }
 
     const fitKey = [
@@ -472,8 +501,8 @@ function FullScreenMap({
       activeTrip?.id,
     ].join(",");
 
-    if (fitKey !== lastFitRef.current) {
-      lastFitRef.current = fitKey;
+    if (fitKey !== entry.lastFitKey) {
+      entry.lastFitKey = fitKey;
       const bounds = new google.maps.LatLngBounds();
       let hasPoints = false;
       if (driverLocation) { bounds.extend(driverLocation); hasPoints = true; }
@@ -489,13 +518,12 @@ function FullScreenMap({
     }
   }, [driverLocation, activeTrip, mapsLoaded]);
 
-  if (!mapsLoaded) {
-    return <div className="w-full h-full bg-muted animate-pulse" data-testid="skeleton-map" />;
-  }
-
   return (
     <div className="relative w-full h-full">
-      <div ref={mapRef} className="w-full h-full" data-testid="div-driver-live-map" />
+      <div ref={wrapperRef} className="w-full h-full" />
+      {!mapsLoaded && (
+        <div className="absolute inset-0 bg-muted animate-pulse z-10" data-testid="skeleton-map" />
+      )}
       {isGpsStale && (
         <div className="absolute top-3 left-3 bg-amber-600 text-white text-xs font-medium px-2.5 py-1.5 rounded-md flex items-center gap-1.5 shadow-md" data-testid="badge-gps-stale">
           <AlertTriangle className="w-3.5 h-3.5" />
@@ -866,76 +894,79 @@ export default function DriverDashboard() {
     );
   }
 
-  if (currentView === "mytrips" || currentView === "history") {
-    const displayTrips = currentView === "mytrips" ? todayTrips : allTrips;
-    const title = currentView === "mytrips" ? "My Trips" : "Trip History";
-    const emptyIcon = currentView === "mytrips" ? CalendarDays : History;
-    const emptyText = currentView === "mytrips" ? "No trips scheduled for this date." : "No trip history available.";
-    return (
-      <div className="p-4 space-y-4 max-w-4xl mx-auto">
-        <div className="flex items-center gap-3 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => setCurrentView("map")} data-testid="button-back-to-map">
-            <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
-            Back to Map
-          </Button>
-          <h1 className="text-lg font-semibold" data-testid="text-trips-title">{title}</h1>
-        </div>
-
-        {currentView === "mytrips" && (
-          <div className="flex items-center gap-2">
-            <Label>Date</Label>
-            <Input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="w-auto"
-              data-testid="input-driver-date"
-            />
-          </div>
-        )}
-
-        {tripsQuery.isLoading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
-          </div>
-        ) : displayTrips.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center">
-              {(() => { const Icon = emptyIcon; return <Icon className="w-8 h-8 mx-auto text-muted-foreground mb-2" />; })()}
-              <p className="text-muted-foreground" data-testid="text-no-trips">{emptyText}</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {displayTrips.map((trip: any) => (
-              <TripCard
-                key={trip.id}
-                trip={trip}
-                onStatusChange={currentView === "mytrips" ? (status) => statusMutation.mutate({ tripId: trip.id, status }) : undefined}
-                isPending={statusMutation.isPending}
-                readonly={currentView === "history"}
-                onOpenChat={currentView === "mytrips" && ACTIVE_STATUSES.includes(trip.status) ? () => setChatTripId(trip.id) : undefined}
-                token={token}
-              />
-            ))}
-          </div>
-        )}
-
-        {chatTripId && (
-          <TripChat
-            tripId={chatTripId}
-            token={token}
-            onClose={() => setChatTripId(null)}
-            userId={user?.id}
-          />
-        )}
-      </div>
-    );
-  }
+  const isListView = currentView === "mytrips" || currentView === "history";
 
   return (
-    <div className="relative w-full h-[calc(100vh-3.5rem)] flex flex-col" data-testid="div-driver-map-home">
+    <>
+    {isListView && (() => {
+      const displayTrips = currentView === "mytrips" ? todayTrips : allTrips;
+      const title = currentView === "mytrips" ? "My Trips" : "Trip History";
+      const emptyIcon = currentView === "mytrips" ? CalendarDays : History;
+      const emptyText = currentView === "mytrips" ? "No trips scheduled for this date." : "No trip history available.";
+      return (
+        <div className="p-4 space-y-4 max-w-4xl mx-auto">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => setCurrentView("map")} data-testid="button-back-to-map">
+              <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
+              Back to Map
+            </Button>
+            <h1 className="text-lg font-semibold" data-testid="text-trips-title">{title}</h1>
+          </div>
+
+          {currentView === "mytrips" && (
+            <div className="flex items-center gap-2">
+              <Label>Date</Label>
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-auto"
+                data-testid="input-driver-date"
+              />
+            </div>
+          )}
+
+          {tripsQuery.isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : displayTrips.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center">
+                {(() => { const Icon = emptyIcon; return <Icon className="w-8 h-8 mx-auto text-muted-foreground mb-2" />; })()}
+                <p className="text-muted-foreground" data-testid="text-no-trips">{emptyText}</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {displayTrips.map((trip: any) => (
+                <TripCard
+                  key={trip.id}
+                  trip={trip}
+                  onStatusChange={currentView === "mytrips" ? (status) => statusMutation.mutate({ tripId: trip.id, status }) : undefined}
+                  isPending={statusMutation.isPending}
+                  readonly={currentView === "history"}
+                  onOpenChat={currentView === "mytrips" && ACTIVE_STATUSES.includes(trip.status) ? () => setChatTripId(trip.id) : undefined}
+                  token={token}
+                />
+              ))}
+            </div>
+          )}
+
+          {chatTripId && (
+            <TripChat
+              tripId={chatTripId}
+              token={token}
+              onClose={() => setChatTripId(null)}
+              userId={user?.id}
+            />
+          )}
+        </div>
+      );
+    })()}
+
+    <div style={{ display: isListView ? "none" : undefined }} className="relative w-full h-[calc(100vh-3.5rem)] flex flex-col" data-testid="div-driver-map-home">
       <div className="flex-1 relative">
         <FullScreenMap
           driverLocation={geoLocation}
@@ -1306,6 +1337,7 @@ export default function DriverDashboard() {
         />
       )}
     </div>
+    </>
   );
 }
 

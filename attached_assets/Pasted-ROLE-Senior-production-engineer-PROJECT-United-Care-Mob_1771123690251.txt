@@ -1,0 +1,118 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Verify before exit
+
+TASK:
+Map still flickers. We must enforce a HARD rule:
+Google Map instance must NEVER re-render or remount after first load.
+
+----------------------------------
+CRITICAL FIX
+----------------------------------
+
+1) MAP INSTANCE LOCK
+Find where map is created:
+
+new google.maps.Map(...)
+
+Wrap in:
+
+if (!window.__UCM_MAP__) {
+  window.__UCM_MAP__ = new google.maps.Map(container, options)
+}
+
+const map = window.__UCM_MAP__
+
+Map must be global singleton.
+
+----------------------------------
+2) PREVENT REACT REMOUNT
+----------------------------------
+
+Map container must NEVER unmount.
+
+Find JSX:
+
+<div id="map" />
+
+Wrap in:
+
+<div id="map-wrapper" style={{height:'100%', width:'100%'}}>
+  <div id="map" ref={mapRef} style={{height:'100%', width:'100%'}} />
+</div>
+
+IMPORTANT:
+- No conditional rendering
+- No key changes
+- No loading spinner replacing map div
+
+If there is:
+
+{loading ? <Spinner/> : <Map/>}
+
+REMOVE it.
+Map must stay mounted always.
+
+----------------------------------
+3) STOP CAMERA RESET
+----------------------------------
+
+Search for:
+
+map.setCenter
+map.fitBounds
+map.setZoom
+
+These must NOT run on polling refresh.
+
+Only allow:
+- first load
+- when driver accepts trip
+- when user taps recenter
+
+----------------------------------
+4) MARKERS UPDATE ONLY
+----------------------------------
+
+Markers must update like:
+
+marker.setPosition(new google.maps.LatLng(lat,lng))
+
+NOT:
+marker = new google.maps.Marker()
+
+Keep markers in:
+
+window.__UCM_MARKERS__ = {}
+
+Update in place.
+
+----------------------------------
+5) CSS FLICKER FIX
+----------------------------------
+
+Add:
+
+#map {
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+----------------------------------
+6) VERIFY
+----------------------------------
+
+Run polling 2s for 3 minutes:
+Map must NOT blink
+Markers must move smoothly
+User can pan without reset
+
+If map instance recreated → FAIL
+If DOM node replaced → FAIL
+
+Deliver explanation of what caused flicker.

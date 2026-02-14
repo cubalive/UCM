@@ -572,11 +572,20 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
   onSelectTrip: (trip: any) => void;
 }) {
   const { token } = useAuth();
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const opsMapWrapperRef = useRef<HTMLDivElement>(null);
+  const opsMapKeyRef = useRef("clinic-ops-map");
   const mapsLoadedRef = useRef(false);
   const [mapAvailable, setMapAvailable] = useState(true);
+
+  interface OpsMapStore {
+    map: google.maps.Map;
+    container: HTMLDivElement;
+    markers: Map<string, google.maps.Marker>;
+    boundsFit: boolean;
+  }
+  function getOpsMapStore(): OpsMapStore | null {
+    return ((window as any).__UCM_MAP__?.[opsMapKeyRef.current]) as OpsMapStore | null;
+  }
 
   function lateStatusColor(lateStatus: string, isOnline: boolean): string {
     if (!isOnline) return "#9ca3af";
@@ -586,10 +595,10 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
   }
 
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    if (!opsMapWrapperRef.current) return;
     if (activeTrips.length === 0 && !clinic) return;
 
-    if (mapsLoadedRef.current && mapInstanceRef.current) {
+    if (mapsLoadedRef.current && getOpsMapStore()) {
       updateOpsMarkers();
       return;
     }
@@ -616,30 +625,46 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
   }, [activeTrips.length > 0 || !!clinic, token]);
 
   useEffect(() => {
-    if (mapsLoadedRef.current && mapInstanceRef.current) {
+    if (mapsLoadedRef.current && getOpsMapStore()) {
       updateOpsMarkers();
     }
   }, [activeTrips, selectedTrip]);
 
   function initOpsMap() {
-    if (!mapContainerRef.current) return;
+    if (!opsMapWrapperRef.current) return;
+    if (getOpsMapStore()) {
+      const entry = getOpsMapStore()!;
+      if (entry.container.parentNode !== opsMapWrapperRef.current) {
+        opsMapWrapperRef.current.appendChild(entry.container);
+        google.maps.event.trigger(entry.map, "resize");
+      }
+      updateOpsMarkers();
+      return;
+    }
     const center = clinic?.lat && clinic?.lng
       ? { lat: clinic.lat, lng: clinic.lng }
       : { lat: 29.76, lng: -95.36 };
-    const map = new google.maps.Map(mapContainerRef.current, {
+    if (!(window as any).__UCM_MAP__) (window as any).__UCM_MAP__ = {};
+    const container = document.createElement("div");
+    container.className = "w-full h-full ucm-map-container";
+    container.style.minHeight = "300px";
+    const map = new google.maps.Map(container, {
       center,
       zoom: 12,
       disableDefaultUI: true,
       zoomControl: true,
       styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }],
     });
-    mapInstanceRef.current = map;
+    const entry: OpsMapStore = { map, container, markers: new Map(), boundsFit: false };
+    (window as any).__UCM_MAP__[opsMapKeyRef.current] = entry;
+    opsMapWrapperRef.current.appendChild(container);
     updateOpsMarkers();
   }
 
   function updateOpsMarkers() {
-    const map = mapInstanceRef.current;
-    if (!map) return;
+    const entry = getOpsMapStore();
+    if (!entry) return;
+    const map = entry.map;
 
     const bounds = new google.maps.LatLngBounds();
     const currentKeys = new Set<string>();
@@ -649,7 +674,7 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
       currentKeys.add(clinicKey);
       const pos = { lat: clinic.lat, lng: clinic.lng };
       bounds.extend(pos);
-      if (!markersRef.current.has(clinicKey)) {
+      if (!entry.markers.has(clinicKey)) {
         const marker = new google.maps.Marker({
           position: pos,
           map,
@@ -664,7 +689,7 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
           title: clinic.name || "Clinic",
           zIndex: 20,
         });
-        markersRef.current.set(clinicKey, marker);
+        entry.markers.set(clinicKey, marker);
       }
     }
 
@@ -676,7 +701,7 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
       bounds.extend(pos);
       const color = lateStatusColor(trip.lateStatus || "on_time", trip.driver.isOnline !== false);
 
-      if (!markersRef.current.has(key)) {
+      if (!entry.markers.has(key)) {
         const marker = new google.maps.Marker({
           position: pos,
           map,
@@ -692,9 +717,9 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
           zIndex: 10,
         });
         marker.addListener("click", () => onSelectTrip(trip));
-        markersRef.current.set(key, marker);
+        entry.markers.set(key, marker);
       } else {
-        const existing = markersRef.current.get(key)!;
+        const existing = entry.markers.get(key)!;
         existing.setPosition(pos);
         existing.setIcon({
           path: google.maps.SymbolPath.CIRCLE,
@@ -707,14 +732,15 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
       }
     });
 
-    markersRef.current.forEach((marker, key) => {
+    entry.markers.forEach((marker, key) => {
       if (!currentKeys.has(key)) {
         marker.setMap(null);
-        markersRef.current.delete(key);
+        entry.markers.delete(key);
       }
     });
 
-    if (!bounds.isEmpty() && activeTrips.length > 0) {
+    if (!entry.boundsFit && !bounds.isEmpty() && activeTrips.length > 0) {
+      entry.boundsFit = true;
       map.fitBounds(bounds, 60);
     }
   }
@@ -728,9 +754,15 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
         <h3 className="text-sm font-semibold" data-testid="text-ops-map-title">Active Trips Map</h3>
         <Badge variant="secondary">{activeTrips.length} trips</Badge>
       </div>
-      {mapAvailable && (hasDrivers || (clinic?.lat && clinic?.lng)) ? (
-        <div ref={mapContainerRef} className="w-full h-64 sm:h-80 rounded-md border bg-muted" data-testid="div-ops-map" />
-      ) : activeTrips.length === 0 ? (
+      <div className="relative">
+        <div
+          ref={opsMapWrapperRef}
+          className="w-full h-64 sm:h-80 rounded-md border bg-muted"
+          data-testid="div-ops-map"
+          style={{ display: mapAvailable && (hasDrivers || (clinic?.lat && clinic?.lng)) ? "block" : "none" }}
+        />
+      </div>
+      {!(mapAvailable && (hasDrivers || (clinic?.lat && clinic?.lng))) && activeTrips.length === 0 ? (
         <Card>
           <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-ops-map-empty">
             <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -1536,13 +1568,22 @@ function ReportsSection() {
 
 function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => void }) {
   const { token } = useAuth();
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const driverMarkerRef = useRef<google.maps.Marker | null>(null);
-  const pickupMarkerRef = useRef<google.maps.Marker | null>(null);
-  const dropoffMarkerRef = useRef<google.maps.Marker | null>(null);
+  const trackingWrapperRef = useRef<HTMLDivElement>(null);
+  const trackingMapKeyRef = useRef(`clinic-tracking-${tripId}`);
   const mapsLoadedRef = useRef(false);
   const [mapAvailable, setMapAvailable] = useState(true);
+
+  interface ClinicTrackingMapStore {
+    map: google.maps.Map;
+    container: HTMLDivElement;
+    driverMarker: google.maps.Marker | null;
+    pickupMarker: google.maps.Marker | null;
+    dropoffMarker: google.maps.Marker | null;
+    boundsFit: boolean;
+  }
+  function getTrackingStore(): ClinicTrackingMapStore | null {
+    return ((window as any).__UCM_MAP__?.[trackingMapKeyRef.current]) as ClinicTrackingMapStore | null;
+  }
 
   const trackingQuery = useQuery<any>({
     queryKey: ["/api/clinic/trips", tripId, "tracking"],
@@ -1554,11 +1595,17 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
   const data = trackingQuery.data;
 
   useEffect(() => {
-    if (!data?.driver?.lat || !mapRef.current) return;
+    if (!data?.driver?.lat || !trackingWrapperRef.current) return;
     if (data.completed) return;
 
     if (mapsLoadedRef.current) {
       updateMapMarkers(data);
+      return;
+    }
+
+    if (window.google?.maps) {
+      mapsLoadedRef.current = true;
+      initMap(data);
       return;
     }
 
@@ -1601,31 +1648,49 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
   }
 
   function initMap(trackingData: any) {
-    if (!mapRef.current || !trackingData.driver) return;
-    const driverPos = { lat: trackingData.driver.lat, lng: trackingData.driver.lng };
-    const map = new google.maps.Map(mapRef.current, {
-      center: driverPos,
-      zoom: 13,
-      disableDefaultUI: true,
-      zoomControl: true,
-      styles: [
-        { featureType: "poi", stylers: [{ visibility: "off" }] },
-      ],
-    });
-    mapInstanceRef.current = map;
+    if (!trackingWrapperRef.current || !trackingData.driver) return;
+
+    if (!(window as any).__UCM_MAP__) (window as any).__UCM_MAP__ = {};
+    const store = (window as any).__UCM_MAP__ as Record<string, any>;
+    let entry = store[trackingMapKeyRef.current] as ClinicTrackingMapStore | undefined;
+
+    if (!entry) {
+      const driverPos = { lat: trackingData.driver.lat, lng: trackingData.driver.lng };
+      const container = document.createElement("div");
+      container.className = "w-full h-full ucm-map-container";
+      container.style.minHeight = "256px";
+      const map = new google.maps.Map(container, {
+        center: driverPos,
+        zoom: 13,
+        disableDefaultUI: true,
+        zoomControl: true,
+        styles: [
+          { featureType: "poi", stylers: [{ visibility: "off" }] },
+        ],
+      });
+      entry = { map, container, driverMarker: null, pickupMarker: null, dropoffMarker: null, boundsFit: false };
+      store[trackingMapKeyRef.current] = entry;
+      trackingWrapperRef.current.appendChild(container);
+    } else {
+      if (entry.container.parentNode !== trackingWrapperRef.current) {
+        trackingWrapperRef.current.appendChild(entry.container);
+        google.maps.event.trigger(entry.map, "resize");
+      }
+    }
     updateMapMarkers(trackingData);
   }
 
   function updateMapMarkers(trackingData: any) {
-    if (!mapInstanceRef.current || !trackingData.driver) return;
-    const map = mapInstanceRef.current;
+    const entry = getTrackingStore();
+    if (!entry || !trackingData.driver) return;
+    const map = entry.map;
     const driverPos = { lat: trackingData.driver.lat, lng: trackingData.driver.lng };
     const vColor = trackingData.driver.vehicleColor || "#3b82f6";
 
-    if (driverMarkerRef.current) {
-      driverMarkerRef.current.setPosition(driverPos);
+    if (entry.driverMarker) {
+      entry.driverMarker.setPosition(driverPos);
     } else {
-      driverMarkerRef.current = new google.maps.Marker({
+      entry.driverMarker = new google.maps.Marker({
         position: driverPos,
         map,
         icon: {
@@ -1641,8 +1706,8 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
     const route = trackingData.route;
     if (route?.pickupLat && route?.pickupLng) {
       const pickupPos = { lat: route.pickupLat, lng: route.pickupLng };
-      if (!pickupMarkerRef.current) {
-        pickupMarkerRef.current = new google.maps.Marker({
+      if (!entry.pickupMarker) {
+        entry.pickupMarker = new google.maps.Marker({
           position: pickupPos,
           map,
           icon: {
@@ -1661,8 +1726,8 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
 
     if (route?.dropoffLat && route?.dropoffLng) {
       const dropoffPos = { lat: route.dropoffLat, lng: route.dropoffLng };
-      if (!dropoffMarkerRef.current) {
-        dropoffMarkerRef.current = new google.maps.Marker({
+      if (!entry.dropoffMarker) {
+        entry.dropoffMarker = new google.maps.Marker({
           position: dropoffPos,
           map,
           icon: {
@@ -1679,12 +1744,14 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
       }
     }
 
-    const bounds = new google.maps.LatLngBounds();
-    bounds.extend(driverPos);
-    if (route?.pickupLat && route?.pickupLng) bounds.extend({ lat: route.pickupLat, lng: route.pickupLng });
-    if (route?.dropoffLat && route?.dropoffLng) bounds.extend({ lat: route.dropoffLat, lng: route.dropoffLng });
-    map.fitBounds(bounds, 60);
-
+    if (!entry.boundsFit) {
+      entry.boundsFit = true;
+      const bounds = new google.maps.LatLngBounds();
+      bounds.extend(driverPos);
+      if (route?.pickupLat && route?.pickupLng) bounds.extend({ lat: route.pickupLat, lng: route.pickupLng });
+      if (route?.dropoffLat && route?.dropoffLng) bounds.extend({ lat: route.dropoffLat, lng: route.dropoffLng });
+      map.fitBounds(bounds, 60);
+    }
   }
 
   if (trackingQuery.isLoading) {
@@ -1750,7 +1817,7 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
       </div>
 
       {hasDriverLocation && mapAvailable ? (
-        <div ref={mapRef} className="w-full h-64 sm:h-80 bg-muted" data-testid="div-tracking-map" />
+        <div ref={trackingWrapperRef} className="w-full h-64 sm:h-80 bg-muted" data-testid="div-tracking-map" />
       ) : !hasDriverLocation ? (
         <div className="w-full h-48 bg-muted flex items-center justify-center">
           <div className="text-center text-muted-foreground">

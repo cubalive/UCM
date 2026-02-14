@@ -65,11 +65,8 @@ export default function PublicTrackingPage() {
   const [data, setData] = useState<TrackingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const driverMarkerRef = useRef<google.maps.Marker | null>(null);
-  const pickupMarkerRef = useRef<google.maps.Marker | null>(null);
-  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const mapKeyRef = useRef(`public-tracking-${token}`);
   const mapsLoadedRef = useRef(false);
   const [mapAvailable, setMapAvailable] = useState(true);
 
@@ -97,27 +94,44 @@ export default function PublicTrackingPage() {
     return () => clearInterval(interval);
   }, [fetchTracking]);
 
+  interface TrackingMapStore {
+    map: google.maps.Map;
+    container: HTMLDivElement;
+    driverMarker: google.maps.Marker | null;
+    pickupMarker: google.maps.Marker | null;
+    directionsRenderer: google.maps.DirectionsRenderer | null;
+    boundsFit: boolean;
+  }
+
+  function getTrackingMapStore(): TrackingMapStore | null {
+    return ((window as any).__UCM_MAP__?.[mapKeyRef.current]) as TrackingMapStore | null;
+  }
+
   useEffect(() => {
-    if (!data?.driver || !data.trip?.pickup_lat || !mapRef.current) return;
+    if (!data?.driver || !data.trip?.pickup_lat || !wrapperRef.current) return;
     if (mapsLoadedRef.current) {
       updateMapMarkers(data);
       return;
     }
 
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=&libraries=geometry`;
-    script.async = true;
-    script.onload = () => {
+    if (window.google?.maps) {
       mapsLoadedRef.current = true;
       initMap(data);
-    };
-    script.onerror = () => {};
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.async = true;
 
     fetch("/api/public/maps/key")
       .then(r => r.json())
       .then(json => {
         if (json.key) {
           script.src = `https://maps.googleapis.com/maps/api/js?key=${json.key}&libraries=geometry,places`;
+          script.onload = () => {
+            mapsLoadedRef.current = true;
+            initMap(data);
+          };
           document.head.appendChild(script);
         } else {
           setMapAvailable(false);
@@ -125,46 +139,66 @@ export default function PublicTrackingPage() {
       })
       .catch(() => { setMapAvailable(false); });
 
-    return () => {
-      if (script.parentNode) script.parentNode.removeChild(script);
-    };
   }, [data]);
 
   function initMap(trackingData: TrackingData) {
-    if (!mapRef.current || !trackingData.driver) return;
+    if (!wrapperRef.current || !trackingData.driver) return;
 
-    const driverPos = { lat: trackingData.driver.lat, lng: trackingData.driver.lng };
-    const map = new google.maps.Map(mapRef.current, {
-      center: driverPos,
-      zoom: 13,
-      disableDefaultUI: true,
-      zoomControl: true,
-      styles: [
-        { featureType: "poi", stylers: [{ visibility: "off" }] },
-      ],
-    });
-    mapInstanceRef.current = map;
+    if (!((window as any).__UCM_MAP__)) (window as any).__UCM_MAP__ = {};
+    const store = (window as any).__UCM_MAP__ as Record<string, any>;
+    let entry = store[mapKeyRef.current] as TrackingMapStore | undefined;
 
-    directionsRendererRef.current = new google.maps.DirectionsRenderer({
-      map,
-      suppressMarkers: true,
-      polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 4, strokeOpacity: 0.7 },
-    });
+    if (!entry) {
+      const driverPos = { lat: trackingData.driver.lat, lng: trackingData.driver.lng };
+      const container = document.createElement("div");
+      container.className = "w-full h-full rounded-md ucm-map-container";
+      container.style.minHeight = "300px";
+
+      const map = new google.maps.Map(container, {
+        center: driverPos,
+        zoom: 13,
+        disableDefaultUI: true,
+        zoomControl: true,
+        styles: [
+          { featureType: "poi", stylers: [{ visibility: "off" }] },
+        ],
+      });
+
+      const directionsRenderer = new google.maps.DirectionsRenderer({
+        map,
+        suppressMarkers: true,
+        polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 4, strokeOpacity: 0.7 },
+      });
+
+      entry = { map, container, driverMarker: null, pickupMarker: null, directionsRenderer, boundsFit: false };
+      store[mapKeyRef.current] = entry;
+    }
+
+    if (entry.container.parentNode !== wrapperRef.current) {
+      wrapperRef.current.appendChild(entry.container);
+      google.maps.event.trigger(entry.map, "resize");
+    }
 
     updateMapMarkers(trackingData);
   }
 
   function updateMapMarkers(trackingData: TrackingData) {
-    if (!mapInstanceRef.current || !trackingData.driver) return;
+    const entry = getTrackingMapStore();
+    if (!entry || !trackingData.driver) return;
+
+    if (entry.container.parentNode !== wrapperRef.current && wrapperRef.current) {
+      wrapperRef.current.appendChild(entry.container);
+      google.maps.event.trigger(entry.map, "resize");
+    }
 
     const driverPos = { lat: trackingData.driver.lat, lng: trackingData.driver.lng };
 
-    if (driverMarkerRef.current) {
-      driverMarkerRef.current.setPosition(driverPos);
+    if (entry.driverMarker) {
+      entry.driverMarker.setPosition(driverPos);
     } else {
-      driverMarkerRef.current = new google.maps.Marker({
+      entry.driverMarker = new google.maps.Marker({
         position: driverPos,
-        map: mapInstanceRef.current,
+        map: entry.map,
         icon: {
           path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
           fillColor: "#3b82f6",
@@ -181,12 +215,12 @@ export default function PublicTrackingPage() {
 
     if (trackingData.trip?.pickup_lat && trackingData.trip?.pickup_lng) {
       const pickupPos = { lat: trackingData.trip.pickup_lat, lng: trackingData.trip.pickup_lng };
-      if (pickupMarkerRef.current) {
-        pickupMarkerRef.current.setPosition(pickupPos);
+      if (entry.pickupMarker) {
+        entry.pickupMarker.setPosition(pickupPos);
       } else {
-        pickupMarkerRef.current = new google.maps.Marker({
+        entry.pickupMarker = new google.maps.Marker({
           position: pickupPos,
-          map: mapInstanceRef.current,
+          map: entry.map,
           icon: {
             path: google.maps.SymbolPath.CIRCLE,
             fillColor: "#22c55e",
@@ -200,12 +234,15 @@ export default function PublicTrackingPage() {
         });
       }
 
-      const bounds = new google.maps.LatLngBounds();
-      bounds.extend(driverPos);
-      bounds.extend(pickupPos);
-      mapInstanceRef.current.fitBounds(bounds, 60);
+      if (!entry.boundsFit) {
+        entry.boundsFit = true;
+        const bounds = new google.maps.LatLngBounds();
+        bounds.extend(driverPos);
+        bounds.extend(pickupPos);
+        entry.map.fitBounds(bounds, 60);
+      }
 
-      if (directionsRendererRef.current) {
+      if (entry.directionsRenderer) {
         const directionsService = new google.maps.DirectionsService();
         directionsService.route(
           {
@@ -215,7 +252,7 @@ export default function PublicTrackingPage() {
           },
           (result, status) => {
             if (status === "OK" && result) {
-              directionsRendererRef.current?.setDirections(result);
+              entry.directionsRenderer?.setDirections(result);
             }
           }
         );
@@ -331,7 +368,7 @@ export default function PublicTrackingPage() {
           <Card>
             <CardContent className="p-0">
               <div
-                ref={mapRef}
+                ref={wrapperRef}
                 className="w-full h-64 rounded-md"
                 data-testid="map-tracking"
               />
