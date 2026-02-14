@@ -1,0 +1,196 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Expose a secure PUBLIC API for Lovable private bookings:
+1) Quote endpoint (compute route + estimate price breakdown using PRIVATE tariff)
+2) Request endpoint (store private request after Stripe payment)
+3) Status endpoint (optional polling)
+With strict CORS allowlist (Lovable origin only), rate limiting, validation, and no secrets exposed.
+
+--------------------------------------------
+A) ENV / SECRETS (Replit Secrets)
+--------------------------------------------
+Add/expect these env vars (do not hardcode):
+- SUPABASE_URL
+- SUPABASE_SERVICE_ROLE_KEY   (server only)
+- GOOGLE_MAPS_SERVER_KEY      (for Directions)
+- STRIPE_SECRET_KEY           (server only; to verify payment intent)
+- ALLOWED_ORIGIN_1 = https://unitedcaremobility.lovable.app
+- PUBLIC_BASE_URL = https://asset-manager-admin6151.replit.app
+
+Note: Never expose service role key or stripe secret to the browser.
+
+--------------------------------------------
+B) DATABASE (Supabase)
+--------------------------------------------
+Create table: private_requests
+Columns:
+- id uuid primary key default gen_random_uuid()
+- created_at timestamptz default now()
+- status text not null default 'PENDING_APPROVAL'  -- PENDING_APPROVAL|APPROVED|REJECTED|CANCELLED
+- customer_name text not null
+- customer_email text not null
+- customer_phone text not null
+- pickup_datetime timestamptz not null
+- pickup_place_id text
+- pickup_address text not null
+- pickup_lat double precision not null
+- pickup_lng double precision not null
+- dropoff_place_id text
+- dropoff_address text not null
+- dropoff_lat double precision not null
+- dropoff_lng double precision not null
+- mobility_type text not null  -- SEDAN|WAV
+- trip_type text not null default 'ONE_WAY'
+- city_id uuid null  -- optional if you want to bind city
+- estimated_distance_miles numeric
+- estimated_duration_minutes numeric
+- estimated_price_cents int not null
+- currency text default 'USD'
+- breakdown jsonb not null
+- stripe_payment_intent_id text not null
+- stripe_charge_id text null
+- approval_deadline timestamptz null
+- approved_by uuid null
+- approved_at timestamptz null
+- rejected_reason text null
+
+Add index on (status, pickup_datetime).
+
+--------------------------------------------
+C) PRIVATE TARIFF (approved)
+--------------------------------------------
+Implement PRIVATE pricing exactly:
+- base_fee_cents = 2500
+- per_mile_cents = 275
+- per_minute_cents = 55
+- wait_fee_per_5min_cents = 350  (NOT included in preview; only shown as policy)
+- minimum_cents = 4000
+- maximum_cents = 18000
+- wav_surcharge_cents = 2000
+- peak_percent = 10  (07:00–09:00, 15:00–18:00 local)
+- rounding_step_cents = 50  (nearest $0.50)
+
+Preview rules:
+- wait_minutes assumed 0
+- Use Google Directions driving with departure_time = pickup_datetime (best_guess)
+- Apply WAV + peak + min/max + rounding
+- Add a small internal buffer of +3% BEFORE rounding to reduce underestimation, but keep it transparent in breakdown:
+  breakdown.internal_buffer_percent=3
+- Final shown price must be the rounded total.
+
+--------------------------------------------
+D) BUSINESS HOURS VALIDATION
+--------------------------------------------
+Business hours: Mon–Sat 06:00–18:00 Las Vegas local time (America/Los_Angeles).
+Rules:
+- If pickup is outside business hours: allow only if pickup >= now + 6 hours.
+- If invalid: return 400 with message.
+Also always return “pending approval ~30 minutes” metadata.
+
+--------------------------------------------
+E) PUBLIC API (with CORS allowlist)
+--------------------------------------------
+1) Implement strict CORS middleware:
+- Allow Origin only if origin exactly matches: https://unitedcaremobility.lovable.app
+- Allow methods: GET, POST, OPTIONS
+- Allow headers: Content-Type
+- Reject others.
+
+2) Rate limit:
+- Limit quote endpoint by IP (e.g., 30/min)
+- Limit request endpoint by IP (e.g., 10/min)
+
+3) Endpoints:
+
+E1) POST https://asset-manager-admin6151.replit.app/public/private/quote
+Body:
+{
+  "pickup": {"placeId": "...", "address": "...", "lat": number, "lng": number},
+  "dropoff": {"placeId": "...", "address": "...", "lat": number, "lng": number},
+  "pickupDateTimeISO": "2026-..",
+  "mobilityType": "SEDAN"|"WAV",
+  "tripType": "ONE_WAY"|"ROUND_TRIP" (optional; default ONE_WAY)
+}
+Validate:
+- no free text without lat/lng
+- email/phone not needed here
+Compute:
+- route distance + duration via Google Directions
+- price using tariff
+Return:
+{
+  "ok": true,
+  "distanceMiles": number,
+  "durationMinutes": number,
+  "peakApplied": boolean,
+  "wavApplied": boolean,
+  "estimatedTotalCents": int,
+  "estimatedTotal": "$xx.xx",
+  "currency": "USD",
+  "breakdown": {...},
+  "disclaimer": "Estimated price. Final amount may change only due to wait time or rider-requested changes.",
+  "approvalWindowMinutes": 30
+}
+
+E2) POST https://asset-manager-admin6151.replit.app/public/private/request
+Body:
+{
+  "customer": {"name": "...", "email":"...", "phone":"..."},
+  "pickup": {...},
+  "dropoff": {...},
+  "pickupDateTimeISO": "...",
+  "mobilityType": "SEDAN"|"WAV",
+  "tripType": "ONE_WAY"|"ROUND_TRIP",
+  "quote": { "estimatedTotalCents": int, "breakdown": object, "distanceMiles": number, "durationMinutes": number },
+  "stripePaymentIntentId": "pi_..."
+}
+Validate:
+- business hours / 6-hour rule
+- email + phone formats (phone E.164)
+Stripe verification (server-side):
+- Use STRIPE_SECRET_KEY
+- Retrieve PaymentIntent and confirm status is succeeded (or requires_capture if you use auth)
+- Verify amount_received matches quote. Allow mismatch only within 50 cents (rounding); else reject.
+Insert into private_requests with status=PENDING_APPROVAL and approval_deadline=now+30min.
+Return:
+{ "ok": true, "requestId": "...", "status": "PENDING_APPROVAL" }
+
+E3) GET https://asset-manager-admin6151.replit.app/public/private/request/:id/status
+Return status only (no sensitive info):
+{ "ok": true, "requestId":"...", "status":"PENDING_APPROVAL|APPROVED|REJECTED|CANCELLED", "message":"..." }
+
+4) Health endpoint:
+GET https://asset-manager-admin6151.replit.app/api/public/health
+Return:
+{ ok:true, hasSupabase:boolean, hasStripe:boolean, hasGoogle:boolean, allowedOriginConfigured:boolean, allowedOrigin:"https://unitedcaremobility.lovable.app", publicBaseUrl:"https://asset-manager-admin6151.replit.app" }
+
+--------------------------------------------
+F) DISPATCH NOTIFICATIONS (email)
+--------------------------------------------
+If Resend is configured in backend:
+- On request creation: email dispatch with request summary + a link into admin app to review.
+If email not configured:
+- Log clearly and still store request.
+
+--------------------------------------------
+G) VERIFICATION (MUST DO)
+--------------------------------------------
+Provide curl examples:
+1) quote
+2) request (with a real payment intent in test mode)
+Confirm:
+- CORS blocks non-allowed origins
+- quote returns breakdown and rounded .50
+- request fails if payment not succeeded
+- request fails if outside hours and <6h
+- request inserts into DB
+- health shows all true when secrets present

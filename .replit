@@ -39,3 +39,9 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[userenv]
+
+[userenv.shared]
+ALLOWED_ORIGIN_1 = "https://unitedcaremobility.lovable.app"
+PUBLIC_BASE_URL = "https://asset-manager-admin6151.replit.app"
