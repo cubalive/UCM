@@ -585,7 +585,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTripSmsLog(data: InsertTripSmsLog): Promise<TripSmsLog> {
-    const [row] = await db.insert(tripSmsLog).values(data).returning();
+    const [row] = await db.insert(tripSmsLog).values(data).onConflictDoNothing().returning();
+    if (!row) {
+      const [existing] = await db.select().from(tripSmsLog)
+        .where(and(eq(tripSmsLog.tripId, data.tripId), eq(tripSmsLog.kind, data.kind)));
+      return existing;
+    }
     return row;
   }
 

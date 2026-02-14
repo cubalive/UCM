@@ -82,9 +82,10 @@ export async function autoNotifyPatient(
     const result = await sendSms(phone, message);
     if (result.success) {
       console.log(`[SMS-AUTO] Sent ${status} for trip ${tripId} to ${phone}, SID: ${result.sid}`);
-      await storage.createTripSmsLog({ tripId, kind: status });
+      await storage.createTripSmsLog({ tripId, kind: status, toPhone: phone, providerSid: result.sid || null });
     } else {
       console.error(`[SMS-AUTO] Failed ${status} for trip ${tripId}: ${result.error}`);
+      await storage.createTripSmsLog({ tripId, kind: status, toPhone: phone, error: result.error || "Unknown error" });
     }
   } catch (err: any) {
     console.error(`[SMS-AUTO] Error sending ${status} for trip ${tripId}: ${err.message}`);

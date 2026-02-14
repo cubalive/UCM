@@ -43,7 +43,11 @@ const tripNotifySchema = z.object({
 
 export function registerSmsRoutes(app: Express) {
   app.get("/api/sms/health", (_req, res) => {
-    res.json({ ok: true, twilioConfigured: isTwilioConfigured() });
+    res.json({
+      ok: true,
+      twilioConfigured: isTwilioConfigured(),
+      dispatchPhoneConfigured: !!getDispatchPhone(),
+    });
   });
 
   app.post(
@@ -190,10 +194,11 @@ export function registerSmsRoutes(app: Express) {
 
         const result = await sendSms(patientPhone, message);
         if (!result.success) {
+          await storage.createTripSmsLog({ tripId, kind: parsed.data.status, toPhone: patientPhone, error: result.error || "SMS send failed" });
           return res.status(502).json({ message: result.error || "SMS send failed" });
         }
 
-        await storage.createTripSmsLog({ tripId, kind: parsed.data.status });
+        await storage.createTripSmsLog({ tripId, kind: parsed.data.status, toPhone: patientPhone, providerSid: result.sid || null });
 
         await storage.createAuditLog({
           userId: req.user!.userId,

@@ -974,14 +974,21 @@ function TripDetailDialog({
                   </div>
 
                   {canSendSms && patient.phone && normalizePhoneToE164(patient.phone) && (
-                    <Button
-                      variant="outline"
-                      onClick={() => setSmsOpen(true)}
-                      data-testid="button-send-sms"
-                    >
-                      <MessageSquare className="w-4 h-4 mr-2" />
-                      Send SMS
-                    </Button>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSmsOpen(true)}
+                        data-testid="button-send-sms"
+                      >
+                        <MessageSquare className="w-4 h-4 mr-1" />
+                        Custom SMS
+                      </Button>
+                      <SmsNotifyButton tripId={trip.id} status="scheduled" label="Send Scheduled" token={token} />
+                      <SmsNotifyButton tripId={trip.id} status="en_route" label="Send En Route" token={token} />
+                      <SmsNotifyButton tripId={trip.id} status="arrived" label="Send Arrived" token={token} />
+                      <SmsNotifyButton tripId={trip.id} status="canceled" label="Send Cancelled" token={token} />
+                    </div>
                   )}
                 </div>
               ) : (
@@ -1004,6 +1011,45 @@ function TripDetailDialog({
   );
 }
 
+function SmsNotifyButton({
+  tripId,
+  status,
+  label,
+  token,
+}: {
+  tripId: number;
+  status: string;
+  label: string;
+  token: string | null;
+}) {
+  const { toast } = useToast();
+  const mutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/trips/${tripId}/notify`, token, {
+        method: "POST",
+        body: JSON.stringify({ status }),
+      }),
+    onSuccess: (data: any) => {
+      toast({ title: `${label} SMS sent`, description: data.patient ? `Sent to ${data.patient}` : undefined });
+    },
+    onError: (err: any) => {
+      toast({ title: `${label} failed`, description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => mutation.mutate()}
+      disabled={mutation.isPending}
+      data-testid={`button-notify-${status}`}
+    >
+      {mutation.isPending ? "Sending..." : label}
+    </Button>
+  );
+}
+
 function SendSmsDialog({
   phone,
   patientName,
@@ -1017,13 +1063,6 @@ function SendSmsDialog({
 }) {
   const { toast } = useToast();
   const [message, setMessage] = useState("");
-
-  const templates = [
-    { label: "Driver Assigned", text: "United Care Mobility: Your driver has been assigned." },
-    { label: "On the Way", text: "United Care Mobility: Your driver is on the way." },
-    { label: "Arrived", text: "United Care Mobility: Your driver has arrived." },
-    { label: "Cancelled", text: "United Care Mobility: Your ride was cancelled." },
-  ];
 
   const sendMutation = useMutation({
     mutationFn: () =>
@@ -1046,7 +1085,7 @@ function SendSmsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <MessageSquare className="w-5 h-5" />
-            Send SMS
+            Send Custom SMS
           </DialogTitle>
         </DialogHeader>
 
@@ -1061,28 +1100,11 @@ function SendSmsDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Quick Templates</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {templates.map((t) => (
-                <Button
-                  key={t.label}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setMessage(t.text)}
-                  data-testid={`button-template-${t.label.toLowerCase().replace(/\s+/g, "-")}`}
-                >
-                  {t.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
             <Label>Message</Label>
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Type your message or select a template above..."
+              placeholder="Type your custom message..."
               rows={4}
               data-testid="textarea-sms-message"
             />

@@ -99,36 +99,38 @@ interface TemplateVars {
   pickup_lng?: number | null;
 }
 
+const PREFIX = "United Care Mobility:";
 const OPT_OUT = "\nReply STOP to opt out.";
 
 const TEMPLATES: Record<TripNotifyStatus, (v: TemplateVars) => string> = {
   scheduled: (v) =>
-    `Your ride is scheduled for ${v.pickup_time || "your appointment time"}. We will notify you when your driver is on the way.${OPT_OUT}`,
-  driver_assigned: (v) => {
-    return `${v.driver_name || "Your driver"} will be your driver today.${OPT_OUT}`;
-  },
+    `${PREFIX} Your ride is scheduled for ${v.pickup_time || "your appointment time"}.${OPT_OUT}`,
+  driver_assigned: (v) =>
+    `${PREFIX} ${v.driver_name || "Your driver"} has been assigned to your trip.${OPT_OUT}`,
   en_route: (v) => {
     const eta = v.eta_minutes != null ? ` ETA ${v.eta_minutes} min.` : "";
     const mapLink = v.pickup_lat && v.pickup_lng
-      ? `\nTrack: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
-      : v.tracking_url ? `\nTrack: ${v.tracking_url}` : "";
-    return `${v.driver_name || "Your driver"} is on the way.${eta}${mapLink}${OPT_OUT}`;
+      ? ` Track: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
+      : v.tracking_url ? ` Track: ${v.tracking_url}` : "";
+    return `${PREFIX} ${v.driver_name || "Your driver"} is on the way.${eta}${mapLink}${OPT_OUT}`;
   },
   arriving_soon: (v) => {
     const eta = v.eta_minutes != null ? `about ${v.eta_minutes} minutes` : "about 5 minutes";
     const mapLink = v.pickup_lat && v.pickup_lng
-      ? `\nTrack: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
-      : v.tracking_url ? `\nTrack: ${v.tracking_url}` : "";
-    return `Your driver will arrive in ${eta}.${mapLink}${OPT_OUT}`;
+      ? ` Track: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
+      : v.tracking_url ? ` Track: ${v.tracking_url}` : "";
+    return `${PREFIX} Your driver will arrive in ${eta}.${mapLink}${OPT_OUT}`;
   },
   arrived: () =>
-    `Your driver has arrived.${OPT_OUT}`,
+    `${PREFIX} Your driver has arrived.${OPT_OUT}`,
   picked_up: () =>
-    `You are now picked up.${OPT_OUT}`,
+    `${PREFIX} You are now picked up.${OPT_OUT}`,
   completed: () =>
-    `Trip completed. Thank you.${OPT_OUT}`,
-  canceled: () =>
-    `Your trip was cancelled. Call dispatch if needed.${OPT_OUT}`,
+    `${PREFIX} Trip completed. Thank you.${OPT_OUT}`,
+  canceled: (v) => {
+    const dispatch = v.dispatch_phone || "your dispatch office";
+    return `${PREFIX} Trip cancelled. Call dispatch ${dispatch}.${OPT_OUT}`;
+  },
 };
 
 export function buildNotifyMessage(status: TripNotifyStatus, vars: TemplateVars): string {

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -389,8 +389,13 @@ export const tripSmsLog = pgTable("trip_sms_log", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   tripId: integer("trip_id").notNull().references(() => trips.id),
   kind: text("kind").notNull(),
+  toPhone: text("to_phone"),
+  providerSid: text("provider_sid"),
+  error: text("error"),
   sentAt: timestamp("sent_at").notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("trip_sms_log_trip_kind_unique").on(table.tripId, table.kind),
+]);
 
 export const auditLog = pgTable("audit_log", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
