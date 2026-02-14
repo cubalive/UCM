@@ -1160,12 +1160,10 @@ export async function registerRoutes(
     try {
       const user = await storage.getUser(req.user!.userId);
       if (user?.role === "VIEWER" && user.clinicId) {
-        const clinic = await storage.getClinic(user.clinicId);
-        if (clinic) {
-          const patients = await storage.getPatients(clinic.cityId);
-          return res.json(patients);
-        }
-        return res.status(403).json({ message: "No clinic linked" });
+        const clinicPatients = await db.select().from(patients).where(
+          and(eq(patients.clinicId, user.clinicId), eq(patients.active, true), isNull(patients.deletedAt))
+        ).orderBy(patients.firstName);
+        return res.json(clinicPatients);
       }
       const enforced = enforceCityContext(req, res);
       if (enforced === false) return;
@@ -1179,6 +1177,13 @@ export async function registerRoutes(
 
   app.post("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
+      const user = await storage.getUser(req.user!.userId);
+      if (user?.role === "VIEWER" && user.clinicId) {
+        const clinic = await storage.getClinic(user.clinicId);
+        if (!clinic) return res.status(403).json({ message: "No clinic linked" });
+        req.body.clinicId = user.clinicId;
+        req.body.cityId = clinic.cityId;
+      }
       const parsed = insertPatientSchema.omit({ publicId: true }).safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid patient data" });
@@ -1220,6 +1225,13 @@ export async function registerRoutes(
 
       const existing = await storage.getPatient(id);
       if (!existing) return res.status(404).json({ message: "Patient not found" });
+
+      const user = await storage.getUser(req.user!.userId);
+      if (user?.role === "VIEWER" && user.clinicId) {
+        if (existing.clinicId !== user.clinicId) {
+          return res.status(403).json({ message: "You can only edit patients belonging to your clinic" });
+        }
+      }
 
       if (!(await checkCityAccess(req, existing.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
@@ -1901,11 +1913,19 @@ export async function registerRoutes(
       const publicId = await generatePublicId();
       const user = await storage.getUser(req.user!.userId);
       const isClinic = user?.role === "VIEWER" && user.clinicId != null;
+
+      if (isClinic && parsed.data.patientId) {
+        const patient = await storage.getPatient(parsed.data.patientId);
+        if (!patient || patient.clinicId !== user!.clinicId) {
+          return res.status(403).json({ message: "You can only create trips for your clinic's patients" });
+        }
+      }
+
       const approvalFields: Record<string, any> = {};
       if (isClinic) {
         approvalFields.approvalStatus = "pending";
         if (!parsed.data.clinicId) {
-          (parsed.data as any).clinicId = user.clinicId;
+          (parsed.data as any).clinicId = user!.clinicId;
         }
       } else {
         approvalFields.approvalStatus = "approved";
@@ -3053,6 +3073,55 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/clinic/trips/export", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user || !user.clinicId) {
+        return res.status(403).json({ message: "No clinic linked to this account" });
+      }
+
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate query params required (YYYY-MM-DD)" });
+      }
+
+      const conditions: any[] = [
+        eq(trips.clinicId, user.clinicId),
+        isNull(trips.deletedAt),
+        gte(trips.scheduledDate, startDate),
+      ];
+      conditions.push(sql`${trips.scheduledDate} <= ${endDate}`);
+
+      const result = await db.select().from(trips).where(and(...conditions)).orderBy(trips.scheduledDate);
+      const enriched = await enrichTripsWithRelations(result);
+
+      const csvHeader = "Trip ID,Date,Pickup Time,Patient,Pickup Address,Dropoff Address,Status,Driver,ETA (min),Mileage\n";
+      const csvRows = enriched.map((t: any) => {
+        const fields = [
+          t.publicId || "",
+          t.scheduledDate || "",
+          t.pickupTime || "",
+          (t.patientName || "").replace(/,/g, " "),
+          (t.pickupAddress || "").replace(/,/g, " "),
+          (t.dropoffAddress || "").replace(/,/g, " "),
+          t.status || "",
+          (t.driverName || "").replace(/,/g, " "),
+          t.lastEtaMinutes != null ? t.lastEtaMinutes : "",
+          t.estimatedMiles != null ? t.estimatedMiles : "",
+        ];
+        return fields.join(",");
+      });
+
+      const csv = csvHeader + csvRows.join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename=trips_${startDate}_to_${endDate}.csv`);
+      res.send(csv);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/clinic/trips", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
@@ -4178,6 +4247,53 @@ export async function registerRoutes(
         cityId: trip.cityId,
       });
       res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/clinic/patients", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user || user.role !== "VIEWER" || !user.clinicId) {
+        return res.status(403).json({ message: "Only clinic users can use this endpoint" });
+      }
+      const clinicPatients = await db.select().from(patients).where(
+        and(eq(patients.clinicId, user.clinicId), eq(patients.active, true), isNull(patients.deletedAt))
+      ).orderBy(patients.firstName);
+      res.json(clinicPatients);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/clinic/profile", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user || !user.clinicId) return res.status(403).json({ message: "No clinic linked" });
+      const clinic = await storage.getClinic(user.clinicId);
+      if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+      res.json(clinic);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/clinic/recurring-schedules", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user || user.role !== "VIEWER" || !user.clinicId) {
+        return res.status(403).json({ message: "Only clinic users can use this endpoint" });
+      }
+      const clinicPatientIds = await db.select({ id: patients.id }).from(patients).where(
+        and(eq(patients.clinicId, user.clinicId), eq(patients.active, true), isNull(patients.deletedAt))
+      );
+      const patientIds = clinicPatientIds.map(p => p.id);
+      if (patientIds.length === 0) return res.json([]);
+      const schedules = await db.select().from(recurringSchedules).where(
+        and(inArray(recurringSchedules.patientId, patientIds), eq(recurringSchedules.active, true))
+      );
+      res.json(schedules);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

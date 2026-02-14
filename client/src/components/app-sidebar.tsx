@@ -100,7 +100,7 @@ export function AppSidebar() {
   const isClinic = !!user?.clinicId;
 
   const clinicNavItems: NavItem[] = [
-    { title: "My Trips", url: "/clinic-trips", icon: Stethoscope, resource: "trips" },
+    { title: "Clinic Portal", url: "/clinic-trips", icon: Stethoscope, resource: "trips" },
     { title: "Invoices", url: "/invoices", icon: FileText, resource: "invoices" },
   ];
 
