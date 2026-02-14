@@ -41,7 +41,7 @@ const reassignSchema = z.object({
 
 const TERMINAL_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"];
 
-export interface ReassignCandidate {
+export interface ReassignCandidateInfo {
   id: number;
   name: string;
   publicId: string;
@@ -51,6 +51,9 @@ export interface ReassignCandidate {
   vehicle_id: number | null;
   distance_miles: number | null;
   has_active_trip: boolean;
+  assigned_trips_2h: number;
+  proximity_score: number;
+  load_score: number;
   score: number;
 }
 
@@ -61,8 +64,10 @@ export function scoreReassignCandidates(
   pickupLat: number | null,
   pickupLng: number | null,
   tripCityId: number,
-): ReassignCandidate[] {
-  const candidates: ReassignCandidate[] = [];
+  assignedTripsIn2hMap?: Map<number, number>,
+): ReassignCandidateInfo[] {
+  const upcoming = assignedTripsIn2hMap || new Map<number, number>();
+  const candidates: ReassignCandidateInfo[] = [];
 
   for (const d of drivers) {
     if (!d.active || d.deletedAt || d.status !== "ACTIVE") continue;
@@ -83,12 +88,26 @@ export function scoreReassignCandidates(
       distanceMiles = haversineDistance(d.lastLat, d.lastLng, pickupLat, pickupLng);
     }
 
-    let score = 0;
-    if (d.dispatchStatus === "available") score += 50;
-    if (!hasActiveTrip) score += 30;
+    let proximityScore: number;
     if (distanceMiles != null) {
-      score += Math.max(0, 20 - distanceMiles * 2);
+      proximityScore = Math.max(0, Math.min(1, 1 - distanceMiles / 10));
+    } else {
+      proximityScore = 0.4;
     }
+
+    let loadScore: number;
+    if (hasActiveTrip) {
+      loadScore = 0.0;
+    } else {
+      const upcomingCount = upcoming.get(d.id) || 0;
+      if (upcomingCount === 0) {
+        loadScore = 1.0;
+      } else {
+        loadScore = Math.max(0.2, 0.6 - (upcomingCount - 1) * 0.1);
+      }
+    }
+
+    const score = 0.5 * proximityScore + 0.5 * loadScore;
 
     candidates.push({
       id: d.id,
@@ -100,11 +119,23 @@ export function scoreReassignCandidates(
       vehicle_id: d.vehicleId,
       distance_miles: distanceMiles != null ? Math.round(distanceMiles * 10) / 10 : null,
       has_active_trip: hasActiveTrip,
-      score,
+      assigned_trips_2h: upcoming.get(d.id) || 0,
+      proximity_score: Math.round(proximityScore * 1000) / 1000,
+      load_score: Math.round(loadScore * 1000) / 1000,
+      score: Math.round(score * 1000) / 1000,
     });
   }
 
-  candidates.sort((a, b) => b.score - a.score);
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.dispatch_status === "available" && b.dispatch_status !== "available") return -1;
+    if (b.dispatch_status === "available" && a.dispatch_status !== "available") return 1;
+    const aDriver = drivers.find((dr: any) => dr.id === a.id);
+    const bDriver = drivers.find((dr: any) => dr.id === b.id);
+    const aTime = aDriver?.lastSeenAt ? new Date(aDriver.lastSeenAt).getTime() : 0;
+    const bTime = bDriver?.lastSeenAt ? new Date(bDriver.lastSeenAt).getTime() : 0;
+    return bTime - aTime;
+  });
   return candidates.slice(0, 5);
 }
 
@@ -651,6 +682,22 @@ export function registerDispatchRoutes(app: Express) {
         const rawVehicles = await storage.getVehicles(trip.cityId);
         const vehicleMap = new Map(rawVehicles.map((v) => [v.id, v]));
 
+        const now = new Date();
+        const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+        const assignedTripsIn2hMap = new Map<number, number>();
+        for (const t of allTrips) {
+          if (!t.driverId || TERMINAL_STATUSES.includes(t.status)) continue;
+          if (activeTripsMap.has(t.driverId) && activeTripsMap.get(t.driverId)?.id === t.id) continue;
+          if (t.scheduledDate && t.pickupTime) {
+            const [ph, pm] = (t.pickupTime as string).split(":").map(Number);
+            const tripDate = new Date(t.scheduledDate);
+            tripDate.setHours(ph || 0, pm || 0, 0, 0);
+            if (tripDate >= now && tripDate <= twoHoursLater) {
+              assignedTripsIn2hMap.set(t.driverId, (assignedTripsIn2hMap.get(t.driverId) || 0) + 1);
+            }
+          }
+        }
+
         const candidates = scoreReassignCandidates(
           allDrivers,
           activeTripsMap,
@@ -658,6 +705,7 @@ export function registerDispatchRoutes(app: Express) {
           trip.pickupLat,
           trip.pickupLng,
           trip.cityId,
+          assignedTripsIn2hMap,
         );
 
         const filtered = candidates.filter(c => c.id !== trip.driverId);

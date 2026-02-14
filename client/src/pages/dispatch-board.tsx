@@ -122,6 +122,9 @@ interface ReassignCandidateInfo {
   vehicle_id: number | null;
   distance_miles: number | null;
   has_active_trip: boolean;
+  assigned_trips_2h: number;
+  proximity_score: number;
+  load_score: number;
   score: number;
 }
 
