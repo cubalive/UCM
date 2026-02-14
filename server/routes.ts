@@ -3922,6 +3922,142 @@ export async function registerRoutes(
     }
   });
 
+  const clinicEtaCache = new Map<number, { eta: number | null; stale: boolean; updatedAt: string; }>();
+  const CLINIC_ETA_CACHE_TTL = 60_000;
+
+  function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 3958.8;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  app.get("/api/clinic/active-trips", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (user.role !== "CLINIC_USER") return res.status(403).json({ message: "Access denied: clinic users only" });
+      if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+      const clinic = await storage.getClinic(user.clinicId);
+      if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+      const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"];
+      const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+
+      const clinicTrips = await db.select().from(trips).where(
+        and(
+          eq(trips.clinicId, user.clinicId),
+          inArray(trips.status, ACTIVE_STATUSES),
+          isNull(trips.deletedAt),
+        )
+      );
+
+      const result = await Promise.all(clinicTrips.map(async (trip) => {
+        const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+        let driverData: any = null;
+        let driverStale = false;
+        let driverLastLat: number | null = null;
+        let driverLastLng: number | null = null;
+        let driverLastSeenAt: string | null = null;
+
+        if (trip.driverId) {
+          const driver = await storage.getDriver(trip.driverId);
+          if (driver) {
+            driverLastLat = driver.lastLat ?? null;
+            driverLastLng = driver.lastLng ?? null;
+            driverLastSeenAt = driver.lastSeenAt ? new Date(driver.lastSeenAt).toISOString() : null;
+            const lastSeenMs = driver.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
+            driverStale = lastSeenMs > STALE_THRESHOLD_MS;
+            const vehicle = driver.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
+            driverData = {
+              id: driver.id,
+              firstName: driver.firstName,
+              lastName: driver.lastName,
+              phone: driver.phone,
+              lastLat: driverLastLat,
+              lastLng: driverLastLng,
+              lastSeenAt: driverLastSeenAt,
+              stale: driverStale,
+              vehicleColor: vehicle?.color || null,
+              vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
+            };
+          }
+        }
+
+        let etaToClinic: number | null = null;
+        let etaUpdatedAt: string | null = null;
+        let etaStale = true;
+
+        if (clinic.lat && clinic.lng && driverLastLat && driverLastLng && !driverStale) {
+          const cacheEntry = clinicEtaCache.get(trip.id);
+          const now = Date.now();
+          if (cacheEntry && (now - new Date(cacheEntry.updatedAt).getTime()) < CLINIC_ETA_CACHE_TTL) {
+            etaToClinic = cacheEntry.eta;
+            etaUpdatedAt = cacheEntry.updatedAt;
+            etaStale = cacheEntry.stale;
+          } else {
+            try {
+              const { etaMinutes: getEta } = await import("./lib/googleMaps");
+              const etaResult = await getEta(
+                { lat: driverLastLat, lng: driverLastLng },
+                { lat: clinic.lat, lng: clinic.lng }
+              );
+              etaToClinic = etaResult.minutes;
+              etaUpdatedAt = new Date().toISOString();
+              etaStale = false;
+              clinicEtaCache.set(trip.id, { eta: etaToClinic, stale: false, updatedAt: etaUpdatedAt });
+            } catch {
+              const dist = haversineDistanceMiles(driverLastLat, driverLastLng, clinic.lat, clinic.lng);
+              etaToClinic = Math.round((dist / 25) * 60);
+              etaUpdatedAt = new Date().toISOString();
+              etaStale = false;
+              clinicEtaCache.set(trip.id, { eta: etaToClinic, stale: false, updatedAt: etaUpdatedAt });
+            }
+          }
+        } else if (driverStale) {
+          etaToClinic = null;
+          etaStale = true;
+          etaUpdatedAt = null;
+        }
+
+        return {
+          tripId: trip.id,
+          publicId: trip.publicId,
+          status: trip.status,
+          scheduledDate: trip.scheduledDate,
+          pickupTime: trip.pickupTime,
+          pickupAddress: trip.pickupAddress,
+          dropoffAddress: trip.dropoffAddress,
+          pickupLat: trip.pickupLat,
+          pickupLng: trip.pickupLng,
+          dropoffLat: trip.dropoffLat,
+          dropoffLng: trip.dropoffLng,
+          tripType: trip.tripType,
+          patient: patient ? {
+            id: patient.id,
+            firstName: patient.firstName,
+            lastName: patient.lastName,
+            phone: patient.phone,
+          } : null,
+          driver: driverData,
+          etaToClinic: etaToClinic,
+          etaUpdatedAt: etaUpdatedAt,
+          stale: driverStale,
+        };
+      }));
+
+      res.json({
+        ok: true,
+        clinic: { id: clinic.id, name: clinic.name, lat: clinic.lat, lng: clinic.lng, address: clinic.address },
+        trips: result,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, message: err.message });
+    }
+  });
+
   app.get("/api/clinic/metrics", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);

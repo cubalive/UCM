@@ -306,23 +306,45 @@ function DialysisReturnDialog({ tripId, onDismiss }: { tripId: number; onDismiss
 
 function OpsDashboard() {
   const { token } = useAuth();
+  const [opsTab, setOpsTab] = useState("live");
   const [trackingTripId, setTrackingTripId] = useState<number | null>(null);
   const [selectedOpsTrip, setSelectedOpsTrip] = useState<any>(null);
   const [dialysisCheckTripId, setDialysisCheckTripId] = useState<number | null>(null);
   const [dismissedDialysis, setDismissedDialysis] = useState<Set<number>>(new Set());
 
+  const activeTripsQuery = useQuery<any>({
+    queryKey: ["/api/clinic/active-trips"],
+    queryFn: () => apiFetch("/api/clinic/active-trips", token),
+    enabled: !!token,
+    refetchInterval: 60000,
+  });
+
   const opsQuery = useQuery<any>({
     queryKey: ["/api/clinic/ops"],
     queryFn: () => apiFetch("/api/clinic/ops", token),
     enabled: !!token,
-    refetchInterval: 15000,
+    refetchInterval: 60000,
   });
 
-  const opsData = opsQuery.data;
-  const kpis = opsData?.kpis || {};
-  const activeTrips = opsData?.activeTrips || [];
-  const alerts = opsData?.alerts || [];
-  const clinic = opsData?.clinic;
+  const scheduledTripsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/trips", "scheduled"],
+    queryFn: () => apiFetch("/api/clinic/trips?status=scheduled", token),
+    enabled: !!token && opsTab === "scheduled",
+    refetchInterval: 60000,
+  });
+
+  const completedTripsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinic/trips", "completed"],
+    queryFn: () => apiFetch("/api/clinic/trips?status=completed", token),
+    enabled: !!token && opsTab === "completed",
+    refetchInterval: 60000,
+  });
+
+  const activeData = activeTripsQuery.data;
+  const liveTrips: any[] = activeData?.trips || [];
+  const clinic = activeData?.clinic || opsQuery.data?.clinic;
+  const kpis = opsQuery.data?.kpis || {};
+  const alerts = opsQuery.data?.alerts || [];
 
   const completedDialysisQuery = useQuery<any[]>({
     queryKey: ["/api/clinic/trips", "completed", "dialysis"],
@@ -343,6 +365,8 @@ function OpsDashboard() {
     }
   }, [completedDialysisQuery.data, dismissedDialysis, dialysisCheckTripId]);
 
+  const isFetching = activeTripsQuery.isFetching || opsQuery.isFetching;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -354,8 +378,8 @@ function OpsDashboard() {
           )}
         </div>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <RefreshCw className={`w-3 h-3 ${opsQuery.isFetching ? "animate-spin" : ""}`} />
-          Auto-refresh 15s
+          <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+          Auto-refresh 60s
         </div>
       </div>
 
@@ -426,76 +450,122 @@ function OpsDashboard() {
 
       {alerts.length > 0 && <AlertPanel alerts={alerts} />}
 
-      <OpsMapSection
-        activeTrips={activeTrips}
-        clinic={clinic}
-        selectedTrip={selectedOpsTrip}
-        onSelectTrip={setSelectedOpsTrip}
-      />
+      <Tabs value={opsTab} onValueChange={setOpsTab}>
+        <TabsList>
+          <TabsTrigger value="live" data-testid="tab-ops-live" className="gap-1.5">
+            <Radio className="w-3.5 h-3.5" />
+            Live
+            {liveTrips.length > 0 && <Badge variant="secondary" className="ml-1">{liveTrips.length}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="scheduled" data-testid="tab-ops-scheduled" className="gap-1.5">
+            <Calendar className="w-3.5 h-3.5" />
+            Scheduled
+          </TabsTrigger>
+          <TabsTrigger value="completed" data-testid="tab-ops-completed" className="gap-1.5">
+            <CheckCircle className="w-3.5 h-3.5" />
+            Completed
+          </TabsTrigger>
+        </TabsList>
 
-      {selectedOpsTrip && (
-        <Card data-testid="card-ops-selected-trip">
-          <CardContent className="py-3 px-4 space-y-2">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold">{selectedOpsTrip.publicId}</span>
-                <Badge className={STATUS_COLORS[selectedOpsTrip.status] || ""}>
-                  {STATUS_LABELS[selectedOpsTrip.status] || selectedOpsTrip.status}
-                </Badge>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => setSelectedOpsTrip(null)} data-testid="button-deselect-ops-trip">
-                Deselect
-              </Button>
+        <TabsContent value="live" className="mt-4 space-y-4">
+          {activeTripsQuery.isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-24 w-full" />)}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-              {selectedOpsTrip.patient && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Patient</p>
-                  <p className="font-medium flex items-center gap-1">
-                    <User className="w-3.5 h-3.5" />
-                    {selectedOpsTrip.patient.firstName} {selectedOpsTrip.patient.lastName}
-                  </p>
-                  {selectedOpsTrip.patient.phone && (
-                    <a href={`tel:${selectedOpsTrip.patient.phone}`} className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1" data-testid="link-call-patient">
-                      <Phone className="w-3 h-3" /> {selectedOpsTrip.patient.phone}
-                    </a>
-                  )}
-                </div>
-              )}
-              {selectedOpsTrip.driver && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Driver</p>
-                  <p className="font-medium flex items-center gap-1">
-                    <Car className="w-3.5 h-3.5" />
-                    {selectedOpsTrip.driver.firstName} {selectedOpsTrip.driver.lastName}
-                  </p>
-                  {selectedOpsTrip.driver.phone && (
-                    <a href={`tel:${selectedOpsTrip.driver.phone}`} className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1" data-testid="link-call-driver">
-                      <Phone className="w-3 h-3" /> {selectedOpsTrip.driver.phone}
-                    </a>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    GPS: {formatTimeAgo(selectedOpsTrip.driver.lastSeenAt)}
-                  </p>
-                </div>
-              )}
-            </div>
-            {selectedOpsTrip.eta && (
-              <p className="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1" data-testid="text-ops-eta">
-                <Navigation className="w-3.5 h-3.5" />
-                ETA: {selectedOpsTrip.eta.minutes} min
-              </p>
-            )}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-              <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-emerald-500" /> {selectedOpsTrip.pickupAddress || "Pickup"}</span>
-              <ArrowRight className="w-3 h-3" />
-              <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-red-500" /> {selectedOpsTrip.dropoffAddress || "Dropoff"}</span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          ) : liveTrips.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <MapPinned className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="text-base font-semibold mb-1" data-testid="text-no-active-routes-title">No active routes for your clinic</h3>
+                <p className="text-sm text-muted-foreground" data-testid="text-no-active-routes-subtitle">The map will appear once a driver is assigned.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <LiveTripCards
+                trips={liveTrips}
+                selectedTrip={selectedOpsTrip}
+                onSelectTrip={setSelectedOpsTrip}
+              />
+              <OpsMapSection
+                activeTrips={liveTrips}
+                clinic={clinic}
+                selectedTrip={selectedOpsTrip}
+                onSelectTrip={setSelectedOpsTrip}
+              />
+            </>
+          )}
+        </TabsContent>
 
-      <ArrivalsBoard activeTrips={activeTrips} onTrack={setTrackingTripId} />
+        <TabsContent value="scheduled" className="mt-4">
+          {scheduledTripsQuery.isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : (scheduledTripsQuery.data || []).length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                <Calendar className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                No scheduled trips for today.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2" data-testid="list-scheduled-trips">
+              {(scheduledTripsQuery.data || []).map((trip: any) => (
+                <Card key={trip.id} data-testid={`card-scheduled-trip-${trip.id}`}>
+                  <CardContent className="py-3 px-4">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{trip.publicId}</span>
+                        <Badge className={STATUS_COLORS[trip.status] || ""}>{STATUS_LABELS[trip.status] || trip.status}</Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{trip.pickupTime || "N/A"}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1 flex-wrap">
+                      <span className="flex items-center gap-1"><User className="w-3 h-3" /> {trip.patientFirstName || ""} {trip.patientLastName || ""}</span>
+                      <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {trip.pickupAddress ? (trip.pickupAddress.length > 30 ? trip.pickupAddress.substring(0, 30) + "..." : trip.pickupAddress) : "N/A"}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="completed" className="mt-4">
+          {completedTripsQuery.isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : (completedTripsQuery.data || []).length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                <CheckCircle className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                No completed trips today.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2" data-testid="list-completed-trips">
+              {(completedTripsQuery.data || []).map((trip: any) => (
+                <Card key={trip.id} data-testid={`card-completed-trip-${trip.id}`}>
+                  <CardContent className="py-3 px-4">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{trip.publicId}</span>
+                        <Badge className={STATUS_COLORS[trip.status] || ""}>{STATUS_LABELS[trip.status] || trip.status}</Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{trip.pickupTime || "N/A"}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1 flex-wrap">
+                      <span className="flex items-center gap-1"><User className="w-3 h-3" /> {trip.patientFirstName || ""} {trip.patientLastName || ""}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={!!trackingTripId} onOpenChange={(open) => { if (!open) setTrackingTripId(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
@@ -504,6 +574,93 @@ function OpsDashboard() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function LiveTripCards({ trips, selectedTrip, onSelectTrip }: {
+  trips: any[];
+  selectedTrip: any;
+  onSelectTrip: (trip: any) => void;
+}) {
+  const sorted = [...trips].sort((a, b) => {
+    const etaA = a.etaToClinic ?? 9999;
+    const etaB = b.etaToClinic ?? 9999;
+    return etaA - etaB;
+  });
+
+  return (
+    <div className="space-y-2" data-testid="list-live-trip-cards">
+      {sorted.map(trip => {
+        const isSelected = selectedTrip?.tripId === trip.tripId;
+        return (
+          <Card
+            key={trip.tripId}
+            className={`cursor-pointer transition-colors ${isSelected ? "ring-2 ring-blue-500" : ""}`}
+            onClick={() => onSelectTrip(trip)}
+            data-testid={`card-live-trip-${trip.tripId}`}
+          >
+            <CardContent className="py-3 px-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <User className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold" data-testid={`text-live-patient-${trip.tripId}`}>
+                    {trip.patient?.firstName || "Unknown"} {trip.patient?.lastName || ""}
+                  </span>
+                  <Badge className={STATUS_COLORS[trip.status] || ""}>
+                    {STATUS_LABELS[trip.status] || trip.status}
+                  </Badge>
+                </div>
+                <div className="text-right">
+                  {trip.stale ? (
+                    <div className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400" data-testid={`text-stale-${trip.tripId}`}>
+                      <WifiOff className="w-3.5 h-3.5" />
+                      Driver location not updating
+                    </div>
+                  ) : trip.etaToClinic != null ? (
+                    <div data-testid={`text-eta-clinic-${trip.tripId}`}>
+                      <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                        ~{trip.etaToClinic} min
+                      </span>
+                      {trip.etaUpdatedAt && (
+                        <p className="text-xs text-muted-foreground">
+                          Updated {formatTimeAgo(trip.etaUpdatedAt)}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">ETA unavailable</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-muted-foreground mt-2 flex-wrap">
+                {trip.driver && (
+                  <span className="flex items-center gap-1">
+                    <Car className="w-3 h-3" />
+                    {trip.driver.firstName} {trip.driver.lastName}
+                    {trip.driver.stale && <WifiOff className="w-3 h-3 text-orange-500 ml-0.5" />}
+                  </span>
+                )}
+                {!trip.driver && (
+                  <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400">
+                    <Car className="w-3 h-3" /> Unassigned
+                  </span>
+                )}
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {trip.pickupTime || "N/A"}</span>
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-3 h-3 text-emerald-500" />
+                  {trip.pickupAddress ? (trip.pickupAddress.length > 25 ? trip.pickupAddress.substring(0, 25) + "..." : trip.pickupAddress) : "N/A"}
+                </span>
+                <ArrowRight className="w-3 h-3" />
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-3 h-3 text-red-500" />
+                  {trip.dropoffAddress ? (trip.dropoffAddress.length > 25 ? trip.dropoffAddress.substring(0, 25) + "..." : trip.dropoffAddress) : "N/A"}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -694,14 +851,14 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
       }
     }
 
-    const visibleTrips = activeTrips.filter((t: any) => t.mapVisible !== false);
+    const visibleTrips = activeTrips.filter((t: any) => t.driver?.lastLat && t.driver?.lastLng);
     visibleTrips.forEach(trip => {
       if (!trip.driver?.lastLat || !trip.driver?.lastLng) return;
       const key = `driver-${trip.tripId}`;
       currentKeys.add(key);
       const pos = { lat: trip.driver.lastLat, lng: trip.driver.lastLng };
       bounds.extend(pos);
-      const color = lateStatusColor(trip.lateStatus || "on_time", trip.driver.isOnline !== false);
+      const color = trip.stale || trip.driver?.stale ? "#9ca3af" : lateStatusColor(trip.lateStatus || "on_time", trip.driver?.isOnline !== false);
 
       if (!entry.markers.has(key)) {
         const marker = new google.maps.Marker({
@@ -747,30 +904,14 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
     }
   }
 
-  const mapTrips = activeTrips.filter((t: any) => t.mapVisible !== false);
-  const hasDrivers = mapTrips.some(t => t.driver?.lastLat && t.driver?.lastLng);
-  const hasMapTrips = mapTrips.length > 0;
-
-  if (!hasMapTrips) {
-    return (
-      <div data-testid="div-clinic-map-empty">
-        <Card>
-          <CardContent className="py-12 text-center">
-            <MapPinned className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-            <h3 className="text-base font-semibold mb-1" data-testid="text-no-active-routes-title">No active routes for your clinic</h3>
-            <p className="text-sm text-muted-foreground" data-testid="text-no-active-routes-subtitle">The map will appear once a driver is assigned to a patient.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const hasDrivers = activeTrips.some(t => t.driver?.lastLat && t.driver?.lastLng);
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
         <MapIcon className="w-4 h-4 text-blue-500" />
         <h3 className="text-sm font-semibold" data-testid="text-ops-map-title">Active Trips Map</h3>
-        <Badge variant="secondary">{mapTrips.length} trip{mapTrips.length !== 1 ? "s" : ""}</Badge>
+        <Badge variant="secondary">{activeTrips.length} trip{activeTrips.length !== 1 ? "s" : ""}</Badge>
       </div>
       <div className="relative">
         <div
@@ -780,23 +921,24 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
           style={{ display: mapAvailable && (hasDrivers || (clinic?.lat && clinic?.lng)) ? "block" : "none" }}
         />
       </div>
-      {!(mapAvailable && (hasDrivers || (clinic?.lat && clinic?.lng))) && !hasDrivers && mapTrips.length > 0 ? (
-        <Card>
-          <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-ops-map-hidden">
-            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p>Driver markers appear when ETA is under 15 min</p>
-            <p className="text-xs mt-1">{mapTrips.length} active trip{mapTrips.length !== 1 ? "s" : ""} in progress</p>
-          </CardContent>
-        </Card>
-      ) : !mapAvailable ? (
+      {!mapAvailable ? (
         <Card>
           <CardContent className="py-6 text-center text-sm text-muted-foreground">
             <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
             <p>Map not available</p>
           </CardContent>
         </Card>
+      ) : !hasDrivers && activeTrips.length > 0 ? (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground" data-testid="text-ops-map-hidden">
+            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p>Waiting for driver locations</p>
+            <p className="text-xs mt-1">{activeTrips.length} active trip{activeTrips.length !== 1 ? "s" : ""}</p>
+          </CardContent>
+        </Card>
       ) : null}
       <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" /> Clinic</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> On Time</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> At Risk</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Late</span>

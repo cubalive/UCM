@@ -1,0 +1,92 @@
+ROLE: Senior production engineer
+PROJECT: UCM
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Add real-time ETA-to-clinic for CLINIC users (only for their active trips) with smooth map updates (no blinking).
+
+-----------------------------------
+PHASE 1 — DEFINE "ACTIVE FOR CLINIC"
+-----------------------------------
+For clinic dashboard/map, active trips are:
+ASSIGNED
+EN_ROUTE_TO_PICKUP
+ARRIVED_PICKUP
+PICKED_UP
+EN_ROUTE_TO_DROPOFF
+ARRIVED_DROPOFF
+
+Filter strictly:
+trips.clinic_id = current_clinic_id
+
+Drivers shown must be only:
+drivers.id = trips.driver_id (ignore null)
+
+-----------------------------------
+PHASE 2 — ETA CALCULATION (SERVER)
+-----------------------------------
+Create/extend an endpoint:
+GET /api/clinic/active-trips
+
+Return for each trip:
+- trip_id, status, patient_name
+- driver_name (if assigned)
+- driver_last_lat/lng, driver_last_seen_at
+- clinic_lat/lng (from clinics table)
+- ETA_minutes_to_clinic (number | null)
+- eta_updated_at
+
+ETA logic:
+1) If no driver location or last_seen_at older than 5 minutes -> ETA null and flag stale=true
+2) Otherwise compute ETA with:
+   - If Google Directions API key exists, call it for driving ETA driver->clinic
+   - Else fallback: use haversine distance + assumed speed 25 mph (Vegas) -> minutes
+3) Cache ETA per trip for 60s to avoid rate limit + jitter.
+
+Store last_eta_minutes + last_eta_updated_at already exist in trips table.
+Use them, but keep clinic ETA separate if needed OR reuse last_eta_minutes when trip phase targets clinic.
+
+-----------------------------------
+PHASE 3 — FRONTEND CLINIC UI
+-----------------------------------
+Clinic home should have:
+Tabs: Live / Scheduled / Completed
+
+Live tab:
+- If no active trips -> show centered banner:
+  "No active routes for your clinic"
+  "The map will appear once a driver is assigned."
+
+If active trips:
+- List cards above/beside map:
+  Patient + Status + "Arriving in ~X min" (bold)
+  "Updated Ys ago" (small)
+  If stale: show "Driver location not updating"
+
+Map:
+- Do NOT remount map component on refresh
+- Update markers + labels only
+- Update interval: every 60 seconds for clinic
+- Smooth UI: keep previous ETA while fetching new; update text when new value arrives
+
+-----------------------------------
+PHASE 4 — SECURITY
+-----------------------------------
+Backend must enforce:
+- role must be CLINIC_USER
+- clinic_id must match session user clinic_id
+- never return other clinic trips or global drivers
+
+-----------------------------------
+VERIFY
+1) Clinic login with no active trips -> banner shown, no drivers visible
+2) Create trip assigned to driver -> clinic sees only that driver
+3) ETA appears and updates every 60s
+4) Simulate stale driver (last_seen_at old) -> ETA hidden + stale label
+5) No map blinking during updates
