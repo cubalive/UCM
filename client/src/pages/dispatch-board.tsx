@@ -42,6 +42,9 @@ import {
   Coffee,
   LogOut,
   CheckCircle,
+  AlertTriangle,
+  RefreshCw,
+  Zap,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -109,6 +112,40 @@ function formatTimeAgo(dateStr: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+interface ReassignCandidateInfo {
+  id: number;
+  name: string;
+  publicId: string;
+  phone: string;
+  dispatch_status: string;
+  vehicle_name: string | null;
+  vehicle_id: number | null;
+  distance_miles: number | null;
+  has_active_trip: boolean;
+  score: number;
+}
+
+function isTripNearPickup(trip: any): boolean {
+  if (!trip.pickupTime || !trip.scheduledDate) return false;
+  const [h, m] = trip.pickupTime.split(":").map(Number);
+  const pickupDate = new Date(`${trip.scheduledDate}T${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`);
+  const now = new Date();
+  const diffMs = pickupDate.getTime() - now.getTime();
+  return diffMs <= 10 * 60 * 1000 && diffMs > -30 * 60 * 1000;
+}
+
+function isDriverNotReady(trip: any): boolean {
+  if (!trip.driverId) return true;
+  if (trip.driverDispatchStatus === "off" || trip.driverDispatchStatus === "hold") return true;
+  if (trip.driverLastSeenAt) {
+    const elapsed = Date.now() - new Date(trip.driverLastSeenAt).getTime();
+    if (elapsed > 120_000) return true;
+  } else {
+    return true;
+  }
+  return false;
+}
+
 export default function DispatchBoardPage() {
   const { token, selectedCity } = useAuth();
   const { toast } = useToast();
@@ -116,6 +153,7 @@ export default function DispatchBoardPage() {
   const [search, setSearch] = useState("");
   const [assignTrip, setAssignTrip] = useState<any | null>(null);
   const [showAllDrivers, setShowAllDrivers] = useState(false);
+  const [reassignTrip, setReassignTrip] = useState<any | null>(null);
 
   const cityId = selectedCity?.id;
 
@@ -152,6 +190,23 @@ export default function DispatchBoardPage() {
     },
     onError: (err: any) => {
       toast({ title: "Assignment failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const reassignMutation = useMutation({
+    mutationFn: ({ tripId, newDriverId }: { tripId: number; newDriverId: number }) =>
+      apiFetch(`/api/dispatch/trips/${tripId}/reassign`, token, {
+        method: "POST",
+        body: JSON.stringify({ new_driver_id: newDriverId, reason: "readiness_escalation" }),
+      }),
+    onSuccess: () => {
+      toast({ title: "Trip reassigned successfully" });
+      setReassignTrip(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/drivers/status"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Reassignment failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -208,13 +263,14 @@ export default function DispatchBoardPage() {
                 loading={tripsQuery.isLoading}
                 tab="unassigned"
                 onAssign={(trip) => setAssignTrip(trip)}
+                onReassign={(trip) => setReassignTrip(trip)}
               />
             </TabsContent>
             <TabsContent value="scheduled" className="mt-4">
-              <TripList trips={trips} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} />
+              <TripList trips={trips} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} onReassign={(trip) => setReassignTrip(trip)} />
             </TabsContent>
             <TabsContent value="active" className="mt-4">
-              <TripList trips={trips} loading={tripsQuery.isLoading} tab="active" />
+              <TripList trips={trips} loading={tripsQuery.isLoading} tab="active" onReassign={(trip) => setReassignTrip(trip)} />
             </TabsContent>
             <TabsContent value="completed" className="mt-4">
               <TripList trips={trips} loading={tripsQuery.isLoading} tab="completed" />
@@ -279,6 +335,27 @@ export default function DispatchBoardPage() {
             }}
             loading={assignDriverMutation.isPending}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!reassignTrip} onOpenChange={(open) => { if (!open) setReassignTrip(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-500" />
+              Reassign Trip {reassignTrip?.publicId}
+            </DialogTitle>
+          </DialogHeader>
+          {reassignTrip && (
+            <ReassignPanel
+              trip={reassignTrip}
+              token={token}
+              onReassign={(newDriverId) => {
+                reassignMutation.mutate({ tripId: reassignTrip.id, newDriverId });
+              }}
+              loading={reassignMutation.isPending}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>
@@ -354,11 +431,13 @@ function TripList({
   loading,
   tab,
   onAssign,
+  onReassign,
 }: {
   trips: any[];
   loading: boolean;
   tab: string;
   onAssign?: (trip: any) => void;
+  onReassign?: (trip: any) => void;
 }) {
   if (loading) {
     return (
@@ -381,15 +460,17 @@ function TripList({
   return (
     <div className="space-y-2" data-testid={`list-${tab}-trips`}>
       {trips.map((trip) => (
-        <TripCard key={trip.id} trip={trip} tab={tab} onAssign={onAssign} />
+        <TripCard key={trip.id} trip={trip} tab={tab} onAssign={onAssign} onReassign={onReassign} />
       ))}
     </div>
   );
 }
 
-function TripCard({ trip, tab, onAssign }: { trip: any; tab: string; onAssign?: (trip: any) => void }) {
+function TripCard({ trip, tab, onAssign, onReassign }: { trip: any; tab: string; onAssign?: (trip: any) => void; onReassign?: (trip: any) => void }) {
   const isCompleted = tab === "completed" || ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status);
   const canAssign = !isCompleted && onAssign && (tab === "unassigned" || tab === "scheduled");
+
+  const showReassign = !isCompleted && onReassign && isTripNearPickup(trip) && isDriverNotReady(trip);
 
   return (
     <Card data-testid={`card-trip-${trip.id}`}>
@@ -412,6 +493,12 @@ function TripCard({ trip, tab, onAssign }: { trip: any; tab: string; onAssign?: 
                 <Badge variant="secondary" className="gap-1">
                   <Lock className="w-3 h-3" />
                   Locked
+                </Badge>
+              )}
+              {showReassign && (
+                <Badge variant="destructive" className="gap-1" data-testid={`badge-rescue-${trip.id}`}>
+                  <AlertTriangle className="w-3 h-3" />
+                  Driver Not Ready
                 </Badge>
               )}
             </div>
@@ -494,6 +581,17 @@ function TripCard({ trip, tab, onAssign }: { trip: any; tab: string; onAssign?: 
               >
                 <UserPlus className="w-3.5 h-3.5 mr-1" />
                 Assign
+              </Button>
+            )}
+            {showReassign && (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => onReassign!(trip)}
+                data-testid={`button-reassign-${trip.id}`}
+              >
+                <Zap className="w-3.5 h-3.5 mr-1" />
+                Reassign Now
               </Button>
             )}
           </div>
@@ -585,6 +683,134 @@ function AssignDriverPanel({
           data-testid="button-confirm-assign"
         >
           {loading ? "Assigning..." : "Assign Driver"}
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
+function ReassignPanel({
+  trip,
+  token,
+  onReassign,
+  loading,
+}: {
+  trip: any;
+  token: string | null;
+  onReassign: (newDriverId: number) => void;
+  loading: boolean;
+}) {
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const candidatesQuery = useQuery<{ candidates: ReassignCandidateInfo[] }>({
+    queryKey: ["/api/dispatch/trips", trip.id, "reassign-candidates"],
+    queryFn: () => apiFetch(`/api/dispatch/trips/${trip.id}/reassign-candidates`, token),
+    enabled: !!token && !!trip.id,
+  });
+
+  const candidates = candidatesQuery.data?.candidates || [];
+  const bestCandidate = candidates.length > 0 ? candidates[0] : null;
+
+  return (
+    <div className="space-y-4" data-testid="panel-reassign">
+      <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 text-xs space-y-1">
+        <p className="font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Dispatch Rescue
+        </p>
+        <p className="text-amber-700 dark:text-amber-400">
+          Trip pickup is imminent but the assigned driver is not ready.
+          Select a LIVE driver below to reassign immediately.
+        </p>
+      </div>
+
+      {trip.driverName && (
+        <div className="text-xs text-muted-foreground">
+          Current driver: <span className="font-medium text-foreground">{trip.driverName}</span>
+          {trip.driverDispatchStatus && (
+            <Badge variant="outline" className="ml-2 text-[10px]">{trip.driverDispatchStatus}</Badge>
+          )}
+        </div>
+      )}
+
+      {candidatesQuery.isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+        </div>
+      ) : candidates.length === 0 ? (
+        <div className="py-4 text-center text-sm text-muted-foreground" data-testid="text-no-candidates">
+          No available LIVE drivers found for reassignment.
+        </div>
+      ) : (
+        <div className="space-y-1.5" data-testid="list-reassign-candidates">
+          {candidates.map((c, idx) => (
+            <button
+              key={c.id}
+              onClick={() => setSelectedId(c.id)}
+              className={`w-full text-left rounded-md border p-3 transition-colors ${
+                selectedId === c.id
+                  ? "border-primary bg-primary/5"
+                  : "border-border"
+              }`}
+              data-testid={`candidate-${c.id}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <CircleDot className={`w-3 h-3 flex-shrink-0 ${
+                    c.dispatch_status === "available" ? "text-green-500" : "text-blue-500"
+                  }`} />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium flex items-center gap-1.5 flex-wrap">
+                      {c.name}
+                      {idx === 0 && (
+                        <Badge variant="secondary" className="text-[10px]">Best Match</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+                      {c.vehicle_name && (
+                        <span className="flex items-center gap-1">
+                          <Car className="w-3 h-3" />
+                          {c.vehicle_name}
+                        </span>
+                      )}
+                      {c.distance_miles != null && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {c.distance_miles} mi
+                        </span>
+                      )}
+                      {c.has_active_trip && (
+                        <Badge variant="outline" className="text-[10px]">Has Trip</Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <DialogFooter>
+        <Button
+          variant="destructive"
+          onClick={() => {
+            if (selectedId) onReassign(selectedId);
+          }}
+          disabled={loading || !selectedId}
+          data-testid="button-confirm-reassign"
+        >
+          {loading ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" />
+              Reassigning...
+            </>
+          ) : (
+            <>
+              <Zap className="w-3.5 h-3.5 mr-1" />
+              Confirm Reassign
+            </>
+          )}
         </Button>
       </DialogFooter>
     </div>

@@ -7,7 +7,7 @@ import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 import { autoNotifyPatient } from "./dispatchAutoSms";
 import { tripLockedGuard } from "./tripLockGuard";
-import { isDriverOnline, isDriverVisibleOnMap, classifyDrivers } from "./driverClassification";
+import { isDriverOnline, isDriverVisibleOnMap, isDriverAssignable, classifyDrivers } from "./driverClassification";
 
 const assignDriverVehicleSchema = z.object({
   driver_id: z.number().int().positive(),
@@ -33,6 +33,80 @@ const driverLocationSchema = z.object({
   lat: z.number(),
   lng: z.number(),
 });
+
+const reassignSchema = z.object({
+  new_driver_id: z.number().int().positive(),
+  reason: z.string().optional().default("readiness_escalation"),
+});
+
+const TERMINAL_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+
+export interface ReassignCandidate {
+  id: number;
+  name: string;
+  publicId: string;
+  phone: string;
+  dispatch_status: string;
+  vehicle_name: string | null;
+  vehicle_id: number | null;
+  distance_miles: number | null;
+  has_active_trip: boolean;
+  score: number;
+}
+
+export function scoreReassignCandidates(
+  drivers: any[],
+  activeTripsMap: Map<number, any>,
+  vehicleMap: Map<number, any>,
+  pickupLat: number | null,
+  pickupLng: number | null,
+  tripCityId: number,
+): ReassignCandidate[] {
+  const candidates: ReassignCandidate[] = [];
+
+  for (const d of drivers) {
+    if (!d.active || d.deletedAt || d.status !== "ACTIVE") continue;
+    if (d.cityId !== tripCityId) continue;
+
+    const assignCheck = isDriverAssignable(d);
+    if (!assignCheck.ok) continue;
+
+    if (d.dispatchStatus !== "available" && d.dispatchStatus !== "enroute") continue;
+
+    if (!d.vehicleId) continue;
+
+    const hasActiveTrip = activeTripsMap.has(d.id);
+    const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
+
+    let distanceMiles: number | null = null;
+    if (pickupLat != null && pickupLng != null && d.lastLat != null && d.lastLng != null) {
+      distanceMiles = haversineDistance(d.lastLat, d.lastLng, pickupLat, pickupLng);
+    }
+
+    let score = 0;
+    if (d.dispatchStatus === "available") score += 50;
+    if (!hasActiveTrip) score += 30;
+    if (distanceMiles != null) {
+      score += Math.max(0, 20 - distanceMiles * 2);
+    }
+
+    candidates.push({
+      id: d.id,
+      name: `${d.firstName} ${d.lastName}`,
+      publicId: d.publicId,
+      phone: d.phone,
+      dispatch_status: d.dispatchStatus,
+      vehicle_name: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
+      vehicle_id: d.vehicleId,
+      distance_miles: distanceMiles != null ? Math.round(distanceMiles * 10) / 10 : null,
+      has_active_trip: hasActiveTrip,
+      score,
+    });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates.slice(0, 5);
+}
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 3958.8;
@@ -535,6 +609,175 @@ export function registerDispatchRoutes(app: Express) {
         });
 
         res.json(updatedDriver);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.get("/api/dispatch/trips/:tripId/reassign-candidates",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const tripId = parseInt(req.params.tripId as string);
+        if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+        const trip = await storage.getTrip(tripId);
+        if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+        const companyId = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(trip, companyId)) return res.status(403).json({ message: "Access denied" });
+
+        if (TERMINAL_STATUSES.includes(trip.status)) {
+          return res.status(400).json({ message: `Cannot reassign a ${trip.status.toLowerCase()} trip` });
+        }
+
+        const { applyCompanyFilter } = await import("../auth");
+        const rawDrivers = await storage.getDrivers(trip.cityId);
+        const allDrivers = applyCompanyFilter(rawDrivers, companyId);
+
+        const rawTrips = await storage.getTrips(trip.cityId);
+        const allTrips = applyCompanyFilter(rawTrips, companyId);
+        const activeTripsMap = new Map<number, any>();
+        for (const t of allTrips) {
+          if (t.driverId && !TERMINAL_STATUSES.includes(t.status)) {
+            if (!activeTripsMap.has(t.driverId)) {
+              activeTripsMap.set(t.driverId, t);
+            }
+          }
+        }
+
+        const rawVehicles = await storage.getVehicles(trip.cityId);
+        const vehicleMap = new Map(rawVehicles.map((v) => [v.id, v]));
+
+        const candidates = scoreReassignCandidates(
+          allDrivers,
+          activeTripsMap,
+          vehicleMap,
+          trip.pickupLat,
+          trip.pickupLng,
+          trip.cityId,
+        );
+
+        const filtered = candidates.filter(c => c.id !== trip.driverId);
+
+        res.json({ candidates: filtered });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.post("/api/dispatch/trips/:tripId/reassign",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const tripId = parseInt(req.params.tripId as string);
+        if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+        const parsed = reassignSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Invalid request body", errors: parsed.error.flatten() });
+        }
+
+        const { new_driver_id, reason } = parsed.data;
+
+        const trip = await storage.getTrip(tripId);
+        if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+        const companyId = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(trip, companyId)) return res.status(403).json({ message: "Access denied" });
+
+        if (tripLockedGuard(trip, req, res)) return;
+        if (TERMINAL_STATUSES.includes(trip.status)) {
+          return res.status(400).json({ message: `Cannot reassign a ${trip.status.toLowerCase()} trip` });
+        }
+
+        const newDriver = await storage.getDriver(new_driver_id);
+        if (!newDriver) return res.status(404).json({ message: "New driver not found" });
+        if (!checkCompanyOwnership(newDriver, companyId)) return res.status(403).json({ message: "Access denied" });
+
+        if (newDriver.cityId !== trip.cityId) {
+          return res.status(400).json({ message: "Driver must belong to the same city as the trip" });
+        }
+
+        if (newDriver.status !== "ACTIVE") {
+          return res.status(400).json({ message: `Driver status is ${newDriver.status}, must be ACTIVE` });
+        }
+
+        const assignCheck = isDriverAssignable(newDriver);
+        if (!assignCheck.ok) {
+          return res.status(400).json({ message: assignCheck.reason });
+        }
+
+        if (!newDriver.vehicleId) {
+          return res.status(400).json({ message: "Driver has no vehicle assigned" });
+        }
+
+        const vehicle = await storage.getVehicle(newDriver.vehicleId);
+        if (!vehicle) {
+          return res.status(400).json({ message: "Assigned vehicle not found" });
+        }
+
+        const patient = await storage.getPatient(trip.patientId);
+        if (patient?.wheelchairRequired && !vehicle.wheelchairAccessible) {
+          return res.status(400).json({
+            message: "Patient requires wheelchair accessibility but the new driver's vehicle does not support it",
+          });
+        }
+
+        const oldDriverId = trip.driverId;
+        let oldDriverInfo: string | null = null;
+        if (oldDriverId) {
+          const oldDriver = await storage.getDriver(oldDriverId);
+          oldDriverInfo = oldDriver ? `${oldDriver.firstName} ${oldDriver.lastName} (${oldDriver.publicId})` : `ID:${oldDriverId}`;
+
+          if (oldDriver && oldDriver.dispatchStatus === "enroute") {
+            await storage.updateDriver(oldDriverId, { dispatchStatus: "available" } as any);
+          }
+        }
+
+        const updatedTrip = await storage.updateTrip(tripId, {
+          driverId: new_driver_id,
+          vehicleId: newDriver.vehicleId,
+          status: "ASSIGNED",
+          fiveMinAlertSent: false,
+        } as any);
+
+        await storage.updateDriver(new_driver_id, { dispatchStatus: "enroute" } as any);
+
+        const eta = await calculateAndStoreEta(
+          tripId,
+          newDriver.lastLat,
+          newDriver.lastLng,
+          trip.pickupLat,
+          trip.pickupLng,
+          trip.pickupAddress,
+          trip.dropoffAddress
+        );
+
+        await storage.createAuditLog({
+          userId: req.user!.userId,
+          action: "TRIP_REASSIGNED",
+          entity: "trip",
+          entityId: tripId,
+          details: `Reassigned trip ${trip.publicId}: ${oldDriverInfo || "unassigned"} -> ${newDriver.firstName} ${newDriver.lastName} (${newDriver.publicId}). Reason: ${reason}${eta ? ` (ETA: ${eta.minutes}min)` : ""}`,
+          cityId: trip.cityId,
+        });
+
+        autoNotifyPatient(tripId, "driver_assigned");
+
+        const finalTrip = await storage.getTrip(tripId);
+        res.json({
+          trip: finalTrip,
+          old_driver_id: oldDriverId,
+          new_driver: newDriver,
+          vehicle,
+          eta: eta || null,
+          reason,
+        });
       } catch (err: any) {
         res.status(500).json({ message: err.message });
       }
