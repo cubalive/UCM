@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -19,9 +20,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, Trash2, Clock, Repeat } from "lucide-react";
+import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, Trash2, Clock, Repeat, Building2, UserCheck, Globe, ChevronDown, ChevronRight, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
+
+type SourceTab = "all" | "clinic" | "internal" | "private";
 
 export default function PatientsPage() {
   const { token, selectedCity, user } = useAuth();
@@ -29,17 +32,31 @@ export default function PatientsPage() {
   const [open, setOpen] = useState(false);
   const [editPatient, setEditPatient] = useState<any>(null);
   const [search, setSearch] = useState("");
+  const [sourceTab, setSourceTab] = useState<SourceTab>("all");
 
   const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH" || user?.role === "VIEWER";
   const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
   const isClinicUser = user?.role === "VIEWER" && !!(user as any)?.clinicId;
 
-  const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
+  const patientQueryParams = new URLSearchParams();
+  if (selectedCity?.id) patientQueryParams.set("cityId", String(selectedCity.id));
+  if (sourceTab !== "all") patientQueryParams.set("source", sourceTab);
+  const patientQueryString = patientQueryParams.toString() ? `?${patientQueryParams.toString()}` : "";
+
+  const clinicGroupParams = new URLSearchParams();
+  if (selectedCity?.id) clinicGroupParams.set("cityId", String(selectedCity.id));
+  const clinicGroupQueryString = clinicGroupParams.toString() ? `?${clinicGroupParams.toString()}` : "";
 
   const { data: patients, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/patients", selectedCity?.id],
-    queryFn: () => apiFetch(`/api/patients${cityParam}`, token),
+    queryKey: ["/api/patients", selectedCity?.id, sourceTab],
+    queryFn: () => apiFetch(`/api/patients${patientQueryString}`, token),
     enabled: !!token,
+  });
+
+  const { data: clinicGroups, isLoading: clinicGroupsLoading } = useQuery<any[]>({
+    queryKey: ["/api/patients/clinic-groups", selectedCity?.id],
+    queryFn: () => apiFetch(`/api/patients/clinic-groups${clinicGroupQueryString}`, token),
+    enabled: !!token && sourceTab === "clinic" && !isClinicUser,
   });
 
   const createMutation = useMutation({
@@ -67,6 +84,7 @@ export default function PatientsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/patients/clinic-groups"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/recurring-schedules"] });
       setOpen(false);
@@ -119,6 +137,7 @@ export default function PatientsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/patients/clinic-groups"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/recurring-schedules"] });
       setEditPatient(null);
@@ -132,6 +151,7 @@ export default function PatientsPage() {
       apiFetch(`/api/admin/patients/${id}/archive`, token, { method: "PATCH" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/patients/clinic-groups"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       toast({ title: "Patient archived" });
     },
@@ -143,6 +163,7 @@ export default function PatientsPage() {
       apiFetch(`/api/clinic/patients/${id}`, token, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/patients/clinic-groups"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       toast({ title: "Patient deleted" });
     },
@@ -154,6 +175,140 @@ export default function PatientsPage() {
       `${p.firstName} ${p.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
       p.publicId?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const renderPatientCard = (p: any) => (
+    <Card key={p.id}>
+      <CardContent className="py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-medium" data-testid={`text-patient-name-${p.id}`}>{p.firstName} {p.lastName}</p>
+              <SourceBadge source={p.source} />
+            </div>
+            <p className="text-xs font-mono text-muted-foreground">{p.publicId}</p>
+            {p.phone && <p className="text-sm text-muted-foreground">{p.phone}</p>}
+            {p.address && <p className="text-sm text-muted-foreground truncate">{p.address}</p>}
+            <div className="flex items-center gap-1 flex-wrap">
+              <Badge variant="outline" className="text-xs" data-testid={`badge-mobility-${p.id}`}>
+                {p.wheelchairRequired ? "Wheelchair" : "Ambulatory"}
+              </Badge>
+              {(() => {
+                const sched = parseStructuredNotes(p.notes || "").recurringSchedule;
+                return sched ? (
+                  <Badge variant="outline" className="text-xs" data-testid={`badge-schedule-${p.id}`}>
+                    <Calendar className="w-3 h-3 mr-1" />{sched}
+                  </Badge>
+                ) : null;
+              })()}
+            </div>
+            {(() => {
+              const cleanNotes = parseStructuredNotes(p.notes || "").notes;
+              return cleanNotes ? <p className="text-sm text-muted-foreground truncate">{cleanNotes}</p> : null;
+            })()}
+          </div>
+          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+            <div className="flex gap-1">
+              {canEdit && (
+                <Button size="icon" variant="ghost" onClick={() => setEditPatient(p)} data-testid={`button-edit-patient-${p.id}`}>
+                  <Pencil className="w-4 h-4" />
+                </Button>
+              )}
+              {isDispatchOrAdmin && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => {
+                    if (window.confirm(`Archive patient ${p.firstName} ${p.lastName}? This will move them to the archive.`)) {
+                      archiveMutation.mutate(p.id);
+                    }
+                  }}
+                  disabled={archiveMutation.isPending}
+                  data-testid={`button-archive-patient-${p.id}`}
+                >
+                  <Archive className="w-4 h-4" />
+                </Button>
+              )}
+              {isClinicUser && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => {
+                    if (window.confirm(`Delete patient ${p.firstName} ${p.lastName}? This action cannot be undone.`)) {
+                      clinicDeleteMutation.mutate(p.id);
+                    }
+                  }}
+                  disabled={clinicDeleteMutation.isPending}
+                  data-testid={`button-clinic-delete-patient-${p.id}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+            <Badge variant={p.active ? "secondary" : "destructive"}>
+              {p.active ? "Active" : "Inactive"}
+            </Badge>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const renderPatientList = () => {
+    if (isLoading) {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 w-full" />)}
+        </div>
+      );
+    }
+    if (!filtered?.length) {
+      return (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <HeartPulse className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+            <p className="text-muted-foreground">No patients found</p>
+          </CardContent>
+        </Card>
+      );
+    }
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {filtered.map(renderPatientCard)}
+      </div>
+    );
+  };
+
+  const renderClinicGrouped = () => {
+    if (clinicGroupsLoading) {
+      return (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
+        </div>
+      );
+    }
+    if (!clinicGroups?.length) {
+      return (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Building2 className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+            <p className="text-muted-foreground">No clinic patients found</p>
+          </CardContent>
+        </Card>
+      );
+    }
+    return (
+      <div className="space-y-4">
+        {clinicGroups.map((group: any) => (
+          <ClinicGroupCard
+            key={group.clinic_id}
+            group={group}
+            search={search}
+            renderPatientCard={renderPatientCard}
+          />
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
@@ -173,99 +328,31 @@ export default function PatientsPage() {
         </Dialog>
       </div>
 
+      {!isClinicUser && (
+        <Tabs value={sourceTab} onValueChange={(v) => setSourceTab(v as SourceTab)} data-testid="tabs-patient-source">
+          <TabsList>
+            <TabsTrigger value="all" data-testid="tab-all">
+              <Users className="w-4 h-4 mr-1.5" />All
+            </TabsTrigger>
+            <TabsTrigger value="clinic" data-testid="tab-clinic">
+              <Building2 className="w-4 h-4 mr-1.5" />Clinic
+            </TabsTrigger>
+            <TabsTrigger value="internal" data-testid="tab-internal">
+              <UserCheck className="w-4 h-4 mr-1.5" />Internal
+            </TabsTrigger>
+            <TabsTrigger value="private" data-testid="tab-private">
+              <Globe className="w-4 h-4 mr-1.5" />Private
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input placeholder="Search patients..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-patients" />
       </div>
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 w-full" />)}
-        </div>
-      ) : !filtered?.length ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <HeartPulse className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No patients found</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {filtered.map((p: any) => (
-            <Card key={p.id}>
-              <CardContent className="py-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1 min-w-0">
-                    <p className="font-medium" data-testid={`text-patient-name-${p.id}`}>{p.firstName} {p.lastName}</p>
-                    <p className="text-xs font-mono text-muted-foreground">{p.publicId}</p>
-                    {p.phone && <p className="text-sm text-muted-foreground">{p.phone}</p>}
-                    {p.address && <p className="text-sm text-muted-foreground truncate">{p.address}</p>}
-                    <div className="flex items-center gap-1 flex-wrap">
-                      <Badge variant="outline" className="text-xs" data-testid={`badge-mobility-${p.id}`}>
-                        {p.wheelchairRequired ? "Wheelchair" : "Ambulatory"}
-                      </Badge>
-                      {(() => {
-                        const sched = parseStructuredNotes(p.notes || "").recurringSchedule;
-                        return sched ? (
-                          <Badge variant="outline" className="text-xs" data-testid={`badge-schedule-${p.id}`}>
-                            <Calendar className="w-3 h-3 mr-1" />{sched}
-                          </Badge>
-                        ) : null;
-                      })()}
-                    </div>
-                    {(() => {
-                      const cleanNotes = parseStructuredNotes(p.notes || "").notes;
-                      return cleanNotes ? <p className="text-sm text-muted-foreground truncate">{cleanNotes}</p> : null;
-                    })()}
-                  </div>
-                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <div className="flex gap-1">
-                      {canEdit && (
-                        <Button size="icon" variant="ghost" onClick={() => setEditPatient(p)} data-testid={`button-edit-patient-${p.id}`}>
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {isDispatchOrAdmin && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => {
-                            if (window.confirm(`Archive patient ${p.firstName} ${p.lastName}? This will move them to the archive.`)) {
-                              archiveMutation.mutate(p.id);
-                            }
-                          }}
-                          disabled={archiveMutation.isPending}
-                          data-testid={`button-archive-patient-${p.id}`}
-                        >
-                          <Archive className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {isClinicUser && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => {
-                            if (window.confirm(`Delete patient ${p.firstName} ${p.lastName}? This action cannot be undone.`)) {
-                              clinicDeleteMutation.mutate(p.id);
-                            }
-                          }}
-                          disabled={clinicDeleteMutation.isPending}
-                          data-testid={`button-clinic-delete-patient-${p.id}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                    <Badge variant={p.active ? "secondary" : "destructive"}>
-                      {p.active ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+      {sourceTab === "clinic" && !isClinicUser ? renderClinicGrouped() : renderPatientList()}
 
       <Dialog open={!!editPatient} onOpenChange={(v) => { if (!v) setEditPatient(null); }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -281,6 +368,55 @@ export default function PatientsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function SourceBadge({ source }: { source?: string }) {
+  if (!source || source === "internal") return null;
+  if (source === "clinic") return <Badge variant="outline" className="text-xs"><Building2 className="w-3 h-3 mr-1" />Clinic</Badge>;
+  if (source === "private") return <Badge variant="outline" className="text-xs"><Globe className="w-3 h-3 mr-1" />Private</Badge>;
+  return null;
+}
+
+function ClinicGroupCard({ group, search, renderPatientCard }: { group: any; search: string; renderPatientCard: (p: any) => JSX.Element }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const filteredPatients = group.patients?.filter(
+    (p: any) =>
+      `${p.firstName} ${p.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
+      p.publicId?.toLowerCase().includes(search.toLowerCase())
+  ) || [];
+
+  return (
+    <Card>
+      <CardContent className="py-3">
+        <button
+          className="flex items-center justify-between w-full text-left"
+          onClick={() => setExpanded(!expanded)}
+          data-testid={`button-clinic-group-${group.clinic_id}`}
+        >
+          <div className="flex items-center gap-3">
+            <Building2 className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+            <div>
+              <p className="font-medium" data-testid={`text-clinic-name-${group.clinic_id}`}>{group.clinic_name}</p>
+              <p className="text-xs text-muted-foreground">{group.patient_count} patient{group.patient_count !== 1 ? "s" : ""}</p>
+            </div>
+          </div>
+          {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+        </button>
+        {expanded && (
+          <div className="mt-3 space-y-2">
+            {filteredPatients.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2 text-center">No matching patients</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {filteredPatients.map(renderPatientCard)}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

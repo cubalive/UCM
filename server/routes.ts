@@ -1247,8 +1247,57 @@ export async function registerRoutes(
       const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       const companyId = getCompanyIdFromAuth(req);
-      const allPatients = await storage.getPatients(cityId);
-      res.json(applyCompanyFilter(allPatients, companyId));
+
+      const source = req.query.source as string | undefined;
+      const conditions: any[] = [isNull(patients.deletedAt), eq(patients.active, true)];
+      if (cityId && cityId > 0) conditions.push(eq(patients.cityId, cityId));
+      if (companyId) conditions.push(eq(patients.companyId, companyId));
+
+      if (source === "clinic") {
+        conditions.push(eq(patients.source, "clinic"));
+        const clinicIdFilter = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
+        if (clinicIdFilter) conditions.push(eq(patients.clinicId, clinicIdFilter));
+      } else if (source === "internal") {
+        conditions.push(eq(patients.source, "internal"));
+      } else if (source === "private") {
+        conditions.push(eq(patients.source, "private"));
+      }
+
+      const result = await db.select().from(patients).where(and(...conditions)).orderBy(patients.firstName);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/patients/clinic-groups", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
+      if (cityId === -1) return res.status(403).json({ message: "Access denied" });
+      const companyId = getCompanyIdFromAuth(req);
+
+      const conditions: any[] = [isNull(patients.deletedAt), eq(patients.active, true), eq(patients.source, "clinic")];
+      if (cityId && cityId > 0) conditions.push(eq(patients.cityId, cityId));
+      if (companyId) conditions.push(eq(patients.companyId, companyId));
+
+      const clinicPatients = await db.select().from(patients).where(and(...conditions)).orderBy(patients.firstName);
+
+      const allClinics = await storage.getClinics(cityId || undefined);
+      const filteredClinics = applyCompanyFilter(allClinics, companyId).filter((c: any) => !c.deletedAt);
+
+      const groups = filteredClinics.map((clinic: any) => {
+        const pts = clinicPatients.filter((p: any) => p.clinicId === clinic.id);
+        return {
+          clinic_id: clinic.id,
+          clinic_name: clinic.name,
+          patient_count: pts.length,
+          patients: pts,
+        };
+      }).filter((g: any) => g.patient_count > 0 || true);
+
+      res.json(groups);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1278,7 +1327,8 @@ export async function registerRoutes(
       }
       const publicId = await generatePublicId();
       const callerCompanyId = getCompanyIdFromAuth(req);
-      const patientData = { ...parsed.data, publicId, companyId: callerCompanyId };
+      const autoSource = (user?.role === "CLINIC_USER" || user?.role === "VIEWER") && user.clinicId ? "clinic" : "internal";
+      const patientData = { ...parsed.data, publicId, companyId: callerCompanyId, source: parsed.data.source || autoSource };
       if (patientData.phone) {
         const { normalizePhone } = await import("./lib/twilioSms");
         patientData.phone = normalizePhone(patientData.phone) || patientData.phone;
@@ -2253,10 +2303,21 @@ export async function registerRoutes(
       const tab = (req.query.tab as string) || "all";
       const limitParam = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       const companyId = getCompanyIdFromAuth(req);
+      const source = req.query.source as string | undefined;
 
       const conditions: any[] = [isNull(trips.deletedAt)];
       if (cityId && cityId > 0) conditions.push(eq(trips.cityId, cityId));
       if (companyId) conditions.push(eq(trips.companyId, companyId));
+
+      if (source === "clinic") {
+        conditions.push(eq(trips.requestSource, "clinic"));
+        const clinicIdFilter = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
+        if (clinicIdFilter) conditions.push(eq(trips.clinicId, clinicIdFilter));
+      } else if (source === "internal") {
+        conditions.push(eq(trips.requestSource, "internal"));
+      } else if (source === "private") {
+        conditions.push(eq(trips.requestSource, "private"));
+      }
 
       if (tab === "unassigned") {
         conditions.push(isNull(trips.driverId));
@@ -2374,7 +2435,8 @@ export async function registerRoutes(
         approvalFields.approvedBy = req.user!.userId;
       }
       const callerCompanyId = getCompanyIdFromAuth(req);
-      const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, companyId: callerCompanyId } as any);
+      const autoRequestSource = isClinic ? "clinic" : "internal";
+      const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, companyId: callerCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",

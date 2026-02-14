@@ -25,7 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { useTranslation } from "react-i18next";
@@ -92,6 +92,7 @@ export default function TripsPage() {
   const [search, setSearch] = useState("");
   const [detailTrip, setDetailTrip] = useState<any>(null);
   const [tripTab, setTripTab] = useState<TripTab>("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "clinic" | "internal" | "private">("all");
   const [assignTrip, setAssignTrip] = useState<any>(null);
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
@@ -121,10 +122,11 @@ export default function TripsPage() {
   const tripQueryParams = new URLSearchParams();
   if (selectedCity?.id) tripQueryParams.set("cityId", String(selectedCity.id));
   if (tripTab !== "all") tripQueryParams.set("tab", tripTab);
+  if (sourceFilter !== "all") tripQueryParams.set("source", sourceFilter);
   const tripQueryString = tripQueryParams.toString() ? `?${tripQueryParams.toString()}` : "";
 
   const { data: trips, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/trips", selectedCity?.id, tripTab],
+    queryKey: ["/api/trips", selectedCity?.id, tripTab, sourceFilter],
     queryFn: () => apiFetch(`/api/trips${tripQueryString}`, token),
     enabled: !!token,
   });
@@ -361,6 +363,28 @@ export default function TripsPage() {
         ))}
       </div>
 
+      {!isClinicUser && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-muted-foreground mr-1">Source:</span>
+          {([
+            { key: "all" as const, label: "All", icon: Users },
+            { key: "clinic" as const, label: "Clinic", icon: Building2 },
+            { key: "internal" as const, label: "Internal", icon: UserCheck },
+            { key: "private" as const, label: "Private", icon: Globe },
+          ]).map((sf) => (
+            <Button
+              key={sf.key}
+              variant={sourceFilter === sf.key ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSourceFilter(sf.key)}
+              data-testid={`button-source-${sf.key}`}
+            >
+              <sf.icon className="w-3.5 h-3.5 mr-1.5" />{sf.label}
+            </Button>
+          ))}
+        </div>
+      )}
+
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
@@ -417,6 +441,12 @@ export default function TripsPage() {
                         <Badge variant="outline" data-testid={`badge-series-${trip.id}`}>
                           Series #{trip.tripSeriesId}
                         </Badge>
+                      )}
+                      {trip.requestSource === "clinic" && (
+                        <Badge variant="outline" className="text-xs" data-testid={`badge-source-${trip.id}`}><Building2 className="w-3 h-3 mr-1" />Clinic</Badge>
+                      )}
+                      {trip.requestSource === "private" && (
+                        <Badge variant="outline" className="text-xs" data-testid={`badge-source-${trip.id}`}><Globe className="w-3 h-3 mr-1" />Private</Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">

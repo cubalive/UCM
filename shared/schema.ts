@@ -231,6 +231,7 @@ export const patients = pgTable("patients", {
   insuranceId: text("insurance_id"),
   notes: text("notes"),
   wheelchairRequired: boolean("wheelchair_required").notNull().default(false),
+  source: text("source").notNull().default("internal"),
   companyId: integer("company_id").references(() => companies.id),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
@@ -307,6 +308,7 @@ export const trips = pgTable("trips", {
   companyId: integer("company_id").references(() => companies.id),
   invoiceId: integer("invoice_id").references(() => invoices.id),
   deletedAt: timestamp("deleted_at"),
+  requestSource: text("request_source").notNull().default("internal"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
