@@ -1,9 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, type AuthRequest } from "./auth";
+import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies } from "@shared/schema";
 import { z } from "zod";
 import { eq, ne, sql, and, or, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
@@ -59,7 +59,7 @@ function enforceCityContext(req: AuthRequest, res: any): number | undefined | fa
   if (role === "SUPER_ADMIN") {
     return cityId || undefined;
   }
-  if (["ADMIN", "DISPATCH"].includes(role)) {
+  if (["ADMIN", "DISPATCH", "COMPANY_ADMIN"].includes(role)) {
     if (!cityId) {
       res.status(400).json({ message: "CITY_REQUIRED", error: "You must select a working city before accessing data." });
       return false;
@@ -67,6 +67,17 @@ function enforceCityContext(req: AuthRequest, res: any): number | undefined | fa
     return cityId;
   }
   return cityId || undefined;
+}
+
+function applyCompanyFilter<T extends { companyId?: number | null }>(items: T[], companyId: number | null): T[] {
+  if (!companyId) return items;
+  return items.filter(item => item.companyId === companyId || item.companyId === null);
+}
+
+function checkCompanyOwnership(entity: { companyId?: number | null } | undefined, companyId: number | null): boolean {
+  if (!entity) return false;
+  if (!companyId) return true;
+  return entity.companyId === companyId || entity.companyId === null;
 }
 
 export async function registerRoutes(
@@ -153,7 +164,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Account disabled" });
       }
 
-      const token = signToken({ userId: user.id, role: user.role });
+      const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null });
       const cityAccess = await storage.getUserCityAccess(user.id);
       const allCities = await storage.getCities();
 
@@ -194,7 +205,7 @@ export async function registerRoutes(
         if (!user) {
           return res.status(503).json({ message: "Dev session unavailable: admin user not found" });
         }
-        const token = signToken({ userId: user.id, role: user.role });
+        const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null });
         const cityAccess = await storage.getUserCityAccess(user.id);
         const allCities = await storage.getCities();
         const accessibleCities = user.role === "SUPER_ADMIN"
@@ -299,6 +310,62 @@ export async function registerRoutes(
     res.json({ ok: true, items: ALLOWED_TIMEZONES });
   });
 
+  app.get("/api/companies", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res) => {
+    try {
+      const result = await db.select().from(companies).orderBy(companies.name);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/companies", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const parsed = insertCompanySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid company data" });
+      const [company] = await db.insert(companies).values(parsed.data).returning();
+      res.json(company);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/companies/:id/admin", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const companyId = parseInt(req.params.id);
+      if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
+      const existing = await db.select().from(companies).where(eq(companies.id, companyId));
+      if (!existing.length) return res.status(404).json({ message: "Company not found" });
+
+      const { email, password, firstName, lastName, cityIds } = req.body;
+      if (!email || !password) return res.status(400).json({ message: "Email and password required" });
+
+      const bcrypt = await import("bcryptjs");
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const publicId = await generatePublicId();
+
+      const newUser = await storage.createUser({
+        email,
+        password: hashedPassword,
+        firstName: firstName || "Company",
+        lastName: lastName || "Admin",
+        role: "COMPANY_ADMIN",
+        publicId,
+        companyId,
+      } as any);
+
+      if (cityIds && Array.isArray(cityIds)) {
+        for (const cid of cityIds) {
+          await storage.createUserCity({ userId: newUser.id, cityId: cid });
+        }
+      }
+
+      res.json({ id: newUser.id, email: newUser.email, role: newUser.role, companyId: newUser.companyId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/cities", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const allCities = await storage.getCities();
@@ -373,9 +440,11 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/users", authMiddleware, requireRole("ADMIN"), async (_req: AuthRequest, res) => {
+  app.get("/api/users", authMiddleware, requireRole("ADMIN", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
-      res.json(await storage.getUsers());
+      const companyId = getCompanyIdFromAuth(req);
+      const allUsers = await storage.getUsers();
+      res.json(applyCompanyFilter(allUsers as any[], companyId));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -386,20 +455,24 @@ export async function registerRoutes(
     password: z.string().min(4),
     firstName: z.string().min(1),
     lastName: z.string().min(1),
-    role: z.enum(["ADMIN", "DISPATCH", "DRIVER", "VIEWER"]),
+    role: z.enum(["ADMIN", "DISPATCH", "DRIVER", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER"]),
     phone: z.string().nullable().optional(),
     cityIds: z.array(z.number()).optional(),
+    companyId: z.number().nullable().optional(),
   });
 
-  app.post("/api/users", authMiddleware, requireRole("ADMIN"), async (req: AuthRequest, res) => {
+  app.post("/api/users", authMiddleware, requireRole("ADMIN", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const parsed = createUserSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid user data" });
       }
-      const { cityIds, ...userData } = parsed.data;
+      const { cityIds, companyId: bodyCompanyId, ...userData } = parsed.data;
       const hashed = await hashPassword(userData.password);
       const publicId = await generatePublicId();
+
+      const callerCompanyId = getCompanyIdFromAuth(req);
+      const effectiveCompanyId = callerCompanyId || bodyCompanyId || null;
 
       const user = await storage.createUser({
         ...userData,
@@ -407,6 +480,7 @@ export async function registerRoutes(
         publicId,
         active: true,
         phone: userData.phone || null,
+        companyId: effectiveCompanyId,
       });
 
       if (cityIds && cityIds.length > 0) {
@@ -450,23 +524,29 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/vehicles", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/vehicles", authMiddleware, requireRole("ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const enforced = enforceCityContext(req, res);
       if (enforced === false) return;
       const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-      res.json(await storage.getVehicles(cityId));
+      const companyId = getCompanyIdFromAuth(req);
+      const allVehicles = await storage.getVehicles(cityId);
+      res.json(applyCompanyFilter(allVehicles, companyId));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.get("/api/vehicles/:id", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/vehicles/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const vehicle = await storage.getVehicle(parseInt(req.params.id));
       if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
       if (!(await checkCityAccess(req, vehicle.cityId))) {
+        return res.status(403).json({ message: "No access to this vehicle" });
+      }
+      const companyId = getCompanyIdFromAuth(req);
+      if (!checkCompanyOwnership(vehicle, companyId)) {
         return res.status(403).json({ message: "No access to this vehicle" });
       }
       res.json(vehicle);
@@ -532,7 +612,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/vehicles", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/vehicles", authMiddleware, requireRole("ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const parsed = insertVehicleSchema.omit({ publicId: true }).safeParse(req.body);
       if (!parsed.success) {
@@ -554,7 +634,8 @@ export async function registerRoutes(
         }
       }
       const publicId = await generatePublicId();
-      const vehicle = await storage.createVehicle({ ...parsed.data, publicId });
+      const companyId = getCompanyIdFromAuth(req);
+      const vehicle = await storage.createVehicle({ ...parsed.data, publicId, companyId });
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
@@ -569,19 +650,21 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/drivers", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/drivers", authMiddleware, requireRole("ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const enforced = enforceCityContext(req, res);
       if (enforced === false) return;
       const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-      res.json(await storage.getDrivers(cityId));
+      const companyId = getCompanyIdFromAuth(req);
+      const allDrivers = await storage.getDrivers(cityId);
+      res.json(applyCompanyFilter(allDrivers, companyId));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.post("/api/drivers", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/drivers", authMiddleware, requireRole("ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const parsed = insertDriverSchema.omit({ publicId: true }).safeParse(req.body);
       if (!parsed.success) {
@@ -615,7 +698,8 @@ export async function registerRoutes(
         }
       }
       const publicId = await generatePublicId();
-      const driverData: any = { ...parsed.data, publicId };
+      const callerCompanyId = getCompanyIdFromAuth(req);
+      const driverData: any = { ...parsed.data, publicId, companyId: callerCompanyId };
       if (driverData.phone) {
         const { normalizePhone } = await import("./lib/twilioSms");
         driverData.phone = normalizePhone(driverData.phone) || driverData.phone;
@@ -895,19 +979,21 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/clinics", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/clinics", authMiddleware, requireRole("ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const enforced = enforceCityContext(req, res);
       if (enforced === false) return;
       const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-      res.json(await storage.getClinics(cityId));
+      const companyId = getCompanyIdFromAuth(req);
+      const allClinics = await storage.getClinics(cityId);
+      res.json(applyCompanyFilter(allClinics, companyId));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.post("/api/clinics", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/clinics", authMiddleware, requireRole("ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const parsed = insertClinicSchema.omit({ publicId: true }).safeParse(req.body);
       if (!parsed.success) {
@@ -944,7 +1030,8 @@ export async function registerRoutes(
         });
       }
       const publicId = await generatePublicId();
-      const clinicData = { ...parsed.data, publicId };
+      const callerCompanyId = getCompanyIdFromAuth(req);
+      const clinicData = { ...parsed.data, publicId, companyId: callerCompanyId };
       if (clinicData.phone) {
         const { normalizePhone } = await import("./lib/twilioSms");
         clinicData.phone = normalizePhone(clinicData.phone) || clinicData.phone;
@@ -1156,10 +1243,10 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
+  app.get("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
-      if (user?.role === "VIEWER" && user.clinicId) {
+      if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
         const clinicPatients = await db.select().from(patients).where(
           and(eq(patients.clinicId, user.clinicId), eq(patients.active, true), isNull(patients.deletedAt))
         ).orderBy(patients.firstName);
@@ -1169,16 +1256,18 @@ export async function registerRoutes(
       if (enforced === false) return;
       const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-      res.json(await storage.getPatients(cityId));
+      const companyId = getCompanyIdFromAuth(req);
+      const allPatients = await storage.getPatients(cityId);
+      res.json(applyCompanyFilter(allPatients, companyId));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.post("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
+  app.post("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
-      if (user?.role === "VIEWER" && user.clinicId) {
+      if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
         const clinic = await storage.getClinic(user.clinicId);
         if (!clinic) return res.status(403).json({ message: "No clinic linked" });
         req.body.clinicId = user.clinicId;
@@ -1198,7 +1287,8 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
       const publicId = await generatePublicId();
-      const patientData = { ...parsed.data, publicId };
+      const callerCompanyId = getCompanyIdFromAuth(req);
+      const patientData = { ...parsed.data, publicId, companyId: callerCompanyId };
       if (patientData.phone) {
         const { normalizePhone } = await import("./lib/twilioSms");
         patientData.phone = normalizePhone(patientData.phone) || patientData.phone;
@@ -1798,14 +1888,14 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
-      if (user?.role === "VIEWER" && user.clinicId) {
+      if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
         const clinic = await storage.getClinic(user.clinicId);
         if (clinic) {
-          const trips = await storage.getTrips(clinic.cityId);
-          return res.json(trips);
+          const tripsResult = await storage.getTrips(clinic.cityId);
+          return res.json(tripsResult);
         }
         return res.status(403).json({ message: "No clinic linked" });
       }
@@ -1816,9 +1906,11 @@ export async function registerRoutes(
 
       const tab = (req.query.tab as string) || "all";
       const limitParam = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const companyId = getCompanyIdFromAuth(req);
 
       const conditions: any[] = [isNull(trips.deletedAt)];
       if (cityId && cityId > 0) conditions.push(eq(trips.cityId, cityId));
+      if (companyId) conditions.push(eq(trips.companyId, companyId));
 
       if (tab === "unassigned") {
         conditions.push(isNull(trips.driverId));
@@ -1852,7 +1944,7 @@ export async function registerRoutes(
     { message: "Recurring trips must have at least one day selected", path: ["recurringDays"] }
   );
 
-  app.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
+  app.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
     try {
       const parsed = createTripSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1915,7 +2007,7 @@ export async function registerRoutes(
 
       const publicId = await generatePublicId();
       const user = await storage.getUser(req.user!.userId);
-      const isClinic = user?.role === "VIEWER" && user.clinicId != null;
+      const isClinic = (user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId != null;
 
       if (isClinic && parsed.data.patientId) {
         const patient = await storage.getPatient(parsed.data.patientId);
@@ -1935,7 +2027,8 @@ export async function registerRoutes(
         approvalFields.approvedAt = new Date();
         approvalFields.approvedBy = req.user!.userId;
       }
-      const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields } as any);
+      const callerCompanyId = getCompanyIdFromAuth(req);
+      const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, companyId: callerCompanyId } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
@@ -2978,7 +3071,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Account disabled" });
       }
 
-      const jwtToken = signToken({ userId: user.id, role: user.role });
+      const jwtToken = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null });
       const cityAccess = await storage.getUserCityAccess(user.id);
       const allCities = await storage.getCities();
       const accessibleCities = user.role === "SUPER_ADMIN"

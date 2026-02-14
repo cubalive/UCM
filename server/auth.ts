@@ -10,6 +10,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-change-me";
 export interface AuthPayload {
   userId: number;
   role: string;
+  companyId?: number | null;
 }
 
 export function signToken(payload: AuthPayload): string {
@@ -61,6 +62,12 @@ export function requireRole(...roles: string[]) {
     }
     next();
   };
+}
+
+export function getCompanyIdFromAuth(req: AuthRequest): number | null {
+  if (!req.user) return null;
+  if (req.user.role === "SUPER_ADMIN") return null;
+  return req.user.companyId || null;
 }
 
 export async function getUserCityIds(userId: number, role: string): Promise<number[]> {

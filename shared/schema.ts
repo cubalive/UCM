@@ -9,7 +9,15 @@ export const userRoleEnum = pgEnum("user_role", [
   "DISPATCH",
   "DRIVER",
   "VIEWER",
+  "COMPANY_ADMIN",
+  "CLINIC_USER",
 ]);
+
+export const companies = pgTable("companies", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
 
 export const tripStatusEnum = pgEnum("trip_status", [
   "SCHEDULED",
@@ -98,6 +106,7 @@ export const users = pgTable("users", {
   driverId: integer("driver_id"),
   clinicId: integer("clinic_id"),
   patientId: integer("patient_id"),
+  companyId: integer("company_id").references(() => companies.id),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
@@ -144,6 +153,7 @@ export const vehicles = pgTable("vehicles", {
   status: vehicleStatusEnum("status").notNull().default("ACTIVE"),
   lastServiceDate: timestamp("last_service_date"),
   maintenanceNotes: text("maintenance_notes"),
+  companyId: integer("company_id").references(() => companies.id),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
@@ -169,6 +179,7 @@ export const drivers = pgTable("drivers", {
   status: driverStatusEnum("status").notNull().default("ACTIVE"),
   dispatchStatus: dispatchStatusEnum("dispatch_status").notNull().default("off"),
   lastActiveAt: timestamp("last_active_at"),
+  companyId: integer("company_id").references(() => companies.id),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
@@ -194,6 +205,7 @@ export const clinics = pgTable("clinics", {
   phone: text("phone"),
   contactName: text("contact_name"),
   facilityType: facilityTypeEnum("facility_type").notNull().default("clinic"),
+  companyId: integer("company_id").references(() => companies.id),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -219,6 +231,7 @@ export const patients = pgTable("patients", {
   insuranceId: text("insurance_id"),
   notes: text("notes"),
   wheelchairRequired: boolean("wheelchair_required").notNull().default(false),
+  companyId: integer("company_id").references(() => companies.id),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
@@ -291,6 +304,7 @@ export const trips = pgTable("trips", {
   enRouteDropoffAt: timestamp("en_route_dropoff_at"),
   arrivedDropoffAt: timestamp("arrived_dropoff_at"),
   completedAt: timestamp("completed_at"),
+  companyId: integer("company_id").references(() => companies.id),
   deletedAt: timestamp("deleted_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -476,6 +490,7 @@ export const driverBonusRules = pgTable("driver_bonus_rules", {
 export const insertTripEventSchema = createInsertSchema(tripEvents).omit({ id: true, createdAt: true });
 export const insertDriverBonusRuleSchema = createInsertSchema(driverBonusRules).omit({ id: true });
 
+export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true });
 export const insertCitySchema = createInsertSchema(cities).omit({ id: true, createdAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true, createdAt: true });
@@ -492,6 +507,7 @@ export const insertTripSeriesSchema = createInsertSchema(tripSeries).omit({ id: 
 export const insertTripShareTokenSchema = createInsertSchema(tripShareTokens).omit({ id: true, createdAt: true });
 export const insertTripSmsLogSchema = createInsertSchema(tripSmsLog).omit({ id: true, sentAt: true });
 
+export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type InsertCity = z.infer<typeof insertCitySchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertVehicle = z.infer<typeof insertVehicleSchema>;
@@ -502,6 +518,7 @@ export type InsertTrip = z.infer<typeof insertTripSchema>;
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 
+export type Company = typeof companies.$inferSelect;
 export type City = typeof cities.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type UserCityAccess = typeof userCityAccess.$inferSelect;
