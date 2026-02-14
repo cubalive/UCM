@@ -279,6 +279,8 @@ export const trips = pgTable("trips", {
   confirmationTime: timestamp("confirmation_time"),
   routeBatchId: integer("route_batch_id"),
   routeOrder: integer("route_order"),
+  assignedAt: timestamp("assigned_at"),
+  assignedBy: integer("assigned_by"),
   assignmentBatchId: integer("assignment_batch_id"),
   assignmentSource: text("assignment_source"),
   assignmentReason: text("assignment_reason"),

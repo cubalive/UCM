@@ -106,9 +106,14 @@ export default function TripsPage() {
   const isClinicUser = user?.role === "VIEWER" && !!user?.clinicId;
   const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
 
+  const tripQueryParams = new URLSearchParams();
+  if (selectedCity?.id) tripQueryParams.set("cityId", String(selectedCity.id));
+  if (tripTab !== "all") tripQueryParams.set("tab", tripTab);
+  const tripQueryString = tripQueryParams.toString() ? `?${tripQueryParams.toString()}` : "";
+
   const { data: trips, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/trips", selectedCity?.id],
-    queryFn: () => apiFetch(`/api/trips${cityParam}`, token),
+    queryKey: ["/api/trips", selectedCity?.id, tripTab],
+    queryFn: () => apiFetch(`/api/trips${tripQueryString}`, token),
     enabled: !!token,
   });
 
@@ -252,23 +257,7 @@ export default function TripsPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const tabFiltered = trips?.filter((t: any) => {
-    if (t.deletedAt) return false;
-    switch (tripTab) {
-      case "unassigned":
-        return !t.driverId && ["SCHEDULED", "ASSIGNED"].includes(t.status) && t.approvalStatus === "approved";
-      case "scheduled":
-        return ["SCHEDULED", "ASSIGNED"].includes(t.status);
-      case "active":
-        return ACTIVE_TRIP_STATUSES.includes(t.status);
-      case "completed":
-        return t.status === "COMPLETED";
-      default:
-        return t.status !== "CANCELLED" && t.status !== "NO_SHOW" || true;
-    }
-  });
-
-  const filtered = tabFiltered?.filter(
+  const filtered = trips?.filter(
     (t: any) =>
       t.publicId?.toLowerCase().includes(search.toLowerCase()) ||
       t.pickupAddress?.toLowerCase().includes(search.toLowerCase()) ||
@@ -1312,6 +1301,10 @@ function TripDetailDialog({
               )}
             </div>
 
+            {isDispatchOrAdmin && trip.driverId && (
+              <TripMessagingPanel tripId={trip.id} tripStatus={trip.status} token={token} />
+            )}
+
             {isDispatchOrAdmin && (
               <TripEventsSection tripId={trip.id} token={token} />
             )}
@@ -1328,6 +1321,79 @@ function TripDetailDialog({
         />
       )}
     </Dialog>
+  );
+}
+
+function TripMessagingPanel({ tripId, tripStatus, token }: { tripId: number; tripStatus: string; token: string | null }) {
+  const { toast } = useToast();
+  const [msgText, setMsgText] = useState("");
+  const isLocked = ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(tripStatus);
+
+  const { data: messages, isLoading: msgsLoading } = useQuery<any[]>({
+    queryKey: ["/api/trips", tripId, "messages"],
+    queryFn: () => apiFetch(`/api/trips/${tripId}/messages`, token),
+    enabled: !!token,
+    refetchInterval: 15000,
+  });
+
+  const sendMsgMutation = useMutation({
+    mutationFn: (message: string) =>
+      apiFetch(`/api/trips/${tripId}/messages`, token, {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "messages"] });
+      setMsgText("");
+    },
+    onError: (err: any) => toast({ title: "Message failed", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="border-t pt-4 space-y-3">
+      <h3 className="text-sm font-semibold flex items-center gap-2">
+        <MessageSquare className="w-4 h-4" />
+        Driver Messages
+        {isLocked && <Lock className="w-3 h-3 text-muted-foreground" />}
+      </h3>
+      <div className="max-h-40 overflow-y-auto space-y-2 border rounded-md p-2">
+        {msgsLoading ? (
+          <p className="text-xs text-muted-foreground">Loading messages...</p>
+        ) : !messages?.length ? (
+          <p className="text-xs text-muted-foreground">No messages yet</p>
+        ) : (
+          messages.map((m: any) => (
+            <div key={m.id} className="text-xs space-y-0.5" data-testid={`msg-${m.id}`}>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge variant="outline" className="text-[10px]">{m.senderRole}</Badge>
+                <span className="text-muted-foreground">{new Date(m.createdAt).toLocaleTimeString()}</span>
+              </div>
+              <p>{m.message}</p>
+            </div>
+          ))
+        )}
+      </div>
+      {!isLocked && (
+        <div className="flex gap-2">
+          <Input
+            value={msgText}
+            onChange={(e) => setMsgText(e.target.value)}
+            placeholder="Type a message..."
+            className="flex-1"
+            onKeyDown={(e) => { if (e.key === "Enter" && msgText.trim()) sendMsgMutation.mutate(msgText.trim()); }}
+            data-testid="input-trip-message"
+          />
+          <Button
+            size="icon"
+            onClick={() => { if (msgText.trim()) sendMsgMutation.mutate(msgText.trim()); }}
+            disabled={!msgText.trim() || sendMsgMutation.isPending}
+            data-testid="button-send-trip-message"
+          >
+            <Send className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 

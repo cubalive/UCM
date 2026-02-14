@@ -1,0 +1,60 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Verify before exit
+
+TASK: PERFECTION PASS — Make core dispatch/driver workflow production-grade.
+
+GOALS (MUST ALL WORK):
+1) Dispatch can assign driver to any approved trip.
+2) Driver has full trip progress buttons with valid transitions.
+3) Location is mandatory; driver cannot operate if location denied.
+4) Trips are separated into tabs: Unassigned, Scheduled, Active, Completed, All (server-side filters).
+5) Completed trips are hard-locked server-side (no edits, no messages, no reassignment).
+6) Driver ↔ Dispatch messaging works during active trips; read-only after completion.
+
+INSTRUCTIONS:
+A) STATUS NORMALIZATION
+- Identify current status values used in DB and UI.
+- Create a single canonical enum map (backend) and ensure UI uses it.
+- Add migration ONLY if required; otherwise map existing statuses.
+
+B) ASSIGNMENT
+- Ensure endpoint PATCH /api/trips/:id/assign exists and is used by UI.
+- Enforce: role dispatch/super_admin only, same city, vehicle-type match.
+- On success, persist driver_id + assigned_at + assigned_by.
+
+C) DRIVER WORKFLOW
+- Ensure driver UI uses POST /api/trips/:id/status
+- Implement strict transition rules; reject invalid transitions with clear errors.
+- Persist timestamps for each stage.
+
+D) LOCATION
+- On driver app mount, request geolocation permission.
+- If denied/unavailable, show blocking screen and disable trip actions.
+- Implement heartbeat every 10–15s while active/on-trip.
+- Update dispatch map from driver last location (stale detection).
+
+E) TABS + FILTERS
+- Implement backend queries for each tab; UI must not filter locally.
+- Unassigned: approved/scheduled AND driver_id is null
+- Scheduled: future trips not started
+- Active: en_route/arrived/picked_up/en_route_dropoff
+- Completed: completed
+- All: all non-archived
+- Use pickup_time date window when applicable.
+
+F) LOCK COMPLETED
+- Backend must reject edits/messages/status updates on completed trips.
+- Only super_admin can reopen (optional with confirmation).
+
+G) VERIFICATION
+- Provide a step-by-step test script and confirm each passes.
+- Do not leave partially implemented features.
+
+DELIVERABLE:
+Return a short checklist of what was fixed and where.

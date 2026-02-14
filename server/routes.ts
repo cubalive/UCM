@@ -5,7 +5,7 @@ import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, 
 import { generatePublicId } from "./public-id";
 import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages } from "@shared/schema";
 import { z } from "zod";
-import { eq, sql, and, isNull } from "drizzle-orm";
+import { eq, sql, and, isNull, inArray, desc } from "drizzle-orm";
 import { db } from "./db";
 import { getSupabaseServer } from "../lib/supabaseClient";
 import { registerMapsRoutes } from "./lib/mapsRoutes";
@@ -1329,7 +1329,7 @@ export async function registerRoutes(
       if (!trip) return res.status(404).json({ message: "Trip not found" });
       const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
       if (terminalStatuses.includes(trip.status)) {
-        return res.status(400).json({ message: "Cannot assign driver to a completed/cancelled trip" });
+        return res.status(400).json({ message: `Cannot assign driver to a ${trip.status.toLowerCase()} trip` });
       }
       const { driverId, vehicleId } = req.body;
       if (!driverId) return res.status(400).json({ message: "driverId is required" });
@@ -1341,7 +1341,7 @@ export async function registerRoutes(
       if (driver.dispatchStatus === "hold") {
         return res.status(400).json({ message: "Driver is on hold" });
       }
-      const updateData: any = { driverId, status: "ASSIGNED" };
+      const updateData: any = { driverId, status: "ASSIGNED", assignedAt: new Date(), assignedBy: req.user!.userId };
       if (vehicleId) updateData.vehicleId = vehicleId;
       const updated = await storage.updateTrip(id, updateData);
       await storage.createAuditLog({
@@ -1389,8 +1389,9 @@ export async function registerRoutes(
       if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
       const trip = await storage.getTrip(tripId);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
-      if (trip.status === "COMPLETED") {
-        return res.status(400).json({ message: "Cannot send messages on a completed trip" });
+      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (terminalStatuses.includes(trip.status)) {
+        return res.status(400).json({ message: `Cannot send messages on a ${trip.status.toLowerCase()} trip` });
       }
       if (req.user!.role === "DRIVER") {
         const user = await storage.getUser(req.user!.userId);
@@ -1417,7 +1418,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
+  app.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
       if (user?.role === "VIEWER" && user.clinicId) {
@@ -1430,8 +1431,29 @@ export async function registerRoutes(
       }
       const cityId = await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
-      res.json(await storage.getTrips(cityId, limit));
+
+      const tab = (req.query.tab as string) || "all";
+      const limitParam = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+
+      const conditions: any[] = [isNull(trips.deletedAt)];
+      if (cityId !== 0) conditions.push(eq(trips.cityId, cityId));
+
+      if (tab === "unassigned") {
+        conditions.push(isNull(trips.driverId));
+        conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));
+        conditions.push(eq(trips.approvalStatus, "approved"));
+      } else if (tab === "scheduled") {
+        conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));
+      } else if (tab === "active") {
+        conditions.push(inArray(trips.status, ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"]));
+      } else if (tab === "completed") {
+        conditions.push(eq(trips.status, "COMPLETED"));
+      }
+
+      let query = db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt));
+      if (limitParam) query = query.limit(limitParam) as any;
+      const result = await query;
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -1588,8 +1610,9 @@ export async function registerRoutes(
       const existing = await storage.getTrip(id);
       if (!existing) return res.status(404).json({ message: "Trip not found" });
 
-      if (existing.status === "COMPLETED") {
-        return res.status(400).json({ message: "Trip is completed and locked. No changes allowed." });
+      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (terminalStatuses.includes(existing.status)) {
+        return res.status(400).json({ message: `Trip is ${existing.status.toLowerCase()} and locked. No changes allowed.` });
       }
 
       if (!(await checkCityAccess(req, existing.cityId))) {
@@ -1738,8 +1761,9 @@ export async function registerRoutes(
       const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
 
-      if (trip.status === "COMPLETED") {
-        return res.status(400).json({ message: "Trip is completed and locked. No changes allowed." });
+      const lockStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (lockStatuses.includes(trip.status)) {
+        return res.status(400).json({ message: `Trip is ${trip.status.toLowerCase()} and locked. No status changes allowed.` });
       }
 
       if (req.user!.role === "DRIVER") {
@@ -1750,7 +1774,7 @@ export async function registerRoutes(
       }
 
       const allowedNext = VALID_TRANSITIONS[trip.status] || [];
-      if (req.user!.role === "DRIVER" && !allowedNext.includes(parsed.data.status)) {
+      if (!allowedNext.includes(parsed.data.status)) {
         return res.status(400).json({ message: `Invalid transition from ${trip.status} to ${parsed.data.status}` });
       }
 
@@ -1831,6 +1855,10 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
       const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
+      const terminalCheck = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (terminalCheck.includes(trip.status)) {
+        return res.status(400).json({ message: `Trip is ${trip.status.toLowerCase()} and locked` });
+      }
       const user = await storage.getUser(req.user!.userId);
       if (!user?.clinicId || trip.clinicId !== user.clinicId) {
         return res.status(403).json({ message: "You can only cancel your own clinic's trips" });
@@ -1888,6 +1916,10 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
       const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
+      const terminalCheck2 = ["COMPLETED", "NO_SHOW"];
+      if (terminalCheck2.includes(trip.status)) {
+        return res.status(400).json({ message: `Trip is ${trip.status.toLowerCase()} and locked` });
+      }
       if (trip.approvalStatus === "cancelled") {
         return res.status(400).json({ message: "Trip is already cancelled" });
       }
