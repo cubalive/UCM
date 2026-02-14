@@ -8,26 +8,7 @@ import { sendEmail } from "./email";
 
 const router = Router();
 
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGIN_1 || "")
-  .split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
-
-function corsMiddleware(req: Request, res: Response, next: () => void) {
-  const origin = req.headers.origin || "";
-  if (ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Max-Age", "86400");
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(204);
-  }
-  next();
-}
-
-router.use(corsMiddleware);
+// CORS is handled globally in server/index.ts for all /api/* routes
 
 function rateLimitMiddleware(limit: number, windowSec: number) {
   return (req: Request, res: Response, next: () => void) => {

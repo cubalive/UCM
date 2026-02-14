@@ -22,6 +22,40 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+const CORS_EXACT_ORIGINS = new Set([
+  "https://unitedcaremobility.com",
+  "https://www.unitedcaremobility.com",
+  "https://app.unitedcaremobility.com",
+  "https://lovable.app",
+]);
+
+function isAllowedOrigin(origin: string): boolean {
+  if (!origin) return false;
+  if (CORS_EXACT_ORIGINS.has(origin)) return true;
+  if (/^https:\/\/[a-z0-9\-]+\.lovable\.app$/i.test(origin)) return true;
+  return false;
+}
+
+app.use("/api", (req, res, next) => {
+  const origin = req.headers.origin || "";
+  res.setHeader("Vary", "Origin");
+
+  if (isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Stripe-Signature");
+    res.setHeader("Access-Control-Allow-Credentials", "false");
+    res.setHeader("Access-Control-Max-Age", "86400");
+  } else if (origin) {
+    console.warn(`[CORS] Blocked origin="${origin}" path="${req.path}" method="${req.method}"`);
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
