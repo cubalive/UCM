@@ -4,6 +4,7 @@ import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
   citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog, tripSeries,
   tripEvents, driverBonusRules, opsAlertLog, clinicAlertLog, clinicHelpRequests,
+  routeBatches, driverScores,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
   type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog, type InsertInvoice,
   type InsertCitySettings, type InsertDriverVehicleAssignment, type InsertVehicleAssignmentHistory,
@@ -14,6 +15,7 @@ import {
   type TripEvent, type InsertTripEvent, type DriverBonusRule, type InsertDriverBonusRule,
   type OpsAlertLog, type InsertOpsAlertLog, type ClinicAlertLog, type InsertClinicAlertLog,
   type ClinicHelpRequest, type InsertClinicHelpRequest,
+  type RouteBatch, type InsertRouteBatch, type DriverScore, type InsertDriverScore,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -1025,6 +1027,136 @@ export class DatabaseStorage implements IStorage {
       .where(eq(clinicHelpRequests.id, id))
       .returning();
     return row;
+  }
+
+  async createRouteBatch(data: InsertRouteBatch): Promise<RouteBatch> {
+    const [row] = await db.insert(routeBatches).values(data).returning();
+    return row;
+  }
+
+  async getRouteBatchesByDate(cityId: number, date: string): Promise<RouteBatch[]> {
+    return db.select().from(routeBatches).where(
+      and(eq(routeBatches.cityId, cityId), eq(routeBatches.date, date))
+    ).orderBy(routeBatches.id);
+  }
+
+  async updateRouteBatch(id: number, data: Partial<RouteBatch>): Promise<RouteBatch | undefined> {
+    const [row] = await db.update(routeBatches).set(data).where(eq(routeBatches.id, id)).returning();
+    return row;
+  }
+
+  async deleteRouteBatchesByDate(cityId: number, date: string): Promise<void> {
+    await db.delete(routeBatches).where(
+      and(eq(routeBatches.cityId, cityId), eq(routeBatches.date, date))
+    );
+  }
+
+  async createDriverScore(data: InsertDriverScore): Promise<DriverScore> {
+    const [row] = await db.insert(driverScores).values(data).returning();
+    return row;
+  }
+
+  async getDriverScores(cityId: number, weekStart?: string): Promise<DriverScore[]> {
+    const conditions = [eq(driverScores.cityId, cityId)];
+    if (weekStart) conditions.push(eq(driverScores.weekStart, weekStart));
+    return db.select().from(driverScores).where(and(...conditions)).orderBy(desc(driverScores.score));
+  }
+
+  async getDriverScoreHistory(driverId: number, limit = 12): Promise<DriverScore[]> {
+    return db.select().from(driverScores)
+      .where(eq(driverScores.driverId, driverId))
+      .orderBy(desc(driverScores.weekStart))
+      .limit(limit);
+  }
+
+  async deleteDriverScoresByWeek(cityId: number, weekStart: string): Promise<void> {
+    await db.delete(driverScores).where(
+      and(eq(driverScores.cityId, cityId), eq(driverScores.weekStart, weekStart))
+    );
+  }
+
+  async updateTripConfirmation(tripId: number, status: string, time?: Date): Promise<Trip | undefined> {
+    const updates: any = { confirmationStatus: status };
+    if (time) updates.confirmationTime = time;
+    if (status !== "confirmed") updates.noShowRisk = true;
+    else updates.noShowRisk = false;
+    const [row] = await db.update(trips).set(updates).where(eq(trips.id, tripId)).returning();
+    return row;
+  }
+
+  async getUnconfirmedTripsForDate(cityId: number, date: string): Promise<Trip[]> {
+    return db.select().from(trips).where(
+      and(
+        eq(trips.cityId, cityId),
+        eq(trips.scheduledDate, date),
+        sql`${trips.confirmationStatus} != 'confirmed'`,
+        isNull(trips.deletedAt),
+        sql`${trips.status} NOT IN ('COMPLETED', 'CANCELLED', 'NO_SHOW')`,
+      )
+    );
+  }
+
+  async getTripsNeedingConfirmation(cityId: number, date: string, hoursAhead: number): Promise<Trip[]> {
+    return db.select().from(trips).where(
+      and(
+        eq(trips.cityId, cityId),
+        eq(trips.scheduledDate, date),
+        sql`${trips.confirmationStatus} = 'unconfirmed'`,
+        isNull(trips.deletedAt),
+        sql`${trips.status} NOT IN ('COMPLETED', 'CANCELLED', 'NO_SHOW')`,
+      )
+    );
+  }
+
+  async getPatientNoShowCount(patientId: number): Promise<number> {
+    const result = await db.select({ cnt: count() }).from(tripEvents).where(
+      and(
+        eq(tripEvents.eventType, "no_show_patient"),
+        sql`${tripEvents.tripId} IN (SELECT id FROM trips WHERE patient_id = ${patientId})`,
+      )
+    );
+    return result[0]?.cnt || 0;
+  }
+
+  async getDailyFinancialStats(cityId: number, date: string): Promise<any> {
+    const dayTrips = await db.select().from(trips).where(
+      and(
+        eq(trips.cityId, cityId),
+        eq(trips.scheduledDate, date),
+        isNull(trips.deletedAt),
+      )
+    );
+
+    const total = dayTrips.length;
+    const completed = dayTrips.filter(t => t.status === "COMPLETED").length;
+    const cancelled = dayTrips.filter(t => t.status === "CANCELLED").length;
+    const noShow = dayTrips.filter(t => t.status === "NO_SHOW").length;
+    const totalMiles = dayTrips.reduce((s, t) => s + (t.distanceMiles ? parseFloat(t.distanceMiles) : 0), 0);
+
+    const dayInvoices = await db.select().from(invoices).where(
+      and(
+        eq(invoices.serviceDate, date),
+        sql`${invoices.clinicId} IN (SELECT id FROM clinics WHERE city_id = ${cityId})`,
+      )
+    );
+    const estimatedRevenue = dayInvoices.reduce((s, inv) => s + parseFloat(inv.amount), 0);
+
+    const driversWithTrips = new Set(dayTrips.filter(t => t.driverId).map(t => t.driverId));
+    const milesPerDriver = driversWithTrips.size > 0 ? Math.round(totalMiles / driversWithTrips.size * 10) / 10 : 0;
+
+    return {
+      date,
+      cityId,
+      totalTrips: total,
+      completed,
+      cancelled,
+      noShow,
+      noShowLoss: noShow,
+      estimatedRevenue: Math.round(estimatedRevenue * 100) / 100,
+      totalMiles: Math.round(totalMiles * 10) / 10,
+      milesPerDriver,
+      activeDrivers: driversWithTrips.size,
+    };
   }
 }
 

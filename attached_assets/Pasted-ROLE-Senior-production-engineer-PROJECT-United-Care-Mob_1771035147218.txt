@@ -1,0 +1,207 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Implement core automation systems WITHOUT external route optimization APIs.
+All logic must run internally using Supabase + backend logic.
+
+---------------------------------------------------
+PHASE 1 — INTERNAL ROUTE ENGINE (NO API)
+---------------------------------------------------
+
+Create automatic daily route grouping.
+
+At 5:30 AM system runs:
+group trips by:
+- city
+- pickup time window
+- trip type (dialysis priority)
+- recurring trips first
+
+Rules:
+- never mix cities
+- dialysis = highest priority
+- recurring trips locked first
+- then assign new trips
+
+Algorithm simple:
+sort by:
+pickup_time ASC
+then cluster by zip radius (basic distance calculation)
+
+Store:
+route_batch_id
+route_order
+driver_assigned
+
+Allow:
+dispatch override manually.
+
+---------------------------------------------------
+PHASE 2 — AUTO VEHICLE + DRIVER ASSIGNMENT
+---------------------------------------------------
+
+At 6:00 AM:
+
+assign:
+driver + vehicle automatically
+
+Respect:
+- city
+- vehicle type
+- availability
+- maintenance flag
+
+If driver unavailable:
+flag = assignment_issue
+
+Dispatch override button:
+"Reassign driver"
+
+---------------------------------------------------
+PHASE 3 — ANTI NO-SHOW SYSTEM
+---------------------------------------------------
+
+Add fields to trips:
+confirmation_status
+no_show_risk
+confirmation_time
+
+Workflow:
+
+T-24h:
+send SMS confirmation (stub function for now)
+
+If not confirmed:
+no_show_risk = true
+
+T-2h:
+second reminder
+
+Driver arrives:
+button:
+"Patient ready?"
+
+If not ready:
+flag risk_no_show
+
+Track:
+no_show_count per patient
+
+If 3:
+alert clinic dashboard.
+
+---------------------------------------------------
+PHASE 4 — OPS HEALTH PANEL
+---------------------------------------------------
+
+Create Ops Health logic:
+
+Green:
+all assigned + confirmed
+
+Yellow:
+late driver OR unconfirmed patient
+
+Red:
+no driver OR impossible route
+
+Display in dashboard:
+OPS STATUS:
+green / yellow / red
+
+Also show:
+- drivers unassigned
+- trips at risk
+- delayed pickups
+
+---------------------------------------------------
+PHASE 5 — DRIVER SCORE SYSTEM
+---------------------------------------------------
+
+Create weekly score table:
+
+metrics:
+on_time_rate
+completed_trips
+no_show_avoided
+cancellations
+ratings
+
+score 0-100.
+
+Auto calculate weekly.
+
+Display:
+Driver Score panel.
+
+---------------------------------------------------
+PHASE 6 — FINANCIAL PANEL
+---------------------------------------------------
+
+Create dashboard:
+
+per day:
+total trips
+completed
+cancelled
+no show loss
+estimated revenue
+miles per driver
+
+Auto update after each trip.
+
+---------------------------------------------------
+PHASE 7 — MAP LOGIC READY
+---------------------------------------------------
+
+Ensure map already supports:
+- driver color by vehicle
+- name label
+- live position
+
+Add:
+status badge:
+ON ROUTE
+ARRIVING
+PICKED UP
+DROPPED
+
+---------------------------------------------------
+SAFETY RULES
+---------------------------------------------------
+
+Only admin can delete:
+drivers
+vehicles
+users
+
+Dispatch:
+can reassign
+can cancel
+
+Clinic:
+can edit patients
+cannot delete approved trips
+
+---------------------------------------------------
+VERIFY BEFORE EXIT
+---------------------------------------------------
+
+Confirm:
+- daily route batch runs
+- driver assignment works
+- ops health colors update
+- score system logs
+- financial panel visible
+- no API required
+
+Do NOT touch external APIs.

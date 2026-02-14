@@ -268,6 +268,11 @@ export const trips = pgTable("trips", {
   cancelType: tripCancelTypeEnum("cancel_type"),
   cancelledAt: timestamp("cancelled_at"),
   tripSeriesId: integer("trip_series_id"),
+  confirmationStatus: text("confirmation_status").default("unconfirmed"),
+  noShowRisk: boolean("no_show_risk").notNull().default(false),
+  confirmationTime: timestamp("confirmation_time"),
+  routeBatchId: integer("route_batch_id"),
+  routeOrder: integer("route_order"),
   deletedAt: timestamp("deleted_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -566,3 +571,38 @@ export type ClinicAlertLog = typeof clinicAlertLog.$inferSelect;
 export type InsertClinicAlertLog = z.infer<typeof insertClinicAlertLogSchema>;
 export type ClinicHelpRequest = typeof clinicHelpRequests.$inferSelect;
 export type InsertClinicHelpRequest = z.infer<typeof insertClinicHelpRequestSchema>;
+
+export const routeBatches = pgTable("route_batches", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  date: text("date").notNull(),
+  batchLabel: text("batch_label"),
+  tripIds: integer("trip_ids").array().notNull(),
+  driverAssigned: integer("driver_assigned").references(() => drivers.id),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const driverScores = pgTable("driver_scores", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  weekStart: text("week_start").notNull(),
+  weekEnd: text("week_end").notNull(),
+  onTimeRate: doublePrecision("on_time_rate").notNull().default(0),
+  completedTrips: integer("completed_trips").notNull().default(0),
+  totalTrips: integer("total_trips").notNull().default(0),
+  noShowAvoided: integer("no_show_avoided").notNull().default(0),
+  cancellations: integer("cancellations").notNull().default(0),
+  lateCount: integer("late_count").notNull().default(0),
+  score: integer("score").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertRouteBatchSchema = createInsertSchema(routeBatches).omit({ id: true, createdAt: true });
+export const insertDriverScoreSchema = createInsertSchema(driverScores).omit({ id: true, createdAt: true });
+
+export type RouteBatch = typeof routeBatches.$inferSelect;
+export type InsertRouteBatch = z.infer<typeof insertRouteBatchSchema>;
+export type DriverScore = typeof driverScores.$inferSelect;
+export type InsertDriverScore = z.infer<typeof insertDriverScoreSchema>;

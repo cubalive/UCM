@@ -29,6 +29,9 @@ interface DriverLocation {
   vehicle_color_hex: string | null;
   vehicle_make: string | null;
   vehicle_model: string | null;
+  active_trip_status?: string | null;
+  active_trip_id?: string | null;
+  active_trip_patient?: string | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -278,6 +281,20 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
           ? `<div style="font-size:11px;color:#666;margin-top:2px;">Vehicle: ${driver.vehicle_label}${vehicleMakeModel ? ` (${vehicleMakeModel})` : ""}</div>`
           : `<div style="font-size:11px;color:#999;margin-top:2px;font-style:italic;">No vehicle assigned</div>`;
 
+        const tripStatusColors: Record<string, string> = {
+          SCHEDULED: "#3b82f6",
+          EN_ROUTE_PICKUP: "#f59e0b",
+          AT_PICKUP: "#8b5cf6",
+          IN_TRANSIT: "#ef4444",
+          AT_DROPOFF: "#06b6d4",
+          COMPLETED: "#22c55e",
+        };
+        const tripBadge = driver.active_trip_status
+          ? `<div style="margin-top:4px;padding:3px 6px;border-radius:4px;background:${tripStatusColors[driver.active_trip_status] || '#6b7280'};color:#fff;font-size:10px;font-weight:600;display:inline-block;">${driver.active_trip_status.replace(/_/g, ' ')}</div>
+             ${driver.active_trip_id ? `<div style="font-size:10px;color:#666;margin-top:2px;">Trip: ${driver.active_trip_id}</div>` : ""}
+             ${driver.active_trip_patient ? `<div style="font-size:10px;color:#666;">Patient: ${driver.active_trip_patient}</div>` : ""}`
+          : `<div style="margin-top:4px;font-size:10px;color:#999;font-style:italic;">No active trip</div>`;
+
         infoWindowRef.current?.setContent(`
           <div style="padding:4px;min-width:160px;">
             <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${driver.driver_name}</div>
@@ -288,6 +305,7 @@ function GoogleMapView({ drivers, center, zoom }: GoogleMapProps) {
             ${vehicleInfo}
             <div style="font-size:11px;color:#888;margin-top:2px;">Updated: ${timeAgo}</div>
             ${staleTag}
+            ${tripBadge}
           </div>
         `);
         infoWindowRef.current?.open(mapInstanceRef.current!, marker);

@@ -30,6 +30,9 @@ import {
   RefreshCw,
   Shield,
   Siren,
+  Zap,
+  Route,
+  Users,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -510,6 +513,9 @@ export default function OpsHealthPage() {
           <TabsTrigger value="city" data-testid="tab-city-health">City Health</TabsTrigger>
           <TabsTrigger value="clinic" data-testid="tab-clinic-health">Clinic Health</TabsTrigger>
           {isAdmin && (
+            <TabsTrigger value="automation" data-testid="tab-automation">Automation</TabsTrigger>
+          )}
+          {isAdmin && (
             <TabsTrigger value="system" data-testid="tab-system-status">System Status</TabsTrigger>
           )}
         </TabsList>
@@ -523,11 +529,171 @@ export default function OpsHealthPage() {
         </TabsContent>
 
         {isAdmin && (
+          <TabsContent value="automation">
+            <AutomationTab />
+          </TabsContent>
+        )}
+
+        {isAdmin && (
           <TabsContent value="system">
             <SystemStatusTab />
           </TabsContent>
         )}
       </Tabs>
+    </div>
+  );
+}
+
+function AutomationTab() {
+  const { token, selectedCity } = useAuth();
+  const today = new Date().toISOString().split("T")[0];
+  const cityParam = selectedCity ? `&cityId=${selectedCity.id}` : "";
+
+  const { data: batches, isLoading: batchesLoading } = useQuery<any[]>({
+    queryKey: ["/api/route-batches", selectedCity?.id, today],
+    queryFn: () => apiFetch(`/api/route-batches?date=${today}${cityParam}`, token),
+    enabled: !!selectedCity?.id && !!token,
+    refetchInterval: 60000,
+  });
+
+  const { data: financialToday, isLoading: financialLoading } = useQuery<any>({
+    queryKey: ["/api/financial/daily", selectedCity?.id, today],
+    queryFn: () => apiFetch(`/api/financial/daily?date=${today}${cityParam}`, token),
+    enabled: !!selectedCity?.id && !!token,
+    refetchInterval: 60000,
+  });
+
+  if (!selectedCity?.id) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <p className="text-muted-foreground" data-testid="text-automation-select-city">Select a city to view automation status.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Route className="w-4 h-4 text-blue-500" />
+              <span className="text-xs text-muted-foreground">Route Batches Today</span>
+            </div>
+            {batchesLoading ? <Skeleton className="h-8 w-16" /> : (
+              <p className="text-2xl font-bold" data-testid="text-automation-batches">{batches?.length || 0}</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Zap className="w-4 h-4 text-green-500" />
+              <span className="text-xs text-muted-foreground">Trips Assigned</span>
+            </div>
+            {financialLoading ? <Skeleton className="h-8 w-16" /> : (
+              <p className="text-2xl font-bold" data-testid="text-automation-assigned">
+                {financialToday?.completed || 0}/{financialToday?.totalTrips || 0}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Users className="w-4 h-4 text-purple-500" />
+              <span className="text-xs text-muted-foreground">Active Drivers</span>
+            </div>
+            {financialLoading ? <Skeleton className="h-8 w-16" /> : (
+              <p className="text-2xl font-bold" data-testid="text-automation-drivers">{financialToday?.activeDrivers || 0}</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Zap className="w-4 h-4" />
+            Automation Schedulers
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {[
+              { name: "Route Engine", schedule: "5:30 AM (Mon-Sat)", desc: "Groups trips into route batches by city, time window, and ZIP cluster" },
+              { name: "Vehicle Auto-Assign", schedule: "6:00 AM (Mon-Sat)", desc: "Assigns vehicles and drivers to scheduled trips" },
+              { name: "No-Show Monitor", schedule: "Every 5 min", desc: "Sends T-24h/T-2h confirmations, flags at-risk unconfirmed trips" },
+              { name: "ETA Engine", schedule: "Every 2 min", desc: "Calculates live ETAs for en-route trips" },
+              { name: "Ops Alert", schedule: "Every 5 min", desc: "Monitors operational health and sends SMS alerts for critical issues" },
+            ].map((sched) => (
+              <div key={sched.name} className="flex items-center justify-between gap-3 flex-wrap" data-testid={`row-scheduler-${sched.name.toLowerCase().replace(/\s/g, "-")}`}>
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">{sched.name}</p>
+                  <p className="text-xs text-muted-foreground">{sched.desc}</p>
+                </div>
+                <Badge variant="secondary">
+                  <Clock className="w-3 h-3 mr-1" />
+                  {sched.schedule}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {batches && batches.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Route className="w-4 h-4" />
+              Today's Route Batches
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="table-route-batches">
+                <thead>
+                  <tr className="border-b text-muted-foreground">
+                    <th className="text-left py-2 pr-3">Batch</th>
+                    <th className="text-left py-2 px-3">Window</th>
+                    <th className="text-left py-2 px-3">ZIP Cluster</th>
+                    <th className="text-right py-2 px-3">Trips</th>
+                    <th className="text-left py-2 pl-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batches.map((batch: any) => (
+                    <tr key={batch.id} className="border-b last:border-0" data-testid={`row-batch-${batch.id}`}>
+                      <td className="py-2 pr-3 font-mono text-xs">#{batch.id}</td>
+                      <td className="py-2 px-3 capitalize">{batch.timeWindow}</td>
+                      <td className="py-2 px-3">{batch.zipCluster}</td>
+                      <td className="py-2 px-3 text-right">{batch.tripCount}</td>
+                      <td className="py-2 pl-3">
+                        <Badge variant={batch.status === "completed" ? "default" : "secondary"}>
+                          {batch.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {batches && batches.length === 0 && (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <Route className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+            <p className="text-muted-foreground text-sm">No route batches for today yet.</p>
+            <p className="text-xs text-muted-foreground mt-1">Route Engine runs at 5:30 AM (Mon-Sat)</p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

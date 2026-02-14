@@ -45,4 +45,14 @@ The application follows a client-server architecture.
 - **Driver Bonus Rules**: `driver_bonus_rules` table stores per-city bonus configuration (isEnabled, weeklyAmountCents, criteriaJson with maxNoShowDriver, maxLateDriver, minCompletionRate). Managed via Reports page Bonus Rules tab.
 - **Weekly Driver Metrics**: GET /api/reports/drivers/weekly returns per-driver metrics (assigned, completed, cancellations, no-shows, late counts, avg late minutes, completion rate) for a given week.
 - **Bonus Computation**: POST /api/bonuses/compute-week evaluates drivers against city bonus criteria and returns eligible/ineligible lists with reasons. SUPER_ADMIN only. Does NOT auto-pay.
-- **Reports Page**: `/reports` route accessible to ADMIN+ roles. Three tabs: Weekly Metrics, Bonus Rules (ADMIN+), Compute Bonus (SUPER_ADMIN). Routes defined in `server/lib/reportRoutes.ts`.
+- **Reports Page**: `/reports` route accessible to ADMIN+ roles. Four tabs: Weekly Metrics, Driver Scores, Bonus Rules (ADMIN+), Compute Bonus (SUPER_ADMIN). Routes defined in `server/lib/reportRoutes.ts`.
+
+## 7-Phase Automation System
+- **Route Engine**: `server/lib/routeEngine.ts` - 5:30 AM daily scheduler (Mon-Sat) groups SCHEDULED trips into route batches by city, time window (early/morning/midday/afternoon/late), trip type, and ZIP cluster (first 3 digits). Stored in `route_batches` table.
+- **Vehicle & Trip Auto-Assignment**: `server/lib/vehicleAutoAssign.ts` - 6:00 AM daily (Mon-Sat) assigns vehicles to drivers and distributes SCHEDULED trips across assigned drivers using balanced round-robin.
+- **Anti No-Show System**: `server/lib/noShowEngine.ts` - Every 5 min checks for T-24h/T-2h confirmation reminders (stubs), flags unconfirmed trips as "at_risk" within 30 min of pickup. Tracks patient no-show counts for 3-strike alerts.
+- **Driver Score System**: `server/lib/driverScoreEngine.ts` - Weekly 0-100 scoring: base 50 + completion (25pts) + on-time (15pts) - no_shows (5pt each) - late (2pt each) - cancellations (3pt each) + volume bonus (up to 10pts). Stored in `driver_scores` table.
+- **Financial Dashboard**: `/financial` page with today's summary cards (trips, completed, cancelled, no-show, revenue, miles, drivers, miles/driver) and date range report with daily breakdown. API: `/api/financial/daily` and `/api/financial/range`.
+- **Map Status Badges**: Live map info windows show active trip status (SCHEDULED, EN_ROUTE_PICKUP, AT_PICKUP, IN_TRANSIT, AT_DROPOFF, COMPLETED) with colored badges when clicking driver markers.
+- **Ops Health Automation Tab**: Ops Health page has Automation tab showing route batch count, trip assignment metrics, active driver count, scheduler reference, and today's route batches table.
+- **Automation API Routes**: `server/lib/automationRoutes.ts` - 14 endpoints for route batches, trip reassignment, confirmations, patient no-show count, driver scores, financial stats.

@@ -34,6 +34,7 @@ import {
   Clock,
   UserX,
   TrendingUp,
+  Star,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import {
@@ -69,6 +70,7 @@ export default function ReportsPage() {
       <Tabs defaultValue="metrics" className="space-y-4">
         <TabsList data-testid="tabs-reports">
           <TabsTrigger value="metrics" data-testid="tab-metrics">Weekly Metrics</TabsTrigger>
+          <TabsTrigger value="scores" data-testid="tab-scores">Driver Scores</TabsTrigger>
           {isAdmin && (
             <TabsTrigger value="bonus" data-testid="tab-bonus">Bonus Rules</TabsTrigger>
           )}
@@ -79,6 +81,10 @@ export default function ReportsPage() {
 
         <TabsContent value="metrics">
           <WeeklyMetricsTab token={token} selectedCity={selectedCity} weekStart={weekStart} setWeekStart={setWeekStart} />
+        </TabsContent>
+
+        <TabsContent value="scores">
+          <DriverScoresTab token={token} selectedCity={selectedCity} weekStart={weekStart} setWeekStart={setWeekStart} isSuperAdmin={isSuperAdmin} />
         </TabsContent>
 
         {isAdmin && (
@@ -507,6 +513,141 @@ function ComputeBonusTab({
           {result.eligible?.length === 0 && result.ineligible?.length === 0 && (
             <p className="text-sm text-muted-foreground">No drivers found for this period.</p>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DriverScoresTab({
+  token,
+  selectedCity,
+  weekStart,
+  setWeekStart,
+  isSuperAdmin,
+}: {
+  token: string | null;
+  selectedCity: any;
+  weekStart: string;
+  setWeekStart: (v: string) => void;
+  isSuperAdmin: boolean;
+}) {
+  const { toast } = useToast();
+  const cityParam = selectedCity ? `&cityId=${selectedCity.id}` : "";
+
+  const { data: scores, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/driver-scores", selectedCity?.id, weekStart],
+    queryFn: () => apiFetch(`/api/driver-scores?weekStart=${weekStart}${cityParam}`, token),
+    enabled: !!token && !!selectedCity?.id,
+  });
+
+  const computeMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/driver-scores/compute", token, {
+        method: "POST",
+        body: JSON.stringify({ cityId: selectedCity?.id, weekStart }),
+      }),
+    onSuccess: () => {
+      toast({ title: "Scores computed successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver-scores"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (!selectedCity?.id) {
+    return <p className="text-sm text-muted-foreground">Please select a city to view driver scores.</p>;
+  }
+
+  function getScoreColor(score: number): string {
+    if (score >= 80) return "text-green-600 dark:text-green-400";
+    if (score >= 60) return "text-yellow-600 dark:text-yellow-400";
+    return "text-red-600 dark:text-red-400";
+  }
+
+  function getScoreBadge(score: number, driverId: number) {
+    if (score >= 80) return <Badge variant="default" data-testid={`badge-score-${driverId}`}>Excellent</Badge>;
+    if (score >= 60) return <Badge variant="secondary" data-testid={`badge-score-${driverId}`}>Good</Badge>;
+    return <Badge variant="destructive" data-testid={`badge-score-${driverId}`}>Needs Improvement</Badge>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Label>Week Starting</Label>
+        <Input
+          type="date"
+          value={weekStart}
+          onChange={(e) => setWeekStart(e.target.value)}
+          className="w-auto"
+          data-testid="input-score-week-start"
+        />
+        {isSuperAdmin && (
+          <Button
+            onClick={() => computeMutation.mutate()}
+            disabled={computeMutation.isPending}
+            data-testid="button-compute-scores"
+          >
+            <Calculator className="w-4 h-4 mr-2" />
+            {computeMutation.isPending ? "Computing..." : "Compute Scores"}
+          </Button>
+        )}
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2">
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+        </div>
+      )}
+
+      {scores && scores.length === 0 && (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <Star className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+            <p className="text-muted-foreground">No scores computed for this week yet.</p>
+            {isSuperAdmin && <p className="text-xs text-muted-foreground mt-1">Use "Compute Scores" to generate weekly scores.</p>}
+          </CardContent>
+        </Card>
+      )}
+
+      {scores && scores.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {scores.map((s: any) => (
+            <Card key={s.id} data-testid={`card-driver-score-${s.driverId}`}>
+              <CardContent className="py-4 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <p className="font-medium" data-testid={`text-score-driver-${s.driverId}`}>Driver #{s.driverId}</p>
+                    <p className="text-xs text-muted-foreground">{s.weekStart} to {s.weekEnd}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-2xl font-bold ${getScoreColor(s.score)}`} data-testid={`text-score-value-${s.driverId}`}>{s.score}</p>
+                    {getScoreBadge(s.score, s.driverId)}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3 text-green-500" />
+                    <span>{s.completedTrips}/{s.totalTrips} completed</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-blue-500" />
+                    <span>{Math.round(s.onTimeRate * 100)}% on-time</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <XCircle className="w-3 h-3 text-red-500" />
+                    <span>{s.cancellations} cancellations</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <UserX className="w-3 h-3 text-amber-500" />
+                    <span>{s.lateCount} late</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
     </div>

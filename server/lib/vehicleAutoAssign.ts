@@ -112,7 +112,76 @@ export async function runVehicleAutoAssignForCity(city: City, settings: CitySett
     });
   }
 
-  return { assigned, skipped, reused };
+  const tripAssignResult = await autoAssignTripsToDrivers(city, today);
+
+  return { assigned, skipped, reused, tripsAssigned: tripAssignResult.assigned, tripsIssues: tripAssignResult.issues };
+}
+
+async function autoAssignTripsToDrivers(city: City, date: string): Promise<{ assigned: number; issues: number }> {
+  const allTrips = await storage.getTrips(city.id);
+  const unassignedTrips = allTrips.filter(t =>
+    t.scheduledDate === date &&
+    !t.deletedAt &&
+    !t.driverId &&
+    t.status === "SCHEDULED" &&
+    t.approvalStatus === "approved"
+  ).sort((a, b) => (a.pickupTime || "").localeCompare(b.pickupTime || ""));
+
+  if (unassignedTrips.length === 0) return { assigned: 0, issues: 0 };
+
+  const assignments = await storage.getDriverVehicleAssignments(city.id, date);
+  const assignedDriverIds = assignments.filter(a => a.status === "active").map(a => a.driverId);
+
+  const driverTripCount: Map<number, number> = new Map();
+  for (const dId of assignedDriverIds) {
+    const driverTrips = allTrips.filter(t => t.driverId === dId && t.scheduledDate === date && !t.deletedAt);
+    driverTripCount.set(dId, driverTrips.length);
+  }
+
+  let assigned = 0;
+  let issues = 0;
+
+  for (const trip of unassignedTrips) {
+    if (assignedDriverIds.length === 0) {
+      issues++;
+      continue;
+    }
+
+    let bestDriver = assignedDriverIds[0];
+    let minTrips = driverTripCount.get(bestDriver) || 0;
+    for (const dId of assignedDriverIds) {
+      const cnt = driverTripCount.get(dId) || 0;
+      if (cnt < minTrips) {
+        minTrips = cnt;
+        bestDriver = dId;
+      }
+    }
+
+    const assignment = assignments.find(a => a.driverId === bestDriver && a.status === "active");
+    const vehicleId = assignment?.vehicleId;
+
+    await storage.updateTrip(trip.id, {
+      driverId: bestDriver,
+      vehicleId: vehicleId || null,
+      status: "ASSIGNED",
+    } as any);
+
+    driverTripCount.set(bestDriver, (driverTripCount.get(bestDriver) || 0) + 1);
+    assigned++;
+  }
+
+  if (assigned > 0 || issues > 0) {
+    await storage.createAuditLog({
+      userId: null,
+      action: "AUTO_TRIP_ASSIGN",
+      entity: "trips",
+      entityId: null,
+      details: `Auto-assigned ${assigned} trips to drivers (${issues} issues) in ${city.name} for ${date}`,
+      cityId: city.id,
+    });
+  }
+
+  return { assigned, issues };
 }
 
 let schedulerInterval: NodeJS.Timeout | null = null;

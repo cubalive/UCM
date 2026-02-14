@@ -16,6 +16,9 @@ import { registerTrackingRoutes } from "./lib/trackingRoutes";
 import { registerTripSeriesRoutes } from "./lib/tripSeriesRoutes";
 import { registerReportRoutes } from "./lib/reportRoutes";
 import { registerOpsRoutes, startOpsAlertScheduler } from "./lib/opsRoutes";
+import { registerAutomationRoutes } from "./lib/automationRoutes";
+import { startRouteScheduler } from "./lib/routeEngine";
+import { startNoShowScheduler } from "./lib/noShowEngine";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -86,7 +89,10 @@ export async function registerRoutes(
   registerTripSeriesRoutes(app);
   registerReportRoutes(app);
   registerOpsRoutes(app);
+  registerAutomationRoutes(app);
   startOpsAlertScheduler();
+  startRouteScheduler();
+  startNoShowScheduler();
 
   app.post("/api/auth/login", async (req, res) => {
     try {
@@ -2476,10 +2482,23 @@ export async function registerRoutes(
         const vehicleMap = new Map(allVehicles.map((v: any) => [v.id, v]));
         const activeDrivers = allDrivers.filter((d: any) => d.status === "ACTIVE");
 
+        const todayStr = new Date().toISOString().split("T")[0];
+        const allTrips = await storage.getTrips(cityId);
+        const activeStatuses = ["SCHEDULED", "EN_ROUTE_PICKUP", "AT_PICKUP", "IN_TRANSIT", "AT_DROPOFF"];
+        const driverTripMap = new Map<number, any>();
+        for (const trip of allTrips) {
+          if (trip.driverId && activeStatuses.includes(trip.status) && trip.scheduledDate === todayStr) {
+            if (!driverTripMap.has(trip.driverId)) {
+              driverTripMap.set(trip.driverId, trip);
+            }
+          }
+        }
+
         const locations = activeDrivers
           .filter((d: any) => d.lastLat != null && d.lastLng != null)
           .map((d: any) => {
             const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
+            const activeTrip = driverTripMap.get(d.id);
             return {
               driver_id: d.id,
               driver_name: `${d.firstName} ${d.lastName}`,
@@ -2494,6 +2513,9 @@ export async function registerRoutes(
               vehicle_color_hex: vehicle?.colorHex ?? null,
               vehicle_make: vehicle?.make ?? null,
               vehicle_model: vehicle?.model ?? null,
+              active_trip_status: activeTrip?.status ?? null,
+              active_trip_id: activeTrip?.publicId ?? null,
+              active_trip_patient: activeTrip?.patientId ? `#${activeTrip.patientId}` : null,
             };
           });
 
