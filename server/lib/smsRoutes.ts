@@ -60,6 +60,9 @@ export function registerSmsRoutes(app: Express) {
     requireRole("DISPATCH"),
     async (req: AuthRequest, res) => {
       try {
+        if (!isTwilioConfigured()) {
+          return res.status(503).json({ message: "SMS service not configured" });
+        }
         const parsed = sendSmsSchema.safeParse(req.body);
         if (!parsed.success) {
           return res.status(400).json({ message: "Invalid request: 'to' and 'message' required" });
@@ -104,6 +107,9 @@ export function registerSmsRoutes(app: Express) {
     requireRole("DISPATCH"),
     async (req: AuthRequest, res) => {
       try {
+        if (!isTwilioConfigured()) {
+          return res.status(503).json({ message: "SMS service not configured" });
+        }
         const tripId = parseInt(req.params.id as string);
         if (isNaN(tripId)) {
           return res.status(400).json({ message: "Invalid trip ID" });
