@@ -2237,10 +2237,6 @@ export async function registerRoutes(
       if (!trip) return res.status(404).json({ message: "Trip not found" });
 
       if (tripLockedGuard(trip, req, res)) return;
-      const statusLockOther = ["CANCELLED", "NO_SHOW"];
-      if (statusLockOther.includes(trip.status)) {
-        return res.status(400).json({ message: `Trip is ${trip.status.toLowerCase()} and locked. No status changes allowed.` });
-      }
 
       if (req.user!.role === "DRIVER") {
         const user = await storage.getUser(req.user!.userId);
