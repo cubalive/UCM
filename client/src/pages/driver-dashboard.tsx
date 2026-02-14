@@ -90,7 +90,7 @@ const isStandalone =
 
 function useGeolocation(isActive: boolean) {
   const [permission, setPermission] = useState<"granted" | "denied" | "prompt">("prompt");
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [location, setLocation] = useState<{ lat: number; lng: number; accuracy: number; timestamp: number } | null>(null);
   const [watchError, setWatchError] = useState(false);
   const watchRef = useRef<number | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,7 +111,7 @@ function useGeolocation(isActive: boolean) {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         console.log("[GPS] Position acquired:", pos.coords.latitude.toFixed(5), pos.coords.longitude.toFixed(5));
-        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: pos.timestamp });
         setPermission("granted");
         setWatchError(false);
         retryCountRef.current = 0;
@@ -125,7 +125,7 @@ function useGeolocation(isActive: boolean) {
           navigator.geolocation.getCurrentPosition(
             (pos) => {
               console.log("[GPS] Fallback position acquired:", pos.coords.latitude.toFixed(5), pos.coords.longitude.toFixed(5));
-              setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+              setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: pos.timestamp });
               setPermission("granted");
               setWatchError(false);
               retryCountRef.current = 0;
@@ -155,7 +155,7 @@ function useGeolocation(isActive: boolean) {
       console.log("[GPS] Starting watchPosition");
       watchRef.current = navigator.geolocation.watchPosition(
         (pos) => {
-          setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: pos.timestamp });
           setWatchError(false);
           retryCountRef.current = 0;
         },
@@ -643,12 +643,12 @@ export default function DriverDashboard() {
   const lastSentRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const gpsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const sendLocation = useCallback(async (lat: number, lng: number) => {
+  const sendLocation = useCallback(async (lat: number, lng: number, accuracy?: number, timestamp?: number) => {
     if (!token) return;
     try {
       await apiFetch("/api/driver/me/location", token, {
         method: "POST",
-        body: JSON.stringify({ lat, lng }),
+        body: JSON.stringify({ lat, lng, accuracy: accuracy ?? null, timestamp: timestamp ?? Date.now() }),
       });
       lastSentRef.current = { lat, lng, time: Date.now() };
     } catch {}
@@ -661,8 +661,8 @@ export default function DriverDashboard() {
       return;
     }
 
-    const GPS_MIN_DISTANCE_M = 30;
-    const GPS_MIN_INTERVAL_MS = 20000;
+    const GPS_MIN_DISTANCE_M = 25;
+    const GPS_MIN_INTERVAL_MS = 15000;
     const GPS_IDLE_INTERVAL_MS = 30000;
     const GPS_IDLE_SPEED_MPS = 1;
 
@@ -680,7 +680,7 @@ export default function DriverDashboard() {
       const last = lastSentRef.current;
 
       if (!last) {
-        sendLocation(geoLocation.lat, geoLocation.lng);
+        sendLocation(geoLocation.lat, geoLocation.lng, geoLocation.accuracy, geoLocation.timestamp);
         return;
       }
 
@@ -690,13 +690,13 @@ export default function DriverDashboard() {
 
       if (speed < GPS_IDLE_SPEED_MPS) {
         if (elapsed >= GPS_IDLE_INTERVAL_MS) {
-          sendLocation(geoLocation.lat, geoLocation.lng);
+          sendLocation(geoLocation.lat, geoLocation.lng, geoLocation.accuracy, geoLocation.timestamp);
         }
         return;
       }
 
       if (dist >= GPS_MIN_DISTANCE_M || elapsed >= GPS_MIN_INTERVAL_MS) {
-        sendLocation(geoLocation.lat, geoLocation.lng);
+        sendLocation(geoLocation.lat, geoLocation.lng, geoLocation.accuracy, geoLocation.timestamp);
       }
     }
 
