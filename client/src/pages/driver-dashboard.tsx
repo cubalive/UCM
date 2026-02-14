@@ -223,13 +223,15 @@ export default function DriverDashboard() {
     } catch {}
   }, [geoLocation, token]);
 
+  const gpsIntervalMs = hasActiveTrip ? 10000 : isDriverActive ? 30000 : 0;
+
   useEffect(() => {
-    if (!isDriverActive && !hasActiveTrip) return;
+    if (gpsIntervalMs === 0) return;
     if (!geoLocation) return;
     locationHeartbeat();
-    const interval = setInterval(locationHeartbeat, 12000);
+    const interval = setInterval(locationHeartbeat, gpsIntervalMs);
     return () => clearInterval(interval);
-  }, [isDriverActive, hasActiveTrip, locationHeartbeat, geoLocation]);
+  }, [gpsIntervalMs, locationHeartbeat, geoLocation]);
 
   const toggleActiveMutation = useMutation({
     mutationFn: (active: boolean) =>

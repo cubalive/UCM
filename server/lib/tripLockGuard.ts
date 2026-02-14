@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import type { AuthRequest } from "../auth";
 
-const LOCKED_STATUSES = ["COMPLETED"];
+const LOCKED_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"];
 
 export function tripLockedGuard(trip: { status: string }, req: AuthRequest, res: Response): boolean {
   if (!LOCKED_STATUSES.includes(trip.status)) return false;
@@ -12,7 +12,7 @@ export function tripLockedGuard(trip: { status: string }, req: AuthRequest, res:
 
   res.status(409).json({
     code: "TRIP_LOCKED",
-    message: "Trip is completed and cannot be edited.",
+    message: `Trip is ${trip.status.toLowerCase().replace("_", " ")} and cannot be edited.`,
   });
   return true;
 }
