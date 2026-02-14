@@ -2,8 +2,16 @@ import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { LogOut, Settings } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { LogOut, Settings, MapPin } from "lucide-react";
 import { Link } from "wouter";
+import { queryClient } from "@/lib/queryClient";
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Admin",
@@ -14,8 +22,24 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export function DashboardHeader() {
-  const { user, selectedCity, logout } = useAuth();
+  const { user, selectedCity, cities, setSelectedCity, isSuperAdmin, logout } = useAuth();
   const roleLabel = ROLE_LABELS[user?.role?.toUpperCase() || ""] || user?.role || "";
+
+  const needsCitySwitcher =
+    user &&
+    ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role.toUpperCase());
+
+  const activeCities = cities.filter((c) => c.active !== false);
+
+  const handleCityChange = (val: string) => {
+    if (val === "all") {
+      setSelectedCity(null);
+    } else {
+      const city = cities.find((c) => String(c.id) === val);
+      if (city) setSelectedCity(city);
+    }
+    queryClient.invalidateQueries();
+  };
 
   return (
     <header
@@ -41,14 +65,38 @@ export function DashboardHeader() {
       </div>
 
       <div className="flex-1 flex items-center justify-center min-w-0">
-        {selectedCity && (
+        {needsCitySwitcher ? (
+          <div className="flex items-center gap-1.5" data-testid="city-switcher">
+            <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            <Select
+              value={selectedCity ? String(selectedCity.id) : "all"}
+              onValueChange={handleCityChange}
+            >
+              <SelectTrigger className="w-[200px] h-8 text-sm" data-testid="select-header-city">
+                <SelectValue placeholder="Select city" />
+              </SelectTrigger>
+              <SelectContent>
+                {isSuperAdmin && (
+                  <SelectItem value="all" data-testid="select-header-city-all">
+                    All Cities
+                  </SelectItem>
+                )}
+                {activeCities.map((city) => (
+                  <SelectItem key={city.id} value={String(city.id)} data-testid={`select-header-city-${city.id}`}>
+                    {city.name}, {city.state}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : selectedCity ? (
           <span
             className="text-sm text-muted-foreground font-medium truncate"
             data-testid="text-header-city"
           >
             {selectedCity.name}, {selectedCity.state}
           </span>
-        )}
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">

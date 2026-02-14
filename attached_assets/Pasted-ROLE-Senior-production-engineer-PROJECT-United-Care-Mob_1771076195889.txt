@@ -1,0 +1,93 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+When DISPATCH or SUPER_ADMIN logs in, they must choose a working city from the cities that exist in the system. This chosen city becomes the active city context for the session and filters all data: trips, drivers, assignments, map, counters.
+
+-----------------------------------------
+PHASE 1 — DATA + API (NO UI BREAKS)
+-----------------------------------------
+1) Ensure there is a canonical Cities source.
+- If cities already exist in DB, reuse.
+- If not, create a minimal "cities" table:
+  - id (int/uuid, PK)
+  - name (text, unique)
+  - state (text, nullable)
+  - is_active (bool, default true)
+  - created_at
+
+2) Add endpoint:
+GET /api/cities?active=true
+Returns list of cities: {id, name, state}
+
+3) Add field to users (or profile) if not present:
+- users.home_city_id nullable
+(Do NOT force it; we need a per-session city)
+
+-----------------------------------------
+PHASE 2 — AUTH SESSION CITY CONTEXT
+-----------------------------------------
+4) After login, if role in [super_admin, dispatch]:
+- Require selecting a "working city" before accessing any pages.
+- Store selected city in:
+  a) server session / JWT custom claim (preferred), OR
+  b) client localStorage + send as header "X-City-Id" on every request
+Choose one, but ensure backend enforcement.
+
+5) Backend enforcement (MANDATORY):
+- Every dispatch/admin data endpoint must require city context:
+  - if city not set -> 400 with clear message "CITY_REQUIRED"
+- Filter queries by city_id:
+  - trips: trip.city_id = active_city_id
+  - drivers: driver.city_id = active_city_id
+  - vehicles: vehicle.city_id = active_city_id
+  - counts, dashboards, daily assignment: all filtered by active_city_id
+
+6) For super_admin:
+- super_admin can switch city anytime via a topbar selector.
+- super_admin can still view "All cities" only if explicitly selected "All".
+Default remains a single city selection.
+
+-----------------------------------------
+PHASE 3 — UI FLOW
+-----------------------------------------
+7) Add a modal/page immediately after login for super_admin/dispatch:
+Title: "Select your working city"
+Dropdown populated by GET /api/cities
+Buttons:
+- Continue
+- (Optional) Remember my choice (stores last_city_id)
+
+8) Add city switcher in header for super_admin/dispatch:
+- Shows current city
+- Allows switching city (re-runs filters, refresh lists)
+- Updates session context accordingly
+
+9) Visual confirmation:
+- Show active city name in top bar
+- On Trips pages show pill: "City: Las Vegas, NV"
+
+-----------------------------------------
+PHASE 4 — VERIFY TESTS
+-----------------------------------------
+10) Test cases:
+A) Login as dispatch -> must select city -> cannot access Trips until selected.
+B) With city selected:
+   - Unassigned Trips count matches trips list
+   - Active drivers list shows only drivers in that city
+   - Assign trip to driver works
+C) Switch city:
+   - all lists/counts refresh and change accordingly
+D) If no cities exist:
+   - show empty state with action "Create City" (super_admin only) or message to contact admin.
+
+DELIVERABLE:
+Working city selection enforced server-side + UI selector + filtering across trips/drivers/vehicles/daily assignment.

@@ -1,0 +1,163 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Driver must be able to operate full trip lifecycle:
+Active → Accept → En route → Arrived → Picked up → Dropoff → Complete.
+Dispatch must see real-time progress.
+Completed trips must lock permanently.
+
+----------------------------------------------------
+A) DRIVER STATUS: ACTIVE / OFFLINE
+----------------------------------------------------
+Add driver availability system.
+
+Driver app must show:
+- "Go Active" button
+- "Go Offline" button
+
+When driver presses Go Active:
+- update driver.status = active
+- update driver.last_seen
+- dispatch can assign trips only to active drivers
+
+When Offline:
+- cannot receive assignments
+- hidden from assign modal
+
+Dispatch must see:
+Active Drivers list
+with:
+driver name
+city
+vehicle
+last GPS update
+
+----------------------------------------------------
+B) DRIVER ASSIGNMENT FLOW
+----------------------------------------------------
+When dispatch assigns a trip:
+driver receives trip instantly in driver app:
+Trip Card must show:
+- patient name
+- pickup time
+- pickup address
+- dropoff address
+- notes
+- clinic
+
+Buttons in order:
+
+1) ACCEPT TRIP
+status -> accepted
+
+2) START TRIP
+status -> en_route_pickup
+
+3) ARRIVED
+status -> arrived_pickup
+
+4) PICKED UP
+status -> picked_up
+
+5) START DROPOFF
+status -> en_route_dropoff
+
+6) COMPLETE TRIP
+status -> completed
+
+Server must enforce valid status transitions.
+
+----------------------------------------------------
+C) GPS LOCATION REQUIRED
+----------------------------------------------------
+Driver app must request GPS permission on login.
+
+If denied:
+- show blocking screen:
+"Location required to operate."
+
+While trip active:
+- send driver location every 10–15 sec
+endpoint: POST /api/driver/location
+
+Dispatch map must update live.
+
+----------------------------------------------------
+D) MAP VISIBILITY
+----------------------------------------------------
+Dispatch:
+sees all active drivers in selected city.
+
+Clinic:
+sees only their trip driver.
+
+Patient (if enabled later):
+sees only assigned driver when trip active.
+
+Driver marker must show:
+- vehicle color
+- driver name
+
+----------------------------------------------------
+E) MESSAGING DRIVER ↔ DISPATCH
+----------------------------------------------------
+Add simple internal chat per trip.
+
+Driver can:
+- send message to dispatch
+Dispatch can:
+- send message to driver
+
+Chat must be tied to trip_id.
+
+Completed trip:
+chat locked.
+
+----------------------------------------------------
+F) COMPLETED TRIP LOCK
+----------------------------------------------------
+Once trip status = completed:
+
+LOCK:
+- no reassignment
+- no edit
+- no status change
+- no SMS
+- no chat
+
+Server must enforce.
+
+Completed tab must be read-only.
+
+----------------------------------------------------
+G) DISPATCH VIEW UPDATE
+----------------------------------------------------
+Dispatch board must auto-move trips:
+
+Unassigned → Scheduled → Active → Completed
+
+based on driver actions.
+
+----------------------------------------------------
+H) VERIFICATION (MUST PASS)
+----------------------------------------------------
+1) Driver goes Active → visible in dispatch.
+2) Dispatch assigns trip → appears in driver app.
+3) Driver accepts → shows Scheduled.
+4) Driver starts → shows Active.
+5) GPS updates visible.
+6) Driver completes → moves to Completed.
+7) Completed trip locked.
+
+OUTPUT REQUIRED:
+- Confirm driver flow fully operational.
+- Confirm GPS updates working.
+- Confirm dispatch board reflects changes in real time.
+- Confirm completed trips locked.

@@ -22,10 +22,12 @@ interface AuthContextType {
   error: string | null;
   meData: MeData | null;
   mustChangePassword: boolean;
+  cityRequired: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   retry: () => void;
   setSelectedCity: (city: City | null) => void;
+  selectWorkingCity: (city: City | null) => void;
   hasAccess: (cityId: number) => boolean;
   isSuperAdmin: boolean;
   clearMustChangePassword: () => void;
@@ -35,10 +37,31 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const IS_DEV = import.meta.env.DEV;
 
+const CITY_REQUIRING_ROLES = ["SUPER_ADMIN", "super_admin", "ADMIN", "admin", "DISPATCH", "dispatch"];
+
+function getStoredCityId(): number | null {
+  try {
+    const v = localStorage.getItem("ucm_working_city_id");
+    return v ? parseInt(v, 10) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeWorkingCityId(cityId: number | null) {
+  try {
+    if (cityId === null) {
+      localStorage.setItem("ucm_working_city_id", "all");
+    } else {
+      localStorage.setItem("ucm_working_city_id", String(cityId));
+    }
+  } catch {}
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("ucm_token"));
-  const [selectedCity, setSelectedCity] = useState<City | null>(null);
+  const [selectedCity, setSelectedCityRaw] = useState<City | null>(null);
   const [cities, setCities] = useState<City[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,8 +69,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [devLoginAttempts, setDevLoginAttempts] = useState(0);
   const [devBypassed, setDevBypassed] = useState(false);
+  const [cityChosen, setCityChosen] = useState(false);
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN" || (user?.role as string) === "super_admin";
+
+  const needsCitySelection = user ? CITY_REQUIRING_ROLES.includes(user.role) : false;
+  const cityRequired = needsCitySelection && !cityChosen;
 
   const hasAccess = useCallback(
     (cityId: number) => {
@@ -57,6 +84,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     [user]
   );
+
+  const setSelectedCity = useCallback((city: City | null) => {
+    setSelectedCityRaw(city);
+    storeWorkingCityId(city?.id ?? null);
+    setCityChosen(true);
+  }, []);
+
+  const selectWorkingCity = useCallback((city: City | null) => {
+    setSelectedCityRaw(city);
+    storeWorkingCityId(city?.id ?? null);
+    setCityChosen(true);
+  }, []);
+
+  const restoreCity = useCallback((availableCities: City[], userRole: string) => {
+    const storedId = getStoredCityId();
+    if (storedId !== null) {
+      const found = availableCities.find(c => c.id === storedId);
+      if (found) {
+        setSelectedCityRaw(found);
+        setCityChosen(true);
+        return;
+      }
+    }
+    const storedRaw = localStorage.getItem("ucm_working_city_id");
+    if (storedRaw === "all") {
+      setCityChosen(true);
+      return;
+    }
+    const requiresCity = CITY_REQUIRING_ROLES.includes(userRole);
+    if (!requiresCity && availableCities.length > 0) {
+      setSelectedCityRaw(availableCities[0]);
+      storeWorkingCityId(availableCities[0].id);
+      setCityChosen(true);
+    }
+  }, []);
 
   const fetchUser = useCallback(async (t: string) => {
     setLoading(true);
@@ -86,9 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setMustChangePassword(true);
       }
 
-      if (data.cities?.length > 0 && !selectedCity) {
-        setSelectedCity(data.cities[0]);
-      }
+      restoreCity(data.cities || [], data.user?.role || "");
     } catch (e: any) {
       setError(e.message || "Failed to load user session");
       setToken(null);
@@ -98,7 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [restoreCity]);
 
   useEffect(() => {
     if (token) {
@@ -115,7 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           localStorage.setItem("ucm_token", data.token);
           setUser(data.user);
           setCities(data.cities || []);
-          if (data.cities?.length > 0) setSelectedCity(data.cities[0]);
+          restoreCity(data.cities || [], data.user?.role || "");
           console.log("[DEV] Auto-login succeeded as", data.user?.email);
         })
         .catch(() => {
@@ -145,7 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       setLoading(false);
     }
-  }, [token, fetchUser, devLoginAttempts, devBypassed]);
+  }, [token, fetchUser, devLoginAttempts, devBypassed, restoreCity]);
 
   const login = async (email: string, password: string) => {
     setError(null);
@@ -163,9 +223,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("ucm_token", data.token);
     setUser(data.user);
     setCities(data.cities || []);
-    if (data.cities?.length > 0) {
-      setSelectedCity(data.cities[0]);
-    }
+
+    setSelectedCityRaw(null);
+    localStorage.removeItem("ucm_working_city_id");
 
     if (data.mustChangePassword) {
       setMustChangePassword(true);
@@ -185,11 +245,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
     setCities([]);
-    setSelectedCity(null);
+    setSelectedCityRaw(null);
+    setCityChosen(false);
     setMeData(null);
     setError(null);
     setMustChangePassword(false);
     localStorage.removeItem("ucm_token");
+    localStorage.removeItem("ucm_working_city_id");
   };
 
   const retry = () => {
@@ -216,10 +278,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         error,
         meData,
         mustChangePassword,
+        cityRequired,
         login,
         logout,
         retry,
         setSelectedCity,
+        selectWorkingCity,
         hasAccess,
         isSuperAdmin,
         clearMustChangePassword,

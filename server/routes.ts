@@ -29,13 +29,40 @@ async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Pr
   return allowed.includes(cityId);
 }
 
+function getCityIdFromRequest(req: AuthRequest): number | undefined {
+  const fromQuery = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
+  if (fromQuery && !isNaN(fromQuery)) return fromQuery;
+  const fromHeader = req.headers["x-city-id"];
+  if (fromHeader) {
+    const parsed = parseInt(fromHeader as string);
+    if (!isNaN(parsed)) return parsed;
+  }
+  return undefined;
+}
+
 async function getAllowedCityId(req: AuthRequest): Promise<number | undefined> {
-  const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
+  const cityId = getCityIdFromRequest(req);
   if (!cityId) return undefined;
   if (req.user!.role === "SUPER_ADMIN") return cityId;
   const allowed = await getUserCityIds(req.user!.userId, req.user!.role);
   if (!allowed.includes(cityId)) return -1;
   return cityId;
+}
+
+function enforceCityContext(req: AuthRequest, res: any): number | undefined | false {
+  const role = req.user?.role || "";
+  const cityId = getCityIdFromRequest(req);
+  if (role === "SUPER_ADMIN") {
+    return cityId || undefined;
+  }
+  if (["ADMIN", "DISPATCH"].includes(role)) {
+    if (!cityId) {
+      res.status(400).json({ message: "CITY_REQUIRED", error: "You must select a working city before accessing data." });
+      return false;
+    }
+    return cityId;
+  }
+  return cityId || undefined;
 }
 
 export async function registerRoutes(
@@ -419,7 +446,9 @@ export async function registerRoutes(
 
   app.get("/api/vehicles", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const cityId = await getAllowedCityId(req);
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       res.json(await storage.getVehicles(cityId));
     } catch (err: any) {
@@ -536,7 +565,9 @@ export async function registerRoutes(
 
   app.get("/api/drivers", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const cityId = await getAllowedCityId(req);
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       res.json(await storage.getDrivers(cityId));
     } catch (err: any) {
@@ -860,7 +891,9 @@ export async function registerRoutes(
 
   app.get("/api/clinics", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const cityId = await getAllowedCityId(req);
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       res.json(await storage.getClinics(cityId));
     } catch (err: any) {
@@ -1128,7 +1161,9 @@ export async function registerRoutes(
         }
         return res.status(403).json({ message: "No clinic linked" });
       }
-      const cityId = await getAllowedCityId(req);
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       res.json(await storage.getPatients(cityId));
     } catch (err: any) {
@@ -1280,17 +1315,16 @@ export async function registerRoutes(
   // Phase 1: Get active drivers for dispatch
   app.get("/api/dispatch/drivers/active", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : null;
-      if (cityId) {
-        const hasAccess = await checkCityAccess(req, cityId);
-        if (!hasAccess) return res.status(403).json({ message: "Access denied" });
-      }
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
+      if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       let query = db.select().from(drivers).where(
         and(
           eq(drivers.dispatchStatus, "available"),
           eq(drivers.active, true),
           isNull(drivers.deletedAt),
-          ...(cityId ? [eq(drivers.cityId, cityId)] : [])
+          ...(cityId && cityId > 0 ? [eq(drivers.cityId, cityId)] : [])
         )
       );
       const activeDrivers = await query;
@@ -1429,14 +1463,16 @@ export async function registerRoutes(
         }
         return res.status(403).json({ message: "No clinic linked" });
       }
-      const cityId = await getAllowedCityId(req);
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
 
       const tab = (req.query.tab as string) || "all";
       const limitParam = req.query.limit ? parseInt(req.query.limit as string) : undefined;
 
       const conditions: any[] = [isNull(trips.deletedAt)];
-      if (cityId !== 0) conditions.push(eq(trips.cityId, cityId));
+      if (cityId && cityId > 0) conditions.push(eq(trips.cityId, cityId));
 
       if (tab === "unassigned") {
         conditions.push(isNull(trips.driverId));
@@ -2023,7 +2059,9 @@ export async function registerRoutes(
 
   app.get("/api/stats", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const cityId = await getAllowedCityId(req);
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       res.json(await storage.getStats(cityId));
     } catch (err: any) {
@@ -2033,7 +2071,9 @@ export async function registerRoutes(
 
   app.get("/api/stats/trip-status", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const cityId = await getAllowedCityId(req);
+      const enforced = enforceCityContext(req, res);
+      if (enforced === false) return;
+      const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
       res.json(await storage.getTripStatusSummary(cityId));
     } catch (err: any) {

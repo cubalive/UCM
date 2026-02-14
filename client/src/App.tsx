@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { can, type Resource } from "@shared/permissions";
+import { CitySelectionModal } from "@/components/city-selection-modal";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import TripsPage from "@/pages/trips";
@@ -144,7 +145,7 @@ function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void
 }
 
 function AuthenticatedApp() {
-  const { user, loading, error, retry, mustChangePassword } = useAuth();
+  const { user, loading, error, retry, mustChangePassword, cityRequired } = useAuth();
 
   if (loading) {
     return (
@@ -168,6 +169,10 @@ function AuthenticatedApp() {
 
   if (mustChangePassword) {
     return <ChangePasswordPage />;
+  }
+
+  if (cityRequired) {
+    return <CitySelectionModal />;
   }
 
   const style = {
