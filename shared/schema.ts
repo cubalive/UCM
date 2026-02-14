@@ -310,6 +310,13 @@ export const trips = pgTable("trips", {
   deletedAt: timestamp("deleted_at"),
   requestSource: text("request_source").notNull().default("internal"),
   notes: text("notes"),
+  billable: boolean("billable").notNull().default(true),
+  faultParty: text("fault_party"),
+  cancelStage: text("cancel_stage"),
+  parentTripId: integer("parent_trip_id"),
+  cancelFee: numeric("cancel_fee", { precision: 10, scale: 2 }),
+  cancelFeeOverride: numeric("cancel_fee_override", { precision: 10, scale: 2 }),
+  cancelFeeOverrideNote: text("cancel_fee_override_note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -348,6 +355,9 @@ export const invoices = pgTable("invoices", {
   status: invoiceStatusEnum("status").notNull().default("pending"),
   notes: text("notes"),
   pdfUrl: text("pdf_url"),
+  reason: text("reason"),
+  faultParty: text("fault_party"),
+  relatedTripId: integer("related_trip_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

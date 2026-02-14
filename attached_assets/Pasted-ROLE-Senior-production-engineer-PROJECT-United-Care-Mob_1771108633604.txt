@@ -1,0 +1,115 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM) — Replit + Supabase
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+One unified workflow:
+1) Clinic can REQUEST cancel (never cancels directly)
+2) Dispatch approves/rejects
+3) Billing is automatic:
+   - If patient is already en route (picked up / in transit) => ALWAYS BILLABLE (unless dispatch marks driver/dispatch fault)
+   - If en route to pickup or arrived pickup => billable if clinic/patient fault, not billable if driver/dispatch fault
+4) Dispatch has “Unexpected Return Trip” button (patient never stranded)
+5) If clinic fault => charge; if driver fault => no charge; BUT "patient en route" defaults to charge
+6) Invoices are auto-generated when billable; attach to trip; prevent duplicates; audit everything
+
+========================================================
+PHASE 0 — DB SAFE MIGRATIONS ONLY
+========================================================
+A) Add columns to trips:
+- billable boolean DEFAULT true NOT NULL
+- fault_party text NULL  -- allowed: 'clinic','driver','patient','dispatch','unknown'
+- cancel_stage text NULL -- 'pre_assign','assigned','enroute_pickup','arrived_pickup','patient_en_route'
+- parent_trip_id integer NULL REFERENCES trips(id) -- used for return trips
+
+B) (Optional) add to invoices:
+- reason text NULL
+- fault_party text NULL
+
+Do NOT drop/rename tables; do NOT reset data.
+
+========================================================
+PHASE 1 — CLINIC: REQUEST CANCEL (NO DIRECT CANCEL)
+========================================================
+1) Clinic UI button "Request Cancel" on trip detail:
+Show if trip.status NOT IN ('COMPLETED','CANCELLED')
+
+2) Modal:
+- Reason dropdown (required)
+- Notes (optional)
+
+3) Server action sets ONLY:
+- trips.approval_status='cancel_requested'
+- trips.cancelled_reason = "<reason> | <notes>"
+- trips.cancelled_at = now()
+- trips.cancel_stage computed from trip state
+- trips.fault_party default='clinic' (clinic-initiated request)
+- trips.billable left as true by default (final decision done by dispatch)
+
+4) Audit:
+action='clinic_cancel_request' entity='trip' entity_id=trip.id details include reason/notes clinic_id user_id
+
+Security:
+Enforce trip.clinic_id == clinic user clinic_id (server-side).
+
+========================================================
+PHASE 2 — DISPATCH: CANCEL REQUEST QUEUE + DECISION
+========================================================
+1) Dispatch queue: approval_status='cancel_requested'
+
+2) Approve Cancel modal (required):
+- Fault party (required):
+  clinic / driver / patient / dispatch / unknown
+- Show computed cancel_stage (read-only)
+- Billable toggle is auto-derived (see Phase 3) BUT dispatch can override:
+  - If override billable/amount, require override_note (required)
+
+3) Approve action:
+- trips.approval_status='cancelled'
+- trips.status='CANCELLED'
+- trips.fault_party=<selected>
+- trips.billable=<computed or override>
+- if billable=true: create invoice (Phase 3) and attach trips.invoice_id
+- audit_log action='dispatch_cancel_approved' with details (fault, stage, billable, amount, override_note)
+
+4) Reject:
+- trips.approval_status='approved'
+- keep status unchanged
+- audit_log action='dispatch_cancel_rejected'
+
+========================================================
+PHASE 3 — BILLING RULES (INCLUDING: “SE COBRA SI EL PACIENTE ESTÁ EN ROUTE”)
+========================================================
+Define cancel_stage:
+- pre_assign: driver_id IS NULL
+- assigned: driver_id NOT NULL AND status IN ('SCHEDULED','ASSIGNED')
+- enroute_pickup: status='EN_ROUTE_TO_PICKUP'
+- arrived_pickup: status='ARRIVED_PICKUP'
+- patient_en_route: status IN ('PICKED_UP','EN_ROUTE_TO_DROPOFF','ARRIVED_DROPOFF','IN_PROGRESS')
+
+BILLABLE DECISION (AUTO):
+IF fault_party IN ('driver','dispatch'):
+   billable = false
+ELSE IF cancel_stage = 'patient_en_route':
+   billable = true        <-- IMPORTANT RULE: ALWAYS CHARGE if patient is en route (unless driver/dispatch fault)
+ELSE:
+   billable = (fault_party IN ('clinic','patient','unknown'))
+
+FEE SCHEDULE (ONLY if billable=true):
+- pre_assign => $0
+- assigned => $25
+- enroute_pickup => $50
+- arrived_pickup => $75
+- patient_en_route => $150 (or configurable)  <-- treat as service started
+
+Allow dispatch amount override ONLY with override_note required.
+
+INVOICE CREATION (when billable=true and trips.invoice_id is null):
+Insert

@@ -1,0 +1,102 @@
+ROLE: Senior production engineer
+PROJECT: UCM (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Implement real route guidance using Google DirectionsService + DirectionsRenderer (A) with throttled auto-reroute and NO map flicker. Apply to Driver active trip map and Clinic selected-trip map.
+
+ENV:
+- Read key from VITE_GOOGLE_MAPS_API_KEY (Replit Secrets)
+- Ensure map loader uses this key and loads libraries needed (places if autocomplete is used)
+
+---------------------------------------
+PHASE 1 — MAP INSTANCE (NO REMOUNT)
+---------------------------------------
+1) Ensure the map component creates the Google Map instance ONCE.
+2) Create these ONCE per map instance and reuse:
+- directionsService = new google.maps.DirectionsService()
+- directionsRenderer = new google.maps.DirectionsRenderer({ suppressMarkers: true, preserveViewport: true })
+- driverMarker, pickupMarker, dropoffMarker
+
+3) Attach renderer to map once:
+directionsRenderer.setMap(map)
+
+IMPORTANT:
+- Do not recreate map/renderer on intervals or state changes.
+- Update only markers positions + directionsRenderer.setDirections()
+
+---------------------------------------
+PHASE 2 — DESTINATION SELECTION BY STATUS
+---------------------------------------
+For a given trip:
+If status in (SCHEDULED, ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP):
+  destination = pickup_lat/lng (fallback geocode pickup_address)
+Else if status in (PICKED_UP, EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF, IN_PROGRESS):
+  destination = dropoff_lat/lng (fallback geocode dropoff_address)
+
+Origin = driver current GPS (navigator.geolocation) with high accuracy when on active trip.
+
+---------------------------------------
+PHASE 3 — ROUTE COMPUTE + REROUTE (THROTTLED)
+---------------------------------------
+Implement a route recompute controller:
+- Keep lastComputeAt, lastOriginLatLng
+- Recompute if:
+   a) moved >= 120m since last compute OR
+   b) >= 20s since last compute OR
+   c) trip status changed (pickup -> dropoff)
+- Hard throttle: never compute more frequently than every 10s.
+
+When recomputing:
+directionsService.route({
+  origin,
+  destination,
+  travelMode: google.maps.TravelMode.DRIVING
+}, (result, status) => {
+  if (status === 'OK' && result) {
+     directionsRenderer.setDirections(result)
+     // update ETA overlay from result.routes[0].legs[0].duration.value and distance.value
+  }
+})
+
+SMOOTHNESS:
+- Do NOT clear the renderer before new result arrives.
+- Only call setDirections when you have a new valid result.
+
+---------------------------------------
+PHASE 4 — DRIVER LOGIN/LOGOUT SAFETY
+---------------------------------------
+- When driver logs out: stop geolocation watch + stop reroute timer + clear driver online status in DB.
+- Driver must not appear on any map when logged out:
+   - set drivers.dispatch_status='off'
+   - set drivers.last_active_at = now()
+   - optional: clear last_lat/lng only if you want strict privacy (otherwise keep but filter by status)
+
+---------------------------------------
+PHASE 5 — CLINIC SELECTED TRIP MAP (ONE TRIP ONLY)
+---------------------------------------
+Clinic Live Trips:
+- Show list of live trips for that clinic only
+- Selecting a trip renders ONE map with ONE directionsRenderer
+- Clinic uses persisted data primarily:
+   - trips.last_eta_minutes, trips.route_polyline optional (not required if renderer computes client-side)
+- To avoid billing spam, clinic should NOT recompute every 2s.
+Clinic recompute rule:
+- Only if last_eta_updated_at older than 60s AND driver last_seen_at <= 5 min.
+
+(If you compute route client-side in clinic too, still respect the same 60s throttle.)
+
+---------------------------------------
+PHASE 6 — VERIFY (MUST PASS)
+---------------------------------------
+1) Driver sees real route line (curved) between current location and pickup/dropoff.
+2) If driver deviates, route updates within 20–30s without flicker.
+3) On PICKED_UP, destination switches to dropoff immediately.
+4) Clinic sees only selected trip route; no fleet map.
+5) When driver logs out, they disappear from all maps and are not counted as online.
