@@ -30,11 +30,15 @@ async function recalculateActiveETAs() {
         const driver = await storage.getDriver(trip.driverId);
         if (!driver) continue;
         if (!driver.lastLat || !driver.lastLng) continue;
-        if (!trip.pickupLat || !trip.pickupLng) continue;
+
+        const toDropoff = ["PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"].includes(trip.status);
+        const destLat = toDropoff ? trip.dropoffLat : trip.pickupLat;
+        const destLng = toDropoff ? trip.dropoffLng : trip.pickupLng;
+        if (!destLat || !destLng) continue;
 
         const eta = await etaMinutes(
           { lat: driver.lastLat, lng: driver.lastLng },
-          { lat: trip.pickupLat, lng: trip.pickupLng }
+          { lat: destLat, lng: destLng }
         );
 
         await storage.updateTrip(trip.id, {

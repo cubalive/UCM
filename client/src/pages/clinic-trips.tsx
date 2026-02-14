@@ -47,6 +47,9 @@ import {
   MapPinned,
   Repeat,
   Activity,
+  Map as MapIcon,
+  WifiOff,
+  RefreshCw,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -129,27 +132,34 @@ export default function ClinicTripsPage() {
       </div>
 
       <Tabs value={mainTab} onValueChange={setMainTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="dashboard" data-testid="tab-clinic-dashboard" className="gap-1.5">
             <LayoutDashboard className="w-3.5 h-3.5" />
-            {t("clinic.dashboard")}
+            <span className="hidden sm:inline">{t("clinic.dashboard")}</span>
+          </TabsTrigger>
+          <TabsTrigger value="livemap" data-testid="tab-clinic-livemap" className="gap-1.5">
+            <MapIcon className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Live Map</span>
           </TabsTrigger>
           <TabsTrigger value="trips" data-testid="tab-clinic-trips" className="gap-1.5">
             <ClipboardList className="w-3.5 h-3.5" />
-            {t("clinic.trips")}
+            <span className="hidden sm:inline">{t("clinic.trips")}</span>
           </TabsTrigger>
           <TabsTrigger value="patients" data-testid="tab-clinic-patients" className="gap-1.5">
             <Users className="w-3.5 h-3.5" />
-            {t("clinic.patients")}
+            <span className="hidden sm:inline">{t("clinic.patients")}</span>
           </TabsTrigger>
           <TabsTrigger value="reports" data-testid="tab-clinic-reports" className="gap-1.5">
             <FileDown className="w-3.5 h-3.5" />
-            {t("clinic.reports")}
+            <span className="hidden sm:inline">{t("clinic.reports")}</span>
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-4">
           <DashboardSection onSwitchTab={setMainTab} />
+        </TabsContent>
+        <TabsContent value="livemap" className="mt-4">
+          <ClinicLiveMapSection />
         </TabsContent>
         <TabsContent value="trips" className="mt-4">
           <TripsSection />
@@ -751,6 +761,349 @@ function TripProgressBar({ status }: { status: string }) {
               )}
               <span>{step.label}</span>
             </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ClinicLiveMapSection() {
+  const { token } = useAuth();
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
+  const mapsLoadedRef = useRef(false);
+  const [mapAvailable, setMapAvailable] = useState(true);
+  const [selectedTrip, setSelectedTrip] = useState<any>(null);
+
+  const mapQuery = useQuery<any>({
+    queryKey: ["/api/clinic/map"],
+    queryFn: () => apiFetch("/api/clinic/map", token),
+    enabled: !!token,
+    refetchInterval: 10000,
+  });
+
+  const mapTrips: any[] = mapQuery.data?.trips || [];
+
+  function createCarSvg(color: string) {
+    const fill = color || "#3b82f6";
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24">
+      <path d="M5 17a1 1 0 0 1-1-1v-5l2-6h12l2 6v5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1H8v1a1 1 0 0 1-1 1H5z"
+        fill="${fill}" stroke="#fff" stroke-width="1"/>
+      <circle cx="7.5" cy="14.5" r="1.5" fill="#fff"/>
+      <circle cx="16.5" cy="14.5" r="1.5" fill="#fff"/>
+      <path d="M6.5 8L8 4h8l1.5 4H6.5z" fill="${fill}" opacity="0.6" stroke="#fff" stroke-width="0.5"/>
+    </svg>`;
+  }
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+    if (mapTrips.length === 0) return;
+
+    if (mapsLoadedRef.current && mapInstanceRef.current) {
+      updateMapView();
+      return;
+    }
+
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    fetch("/api/maps/client-key", { headers })
+      .then(r => r.ok ? r.json() : fetch("/api/public/maps/key").then(rr => rr.json()))
+      .then(json => {
+        if (!json.key) { setMapAvailable(false); return; }
+        if (window.google?.maps) {
+          mapsLoadedRef.current = true;
+          initLiveMap();
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${json.key}&libraries=geometry,places`;
+        script.async = true;
+        script.onload = () => { mapsLoadedRef.current = true; initLiveMap(); };
+        script.onerror = () => setMapAvailable(false);
+        document.head.appendChild(script);
+      })
+      .catch(() => setMapAvailable(false));
+  }, [mapTrips.length > 0, token]);
+
+  useEffect(() => {
+    if (mapsLoadedRef.current && mapInstanceRef.current && mapTrips.length > 0) {
+      updateMapView();
+    }
+  }, [mapTrips]);
+
+  function initLiveMap() {
+    if (!mapContainerRef.current) return;
+    const map = new google.maps.Map(mapContainerRef.current, {
+      center: { lat: 29.76, lng: -95.36 },
+      zoom: 11,
+      disableDefaultUI: true,
+      zoomControl: true,
+      styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }],
+    });
+    mapInstanceRef.current = map;
+    directionsRendererRef.current = new google.maps.DirectionsRenderer({
+      map,
+      suppressMarkers: true,
+      polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 4, strokeOpacity: 0.7 },
+    });
+    updateMapView();
+  }
+
+  function updateMapView() {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const bounds = new google.maps.LatLngBounds();
+    const currentKeys = new Set<string>();
+
+    mapTrips.forEach(trip => {
+      if (trip.pickupLat && trip.pickupLng) {
+        const key = `pickup-${trip.tripId}`;
+        currentKeys.add(key);
+        const pos = { lat: trip.pickupLat, lng: trip.pickupLng };
+        bounds.extend(pos);
+        if (!markersRef.current.has(key)) {
+          const marker = new google.maps.Marker({
+            position: pos, map,
+            icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: "#22c55e", fillOpacity: 1, strokeWeight: 2, strokeColor: "#fff", scale: 7 },
+            title: `Pickup: ${trip.publicId}`, zIndex: 3,
+          });
+          marker.addListener("click", () => setSelectedTrip(trip));
+          markersRef.current.set(key, marker);
+        } else {
+          markersRef.current.get(key)!.setPosition(pos);
+        }
+      }
+
+      if (trip.dropoffLat && trip.dropoffLng) {
+        const key = `dropoff-${trip.tripId}`;
+        currentKeys.add(key);
+        const pos = { lat: trip.dropoffLat, lng: trip.dropoffLng };
+        bounds.extend(pos);
+        if (!markersRef.current.has(key)) {
+          const marker = new google.maps.Marker({
+            position: pos, map,
+            icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: "#ef4444", fillOpacity: 1, strokeWeight: 2, strokeColor: "#fff", scale: 7 },
+            title: `Dropoff: ${trip.publicId}`, zIndex: 3,
+          });
+          marker.addListener("click", () => setSelectedTrip(trip));
+          markersRef.current.set(key, marker);
+        } else {
+          markersRef.current.get(key)!.setPosition(pos);
+        }
+      }
+
+      if (trip.driver?.lastLat && trip.driver?.lastLng) {
+        const key = `driver-${trip.tripId}`;
+        currentKeys.add(key);
+        const pos = { lat: trip.driver.lastLat, lng: trip.driver.lastLng };
+        bounds.extend(pos);
+        const vColor = trip.driver.vehicleColor || "#3b82f6";
+        if (!markersRef.current.has(key)) {
+          const marker = new google.maps.Marker({
+            position: pos, map,
+            icon: {
+              url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(createCarSvg(vColor)),
+              scaledSize: new google.maps.Size(36, 36),
+              anchor: new google.maps.Point(18, 18),
+            },
+            title: `${trip.driver.firstName} ${trip.driver.lastName}`,
+            zIndex: 10,
+          });
+          marker.addListener("click", () => setSelectedTrip(trip));
+          markersRef.current.set(key, marker);
+        } else {
+          markersRef.current.get(key)!.setPosition(pos);
+        }
+      }
+    });
+
+    markersRef.current.forEach((marker, key) => {
+      if (!currentKeys.has(key)) {
+        marker.setMap(null);
+        markersRef.current.delete(key);
+      }
+    });
+
+    if (mapTrips.length > 0 && !bounds.isEmpty()) {
+      map.fitBounds(bounds, 60);
+    }
+
+    if (selectedTrip && directionsRendererRef.current) {
+      const trip = mapTrips.find(t => t.tripId === selectedTrip.tripId);
+      if (trip?.driver?.lastLat && trip?.driver?.lastLng && trip.pickupLat) {
+        const origin = { lat: trip.driver.lastLat, lng: trip.driver.lastLng };
+        const dest = ["PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"].includes(trip.status)
+          ? { lat: trip.dropoffLat, lng: trip.dropoffLng }
+          : { lat: trip.pickupLat, lng: trip.pickupLng };
+        if (dest.lat && dest.lng) {
+          new google.maps.DirectionsService().route(
+            { origin, destination: dest, travelMode: google.maps.TravelMode.DRIVING },
+            (result, status) => {
+              if (status === "OK" && result) directionsRendererRef.current?.setDirections(result);
+            }
+          );
+        }
+      }
+    } else if (directionsRendererRef.current) {
+      directionsRendererRef.current.setDirections({ routes: [] } as any);
+    }
+  }
+
+  const onlineTrips = mapTrips.filter(t => t.driver?.isOnline);
+  const offlineTrips = mapTrips.filter(t => t.driver && !t.driver.isOnline);
+  const noDriverTrips = mapTrips.filter(t => !t.driver);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <MapIcon className="w-4 h-4 text-blue-500" />
+          <h2 className="text-sm font-semibold" data-testid="text-livemap-title">Live Map</h2>
+          <Badge variant="secondary" className="gap-1">
+            <Activity className="w-3 h-3 text-emerald-500" />
+            {mapTrips.length} active
+          </Badge>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <RefreshCw className={`w-3 h-3 ${mapQuery.isFetching ? "animate-spin" : ""}`} />
+          Auto-refresh 10s
+        </div>
+      </div>
+
+      {mapAvailable && mapTrips.length > 0 ? (
+        <div ref={mapContainerRef} className="w-full h-64 sm:h-80 md:h-96 rounded-md border bg-muted" data-testid="div-clinic-livemap" />
+      ) : mapTrips.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground" data-testid="text-livemap-empty">
+            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p>No active trips right now</p>
+            <p className="text-xs mt-1">Active trips will appear here with live driver tracking</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            <MapPinned className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p>Map not available</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedTrip && (
+        <Card data-testid="card-selected-trip">
+          <CardContent className="py-3 px-4 space-y-2">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold">{selectedTrip.publicId}</span>
+                <Badge className={STATUS_COLORS[selectedTrip.status] || ""}>
+                  {STATUS_LABELS[selectedTrip.status] || selectedTrip.status}
+                </Badge>
+                {selectedTrip.driver?.isOnline && (
+                  <Badge variant="secondary" className="gap-1">
+                    <Activity className="w-3 h-3 text-emerald-500" /> Live
+                  </Badge>
+                )}
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedTrip(null)} data-testid="button-deselect-trip">
+                Deselect
+              </Button>
+            </div>
+            {selectedTrip.driver && (
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 text-sm">
+                  <Car className="w-4 h-4" style={{ color: selectedTrip.driver.vehicleColor || "#3b82f6" }} />
+                  <span>{selectedTrip.driver.firstName} {selectedTrip.driver.lastName}</span>
+                  {selectedTrip.driver.vehicleLabel && (
+                    <span className="text-xs text-muted-foreground">{selectedTrip.driver.vehicleLabel}</span>
+                  )}
+                </div>
+                <div className="text-right">
+                  {selectedTrip.eta && selectedTrip.driver.isOnline ? (
+                    <p className="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1" data-testid="text-eta-value">
+                      <Navigation className="w-3.5 h-3.5" />
+                      Arriving in {selectedTrip.eta.minutes} min
+                    </p>
+                  ) : selectedTrip.driver && !selectedTrip.driver.isOnline ? (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid="text-driver-offline">
+                      <WifiOff className="w-3 h-3" />
+                      Driver offline - last seen {formatTimeAgo(selectedTrip.driver.lastSeenAt)}
+                    </p>
+                  ) : null}
+                  {selectedTrip.eta?.updatedAt && (
+                    <p className="text-xs text-muted-foreground">Updated {formatTimeAgo(selectedTrip.eta.updatedAt)}</p>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+              <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-emerald-500" /> {selectedTrip.pickupAddress || "Pickup"}</span>
+              <ArrowRight className="w-3 h-3" />
+              <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-red-500" /> {selectedTrip.dropoffAddress || "Dropoff"}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="space-y-2" data-testid="list-livemap-trips">
+        {mapTrips.map(trip => {
+          const isSelected = selectedTrip?.tripId === trip.tripId;
+          return (
+            <Card
+              key={trip.tripId}
+              className={`hover-elevate cursor-pointer ${isSelected ? "ring-2 ring-primary" : ""}`}
+              onClick={() => setSelectedTrip(isSelected ? null : trip)}
+              data-testid={`card-livemap-trip-${trip.tripId}`}
+            >
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{trip.publicId}</span>
+                      <Badge className={STATUS_COLORS[trip.status] || ""}>
+                        {STATUS_LABELS[trip.status] || trip.status}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                      {trip.driver ? (
+                        <span className="flex items-center gap-1 text-foreground font-medium">
+                          <Car className="w-3 h-3" style={{ color: trip.driver.vehicleColor || "#3b82f6" }} />
+                          {trip.driver.firstName} {trip.driver.lastName}
+                        </span>
+                      ) : (
+                        <span className="italic">No driver assigned</span>
+                      )}
+                      {trip.pickupTime && (
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {trip.pickupTime}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right space-y-0.5 flex-shrink-0">
+                    {trip.eta && trip.driver?.isOnline ? (
+                      <p className="text-sm font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                        <Navigation className="w-3.5 h-3.5" />
+                        {trip.eta.minutes} min
+                      </p>
+                    ) : trip.driver && !trip.driver.isOnline ? (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <WifiOff className="w-3 h-3" />
+                        Offline
+                      </p>
+                    ) : null}
+                    {trip.driver?.isOnline && (
+                      <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                        <Radio className="w-3 h-3" /> Live
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           );
         })}
       </div>

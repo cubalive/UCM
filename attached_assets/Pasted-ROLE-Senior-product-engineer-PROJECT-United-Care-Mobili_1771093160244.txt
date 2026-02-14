@@ -1,0 +1,235 @@
+ROLE: Senior product engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- Sequential execution only
+- Do NOT reset DB
+- Do NOT recreate tables
+- Extend existing system
+- Production safe
+- Verify before exit
+
+OBJECTIVE:
+Convert the Clinic Portal into an addictive Ops Dashboard.
+Clinics must depend on it daily for dialysis flow, arrivals, delays, and performance.
+
+We are not building a generic map.
+We are building a CLINIC OPERATIONS CONTROL PANEL.
+
+-------------------------------------------------
+SECTION 1 — CLINIC OPS DASHBOARD (MAIN SCREEN)
+-------------------------------------------------
+Create a new page:
+Clinic → Ops Dashboard
+
+Top KPI CARDS (real-time, refresh 15s):
+
+1. Patients En Route to Clinic
+   count where direction=TO_CLINIC and active
+
+2. Patients Leaving Clinic
+   count where direction=FROM_CLINIC and active
+
+3. Arrivals Next 60 Minutes
+   count ETA < 60 and TO_CLINIC
+
+4. Late Risk
+   ETA > scheduled_time + threshold (10 min)
+
+5. No Driver Assigned
+   scheduled trips today with no driver
+
+6. Completed Today
+   completed trips today
+
+7. No-Shows Today
+   patient_no_show or driver_no_show
+
+8. Recurring Patients Active
+   dialysis recurring today
+
+-------------------------------------------------
+SECTION 2 — CLINIC OPS MAP (SMART, NOT SPYING)
+-------------------------------------------------
+Map centered on clinic.
+
+Show ONLY:
+- Patients coming to clinic
+- Patients leaving clinic
+- Driver marker ONLY when within active trip
+- No full route polyline
+
+Markers:
+Green → on time
+Yellow → approaching
+Red → late
+Gray → driver offline
+
+Click marker opens side panel:
+- Patient name
+- Driver name
+- ETA
+- Status
+- Last GPS update
+- Call driver button
+- Call patient button
+
+-------------------------------------------------
+SECTION 3 — LIVE ARRIVALS BOARD (THIS IS KEY)
+-------------------------------------------------
+Create a table like airport arrivals:
+
+Columns:
+- Patient
+- From / To
+- Scheduled time
+- ETA
+- Status
+- Driver
+- Late indicator
+- Arrived toggle (view only)
+
+Sorted by:
+closest ETA first
+
+Highlight:
+- flashing red if late
+- yellow if risk
+- green if on time
+
+This becomes clinic's TV screen.
+
+-------------------------------------------------
+SECTION 4 — TRIPS TAB STRUCTURE
+-------------------------------------------------
+Tabs:
+LIVE
+SCHEDULED
+PENDING
+COMPLETED
+
+Filters:
+- Recurring
+- One-time
+- All
+
+Recurring detection:
+trip_type='dialysis'
+OR trip_series_id not null
+
+Each row shows:
+- Patient
+- Time
+- Driver
+- Status
+- ETA
+- Direction
+
+-------------------------------------------------
+SECTION 5 — WEEKLY METRICS PANEL (ADDICTIVE)
+-------------------------------------------------
+Create "Performance" tab.
+
+Metrics clinics care about:
+
+1. On-Time Arrival %
+2. Avg Delay Minutes
+3. No-show rate
+4. Avg pickup wait time
+5. Trips per day
+6. Recurring reliability score
+7. Driver reliability score
+8. Cancellation reasons
+
+Charts:
+- Daily arrivals
+- Late trends
+- No-show trends
+- Volume by day
+
+-------------------------------------------------
+SECTION 6 — AUTO REPORT (THIS WINS THEM)
+-------------------------------------------------
+Generate weekly PDF summary:
+
+For each clinic:
+- total trips
+- on-time %
+- late %
+- no-show %
+- busiest day
+- avg wait time
+
+Button:
+Download weekly report
+
+Future:
+auto email Monday morning
+
+-------------------------------------------------
+SECTION 7 — ALERT SYSTEM
+-------------------------------------------------
+Clinic sees alerts:
+
+Driver offline during trip
+Patient waiting too long
+ETA stale >5min
+Late risk
+No driver assigned
+
+Alert panel top right.
+
+-------------------------------------------------
+SECTION 8 — DISPATCH OPS MAP
+-------------------------------------------------
+Dispatch keeps full map:
+
+Filters:
+Online drivers
+In route
+Active trips
+Offline
+
+Shows:
+driver icons
+polylines
+full routes
+
+-------------------------------------------------
+SECTION 9 — SECURITY
+-------------------------------------------------
+Clinic only sees:
+their clinic trips
+
+Dispatch sees:
+all
+
+-------------------------------------------------
+SECTION 10 — PERFORMANCE RULES
+-------------------------------------------------
+Do NOT call Google API every refresh.
+Use cached ETA updated every 2 minutes.
+
+Map refresh:
+10 sec
+
+-------------------------------------------------
+VERIFICATION
+-------------------------------------------------
+Clinic:
+- sees arrivals board
+- sees KPI cards
+- sees ops map
+- sees weekly metrics
+
+Dispatch:
+- full ops map works
+
+Security:
+clinic cannot access other clinic trips
+
+Report back:
+files changed
+endpoints added
+test results

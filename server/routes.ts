@@ -3207,6 +3207,75 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/clinic/map", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+      const TERMINAL = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      const PRESENCE_TIMEOUT = 120_000;
+
+      const clinicTrips = await db.select().from(trips).where(
+        and(
+          eq(trips.clinicId, user.clinicId),
+          sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
+          isNull(trips.deletedAt),
+        )
+      );
+
+      const result = await Promise.all(clinicTrips.map(async (trip) => {
+        let driverData = null;
+        if (trip.driverId) {
+          const driver = await storage.getDriver(trip.driverId);
+          if (driver) {
+            const lastSeenMs = driver.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
+            const isOnline = lastSeenMs < PRESENCE_TIMEOUT
+              && driver.dispatchStatus !== "off"
+              && driver.dispatchStatus !== "hold";
+            const vehicle = driver.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
+            driverData = {
+              id: driver.id,
+              firstName: driver.firstName,
+              lastName: driver.lastName,
+              lastLat: driver.lastLat,
+              lastLng: driver.lastLng,
+              lastSeenAt: driver.lastSeenAt,
+              dispatchStatus: driver.dispatchStatus,
+              isOnline,
+              vehicleColor: vehicle?.color || null,
+              vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
+            };
+          }
+        }
+
+        return {
+          tripId: trip.id,
+          publicId: trip.publicId,
+          status: trip.status,
+          pickupLat: trip.pickupLat,
+          pickupLng: trip.pickupLng,
+          pickupAddress: trip.pickupAddress,
+          dropoffLat: trip.dropoffLat,
+          dropoffLng: trip.dropoffLng,
+          dropoffAddress: trip.dropoffAddress,
+          scheduledDate: trip.scheduledDate,
+          pickupTime: trip.pickupTime,
+          driver: driverData,
+          eta: trip.lastEtaMinutes != null ? {
+            minutes: trip.lastEtaMinutes,
+            updatedAt: trip.lastEtaUpdatedAt?.toISOString() || null,
+          } : null,
+          polyline: trip.routePolyline || null,
+        };
+      }));
+
+      res.json({ ok: true, trips: result });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, message: err.message });
+    }
+  });
+
   app.get("/api/clinic/trips/export", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
