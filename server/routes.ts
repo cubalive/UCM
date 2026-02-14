@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, clinics, patients, vehicleMakes, vehicleModels, trips } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, users, drivers, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages } from "@shared/schema";
 import { z } from "zod";
 import { eq, sql, and, isNull } from "drizzle-orm";
 import { db } from "./db";
@@ -1259,6 +1259,164 @@ export async function registerRoutes(
     }
   });
 
+  // Phase 1: Driver availability toggle
+  app.post("/api/driver/me/active", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const { active } = req.body;
+      if (typeof active !== "boolean") return res.status(400).json({ message: "active must be boolean" });
+      const newStatus = active ? "available" : "off";
+      const updateData: any = { dispatchStatus: newStatus };
+      if (active) updateData.lastActiveAt = new Date();
+      await db.update(drivers).set(updateData).where(eq(drivers.id, user.driverId));
+      const driver = await storage.getDriver(user.driverId);
+      res.json({ driver });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Phase 1: Get active drivers for dispatch
+  app.get("/api/dispatch/drivers/active", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : null;
+      if (cityId) {
+        const hasAccess = await checkCityAccess(req, cityId);
+        if (!hasAccess) return res.status(403).json({ message: "Access denied" });
+      }
+      let query = db.select().from(drivers).where(
+        and(
+          eq(drivers.dispatchStatus, "available"),
+          eq(drivers.active, true),
+          isNull(drivers.deletedAt),
+          ...(cityId ? [eq(drivers.cityId, cityId)] : [])
+        )
+      );
+      const activeDrivers = await query;
+      res.json(activeDrivers);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Phase 4: Driver location heartbeat
+  app.post("/api/driver/me/location", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const { lat, lng, heading, speed } = req.body;
+      if (typeof lat !== "number" || typeof lng !== "number") {
+        return res.status(400).json({ message: "lat and lng are required numbers" });
+      }
+      await db.update(drivers).set({
+        lastLat: lat,
+        lastLng: lng,
+        lastSeenAt: new Date(),
+      }).where(eq(drivers.id, user.driverId));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Phase 2: Assign driver to trip
+  app.patch("/api/trips/:id/assign", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(id);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (terminalStatuses.includes(trip.status)) {
+        return res.status(400).json({ message: "Cannot assign driver to a completed/cancelled trip" });
+      }
+      const { driverId, vehicleId } = req.body;
+      if (!driverId) return res.status(400).json({ message: "driverId is required" });
+      const driver = await storage.getDriver(driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+      if (driver.cityId !== trip.cityId) {
+        return res.status(400).json({ message: "Driver must be in the same city as the trip" });
+      }
+      if (driver.dispatchStatus === "hold") {
+        return res.status(400).json({ message: "Driver is on hold" });
+      }
+      const updateData: any = { driverId, status: "ASSIGNED" };
+      if (vehicleId) updateData.vehicleId = vehicleId;
+      const updated = await storage.updateTrip(id, updateData);
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ASSIGN_DRIVER",
+        entity: "trip",
+        entityId: id,
+        details: `Assigned driver ${driver.firstName} ${driver.lastName} to trip ${trip.publicId}`,
+        cityId: trip.cityId,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Phase 6: Trip messages
+  app.get("/api/trips/:id/messages", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(tripId);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (req.user!.role === "DRIVER") {
+        const user = await storage.getUser(req.user!.userId);
+        if (!user?.driverId || trip.driverId !== user.driverId) {
+          return res.status(403).json({ message: "You can only view messages for your assigned trips" });
+        }
+      } else {
+        const hasAccess = await checkCityAccess(req, trip.cityId);
+        if (!hasAccess) return res.status(403).json({ message: "Access denied" });
+      }
+      const messages = await db.select().from(tripMessages)
+        .where(eq(tripMessages.tripId, tripId))
+        .orderBy(tripMessages.createdAt);
+      res.json(messages);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/trips/:id/messages", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(tripId);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (trip.status === "COMPLETED") {
+        return res.status(400).json({ message: "Cannot send messages on a completed trip" });
+      }
+      if (req.user!.role === "DRIVER") {
+        const user = await storage.getUser(req.user!.userId);
+        if (!user?.driverId || trip.driverId !== user.driverId) {
+          return res.status(403).json({ message: "You can only message on your assigned trips" });
+        }
+      } else {
+        const hasAccess = await checkCityAccess(req, trip.cityId);
+        if (!hasAccess) return res.status(403).json({ message: "Access denied" });
+      }
+      const { message } = req.body;
+      if (!message || typeof message !== "string" || !message.trim()) {
+        return res.status(400).json({ message: "Message text is required" });
+      }
+      const [newMsg] = await db.insert(tripMessages).values({
+        tripId,
+        senderId: req.user!.userId,
+        senderRole: req.user!.role,
+        message: message.trim(),
+      }).returning();
+      res.json(newMsg);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
@@ -1430,6 +1588,10 @@ export async function registerRoutes(
       const existing = await storage.getTrip(id);
       if (!existing) return res.status(404).json({ message: "Trip not found" });
 
+      if (existing.status === "COMPLETED") {
+        return res.status(400).json({ message: "Trip is completed and locked. No changes allowed." });
+      }
+
       if (!(await checkCityAccess(req, existing.cityId))) {
         return res.status(403).json({ message: "No access to this city" });
       }
@@ -1542,8 +1704,29 @@ export async function registerRoutes(
   });
 
   const updateStatusSchema = z.object({
-    status: z.enum(["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"]),
+    status: z.enum(["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"]),
   });
+
+  const VALID_TRANSITIONS: Record<string, string[]> = {
+    SCHEDULED: ["ASSIGNED", "CANCELLED"],
+    ASSIGNED: ["EN_ROUTE_TO_PICKUP", "CANCELLED"],
+    EN_ROUTE_TO_PICKUP: ["ARRIVED_PICKUP", "CANCELLED"],
+    ARRIVED_PICKUP: ["PICKED_UP", "NO_SHOW", "CANCELLED"],
+    PICKED_UP: ["EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "CANCELLED"],
+    EN_ROUTE_TO_DROPOFF: ["COMPLETED", "CANCELLED"],
+    IN_PROGRESS: ["COMPLETED", "CANCELLED"],
+    COMPLETED: [],
+    CANCELLED: [],
+    NO_SHOW: [],
+  };
+
+  const STATUS_TIMESTAMP_MAP: Record<string, string> = {
+    EN_ROUTE_TO_PICKUP: "startedAt",
+    ARRIVED_PICKUP: "arrivedPickupAt",
+    PICKED_UP: "pickedUpAt",
+    EN_ROUTE_TO_DROPOFF: "enRouteDropoffAt",
+    COMPLETED: "completedAt",
+  };
 
   app.patch("/api/trips/:id/status", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER"), async (req: AuthRequest, res) => {
     try {
@@ -1552,12 +1735,37 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid status" });
       }
       const id = parseInt(req.params.id);
-      const trip = await storage.updateTripStatus(id, parsed.data.status);
+      const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
 
-      if (parsed.data.status === "IN_PROGRESS") {
-        const { autoNotifyPatient } = await import("./lib/dispatchAutoSms");
-        autoNotifyPatient(id, "arrived");
+      if (trip.status === "COMPLETED") {
+        return res.status(400).json({ message: "Trip is completed and locked. No changes allowed." });
+      }
+
+      if (req.user!.role === "DRIVER") {
+        const user = await storage.getUser(req.user!.userId);
+        if (!user?.driverId || trip.driverId !== user.driverId) {
+          return res.status(403).json({ message: "You can only update status for your assigned trips" });
+        }
+      }
+
+      const allowedNext = VALID_TRANSITIONS[trip.status] || [];
+      if (req.user!.role === "DRIVER" && !allowedNext.includes(parsed.data.status)) {
+        return res.status(400).json({ message: `Invalid transition from ${trip.status} to ${parsed.data.status}` });
+      }
+
+      const timestampField = STATUS_TIMESTAMP_MAP[parsed.data.status];
+      const updateData: any = { status: parsed.data.status };
+      if (timestampField) {
+        updateData[timestampField] = new Date();
+      }
+      const updated = await db.update(trips).set(updateData).where(eq(trips.id, id)).returning();
+      const updatedTrip = updated[0];
+
+      if (parsed.data.status === "EN_ROUTE_TO_PICKUP" || parsed.data.status === "IN_PROGRESS") {
+        import("./lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+          autoNotifyPatient(id, "arrived");
+        }).catch(() => {});
       }
 
       if (parsed.data.status === "CANCELLED") {
@@ -1577,11 +1785,11 @@ export async function registerRoutes(
         userId: req.user!.userId,
         action: "UPDATE_STATUS",
         entity: "trip",
-        entityId: trip.id,
+        entityId: updatedTrip.id,
         details: `Trip status changed to ${parsed.data.status}`,
-        cityId: trip.cityId,
+        cityId: updatedTrip.cityId,
       });
-      res.json(trip);
+      res.json(updatedTrip);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

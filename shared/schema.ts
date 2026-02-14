@@ -14,6 +14,10 @@ export const userRoleEnum = pgEnum("user_role", [
 export const tripStatusEnum = pgEnum("trip_status", [
   "SCHEDULED",
   "ASSIGNED",
+  "EN_ROUTE_TO_PICKUP",
+  "ARRIVED_PICKUP",
+  "PICKED_UP",
+  "EN_ROUTE_TO_DROPOFF",
   "IN_PROGRESS",
   "COMPLETED",
   "CANCELLED",
@@ -163,6 +167,7 @@ export const drivers = pgTable("drivers", {
   lastSeenAt: timestamp("last_seen_at"),
   status: driverStatusEnum("status").notNull().default("ACTIVE"),
   dispatchStatus: dispatchStatusEnum("dispatch_status").notNull().default("off"),
+  lastActiveAt: timestamp("last_active_at"),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
@@ -277,10 +282,28 @@ export const trips = pgTable("trips", {
   assignmentBatchId: integer("assignment_batch_id"),
   assignmentSource: text("assignment_source"),
   assignmentReason: text("assignment_reason"),
+  startedAt: timestamp("started_at"),
+  arrivedPickupAt: timestamp("arrived_pickup_at"),
+  pickedUpAt: timestamp("picked_up_at"),
+  enRouteDropoffAt: timestamp("en_route_dropoff_at"),
+  completedAt: timestamp("completed_at"),
   deletedAt: timestamp("deleted_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const tripMessages = pgTable("trip_messages", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  senderId: integer("sender_id").notNull().references(() => users.id),
+  senderRole: text("sender_role").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertTripMessageSchema = createInsertSchema(tripMessages).omit({ id: true, createdAt: true });
+export type InsertTripMessage = z.infer<typeof insertTripMessageSchema>;
+export type TripMessage = typeof tripMessages.$inferSelect;
 
 export const smsOptOut = pgTable("sms_opt_out", {
   phone: text("phone").primaryKey(),

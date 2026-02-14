@@ -25,7 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { RecurringSchedule, type TripType, type SeriesPattern, type SeriesEndType } from "@/components/recurring-schedule";
@@ -65,12 +65,31 @@ function getTodayInTimezone(tz: string): string {
   }
 }
 
+type TripTab = "all" | "unassigned" | "scheduled" | "active" | "completed";
+
+const ACTIVE_TRIP_STATUSES = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"];
+
+const STATUS_DISPLAY_LABELS: Record<string, string> = {
+  SCHEDULED: "Scheduled",
+  ASSIGNED: "Assigned",
+  EN_ROUTE_TO_PICKUP: "En Route Pickup",
+  ARRIVED_PICKUP: "Arrived Pickup",
+  PICKED_UP: "Picked Up",
+  EN_ROUTE_TO_DROPOFF: "En Route Dropoff",
+  IN_PROGRESS: "In Progress",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  NO_SHOW: "No Show",
+};
+
 export default function TripsPage() {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [detailTrip, setDetailTrip] = useState<any>(null);
+  const [tripTab, setTripTab] = useState<TripTab>("all");
+  const [assignTrip, setAssignTrip] = useState<any>(null);
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -219,7 +238,37 @@ export default function TripsPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const filtered = trips?.filter(
+  const assignDriverMutation = useMutation({
+    mutationFn: ({ tripId, driverId, vehicleId }: { tripId: number; driverId: number; vehicleId?: number }) =>
+      apiFetch(`/api/trips/${tripId}/assign`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ driverId, vehicleId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      setAssignTrip(null);
+      toast({ title: "Driver assigned to trip" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const tabFiltered = trips?.filter((t: any) => {
+    if (t.deletedAt) return false;
+    switch (tripTab) {
+      case "unassigned":
+        return !t.driverId && ["SCHEDULED", "ASSIGNED"].includes(t.status) && t.approvalStatus === "approved";
+      case "scheduled":
+        return ["SCHEDULED", "ASSIGNED"].includes(t.status);
+      case "active":
+        return ACTIVE_TRIP_STATUSES.includes(t.status);
+      case "completed":
+        return t.status === "COMPLETED";
+      default:
+        return t.status !== "CANCELLED" && t.status !== "NO_SHOW" || true;
+    }
+  });
+
+  const filtered = tabFiltered?.filter(
     (t: any) =>
       t.publicId?.toLowerCase().includes(search.toLowerCase()) ||
       t.pickupAddress?.toLowerCase().includes(search.toLowerCase()) ||
@@ -287,6 +336,26 @@ export default function TripsPage() {
             />
           </DialogContent>
         </Dialog>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        {([
+          { key: "all" as TripTab, label: "All" },
+          { key: "unassigned" as TripTab, label: "Unassigned" },
+          { key: "scheduled" as TripTab, label: "Scheduled" },
+          { key: "active" as TripTab, label: "Active" },
+          { key: "completed" as TripTab, label: "Completed" },
+        ]).map((tab) => (
+          <Button
+            key={tab.key}
+            variant={tripTab === tab.key ? "default" : "outline"}
+            size="sm"
+            onClick={() => setTripTab(tab.key)}
+            data-testid={`button-tab-${tab.key}`}
+          >
+            {tab.label}
+          </Button>
+        ))}
       </div>
 
       <div className="relative max-w-sm">
@@ -408,23 +477,36 @@ export default function TripsPage() {
                             Cancel Trip
                           </Button>
                         )}
+                        {isDispatchOrAdmin && !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => { e.stopPropagation(); setAssignTrip(trip); }}
+                            data-testid={`button-assign-driver-${trip.id}`}
+                          >
+                            <UserCheck className="w-3 h-3 mr-1" />
+                            Assign Driver
+                          </Button>
+                        )}
+                        {trip.status !== "COMPLETED" && (
                         <Select
                           value={trip.status}
                           onValueChange={(status) => updateStatusMutation.mutate({ id: trip.id, status })}
                         >
                           <SelectTrigger
-                            className="w-36"
+                            className="w-44"
                             data-testid={`select-trip-status-${trip.id}`}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"].map((s) => (
-                              <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
+                            {["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"].map((s) => (
+                              <SelectItem key={s} value={s}>{STATUS_DISPLAY_LABELS[s] || s.replace(/_/g, " ")}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
+                        )}
                         {user?.role === "SUPER_ADMIN" && (
                           <Button
                             size="icon"
@@ -601,6 +683,86 @@ export default function TripsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={!!assignTrip} onOpenChange={(open) => { if (!open) setAssignTrip(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Driver to {assignTrip?.publicId}</DialogTitle>
+          </DialogHeader>
+          <AssignDriverPanel
+            trip={assignTrip}
+            token={token}
+            cityId={selectedCity?.id}
+            onAssign={(driverId, vehicleId) => {
+              if (assignTrip) assignDriverMutation.mutate({ tripId: assignTrip.id, driverId, vehicleId });
+            }}
+            loading={assignDriverMutation.isPending}
+          />
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function AssignDriverPanel({
+  trip,
+  token,
+  cityId,
+  onAssign,
+  loading,
+}: {
+  trip: any;
+  token: string | null;
+  cityId?: number;
+  onAssign: (driverId: number, vehicleId?: number) => void;
+  loading: boolean;
+}) {
+  const [selectedDriverId, setSelectedDriverId] = useState<string>("");
+
+  const activeDriversQuery = useQuery<any[]>({
+    queryKey: ["/api/dispatch/drivers/active", cityId],
+    queryFn: () => apiFetch(`/api/dispatch/drivers/active${cityId ? `?cityId=${cityId}` : ""}`, token),
+    enabled: !!token && !!trip,
+  });
+
+  const activeDrivers = activeDriversQuery.data || [];
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Select Active Driver</Label>
+        {activeDriversQuery.isLoading ? (
+          <Skeleton className="h-10 w-full mt-1" />
+        ) : activeDrivers.length === 0 ? (
+          <p className="text-sm text-muted-foreground mt-1">No active drivers available in this city.</p>
+        ) : (
+          <Select value={selectedDriverId} onValueChange={setSelectedDriverId}>
+            <SelectTrigger className="w-full mt-1" data-testid="select-assign-driver">
+              <SelectValue placeholder="Choose a driver" />
+            </SelectTrigger>
+            <SelectContent>
+              {activeDrivers.map((d: any) => (
+                <SelectItem key={d.id} value={d.id.toString()}>
+                  {d.firstName} {d.lastName} ({d.publicId})
+                  {d.vehicleId ? " - Vehicle assigned" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+      <DialogFooter>
+        <Button
+          onClick={() => {
+            if (!selectedDriverId) return;
+            const driver = activeDrivers.find((d: any) => d.id === parseInt(selectedDriverId));
+            onAssign(parseInt(selectedDriverId), driver?.vehicleId || undefined);
+          }}
+          disabled={loading || !selectedDriverId}
+          data-testid="button-confirm-assign"
+        >
+          {loading ? "Assigning..." : "Assign Driver"}
+        </Button>
+      </DialogFooter>
     </div>
   );
 }
