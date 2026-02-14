@@ -589,6 +589,80 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/ops/checks", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const rawCityId = req.query.city_id ? parseInt(req.query.city_id as string) : undefined;
+      const cityId = rawCityId && !isNaN(rawCityId) ? rawCityId : undefined;
+      const { isDriverOnline, isDriverVisibleOnMap, ONLINE_CUTOFF_MS } = await import("./driverClassification");
+
+      const rawDrivers = await storage.getDrivers(cityId);
+      const activeDrivers = rawDrivers.filter(d => d.active && !d.deletedAt && d.status === "ACTIVE");
+      const allTrips = await storage.getTrips(cityId);
+      const today = new Date().toISOString().slice(0, 10);
+
+      const checks: {
+        id: string;
+        name: string;
+        pass: boolean;
+        count: number;
+        details: string[];
+      }[] = [];
+
+      const onMapButOff = activeDrivers.filter(d =>
+        (d.lastLat != null && d.lastLng != null) &&
+        (d.dispatchStatus === "off" || !isDriverOnline(d))
+      );
+      checks.push({
+        id: "drivers_on_map_but_off",
+        name: "Drivers with GPS coords but logged out / stale",
+        pass: onMapButOff.length === 0,
+        count: onMapButOff.length,
+        details: onMapButOff.map(d => `${d.firstName} ${d.lastName} (${d.publicId}) - status: ${d.dispatchStatus}, lastSeen: ${d.lastSeenAt || 'never'}`),
+      });
+
+      const availableButStale = activeDrivers.filter(d =>
+        d.dispatchStatus === "available" && !isDriverOnline(d)
+      );
+      checks.push({
+        id: "available_but_stale_last_seen",
+        name: "Drivers marked available but stale GPS (>120s)",
+        pass: availableButStale.length === 0,
+        count: availableButStale.length,
+        details: availableButStale.map(d => `${d.firstName} ${d.lastName} (${d.publicId}) - lastSeen: ${d.lastSeenAt || 'never'}`),
+      });
+
+      const todayTrips = allTrips.filter(t => t.scheduledDate === today);
+      const scheduledNoPickup = todayTrips.filter(t =>
+        t.status === "SCHEDULED" && !t.pickupTime
+      );
+      checks.push({
+        id: "trips_scheduled_missing_pickup_time",
+        name: "Scheduled trips missing pickup time",
+        pass: scheduledNoPickup.length === 0,
+        count: scheduledNoPickup.length,
+        details: scheduledNoPickup.map(t => `${t.publicId} - date: ${t.scheduledDate}`),
+      });
+
+      const assignedNoDriver = todayTrips.filter(t =>
+        t.status === "ASSIGNED" && !t.driverId
+      );
+      checks.push({
+        id: "trips_assigned_missing_driver",
+        name: "Trips marked ASSIGNED but no driver set",
+        pass: assignedNoDriver.length === 0,
+        count: assignedNoDriver.length,
+        details: assignedNoDriver.map(t => `${t.publicId}`),
+      });
+
+      const allPassed = checks.every(c => c.pass);
+
+      res.json({ ok: allPassed, checks });
+    } catch (err: any) {
+      console.error("[OPS-CHECKS] Error:", err.message);
+      res.status(500).json({ error: "Failed to run ops checks" });
+    }
+  });
+
   app.get("/api/ops/clinic-health", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
       const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;

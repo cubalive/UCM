@@ -47,6 +47,7 @@
     "invoices": "Invoices",
     "dispatchBoard": "Dispatch Board",
     "opsHealth": "Ops Health",
+    "opsChecks": "Ops Checks",
     "autoAssign": "Auto Assign",
     "cities": "Cities",
     "users": "Users",

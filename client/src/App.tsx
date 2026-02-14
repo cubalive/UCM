@@ -33,6 +33,7 @@ import AssignmentsPage from "@/pages/assignments";
 import ReportsPage from "@/pages/reports";
 import FinancialPage from "@/pages/financial";
 import OpsHealthPage from "@/pages/ops-health";
+import OpsChecksPage from "@/pages/ops-checks";
 import LiveMapPage from "@/pages/live-map";
 import ArchivePage from "@/pages/archive";
 import AutoAssignmentPage from "@/pages/auto-assignment";
@@ -128,6 +129,7 @@ function Router() {
       <Route path="/reports">{() => <ProtectedRoute resource="audit" component={ReportsPage} />}</Route>
       <Route path="/financial">{() => <ProtectedRoute resource="audit" component={FinancialPage} />}</Route>
       <Route path="/ops-health">{() => <ProtectedRoute resource="dispatch" component={OpsHealthPage} />}</Route>
+      <Route path="/ops-checks">{() => <ProtectedRoute resource="dispatch" component={OpsChecksPage} />}</Route>
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>
       <Route path="/auto-assignment">{() => <ProtectedRoute resource="dispatch" component={AutoAssignmentPage} />}</Route>
       <Route path="/dispatch-board">{() => <ProtectedRoute resource="dispatch" component={DispatchBoardPage} />}</Route>

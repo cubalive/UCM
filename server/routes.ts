@@ -2151,11 +2151,10 @@ export async function registerRoutes(
       if (driver.cityId !== trip.cityId) {
         return res.status(400).json({ message: "Driver must be in the same city as the trip" });
       }
-      if (driver.dispatchStatus === "hold") {
-        return res.status(400).json({ message: "Driver is on hold" });
-      }
-      if (driver.dispatchStatus === "off") {
-        return res.status(400).json({ message: "Driver is offline. Only active drivers can be assigned trips." });
+      const { isDriverAssignable } = await import("./lib/driverClassification");
+      const assignCheck = isDriverAssignable(driver);
+      if (!assignCheck.ok) {
+        return res.status(400).json({ message: assignCheck.reason });
       }
       const updateData: any = { driverId, status: "ASSIGNED", assignedAt: new Date(), assignedBy: req.user!.userId };
       if (vehicleId) updateData.vehicleId = vehicleId;

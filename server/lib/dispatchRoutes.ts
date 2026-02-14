@@ -7,6 +7,7 @@ import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 import { autoNotifyPatient } from "./dispatchAutoSms";
 import { tripLockedGuard } from "./tripLockGuard";
+import { isDriverOnline, isDriverVisibleOnMap, classifyDrivers } from "./driverClassification";
 
 const assignDriverVehicleSchema = z.object({
   driver_id: z.number().int().positive(),
@@ -422,15 +423,6 @@ export function registerDispatchRoutes(app: Express) {
     }
   );
 
-  const ONLINE_CUTOFF_MS = 120 * 1000;
-
-  function isDriverOnline(d: any): boolean {
-    if (d.dispatchStatus === "off") return false;
-    if (!d.lastSeenAt) return false;
-    const elapsed = Date.now() - new Date(d.lastSeenAt).getTime();
-    return elapsed <= ONLINE_CUTOFF_MS;
-  }
-
   app.get("/api/dispatch/drivers/status",
     authMiddleware,
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
@@ -460,49 +452,9 @@ export function registerDispatchRoutes(app: Express) {
         const rawVehicles = await storage.getVehicles(cityId);
         const vehicleMap = new Map(rawVehicles.map((v) => [v.id, v]));
 
-        const available: any[] = [];
-        const busy: any[] = [];
-        const hold: any[] = [];
-        const logged_out: any[] = [];
+        const groups = classifyDrivers(allDrivers, activeTripsMap, vehicleMap);
 
-        for (const d of allDrivers) {
-          const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
-          const activeTrip = activeTripsMap.get(d.id);
-          const online = isDriverOnline(d);
-
-          const driverObj = {
-            id: d.id,
-            name: `${d.firstName} ${d.lastName}`,
-            firstName: d.firstName,
-            lastName: d.lastName,
-            publicId: d.publicId,
-            phone: d.phone,
-            dispatch_status: d.dispatchStatus,
-            is_online: online,
-            last_seen_at: d.lastSeenAt,
-            vehicle_id: d.vehicleId,
-            vehicle_name: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
-            vehicle_color_hex: (vehicle as any)?.colorHex || null,
-            active_trip_id: activeTrip?.id || null,
-            active_trip_public_id: activeTrip?.publicId || null,
-            active_trip_status: activeTrip?.status || null,
-            cityId: d.cityId,
-          };
-
-          if (!online) {
-            logged_out.push(driverObj);
-          } else if (d.dispatchStatus === "hold") {
-            hold.push(driverObj);
-          } else if (d.dispatchStatus === "enroute" || activeTrip) {
-            busy.push(driverObj);
-          } else if (d.dispatchStatus === "available") {
-            available.push(driverObj);
-          } else {
-            logged_out.push(driverObj);
-          }
-        }
-
-        res.json({ available, busy, hold, logged_out });
+        res.json(groups);
       } catch (err: any) {
         res.status(500).json({ message: err.message });
       }
@@ -536,12 +488,7 @@ export function registerDispatchRoutes(app: Express) {
 
         const vehicleMap = new Map(allVehicles.map((v) => [v.id, v]));
 
-        const visibleDrivers = allDrivers.filter((d) => {
-          if (d.dispatchStatus === "off") return false;
-          if (d.lastLat == null || d.lastLng == null) return false;
-          if (!isDriverOnline(d)) return false;
-          return true;
-        });
+        const visibleDrivers = allDrivers.filter((d) => isDriverVisibleOnMap(d));
 
         const driversWithVehicles = visibleDrivers.map((d) => ({
           ...d,
