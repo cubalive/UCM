@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -44,6 +44,9 @@ import {
   EyeOff,
   Repeat,
   Briefcase,
+  Timer,
+  Send,
+  XCircle,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -175,6 +178,16 @@ export default function DispatchBoardPage() {
   const [confirmAssign, setConfirmAssign] = useState<{ tripId: number; driverId: number; vehicleId?: number; warning: string } | null>(null);
   const [showAutoAssignConfirm, setShowAutoAssignConfirm] = useState(false);
   const [autoAssignResult, setAutoAssignResult] = useState<AutoAssignResult | null>(null);
+  const [pendingOffer, setPendingOffer] = useState<{
+    offerId: number;
+    tripId: number;
+    driverName: string;
+    expiresAt: string;
+    status: string;
+    tripPublicId?: string;
+  } | null>(null);
+  const [offerCountdown, setOfferCountdown] = useState(0);
+  const offerPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const cityId = selectedCity?.id;
 
@@ -198,18 +211,82 @@ export default function DispatchBoardPage() {
     refetchInterval: 15000,
   });
 
+  const stopOfferPolling = useCallback(() => {
+    if (offerPollRef.current) {
+      clearInterval(offerPollRef.current);
+      offerPollRef.current = null;
+    }
+  }, []);
+
+  const startOfferPolling = useCallback((offerId: number) => {
+    stopOfferPolling();
+    offerPollRef.current = setInterval(async () => {
+      try {
+        const result = await apiFetch(`/api/dispatch/offers/${offerId}/status`, token);
+        if (result.status === "accepted") {
+          stopOfferPolling();
+          setPendingOffer(null);
+          toast({ title: "Driver accepted the trip" });
+          queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/dispatch/drivers/status"] });
+        } else if (result.status === "expired" || result.status === "cancelled") {
+          stopOfferPolling();
+          setPendingOffer((prev) => prev ? { ...prev, status: result.status } : null);
+          if (result.status === "expired") {
+            toast({ title: "Driver did not respond", description: "The 30-second window expired. You can reassign.", variant: "destructive" });
+          } else {
+            toast({ title: "Driver declined the trip", description: "You can reassign to another driver.", variant: "destructive" });
+          }
+          queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
+        } else {
+          setPendingOffer((prev) => prev ? { ...prev, status: result.status } : null);
+          setOfferCountdown(result.secondsRemaining || 0);
+        }
+      } catch {}
+    }, 2000);
+  }, [token, stopOfferPolling, toast]);
+
+  useEffect(() => {
+    if (!pendingOffer || pendingOffer.status !== "pending") return;
+    const timer = setInterval(() => {
+      const remaining = Math.max(0, Math.floor((new Date(pendingOffer.expiresAt).getTime() - Date.now()) / 1000));
+      setOfferCountdown(remaining);
+      if (remaining <= 0) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [pendingOffer?.offerId, pendingOffer?.status]);
+
+  useEffect(() => {
+    return () => stopOfferPolling();
+  }, [stopOfferPolling]);
+
   const assignDriverMutation = useMutation({
     mutationFn: ({ tripId, driverId, vehicleId, force }: { tripId: number; driverId: number; vehicleId?: number; force?: boolean }) =>
       apiFetch(`/api/trips/${tripId}/assign`, token, {
         method: "PATCH",
         body: JSON.stringify({ driverId, vehicleId, force: force || false }),
       }),
-    onSuccess: () => {
-      toast({ title: "Driver assigned successfully" });
-      setAssignTrip(null);
-      setConfirmAssign(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/drivers/status"] });
+    onSuccess: (data: any) => {
+      if (data.offerSent) {
+        setPendingOffer({
+          offerId: data.offerId,
+          tripId: data.tripId,
+          driverName: data.driverName,
+          expiresAt: data.expiresAt,
+          status: "pending",
+          tripPublicId: assignTrip?.publicId || undefined,
+        });
+        setOfferCountdown(data.secondsRemaining || 30);
+        startOfferPolling(data.offerId);
+        setAssignTrip(null);
+        setConfirmAssign(null);
+      } else {
+        toast({ title: "Driver assigned successfully" });
+        setAssignTrip(null);
+        setConfirmAssign(null);
+        queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/dispatch/drivers/status"] });
+      }
     },
     onError: (err: any) => {
       toast({ title: "Assignment failed", description: err.message, variant: "destructive" });
@@ -525,6 +602,139 @@ export default function DispatchBoardPage() {
               }}
               loading={reassignMutation.isPending}
             />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!pendingOffer} onOpenChange={(open) => {
+        if (!open && pendingOffer?.status !== "pending") {
+          stopOfferPolling();
+          setPendingOffer(null);
+        }
+      }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {pendingOffer?.status === "pending" ? (
+                <><Send className="w-4 h-4 text-primary" /> Waiting for Driver</>
+              ) : pendingOffer?.status === "expired" ? (
+                <><Timer className="w-4 h-4 text-destructive" /> No Response</>
+              ) : pendingOffer?.status === "cancelled" ? (
+                <><XCircle className="w-4 h-4 text-destructive" /> Declined</>
+              ) : (
+                <><CheckCircle className="w-4 h-4 text-green-600" /> Accepted</>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {pendingOffer && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-sm text-muted-foreground">Trip</span>
+                  <span className="text-sm font-medium font-mono" data-testid="text-offer-trip-id">{pendingOffer.tripPublicId || `#${pendingOffer.tripId}`}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-sm text-muted-foreground">Driver</span>
+                  <span className="text-sm font-medium" data-testid="text-offer-driver-name">{pendingOffer.driverName}</span>
+                </div>
+              </div>
+
+              {pendingOffer.status === "pending" && (
+                <div className="flex flex-col items-center gap-2 py-2">
+                  <div className="relative w-16 h-16">
+                    <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
+                      <circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" className="text-muted" strokeWidth="4" />
+                      <circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" className="text-primary" strokeWidth="4"
+                        strokeDasharray={`${(offerCountdown / 30) * 175.9} 175.9`}
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="absolute inset-0 flex items-center justify-center text-lg font-mono font-bold" data-testid="text-offer-countdown">
+                      {offerCountdown}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground text-center">
+                    Waiting for driver to accept...
+                  </p>
+                </div>
+              )}
+
+              {pendingOffer.status === "expired" && (
+                <div className="text-center space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Driver did not respond within 30 seconds.
+                  </p>
+                  <div className="flex gap-2 justify-center">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        stopOfferPolling();
+                        setPendingOffer(null);
+                      }}
+                      data-testid="button-offer-dismiss"
+                    >
+                      Dismiss
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        const tripId = pendingOffer.tripId;
+                        stopOfferPolling();
+                        setPendingOffer(null);
+                        const trip = tripsQuery.data?.trips?.find?.((t: any) => t.id === tripId) ||
+                          tripsQuery.data?.find?.((t: any) => t.id === tripId);
+                        if (trip) {
+                          setAssignTrip(trip);
+                        } else {
+                          queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
+                          toast({ title: "Select the trip to reassign from the list" });
+                        }
+                      }}
+                      data-testid="button-offer-reassign"
+                    >
+                      Reassign to Another Driver
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {pendingOffer.status === "cancelled" && (
+                <div className="text-center space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Driver declined this trip request.
+                  </p>
+                  <div className="flex gap-2 justify-center">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        stopOfferPolling();
+                        setPendingOffer(null);
+                      }}
+                      data-testid="button-decline-dismiss"
+                    >
+                      Dismiss
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        const tripId = pendingOffer.tripId;
+                        stopOfferPolling();
+                        setPendingOffer(null);
+                        const trip = tripsQuery.data?.trips?.find?.((t: any) => t.id === tripId) ||
+                          tripsQuery.data?.find?.((t: any) => t.id === tripId);
+                        if (trip) {
+                          setAssignTrip(trip);
+                        } else {
+                          queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
+                          toast({ title: "Select the trip to reassign from the list" });
+                        }
+                      }}
+                      data-testid="button-decline-reassign"
+                    >
+                      Reassign to Another Driver
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </DialogContent>
       </Dialog>

@@ -1949,25 +1949,52 @@ export async function registerRoutes(
         )
       );
       if (!offer) return res.status(404).json({ message: "Offer not found" });
-      if (offer.status !== "pending") return res.status(400).json({ message: `Offer already ${offer.status}` });
 
       const now = new Date();
+
+      if (offer.status !== "pending") return res.status(409).json({ message: `Offer already ${offer.status}` });
       if (now > offer.expiresAt) {
         await db.update(driverOffers).set({ status: "expired" }).where(eq(driverOffers.id, offerId));
-        return res.status(400).json({ message: "Offer has expired" });
+        return res.status(409).json({ message: "Offer has expired" });
       }
 
-      await db.update(driverOffers).set({ status: "accepted", acceptedAt: now }).where(eq(driverOffers.id, offerId));
+      const [accepted] = await db.update(driverOffers)
+        .set({ status: "accepted", acceptedAt: now })
+        .where(
+          and(
+            eq(driverOffers.id, offerId),
+            eq(driverOffers.status, "pending"),
+            sql`${driverOffers.expiresAt} > ${now}`
+          )
+        )
+        .returning();
+
+      if (!accepted) {
+        return res.status(409).json({ message: "Offer is no longer available" });
+      }
 
       const [trip] = await db.select().from(trips).where(eq(trips.id, offer.tripId));
+      const driver = await storage.getDriver(user.driverId);
       if (trip && (trip.status === "SCHEDULED" || !trip.driverId)) {
-        await db.update(trips).set({
+        const updateData: any = {
           driverId: user.driverId,
           status: "ASSIGNED",
           assignedAt: now,
+          assignedBy: offer.createdBy,
           assignmentSource: "driver_accept",
-        }).where(eq(trips.id, offer.tripId));
+        };
+        if (driver?.vehicleId) updateData.vehicleId = driver.vehicleId;
+        await db.update(trips).set(updateData).where(eq(trips.id, offer.tripId));
       }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "OFFER_ACCEPTED",
+        entity: "trip",
+        entityId: offer.tripId,
+        details: `Driver ${driver?.firstName} ${driver?.lastName} accepted assignment offer for trip ${trip?.publicId}`,
+        cityId: trip?.cityId || 0,
+      });
 
       res.json({ ok: true, tripId: offer.tripId });
     } catch (err: any) {
@@ -2227,7 +2254,7 @@ export async function registerRoutes(
     }
   });
 
-  // Phase 2: Assign driver to trip
+  // Phase 2: Assign driver to trip — creates a 30s offer for driver to accept
   app.patch("/api/trips/:id/assign", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
@@ -2255,18 +2282,81 @@ export async function registerRoutes(
       if (assignCheck.warning && !forceAssign) {
         return res.status(409).json({ message: assignCheck.warning, requiresConfirmation: true });
       }
-      const updateData: any = { driverId, status: "ASSIGNED", assignedAt: new Date(), assignedBy: req.user!.userId };
-      if (vehicleId) updateData.vehicleId = vehicleId;
-      const updated = await storage.updateTrip(id, updateData);
+
+      await db.update(driverOffers).set({ status: "cancelled" }).where(
+        and(
+          eq(driverOffers.tripId, id),
+          eq(driverOffers.status, "pending")
+        )
+      );
+
+      const OFFER_TTL_SECONDS = 30;
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + OFFER_TTL_SECONDS * 1000);
+
+      const [offer] = await db.insert(driverOffers).values({
+        tripId: id,
+        driverId,
+        offeredAt: now,
+        expiresAt,
+        status: "pending",
+        createdBy: req.user!.userId,
+      }).returning();
+
       await storage.createAuditLog({
         userId: req.user!.userId,
-        action: "ASSIGN_DRIVER",
+        action: "OFFER_SENT",
         entity: "trip",
         entityId: id,
-        details: `Assigned driver ${driver.firstName} ${driver.lastName} to trip ${trip.publicId}`,
+        details: `Sent assignment offer to driver ${driver.firstName} ${driver.lastName} (${driver.publicId}) for trip ${trip.publicId}. Expires in ${OFFER_TTL_SECONDS}s.`,
         cityId: trip.cityId,
       });
-      res.json(updated);
+
+      res.json({
+        offerId: offer.id,
+        tripId: id,
+        driverId,
+        driverName: `${driver.firstName} ${driver.lastName}`,
+        status: "pending",
+        expiresAt: expiresAt.toISOString(),
+        secondsRemaining: OFFER_TTL_SECONDS,
+        offerSent: true,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/dispatch/offers/:offerId/status", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const offerId = parseInt(req.params.offerId);
+      if (isNaN(offerId)) return res.status(400).json({ message: "Invalid offer ID" });
+
+      const [offer] = await db.select().from(driverOffers).where(eq(driverOffers.id, offerId));
+      if (!offer) return res.status(404).json({ message: "Offer not found" });
+
+      const now = new Date();
+      if (offer.status === "pending" && now > offer.expiresAt) {
+        await db.update(driverOffers).set({ status: "expired" }).where(eq(driverOffers.id, offerId));
+        offer.status = "expired";
+      }
+
+      const driver = await storage.getDriver(offer.driverId);
+      const trip = await storage.getTrip(offer.tripId);
+      const secondsRemaining = offer.status === "pending"
+        ? Math.max(0, Math.floor((offer.expiresAt.getTime() - now.getTime()) / 1000))
+        : 0;
+
+      res.json({
+        offerId: offer.id,
+        tripId: offer.tripId,
+        tripPublicId: trip?.publicId || null,
+        driverId: offer.driverId,
+        driverName: driver ? `${driver.firstName} ${driver.lastName}` : null,
+        status: offer.status,
+        expiresAt: offer.expiresAt.toISOString(),
+        secondsRemaining,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
