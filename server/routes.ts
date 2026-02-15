@@ -1611,12 +1611,11 @@ export async function registerRoutes(
     try {
       const user = await storage.getUser(req.user!.userId);
       if (!user?.driverId) return res.json({ ok: true });
-      const now = new Date();
       await db.update(drivers).set({
         dispatchStatus: "off",
         lastLat: null,
         lastLng: null,
-        lastSeenAt: now,
+        lastSeenAt: null,
       }).where(eq(drivers.id, user.driverId));
       res.json({ ok: true });
     } catch (err: any) {
