@@ -5127,7 +5127,188 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
       if (trip.clinicId !== user.clinicId) return res.status(403).json({ message: "Access denied" });
 
       const [enriched] = await enrichTripsWithRelations([trip]);
-      res.json(enriched);
+
+      const progressEvents: { label: string; at: string | null }[] = [];
+      if (trip.pickupTime) progressEvents.push({ label: "Scheduled Pickup", at: trip.pickupTime });
+      if (trip.assignedAt) progressEvents.push({ label: "Assigned", at: new Date(trip.assignedAt).toISOString() });
+      if (trip.startedAt) progressEvents.push({ label: "En Route to Pickup", at: new Date(trip.startedAt).toISOString() });
+      if (trip.arrivedPickupAt) progressEvents.push({ label: "Arrived at Pickup", at: new Date(trip.arrivedPickupAt).toISOString() });
+      if (trip.pickedUpAt) progressEvents.push({ label: "Picked Up", at: new Date(trip.pickedUpAt).toISOString() });
+      if (trip.enRouteDropoffAt) progressEvents.push({ label: "En Route to Dropoff", at: new Date(trip.enRouteDropoffAt).toISOString() });
+      if (trip.arrivedDropoffAt) progressEvents.push({ label: "Arrived at Dropoff", at: new Date(trip.arrivedDropoffAt).toISOString() });
+      if (trip.completedAt) progressEvents.push({ label: "Completed", at: new Date(trip.completedAt).toISOString() });
+      if (trip.cancelledAt) progressEvents.push({ label: trip.status === "NO_SHOW" ? "No Show" : "Cancelled", at: new Date(trip.cancelledAt).toISOString() });
+
+      let onsiteMinutes: number | null = null;
+      if (trip.arrivedPickupAt && trip.completedAt) {
+        onsiteMinutes = Math.round((new Date(trip.completedAt).getTime() - new Date(trip.arrivedPickupAt).getTime()) / 60000);
+      }
+
+      const clinicSafe = {
+        id: enriched.id,
+        publicId: enriched.publicId,
+        clinicName: enriched.clinicName,
+        patientName: enriched.patientName,
+        scheduledDate: enriched.scheduledDate,
+        pickupTime: enriched.pickupTime,
+        estimatedArrivalTime: enriched.estimatedArrivalTime,
+        pickupAddress: enriched.pickupAddress,
+        pickupLat: enriched.pickupLat,
+        pickupLng: enriched.pickupLng,
+        dropoffAddress: enriched.dropoffAddress,
+        dropoffLat: enriched.dropoffLat,
+        dropoffLng: enriched.dropoffLng,
+        distanceMiles: enriched.distanceMiles ? parseFloat(enriched.distanceMiles) : null,
+        status: enriched.status,
+        tripType: enriched.tripType,
+        direction: enriched.direction,
+        approvalStatus: enriched.approvalStatus,
+        assignedAt: enriched.assignedAt,
+        startedAt: enriched.startedAt,
+        arrivedPickupAt: enriched.arrivedPickupAt,
+        pickedUpAt: enriched.pickedUpAt,
+        enRouteDropoffAt: enriched.enRouteDropoffAt,
+        arrivedDropoffAt: enriched.arrivedDropoffAt,
+        completedAt: enriched.completedAt,
+        cancelledAt: enriched.cancelledAt,
+        cancelledReason: enriched.cancelledReason,
+        billingOutcome: enriched.billingOutcome,
+        billingReason: enriched.billingReason,
+        onsiteMinutes,
+        progressEvents,
+        driverName: enriched.driverName,
+        vehicleLabel: enriched.vehicleLabel,
+        vehicleColor: enriched.vehicleColor,
+        vehicleMake: enriched.vehicleMake,
+        vehicleModel: enriched.vehicleModel,
+        routePolyline: enriched.routePolyline,
+        staticMapThumbUrl: enriched.staticMapThumbUrl,
+        staticMapFullUrl: enriched.staticMapFullUrl,
+        lastEtaMinutes: enriched.lastEtaMinutes,
+        createdAt: enriched.createdAt,
+      };
+
+      res.json(clinicSafe);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/clinic/trips/:id/pdf", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(tripId);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+      if (trip.clinicId !== user.clinicId) return res.status(403).json({ message: "Access denied" });
+
+      const [enriched] = await enrichTripsWithRelations([trip]);
+      const clinic = trip.clinicId ? await storage.getClinic(trip.clinicId) : null;
+      const clinicName = clinic?.name || "Unknown Clinic";
+
+      const formatPdfTime = (isoStr: string | Date | null | undefined): string => {
+        if (!isoStr) return "N/A";
+        try {
+          const d = new Date(isoStr);
+          if (isNaN(d.getTime())) return "N/A";
+          return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+        } catch { return "N/A"; }
+      };
+
+      const formatPdfDate = (dateStr: string | null | undefined): string => {
+        if (!dateStr) return "N/A";
+        try {
+          const [y, m, d] = dateStr.split("-").map(Number);
+          return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+        } catch { return dateStr || "N/A"; }
+      };
+
+      let onsiteMinutes: number | null = null;
+      if (trip.arrivedPickupAt && trip.completedAt) {
+        onsiteMinutes = Math.round((new Date(trip.completedAt).getTime() - new Date(trip.arrivedPickupAt).getTime()) / 60000);
+      }
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="trip-${enriched.publicId || trip.id}.pdf"`);
+
+      const doc = new PDFDocument({ margin: 50, size: "LETTER" });
+      doc.pipe(res);
+
+      doc.fontSize(18).text("TRIP REPORT", { align: "center" });
+      doc.moveDown(0.3);
+      doc.fontSize(9).fillColor("#666").text("United Care Mobility", { align: "center" });
+      doc.moveDown(1);
+
+      doc.fillColor("#000").fontSize(12).text(formatPdfDate(trip.scheduledDate), { align: "left" });
+      doc.fontSize(10).text(`Trip ID: ${enriched.publicId || trip.id}`);
+      doc.text(`Clinic: ${clinicName}`);
+      if (enriched.patientName) doc.text(`Patient: ${enriched.patientName}`);
+
+      const outcomeLabel = trip.status === "COMPLETED" ? "Completed" : trip.status === "NO_SHOW" ? "No Show" : trip.status === "CANCELLED" ? "Cancelled" : trip.status;
+      doc.text(`Outcome: ${outcomeLabel}`);
+      if (trip.billingOutcome) doc.text(`Billing: ${trip.billingOutcome}`);
+      if (trip.billingReason) doc.text(`Reason: ${trip.billingReason}`);
+      doc.moveDown(1);
+
+      doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ddd");
+      doc.moveDown(0.5);
+
+      doc.fontSize(12).fillColor("#000").text("Route");
+      doc.moveDown(0.3);
+      doc.fontSize(10);
+      doc.text(`Pickup (A): ${trip.pickupAddress || "N/A"}`);
+      doc.text(`Dropoff (B): ${trip.dropoffAddress || "N/A"}`);
+      if (trip.distanceMiles) doc.text(`Distance: ${parseFloat(trip.distanceMiles as string).toFixed(1)} miles`);
+      doc.moveDown(0.8);
+
+      if (trip.staticMapFullUrl || trip.staticMapThumbUrl) {
+        try {
+          const mapUrl = trip.staticMapFullUrl || trip.staticMapThumbUrl;
+          const mapResponse = await fetch(mapUrl as string);
+          if (mapResponse.ok) {
+            const mapBuffer = Buffer.from(await mapResponse.arrayBuffer());
+            doc.image(mapBuffer, { width: 400, align: "center" });
+            doc.moveDown(0.5);
+          }
+        } catch { /* skip map image if fetch fails */ }
+      }
+
+      doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ddd");
+      doc.moveDown(0.5);
+
+      doc.fontSize(12).fillColor("#000").text("Timeline");
+      doc.moveDown(0.3);
+      doc.fontSize(10);
+      doc.text(`Scheduled Pickup: ${trip.pickupTime || "N/A"}`);
+      if (trip.assignedAt) doc.text(`Assigned: ${formatPdfTime(trip.assignedAt)}`);
+      if (trip.startedAt) doc.text(`En Route to Pickup: ${formatPdfTime(trip.startedAt)}`);
+      if (trip.arrivedPickupAt) doc.text(`Arrived at Pickup: ${formatPdfTime(trip.arrivedPickupAt)}`);
+      if (trip.pickedUpAt) doc.text(`Picked Up: ${formatPdfTime(trip.pickedUpAt)}`);
+      if (trip.enRouteDropoffAt) doc.text(`En Route to Dropoff: ${formatPdfTime(trip.enRouteDropoffAt)}`);
+      if (trip.arrivedDropoffAt) doc.text(`Arrived at Dropoff: ${formatPdfTime(trip.arrivedDropoffAt)}`);
+      if (trip.completedAt) doc.text(`Completed: ${formatPdfTime(trip.completedAt)}`);
+      if (trip.cancelledAt) doc.text(`${trip.status === "NO_SHOW" ? "No Show" : "Cancelled"}: ${formatPdfTime(trip.cancelledAt)}`);
+      if (onsiteMinutes != null) doc.text(`On-Site Duration: ${onsiteMinutes} min`);
+      doc.moveDown(0.8);
+
+      doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ddd");
+      doc.moveDown(0.5);
+
+      doc.fontSize(12).fillColor("#000").text("Driver & Vehicle");
+      doc.moveDown(0.3);
+      doc.fontSize(10);
+      doc.text(`Driver: ${enriched.driverName || "Unassigned"}`);
+      if (enriched.vehicleLabel) doc.text(`Vehicle: ${enriched.vehicleLabel}`);
+      if (enriched.vehicleColor) doc.text(`Color: ${enriched.vehicleColor}`);
+      doc.moveDown(1);
+
+      doc.fontSize(8).fillColor("#999").text(`Generated: ${new Date().toLocaleString("en-US")}`, { align: "center" });
+
+      doc.end();
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

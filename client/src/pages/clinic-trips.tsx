@@ -312,6 +312,7 @@ function OpsDashboard() {
   const [opsTab, setOpsTab] = useState("live");
   const [trackingTripId, setTrackingTripId] = useState<number | null>(null);
   const [selectedOpsTrip, setSelectedOpsTrip] = useState<any>(null);
+  const [selectedCompletedTripId, setSelectedCompletedTripId] = useState<number | null>(null);
   const [dialysisCheckTripId, setDialysisCheckTripId] = useState<number | null>(null);
   const [dismissedDialysis, setDismissedDialysis] = useState<Set<number>>(new Set());
 
@@ -341,6 +342,12 @@ function OpsDashboard() {
     queryFn: () => apiFetch("/api/clinic/trips?status=completed", token),
     enabled: !!token && opsTab === "completed",
     refetchInterval: 60000,
+  });
+
+  const completedTripDetailQuery = useQuery<any>({
+    queryKey: ["/api/clinic/trips", selectedCompletedTripId],
+    queryFn: () => apiFetch(`/api/clinic/trips/${selectedCompletedTripId}`, token),
+    enabled: !!token && !!selectedCompletedTripId,
   });
 
   const activeData = activeTripsQuery.data;
@@ -550,14 +557,25 @@ function OpsDashboard() {
           ) : (
             <div className="space-y-2" data-testid="list-completed-trips">
               {(completedTripsQuery.data || []).map((trip: any) => (
-                <Card key={trip.id} data-testid={`card-completed-trip-${trip.id}`}>
-                  <CardContent className="py-3 px-4">
+                <Card
+                  key={trip.id}
+                  className="cursor-pointer hover-elevate active-elevate-2"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedCompletedTripId(trip.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedCompletedTripId(trip.id); } }}
+                  data-testid={`card-completed-trip-${trip.id}`}
+                >
+                  <CardContent className="py-3 px-4 min-h-[44px]">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium">{trip.publicId}</span>
                         <Badge className={STATUS_COLORS[trip.status] || ""}>{STATUS_LABELS[trip.status] || trip.status}</Badge>
                       </div>
-                      <span className="text-xs text-muted-foreground">{trip.pickupTime || "N/A"}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{trip.pickupTime || "N/A"}</span>
+                        <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                      </div>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1 flex-wrap">
                       <span className="flex items-center gap-1"><User className="w-3 h-3" /> {trip.patientFirstName || ""} {trip.patientLastName || ""}</span>
@@ -569,6 +587,30 @@ function OpsDashboard() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!selectedCompletedTripId} onOpenChange={(open) => { if (!open) setSelectedCompletedTripId(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 flex-wrap">
+              Trip Details
+              {completedTripDetailQuery.data && (
+                <Badge className={STATUS_COLORS[completedTripDetailQuery.data.status] || ""}>
+                  {STATUS_LABELS[completedTripDetailQuery.data.status] || completedTripDetailQuery.data.status}
+                </Badge>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {completedTripDetailQuery.isLoading ? (
+            <div className="space-y-3 py-4">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : completedTripDetailQuery.data ? (
+            <ClinicTripDetailsView trip={completedTripDetailQuery.data} token={token} />
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!trackingTripId} onOpenChange={(open) => { if (!open) setTrackingTripId(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
@@ -1485,9 +1527,9 @@ function TripsSection() {
       )}
 
       <Dialog open={!!selectedTripId} onOpenChange={(open) => { if (!open) setSelectedTripId(null); }}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 flex-wrap">
               Trip Details
               {tripDetailQuery.data && (
                 <Badge className={STATUS_COLORS[tripDetailQuery.data.status] || ""}>
@@ -1500,9 +1542,10 @@ function TripsSection() {
             <div className="space-y-3 py-4">
               <Skeleton className="h-8 w-full" />
               <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-24 w-full" />
             </div>
           ) : tripDetailQuery.data ? (
-            <TripDetail trip={tripDetailQuery.data} onTrack={() => { setSelectedTripId(null); setTrackingTripId(tripDetailQuery.data.id); }} />
+            <ClinicTripDetailsView trip={tripDetailQuery.data} token={token} />
           ) : null}
         </DialogContent>
       </Dialog>
@@ -2731,11 +2774,14 @@ function ClinicPatientForm({ onSubmit, loading, initialData, isEdit, token }: {
 function ClinicTripCard({ trip, isCompleted, onSelect, onTrack }: { trip: any; isCompleted: boolean; onSelect: () => void; onTrack?: () => void }) {
   return (
     <Card
-      className="cursor-pointer hover-elevate"
+      className="cursor-pointer hover-elevate active-elevate-2"
       onClick={onSelect}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } }}
       data-testid={`card-clinic-trip-${trip.id}`}
     >
-      <CardContent className="py-3 px-4">
+      <CardContent className="py-3 px-4 min-h-[44px]">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0 space-y-1.5">
             <div className="flex items-center gap-2 flex-wrap">
@@ -2934,6 +2980,217 @@ function InvoicePanel({ tripId, tripStatus }: { tripId: number; tripStatus: stri
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | null }) {
+  const { toast } = useToast();
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const isTerminal = ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status);
+
+  const formatEventTime = (isoOrTime: string | null | undefined): string => {
+    if (!isoOrTime) return "";
+    try {
+      if (isoOrTime.includes("T") || isoOrTime.includes("Z")) {
+        const d = new Date(isoOrTime);
+        if (isNaN(d.getTime())) return isoOrTime;
+        return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      }
+      return isoOrTime;
+    } catch { return isoOrTime; }
+  };
+
+  const formatDate = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return "";
+    try {
+      const [y, m, d] = dateStr.split("-").map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    } catch { return dateStr; }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!token || !trip.id) return;
+    setPdfLoading(true);
+    try {
+      const res = await fetch(`/api/clinic/trips/${trip.id}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `trip-${trip.publicId || trip.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to download PDF", variant: "destructive" });
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const outcomeColor = trip.status === "COMPLETED"
+    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+    : trip.status === "NO_SHOW"
+    ? "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
+    : trip.status === "CANCELLED"
+    ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+    : "";
+
+  return (
+    <div className="space-y-4" data-testid="clinic-trip-details">
+      <div className="space-y-1">
+        <p className="text-base font-semibold" data-testid="text-trip-date">
+          {formatDate(trip.scheduledDate)} — {trip.pickupTime || ""}
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-muted-foreground" data-testid="text-trip-id">Trip ID: {trip.publicId}</span>
+          <Badge className={outcomeColor} data-testid="badge-trip-outcome">
+            {STATUS_LABELS[trip.status] || trip.status}
+          </Badge>
+        </div>
+        {trip.patientName && (
+          <p className="text-sm text-muted-foreground flex items-center gap-1">
+            <User className="w-3.5 h-3.5" />
+            {trip.patientName}
+          </p>
+        )}
+      </div>
+
+      <Card>
+        <CardContent className="py-3 px-4 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Route</p>
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-[10px] font-bold text-white">A</span>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Pickup</p>
+                <p className="text-sm" data-testid="text-pickup-address">{trip.pickupAddress || "N/A"}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-[10px] font-bold text-white">B</span>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Dropoff</p>
+                <p className="text-sm" data-testid="text-dropoff-address">{trip.dropoffAddress || "N/A"}</p>
+              </div>
+            </div>
+          </div>
+
+          {(trip.staticMapFullUrl || trip.staticMapThumbUrl) && (
+            <div className="rounded-md overflow-hidden border mt-2">
+              <img
+                src={trip.staticMapFullUrl || trip.staticMapThumbUrl}
+                alt="Route map"
+                className="w-full h-auto"
+                data-testid="img-route-map"
+              />
+            </div>
+          )}
+
+          {trip.distanceMiles != null && (
+            <p className="text-sm flex items-center gap-1 mt-1" data-testid="text-distance">
+              <Navigation className="w-3.5 h-3.5 text-blue-500" />
+              {parseFloat(trip.distanceMiles).toFixed(1)} miles
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="py-3 px-4 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Timeline</p>
+          <div className="space-y-1">
+            {(trip.progressEvents || []).map((evt: any, i: number) => (
+              <div key={i} className="flex items-center justify-between text-sm" data-testid={`timeline-event-${i}`}>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    evt.label === "Completed" ? "bg-emerald-500" :
+                    evt.label === "No Show" || evt.label === "Cancelled" ? "bg-red-500" :
+                    "bg-blue-500"
+                  }`} />
+                  <span>{evt.label}</span>
+                </div>
+                <span className="text-muted-foreground text-xs">{formatEventTime(evt.at)}</span>
+              </div>
+            ))}
+          </div>
+          {trip.onsiteMinutes != null && (
+            <div className="flex items-center gap-1 text-sm pt-1 border-t mt-2" data-testid="text-onsite-duration">
+              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+              <span>On-site duration: <span className="font-medium">{trip.onsiteMinutes} min</span></span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {trip.driverName && (
+        <Card>
+          <CardContent className="py-3 px-4 space-y-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Driver & Vehicle</p>
+            <p className="text-sm font-medium flex items-center gap-1" data-testid="text-driver-name">
+              <User className="w-3.5 h-3.5" />
+              {trip.driverName}
+            </p>
+            {(trip.vehicleLabel || trip.vehicleColor) && (
+              <p className="text-sm text-muted-foreground flex items-center gap-1" data-testid="text-vehicle-info">
+                <Car className="w-3.5 h-3.5" />
+                {[trip.vehicleColor, trip.vehicleMake, trip.vehicleModel].filter(Boolean).join(" ") || ""}
+                {trip.vehicleLabel && ` (${trip.vehicleLabel})`}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {trip.billingOutcome && (
+        <Card>
+          <CardContent className="py-3 px-4 space-y-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Billing</p>
+            <p className="text-sm" data-testid="text-billing-outcome">Outcome: {trip.billingOutcome}</p>
+            {trip.billingReason && (
+              <p className="text-sm text-muted-foreground" data-testid="text-billing-reason">Reason: {trip.billingReason}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {trip.cancelledReason && (
+        <Card>
+          <CardContent className="py-3 px-4 space-y-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Cancellation</p>
+            <p className="text-sm" data-testid="text-cancel-reason">{trip.cancelledReason}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isTerminal && (
+        <div className="text-center">
+          <Badge variant="secondary" className="gap-1">
+            <Lock className="w-3 h-3" />
+            This trip is completed and locked
+          </Badge>
+        </div>
+      )}
+
+      <Button
+        className="w-full gap-2"
+        variant="outline"
+        onClick={handleDownloadPdf}
+        disabled={pdfLoading}
+        data-testid="button-download-trip-pdf"
+      >
+        <Download className="w-4 h-4" />
+        {pdfLoading ? "Generating PDF..." : "Download PDF Report"}
+      </Button>
+    </div>
   );
 }
 
