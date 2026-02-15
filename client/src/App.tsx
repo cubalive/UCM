@@ -42,6 +42,7 @@ import ClinicTripsPage from "@/pages/clinic-trips";
 import DriverDashboard from "@/pages/driver-dashboard";
 import BillingPage from "@/pages/billing";
 import SchedulePage from "@/pages/schedule";
+import PricingPage from "@/pages/pricing";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
 import NotFound from "@/pages/not-found";
@@ -140,6 +141,7 @@ function Router() {
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>
       <Route path="/billing">{() => <ProtectedRoute resource="invoices" component={BillingPage} />}</Route>
+      <Route path="/pricing">{() => <ProtectedRoute resource="audit" component={PricingPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

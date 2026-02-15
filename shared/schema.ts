@@ -317,6 +317,8 @@ export const trips = pgTable("trips", {
   cancelFee: numeric("cancel_fee", { precision: 10, scale: 2 }),
   cancelFeeOverride: numeric("cancel_fee_override", { precision: 10, scale: 2 }),
   cancelFeeOverrideNote: text("cancel_fee_override_note"),
+  priceTotalCents: integer("price_total_cents"),
+  pricingSnapshot: jsonb("pricing_snapshot"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -826,3 +828,49 @@ export type InsertSubstitutePool = z.infer<typeof insertSubstitutePoolSchema>;
 export const insertDriverReplacementSchema = createInsertSchema(driverReplacements).omit({ id: true });
 export type DriverReplacement = typeof driverReplacements.$inferSelect;
 export type InsertDriverReplacement = z.infer<typeof insertDriverReplacementSchema>;
+
+export const pricingProfiles = pgTable("pricing_profiles", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  city: text("city").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  appliesTo: text("applies_to").notNull().default("private"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const pricingRules = pgTable("pricing_rules", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  profileId: integer("profile_id").notNull().references(() => pricingProfiles.id),
+  key: text("key").notNull(),
+  valueNumeric: numeric("value_numeric", { precision: 12, scale: 4 }),
+  valueText: text("value_text"),
+  enabled: boolean("enabled").notNull().default(true),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("pricing_rules_profile_key_idx").on(table.profileId, table.key),
+]);
+
+export const pricingAuditLog = pgTable("pricing_audit_log", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  profileId: integer("profile_id").notNull().references(() => pricingProfiles.id),
+  key: text("key").notNull(),
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
+  changedBy: integer("changed_by").references(() => users.id),
+  changedAt: timestamp("changed_at").notNull().defaultNow(),
+  note: text("note"),
+});
+
+export const insertPricingProfileSchema = createInsertSchema(pricingProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export type PricingProfile = typeof pricingProfiles.$inferSelect;
+export type InsertPricingProfile = z.infer<typeof insertPricingProfileSchema>;
+
+export const insertPricingRuleSchema = createInsertSchema(pricingRules).omit({ id: true, updatedAt: true });
+export type PricingRule = typeof pricingRules.$inferSelect;
+export type InsertPricingRule = z.infer<typeof insertPricingRuleSchema>;
+
+export type PricingAuditEntry = typeof pricingAuditLog.$inferSelect;

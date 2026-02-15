@@ -51,6 +51,7 @@ import {
   Stethoscope,
   Receipt,
   ShieldCheck,
+  Banknote,
 } from "lucide-react";
 
 interface NavItem {
@@ -85,6 +86,7 @@ const adminItems: NavItem[] = [
   { titleKey: "nav.users", url: "/users", icon: Users, resource: "users" },
   { titleKey: "nav.reports", url: "/reports", icon: BarChart3, resource: "audit" },
   { titleKey: "nav.financial", url: "/financial", icon: DollarSign, resource: "audit" },
+  { titleKey: "nav.pricing", url: "/pricing", icon: Banknote, resource: "audit" },
   { titleKey: "nav.auditLog", url: "/audit", icon: ClipboardList, resource: "audit" },
   { titleKey: "nav.archive", url: "/archive", icon: Archive, resource: "audit" },
 ];

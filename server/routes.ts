@@ -19,6 +19,7 @@ import { registerReportRoutes } from "./lib/reportRoutes";
 import { registerOpsRoutes, startOpsAlertScheduler } from "./lib/opsRoutes";
 import { registerAutomationRoutes } from "./lib/automationRoutes";
 import { registerScheduleRoutes } from "./lib/scheduleRoutes";
+import { registerPricingRoutes } from "./lib/pricingRoutes";
 import { registerAssignmentRoutes } from "./lib/assignmentRoutes";
 import { registerPublicApiRoutes } from "./lib/publicApiRoutes";
 import { startRouteScheduler } from "./lib/routeEngine";
@@ -125,6 +126,7 @@ export async function registerRoutes(
   registerOpsRoutes(app);
   registerAutomationRoutes(app);
   registerScheduleRoutes(app);
+  registerPricingRoutes(app);
   registerAssignmentRoutes(app, authMiddleware);
   registerPublicApiRoutes(app);
   startOpsAlertScheduler();
@@ -2578,7 +2580,8 @@ export async function registerRoutes(
       const callerCompanyId = getCompanyIdFromAuth(req);
       const autoRequestSource = isClinic ? "clinic" : "internal";
 
-      if (!parsed.data.clinicId) {
+      const isPrivatePay = !parsed.data.clinicId;
+      if (isPrivatePay) {
         const { getDefaultPrivateClinicId } = await import("./lib/defaultClinic");
         (parsed.data as any).clinicId = await getDefaultPrivateClinicId(parsed.data.cityId);
         if (!(parsed.data as any).requestSource) {
@@ -2586,7 +2589,37 @@ export async function registerRoutes(
         }
       }
 
-      const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, companyId: callerCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource } as any);
+      let pricingFields: Record<string, any> = {};
+      if (isPrivatePay && parsed.data.pickupAddress && parsed.data.dropoffAddress && parsed.data.scheduledTime) {
+        try {
+          const { calculatePrivateQuote } = await import("./lib/privatePricing");
+          const city = await storage.getCity(parsed.data.cityId);
+          const quote = await calculatePrivateQuote({
+            pickupAddress: parsed.data.pickupAddress,
+            dropoffAddress: parsed.data.dropoffAddress,
+            scheduledDate: parsed.data.scheduledDate || new Date().toISOString().slice(0, 10),
+            scheduledTime: parsed.data.scheduledTime,
+            isWheelchair: parsed.data.serviceType === "wheelchair",
+            roundTrip: parsed.data.roundTrip === true,
+            cityName: city?.name || "ALL",
+          });
+          pricingFields.priceTotalCents = quote.totalCents;
+          pricingFields.pricingSnapshot = {
+            computedAt: new Date().toISOString(),
+            baseMiles: quote.baseMiles,
+            baseMinutes: quote.baseMinutes,
+            totalCents: quote.totalCents,
+            breakdown: quote.breakdown,
+            ratesUsed: quote.ratesUsed,
+            profileName: quote.profileName,
+            profileSource: quote.profileSource,
+          };
+        } catch (err: any) {
+          console.warn(`[Pricing] Failed to compute quote for new trip, continuing without:`, err.message);
+        }
+      }
+
+      const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, ...pricingFields, companyId: callerCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "CREATE",
