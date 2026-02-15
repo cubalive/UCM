@@ -90,6 +90,43 @@ function lookupRate(
   return rule ? parseFloat(rule.unitRate) : 0;
 }
 
+export async function autoBillingClassify(trip: any): Promise<void> {
+  if (trip.billingOutcome) return;
+
+  const { outcome, reason } = classifyBillingOutcome(trip);
+  const legType = classifyLegType(trip);
+
+  let cancelWin: string | null = null;
+  if (outcome === "cancelled") {
+    if (trip.clinicId) {
+      const [profile] = await db
+        .select()
+        .from(clinicBillingProfiles)
+        .where(
+          and(
+            eq(clinicBillingProfiles.clinicId, trip.clinicId),
+            eq(clinicBillingProfiles.isActive, true)
+          )
+        );
+      if (profile) {
+        cancelWin = classifyCancelWindow(trip, profile.cancelAdvanceHours, profile.cancelLateMinutes);
+      } else {
+        cancelWin = classifyCancelWindow(trip, 24, 0);
+      }
+    } else {
+      cancelWin = classifyCancelWindow(trip, 24, 0);
+    }
+  }
+
+  await db.update(trips).set({
+    billingOutcome: outcome,
+    billingReason: reason,
+    cancelWindow: cancelWin,
+  }).where(eq(trips.id, trip.id));
+
+  console.log(`[BILLING] Auto-classified trip ${trip.id}: outcome=${outcome}, leg=${legType}, cancelWindow=${cancelWin || "n/a"}`);
+}
+
 export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/clinic-billing/profiles", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {

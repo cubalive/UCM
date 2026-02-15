@@ -2907,6 +2907,14 @@ export async function registerRoutes(
         storage.revokeTokensForTrip(id).catch((err: any) => {
           console.error(`[TRACKING] Failed to revoke tokens for trip ${id}:`, err.message);
         });
+
+        if (!updatedTrip.billingOutcome) {
+          import("./lib/clinicBillingRoutes").then(({ autoBillingClassify }) => {
+            autoBillingClassify(updatedTrip).catch((err: any) => {
+              console.error(`[BILLING] Auto-classify failed for trip ${id}:`, err.message);
+            });
+          }).catch(() => {});
+        }
       }
 
       await storage.createAuditLog({
@@ -3172,6 +3180,12 @@ export async function registerRoutes(
           autoNotifyPatient(id, "canceled");
         }).catch(() => {});
 
+        if (updated && !updated.billingOutcome) {
+          import("./lib/clinicBillingRoutes").then(({ autoBillingClassify }) => {
+            autoBillingClassify(updated).catch(() => {});
+          }).catch(() => {});
+        }
+
         return res.json(updated);
       }
       if (trip.approvalStatus !== "approved") {
@@ -3316,6 +3330,13 @@ export async function registerRoutes(
         cancelFeeOverrideNote: req.body.overrideNote || null,
       } as any);
       storage.revokeTokensForTrip(id).catch(() => {});
+
+      if (updated && !updated.billingOutcome) {
+        import("./lib/clinicBillingRoutes").then(({ autoBillingClassify }) => {
+          autoBillingClassify(updated).catch(() => {});
+        }).catch(() => {});
+      }
+
       let invoiceId: number | null = null;
       if (isBillable && finalFee > 0) {
         try {

@@ -1,0 +1,187 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Driver App)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE
+Redesign the Driver mobile UI to be clean, readable, and operations-first:
+- Map stays on top.
+- Bottom bar shows ONLY the Online/Offline control.
+- All other driver functions live in a slide-up drawer/menu.
+- Trip request cards appear OVER the map (as previously agreed).
+- Fix icon sizing (too small) for mobile.
+
+------------------------------------------------------------
+UI REQUIREMENTS (NON-NEGOTIABLE)
+------------------------------------------------------------
+
+A) MAIN SCREEN LAYOUT
+1) Top: Map (full width, majority of screen height)
+2) Bottom: Single control strip with:
+   - One primary toggle/button: "Go Online" / "Go Offline"
+   - (Optional) small status pill "Online" next to name, but keep minimal
+3) NO other buttons in the bottom strip (remove Break, remove My Trips/History buttons from main)
+4) Add a single "Menu" affordance:
+   - A floating handle at bottom center OR hamburger icon top-right
+   - opens a slide-up drawer
+
+B) TRIP REQUESTS OVER MAP
+Trip request cards must render as overlay on top of the map (stacked cards).
+- Always visible when there is an active request
+- Accept/Decline actions on the card
+- Card does not get hidden by drawer
+- If multiple requests: stack or carousel
+
+C) ICONS TOO SMALL (MOBILE)
+Increase tap targets and icon sizes:
+- Minimum 44x44 px tap target
+- Increase icons/text scale in driver UI
+- Ensure buttons are thumb-friendly
+
+------------------------------------------------------------
+SLIDE-UP DRAWER (BOTTOM SHEET MENU)
+------------------------------------------------------------
+Drawer opens upward and contains sections in this order:
+
+SECTION 1 — DRIVER PROFILE
+- Driver photo/avatar
+- Name
+- Vehicle (optional)
+- Current status (Online/Offline)
+- Small quick link: "Edit Profile" (if allowed)
+
+SECTION 2 — TRIPS
+Tabs inside the drawer:
+- Scheduled Trips (today + upcoming)
+- Trip History (completed/cancelled)
+Both lists open Trip Details.
+
+SECTION 3 — MY SCHEDULE
+Show driver schedule (week view)
+- Read-only by default
+- Shows assigned working days/hours
+- If Sunday/extra shifts exist, show clearly
+
+SECTION 4 — REQUEST DAY CHANGE
+A form to request a schedule change:
+- Pick date
+- Pick type: swap/cover/unavailable
+- Notes
+- Submit
+
+Backend behavior:
+- Create a schedule_change_request record
+- Notify dispatch by email
+- Dispatch approves/denies in dispatcher UI
+- Driver receives email when approved/denied
+- Driver sees status in the drawer (Pending/Approved/Denied)
+
+SECTION 5 — METRICS
+Show driver metrics summary:
+- Completion rate
+- On-time rate
+- No-show handling (if tracked)
+- Weekly totals
+Pull from existing dispatcher metrics source (do NOT invent; reuse same calculation).
+
+SECTION 6 — WEEKLY BONUS (ONLY WHEN ACTIVE)
+This section is hidden unless a bonus program is active.
+When active:
+- Show progress % toward qualification
+- Show a progress bar with color states:
+  - Red (below threshold)
+  - Yellow (near threshold)
+  - Green (qualifies)
+- Show exact requirement text (e.g., "Maintain ≥X% on-time and ≥Y trips")
+
+Rules:
+- Bonus configuration comes from dispatcher/admin settings (existing or add minimal)
+- Driver view is read-only
+
+SECTION 7 — LOG OUT / GO OFFLINE (AT BOTTOM)
+At the very bottom of drawer:
+- "Go Offline" button (or "Disconnect")
+This must be separate and visually distinct.
+Main screen bottom strip still includes Online/Offline toggle; drawer also includes it at bottom for convenience.
+
+------------------------------------------------------------
+BACKEND / DATA REQUIREMENTS (MINIMAL)
+------------------------------------------------------------
+
+1) Schedule Change Requests
+If not existing, add table:
+
+schedule_change_requests
+- id uuid pk
+- driver_id uuid
+- requested_date date
+- request_type text  -- swap/cover/unavailable/other
+- notes text
+- status text default 'pending'  -- pending/approved/denied
+- decision_notes text null
+- created_at timestamp
+- decided_by uuid null
+- decided_at timestamp null
+
+2) Email notifications
+Use existing email service if present.
+Emails:
+- To dispatch: new request
+- To driver: approved/denied outcome
+
+3) Bonus config
+If not existing, add minimal config table (or reuse existing):
+driver_bonus_configs
+- id uuid
+- city text
+- week_start date
+- active bool
+- thresholds jsonb (or numeric fields)
+- created_by uuid
+- created_at timestamp
+
+Driver bonus progress is computed from existing metrics.
+
+------------------------------------------------------------
+IMPLEMENTATION NOTES
+------------------------------------------------------------
+- Use a mobile bottom sheet component (slide-up drawer).
+- Keep map interactive while drawer is closed.
+- Ensure request cards over map remain accessible.
+- Do not break GPS tracking or online status updates.
+- Do not reset DB.
+
+------------------------------------------------------------
+VERIFY (MUST DO)
+------------------------------------------------------------
+1) Driver opens app:
+- Map on top
+- Bottom strip only shows Go Online/Go Offline
+
+2) Active trip request:
+- appears as overlay card on map
+
+3) Open drawer:
+- Profile shows
+- Scheduled trips list works
+- Trip history works
+- Schedule displays
+
+4) Submit schedule change request:
+- dispatch receives email
+- request appears pending
+- when dispatch approves/denies, driver receives email and sees status
+
+5) Metrics section displays values
+6) Bonus section only appears when active and shows red/yellow/green correctly
+7) Icons/buttons are no longer tiny; tap targets are correct
+
+DO NOT
+- Do NOT reset DB
+- Do NOT remove existing API endpoints; extend
+- Do NOT clutter main screen controls beyond Online/Offline

@@ -506,19 +506,21 @@ function TripsLogTab() {
                         <TableHeader>
                           <TableRow>
                             <TableHead className="text-xs">Time</TableHead>
+                            <TableHead className="text-xs">ID</TableHead>
                             <TableHead className="text-xs">Leg</TableHead>
                             <TableHead className="text-xs">Pickup → Dropoff</TableHead>
                             <TableHead className="text-xs">Mi</TableHead>
-                            <TableHead className="text-xs">ID</TableHead>
+                            <TableHead className="text-xs">Pax</TableHead>
                             <TableHead className="text-xs">Outcome</TableHead>
                             <TableHead className="text-xs text-right">Rate</TableHead>
-                            <TableHead className="text-xs text-right">Total</TableHead>
+                            <TableHead className="text-xs text-right">Price</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {(legs as any[]).map((leg: any) => (
                             <TableRow key={leg.tripId} data-testid={`row-trip-log-${leg.tripId}`}>
                               <TableCell className="text-xs">{leg.pickupTime || "—"}</TableCell>
+                              <TableCell className="text-xs font-mono">{leg.publicId}</TableCell>
                               <TableCell>
                                 <Badge variant="outline" className="text-xs capitalize">{leg.legType}</Badge>
                               </TableCell>
@@ -526,15 +528,15 @@ function TripsLogTab() {
                                 {leg.pickupAddress?.split(",")[0]} → {leg.dropoffAddress?.split(",")[0]}
                               </TableCell>
                               <TableCell className="text-xs">{leg.distanceMiles ? parseFloat(leg.distanceMiles).toFixed(1) : "—"}</TableCell>
-                              <TableCell className="text-xs font-mono">{leg.publicId}</TableCell>
+                              <TableCell className="text-xs text-center" data-testid={`text-pax-${leg.tripId}`}>{leg.passengerCount}</TableCell>
                               <TableCell>
                                 <Badge className={`text-xs ${OUTCOME_COLORS[leg.billingOutcome] || ""}`}>
                                   {OUTCOME_LABELS[leg.billingOutcome] || leg.billingOutcome}
                                   {leg.cancelWindow && ` (${CANCEL_WINDOW_LABELS[leg.cancelWindow] || leg.cancelWindow})`}
                                 </Badge>
                               </TableCell>
-                              <TableCell className="text-xs text-right">${leg.unitRate}</TableCell>
-                              <TableCell className="text-xs text-right font-medium">${leg.lineTotal}</TableCell>
+                              <TableCell className="text-xs text-right" data-testid={`text-rate-${leg.tripId}`}>${leg.unitRate}</TableCell>
+                              <TableCell className="text-xs text-right font-medium" data-testid={`text-price-${leg.tripId}`}>${leg.lineTotal}</TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
