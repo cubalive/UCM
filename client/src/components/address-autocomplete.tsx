@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { MapPin, Loader2, X, AlertTriangle } from "lucide-react";
+import { MapPin, Loader2, X, AlertTriangle, Pencil } from "lucide-react";
 
 export interface StructuredAddress {
   formattedAddress: string;
@@ -13,6 +13,7 @@ export interface StructuredAddress {
   lat: number;
   lng: number;
   placeId?: string;
+  manualOverride?: boolean;
 }
 
 interface Prediction {
@@ -96,6 +97,7 @@ export function AddressAutocomplete({
   token,
   testIdPrefix,
   required,
+  allowManualOverride,
 }: {
   label: string;
   value: StructuredAddress | null;
@@ -103,6 +105,7 @@ export function AddressAutocomplete({
   token: string | null;
   testIdPrefix: string;
   required?: boolean;
+  allowManualOverride?: boolean;
 }) {
   const [inputValue, setInputValue] = useState(value?.formattedAddress || "");
   const [predictions, setPredictions] = useState<Prediction[]>([]);
@@ -111,6 +114,7 @@ export function AddressAutocomplete({
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [mapsReady, setMapsReady] = useState(false);
   const [mapsError, setMapsError] = useState(false);
+  const [manualMode, setManualMode] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const containerRef = useRef<HTMLDivElement>(null);
   const autocompleteServiceRef = useRef<google.maps.places.AutocompleteService | null>(null);
@@ -228,6 +232,7 @@ export function AddressAutocomplete({
   const handleInputChange = (val: string) => {
     setInputValue(val);
     if (value) onSelect(null);
+    if (manualMode) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => fetchPredictions(val), 300);
   };
@@ -280,14 +285,30 @@ export function AddressAutocomplete({
     );
   };
 
-  const hasZipError = value && !value.zip;
-  const hasCoordsError = value && (!value.lat || !value.lng);
+  const handleManualSubmit = () => {
+    if (!inputValue.trim()) return;
+    const addr: StructuredAddress = {
+      formattedAddress: inputValue.trim(),
+      street: "",
+      city: "",
+      state: "",
+      zip: "",
+      lat: 0,
+      lng: 0,
+      manualOverride: true,
+    };
+    onSelect(addr);
+  };
+
+  const hasZipError = value && !value.zip && !value.manualOverride;
+  const hasCoordsError = value && (!value.lat || !value.lng) && !value.manualOverride;
 
   const handleClear = () => {
     setInputValue("");
     onSelect(null);
     setPredictions([]);
     setShowDropdown(false);
+    setManualMode(false);
   };
 
   if (value) {
@@ -297,7 +318,7 @@ export function AddressAutocomplete({
           {label} {required && "*"}
         </Label>
         <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-2 rounded-md border px-3 py-2 text-sm bg-muted/50">
+          <div className="flex-1 flex items-center gap-2 rounded-md border px-3 min-h-[44px] text-sm bg-muted/50">
             <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
             <span
               className="truncate"
@@ -305,6 +326,9 @@ export function AddressAutocomplete({
             >
               {value.formattedAddress}
             </span>
+            {value.manualOverride && (
+              <span className="text-xs text-amber-600 dark:text-amber-400 flex-shrink-0">(manual)</span>
+            )}
           </div>
           <Button
             type="button"
@@ -317,35 +341,37 @@ export function AddressAutocomplete({
             <X className="w-4 h-4" />
           </Button>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div>
-            <span className="text-muted-foreground">Street:</span>{" "}
-            <span data-testid={`text-${testIdPrefix}-street`}>
-              {value.street || "\u2014"}
-            </span>
+        {!value.manualOverride && (
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <span className="text-muted-foreground">Street:</span>{" "}
+              <span data-testid={`text-${testIdPrefix}-street`}>
+                {value.street || "\u2014"}
+              </span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">City:</span>{" "}
+              <span data-testid={`text-${testIdPrefix}-city`}>
+                {value.city || "\u2014"}
+              </span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">State:</span>{" "}
+              <span data-testid={`text-${testIdPrefix}-state`}>
+                {value.state || "\u2014"}
+              </span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">ZIP:</span>{" "}
+              <span
+                data-testid={`text-${testIdPrefix}-zip`}
+                className={hasZipError ? "text-destructive font-medium" : ""}
+              >
+                {value.zip || "Missing"}
+              </span>
+            </div>
           </div>
-          <div>
-            <span className="text-muted-foreground">City:</span>{" "}
-            <span data-testid={`text-${testIdPrefix}-city`}>
-              {value.city || "\u2014"}
-            </span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">State:</span>{" "}
-            <span data-testid={`text-${testIdPrefix}-state`}>
-              {value.state || "\u2014"}
-            </span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">ZIP:</span>{" "}
-            <span
-              data-testid={`text-${testIdPrefix}-zip`}
-              className={hasZipError ? "text-destructive font-medium" : ""}
-            >
-              {value.zip || "Missing"}
-            </span>
-          </div>
-        </div>
+        )}
         {hasZipError && (
           <p className="text-xs text-destructive flex items-center gap-1">
             <AlertTriangle className="w-3 h-3" />
@@ -365,10 +391,34 @@ export function AddressAutocomplete({
 
   return (
     <div className="space-y-2" ref={containerRef}>
-      <Label>
-        {label} {required && "*"}
-      </Label>
-      {mapsError && (
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <Label>
+          {label} {required && "*"}
+        </Label>
+        {allowManualOverride && !manualMode && (
+          <button
+            type="button"
+            onClick={() => { setManualMode(true); setPredictions([]); setShowDropdown(false); }}
+            className="text-xs text-muted-foreground flex items-center gap-1 hover:text-foreground transition-colors min-h-[28px]"
+            data-testid={`button-${testIdPrefix}-manual-toggle`}
+          >
+            <Pencil className="w-3 h-3" />
+            Enter manually
+          </button>
+        )}
+        {allowManualOverride && manualMode && (
+          <button
+            type="button"
+            onClick={() => { setManualMode(false); setInputValue(""); }}
+            className="text-xs text-muted-foreground flex items-center gap-1 hover:text-foreground transition-colors min-h-[28px]"
+            data-testid={`button-${testIdPrefix}-auto-toggle`}
+          >
+            <MapPin className="w-3 h-3" />
+            Use suggestions
+          </button>
+        )}
+      </div>
+      {mapsError && !manualMode && (
         <p className="text-xs text-muted-foreground flex items-center gap-1">
           <AlertTriangle className="w-3 h-3" />
           Address suggestions unavailable. Maps service not configured.
@@ -380,27 +430,29 @@ export function AddressAutocomplete({
           value={inputValue}
           onChange={(e) => handleInputChange(e.target.value)}
           onFocus={() => {
-            if (predictions.length > 0) setShowDropdown(true);
+            if (!manualMode && predictions.length > 0) setShowDropdown(true);
           }}
           placeholder={
-            mapsReady
+            manualMode
+              ? "Type full address manually..."
+              : mapsReady
               ? "Start typing an address..."
               : "Loading address search..."
           }
-          className="pl-9"
+          className="pl-9 min-h-[44px]"
           data-testid={`input-${testIdPrefix}-address`}
-          disabled={!mapsReady && !mapsError}
+          disabled={!manualMode && !mapsReady && !mapsError}
         />
         {(loading || detailsLoading) && (
           <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
         )}
-        {showDropdown && predictions.length > 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-md max-h-60 overflow-y-auto">
+        {!manualMode && showDropdown && predictions.length > 0 && (
+          <div className="absolute z-[9999] w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-y-auto">
             {predictions.map((p) => (
               <button
                 key={p.placeId}
                 type="button"
-                className="w-full text-left px-3 py-2 text-sm hover-elevate cursor-pointer"
+                className="w-full text-left px-3 py-3 min-h-[44px] text-sm hover-elevate cursor-pointer border-b border-border last:border-b-0"
                 onClick={() => handleSelectPrediction(p)}
                 data-testid={`option-${testIdPrefix}-${p.placeId}`}
               >
@@ -413,6 +465,17 @@ export function AddressAutocomplete({
           </div>
         )}
       </div>
+      {manualMode && inputValue.trim().length > 0 && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full min-h-[44px]"
+          onClick={handleManualSubmit}
+          data-testid={`button-${testIdPrefix}-manual-save`}
+        >
+          Use this address (no coordinates)
+        </Button>
+      )}
     </div>
   );
 }

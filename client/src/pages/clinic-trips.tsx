@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
+import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1516,6 +1517,7 @@ function TripsSection() {
             clinic={clinicQuery.data}
             loading={createTripMutation.isPending}
             onSubmit={(data) => createTripMutation.mutate(data)}
+            token={token}
           />
         </DialogContent>
       </Dialog>
@@ -1826,7 +1828,7 @@ function PatientsSection() {
       <Dialog open={showAddPatient} onOpenChange={setShowAddPatient}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Add Patient</DialogTitle></DialogHeader>
-          <ClinicPatientForm loading={createMutation.isPending} onSubmit={(data) => createMutation.mutate(data)} />
+          <ClinicPatientForm loading={createMutation.isPending} onSubmit={(data) => createMutation.mutate(data)} token={token} />
         </DialogContent>
       </Dialog>
 
@@ -1839,6 +1841,7 @@ function PatientsSection() {
               isEdit
               loading={updateMutation.isPending}
               onSubmit={(data) => updateMutation.mutate({ id: editPatient.id, data })}
+              token={token}
             />
           )}
         </DialogContent>
@@ -2395,25 +2398,29 @@ function TripProgressBar({ status }: { status: string }) {
   );
 }
 
-function CreateTripForm({ patients, clinic, loading, onSubmit }: {
+function CreateTripForm({ patients, clinic, loading, onSubmit, token }: {
   patients: any[];
   clinic: any;
   loading: boolean;
   onSubmit: (data: any) => void;
+  token: string | null;
 }) {
   const [form, setForm] = useState({
     patientId: "",
     scheduledDate: todayStr(),
     pickupTime: "09:00",
     estimatedArrivalTime: "10:00",
-    pickupAddress: "",
-    dropoffAddress: clinic?.address || "",
     tripType: "one_time",
     notes: "",
     direction: "" as "" | "to_clinic" | "from_clinic",
     roundTrip: false,
     returnPickupTime: "",
   });
+
+  const [pickupAddr, setPickupAddr] = useState<StructuredAddress | null>(null);
+  const [dropoffAddr, setDropoffAddr] = useState<StructuredAddress | null>(
+    clinic?.address ? { formattedAddress: clinic.address, street: "", city: "", state: "", zip: clinic.addressZip || "", lat: clinic.lat || 0, lng: clinic.lng || 0, placeId: clinic.placeId || undefined } : null
+  );
 
   const isDialysis = form.tripType === "dialysis";
   const roundTripLocked = isDialysis;
@@ -2423,11 +2430,17 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
 
   const handlePatientChange = (val: string) => {
     const patient = patients.find(p => p.id === Number(val));
-    setForm({
-      ...form,
-      patientId: val,
-      pickupAddress: patient?.address || form.pickupAddress,
-    });
+    setForm({ ...form, patientId: val });
+    if (patient?.address && !pickupAddr) {
+      setPickupAddr({
+        formattedAddress: patient.address,
+        street: "", city: "", state: "",
+        zip: patient.addressZip || "",
+        lat: patient.lat || 0,
+        lng: patient.lng || 0,
+        placeId: patient.placeId || undefined,
+      });
+    }
   };
 
   const handleTripTypeChange = (v: string) => {
@@ -2438,14 +2451,14 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
     }
   };
 
-  const patientAddr = form.pickupAddress || selectedPatient?.address || "TBD";
-  const patientLat = selectedPatient?.lat || null;
-  const patientLng = selectedPatient?.lng || null;
-  const patientZip = selectedPatient?.addressZip || "00000";
-  const clinicAddr = form.dropoffAddress || clinic?.address || "TBD";
-  const clinicLat = clinic?.lat || null;
-  const clinicLng = clinic?.lng || null;
-  const clinicZip = clinic?.addressZip || "00000";
+  const patientAddr = pickupAddr?.formattedAddress || selectedPatient?.address || "TBD";
+  const patientLat = pickupAddr?.lat || selectedPatient?.lat || null;
+  const patientLng = pickupAddr?.lng || selectedPatient?.lng || null;
+  const patientZip = pickupAddr?.zip || selectedPatient?.addressZip || "00000";
+  const clinicAddr = dropoffAddr?.formattedAddress || clinic?.address || "TBD";
+  const clinicLat = dropoffAddr?.lat || clinic?.lat || null;
+  const clinicLng = dropoffAddr?.lng || clinic?.lng || null;
+  const clinicZip = dropoffAddr?.zip || clinic?.addressZip || "00000";
 
   function buildTrip(dir: "to_clinic" | "from_clinic", pickupTime: string, arrivalTime: string) {
     const isTo = dir === "to_clinic";
@@ -2550,14 +2563,22 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
         </div>
       </div>
 
-      <div className="space-y-2">
-        <Label>Pickup Address</Label>
-        <Input value={form.pickupAddress} onChange={e => setForm({ ...form, pickupAddress: e.target.value })} placeholder="Patient's address (auto-filled)" data-testid="input-trip-pickup" />
-      </div>
-      <div className="space-y-2">
-        <Label>Dropoff Address</Label>
-        <Input value={form.dropoffAddress} onChange={e => setForm({ ...form, dropoffAddress: e.target.value })} placeholder="Clinic address (auto-filled)" data-testid="input-trip-dropoff" />
-      </div>
+      <AddressAutocomplete
+        label="Pickup Address"
+        value={pickupAddr}
+        onSelect={setPickupAddr}
+        token={token}
+        testIdPrefix="trip-pickup"
+        required
+      />
+      <AddressAutocomplete
+        label="Dropoff Address"
+        value={dropoffAddr}
+        onSelect={setDropoffAddr}
+        token={token}
+        testIdPrefix="trip-dropoff"
+        required
+      />
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
@@ -2619,22 +2640,26 @@ function CreateTripForm({ patients, clinic, loading, onSubmit }: {
   );
 }
 
-function ClinicPatientForm({ onSubmit, loading, initialData, isEdit }: {
+function ClinicPatientForm({ onSubmit, loading, initialData, isEdit, token }: {
   onSubmit: (data: any) => void;
   loading: boolean;
   initialData?: any;
   isEdit?: boolean;
+  token: string | null;
 }) {
   const [form, setForm] = useState({
     firstName: initialData?.firstName || "",
     lastName: initialData?.lastName || "",
     phone: initialData?.phone || "",
     email: initialData?.email || "",
-    address: initialData?.address || "",
     dateOfBirth: initialData?.dateOfBirth || "",
     insuranceId: initialData?.insuranceId || "",
     notes: initialData?.notes || "",
   });
+
+  const [patientAddr, setPatientAddr] = useState<StructuredAddress | null>(
+    initialData?.address ? { formattedAddress: initialData.address, street: "", city: "", state: "", zip: initialData.addressZip || "", lat: initialData.lat || 0, lng: initialData.lng || 0, placeId: initialData.placeId || undefined } : null
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2643,7 +2668,10 @@ function ClinicPatientForm({ onSubmit, loading, initialData, isEdit }: {
       lastName: form.lastName,
       phone: form.phone,
       email: form.email.trim() || null,
-      address: form.address,
+      address: patientAddr?.formattedAddress || "",
+      addressZip: patientAddr?.zip || "",
+      lat: patientAddr?.lat || null,
+      lng: patientAddr?.lng || null,
       dateOfBirth: form.dateOfBirth,
       insuranceId: form.insuranceId,
       notes: form.notes,
@@ -2672,10 +2700,13 @@ function ClinicPatientForm({ onSubmit, loading, initialData, isEdit }: {
           <Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="Optional" data-testid="input-clinic-patient-email" />
         </div>
       </div>
-      <div className="space-y-2">
-        <Label>Address</Label>
-        <Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} data-testid="input-clinic-patient-address" />
-      </div>
+      <AddressAutocomplete
+        label="Address"
+        value={patientAddr}
+        onSelect={setPatientAddr}
+        token={token}
+        testIdPrefix="clinic-patient-address"
+      />
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Date of Birth</Label>
