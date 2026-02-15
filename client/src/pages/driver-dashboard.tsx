@@ -28,13 +28,22 @@ import {
   Send,
   MessageSquare,
   Lock,
-  ArrowRight,
   LocateFixed,
   Timer,
   ExternalLink,
   MapPinned,
   Bell,
   Coffee,
+  Menu,
+  X,
+  ChevronRight,
+  BarChart3,
+  Trophy,
+  CalendarClock,
+  FileText,
+  LogOut,
+  TrendingUp,
+  Target,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
@@ -42,8 +51,6 @@ import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/com
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
 }
-
-type ViewType = "map" | "mytrips" | "history";
 
 const STATUS_FLOW: Record<string, { next: string; label: string; icon: any }> = {
   ASSIGNED: { next: "EN_ROUTE_TO_PICKUP", label: "Start Trip", icon: PlayCircle },
@@ -577,7 +584,7 @@ function FullScreenMap({
       if (activeTrip?.dropoffLat && activeTrip?.dropoffLng) { bounds.extend({ lat: activeTrip.dropoffLat, lng: activeTrip.dropoffLng }); hasPoints = true; }
       if (hasPoints) {
         entry.boundsFit = true;
-        map.fitBounds(bounds, { top: 40, right: 40, bottom: 200, left: 40 });
+        map.fitBounds(bounds, { top: 40, right: 40, bottom: 120, left: 40 });
         const maxZoom = 16;
         google.maps.event.addListenerOnce(map, "idle", () => {
           if ((map.getZoom() || 0) > maxZoom) map.setZoom(maxZoom);
@@ -593,8 +600,8 @@ function FullScreenMap({
         <div className="absolute inset-0 bg-muted animate-pulse z-10" data-testid="skeleton-map" />
       )}
       {isGpsStale && (
-        <div className="absolute top-3 left-3 bg-amber-600 text-white text-xs font-medium px-2.5 py-1.5 rounded-md flex items-center gap-1.5 shadow-md" data-testid="badge-gps-stale">
-          <AlertTriangle className="w-3.5 h-3.5" />
+        <div className="absolute top-3 left-3 bg-amber-600 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-2 shadow-md z-20" data-testid="badge-gps-stale">
+          <AlertTriangle className="w-5 h-5" />
           GPS Signal Lost
         </div>
       )}
@@ -603,12 +610,13 @@ function FullScreenMap({
 }
 
 export default function DriverDashboard() {
-  const { token, user } = useAuth();
+  const { token, user, logout } = useAuth();
   const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState(getToday());
   const [chatTripId, setChatTripId] = useState<number | null>(null);
-  const [sheetExpanded, setSheetExpanded] = useState(false);
-  const [currentView, setCurrentView] = useState<ViewType>("map");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerSection, setDrawerSection] = useState<string | null>(null);
+  const [tripsTab, setTripsTab] = useState<"scheduled" | "history">("scheduled");
 
   const mapsLoaded = useLoadGoogleMaps(token);
 
@@ -630,6 +638,24 @@ export default function DriverDashboard() {
     queryFn: () => apiFetch(`/api/driver/my-trips?date=${selectedDate}`, token),
     enabled: !!token,
     refetchInterval: 15000,
+  });
+
+  const metricsQuery = useQuery<any>({
+    queryKey: ["/api/driver/metrics"],
+    queryFn: () => apiFetch("/api/driver/metrics", token),
+    enabled: !!token,
+  });
+
+  const bonusQuery = useQuery<any>({
+    queryKey: ["/api/driver/bonus-progress"],
+    queryFn: () => apiFetch("/api/driver/bonus-progress", token),
+    enabled: !!token,
+  });
+
+  const scheduleChangeQuery = useQuery<any[]>({
+    queryKey: ["/api/driver/schedule-change-requests"],
+    queryFn: () => apiFetch("/api/driver/schedule-change-requests", token),
+    enabled: !!token,
   });
 
   const driver = profileQuery.data?.driver;
@@ -936,13 +962,13 @@ export default function DriverDashboard() {
       <div className="flex items-center justify-center min-h-[60vh] p-4">
         <Card className="max-w-md w-full">
           <CardContent className="py-8 text-center space-y-4">
-            <LocateFixed className="w-12 h-12 mx-auto text-primary" />
-            <h2 className="text-lg font-semibold" data-testid="text-location-prompt">Enable Location</h2>
-            <p className="text-sm text-muted-foreground">
+            <LocateFixed className="w-14 h-14 mx-auto text-primary" />
+            <h2 className="text-xl font-semibold" data-testid="text-location-prompt">Enable Location</h2>
+            <p className="text-base text-muted-foreground">
               Location access is required to manage trips, update your position, and appear on the dispatch map.
             </p>
-            <Button onClick={requestPermission} data-testid="button-enable-location">
-              <MapPin className="w-4 h-4 mr-2" />
+            <Button onClick={requestPermission} className="min-h-[48px] text-base px-6" data-testid="button-enable-location">
+              <MapPin className="w-5 h-5 mr-2" />
               Enable Location
             </Button>
           </CardContent>
@@ -957,16 +983,16 @@ export default function DriverDashboard() {
         <Card className="max-w-md w-full">
           <CardContent className="py-8 space-y-4">
             <div className="text-center">
-              <MapPinOff className="w-12 h-12 mx-auto text-destructive" />
-              <h2 className="text-lg font-semibold mt-3" data-testid="text-location-required">Location Access Denied</h2>
-              <p className="text-sm text-muted-foreground mt-1">
+              <MapPinOff className="w-14 h-14 mx-auto text-destructive" />
+              <h2 className="text-xl font-semibold mt-3" data-testid="text-location-required">Location Access Denied</h2>
+              <p className="text-base text-muted-foreground mt-1">
                 Location permission was denied. Please follow the steps below to enable it, then tap the button to try again.
               </p>
             </div>
             <div className="text-left space-y-2 bg-muted/50 rounded-md p-4">
               {isStandalone ? (
                 <>
-                  <p className="text-sm font-medium">iPhone / iPad (Home Screen App):</p>
+                  <p className="text-base font-medium">iPhone / iPad (Home Screen App):</p>
                   <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
                     <li>Open <strong>Settings</strong> on your device</li>
                     <li>Tap <strong>Privacy &amp; Security</strong></li>
@@ -979,7 +1005,7 @@ export default function DriverDashboard() {
                 </>
               ) : (
                 <>
-                  <p className="text-sm font-medium">For iPhone / iPad (Safari):</p>
+                  <p className="text-base font-medium">For iPhone / iPad (Safari):</p>
                   <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
                     <li>Open <strong>Settings</strong> on your device</li>
                     <li>Scroll down and tap <strong>Safari</strong></li>
@@ -989,7 +1015,7 @@ export default function DriverDashboard() {
                   </ol>
                 </>
               )}
-              <p className="text-sm font-medium mt-3">For Android (Chrome):</p>
+              <p className="text-base font-medium mt-3">For Android (Chrome):</p>
               <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
                 <li>Tap the <strong>lock icon</strong> in the address bar</li>
                 <li>Tap <strong>Permissions</strong></li>
@@ -997,12 +1023,12 @@ export default function DriverDashboard() {
                 <li>Reload the page</li>
               </ol>
             </div>
-            <div className="flex gap-2 justify-center">
-              <Button onClick={requestPermission} data-testid="button-retry-location">
-                <LocateFixed className="w-4 h-4 mr-2" />
+            <div className="flex gap-2 justify-center flex-wrap">
+              <Button onClick={requestPermission} className="min-h-[48px] text-base" data-testid="button-retry-location">
+                <LocateFixed className="w-5 h-5 mr-2" />
                 Try Again
               </Button>
-              <Button variant="outline" onClick={() => window.location.reload()} data-testid="button-reload-location">
+              <Button variant="outline" onClick={() => window.location.reload()} className="min-h-[48px] text-base" data-testid="button-reload-location">
                 Reload Page
               </Button>
             </div>
@@ -1024,88 +1050,22 @@ export default function DriverDashboard() {
       <div className="flex items-center justify-center min-h-[60vh] p-4">
         <Card className="max-w-md w-full">
           <CardContent className="py-6 text-center">
-            <AlertTriangle className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-muted-foreground" data-testid="text-no-driver-profile">No driver profile linked to your account.</p>
+            <AlertTriangle className="w-10 h-10 mx-auto text-muted-foreground mb-2" />
+            <p className="text-base text-muted-foreground" data-testid="text-no-driver-profile">No driver profile linked to your account.</p>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  const isListView = currentView === "mytrips" || currentView === "history";
+  const metrics = metricsQuery.data;
+  const bonus = bonusQuery.data;
+  const scheduleChanges = scheduleChangeQuery.data || [];
 
   return (
-    <>
-    {isListView && (() => {
-      const displayTrips = currentView === "mytrips" ? todayTrips : allTrips;
-      const title = currentView === "mytrips" ? "My Trips" : "Trip History";
-      const emptyIcon = currentView === "mytrips" ? CalendarDays : History;
-      const emptyText = currentView === "mytrips" ? "No trips scheduled for this date." : "No trip history available.";
-      return (
-        <div className="p-4 space-y-4 max-w-4xl mx-auto">
-          <div className="flex items-center gap-3 flex-wrap">
-            <Button variant="outline" size="sm" onClick={() => setCurrentView("map")} data-testid="button-back-to-map">
-              <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
-              Back to Map
-            </Button>
-            <h1 className="text-lg font-semibold" data-testid="text-trips-title">{title}</h1>
-          </div>
-
-          {currentView === "mytrips" && (
-            <div className="flex items-center gap-2">
-              <Label>Date</Label>
-              <Input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-auto"
-                data-testid="input-driver-date"
-              />
-            </div>
-          )}
-
-          {tripsQuery.isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-24 w-full" />
-            </div>
-          ) : displayTrips.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center">
-                {(() => { const Icon = emptyIcon; return <Icon className="w-8 h-8 mx-auto text-muted-foreground mb-2" />; })()}
-                <p className="text-muted-foreground" data-testid="text-no-trips">{emptyText}</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {displayTrips.map((trip: any) => (
-                <TripCard
-                  key={trip.id}
-                  trip={trip}
-                  onStatusChange={currentView === "mytrips" ? (status) => statusMutation.mutate({ tripId: trip.id, status }) : undefined}
-                  isPending={statusMutation.isPending}
-                  readonly={currentView === "history"}
-                  onOpenChat={currentView === "mytrips" && ACTIVE_STATUSES.includes(trip.status) ? () => setChatTripId(trip.id) : undefined}
-                  token={token}
-                />
-              ))}
-            </div>
-          )}
-
-          {chatTripId && (
-            <TripChat
-              tripId={chatTripId}
-              token={token}
-              onClose={() => setChatTripId(null)}
-              userId={user?.id}
-            />
-          )}
-        </div>
-      );
-    })()}
-
-    <div style={{ display: isListView ? "none" : undefined }} className="relative w-full h-[calc(100vh-3.5rem)] flex flex-col" data-testid="div-driver-map-home">
-      <div className="flex-1 relative">
+    <div className="relative w-full h-[calc(100vh-3.5rem)] flex flex-col" data-testid="div-driver-map-home">
+      {/* MAP - takes all available space */}
+      <div className="flex-1 relative min-h-0">
         <FullScreenMap
           driverLocation={geoLocation}
           activeTrip={activeTrip}
@@ -1113,362 +1073,434 @@ export default function DriverDashboard() {
           gpsWatchError={geoWatchError}
         />
 
+        {/* Go-time alert banner on map */}
         {goTimeTrip && (
           <div
-            className="absolute top-10 left-3 right-3 z-20 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md shadow-lg px-3 py-2.5"
+            className="absolute top-3 left-3 right-3 z-20 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md shadow-lg px-4 py-3"
             data-testid="banner-go-time"
           >
-            <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                <Bell className="w-4 h-4 flex-shrink-0" />
-                <span className="font-semibold text-sm" data-testid="text-go-time-countdown">
+                <Bell className="w-6 h-6 flex-shrink-0" />
+                <span className="font-semibold text-base" data-testid="text-go-time-countdown">
                   Pickup in {formatCountdown(goTimeCountdown)}
                 </span>
-                <span className="text-xs truncate opacity-90" data-testid="text-go-time-address">
+                <span className="text-sm truncate opacity-90" data-testid="text-go-time-address">
                   {goTimeTrip.pickupAddress?.length > 30
                     ? goTimeTrip.pickupAddress.substring(0, 30) + "..."
                     : goTimeTrip.pickupAddress}
                 </span>
-                {goTimeTrip.patientName && (
-                  <span className="text-xs opacity-80 flex-shrink-0" data-testid="text-go-time-patient">
-                    {goTimeTrip.patientName}
-                  </span>
-                )}
               </div>
               <Button
-                size="sm"
-                variant="secondary"
                 onClick={() => handleGoTimeStartRoute(goTimeTrip)}
                 disabled={acknowledgeMutation.isPending || statusMutation.isPending}
+                className="min-h-[44px] text-base"
                 data-testid="button-go-time-start-route"
               >
-                <Navigation className="w-4 h-4 mr-1" />
+                <Navigation className="w-5 h-5 mr-2" />
                 Start Route
               </Button>
             </div>
           </div>
         )}
 
+        {/* Navigate button on map */}
         {activeTrip && (
           <div className="absolute top-3 right-3 z-10">
             <Button
-              size="sm"
               onClick={() => openNavigation(activeTrip)}
-              className="shadow-lg"
+              className="shadow-lg min-h-[44px] text-base px-4"
               data-testid="button-navigate"
             >
-              <Navigation className="w-4 h-4 mr-1" />
+              <Navigation className="w-5 h-5 mr-2" />
               Navigate
             </Button>
           </div>
         )}
-      </div>
 
-      {(stableOffer || offerExpiredMsg) && (
-        <div className="relative z-30 px-3 pb-1" data-testid="card-driver-offer">
-          <Card>
-            <CardContent className="py-3 space-y-2">
-              {offerExpiredMsg ? (
-                <p className="text-center text-sm font-medium text-muted-foreground" data-testid="text-offer-expired">
-                  Request expired
-                </p>
-              ) : stableOffer && (
-                <>
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <MapPinned className="w-4 h-4 text-primary flex-shrink-0" />
-                      <span className="font-mono text-xs font-medium" data-testid="text-offer-public-id">{stableOffer.publicId}</span>
+        {/* TRIP OFFER CARD - overlay on map (z-30 so it floats above everything) */}
+        {(stableOffer || offerExpiredMsg) && (
+          <div className="absolute bottom-4 left-3 right-3 z-30" data-testid="card-driver-offer">
+            <Card className="shadow-xl border-2 border-primary/20">
+              <CardContent className="py-4 space-y-3">
+                {offerExpiredMsg ? (
+                  <p className="text-center text-base font-medium text-muted-foreground" data-testid="text-offer-expired">
+                    Request expired
+                  </p>
+                ) : stableOffer && (
+                  <>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <MapPinned className="w-5 h-5 text-primary flex-shrink-0" />
+                        <span className="font-mono text-sm font-medium" data-testid="text-offer-public-id">{stableOffer.publicId}</span>
+                      </div>
+                      <Badge variant="secondary" data-testid="badge-offer-countdown">
+                        <Timer className="w-4 h-4 mr-1" />
+                        Expires in {formatCountdown(offerCountdown)}
+                      </Badge>
                     </div>
-                    <Badge variant="secondary" data-testid="badge-offer-countdown">
-                      <Timer className="w-3 h-3 mr-1" />
-                      Expires in {formatCountdown(offerCountdown)}
-                    </Badge>
-                  </div>
-                  {stableOffer.patientName && (
-                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                      <User className="w-3.5 h-3.5" />
-                      <span data-testid="text-offer-patient">{stableOffer.patientName}</span>
+                    {stableOffer.patientName && (
+                      <div className="flex items-center gap-2 text-base text-muted-foreground">
+                        <User className="w-5 h-5" />
+                        <span data-testid="text-offer-patient">{stableOffer.patientName}</span>
+                      </div>
+                    )}
+                    <div className="space-y-1.5">
+                      <div className="flex items-start gap-2 text-base">
+                        <Navigation className="w-5 h-5 mt-0.5 flex-shrink-0 text-green-600" />
+                        <span className="truncate" data-testid="text-offer-pickup">{stableOffer.pickupAddress}</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-base">
+                        <MapPin className="w-5 h-5 mt-0.5 flex-shrink-0 text-red-600" />
+                        <span className="truncate" data-testid="text-offer-dropoff">{stableOffer.dropoffAddress}</span>
+                      </div>
                     </div>
-                  )}
-                  <div className="space-y-1">
-                    <div className="flex items-start gap-1 text-sm">
-                      <Navigation className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-green-600" />
-                      <span className="truncate" data-testid="text-offer-pickup">{stableOffer.pickupAddress}</span>
+                    {stableOffer.pickupTime && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Clock className="w-4 h-4" />
+                        <span data-testid="text-offer-pickup-time">{stableOffer.pickupTime}</span>
+                      </div>
+                    )}
+                    <div className="flex gap-3">
+                      <Button
+                        className="flex-1 min-h-[48px] text-base font-semibold"
+                        onClick={() => acceptOfferMutation.mutate(stableOffer.offerId)}
+                        disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
+                        data-testid="button-accept-offer"
+                      >
+                        ACCEPT REQUEST
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="min-h-[48px] text-base px-6"
+                        onClick={() => declineOfferMutation.mutate(stableOffer.offerId)}
+                        disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
+                        data-testid="button-decline-offer"
+                      >
+                        Decline
+                      </Button>
                     </div>
-                    <div className="flex items-start gap-1 text-sm">
-                      <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-red-600" />
-                      <span className="truncate" data-testid="text-offer-dropoff">{stableOffer.dropoffAddress}</span>
-                    </div>
-                  </div>
-                  {stableOffer.pickupTime && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Clock className="w-3 h-3" />
-                      <span data-testid="text-offer-pickup-time">{stableOffer.pickupTime}</span>
-                    </div>
-                  )}
-                  <div className="flex gap-2">
-                    <Button
-                      className="flex-1"
-                      onClick={() => acceptOfferMutation.mutate(stableOffer.offerId)}
-                      disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
-                      data-testid="button-accept-offer"
-                    >
-                      ACCEPT REQUEST
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => declineOfferMutation.mutate(stableOffer.offerId)}
-                      disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
-                      data-testid="button-decline-offer"
-                    >
-                      Decline
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      <div
-        className={`bg-background border-t border-border transition-all duration-300 ease-in-out ${
-          sheetExpanded ? "max-h-[60vh]" : "max-h-[220px]"
-        } overflow-hidden flex flex-col`}
-        data-testid="div-bottom-sheet"
-      >
-        <button
-          onClick={() => setSheetExpanded(!sheetExpanded)}
-          className="w-full flex items-center justify-center py-1.5 hover-elevate"
-          data-testid="button-sheet-toggle"
-        >
-          <div className="w-10 h-1 bg-muted-foreground/30 rounded-full" />
-        </button>
-
-        <div className="px-4 pb-3 overflow-y-auto flex-1 space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5">
-                <User className="w-4 h-4 text-muted-foreground" />
-                <span className="font-medium text-sm" data-testid="text-driver-name">{driver.firstName} {driver.lastName}</span>
-              </div>
-              <Badge
-                variant={isOnBreak ? "outline" : isDriverActive ? "default" : "secondary"}
-                className={isOnBreak ? "border-amber-500 text-amber-700 dark:text-amber-400" : ""}
-                data-testid="badge-dispatch-status"
-              >
-                {isOnBreak ? "On Break" : isDriverActive ? "Online" : "Offline"}
-              </Badge>
-              {geoLocation && !geoWatchError && (
-                <div className="flex items-center gap-0.5 text-xs text-emerald-600 dark:text-emerald-400">
-                  <LocateFixed className="w-3 h-3" />
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5">
-              {isDriverOnline && !hasActiveTrip && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => breakMutation.mutate(!isOnBreak)}
-                  disabled={breakMutation.isPending}
-                  className={isOnBreak ? "border-green-500 text-green-700 dark:text-green-400" : "border-amber-500 text-amber-700 dark:text-amber-400"}
-                  data-testid="button-toggle-break"
-                >
-                  {isOnBreak ? <PlayCircle className="w-4 h-4 mr-1.5" /> : <Coffee className="w-4 h-4 mr-1.5" />}
-                  {isOnBreak ? "Resume" : "Break"}
-                </Button>
-              )}
-              <Button
-                variant={isDriverOnline ? "destructive" : "default"}
-                size="sm"
-                onClick={() => toggleActiveMutation.mutate(!isDriverOnline)}
-                disabled={toggleActiveMutation.isPending}
-                data-testid="button-toggle-active"
-              >
-                {isDriverOnline ? <PowerOff className="w-4 h-4 mr-1.5" /> : <Power className="w-4 h-4 mr-1.5" />}
-                {isDriverOnline ? "Go Offline" : "Go Online"}
-              </Button>
-            </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
           </div>
+        )}
 
-          {activeTrip && (
-            <Card data-testid="card-active-trip">
-              <CardContent className="py-3">
-                <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <div className="space-y-1.5 flex-1 min-w-0">
+        {/* Active trip card overlay on map */}
+        {activeTrip && !stableOffer && !offerExpiredMsg && (
+          <div className="absolute bottom-4 left-3 right-3 z-20" data-testid="card-active-trip-overlay">
+            <Card className="shadow-xl">
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs font-medium">{activeTrip.publicId}</span>
+                      <span className="font-mono text-sm font-medium">{activeTrip.publicId}</span>
                       <Badge className={STATUS_COLORS[activeTrip.status] || ""} data-testid="badge-active-trip-status">
                         {STATUS_LABELS[activeTrip.status] || activeTrip.status}
                       </Badge>
                       {activeTrip.lastEtaMinutes != null && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-0.5" data-testid="text-active-trip-eta">
-                          <Timer className="w-3 h-3" />
+                        <span className="text-sm text-muted-foreground flex items-center gap-1" data-testid="text-active-trip-eta">
+                          <Timer className="w-4 h-4" />
                           ~{activeTrip.lastEtaMinutes} min
                           {activeTrip.distanceMiles != null && ` / ${activeTrip.distanceMiles} mi`}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-start gap-1 text-xs">
-                      <Navigation className="w-3 h-3 mt-0.5 flex-shrink-0 text-green-600" />
+                    <div className="flex items-start gap-1.5 text-sm">
+                      <Navigation className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600" />
                       <span className="truncate">{activeTrip.pickupAddress}</span>
                     </div>
-                    <div className="flex items-start gap-1 text-xs">
-                      <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0 text-red-600" />
+                    <div className="flex items-start gap-1.5 text-sm">
+                      <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600" />
                       <span className="truncate">{activeTrip.dropoffAddress}</span>
                     </div>
-                    {activeTrip.patientName && (
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <User className="w-3 h-3" />
-                        <span>{activeTrip.patientName}</span>
-                      </div>
-                    )}
                   </div>
-                  <div className="flex flex-col gap-1.5 items-end">
-                    {STATUS_FLOW[activeTrip.status] && (
-                      <Button
-                        size="sm"
-                        onClick={() => statusMutation.mutate({ tripId: activeTrip.id, status: STATUS_FLOW[activeTrip.status].next })}
-                        disabled={statusMutation.isPending}
-                        data-testid="button-active-trip-action"
-                      >
-                        {(() => { const Icon = STATUS_FLOW[activeTrip.status].icon; return <Icon className="w-4 h-4 mr-1" />; })()}
-                        {STATUS_FLOW[activeTrip.status].label}
-                      </Button>
-                    )}
-                  </div>
+                  {STATUS_FLOW[activeTrip.status] && (
+                    <Button
+                      onClick={() => statusMutation.mutate({ tripId: activeTrip.id, status: STATUS_FLOW[activeTrip.status].next })}
+                      disabled={statusMutation.isPending}
+                      className="min-h-[44px] text-base whitespace-nowrap"
+                      data-testid="button-active-trip-action"
+                    >
+                      {(() => { const Icon = STATUS_FLOW[activeTrip.status].icon; return <Icon className="w-5 h-5 mr-2" />; })()}
+                      {STATUS_FLOW[activeTrip.status].label}
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
-          )}
-
-          <div className="grid grid-cols-4 gap-2">
-            <div className="text-center py-1.5">
-              <p className="text-lg font-bold" data-testid="text-total-trips">{todayTrips.length}</p>
-              <p className="text-[10px] text-muted-foreground">Total</p>
-            </div>
-            <div className="text-center py-1.5">
-              <p className="text-lg font-bold" data-testid="text-active-trips">{activeTrips.length}</p>
-              <p className="text-[10px] text-muted-foreground">Active</p>
-            </div>
-            <div className="text-center py-1.5">
-              <p className="text-lg font-bold" data-testid="text-completed-trips">{completedToday.length}</p>
-              <p className="text-[10px] text-muted-foreground">Done</p>
-            </div>
-            <div className="text-center py-1.5">
-              <p className="text-lg font-bold" data-testid="text-scheduled-trips">{scheduledToday.length}</p>
-              <p className="text-[10px] text-muted-foreground">Scheduled</p>
-            </div>
           </div>
+        )}
 
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              onClick={() => setCurrentView("mytrips")}
-              data-testid="button-view-my-trips"
-            >
-              <CalendarDays className="w-4 h-4 mr-1.5" />
-              My Trips
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              onClick={() => setCurrentView("history")}
-              data-testid="button-view-history"
-            >
-              <History className="w-4 h-4 mr-1.5" />
-              Trip History
-            </Button>
-          </div>
-
-          {sheetExpanded && (
-            <div className="space-y-2">
-              {vehicle && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Car className="w-4 h-4" />
-                  <span data-testid="text-vehicle-name">{vehicle.name} - {vehicle.licensePlate}</span>
-                </div>
-              )}
-
-              {scheduledToday.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Upcoming</p>
-                  {scheduledToday.slice(0, 3).map((trip: any) => (
-                    <div key={trip.id} className="flex items-center justify-between gap-2 text-sm bg-muted/50 rounded-md px-3 py-2">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                        <span className="font-mono text-xs">{trip.pickupTime || "TBD"}</span>
-                        <span className="truncate text-xs">{trip.pickupAddress || "Pickup TBD"}</span>
-                      </div>
-                      <Badge variant="secondary" className="text-[10px]">
-                        {trip.publicId}
-                      </Badge>
-                    </div>
-                  ))}
-                  {scheduledToday.length > 3 && (
-                    <button
-                      onClick={() => setCurrentView("mytrips")}
-                      className="text-xs text-primary hover:underline"
-                      data-testid="button-see-all-scheduled"
-                    >
-                      +{scheduledToday.length - 3} more scheduled
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        {/* Menu button - floating top left (below GPS stale badge if present) */}
+        <button
+          onClick={() => setDrawerOpen(true)}
+          className="absolute bottom-20 left-3 z-10 w-12 h-12 rounded-full bg-background shadow-lg border border-border flex items-center justify-center hover-elevate"
+          data-testid="button-open-drawer"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
       </div>
 
+      {/* BOTTOM STRIP - Online/Offline only */}
+      <div className="bg-background border-t border-border px-4 py-3 flex items-center justify-between gap-3" data-testid="div-bottom-strip">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="font-medium text-base truncate" data-testid="text-driver-name">{driver.firstName} {driver.lastName}</span>
+          <Badge
+            variant={isOnBreak ? "outline" : isDriverActive ? "default" : "secondary"}
+            className={isOnBreak ? "border-amber-500 text-amber-700 dark:text-amber-400" : ""}
+            data-testid="badge-dispatch-status"
+          >
+            {isOnBreak ? "On Break" : isDriverActive ? "Online" : "Offline"}
+          </Badge>
+          {geoLocation && !geoWatchError && (
+            <LocateFixed className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+          )}
+        </div>
+        <Button
+          variant={isDriverOnline ? "destructive" : "default"}
+          onClick={() => toggleActiveMutation.mutate(!isDriverOnline)}
+          disabled={toggleActiveMutation.isPending}
+          className="min-h-[44px] text-base px-5"
+          data-testid="button-toggle-active"
+        >
+          {isDriverOnline ? <PowerOff className="w-5 h-5 mr-2" /> : <Power className="w-5 h-5 mr-2" />}
+          {isDriverOnline ? "Go Offline" : "Go Online"}
+        </Button>
+      </div>
+
+      {/* SLIDE-UP DRAWER */}
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" data-testid="div-drawer-overlay">
+          <div className="absolute inset-0 bg-black/40" onClick={() => { setDrawerOpen(false); setDrawerSection(null); }} />
+          <div className="relative bg-background rounded-t-xl max-h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <span className="text-lg font-semibold">
+                {drawerSection === "trips" ? "My Trips" : drawerSection === "schedule" ? "My Schedule" : drawerSection === "schedule-change" ? "Request Day Change" : drawerSection === "metrics" ? "My Metrics" : drawerSection === "bonus" ? "Weekly Bonus" : "Menu"}
+              </span>
+              <div className="flex items-center gap-2">
+                {drawerSection && (
+                  <Button variant="ghost" size="icon" onClick={() => setDrawerSection(null)} data-testid="button-drawer-back" className="min-w-[44px] min-h-[44px]">
+                    <ChevronRight className="w-5 h-5 rotate-180" />
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon" onClick={() => { setDrawerOpen(false); setDrawerSection(null); }} data-testid="button-close-drawer" className="min-w-[44px] min-h-[44px]">
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+              {!drawerSection && (
+                <>
+                  {/* S1: Driver Profile */}
+                  <div className="flex items-center gap-3" data-testid="div-drawer-profile">
+                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <User className="w-7 h-7 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-lg font-semibold truncate">{driver.firstName} {driver.lastName}</p>
+                      {vehicle && (
+                        <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                          <Car className="w-4 h-4" />
+                          {vehicle.name} - {vehicle.licensePlate}
+                        </p>
+                      )}
+                      <Badge
+                        variant={isOnBreak ? "outline" : isDriverActive ? "default" : "secondary"}
+                        className={`mt-1 ${isOnBreak ? "border-amber-500 text-amber-700 dark:text-amber-400" : ""}`}
+                      >
+                        {isOnBreak ? "On Break" : isDriverActive ? "Online" : "Offline"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-3 space-y-1">
+                    {/* S2: Trips */}
+                    <DrawerMenuItem
+                      icon={CalendarDays}
+                      label="My Trips"
+                      sublabel={`${todayTrips.length} today`}
+                      onClick={() => setDrawerSection("trips")}
+                      testId="button-drawer-trips"
+                    />
+
+                    {/* S3: Schedule */}
+                    <DrawerMenuItem
+                      icon={CalendarClock}
+                      label="My Schedule"
+                      onClick={() => setDrawerSection("schedule")}
+                      testId="button-drawer-schedule"
+                    />
+
+                    {/* S4: Request Day Change */}
+                    <DrawerMenuItem
+                      icon={FileText}
+                      label="Request Day Change"
+                      sublabel={scheduleChanges.filter((r: any) => r.status === "pending").length > 0 ? `${scheduleChanges.filter((r: any) => r.status === "pending").length} pending` : undefined}
+                      onClick={() => setDrawerSection("schedule-change")}
+                      testId="button-drawer-schedule-change"
+                    />
+
+                    {/* S5: Metrics */}
+                    <DrawerMenuItem
+                      icon={BarChart3}
+                      label="My Metrics"
+                      sublabel={metrics?.score != null ? `Score: ${metrics.score}` : undefined}
+                      onClick={() => setDrawerSection("metrics")}
+                      testId="button-drawer-metrics"
+                    />
+
+                    {/* S6: Weekly Bonus (only when active) */}
+                    {bonus?.active && (
+                      <DrawerMenuItem
+                        icon={Trophy}
+                        label="Weekly Bonus"
+                        sublabel={bonus.qualifies ? "Qualified" : `${bonus.overallProgress}% progress`}
+                        onClick={() => setDrawerSection("bonus")}
+                        testId="button-drawer-bonus"
+                        highlight={bonus.progressColor === "green"}
+                      />
+                    )}
+                  </div>
+
+                  {/* Break toggle in drawer */}
+                  {isDriverOnline && !hasActiveTrip && (
+                    <div className="border-t pt-3">
+                      <Button
+                        variant="outline"
+                        className={`w-full min-h-[48px] text-base ${isOnBreak ? "border-green-500 text-green-700 dark:text-green-400" : "border-amber-500 text-amber-700 dark:text-amber-400"}`}
+                        onClick={() => { breakMutation.mutate(!isOnBreak); setDrawerOpen(false); }}
+                        disabled={breakMutation.isPending}
+                        data-testid="button-toggle-break"
+                      >
+                        {isOnBreak ? <PlayCircle className="w-5 h-5 mr-2" /> : <Coffee className="w-5 h-5 mr-2" />}
+                        {isOnBreak ? "Resume from Break" : "Take a Break"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* S7: Logout / Go Offline */}
+                  <div className="border-t pt-3 space-y-2">
+                    {isDriverOnline && (
+                      <Button
+                        variant="destructive"
+                        className="w-full min-h-[48px] text-base"
+                        onClick={() => { toggleActiveMutation.mutate(false); setDrawerOpen(false); }}
+                        disabled={toggleActiveMutation.isPending}
+                        data-testid="button-drawer-go-offline"
+                      >
+                        <PowerOff className="w-5 h-5 mr-2" />
+                        Go Offline
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      className="w-full min-h-[48px] text-base text-destructive"
+                      onClick={() => { logout(); }}
+                      data-testid="button-drawer-logout"
+                    >
+                      <LogOut className="w-5 h-5 mr-2" />
+                      Log Out
+                    </Button>
+                  </div>
+                </>
+              )}
+
+              {/* TRIPS SECTION */}
+              {drawerSection === "trips" && (
+                <DrawerTripsSection
+                  todayTrips={todayTrips}
+                  allTrips={allTrips}
+                  tripsTab={tripsTab}
+                  setTripsTab={setTripsTab}
+                  selectedDate={selectedDate}
+                  setSelectedDate={setSelectedDate}
+                  isLoading={tripsQuery.isLoading}
+                  statusMutation={statusMutation}
+                  setChatTripId={(id) => { setChatTripId(id); setDrawerOpen(false); }}
+                  token={token}
+                />
+              )}
+
+              {/* SCHEDULE SECTION */}
+              {drawerSection === "schedule" && (
+                <DrawerScheduleSection token={token} />
+              )}
+
+              {/* SCHEDULE CHANGE REQUEST SECTION */}
+              {drawerSection === "schedule-change" && (
+                <DrawerScheduleChangeSection
+                  token={token}
+                  scheduleChanges={scheduleChanges}
+                  onSubmitSuccess={() => {
+                    queryClient.invalidateQueries({ queryKey: ["/api/driver/schedule-change-requests"] });
+                    toast({ title: "Request submitted to dispatch" });
+                  }}
+                />
+              )}
+
+              {/* METRICS SECTION */}
+              {drawerSection === "metrics" && (
+                <DrawerMetricsSection metrics={metrics} isLoading={metricsQuery.isLoading} />
+              )}
+
+              {/* BONUS SECTION */}
+              {drawerSection === "bonus" && bonus?.active && (
+                <DrawerBonusSection bonus={bonus} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Nav chooser overlay */}
       {showNavChooser && navChooserTrip && (
         <div className="fixed inset-0 bg-background/80 z-50 flex items-end justify-center p-4 sm:items-center" data-testid="overlay-nav-chooser">
           <Card className="w-full max-w-md">
-            <div className="flex items-center justify-between gap-2 p-3 border-b">
-              <span className="text-base font-semibold">Choose Navigation App</span>
+            <div className="flex items-center justify-between gap-2 p-4 border-b">
+              <span className="text-lg font-semibold">Choose Navigation App</span>
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={() => { setShowNavChooser(false); setNavChooserTrip(null); setRememberNav(false); }}
+                className="min-w-[44px] min-h-[44px]"
                 data-testid="button-close-nav-chooser"
               >
-                Close
+                <X className="w-5 h-5" />
               </Button>
             </div>
             <CardContent className="py-4 space-y-3">
               <Button
                 variant="outline"
-                className="w-full justify-start gap-3"
+                className="w-full justify-start gap-3 min-h-[48px] text-base"
                 onClick={() => handleNavSelect("google")}
                 data-testid="button-nav-google"
               >
-                <MapPin className="w-5 h-5 text-blue-500" />
+                <MapPin className="w-6 h-6 text-blue-500" />
                 <span>Google Maps</span>
-                <ExternalLink className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+                <ExternalLink className="w-4 h-4 ml-auto text-muted-foreground" />
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start gap-3"
+                className="w-full justify-start gap-3 min-h-[48px] text-base"
                 onClick={() => handleNavSelect("waze")}
                 data-testid="button-nav-waze"
               >
-                <Navigation className="w-5 h-5 text-cyan-500" />
+                <Navigation className="w-6 h-6 text-cyan-500" />
                 <span>Waze</span>
-                <ExternalLink className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+                <ExternalLink className="w-4 h-4 ml-auto text-muted-foreground" />
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-start gap-3"
+                className="w-full justify-start gap-3 min-h-[48px] text-base"
                 onClick={() => handleNavSelect("apple")}
                 data-testid="button-nav-apple"
               >
-                <MapPinned className="w-5 h-5 text-green-500" />
+                <MapPinned className="w-6 h-6 text-green-500" />
                 <span>Apple Maps</span>
-                <ExternalLink className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+                <ExternalLink className="w-4 h-4 ml-auto text-muted-foreground" />
               </Button>
               <div className="flex items-center gap-2 pt-2">
                 <Checkbox
@@ -1477,7 +1509,7 @@ export default function DriverDashboard() {
                   onCheckedChange={(checked) => setRememberNav(checked === true)}
                   data-testid="checkbox-remember-nav"
                 />
-                <label htmlFor="remember-nav" className="text-sm text-muted-foreground cursor-pointer">
+                <label htmlFor="remember-nav" className="text-base text-muted-foreground cursor-pointer">
                   Always use this app
                 </label>
               </div>
@@ -1486,6 +1518,7 @@ export default function DriverDashboard() {
         </div>
       )}
 
+      {/* Chat overlay */}
       {chatTripId && (
         <TripChat
           tripId={chatTripId}
@@ -1495,7 +1528,371 @@ export default function DriverDashboard() {
         />
       )}
     </div>
-    </>
+  );
+}
+
+function DrawerMenuItem({ icon: Icon, label, sublabel, onClick, testId, highlight }: {
+  icon: any;
+  label: string;
+  sublabel?: string;
+  onClick: () => void;
+  testId: string;
+  highlight?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-3 py-3 rounded-md hover-elevate min-h-[48px]"
+      data-testid={testId}
+    >
+      <Icon className={`w-6 h-6 flex-shrink-0 ${highlight ? "text-green-600" : "text-muted-foreground"}`} />
+      <div className="flex-1 text-left min-w-0">
+        <p className="text-base font-medium">{label}</p>
+        {sublabel && <p className="text-sm text-muted-foreground truncate">{sublabel}</p>}
+      </div>
+      <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+    </button>
+  );
+}
+
+function DrawerTripsSection({ todayTrips, allTrips, tripsTab, setTripsTab, selectedDate, setSelectedDate, isLoading, statusMutation, setChatTripId, token }: {
+  todayTrips: any[];
+  allTrips: any[];
+  tripsTab: "scheduled" | "history";
+  setTripsTab: (t: "scheduled" | "history") => void;
+  selectedDate: string;
+  setSelectedDate: (d: string) => void;
+  isLoading: boolean;
+  statusMutation: any;
+  setChatTripId: (id: number) => void;
+  token: string | null;
+}) {
+  const displayTrips = tripsTab === "scheduled" ? todayTrips : allTrips;
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <Button
+          variant={tripsTab === "scheduled" ? "default" : "outline"}
+          className="flex-1 min-h-[44px] text-base"
+          onClick={() => setTripsTab("scheduled")}
+          data-testid="button-trips-scheduled"
+        >
+          <CalendarDays className="w-5 h-5 mr-2" />
+          Scheduled
+        </Button>
+        <Button
+          variant={tripsTab === "history" ? "default" : "outline"}
+          className="flex-1 min-h-[44px] text-base"
+          onClick={() => setTripsTab("history")}
+          data-testid="button-trips-history"
+        >
+          <History className="w-5 h-5 mr-2" />
+          History
+        </Button>
+      </div>
+
+      {tripsTab === "scheduled" && (
+        <div className="flex items-center gap-2">
+          <Label className="text-base">Date</Label>
+          <Input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="w-auto min-h-[44px] text-base"
+            data-testid="input-driver-date"
+          />
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      ) : displayTrips.length === 0 ? (
+        <div className="text-center py-8">
+          {tripsTab === "scheduled" ? <CalendarDays className="w-10 h-10 mx-auto text-muted-foreground mb-2" /> : <History className="w-10 h-10 mx-auto text-muted-foreground mb-2" />}
+          <p className="text-base text-muted-foreground" data-testid="text-no-trips">
+            {tripsTab === "scheduled" ? "No trips scheduled for this date." : "No trip history available."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {displayTrips.map((trip: any) => (
+            <TripCard
+              key={trip.id}
+              trip={trip}
+              onStatusChange={tripsTab === "scheduled" ? (status) => statusMutation.mutate({ tripId: trip.id, status }) : undefined}
+              isPending={statusMutation.isPending}
+              readonly={tripsTab === "history"}
+              onOpenChat={tripsTab === "scheduled" && ACTIVE_STATUSES.includes(trip.status) ? () => setChatTripId(trip.id) : undefined}
+              token={token}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DrawerScheduleSection({ token }: { token: string | null }) {
+  const today = new Date();
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    const dayOfWeek = today.getDay();
+    d.setDate(today.getDate() - dayOfWeek + i);
+    return d;
+  });
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <div className="space-y-3" data-testid="div-drawer-schedule">
+      <p className="text-sm text-muted-foreground">This week&apos;s schedule (read-only)</p>
+      <div className="grid grid-cols-7 gap-1">
+        {weekDays.map((day, i) => {
+          const isToday = day.toDateString() === today.toDateString();
+          const isPast = day < today && !isToday;
+          return (
+            <div
+              key={i}
+              className={`text-center py-3 rounded-md ${isToday ? "bg-primary/10 border border-primary/30" : isPast ? "opacity-50" : "bg-muted/50"}`}
+              data-testid={`div-schedule-day-${i}`}
+            >
+              <p className="text-xs font-medium text-muted-foreground">{dayNames[i]}</p>
+              <p className={`text-lg font-bold ${isToday ? "text-primary" : ""}`}>{day.getDate()}</p>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-sm text-muted-foreground text-center">
+        Schedule details are managed by dispatch. Contact dispatch for changes.
+      </p>
+    </div>
+  );
+}
+
+function DrawerScheduleChangeSection({ token, scheduleChanges, onSubmitSuccess }: {
+  token: string | null;
+  scheduleChanges: any[];
+  onSubmitSuccess: () => void;
+}) {
+  const [reqDate, setReqDate] = useState("");
+  const [reqType, setReqType] = useState("unavailable");
+  const [reqNotes, setReqNotes] = useState("");
+
+  const submitMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/driver/schedule-change-requests", token, {
+        method: "POST",
+        body: JSON.stringify({ requestedDate: reqDate, requestType: reqType, notes: reqNotes || undefined }),
+      }),
+    onSuccess: () => {
+      setReqDate("");
+      setReqNotes("");
+      onSubmitSuccess();
+    },
+  });
+
+  const statusColors: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    approved: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    denied: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+  };
+
+  return (
+    <div className="space-y-4" data-testid="div-drawer-schedule-change">
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <Label className="text-base">Date</Label>
+          <Input
+            type="date"
+            value={reqDate}
+            onChange={(e) => setReqDate(e.target.value)}
+            className="min-h-[44px] text-base"
+            data-testid="input-schedule-change-date"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-base">Type</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {["unavailable", "swap", "cover", "other"].map((t) => (
+              <Button
+                key={t}
+                variant={reqType === t ? "default" : "outline"}
+                className="min-h-[44px] text-base capitalize"
+                onClick={() => setReqType(t)}
+                data-testid={`button-schedule-type-${t}`}
+              >
+                {t}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-base">Notes (optional)</Label>
+          <Textarea
+            value={reqNotes}
+            onChange={(e) => setReqNotes(e.target.value)}
+            placeholder="Any additional details..."
+            className="text-base"
+            rows={3}
+            data-testid="input-schedule-change-notes"
+          />
+        </div>
+        <Button
+          className="w-full min-h-[48px] text-base"
+          onClick={() => submitMutation.mutate()}
+          disabled={!reqDate || submitMutation.isPending}
+          data-testid="button-submit-schedule-change"
+        >
+          <Send className="w-5 h-5 mr-2" />
+          Submit Request
+        </Button>
+      </div>
+
+      {scheduleChanges.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Previous Requests</p>
+          {scheduleChanges.map((req: any) => (
+            <div key={req.id} className="flex items-center justify-between gap-2 bg-muted/50 rounded-md px-3 py-2.5" data-testid={`div-schedule-change-${req.id}`}>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">{req.requestedDate} - <span className="capitalize">{req.requestType}</span></p>
+                {req.notes && <p className="text-xs text-muted-foreground truncate">{req.notes}</p>}
+                {req.decisionNotes && <p className="text-xs text-muted-foreground">Decision: {req.decisionNotes}</p>}
+              </div>
+              <Badge className={statusColors[req.status] || ""}>
+                {req.status}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DrawerMetricsSection({ metrics, isLoading }: { metrics: any; isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-20 w-full" />
+      </div>
+    );
+  }
+
+  if (!metrics) {
+    return <p className="text-base text-muted-foreground text-center py-4">No metrics available yet.</p>;
+  }
+
+  return (
+    <div className="space-y-4" data-testid="div-drawer-metrics">
+      <p className="text-sm text-muted-foreground">
+        Week of {metrics.weekStart} to {metrics.weekEnd}
+      </p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <MetricCard icon={Target} label="Completion Rate" value={`${metrics.completionRate}%`} />
+        <MetricCard icon={TrendingUp} label="On-Time Rate" value={metrics.onTimeRate != null ? `${metrics.onTimeRate}%` : "N/A"} />
+        <MetricCard icon={CheckCircle} label="Completed" value={metrics.completedTrips} />
+        <MetricCard icon={CalendarDays} label="Total Trips" value={metrics.totalTrips} />
+        <MetricCard icon={AlertTriangle} label="Cancelled" value={metrics.cancelledTrips} />
+        <MetricCard icon={Clock} label="No Shows" value={metrics.noShowTrips} />
+      </div>
+
+      {metrics.score != null && (
+        <div className="bg-muted/50 rounded-md p-4 text-center">
+          <p className="text-sm text-muted-foreground mb-1">Driver Score</p>
+          <p className="text-4xl font-bold" data-testid="text-driver-score">{metrics.score}</p>
+          <p className="text-sm text-muted-foreground">/100</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
+  return (
+    <div className="bg-muted/50 rounded-md p-3 text-center">
+      <Icon className="w-5 h-5 mx-auto text-muted-foreground mb-1" />
+      <p className="text-2xl font-bold">{value}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function DrawerBonusSection({ bonus }: { bonus: any }) {
+  const progressColorClasses: Record<string, string> = {
+    red: "bg-red-500",
+    yellow: "bg-yellow-500",
+    green: "bg-green-500",
+  };
+
+  const bonusAmount = bonus.weeklyAmountCents ? `$${(bonus.weeklyAmountCents / 100).toFixed(2)}` : "";
+
+  return (
+    <div className="space-y-4" data-testid="div-drawer-bonus">
+      <div className="text-center">
+        <Trophy className={`w-10 h-10 mx-auto mb-2 ${bonus.qualifies ? "text-green-600" : "text-muted-foreground"}`} />
+        <p className="text-2xl font-bold" data-testid="text-bonus-amount">{bonusAmount}</p>
+        <p className="text-sm text-muted-foreground">Weekly Bonus</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <span>Progress</span>
+          <span className="font-medium">{bonus.overallProgress}%</span>
+        </div>
+        <div className="w-full bg-muted rounded-full h-4 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${progressColorClasses[bonus.progressColor] || "bg-muted-foreground"}`}
+            style={{ width: `${Math.min(100, bonus.overallProgress)}%` }}
+            data-testid="div-bonus-progress-bar"
+          />
+        </div>
+      </div>
+
+      {bonus.requirements && (
+        <div className="space-y-2 text-sm">
+          <BonusRequirement
+            label="Trips"
+            current={bonus.requirements.currentTrips}
+            required={bonus.requirements.minTrips}
+            met={bonus.requirements.currentTrips >= bonus.requirements.minTrips}
+          />
+          <BonusRequirement
+            label="On-Time Rate"
+            current={`${bonus.requirements.currentOnTimeRate}%`}
+            required={`${bonus.requirements.minOnTimeRate}%`}
+            met={bonus.requirements.currentOnTimeRate >= bonus.requirements.minOnTimeRate}
+          />
+          <BonusRequirement
+            label="Completion Rate"
+            current={`${bonus.requirements.currentCompletionRate}%`}
+            required={`${bonus.requirements.minCompletionRate}%`}
+            met={bonus.requirements.currentCompletionRate >= bonus.requirements.minCompletionRate}
+          />
+        </div>
+      )}
+
+      <div className="text-center">
+        <Badge variant={bonus.qualifies ? "default" : "secondary"} className={bonus.qualifies ? "bg-green-600 text-white" : ""}>
+          {bonus.qualifies ? "Qualified" : "Not Yet Qualified"}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+function BonusRequirement({ label, current, required, met }: { label: string; current: string | number; required: string | number; met: boolean }) {
+  return (
+    <div className="flex items-center justify-between bg-muted/50 rounded-md px-3 py-2">
+      <div className="flex items-center gap-2">
+        {met ? <CheckCircle className="w-4 h-4 text-green-600" /> : <AlertTriangle className="w-4 h-4 text-amber-500" />}
+        <span>{label}</span>
+      </div>
+      <span className="font-medium">{current} / {required}</span>
+    </div>
   );
 }
 
@@ -1532,18 +1929,18 @@ function TripCard({
               <Badge className={statusColorClass} data-testid={`badge-trip-status-${trip.id}`}>
                 {STATUS_LABELS[trip.status] || trip.status.replace(/_/g, " ")}
               </Badge>
-              {isLocked && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
+              {isLocked && <Lock className="w-4 h-4 text-muted-foreground" />}
             </div>
 
             <TripDateTimeHeader trip={trip} />
 
             <div className="space-y-1">
-              <div className="flex items-start gap-1 text-sm">
-                <Navigation className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-green-600" />
+              <div className="flex items-start gap-2 text-base">
+                <Navigation className="w-5 h-5 mt-0.5 flex-shrink-0 text-green-600" />
                 <span className="truncate" data-testid={`text-pickup-${trip.id}`}>{trip.pickupAddress || "Pickup not set"}</span>
               </div>
-              <div className="flex items-start gap-1 text-sm">
-                <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-red-600" />
+              <div className="flex items-start gap-2 text-base">
+                <MapPin className="w-5 h-5 mt-0.5 flex-shrink-0 text-red-600" />
                 <span className="truncate" data-testid={`text-dropoff-${trip.id}`}>{trip.dropoffAddress || "Dropoff not set"}</span>
               </div>
             </div>
@@ -1551,8 +1948,8 @@ function TripCard({
             <TripMetricsCard trip={trip} />
 
             {trip.patientName && (
-              <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                <User className="w-3.5 h-3.5" />
+              <div className="flex items-center gap-2 text-base text-muted-foreground">
+                <User className="w-5 h-5" />
                 <span>{trip.patientName}</span>
               </div>
             )}
@@ -1563,20 +1960,21 @@ function TripCard({
               <Button
                 onClick={() => onStatusChange(statusAction.next)}
                 disabled={isPending}
+                className="min-h-[44px] text-base"
                 data-testid={`button-trip-action-${trip.id}`}
               >
-                <statusAction.icon className="w-4 h-4 mr-2" />
+                <statusAction.icon className="w-5 h-5 mr-2" />
                 {statusAction.label}
               </Button>
             )}
             {!isLocked && onOpenChat && ACTIVE_STATUSES.includes(trip.status) && (
               <Button
                 variant="outline"
-                size="sm"
                 onClick={onOpenChat}
+                className="min-h-[44px] text-base"
                 data-testid={`button-trip-chat-${trip.id}`}
               >
-                <MessageSquare className="w-4 h-4 mr-2" />
+                <MessageSquare className="w-5 h-5 mr-2" />
                 Contact Dispatch
               </Button>
             )}
@@ -1587,11 +1985,11 @@ function TripCard({
           <div className="mt-3 border-t pt-3">
             <button
               type="button"
-              className="text-xs text-muted-foreground flex items-center gap-1 mb-2"
+              className="text-sm text-muted-foreground flex items-center gap-1.5 mb-2 min-h-[44px]"
               onClick={() => setShowProgress(!showProgress)}
               data-testid={`button-toggle-progress-${trip.id}`}
             >
-              <CheckCircle className="w-3 h-3" />
+              <CheckCircle className="w-4 h-4" />
               {showProgress ? "Hide" : "Show"} Trip Progress
             </button>
             {showProgress && (
@@ -1650,15 +2048,15 @@ function TripChat({
   return (
     <div className="fixed inset-0 bg-background/80 z-50 flex items-end justify-center p-4 sm:items-center">
       <Card className="w-full max-w-lg max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between gap-2 p-3 border-b">
-          <span className="text-base font-semibold">Trip Messages</span>
-          <Button variant="ghost" size="sm" onClick={onClose} data-testid="button-close-chat">
-            Close
+        <div className="flex items-center justify-between gap-2 p-4 border-b">
+          <span className="text-lg font-semibold">Trip Messages</span>
+          <Button variant="ghost" size="icon" onClick={onClose} className="min-w-[44px] min-h-[44px]" data-testid="button-close-chat">
+            <X className="w-5 h-5" />
           </Button>
         </div>
         <CardContent className="flex-1 overflow-y-auto min-h-[200px] space-y-2 pb-2">
           {messages.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No messages yet. Start the conversation.</p>
+            <p className="text-base text-muted-foreground text-center py-4">No messages yet. Start the conversation.</p>
           ) : (
             messages.map((msg: any) => (
               <div
@@ -1666,7 +2064,7 @@ function TripChat({
                 className={`flex ${msg.senderId === userId ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-md px-3 py-2 text-sm ${
+                  className={`max-w-[80%] rounded-md px-3 py-2 text-base ${
                     msg.senderId === userId
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted"
@@ -1688,7 +2086,7 @@ function TripChat({
             placeholder="Type a message..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            className="flex-1 min-h-[40px] resize-none"
+            className="flex-1 min-h-[44px] resize-none text-base"
             rows={1}
             data-testid="input-chat-message"
             onKeyDown={(e) => {
@@ -1702,9 +2100,10 @@ function TripChat({
             size="icon"
             onClick={() => { if (message.trim()) sendMutation.mutate(message.trim()); }}
             disabled={sendMutation.isPending || !message.trim()}
+            className="min-w-[44px] min-h-[44px]"
             data-testid="button-send-message"
           >
-            <Send className="w-4 h-4" />
+            <Send className="w-5 h-5" />
           </Button>
         </div>
       </Card>

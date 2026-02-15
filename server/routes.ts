@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores } from "@shared/schema";
 import { z } from "zod";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
@@ -23,6 +23,7 @@ import { registerPricingRoutes } from "./lib/pricingRoutes";
 import { registerAssignmentRoutes } from "./lib/assignmentRoutes";
 import { registerPublicApiRoutes } from "./lib/publicApiRoutes";
 import { registerClinicBillingRoutes } from "./lib/clinicBillingRoutes";
+import { sendEmail } from "./lib/email";
 import { startRouteScheduler } from "./lib/routeEngine";
 import { startNoShowScheduler } from "./lib/noShowEngine";
 import { startRecurringScheduleScheduler, runRecurringScheduleGenerator } from "./lib/recurringScheduleEngine";
@@ -2055,6 +2056,235 @@ export async function registerRoutes(
 
       await db.update(driverOffers).set({ status: "cancelled" }).where(eq(driverOffers.id, offerId));
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/driver/schedule-change-requests", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const schema = z.object({
+        requestedDate: z.string().min(1),
+        requestType: z.enum(["swap", "cover", "unavailable", "other"]),
+        notes: z.string().optional(),
+      });
+      const data = schema.parse(req.body);
+      const [request] = await db.insert(scheduleChangeRequests).values({
+        driverId: user.driverId,
+        requestedDate: data.requestedDate,
+        requestType: data.requestType,
+        notes: data.notes || null,
+      }).returning();
+
+      const driver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
+      const dispatchUsers = await db.select().from(users).where(
+        and(inArray(users.role, ["ADMIN", "DISPATCH", "SUPER_ADMIN"]), eq(users.active, true), isNull(users.deletedAt))
+      );
+      for (const du of dispatchUsers) {
+        if (du.email) {
+          await sendEmail({
+            to: du.email,
+            subject: `Schedule Change Request - ${driver?.firstName} ${driver?.lastName}`,
+            html: `<p>Driver <strong>${driver?.firstName} ${driver?.lastName}</strong> has submitted a schedule change request:</p>
+<ul><li><strong>Date:</strong> ${data.requestedDate}</li><li><strong>Type:</strong> ${data.requestType}</li><li><strong>Notes:</strong> ${data.notes || "None"}</li></ul>
+<p>Please review in the dispatch dashboard.</p>`,
+          });
+        }
+      }
+      res.json(request);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/schedule-change-requests", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const requests = await db.select().from(scheduleChangeRequests)
+        .where(eq(scheduleChangeRequests.driverId, user.driverId))
+        .orderBy(desc(scheduleChangeRequests.createdAt));
+      res.json(requests);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/schedule-change-requests", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const statusFilter = req.query.status as string | undefined;
+      const conditions: any[] = [];
+      if (statusFilter) conditions.push(eq(scheduleChangeRequests.status, statusFilter));
+      const requests = await db.select({
+        request: scheduleChangeRequests,
+        driver: { firstName: drivers.firstName, lastName: drivers.lastName, publicId: drivers.publicId },
+      }).from(scheduleChangeRequests)
+        .innerJoin(drivers, eq(scheduleChangeRequests.driverId, drivers.id))
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(scheduleChangeRequests.createdAt));
+      res.json(requests);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/schedule-change-requests/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const schema = z.object({
+        status: z.enum(["approved", "denied"]),
+        decisionNotes: z.string().optional(),
+      });
+      const data = schema.parse(req.body);
+      const [existing] = await db.select().from(scheduleChangeRequests).where(eq(scheduleChangeRequests.id, id));
+      if (!existing) return res.status(404).json({ message: "Request not found" });
+      if (existing.status !== "pending") return res.status(400).json({ message: `Request already ${existing.status}` });
+
+      const [updated] = await db.update(scheduleChangeRequests).set({
+        status: data.status,
+        decisionNotes: data.decisionNotes || null,
+        decidedBy: req.user!.userId,
+        decidedAt: new Date(),
+      }).where(eq(scheduleChangeRequests.id, id)).returning();
+
+      const driver = await db.select().from(drivers).where(eq(drivers.id, existing.driverId)).then(r => r[0]);
+      if (driver?.email) {
+        await sendEmail({
+          to: driver.email,
+          subject: `Schedule Change Request ${data.status === "approved" ? "Approved" : "Denied"}`,
+          html: `<p>Your schedule change request for <strong>${existing.requestedDate}</strong> (${existing.requestType}) has been <strong>${data.status}</strong>.</p>
+${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : ""}`,
+        });
+      }
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/metrics", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      const now = new Date();
+      const weekDay = now.getDay();
+      const weekStartDate = new Date(now);
+      weekStartDate.setDate(now.getDate() - weekDay);
+      const weekStart = weekStartDate.toISOString().split("T")[0];
+      const weekEndDate = new Date(weekStartDate);
+      weekEndDate.setDate(weekStartDate.getDate() + 6);
+      const weekEnd = weekEndDate.toISOString().split("T")[0];
+
+      const [currentScore] = await db.select().from(driverScores)
+        .where(and(eq(driverScores.driverId, user.driverId), eq(driverScores.weekStart, weekStart)));
+
+      const weekTrips = await db.select().from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          sql`${trips.scheduledDate} >= ${weekStart}`,
+          sql`${trips.scheduledDate} <= ${weekEnd}`,
+          isNull(trips.deletedAt),
+        ));
+
+      const totalTrips = weekTrips.length;
+      const completedTrips = weekTrips.filter(t => t.status === "COMPLETED").length;
+      const cancelledTrips = weekTrips.filter(t => t.status === "CANCELLED").length;
+      const noShowTrips = weekTrips.filter(t => t.status === "NO_SHOW").length;
+      const completionRate = totalTrips > 0 ? Math.round((completedTrips / totalTrips) * 100) : 0;
+
+      const scoreHistory = await db.select().from(driverScores)
+        .where(eq(driverScores.driverId, user.driverId))
+        .orderBy(desc(driverScores.weekStart))
+        .limit(4);
+
+      res.json({
+        weekStart,
+        weekEnd,
+        totalTrips,
+        completedTrips,
+        cancelledTrips,
+        noShowTrips,
+        completionRate,
+        onTimeRate: currentScore?.onTimeRate != null ? Math.round(currentScore.onTimeRate * 100) : null,
+        score: currentScore?.score ?? null,
+        history: scoreHistory,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/bonus-progress", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      const [rule] = await db.select().from(driverBonusRules).where(eq(driverBonusRules.cityId, driver.cityId));
+      if (!rule || !rule.isEnabled) {
+        return res.json({ active: false });
+      }
+
+      const criteria = (rule.criteriaJson as any) || {};
+      const minTrips = criteria.minTrips ?? 20;
+      const minOnTimeRate = criteria.minOnTimeRate ?? 90;
+      const minCompletionRate = criteria.minCompletionRate ?? 85;
+
+      const now = new Date();
+      const weekDay = now.getDay();
+      const weekStartDate = new Date(now);
+      weekStartDate.setDate(now.getDate() - weekDay);
+      const weekStart = weekStartDate.toISOString().split("T")[0];
+      const weekEnd = new Date(weekStartDate);
+      weekEnd.setDate(weekStartDate.getDate() + 6);
+      const weekEndStr = weekEnd.toISOString().split("T")[0];
+
+      const weekTrips = await db.select().from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          sql`${trips.scheduledDate} >= ${weekStart}`,
+          sql`${trips.scheduledDate} <= ${weekEndStr}`,
+          isNull(trips.deletedAt),
+        ));
+
+      const totalTrips = weekTrips.length;
+      const completedTrips = weekTrips.filter(t => t.status === "COMPLETED").length;
+      const completionRate = totalTrips > 0 ? Math.round((completedTrips / totalTrips) * 100) : 0;
+
+      const [scoreRow] = await db.select().from(driverScores)
+        .where(and(eq(driverScores.driverId, user.driverId), eq(driverScores.weekStart, weekStart)));
+      const onTimeRate = scoreRow?.onTimeRate != null ? Math.round(scoreRow.onTimeRate * 100) : 100;
+
+      const tripsProgress = Math.min(100, Math.round((totalTrips / minTrips) * 100));
+      const onTimeProgress = Math.min(100, Math.round((onTimeRate / minOnTimeRate) * 100));
+      const completionProgress = Math.min(100, Math.round((completionRate / minCompletionRate) * 100));
+      const overallProgress = Math.round((tripsProgress + onTimeProgress + completionProgress) / 3);
+
+      let progressColor: "red" | "yellow" | "green" = "red";
+      if (overallProgress >= 100) progressColor = "green";
+      else if (overallProgress >= 70) progressColor = "yellow";
+
+      const qualifies = totalTrips >= minTrips && onTimeRate >= minOnTimeRate && completionRate >= minCompletionRate;
+
+      res.json({
+        active: true,
+        weeklyAmountCents: rule.weeklyAmountCents,
+        qualifies,
+        overallProgress,
+        progressColor,
+        requirements: {
+          minTrips, currentTrips: totalTrips,
+          minOnTimeRate, currentOnTimeRate: onTimeRate,
+          minCompletionRate, currentCompletionRate: completionRate,
+        },
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

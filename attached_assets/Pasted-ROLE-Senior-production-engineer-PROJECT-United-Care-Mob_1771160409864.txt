@@ -1,0 +1,120 @@
+ROLE: Senior production engineer  
+PROJECT: United Care Mobility  
+EXECUTION MODE: SINGLE AGENT ONLY  
+- One agent only  
+- No parallel tasks  
+- Do NOT reset database  
+- Do NOT recreate tables  
+- Extend existing system only  
+- Verify before exit  
+
+GLOBAL FIX: ADDRESS AUTOCOMPLETE EVERYWHERE
+
+PROBLEM  
+Address fields across the system do NOT suggest addresses.  
+This causes wrong pickups, wrong billing, and confusion for clinics and dispatch.  
+
+REQUIREMENT  
+Every place where an address is typed must use ONE standardized autocomplete system.
+
+This includes:  
+- Add Patient (clinic + dispatch)  
+- Edit Patient  
+- Create Trip (pickup + dropoff)  
+- Edit Trip  
+- Add Clinic  
+- Private booking form  
+- Any quote or manual trip creation screen  
+
+--------------------------------------------------
+PHASE 1 — CREATE GLOBAL AddressAutocomplete COMPONENT
+--------------------------------------------------
+Create a reusable component: AddressAutocomplete
+
+Behavior:
+- Shows suggestions while typing (debounce 300ms)
+- Uses backend endpoint
+- User must select from suggestions
+- After selection store:
+  formatted_address  
+  lat  
+  lng  
+  place_id  
+  optional unit/apt  
+
+UI must:
+- Work inside modals
+- Work on mobile
+- Large tap targets
+- Dropdown visible above modal
+
+--------------------------------------------------
+PHASE 2 — BACKEND ENDPOINTS
+--------------------------------------------------
+Ensure these exist and work in production:
+
+GET /api/geo/suggest?q=
+GET /api/geo/details?place_id=
+
+Rules:
+- Must work for clinic_user role
+- Must work for dispatch
+- Must work in production domain
+- Keys must remain server-side
+- Fix any 401/403/500 errors
+- Fix CORS if needed
+
+--------------------------------------------------
+PHASE 3 — REPLACE ALL ADDRESS INPUTS
+--------------------------------------------------
+Find all address text inputs in codebase.
+
+Replace them with AddressAutocomplete component.
+
+Enforce:
+Clinic user:
+- MUST select suggestion
+- Cannot type manual address
+
+Dispatch/Admin:
+- Can override with manual entry (optional toggle)
+- If override used → store note
+
+--------------------------------------------------
+PHASE 4 — DATABASE STORAGE STANDARD
+--------------------------------------------------
+Ensure every address stores:
+
+formatted_address  
+lat  
+lng  
+place_id  
+
+For trips store:
+pickup_address  
+pickup_lat  
+pickup_lng  
+dropoff_address  
+dropoff_lat  
+dropoff_lng  
+
+Do NOT rename existing fields.  
+Add only missing ones.
+
+--------------------------------------------------
+PHASE 5 — VERIFY
+--------------------------------------------------
+1) Clinic adds patient → suggestions appear  
+2) Cannot save without selecting  
+3) Trip creation → pickup/dropoff suggest  
+4) Works on mobile  
+5) Works in production  
+6) No console errors  
+
+DO NOT  
+- reset DB  
+- remove existing data  
+- expose API keys  
+
+SUCCESS  
+All address fields in the system now suggest and require selection.

@@ -584,6 +584,23 @@ export type InsertDriverBonusRule = z.infer<typeof insertDriverBonusRuleSchema>;
 export type VehicleMake = typeof vehicleMakes.$inferSelect;
 export type VehicleModel = typeof vehicleModels.$inferSelect;
 
+export const scheduleChangeRequests = pgTable("schedule_change_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  requestedDate: text("requested_date").notNull(),
+  requestType: text("request_type").notNull(),
+  notes: text("notes"),
+  status: text("status").notNull().default("pending"),
+  decisionNotes: text("decision_notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  decidedBy: integer("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at"),
+});
+
+export const insertScheduleChangeRequestSchema = createInsertSchema(scheduleChangeRequests).omit({ id: true, createdAt: true, decidedBy: true, decidedAt: true, status: true });
+export type ScheduleChangeRequest = typeof scheduleChangeRequests.$inferSelect;
+export type InsertScheduleChangeRequest = z.infer<typeof insertScheduleChangeRequestSchema>;
+
 export const loginTokens = pgTable("login_tokens", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   tokenHash: text("token_hash").notNull().unique(),
