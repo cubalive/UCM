@@ -2419,12 +2419,22 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
   async function enrichTripsWithRelations(tripList: any[]) {
     const allCities = await storage.getCities();
     const cityMap = new Map(allCities.map(c => [c.id, c]));
+
+    const tripIds = tripList.map(t => t.id).filter(Boolean);
+    const acceptedOffers = tripIds.length > 0
+      ? await db.select({ tripId: driverOffers.tripId, acceptedAt: driverOffers.acceptedAt })
+          .from(driverOffers)
+          .where(and(inArray(driverOffers.tripId, tripIds), eq(driverOffers.status, "accepted")))
+      : [];
+    const acceptedMap = new Map(acceptedOffers.filter(o => o.acceptedAt).map(o => [o.tripId, o.acceptedAt]));
+
     return Promise.all(tripList.map(async (t) => {
       const patient = t.patientId ? await storage.getPatient(t.patientId) : null;
       const clinic = t.clinicId ? await storage.getClinic(t.clinicId) : null;
       const driver = t.driverId ? await storage.getDriver(t.driverId) : null;
       const vehicle = driver?.vehicleId ? await storage.getVehicle(driver.vehicleId) : (t.vehicleId ? await storage.getVehicle(t.vehicleId) : null);
       const city = cityMap.get(t.cityId);
+      const offerAcceptedAt = acceptedMap.get(t.id);
       return {
         ...t,
         patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
@@ -2440,6 +2450,7 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         vehicleMake: vehicle?.make || null,
         vehicleModel: vehicle?.model || null,
         cityName: city?.name || null,
+        acceptedAt: offerAcceptedAt ? new Date(offerAcceptedAt).toISOString() : null,
       };
     }));
   }
@@ -5128,22 +5139,6 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
 
       const [enriched] = await enrichTripsWithRelations([trip]);
 
-      const progressEvents: { label: string; at: string | null }[] = [];
-      if (trip.pickupTime) progressEvents.push({ label: "Scheduled Pickup", at: trip.pickupTime });
-      if (trip.assignedAt) progressEvents.push({ label: "Assigned", at: new Date(trip.assignedAt).toISOString() });
-      if (trip.startedAt) progressEvents.push({ label: "En Route to Pickup", at: new Date(trip.startedAt).toISOString() });
-      if (trip.arrivedPickupAt) progressEvents.push({ label: "Arrived at Pickup", at: new Date(trip.arrivedPickupAt).toISOString() });
-      if (trip.pickedUpAt) progressEvents.push({ label: "Picked Up", at: new Date(trip.pickedUpAt).toISOString() });
-      if (trip.enRouteDropoffAt) progressEvents.push({ label: "En Route to Dropoff", at: new Date(trip.enRouteDropoffAt).toISOString() });
-      if (trip.arrivedDropoffAt) progressEvents.push({ label: "Arrived at Dropoff", at: new Date(trip.arrivedDropoffAt).toISOString() });
-      if (trip.completedAt) progressEvents.push({ label: "Completed", at: new Date(trip.completedAt).toISOString() });
-      if (trip.cancelledAt) progressEvents.push({ label: trip.status === "NO_SHOW" ? "No Show" : "Cancelled", at: new Date(trip.cancelledAt).toISOString() });
-
-      let onsiteMinutes: number | null = null;
-      if (trip.arrivedPickupAt && trip.completedAt) {
-        onsiteMinutes = Math.round((new Date(trip.completedAt).getTime() - new Date(trip.arrivedPickupAt).getTime()) / 60000);
-      }
-
       const clinicSafe = {
         id: enriched.id,
         publicId: enriched.publicId,
@@ -5163,7 +5158,9 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         tripType: enriched.tripType,
         direction: enriched.direction,
         approvalStatus: enriched.approvalStatus,
+        approvedAt: enriched.approvedAt,
         assignedAt: enriched.assignedAt,
+        acceptedAt: enriched.acceptedAt,
         startedAt: enriched.startedAt,
         arrivedPickupAt: enriched.arrivedPickupAt,
         pickedUpAt: enriched.pickedUpAt,
@@ -5174,8 +5171,7 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         cancelledReason: enriched.cancelledReason,
         billingOutcome: enriched.billingOutcome,
         billingReason: enriched.billingReason,
-        onsiteMinutes,
-        progressEvents,
+        billingSetAt: enriched.billingSetAt,
         driverName: enriched.driverName,
         vehicleLabel: enriched.vehicleLabel,
         vehicleColor: enriched.vehicleColor,
@@ -5283,16 +5279,39 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
       doc.fontSize(12).fillColor("#000").text("Timeline");
       doc.moveDown(0.3);
       doc.fontSize(10);
-      doc.text(`Scheduled Pickup: ${trip.pickupTime || "N/A"}`);
-      if (trip.assignedAt) doc.text(`Assigned: ${formatPdfTime(trip.assignedAt)}`);
-      if (trip.startedAt) doc.text(`En Route to Pickup: ${formatPdfTime(trip.startedAt)}`);
-      if (trip.arrivedPickupAt) doc.text(`Arrived at Pickup: ${formatPdfTime(trip.arrivedPickupAt)}`);
-      if (trip.pickedUpAt) doc.text(`Picked Up: ${formatPdfTime(trip.pickedUpAt)}`);
-      if (trip.enRouteDropoffAt) doc.text(`En Route to Dropoff: ${formatPdfTime(trip.enRouteDropoffAt)}`);
-      if (trip.arrivedDropoffAt) doc.text(`Arrived at Dropoff: ${formatPdfTime(trip.arrivedDropoffAt)}`);
-      if (trip.completedAt) doc.text(`Completed: ${formatPdfTime(trip.completedAt)}`);
-      if (trip.cancelledAt) doc.text(`${trip.status === "NO_SHOW" ? "No Show" : "Cancelled"}: ${formatPdfTime(trip.cancelledAt)}`);
-      if (onsiteMinutes != null) doc.text(`On-Site Duration: ${onsiteMinutes} min`);
+
+      const pdfEvents: { label: string; time: string; reason?: string }[] = [];
+      if (trip.pickupTime) {
+        const formatPickupTime = (t: string) => {
+          try { const [h,m] = t.split(":").map(Number); const d = new Date(2000,0,1,h,m); return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true}); } catch { return t; }
+        };
+        pdfEvents.push({ label: "Scheduled Pickup", time: formatPickupTime(trip.pickupTime) });
+      }
+      if (trip.createdAt) pdfEvents.push({ label: "Created", time: formatPdfTime(trip.createdAt) });
+      if (trip.approvedAt) pdfEvents.push({ label: "Approved", time: formatPdfTime(trip.approvedAt) });
+      if (trip.assignedAt) pdfEvents.push({ label: "Assigned to Driver", time: formatPdfTime(trip.assignedAt) });
+      if (enriched.acceptedAt) pdfEvents.push({ label: "Driver Accepted", time: formatPdfTime(enriched.acceptedAt) });
+      if (trip.startedAt) pdfEvents.push({ label: "En Route to Pickup", time: formatPdfTime(trip.startedAt) });
+      if (trip.arrivedPickupAt) pdfEvents.push({ label: "Arrived at Pickup", time: formatPdfTime(trip.arrivedPickupAt) });
+      if (trip.pickedUpAt) pdfEvents.push({ label: "Picked Up", time: formatPdfTime(trip.pickedUpAt) });
+      if (trip.enRouteDropoffAt) pdfEvents.push({ label: "En Route to Dropoff", time: formatPdfTime(trip.enRouteDropoffAt) });
+      if (trip.arrivedDropoffAt) pdfEvents.push({ label: "Arrived at Dropoff", time: formatPdfTime(trip.arrivedDropoffAt) });
+      if (trip.completedAt && trip.status !== "CANCELLED" && trip.status !== "NO_SHOW") pdfEvents.push({ label: "Completed", time: formatPdfTime(trip.completedAt) });
+      if (trip.cancelledAt && trip.status === "CANCELLED") pdfEvents.push({ label: "Cancelled", time: formatPdfTime(trip.cancelledAt), reason: trip.cancelledReason || undefined });
+      if (trip.cancelledAt && trip.status === "NO_SHOW") pdfEvents.push({ label: "No-Show", time: formatPdfTime(trip.cancelledAt), reason: trip.cancelledReason || undefined });
+      if (trip.billingOutcome === "company_error" && trip.billingSetAt) pdfEvents.push({ label: "Company Error", time: formatPdfTime(trip.billingSetAt), reason: trip.billingReason || undefined });
+
+      for (const evt of pdfEvents) {
+        doc.text(`${evt.label}: ${evt.time}`);
+        if (evt.reason) doc.fillColor("#666").text(`  Reason: ${evt.reason}`).fillColor("#000");
+      }
+
+      if (onsiteMinutes != null) { doc.moveDown(0.3); doc.text(`On-Site Duration: ${onsiteMinutes} min`); }
+      let transportMinutes: number | null = null;
+      if (trip.pickedUpAt && trip.arrivedDropoffAt) {
+        transportMinutes = Math.round((new Date(trip.arrivedDropoffAt).getTime() - new Date(trip.pickedUpAt).getTime()) / 60000);
+      }
+      if (transportMinutes != null) doc.text(`Transport Duration: ${transportMinutes} min`);
       doc.moveDown(0.8);
 
       doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ddd");

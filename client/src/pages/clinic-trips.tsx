@@ -2988,18 +2988,6 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
   const [pdfLoading, setPdfLoading] = useState(false);
   const isTerminal = ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status);
 
-  const formatEventTime = (isoOrTime: string | null | undefined): string => {
-    if (!isoOrTime) return "";
-    try {
-      if (isoOrTime.includes("T") || isoOrTime.includes("Z")) {
-        const d = new Date(isoOrTime);
-        if (isNaN(d.getTime())) return isoOrTime;
-        return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-      }
-      return isoOrTime;
-    } catch { return isoOrTime; }
-  };
-
   const formatDate = (dateStr: string | null | undefined): string => {
     if (!dateStr) return "";
     try {
@@ -3106,28 +3094,7 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
 
       <Card>
         <CardContent className="py-3 px-4 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Timeline</p>
-          <div className="space-y-1">
-            {(trip.progressEvents || []).map((evt: any, i: number) => (
-              <div key={i} className="flex items-center justify-between text-sm" data-testid={`timeline-event-${i}`}>
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    evt.label === "Completed" ? "bg-emerald-500" :
-                    evt.label === "No Show" || evt.label === "Cancelled" ? "bg-red-500" :
-                    "bg-blue-500"
-                  }`} />
-                  <span>{evt.label}</span>
-                </div>
-                <span className="text-muted-foreground text-xs">{formatEventTime(evt.at)}</span>
-              </div>
-            ))}
-          </div>
-          {trip.onsiteMinutes != null && (
-            <div className="flex items-center gap-1 text-sm pt-1 border-t mt-2" data-testid="text-onsite-duration">
-              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-              <span>On-site duration: <span className="font-medium">{trip.onsiteMinutes} min</span></span>
-            </div>
-          )}
+          <TripProgressTimeline trip={trip} showHeader={false} showMetrics={true} />
         </CardContent>
       </Card>
 
