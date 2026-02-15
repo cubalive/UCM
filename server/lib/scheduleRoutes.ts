@@ -16,6 +16,44 @@ function getDayKey(date: string): string | null {
   return map[day] || null;
 }
 
+export async function getScheduledDriverIdsForDay(cityId: number, date: string): Promise<Set<number>> {
+  const dayKey = getDayKey(date);
+  if (!dayKey) return new Set();
+
+  const scheduledDriverIds = new Set<number>();
+
+  if (dayKey === "sun") {
+    const [roster] = await db.select().from(sundayRosters)
+      .where(and(eq(sundayRosters.cityId, cityId), eq(sundayRosters.rosterDate, date)));
+
+    if (roster && roster.enabled) {
+      const rosterDrivers = await db.select().from(sundayRosterDrivers)
+        .where(eq(sundayRosterDrivers.rosterId, roster.id));
+      rosterDrivers.forEach(rd => scheduledDriverIds.add(rd.driverId));
+    }
+  } else {
+    const schedules = await db.select().from(driverWeeklySchedules)
+      .where(eq(driverWeeklySchedules.cityId, cityId));
+
+    for (const sched of schedules) {
+      const enabledKey = `${dayKey}Enabled` as keyof typeof sched;
+      if (sched[enabledKey]) {
+        scheduledDriverIds.add(sched.driverId);
+      }
+    }
+  }
+
+  const replacements = await db.select().from(driverReplacements)
+    .where(and(eq(driverReplacements.cityId, cityId), eq(driverReplacements.replacementDate, date), eq(driverReplacements.status, "active")));
+
+  for (const r of replacements) {
+    scheduledDriverIds.delete(r.outDriverId);
+    scheduledDriverIds.add(r.substituteDriverId);
+  }
+
+  return scheduledDriverIds;
+}
+
 export function registerScheduleRoutes(app: Express) {
 
   app.get("/api/schedules/weekly", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
@@ -472,43 +510,10 @@ export function registerScheduleRoutes(app: Express) {
       const date = req.query.date as string;
       if (isNaN(cityId) || !date) return res.status(400).json({ message: "cityId and date required" });
 
-      const dayKey = getDayKey(date);
-      if (!dayKey) return res.status(400).json({ message: "Invalid date" });
+      const scheduledDriverIds = await getScheduledDriverIdsForDay(cityId, date);
 
       const cityDrivers = await db.select().from(drivers)
         .where(and(eq(drivers.cityId, cityId), eq(drivers.active, true)));
-
-      const scheduledDriverIds = new Set<number>();
-
-      if (dayKey === "sun") {
-        const [roster] = await db.select().from(sundayRosters)
-          .where(and(eq(sundayRosters.cityId, cityId), eq(sundayRosters.rosterDate, date)));
-
-        if (roster && roster.enabled) {
-          const rosterDrivers = await db.select().from(sundayRosterDrivers)
-            .where(eq(sundayRosterDrivers.rosterId, roster.id));
-          rosterDrivers.forEach(rd => scheduledDriverIds.add(rd.driverId));
-        }
-      } else {
-        const schedules = await db.select().from(driverWeeklySchedules)
-          .where(eq(driverWeeklySchedules.cityId, cityId));
-
-        for (const sched of schedules) {
-          const enabledKey = `${dayKey}Enabled` as keyof typeof sched;
-          if (sched[enabledKey]) {
-            scheduledDriverIds.add(sched.driverId);
-          }
-        }
-      }
-
-      const replacements = await db.select().from(driverReplacements)
-        .where(and(eq(driverReplacements.cityId, cityId), eq(driverReplacements.replacementDate, date), eq(driverReplacements.status, "active")));
-
-      const outDriverIds = new Set(replacements.map(r => r.outDriverId));
-      for (const r of replacements) {
-        scheduledDriverIds.delete(r.outDriverId);
-        scheduledDriverIds.add(r.substituteDriverId);
-      }
 
       const eligible = cityDrivers.filter(d => {
         if (!scheduledDriverIds.has(d.id)) return false;
@@ -518,11 +523,101 @@ export function registerScheduleRoutes(app: Express) {
 
       const scheduled = cityDrivers.filter(d => scheduledDriverIds.has(d.id));
 
+      const replacementsData = await db.select().from(driverReplacements)
+        .where(and(eq(driverReplacements.cityId, cityId), eq(driverReplacements.replacementDate, date), eq(driverReplacements.status, "active")));
+      const outDriverIds = new Set(replacementsData.map(r => r.outDriverId));
+
       res.json({
         eligible,
         scheduled,
         outDriverIds: Array.from(outDriverIds),
-        replacements,
+        replacements: replacementsData,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/assignments/schedule-status", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const cityId = parseInt(req.query.cityId as string);
+      const date = req.query.date as string;
+      if (isNaN(cityId) || !date) return res.status(400).json({ message: "cityId and date required" });
+
+      const scheduledDriverIds = await getScheduledDriverIdsForDay(cityId, date);
+
+      const cityDrivers = await db.select().from(drivers)
+        .where(and(eq(drivers.cityId, cityId), eq(drivers.active, true)));
+
+      const scheduledDrivers = cityDrivers.filter(d => scheduledDriverIds.has(d.id));
+
+      const eligibleDrivers = scheduledDrivers.filter(d => {
+        if (!isDriverOnline(d)) return false;
+        if (d.dispatchStatus === "hold") return false;
+        return true;
+      });
+
+      const offlineScheduledCount = scheduledDrivers.filter(d => !isDriverOnline(d)).length;
+      const holdCount = scheduledDrivers.filter(d => isDriverOnline(d) && d.dispatchStatus === "hold").length;
+
+      const allTrips = await db.select().from(trips)
+        .where(and(
+          eq(trips.cityId, cityId),
+          eq(trips.scheduledDate, date),
+        ));
+
+      const CANCELLED_STATUSES = ["CANCELLED", "NO_SHOW"];
+      const activeTrips = allTrips.filter(t => !CANCELLED_STATUSES.includes(t.status) && !t.deletedAt);
+      const assignedDriverIdsFromTrips = new Set(activeTrips.filter(t => t.driverId).map(t => t.driverId!));
+
+      const existingAssignments = await storage.getDriverVehicleAssignments(cityId, date);
+      const assignedDriverIdsFromAssignments = new Set(existingAssignments.map(a => a.driverId));
+
+      const allAssignedDriverIds = new Set<number>();
+      assignedDriverIdsFromTrips.forEach(id => allAssignedDriverIds.add(id));
+      assignedDriverIdsFromAssignments.forEach(id => allAssignedDriverIds.add(id));
+
+      const unassignedDrivers = eligibleDrivers.filter(d => !allAssignedDriverIds.has(d.id));
+
+      const scheduledDriversWithStatus = scheduledDrivers.map(d => ({
+        id: d.id,
+        firstName: d.firstName,
+        lastName: d.lastName,
+        publicId: d.publicId,
+        phone: d.phone,
+        cityId: d.cityId,
+        status: d.status,
+        vehicleId: d.vehicleId,
+        loggedIn: isDriverOnline(d),
+        onHold: d.dispatchStatus === "hold",
+        dispatchStatus: d.dispatchStatus,
+      }));
+
+      const unassignedDriversData = unassignedDrivers.map(d => ({
+        id: d.id,
+        firstName: d.firstName,
+        lastName: d.lastName,
+        publicId: d.publicId,
+        phone: d.phone,
+        cityId: d.cityId,
+        status: d.status,
+        vehicleId: d.vehicleId,
+      }));
+
+      const hasSchedule = scheduledDriverIds.size > 0;
+
+      res.json({
+        hasSchedule,
+        scheduledDrivers: scheduledDriversWithStatus,
+        unassignedDrivers: unassignedDriversData,
+        counts: {
+          scheduledCount: scheduledDrivers.length,
+          eligibleCount: eligibleDrivers.length,
+          assignedCount: allAssignedDriverIds.size,
+          unassignedCount: unassignedDrivers.length,
+          offlineScheduledCount,
+          holdCount,
+        },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

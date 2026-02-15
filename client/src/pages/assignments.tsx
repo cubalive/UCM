@@ -50,6 +50,11 @@ import {
   Navigation,
   ArrowRight,
   User,
+  CalendarCheck,
+  CalendarX,
+  Wifi,
+  WifiOff,
+  Shield,
 } from "lucide-react";
 
 interface Assignment {
@@ -111,6 +116,43 @@ interface DriverStatusData {
   paused: DriverStatusInfo[];
   hold: DriverStatusInfo[];
   logged_out: DriverStatusInfo[];
+}
+
+interface ScheduledDriverInfo {
+  id: number;
+  firstName: string;
+  lastName: string;
+  publicId: string;
+  phone: string;
+  cityId: number;
+  status: string;
+  vehicleId: number | null;
+  loggedIn: boolean;
+  onHold: boolean;
+  dispatchStatus: string;
+}
+
+interface ScheduleStatusData {
+  hasSchedule: boolean;
+  scheduledDrivers: ScheduledDriverInfo[];
+  unassignedDrivers: {
+    id: number;
+    firstName: string;
+    lastName: string;
+    publicId: string;
+    phone: string;
+    cityId: number;
+    status: string;
+    vehicleId: number | null;
+  }[];
+  counts: {
+    scheduledCount: number;
+    eligibleCount: number;
+    assignedCount: number;
+    unassignedCount: number;
+    offlineScheduledCount: number;
+    holdCount: number;
+  };
 }
 
 export default function AssignmentsPage() {
@@ -353,6 +395,7 @@ export default function AssignmentsPage() {
             getDriverPublicId={getDriverPublicId}
             getVehicleName={getVehicleName}
             getVehiclePlate={getVehiclePlate}
+            token={token}
             onReassign={(a) => {
               setReassignDialog({
                 assignment: a,
@@ -523,6 +566,7 @@ function SchedulerTab({
   getDriverPublicId,
   getVehicleName,
   getVehiclePlate,
+  token,
   onReassign,
   onSwap,
   refetch,
@@ -539,10 +583,25 @@ function SchedulerTab({
   getDriverPublicId: (id: number) => string;
   getVehicleName: (id: number) => string;
   getVehiclePlate: (id: number) => string;
+  token: string | null;
   onReassign: (a: Assignment) => void;
   onSwap: (a: Assignment) => void;
   refetch: () => void;
 }) {
+  const { data: scheduleStatus } = useQuery<ScheduleStatusData>({
+    queryKey: ["/api/assignments/schedule-status", cityId, selectedDate],
+    queryFn: async () => {
+      if (!cityId || !selectedDate) return null;
+      const res = await fetch(`/api/assignments/schedule-status?cityId=${cityId}&date=${selectedDate}`, {
+        headers: authHeaders(token),
+      });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!cityId && !!selectedDate,
+    refetchInterval: 30000,
+  });
+
   if (!cityId) {
     return (
       <Card>
@@ -578,15 +637,72 @@ function SchedulerTab({
     );
   }
 
+  const counts = scheduleStatus?.counts;
+  const schedUnassigned = scheduleStatus?.unassignedDrivers || [];
+
   return (
     <>
+      {scheduleStatus && !scheduleStatus.hasSchedule && (
+        <Card className="mb-3 border-amber-500/50" data-testid="card-no-schedule-warning">
+          <CardContent className="p-4 flex items-center gap-3">
+            <CalendarX className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium">No schedule configured for this date</p>
+              <p className="text-xs text-muted-foreground">Auto-assign will not run. Set up a weekly schedule or Sunday roster in the Schedule page.</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {scheduleStatus && scheduleStatus.hasSchedule && (
+        <Card className="mb-3" data-testid="card-schedule-summary">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
+              <span className="text-sm font-medium">Schedule Active</span>
+              <Badge variant="outline" className="text-xs">{counts?.scheduledCount || 0} scheduled</Badge>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="flex items-center gap-2">
+                <Wifi className="h-3.5 w-3.5 text-green-500" />
+                <div>
+                  <div className="text-lg font-bold">{counts?.eligibleCount || 0}</div>
+                  <div className="text-[10px] text-muted-foreground">Eligible</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <UserCheck className="h-3.5 w-3.5 text-blue-500" />
+                <div>
+                  <div className="text-lg font-bold">{counts?.assignedCount || 0}</div>
+                  <div className="text-[10px] text-muted-foreground">Assigned</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />
+                <div>
+                  <div className="text-lg font-bold">{counts?.offlineScheduledCount || 0}</div>
+                  <div className="text-[10px] text-muted-foreground">Offline</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Shield className="h-3.5 w-3.5 text-amber-500" />
+                <div>
+                  <div className="text-lg font-bold">{counts?.holdCount || 0}</div>
+                  <div className="text-[10px] text-muted-foreground">On Hold</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Card data-testid="card-stat-assigned">
           <CardContent className="p-4 flex items-center gap-3">
             <UserCheck className="h-5 w-5 text-green-600 dark:text-green-400" />
             <div>
               <div className="text-2xl font-bold">{assignments.length}</div>
-              <div className="text-xs text-muted-foreground">Assigned</div>
+              <div className="text-xs text-muted-foreground">Vehicle Assignments</div>
             </div>
           </CardContent>
         </Card>
@@ -594,8 +710,8 @@ function SchedulerTab({
           <CardContent className="p-4 flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
             <div>
-              <div className="text-2xl font-bold">{unassignedDrivers.length}</div>
-              <div className="text-xs text-muted-foreground">Unassigned Drivers</div>
+              <div className="text-2xl font-bold">{schedUnassigned.length}</div>
+              <div className="text-xs text-muted-foreground">Unassigned (Eligible)</div>
             </div>
           </CardContent>
         </Card>
@@ -610,18 +726,52 @@ function SchedulerTab({
         </Card>
       </div>
 
-      {unassignedDrivers.length > 0 && (
+      {schedUnassigned.length > 0 && (
         <Card className="mt-3" data-testid="card-unassigned-alert">
           <CardHeader className="flex flex-row items-center gap-2 pb-2">
             <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            <CardTitle className="text-sm">Unassigned Drivers</CardTitle>
+            <CardTitle className="text-sm">Unassigned Eligible Drivers</CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="flex flex-row flex-wrap gap-2">
-              {unassignedDrivers.map(d => (
+              {schedUnassigned.map(d => (
                 <Badge key={d.id} variant="secondary" data-testid={`badge-unassigned-${d.id}`}>
                   {d.firstName} {d.lastName} ({d.publicId})
                 </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {scheduleStatus?.hasSchedule && scheduleStatus.scheduledDrivers.length > 0 && (
+        <Card className="mt-3" data-testid="card-scheduled-drivers">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <CalendarCheck className="h-4 w-4" />
+              Scheduled Drivers
+            </CardTitle>
+            <Badge variant="outline" className="text-xs">{scheduleStatus.scheduledDrivers.length}</Badge>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className="space-y-1">
+              {scheduleStatus.scheduledDrivers.map(d => (
+                <div key={d.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-xs" data-testid={`row-scheduled-driver-${d.id}`}>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <CircleDot className={`w-3 h-3 flex-shrink-0 ${
+                      d.onHold ? "text-amber-500" :
+                      d.loggedIn ? "text-green-500" :
+                      "text-muted-foreground"
+                    }`} />
+                    <span className="font-medium">{d.firstName} {d.lastName}</span>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">{d.publicId}</Badge>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {d.onHold && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Hold</Badge>}
+                    {!d.loggedIn && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Offline</Badge>}
+                    {d.loggedIn && !d.onHold && <Badge variant="default" className="text-[10px] px-1.5 py-0">Online</Badge>}
+                  </div>
+                </div>
               ))}
             </div>
           </CardContent>

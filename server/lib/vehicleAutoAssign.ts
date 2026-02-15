@@ -1,5 +1,7 @@
 import { storage } from "../storage";
 import type { CitySettings, City } from "@shared/schema";
+import { getScheduledDriverIdsForDay } from "./scheduleRoutes";
+import { isDriverOnline } from "./driverClassification";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -26,13 +28,25 @@ function getYesterdayDate(timezone: string): string {
   return `${y}-${m}-${d}`;
 }
 
-export async function runVehicleAutoAssignForCity(city: City, settings: CitySettings): Promise<{ assigned: number; skipped: number; reused: number }> {
+export async function runVehicleAutoAssignForCity(city: City, settings: CitySettings): Promise<{ assigned: number; skipped: number; reused: number; noSchedule?: boolean; tripsAssigned?: number; tripsIssues?: number }> {
   const timezone = city.timezone || "America/New_York";
   const today = getCityLocalDate(timezone);
   const yesterday = getYesterdayDate(timezone);
 
-  const activeDrivers = (await storage.getDrivers(city.id)).filter(d => d.status === "ACTIVE");
+  const scheduledDriverIds = await getScheduledDriverIdsForDay(city.id, today);
+  const allDrivers = (await storage.getDrivers(city.id)).filter(d => d.status === "ACTIVE");
   const activeVehicles = (await storage.getVehicles(city.id)).filter(v => v.status === "ACTIVE");
+
+  if (scheduledDriverIds.size === 0) {
+    return { assigned: 0, skipped: 0, reused: 0, noSchedule: true };
+  }
+
+  const activeDrivers = allDrivers.filter(d => {
+    if (!scheduledDriverIds.has(d.id)) return false;
+    if (!isDriverOnline(d)) return false;
+    if (d.dispatchStatus === "hold") return false;
+    return true;
+  });
 
   if (activeDrivers.length === 0 || activeVehicles.length === 0) {
     return { assigned: 0, skipped: activeDrivers.length, reused: 0 };
@@ -129,8 +143,18 @@ async function autoAssignTripsToDrivers(city: City, date: string): Promise<{ ass
 
   if (unassignedTrips.length === 0) return { assigned: 0, issues: 0 };
 
+  const scheduledDriverIds = await getScheduledDriverIdsForDay(city.id, date);
+  const cityDrivers = (await storage.getDrivers(city.id)).filter(d => d.status === "ACTIVE");
+  const eligibleDriverIds = new Set(
+    cityDrivers
+      .filter(d => scheduledDriverIds.has(d.id) && isDriverOnline(d) && d.dispatchStatus !== "hold")
+      .map(d => d.id)
+  );
+
   const assignments = await storage.getDriverVehicleAssignments(city.id, date);
-  const assignedDriverIds = assignments.filter(a => a.status === "active").map(a => a.driverId);
+  const assignedDriverIds = assignments
+    .filter(a => a.status === "active" && eligibleDriverIds.has(a.driverId))
+    .map(a => a.driverId);
 
   const driverTripCount: Map<number, number> = new Map();
   for (const dId of assignedDriverIds) {
