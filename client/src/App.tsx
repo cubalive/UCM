@@ -41,6 +41,7 @@ import DispatchBoardPage from "@/pages/dispatch-board";
 import ClinicTripsPage from "@/pages/clinic-trips";
 import DriverDashboard from "@/pages/driver-dashboard";
 import BillingPage from "@/pages/billing";
+import ClinicBillingPage from "@/pages/clinic-billing";
 import SchedulePage from "@/pages/schedule";
 import PricingPage from "@/pages/pricing";
 import UnauthorizedPage from "@/pages/unauthorized";
@@ -141,6 +142,7 @@ function Router() {
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>
       <Route path="/billing">{() => <ProtectedRoute resource="invoices" component={BillingPage} />}</Route>
+      <Route path="/clinic-billing">{() => <ProtectedRoute resource="invoices" component={ClinicBillingPage} />}</Route>
       <Route path="/pricing">{() => <ProtectedRoute resource="audit" component={PricingPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />

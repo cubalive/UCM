@@ -22,6 +22,7 @@ import { registerScheduleRoutes } from "./lib/scheduleRoutes";
 import { registerPricingRoutes } from "./lib/pricingRoutes";
 import { registerAssignmentRoutes } from "./lib/assignmentRoutes";
 import { registerPublicApiRoutes } from "./lib/publicApiRoutes";
+import { registerClinicBillingRoutes } from "./lib/clinicBillingRoutes";
 import { startRouteScheduler } from "./lib/routeEngine";
 import { startNoShowScheduler } from "./lib/noShowEngine";
 import { startRecurringScheduleScheduler, runRecurringScheduleGenerator } from "./lib/recurringScheduleEngine";
@@ -129,6 +130,7 @@ export async function registerRoutes(
   registerPricingRoutes(app);
   registerAssignmentRoutes(app, authMiddleware);
   registerPublicApiRoutes(app);
+  registerClinicBillingRoutes(app);
   startOpsAlertScheduler();
   startRouteScheduler();
   startNoShowScheduler();

@@ -74,6 +74,7 @@ const navItems: NavItem[] = [
   { titleKey: "nav.clinics", url: "/clinics", icon: Building2, resource: "clinics" },
   { titleKey: "nav.invoices", url: "/invoices", icon: FileText, resource: "invoices" },
   { titleKey: "nav.billing", url: "/billing", icon: Receipt, resource: "invoices" },
+  { titleKey: "nav.clinicBilling", url: "/clinic-billing", icon: DollarSign, resource: "invoices" },
   { titleKey: "nav.dispatchBoard", url: "/dispatch-board", icon: ClipboardCheck, resource: "dispatch" },
   { titleKey: "nav.opsHealth", url: "/ops-health", icon: Activity, resource: "dispatch" },
   { titleKey: "nav.opsChecks", url: "/ops-checks", icon: ShieldCheck, resource: "dispatch" },

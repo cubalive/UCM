@@ -318,6 +318,13 @@ export const trips = pgTable("trips", {
   cancelFee: numeric("cancel_fee", { precision: 10, scale: 2 }),
   cancelFeeOverride: numeric("cancel_fee_override", { precision: 10, scale: 2 }),
   cancelFeeOverrideNote: text("cancel_fee_override_note"),
+  passengerCount: integer("passenger_count").notNull().default(1),
+  billingOutcome: text("billing_outcome"),
+  billingReason: text("billing_reason"),
+  billingSetBy: integer("billing_set_by"),
+  billingSetAt: timestamp("billing_set_at"),
+  billingOverride: boolean("billing_override").notNull().default(false),
+  cancelWindow: text("cancel_window"),
   priceTotalCents: integer("price_total_cents"),
   pricingSnapshot: jsonb("pricing_snapshot"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -881,3 +888,107 @@ export type PricingRule = typeof pricingRules.$inferSelect;
 export type InsertPricingRule = z.infer<typeof insertPricingRuleSchema>;
 
 export type PricingAuditEntry = typeof pricingAuditLog.$inferSelect;
+
+export const billingAuditLog = pgTable("billing_audit_log", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  oldOutcome: text("old_outcome"),
+  newOutcome: text("new_outcome"),
+  oldReason: text("old_reason"),
+  newReason: text("new_reason"),
+  changedBy: integer("changed_by").references(() => users.id),
+  changedAt: timestamp("changed_at").notNull().defaultNow(),
+});
+
+export const clinicBillingProfiles = pgTable("clinic_billing_profiles", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  name: text("name").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  cancelAdvanceHours: integer("cancel_advance_hours").notNull().default(24),
+  cancelLateMinutes: integer("cancel_late_minutes").notNull().default(0),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("cbp_clinic_city_idx").on(table.clinicId, table.cityId),
+]);
+
+export const clinicBillingRules = pgTable("clinic_billing_rules", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  profileId: integer("profile_id").notNull().references(() => clinicBillingProfiles.id),
+  outcome: text("outcome").notNull(),
+  passengerCount: integer("passenger_count").notNull(),
+  legType: text("leg_type").notNull(),
+  cancelWindow: text("cancel_window"),
+  unitRate: numeric("unit_rate", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  enabled: boolean("enabled").notNull().default(true),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("cbr_profile_rule_idx").on(table.profileId, table.outcome, table.passengerCount, table.legType, table.cancelWindow),
+]);
+
+export const clinicBillingInvoices = pgTable("clinic_billing_invoices", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  weekStart: text("week_start").notNull(),
+  weekEnd: text("week_end").notNull(),
+  status: text("status").notNull().default("draft"),
+  totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  completedTotal: numeric("completed_total", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  noShowTotal: numeric("no_show_total", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  cancelledTotal: numeric("cancelled_total", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  companyErrorTotal: numeric("company_error_total", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  outboundTotal: numeric("outbound_total", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  returnTotal: numeric("return_total", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  notes: text("notes"),
+  finalizedAt: timestamp("finalized_at"),
+  finalizedBy: integer("finalized_by").references(() => users.id),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("cbi_clinic_week_idx").on(table.clinicId, table.cityId, table.weekStart),
+]);
+
+export const clinicBillingInvoiceLines = pgTable("clinic_billing_invoice_lines", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  invoiceId: integer("invoice_id").notNull().references(() => clinicBillingInvoices.id),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  serviceDate: text("service_date").notNull(),
+  legType: text("leg_type").notNull(),
+  outcome: text("outcome").notNull(),
+  cancelWindow: text("cancel_window"),
+  passengerCount: integer("passenger_count").notNull().default(1),
+  unitRateSnapshot: numeric("unit_rate_snapshot", { precision: 10, scale: 2 }).notNull(),
+  lineTotal: numeric("line_total", { precision: 10, scale: 2 }).notNull(),
+  pickupAddress: text("pickup_address"),
+  dropoffAddress: text("dropoff_address"),
+  distanceMiles: numeric("distance_miles"),
+  tripPublicId: text("trip_public_id"),
+  pickupTime: text("pickup_time"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertClinicBillingProfileSchema = createInsertSchema(clinicBillingProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export type ClinicBillingProfile = typeof clinicBillingProfiles.$inferSelect;
+export type InsertClinicBillingProfile = z.infer<typeof insertClinicBillingProfileSchema>;
+
+export const insertClinicBillingRuleSchema = createInsertSchema(clinicBillingRules).omit({ id: true, updatedAt: true });
+export type ClinicBillingRule = typeof clinicBillingRules.$inferSelect;
+export type InsertClinicBillingRule = z.infer<typeof insertClinicBillingRuleSchema>;
+
+export const insertClinicBillingInvoiceSchema = createInsertSchema(clinicBillingInvoices).omit({ id: true, createdAt: true, updatedAt: true });
+export type ClinicBillingInvoice = typeof clinicBillingInvoices.$inferSelect;
+export type InsertClinicBillingInvoice = z.infer<typeof insertClinicBillingInvoiceSchema>;
+
+export const insertClinicBillingInvoiceLineSchema = createInsertSchema(clinicBillingInvoiceLines).omit({ id: true, createdAt: true });
+export type ClinicBillingInvoiceLine = typeof clinicBillingInvoiceLines.$inferSelect;
+export type InsertClinicBillingInvoiceLine = z.infer<typeof insertClinicBillingInvoiceLineSchema>;
+
+export type BillingAuditEntry = typeof billingAuditLog.$inferSelect;
