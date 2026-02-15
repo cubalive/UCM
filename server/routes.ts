@@ -2163,6 +2163,7 @@ export async function registerRoutes(
 
       const tab = req.params.tab;
       const search = (req.query.search as string || "").toLowerCase().trim();
+      const origin = (req.query.origin as string || "").toLowerCase().trim();
       const conditions: any[] = [isNull(trips.deletedAt)];
       if (cityId && cityId > 0) conditions.push(eq(trips.cityId, cityId));
 
@@ -2185,11 +2186,21 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid tab. Use: unassigned, scheduled, active, completed" });
       }
 
+      if (origin === "clinic") {
+        conditions.push(sql`${trips.clinicId} IS NOT NULL`);
+      } else if (origin === "private") {
+        conditions.push(sql`${trips.clinicId} IS NULL`);
+        conditions.push(sql`(${trips.tripType} != 'recurring' OR ${trips.tripType} IS NULL)`);
+      } else if (origin === "dialysis_recurring") {
+        conditions.push(eq(trips.tripType, "recurring"));
+      }
+
       const result = await db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt));
       const enriched = await enrichTripsWithRelations(result);
 
+      let finalResult = enriched;
       if (search) {
-        const filtered = enriched.filter((t: any) =>
+        finalResult = enriched.filter((t: any) =>
           (t.patientName && t.patientName.toLowerCase().includes(search)) ||
           (t.clinicName && t.clinicName.toLowerCase().includes(search)) ||
           (t.driverName && t.driverName.toLowerCase().includes(search)) ||
@@ -2197,10 +2208,21 @@ export async function registerRoutes(
           (t.pickupAddress && t.pickupAddress.toLowerCase().includes(search)) ||
           (t.dropoffAddress && t.dropoffAddress.toLowerCase().includes(search))
         );
-        return res.json(filtered);
       }
 
-      res.json(enriched);
+      if (origin === "clinic") {
+        const grouped: Record<string, { clinicId: number; clinicName: string; trips: any[] }> = {};
+        for (const t of finalResult) {
+          const key = String(t.clinicId);
+          if (!grouped[key]) {
+            grouped[key] = { clinicId: t.clinicId, clinicName: t.clinicName || "Unknown Clinic", trips: [] };
+          }
+          grouped[key].trips.push(t);
+        }
+        return res.json({ grouped: Object.values(grouped), total: finalResult.length });
+      }
+
+      res.json(finalResult);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

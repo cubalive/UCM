@@ -42,6 +42,8 @@ import {
   Zap,
   Eye,
   EyeOff,
+  Repeat,
+  Briefcase,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -154,10 +156,19 @@ interface AutoAssignResult {
   message?: string;
 }
 
+type OriginFilter = "" | "clinic" | "private" | "dialysis_recurring";
+
+interface ClinicGroup {
+  clinicId: number;
+  clinicName: string;
+  trips: any[];
+}
+
 export default function DispatchBoardPage() {
   const { token, selectedCity } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("unassigned");
+  const [originFilter, setOriginFilter] = useState<OriginFilter>("");
   const [search, setSearch] = useState("");
   const [assignTrip, setAssignTrip] = useState<any | null>(null);
   const [reassignTrip, setReassignTrip] = useState<any | null>(null);
@@ -167,11 +178,12 @@ export default function DispatchBoardPage() {
 
   const cityId = selectedCity?.id;
 
-  const tripsQuery = useQuery<any[]>({
-    queryKey: ["/api/dispatch/trips", activeTab, cityId, search],
+  const tripsQuery = useQuery<any>({
+    queryKey: ["/api/dispatch/trips", activeTab, cityId, search, originFilter],
     queryFn: () => {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
+      if (originFilter) params.set("origin", originFilter);
       const qs = params.toString();
       return apiFetch(`/api/dispatch/trips/${activeTab}${qs ? `?${qs}` : ""}`, token);
     },
@@ -248,7 +260,12 @@ export default function DispatchBoardPage() {
     },
   });
 
-  const trips = tripsQuery.data || [];
+  const rawData = tripsQuery.data;
+  const isClinicGrouped = originFilter === "clinic" && rawData?.grouped;
+  const clinicGroups: ClinicGroup[] = isClinicGrouped ? rawData.grouped : [];
+  const trips: any[] = isClinicGrouped
+    ? clinicGroups.flatMap(g => g.trips)
+    : (Array.isArray(rawData) ? rawData : []);
   const driverStatus = driverStatusQuery.data || { available: [], on_trip: [], paused: [], hold: [], logged_out: [] };
 
   return (
@@ -304,7 +321,28 @@ export default function DispatchBoardPage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-3">
+          <div className="flex items-center gap-1.5 flex-wrap" data-testid="origin-filter-bar">
+            {([
+              { key: "" as OriginFilter, label: "All Trips", icon: null },
+              { key: "clinic" as OriginFilter, label: "Clinic Trips", icon: <Building2 className="w-3.5 h-3.5" /> },
+              { key: "private" as OriginFilter, label: "Private Trips", icon: <Briefcase className="w-3.5 h-3.5" /> },
+              { key: "dialysis_recurring" as OriginFilter, label: "Dialysis Recurring", icon: <Repeat className="w-3.5 h-3.5" /> },
+            ]).map(({ key, label, icon }) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={originFilter === key ? "default" : "outline"}
+                className="toggle-elevate"
+                onClick={() => setOriginFilter(key)}
+                data-testid={`button-origin-${key || "all"}`}
+              >
+                {icon}
+                {label}
+              </Button>
+            ))}
+          </div>
+
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="unassigned" data-testid="tab-unassigned">
@@ -325,22 +363,44 @@ export default function DispatchBoardPage() {
             </TabsList>
 
             <TabsContent value="unassigned" className="mt-4">
-              <TripList
-                trips={trips}
-                loading={tripsQuery.isLoading}
-                tab="unassigned"
-                onAssign={(trip) => setAssignTrip(trip)}
-                onReassign={(trip) => setReassignTrip(trip)}
-              />
+              {isClinicGrouped ? (
+                <ClinicGroupedTripList
+                  groups={clinicGroups}
+                  loading={tripsQuery.isLoading}
+                  tab="unassigned"
+                  onAssign={(trip) => setAssignTrip(trip)}
+                  onReassign={(trip) => setReassignTrip(trip)}
+                />
+              ) : (
+                <TripList
+                  trips={trips}
+                  loading={tripsQuery.isLoading}
+                  tab="unassigned"
+                  onAssign={(trip) => setAssignTrip(trip)}
+                  onReassign={(trip) => setReassignTrip(trip)}
+                />
+              )}
             </TabsContent>
             <TabsContent value="scheduled" className="mt-4">
-              <TripList trips={trips} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} onReassign={(trip) => setReassignTrip(trip)} />
+              {isClinicGrouped ? (
+                <ClinicGroupedTripList groups={clinicGroups} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} onReassign={(trip) => setReassignTrip(trip)} />
+              ) : (
+                <TripList trips={trips} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} onReassign={(trip) => setReassignTrip(trip)} />
+              )}
             </TabsContent>
             <TabsContent value="active" className="mt-4">
-              <TripList trips={trips} loading={tripsQuery.isLoading} tab="active" onReassign={(trip) => setReassignTrip(trip)} />
+              {isClinicGrouped ? (
+                <ClinicGroupedTripList groups={clinicGroups} loading={tripsQuery.isLoading} tab="active" onReassign={(trip) => setReassignTrip(trip)} />
+              ) : (
+                <TripList trips={trips} loading={tripsQuery.isLoading} tab="active" onReassign={(trip) => setReassignTrip(trip)} />
+              )}
             </TabsContent>
             <TabsContent value="completed" className="mt-4">
-              <TripList trips={trips} loading={tripsQuery.isLoading} tab="completed" />
+              {isClinicGrouped ? (
+                <ClinicGroupedTripList groups={clinicGroups} loading={tripsQuery.isLoading} tab="completed" />
+              ) : (
+                <TripList trips={trips} loading={tripsQuery.isLoading} tab="completed" />
+              )}
             </TabsContent>
           </Tabs>
         </div>
@@ -699,6 +759,59 @@ function TripList({
     <div className="space-y-2" data-testid={`list-${tab}-trips`}>
       {trips.map((trip) => (
         <TripCard key={trip.id} trip={trip} tab={tab} onAssign={onAssign} onReassign={onReassign} />
+      ))}
+    </div>
+  );
+}
+
+function ClinicGroupedTripList({
+  groups,
+  loading,
+  tab,
+  onAssign,
+  onReassign,
+}: {
+  groups: ClinicGroup[];
+  loading: boolean;
+  tab: string;
+  onAssign?: (trip: any) => void;
+  onReassign?: (trip: any) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-24 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (groups.length === 0) {
+    return (
+      <div className="py-12 text-center text-sm text-muted-foreground" data-testid={`text-empty-clinic-${tab}`}>
+        No clinic {tab} trips
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid={`list-clinic-grouped-${tab}`}>
+      {groups.map((group) => (
+        <div key={group.clinicId} data-testid={`clinic-group-${group.clinicId}`}>
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <Building2 className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-semibold" data-testid={`text-clinic-name-${group.clinicId}`}>
+              {group.clinicName}
+            </span>
+            <Badge variant="secondary" className="text-xs">{group.trips.length}</Badge>
+          </div>
+          <div className="space-y-2">
+            {group.trips.map((trip) => (
+              <TripCard key={trip.id} trip={trip} tab={tab} onAssign={onAssign} onReassign={onReassign} />
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );
