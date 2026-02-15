@@ -1,0 +1,144 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+FEATURE: PATIENT EMAIL FOR PRIVATE/INTERNAL + INVOICE DELIVERY (PAY LINK)
+We already classify patients as internal vs private.
+Private/internal patients must have an email so we can send invoices and payment links.
+Clinic patients should NOT require email (optional), because clinic billing differs.
+
+GOALS
+1) Add patient.email field (stored in DB).
+2) Validation rules:
+   - PRIVATE patients: email REQUIRED
+   - INTERNAL patients: email REQUIRED (if they receive invoice/pay link)
+   - CLINIC patients: email OPTIONAL
+3) When an invoice is created for a private/internal trip:
+   - generate/send invoice email to patient with:
+     - invoice summary
+     - payment link (Stripe Checkout or hosted invoice link)
+4) Store delivery status for audit (sent/failed/timestamp).
+5) Do NOT expose secrets. Do NOT reset DB.
+
+------------------------------------------------------------
+PHASE 1 — CONFIRM PATIENT TYPES / SOURCE OF TRUTH
+------------------------------------------------------------
+Find how patient type is represented:
+- patient.type (private/internal/clinic)
+OR
+- patient.is_private, patient.is_internal, clinic_id presence, etc.
+
+Document the exact rule used today.
+
+------------------------------------------------------------
+PHASE 2 — DB CHANGES (ADDITIVE ONLY)
+------------------------------------------------------------
+If patients table has no email column:
+Add:
+- email text nullable
+- email_verified bool default false (optional)
+- updated_at timestamp if needed
+
+If invoices table lacks delivery fields, add:
+- email_to text nullable
+- email_status text default 'not_sent'  -- not_sent/sent/failed
+- email_sent_at timestamp nullable
+- email_error text nullable (store last error)
+
+All changes must be additive. No resets.
+
+------------------------------------------------------------
+PHASE 3 — UI UPDATES (PATIENT FORMS)
+------------------------------------------------------------
+Update all patient create/edit UIs:
+
+A) Dispatch/Admin patient form:
+- Add Email field
+- Validate:
+  - if patient type is PRIVATE or INTERNAL -> require valid email
+  - else optional
+
+B) Clinic "Add Patient" modal:
+- If clinic is creating clinic-linked patients -> email optional
+- If clinic is allowed to create private/internal (usually no) -> enforce rules above
+Default: clinic can only create clinic patients, so email optional.
+
+Add clear helper text:
+"Email is required for Private/Internal patients to receive invoices and payment links."
+
+------------------------------------------------------------
+PHASE 4 — ENFORCE VALIDATION SERVER-SIDE
+------------------------------------------------------------
+On patient create/update endpoints:
+- If patient is PRIVATE or INTERNAL and email missing/invalid -> reject 400 with clear message
+- Sanitize and normalize email to lowercase
+
+This prevents bad data even if UI misses it.
+
+------------------------------------------------------------
+PHASE 5 — INVOICE + PAYMENT LINK GENERATION (PRIVATE/INTERNAL ONLY)
+------------------------------------------------------------
+When creating invoice for a trip:
+
+1) Determine billing target:
+- If trip belongs to clinic (clinic_id not null and not "UCM Direct/Private Pay") -> clinic billing flow (do NOT email patient unless explicitly enabled)
+- If trip is private/internal -> patient billing flow (email required)
+
+2) Ensure patient email exists:
+- If missing -> block invoice creation and show:
+  "Patient email required to send invoice/payment link."
+
+3) Create payment link:
+Preferred approach (Stripe):
+- Use Stripe hosted invoice OR Checkout Session OR Payment Link
+- Store stripe_invoice_id or stripe_checkout_session_id on invoice record
+
+4) Send email to patient:
+- Use existing email service (SendGrid/Postmark/Resend/etc). If none exists, implement minimal provider using ENV keys.
+- Email includes:
+  - Patient name
+  - Trip date
+  - Amount
+  - Secure payment link
+  - Company branding "United Care Mobility"
+
+5) Update invoice delivery fields:
+- email_to
+- email_status
+- email_sent_at
+- email_error if failed
+
+------------------------------------------------------------
+PHASE 6 — RESEND + COPY TO DISPATCH (QUALITY OF LIFE)
+------------------------------------------------------------
+Add buttons on invoice UI (admin/dispatch):
+- "Send Payment Link" (initial send)
+- "Resend" (re-send)
+- "Copy Payment Link" (clipboard)
+Optional: CC dispatch/internal billing email.
+
+------------------------------------------------------------
+PHASE 7 — VERIFY
+------------------------------------------------------------
+1) Create PRIVATE patient without email -> blocked
+2) Create PRIVATE patient with email -> ok
+3) Create PRIVATE trip + invoice -> payment link generated + email sent
+4) Invoice shows status "sent"
+5) Clinic trip invoice -> does NOT email patient by default
+6) Resend works
+
+DO NOT
+- Do NOT reset DB
+- Do NOT email clinic patients automatically unless configured
+- Do NOT store Stripe secret keys client-side
+
+SUCCESS CRITERIA
+- Private/Internal patients always have email
+- Invoice creation produces a sendable payment link
+- Email delivery is tracked and resendable

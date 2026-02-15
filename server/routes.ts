@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices } from "@shared/schema";
 import { z } from "zod";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
@@ -1333,6 +1333,16 @@ export async function registerRoutes(
       const callerCompanyId = getCompanyIdFromAuth(req);
       const autoSource = (user?.role === "CLINIC_USER" || user?.role === "VIEWER") && user.clinicId ? "clinic" : "internal";
       const patientData = { ...parsed.data, publicId, companyId: callerCompanyId, source: parsed.data.source || autoSource };
+      const effectiveSource = patientData.source;
+      if ((effectiveSource === "private" || effectiveSource === "internal") && !patientData.email?.trim()) {
+        return res.status(400).json({ message: "Email is required for Private/Internal patients to receive invoices and payment links." });
+      }
+      if (patientData.email) {
+        patientData.email = patientData.email.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patientData.email)) {
+          return res.status(400).json({ message: "Invalid email address format." });
+        }
+      }
       if (patientData.phone) {
         const { normalizePhone } = await import("./lib/twilioSms");
         patientData.phone = normalizePhone(patientData.phone) || patientData.phone;
@@ -1371,7 +1381,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "No access to this city" });
       }
 
-      const allowedFields = ["phone", "address", "addressStreet", "addressCity", "addressState", "addressZip", "addressPlaceId", "lat", "lng", "notes", "insuranceId", "wheelchairRequired", "active", "firstName", "lastName", "dateOfBirth", "cityId"];
+      const allowedFields = ["phone", "email", "address", "addressStreet", "addressCity", "addressState", "addressZip", "addressPlaceId", "lat", "lng", "notes", "insuranceId", "wheelchairRequired", "active", "firstName", "lastName", "dateOfBirth", "cityId"];
       const updateData: Record<string, any> = {};
       for (const key of allowedFields) {
         if (req.body[key] !== undefined) {
@@ -1391,6 +1401,24 @@ export async function registerRoutes(
         }
         if (updateData.lat == null || updateData.lng == null) {
           return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
+        }
+      }
+
+      if (updateData.email !== undefined) {
+        if (updateData.email) {
+          updateData.email = updateData.email.trim().toLowerCase();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updateData.email)) {
+            return res.status(400).json({ message: "Invalid email address format." });
+          }
+        }
+        const effectiveSource = existing.source;
+        if ((effectiveSource === "private" || effectiveSource === "internal") && !updateData.email?.trim()) {
+          return res.status(400).json({ message: "Email is required for Private/Internal patients." });
+        }
+      } else {
+        const effectiveSource = existing.source;
+        if ((effectiveSource === "private" || effectiveSource === "internal") && !existing.email?.trim()) {
+          return res.status(400).json({ message: "Email is required for Private/Internal patients. Please add an email address." });
         }
       }
 
@@ -3310,6 +3338,13 @@ export async function registerRoutes(
           } as any);
           invoiceId = invoice.id;
           await storage.updateTrip(id, { invoiceId: invoice.id } as any);
+          if (patient?.email && (patient.source === "private" || patient.source === "internal")) {
+            try {
+              await db.update(invoices).set({ emailTo: patient.email }).where(eq(invoices.id, invoice.id));
+              const { sendInvoicePaymentEmail } = await import("./services/invoiceEmailService");
+              sendInvoicePaymentEmail(invoice.id).catch((e: any) => console.error("[CANCEL] Invoice email error:", e.message));
+            } catch {}
+          }
         } catch (invErr: any) {
           console.error("[CANCEL] Invoice creation failed:", invErr.message);
         }
@@ -5062,7 +5097,23 @@ export async function registerRoutes(
         cityId: trip.cityId,
       });
 
-      res.status(201).json(invoice);
+      if (patient?.email && (patient.source === "private" || patient.source === "internal")) {
+        try {
+          await db.update(invoices).set({ emailTo: patient.email }).where(eq(invoices.id, invoice.id));
+          const { sendInvoicePaymentEmail } = await import("./services/invoiceEmailService");
+          const emailResult = await sendInvoicePaymentEmail(invoice.id);
+          if (emailResult.success) {
+            console.log(`[Invoice] Auto-sent payment email for invoice #${invoice.id} to ${patient.email}`);
+          } else {
+            console.error(`[Invoice] Auto-send failed for invoice #${invoice.id}:`, emailResult.error);
+          }
+        } catch (emailErr: any) {
+          console.error("[Invoice] Auto-send email error:", emailErr.message);
+        }
+      }
+
+      const updatedInvoice = await storage.getInvoice(invoice.id);
+      res.status(201).json(updatedInvoice || invoice);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -5225,6 +5276,62 @@ export async function registerRoutes(
 
       doc.end();
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/invoices/:id/send-email", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      if (req.user!.companyId && invoice.tripId) {
+        const trip = await storage.getTrip(invoice.tripId);
+        if (trip && trip.companyId && req.user!.companyId !== trip.companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      if (!invoice.emailTo) {
+        if (invoice.tripId) {
+          const trip = await storage.getTrip(invoice.tripId);
+          if (trip?.patientId) {
+            const patient = await storage.getPatient(trip.patientId);
+            if (patient?.email) {
+              await db.update(invoices).set({ emailTo: patient.email }).where(eq(invoices.id, invoiceId));
+            } else {
+              return res.status(400).json({ message: "Patient has no email address. Please add an email to the patient record first." });
+            }
+          } else {
+            return res.status(400).json({ message: "No patient email found for this invoice." });
+          }
+        } else {
+          return res.status(400).json({ message: "No email address on invoice and no linked trip to look up patient email." });
+        }
+      }
+
+      const { sendInvoicePaymentEmail } = await import("./services/invoiceEmailService");
+      const result = await sendInvoicePaymentEmail(invoiceId);
+
+      if (!result.success) {
+        return res.status(500).json({ message: result.error || "Failed to send email" });
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "SEND_INVOICE_EMAIL",
+        entityType: "invoice",
+        entityId: String(invoiceId),
+        details: `Invoice email sent to ${invoice.emailTo}`,
+        ipAddress: req.ip || null,
+      });
+
+      res.json({ success: true, paymentLink: result.paymentLink });
+    } catch (err: any) {
+      console.error("[Routes] send-email error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });

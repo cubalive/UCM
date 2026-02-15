@@ -25,7 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { useTranslation } from "react-i18next";
@@ -995,6 +995,7 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
   const [notes, setNotes] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
 
   const TERMINAL_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"];
   const isTerminal = TERMINAL_STATUSES.includes(tripStatus);
@@ -1054,6 +1055,35 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
       setPdfLoading(false);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    const inv = invoiceQuery.data?.invoice;
+    if (!inv) return;
+    setEmailSending(true);
+    try {
+      await apiFetch(`/api/invoices/${inv.id}/send-email`, token, { method: "POST" });
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "invoice"] });
+      toast({ title: "Invoice email sent", description: "Payment link email has been sent to the patient." });
+    } catch (err: any) {
+      toast({ title: "Email failed", description: err.message, variant: "destructive" });
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
+  const handleCopyPaymentLink = async () => {
+    const inv = invoiceQuery.data?.invoice;
+    if (!inv?.stripePaymentLink) {
+      toast({ title: "No payment link", description: "Send the invoice email first to generate a payment link.", variant: "destructive" });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(inv.stripePaymentLink);
+      toast({ title: "Copied", description: "Payment link copied to clipboard." });
+    } catch {
+      toast({ title: "Copy failed", description: "Could not copy to clipboard.", variant: "destructive" });
     }
   };
 
@@ -1272,7 +1302,53 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
           <FileText className="w-3 h-3" />
           {pdfLoading ? "Generating..." : "Download PDF"}
         </Button>
+        {canEdit && invoice.status !== "paid" && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            onClick={handleSendEmail}
+            disabled={emailSending}
+            data-testid="button-send-invoice-email"
+          >
+            {emailSending ? (
+              <RefreshCw className="w-3 h-3 animate-spin" />
+            ) : (
+              <Mail className="w-3 h-3" />
+            )}
+            {emailSending ? "Sending..." : (invoice.emailStatus === "sent" ? "Resend Email" : "Send Email")}
+          </Button>
+        )}
+        {invoice.stripePaymentLink && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1"
+            onClick={handleCopyPaymentLink}
+            data-testid="button-copy-payment-link"
+          >
+            <Copy className="w-3 h-3" />
+            Copy Link
+          </Button>
+        )}
       </div>
+      {(invoice.emailTo || invoice.emailStatus !== "not_sent") && (
+        <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
+          {invoice.emailTo && (
+            <span data-testid="text-invoice-email-to">Sent to: {invoice.emailTo}</span>
+          )}
+          {invoice.emailStatus === "sent" && invoice.emailSentAt && (
+            <span data-testid="text-invoice-email-sent-at">
+              Sent: {new Date(invoice.emailSentAt).toLocaleString()}
+            </span>
+          )}
+          {invoice.emailStatus === "failed" && (
+            <span className="text-destructive" data-testid="text-invoice-email-error">
+              Failed: {invoice.emailError || "Unknown error"}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

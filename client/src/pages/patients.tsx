@@ -323,7 +323,7 @@ export default function PatientsPage() {
           </DialogTrigger>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Add Patient</DialogTitle></DialogHeader>
-            <PatientForm onSubmit={(d) => createMutation.mutate(d)} loading={createMutation.isPending} />
+            <PatientForm onSubmit={(d) => createMutation.mutate({ ...d, source: sourceTab !== "all" && sourceTab !== "clinic" ? sourceTab : undefined })} loading={createMutation.isPending} patientSource={sourceTab !== "all" && sourceTab !== "clinic" ? sourceTab : "internal"} />
           </DialogContent>
         </Dialog>
       </div>
@@ -363,6 +363,7 @@ export default function PatientsPage() {
               onSubmit={(d) => updateMutation.mutate({ id: editPatient.id, data: d })}
               loading={updateMutation.isPending}
               isEdit
+              patientSource={editPatient.source || "internal"}
             />
           )}
         </DialogContent>
@@ -469,14 +470,16 @@ const mobilityOptions = [
   { value: "stretcher", label: "Stretcher" },
 ];
 
-function PatientForm({ onSubmit, loading, initialData, isEdit }: {
+function PatientForm({ onSubmit, loading, initialData, isEdit, patientSource }: {
   onSubmit: (data: any) => void;
   loading: boolean;
   initialData?: any;
   isEdit?: boolean;
+  patientSource?: string;
 }) {
   const { token } = useAuth();
   const { toast } = useToast();
+  const emailRequired = patientSource === "private" || patientSource === "internal";
   const parsed = parseStructuredNotes(initialData?.notes || "");
 
   const parsedDays = parsed.recurringSchedule
@@ -503,6 +506,7 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
     firstName: initialData?.firstName || "",
     lastName: initialData?.lastName || "",
     phone: initialData?.phone || "",
+    email: initialData?.email || "",
     dateOfBirth: initialData?.dateOfBirth || "",
     insuranceId: initialData?.insuranceId || "",
     notes: parsed.notes,
@@ -530,6 +534,14 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
       toast({ title: "Coordinates required", description: "Please clear and re-select the address.", variant: "destructive" });
       return;
     }
+    if (emailRequired && !form.email.trim()) {
+      toast({ title: "Email required", description: "Email is required for Private/Internal patients to receive invoices and payment links.", variant: "destructive" });
+      return;
+    }
+    if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      toast({ title: "Invalid email", description: "Please enter a valid email address.", variant: "destructive" });
+      return;
+    }
     const scheduleStr = form.scheduleDays.length > 0 && form.scheduleTime
       ? `${form.scheduleDays.join("/")} ${form.scheduleTime}`
       : "";
@@ -538,6 +550,7 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
       firstName: form.firstName,
       lastName: form.lastName,
       phone: form.phone,
+      email: form.email.trim() || null,
       address: addressData?.formattedAddress || "",
       addressStreet: addressData?.street || "",
       addressCity: addressData?.city || "",
@@ -570,9 +583,25 @@ function PatientForm({ onSubmit, loading, initialData, isEdit }: {
           <Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} required data-testid="input-patient-last" />
         </div>
       </div>
-      <div className="space-y-2">
-        <Label>Phone</Label>
-        <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="input-patient-phone" />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label>Phone</Label>
+          <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="input-patient-phone" />
+        </div>
+        <div className="space-y-2">
+          <Label>Email {emailRequired ? "*" : ""}</Label>
+          <Input
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            required={emailRequired}
+            placeholder={emailRequired ? "Required for invoices" : "Optional"}
+            data-testid="input-patient-email"
+          />
+          {emailRequired && (
+            <p className="text-[11px] text-muted-foreground">Required to send invoices and payment links.</p>
+          )}
+        </div>
       </div>
       <AddressAutocomplete
         label="Address"

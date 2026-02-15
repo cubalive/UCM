@@ -1,0 +1,157 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+FEATURE: TRIP DETAILS MUST SHOW MILES + ON-SITE DURATION + BOLD DATE/TIME + TIMESTAMPS IN TRIP PROGRESS
+Trip Details across ALL roles (Dispatch/Admin, Clinic, Driver) must display:
+1) Miles traveled
+2) On-site duration (Arrived → Completed)
+3) Trip Day + Time in BOLD at the top
+4) Trip Progress timeline must show a timestamp next to each status (proof/veracity)
+
+------------------------------------------------------------
+DEFINITIONS
+------------------------------------------------------------
+Miles traveled:
+- Use stored trip.distance_miles (preferred)
+- Else use stored route distance captured at booking
+- Do NOT compute from live GPS unless already implemented
+
+On-site duration:
+- start = arrived_at (driver presses ARRIVED)
+- end   = completed_at (trip marked COMPLETED)
+- onsite_minutes = floor((end - start)/60s), never negative
+
+Trip Progress timestamps:
+Each progress step must display:
+- status label
+- time (local timezone, e.g., "8:42 AM")
+- date shown if different day (rare)
+
+------------------------------------------------------------
+PHASE 1 — FIND/CONFIRM EXISTING FIELDS
+------------------------------------------------------------
+Search codebase/DB for:
+- distance_miles / route_distance
+- scheduled_pickup_at / appointment_time
+- created_at
+- accepted_at / assigned_at
+- en_route_at
+- arrived_at
+- picked_up_at (if exists)
+- dropoff_at (if exists)
+- completed_at
+- cancelled_at
+
+Use existing fields. Add only if missing and required.
+
+------------------------------------------------------------
+PHASE 2 — BACKEND: TRIP DETAILS RESPONSE MUST INCLUDE METRICS + TIMELINE
+------------------------------------------------------------
+Update Trip Details API (GET /api/trips/:id) and any endpoints used by details modals:
+
+Return:
+- trip_date_display (or scheduled date)
+- trip_time_display (scheduled pickup time)
+- distance_miles (number, 1 decimal or null)
+- arrived_at, completed_at
+- onsite_minutes (computed server-side)
+- progress_events: ordered list like:
+
+progress_events = [
+  { key:"created",   label:"Created",   at: created_at },
+  { key:"assigned",  label:"Assigned",  at: assigned_at },
+  { key:"en_route",  label:"En route",  at: en_route_at },
+  { key:"arrived",   label:"Arrived",   at: arrived_at },
+  { key:"picked_up", label:"Picked up", at: picked_up_at },   (only if exists)
+  { key:"completed", label:"Completed", at: completed_at },
+  { key:"cancelled", label:"Cancelled", at: cancelled_at }
+]
+
+Rules:
+- Include only events where "at" exists (not null)
+- Keep strict order by workflow, not by timestamp (but timestamps should generally increase)
+- If cancelled exists, show Cancelled as final.
+- Do NOT expose events that role should not see (but generally clinic can see all trip statuses for their own trips).
+
+If needed for legacy trips:
+- If assigned_at not stored, derive from first time driver_id was set only if safe; otherwise omit.
+
+------------------------------------------------------------
+PHASE 3 — FRONTEND: TRIP DETAILS UI (ALL ROLES)
+------------------------------------------------------------
+TOP HEADER (prominent):
+Show trip day + time in bold:
+**Feb 14, 2026 — 8:30 AM**
+(Use user locale/timezone formatting)
+
+METRICS CARD:
+- Miles: 12.4 mi (or —)
+- On-site: 34 min (Arrived → Completed)
+  - If arrived exists and not completed: "In progress"
+  - If completed but arrived missing: "Not available"
+
+TRIP PROGRESS TIMELINE:
+For each progress event, display timestamp on the right:
+Example row:
+Arrived .................................. 8:42 AM
+Completed ................................ 9:18 AM
+
+Formatting:
+- Use compact readable typography
+- If event date differs from trip date, show "Feb 15, 8:02 AM"
+
+If event timestamp missing, do NOT show the event.
+
+------------------------------------------------------------
+PHASE 4 — ENSURE DRIVER ACTIONS WRITE TIMESTAMPS (SERVER-SIDE)
+------------------------------------------------------------
+Verify endpoints that update status:
+- When driver taps "En route" -> set en_route_at if null
+- When driver taps "Arrived" -> set arrived_at if null
+- When driver completes -> set completed_at if null
+
+Server must set timestamps to prevent fake client times.
+Use server time (DB now()).
+
+------------------------------------------------------------
+PHASE 5 — SECURITY / ACCESS
+------------------------------------------------------------
+Clinic users can only see trip details for their clinic_id trips.
+Drivers can only see their own trips.
+Dispatch/Super Admin can see all.
+
+If proof photo uses signed URLs, keep signed URL behavior unchanged.
+
+------------------------------------------------------------
+PHASE 6 — VERIFY (MUST DO)
+------------------------------------------------------------
+1) Complete a trip with normal flow:
+- Header bold date/time visible
+- Miles visible
+- On-site duration correct
+- Progress timeline shows times for each step
+
+2) Active trip:
+- Shows available progress steps with times
+- On-site shows In progress after Arrived
+
+3) Legacy trip missing some timestamps:
+- Only show those that exist (no blanks)
+
+DO NOT
+- Do NOT reset DB
+- Do NOT create fake timestamps on client
+- Do NOT break scheduler or assignment logic
+
+SUCCESS CRITERIA
+- Trip Details always show miles + on-site duration
+- Date/time header is bold and prominent
+- Trip Progress shows timestamp next to each status for proof/veracity
+- Works in Clinic, Dispatch, Driver views

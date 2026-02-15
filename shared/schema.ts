@@ -229,6 +229,7 @@ export const patients = pgTable("patients", {
   lng: doublePrecision("lng"),
   dateOfBirth: text("date_of_birth"),
   insuranceId: text("insurance_id"),
+  email: text("email"),
   notes: text("notes"),
   wheelchairRequired: boolean("wheelchair_required").notNull().default(false),
   source: text("source").notNull().default("internal"),
@@ -360,6 +361,12 @@ export const invoices = pgTable("invoices", {
   reason: text("reason"),
   faultParty: text("fault_party"),
   relatedTripId: integer("related_trip_id"),
+  emailTo: text("email_to"),
+  emailStatus: text("email_status").notNull().default("not_sent"),
+  emailSentAt: timestamp("email_sent_at"),
+  emailError: text("email_error"),
+  stripePaymentLink: text("stripe_payment_link"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

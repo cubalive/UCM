@@ -2628,6 +2628,7 @@ function ClinicPatientForm({ onSubmit, loading, initialData, isEdit }: {
     firstName: initialData?.firstName || "",
     lastName: initialData?.lastName || "",
     phone: initialData?.phone || "",
+    email: initialData?.email || "",
     address: initialData?.address || "",
     dateOfBirth: initialData?.dateOfBirth || "",
     insuranceId: initialData?.insuranceId || "",
@@ -2640,6 +2641,7 @@ function ClinicPatientForm({ onSubmit, loading, initialData, isEdit }: {
       firstName: form.firstName,
       lastName: form.lastName,
       phone: form.phone,
+      email: form.email.trim() || null,
       address: form.address,
       dateOfBirth: form.dateOfBirth,
       insuranceId: form.insuranceId,
@@ -2659,9 +2661,15 @@ function ClinicPatientForm({ onSubmit, loading, initialData, isEdit }: {
           <Input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} required data-testid="input-clinic-patient-last" />
         </div>
       </div>
-      <div className="space-y-2">
-        <Label>Phone</Label>
-        <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} data-testid="input-clinic-patient-phone" />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label>Phone</Label>
+          <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} data-testid="input-clinic-patient-phone" />
+        </div>
+        <div className="space-y-2">
+          <Label>Email</Label>
+          <Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="Optional" data-testid="input-clinic-patient-email" />
+        </div>
       </div>
       <div className="space-y-2">
         <Label>Address</Label>
