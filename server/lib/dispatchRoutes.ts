@@ -288,6 +288,29 @@ export function registerDispatchRoutes(app: Express) {
           });
         }
 
+        if (trip.scheduledDate && trip.pickupTime) {
+          const driverTripsForDay = await storage.getTripsByDriverAndDate(driver_id, trip.scheduledDate);
+          const activeDriverTrips = driverTripsForDay.filter(t => t.id !== trip_id && !TERMINAL_STATUSES.includes(t.status));
+          const parseTimeMin = (time: string | null): number => {
+            if (!time) return 0;
+            const [h, m] = time.split(":").map(Number);
+            return h * 60 + (m || 0);
+          };
+          const newStart = parseTimeMin(trip.pickupTime);
+          const newEnd = parseTimeMin(trip.estimatedArrivalTime || trip.pickupTime);
+          for (const ex of activeDriverTrips) {
+            const exStart = parseTimeMin(ex.pickupTime);
+            const exEnd = parseTimeMin(ex.estimatedArrivalTime || ex.pickupTime);
+            const gap1 = newStart - exEnd;
+            const gap2 = exStart - newEnd;
+            if (gap1 < 30 && gap2 < 30) {
+              return res.status(400).json({
+                message: `Time conflict: driver already has trip ${ex.publicId} (${ex.pickupTime}–${ex.estimatedArrivalTime || ex.pickupTime}) on ${trip.scheduledDate}. Minimum 30-minute gap required.`,
+              });
+            }
+          }
+        }
+
         const updatedTrip = await storage.updateTrip(trip_id, {
           driverId: driver_id,
           vehicleId: driver.vehicleId,
@@ -402,6 +425,19 @@ export function registerDispatchRoutes(app: Express) {
           if (patient?.wheelchairRequired && !vehicle.wheelchairAccessible) {
             skipped++;
             continue;
+          }
+
+          if (trip.scheduledDate && trip.pickupTime) {
+            const driverDayTrips = await storage.getTripsByDriverAndDate(best.driver.id, trip.scheduledDate);
+            const parseT = (t: string | null): number => { if (!t) return 0; const [h, m] = t.split(":").map(Number); return h * 60 + (m || 0); };
+            const ns = parseT(trip.pickupTime), ne = parseT(trip.estimatedArrivalTime || trip.pickupTime);
+            let conflict = false;
+            for (const ex of driverDayTrips) {
+              if (ex.id === trip.id || TERMINAL_STATUSES.includes(ex.status)) continue;
+              const es = parseT(ex.pickupTime), ee = parseT(ex.estimatedArrivalTime || ex.pickupTime);
+              if (ns - ee < 30 && es - ne < 30) { conflict = true; break; }
+            }
+            if (conflict) { skipped++; continue; }
           }
 
           await storage.updateTrip(trip.id, {
@@ -774,6 +810,29 @@ export function registerDispatchRoutes(app: Express) {
           return res.status(400).json({
             message: "Patient requires wheelchair accessibility but the new driver's vehicle does not support it",
           });
+        }
+
+        if (trip.scheduledDate && trip.pickupTime) {
+          const driverTripsForDay = await storage.getTripsByDriverAndDate(new_driver_id, trip.scheduledDate);
+          const activeDriverTrips = driverTripsForDay.filter(t => t.id !== tripId && !TERMINAL_STATUSES.includes(t.status));
+          const parseTimeMin = (time: string | null): number => {
+            if (!time) return 0;
+            const [h, m] = time.split(":").map(Number);
+            return h * 60 + (m || 0);
+          };
+          const newStart = parseTimeMin(trip.pickupTime);
+          const newEnd = parseTimeMin(trip.estimatedArrivalTime || trip.pickupTime);
+          for (const ex of activeDriverTrips) {
+            const exStart = parseTimeMin(ex.pickupTime);
+            const exEnd = parseTimeMin(ex.estimatedArrivalTime || ex.pickupTime);
+            const gap1 = newStart - exEnd;
+            const gap2 = exStart - newEnd;
+            if (gap1 < 30 && gap2 < 30) {
+              return res.status(400).json({
+                message: `Time conflict: driver already has trip ${ex.publicId} (${ex.pickupTime}–${ex.estimatedArrivalTime || ex.pickupTime}) on ${trip.scheduledDate}. Minimum 30-minute gap required.`,
+              });
+            }
+          }
         }
 
         const oldDriverId = trip.driverId;
