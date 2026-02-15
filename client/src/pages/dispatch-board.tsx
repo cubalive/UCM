@@ -16,14 +16,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Search,
   UserPlus,
@@ -46,6 +40,8 @@ import {
   AlertTriangle,
   RefreshCw,
   Zap,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -158,7 +154,6 @@ export default function DispatchBoardPage() {
   const [activeTab, setActiveTab] = useState("unassigned");
   const [search, setSearch] = useState("");
   const [assignTrip, setAssignTrip] = useState<any | null>(null);
-  const [showAllDrivers, setShowAllDrivers] = useState(false);
   const [reassignTrip, setReassignTrip] = useState<any | null>(null);
   const [confirmAssign, setConfirmAssign] = useState<{ tripId: number; driverId: number; vehicleId?: number; warning: string } | null>(null);
 
@@ -298,41 +293,29 @@ export default function DispatchBoardPage() {
           ) : (
             <>
               <DriverSection
-                title="Available"
+                title="Available Now"
                 icon={<CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />}
                 drivers={driverStatus.available}
                 variant="available"
               />
               <DriverSection
-                title="On Trip"
-                icon={<Truck className="w-4 h-4 text-blue-600 dark:text-blue-400" />}
-                drivers={driverStatus.on_trip}
-                variant="on_trip"
+                title="Busy / In Trip"
+                icon={<Truck className="w-4 h-4 text-orange-500 dark:text-orange-400" />}
+                drivers={[...(driverStatus.on_trip || []), ...(driverStatus.paused || []), ...(driverStatus.hold || [])]}
+                variant="busy"
               />
               <DriverSection
-                title="Paused (GPS Idle)"
-                icon={<PauseCircle className="w-4 h-4 text-orange-500 dark:text-orange-400" />}
-                drivers={driverStatus.paused}
-                variant="paused"
-              />
-              <DriverSection
-                title="Hold / Break"
-                icon={<Coffee className="w-4 h-4 text-amber-600 dark:text-amber-400" />}
-                drivers={driverStatus.hold}
-                variant="hold"
-              />
-              <DriverSection
-                title="Logged Out"
+                title="Offline"
                 icon={<LogOut className="w-4 h-4 text-muted-foreground" />}
                 drivers={driverStatus.logged_out}
-                variant="logged_out"
+                variant="offline"
               />
             </>
           )}
         </div>
       </div>
 
-      <Dialog open={!!assignTrip} onOpenChange={(open) => { if (!open) { setAssignTrip(null); setShowAllDrivers(false); } }}>
+      <Dialog open={!!assignTrip} onOpenChange={(open) => { if (!open) { setAssignTrip(null); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Assign Driver to {assignTrip?.publicId}</DialogTitle>
@@ -342,15 +325,15 @@ export default function DispatchBoardPage() {
             token={token}
             cityId={cityId}
             driverStatus={driverStatus}
-            showAll={showAllDrivers}
-            onToggleShowAll={() => setShowAllDrivers(!showAllDrivers)}
             onAssign={(driverId, vehicleId) => {
               if (!assignTrip) return;
-              const allDrivers = [...(driverStatus.available || []), ...(driverStatus.on_trip || []), ...(driverStatus.paused || []), ...(driverStatus.hold || [])];
+              const allDrivers = [...(driverStatus.available || []), ...(driverStatus.on_trip || []), ...(driverStatus.paused || []), ...(driverStatus.hold || []), ...(driverStatus.logged_out || [])];
               const driver = allDrivers.find(d => d.id === driverId);
-              const needsConfirm = driver && (driver.group === "paused" || driver.group === "hold");
+              const needsConfirm = driver && (driver.group === "paused" || driver.group === "hold" || driver.group === "logged_out");
               if (needsConfirm) {
-                const warning = driver.group === "hold"
+                const warning = driver.group === "logged_out"
+                  ? "This driver is offline. They will not see the trip until they log in."
+                  : driver.group === "hold"
                   ? "This driver is on break. They may not see the trip until they resume."
                   : "This driver's GPS is paused. They may not see the trip immediately.";
                 setConfirmAssign({ tripId: assignTrip.id, driverId, vehicleId, warning });
@@ -425,6 +408,28 @@ export default function DispatchBoardPage() {
   );
 }
 
+function getDriverDotColor(driver: DriverInfo): string {
+  if (driver.group === "available") return "text-green-500";
+  if (driver.group === "on_trip") {
+    if (driver.active_trip_status?.includes("EN_ROUTE")) return "text-orange-500";
+    return "text-red-500";
+  }
+  if (driver.group === "paused") return "text-orange-500";
+  if (driver.group === "hold") return "text-orange-500";
+  return "text-muted-foreground";
+}
+
+function getDriverStatusLabel(driver: DriverInfo): string {
+  if (driver.group === "available") return "Available";
+  if (driver.group === "on_trip") {
+    if (driver.active_trip_status?.includes("EN_ROUTE")) return "En Route";
+    return "In Trip";
+  }
+  if (driver.group === "paused") return "GPS Paused";
+  if (driver.group === "hold") return "On Break";
+  return "Offline";
+}
+
 function DriverSection({
   title,
   icon,
@@ -434,9 +439,9 @@ function DriverSection({
   title: string;
   icon: React.ReactNode;
   drivers: DriverInfo[];
-  variant: "available" | "on_trip" | "paused" | "hold" | "logged_out";
+  variant: "available" | "busy" | "offline";
 }) {
-  const isLoggedOut = variant === "logged_out";
+  const isOffline = variant === "offline";
 
   return (
     <Card data-testid={`section-drivers-${variant}`}>
@@ -454,19 +459,16 @@ function DriverSection({
               <div
                 key={d.id}
                 className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-xs ${
-                  isLoggedOut ? "opacity-50" : ""
+                  isOffline ? "opacity-50" : ""
                 }`}
                 data-testid={`driver-card-${d.id}`}
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <CircleDot className={`w-3 h-3 flex-shrink-0 ${
-                    variant === "available" ? "text-green-500" :
-                    variant === "on_trip" ? "text-blue-500" :
-                    variant === "paused" ? "text-orange-500" :
-                    variant === "hold" ? "text-amber-500" :
-                    "text-muted-foreground"
-                  }`} />
+                  <CircleDot className={`w-3 h-3 flex-shrink-0 ${getDriverDotColor(d)}`} />
                   <span className="font-medium truncate" data-testid={`text-driver-name-${d.id}`}>{d.name}</span>
+                  {variant === "busy" && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">{getDriverStatusLabel(d)}</Badge>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   {d.vehicle_name ? (
@@ -670,8 +672,6 @@ function AssignDriverPanel({
   token,
   cityId,
   driverStatus,
-  showAll,
-  onToggleShowAll,
   onAssign,
   loading,
 }: {
@@ -679,32 +679,29 @@ function AssignDriverPanel({
   token: string | null;
   cityId?: number;
   driverStatus: DriverStatusData;
-  showAll: boolean;
-  onToggleShowAll: () => void;
   onAssign: (driverId: number, vehicleId?: number) => void;
   loading: boolean;
 }) {
-  const [selectedDriverId, setSelectedDriverId] = useState<string>("");
+  const [showOffline, setShowOffline] = useState(false);
 
   const availableDrivers = driverStatus.available || [];
-  const allAssignableDrivers = showAll
-    ? [...availableDrivers, ...(driverStatus.on_trip || []), ...(driverStatus.paused || []), ...(driverStatus.hold || [])]
-    : availableDrivers;
+  const busyDrivers = [...(driverStatus.on_trip || []), ...(driverStatus.paused || []), ...(driverStatus.hold || [])];
+  const offlineDrivers = driverStatus.logged_out || [];
 
-  const availableIds = availableDrivers.map(d => d.id);
+  const allOnlineIds = [...availableDrivers, ...busyDrivers].map(d => d.id);
   const hasPickupCoords = trip?.pickupLat != null && trip?.pickupLng != null;
 
   const etaQuery = useQuery<{ drivers: { driver_id: number; eta_minutes: number | null; distance_miles: number | null }[] }>({
-    queryKey: ["/api/dispatch/nearest-driver", trip?.id, availableIds.join(",")],
+    queryKey: ["/api/dispatch/nearest-driver", trip?.id, allOnlineIds.join(",")],
     queryFn: () => apiFetch("/api/dispatch/nearest-driver", token, {
       method: "POST",
       body: JSON.stringify({
         pickupLat: trip.pickupLat,
         pickupLng: trip.pickupLng,
-        driverIds: availableIds,
+        driverIds: allOnlineIds.slice(0, 25),
       }),
     }),
-    enabled: !!token && hasPickupCoords && availableIds.length > 0,
+    enabled: !!token && hasPickupCoords && allOnlineIds.length > 0,
     refetchInterval: 60000,
     staleTime: 55000,
   });
@@ -716,7 +713,7 @@ function AssignDriverPanel({
     }
   }
 
-  const sortedDrivers = [...allAssignableDrivers].sort((a, b) => {
+  const sortByEta = (list: DriverInfo[]) => [...list].sort((a, b) => {
     const etaA = etaMap.get(a.id)?.eta;
     const etaB = etaMap.get(b.id)?.eta;
     if (etaA != null && etaB != null) return etaA - etaB;
@@ -725,72 +722,128 @@ function AssignDriverPanel({
     return 0;
   });
 
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-medium">
-            {showAll ? "All Online Drivers" : "Available Drivers Only"}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onToggleShowAll}
-            data-testid="button-toggle-show-all"
-          >
-            {showAll ? "Show Available Only" : "Show All"}
-          </Button>
-        </div>
+  const sortedAvailable = sortByEta(availableDrivers);
+  const sortedBusy = sortByEta(busyDrivers);
 
-        {sortedDrivers.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-2" data-testid="text-no-drivers-available">
-            No {showAll ? "online" : "available"} drivers in this city.
-          </p>
-        ) : (
-          <Select value={selectedDriverId} onValueChange={setSelectedDriverId}>
-            <SelectTrigger className="w-full" data-testid="select-assign-driver">
-              <SelectValue placeholder="Choose a driver" />
-            </SelectTrigger>
-            <SelectContent>
-              {sortedDrivers.map((d) => {
-                const etaInfo = etaMap.get(d.id);
-                return (
-                  <SelectItem key={d.id} value={d.id.toString()} data-testid={`option-driver-${d.id}`}>
-                    <span className="flex items-center gap-2">
-                      <CircleDot className={`w-3 h-3 ${
-                        d.dispatch_status === "available" ? "text-green-500" :
-                        d.dispatch_status === "enroute" ? "text-blue-500" :
-                        "text-amber-500"
-                      }`} />
-                      {d.name}
-                      {d.vehicle_name ? ` - ${d.vehicle_name}` : " (No Vehicle)"}
-                      {d.active_trip_public_id ? ` [${d.active_trip_public_id}]` : ""}
-                      {etaInfo?.eta != null && (
-                        <span className="text-xs text-muted-foreground" data-testid={`text-driver-eta-${d.id}`}>
-                          ({etaInfo.eta} min{etaInfo.dist != null ? ` / ${etaInfo.dist} mi` : ""})
-                        </span>
-                      )}
-                    </span>
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-      <DialogFooter>
-        <Button
-          onClick={() => {
-            if (!selectedDriverId) return;
-            const driver = sortedDrivers.find((d) => d.id === parseInt(selectedDriverId));
-            onAssign(parseInt(selectedDriverId), driver?.vehicle_id || undefined);
-          }}
-          disabled={loading || !selectedDriverId}
-          data-testid="button-confirm-assign"
-        >
-          {loading ? "Assigning..." : "Assign Driver"}
-        </Button>
-      </DialogFooter>
+  const renderDriverRow = (d: DriverInfo) => {
+    const etaInfo = etaMap.get(d.id);
+    const isOffline = d.group === "logged_out";
+    return (
+      <button
+        key={d.id}
+        onClick={() => {
+          if (!loading) onAssign(d.id, d.vehicle_id || undefined);
+        }}
+        disabled={loading}
+        className={`w-full text-left rounded-md border p-2.5 transition-colors hover-elevate ${
+          isOffline ? "opacity-50" : ""
+        }`}
+        data-testid={`assign-driver-row-${d.id}`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <CircleDot className={`w-3.5 h-3.5 flex-shrink-0 ${getDriverDotColor(d)}`} />
+            <div className="min-w-0">
+              <div className="text-sm font-medium truncate" data-testid={`text-assign-driver-name-${d.id}`}>
+                {d.name}
+              </div>
+              <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+                {d.vehicle_name ? (
+                  <span className="flex items-center gap-1">
+                    <Car className="w-3 h-3" />
+                    {d.vehicle_name.split("(")[0].trim()}
+                  </span>
+                ) : (
+                  <span className="italic">No Vehicle</span>
+                )}
+                {d.active_trip_public_id && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">{d.active_trip_public_id}</Badge>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {etaInfo?.eta != null && (
+              <span className="text-xs font-medium text-muted-foreground" data-testid={`text-driver-eta-${d.id}`}>
+                {etaInfo.eta} min
+              </span>
+            )}
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0">{getDriverStatusLabel(d)}</Badge>
+          </div>
+        </div>
+      </button>
+    );
+  };
+
+  const noDriversAtAll = availableDrivers.length === 0 && busyDrivers.length === 0 && offlineDrivers.length === 0;
+
+  return (
+    <div className="space-y-3">
+      {noDriversAtAll ? (
+        <p className="text-sm text-muted-foreground py-4 text-center" data-testid="text-no-drivers-available">
+          No drivers found in this city.
+        </p>
+      ) : (
+        <ScrollArea className="max-h-[400px]">
+          <div className="space-y-3 pr-2">
+            {sortedAvailable.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Available Now
+                  </span>
+                  <Badge variant="secondary" className="text-[10px]">{sortedAvailable.length}</Badge>
+                </div>
+                <div className="space-y-1" data-testid="list-assign-available">
+                  {sortedAvailable.map(renderDriverRow)}
+                </div>
+              </div>
+            )}
+
+            {sortedBusy.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Truck className="w-3.5 h-3.5 text-orange-500" />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Busy / In Trip
+                  </span>
+                  <Badge variant="secondary" className="text-[10px]">{sortedBusy.length}</Badge>
+                </div>
+                <div className="space-y-1" data-testid="list-assign-busy">
+                  {sortedBusy.map(renderDriverRow)}
+                </div>
+              </div>
+            )}
+
+            {offlineDrivers.length > 0 && (
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowOffline(!showOffline)}
+                  className="w-full justify-start gap-2 text-xs text-muted-foreground"
+                  data-testid="button-toggle-offline"
+                >
+                  {showOffline ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  {showOffline ? "Hide" : "Show"} Offline Drivers ({offlineDrivers.length})
+                </Button>
+                {showOffline && (
+                  <div className="space-y-1 mt-1" data-testid="list-assign-offline">
+                    {offlineDrivers.map(renderDriverRow)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {availableDrivers.length === 0 && busyDrivers.length === 0 && (
+              <p className="text-sm text-muted-foreground py-2 text-center" data-testid="text-no-online-drivers">
+                No online drivers available. Toggle offline drivers below if needed.
+              </p>
+            )}
+          </div>
+        </ScrollArea>
+      )}
     </div>
   );
 }
