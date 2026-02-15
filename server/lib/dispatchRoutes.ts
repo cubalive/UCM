@@ -831,4 +831,199 @@ export function registerDispatchRoutes(app: Express) {
       }
     }
   );
+
+  const autoAssignDaySchema = z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    city_id: z.number().int().positive(),
+  });
+
+  interface AutoAssignResult {
+    assigned: { tripId: number; tripPublicId: string; driverId: number; driverName: string; vehicleName: string | null }[];
+    needsAttention: { tripId: number; tripPublicId: string; patientName: string; pickupTime: string; pickupAddress: string; dropoffAddress: string; pickupLat: number | null; pickupLng: number | null; reason: string }[];
+  }
+
+  app.post("/api/dispatch/auto-assign-day", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const parsed = autoAssignDaySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+
+      const { date, city_id } = parsed.data;
+      const companyId = getCompanyIdFromAuth(req);
+
+      let allTrips = await storage.getTripsForCityAndDate(city_id, date);
+      if (companyId) allTrips = allTrips.filter(t => t.companyId === companyId);
+
+      const unassigned = allTrips.filter(t =>
+        !t.deletedAt &&
+        !t.driverId &&
+        t.status === "SCHEDULED" &&
+        t.approvalStatus === "approved"
+      ).sort((a, b) => (a.pickupTime || "").localeCompare(b.pickupTime || ""));
+
+      if (unassigned.length === 0) {
+        return res.json({ assigned: [], needsAttention: [], message: "No unassigned trips for this date." });
+      }
+
+      let allDrivers = (await storage.getDrivers(city_id)).filter(d =>
+        d.status === "ACTIVE" && !d.deletedAt
+      );
+      if (companyId) allDrivers = allDrivers.filter(d => d.companyId === companyId);
+
+      let allVehicles = (await storage.getVehicles(city_id)).filter(v =>
+        v.status === "ACTIVE" && !v.deletedAt
+      );
+      if (companyId) allVehicles = allVehicles.filter(v => v.companyId === companyId);
+
+      const allPatients = new Map<number, any>();
+      for (const trip of unassigned) {
+        if (trip.patientId && !allPatients.has(trip.patientId)) {
+          const p = await storage.getPatient(trip.patientId);
+          if (p) allPatients.set(trip.patientId, p);
+        }
+      }
+
+      const eligibleDrivers = allDrivers.filter(d => d.dispatchStatus !== "off");
+
+      const vehicleMap = new Map(allVehicles.map(v => [v.id, v]));
+      const driverVehicleMap = new Map<number, typeof allVehicles[0] | null>();
+      for (const d of eligibleDrivers) {
+        driverVehicleMap.set(d.id, d.vehicleId ? vehicleMap.get(d.vehicleId) || null : null);
+      }
+
+      const assignedTripsForDay = allTrips.filter(t => t.driverId && !t.deletedAt && !TERMINAL_STATUSES.includes(t.status));
+      const driverTrips = new Map<number, typeof allTrips>();
+      for (const t of assignedTripsForDay) {
+        if (!driverTrips.has(t.driverId!)) driverTrips.set(t.driverId!, []);
+        driverTrips.get(t.driverId!)!.push(t);
+      }
+
+      const parseTime = (time: string | null): number => {
+        if (!time) return 0;
+        const [h, m] = time.split(":").map(Number);
+        return h * 60 + (m || 0);
+      };
+
+      const hasConflict = (driverId: number, tripPickupTime: string, tripEstArrival: string): string | null => {
+        const existing = driverTrips.get(driverId) || [];
+        const newStart = parseTime(tripPickupTime);
+        const newEnd = parseTime(tripEstArrival || tripPickupTime);
+        if (isNaN(newStart) || isNaN(newEnd)) return null;
+        for (const ex of existing) {
+          const exStart = parseTime(ex.pickupTime);
+          const exEnd = parseTime(ex.estimatedArrivalTime || ex.pickupTime);
+          if (isNaN(exStart) || isNaN(exEnd)) continue;
+          const gap1 = newStart - exEnd;
+          const gap2 = exStart - newEnd;
+          if (gap1 < 30 && gap2 < 30) {
+            return `Time conflict with trip ${ex.publicId} (${ex.pickupTime}-${ex.estimatedArrivalTime}), less than 30 min gap`;
+          }
+        }
+        return null;
+      };
+
+      const needsWheelchair = (trip: typeof unassigned[0]): boolean => {
+        const patient = allPatients.get(trip.patientId);
+        return patient?.wheelchairRequired || false;
+      };
+
+      const result: AutoAssignResult = { assigned: [], needsAttention: [] };
+
+      for (const trip of unassigned) {
+        const wheelchair = needsWheelchair(trip);
+        const patient = allPatients.get(trip.patientId);
+        const patientName = patient ? `${patient.firstName} ${patient.lastName}` : "Unknown";
+        let bestDriver: typeof eligibleDrivers[0] | null = null;
+        let bestVehicle: typeof allVehicles[0] | null = null;
+        let bestTripCount = Infinity;
+
+        for (const driver of eligibleDrivers) {
+          if (driver.cityId !== trip.cityId) continue;
+
+          const conflict = hasConflict(driver.id, trip.pickupTime, trip.estimatedArrivalTime);
+          if (conflict) continue;
+
+          const vehicle = driverVehicleMap.get(driver.id);
+          if (wheelchair && (!vehicle || !vehicle.wheelchairAccessible)) continue;
+
+          const tripCount = (driverTrips.get(driver.id) || []).length;
+          if (tripCount < bestTripCount) {
+            bestTripCount = tripCount;
+            bestDriver = driver;
+            bestVehicle = vehicle || null;
+          }
+        }
+
+        if (bestDriver) {
+          await storage.updateTrip(trip.id, {
+            driverId: bestDriver.id,
+            vehicleId: bestVehicle?.id || null,
+            status: "ASSIGNED",
+            assignedAt: new Date(),
+            assignedBy: req.user!.userId,
+            assignmentSource: "auto_assign_day",
+          } as any);
+
+          if (!driverTrips.has(bestDriver.id)) driverTrips.set(bestDriver.id, []);
+          driverTrips.get(bestDriver.id)!.push(trip);
+
+          autoNotifyPatient(trip.id, "driver_assigned");
+
+          result.assigned.push({
+            tripId: trip.id,
+            tripPublicId: trip.publicId,
+            driverId: bestDriver.id,
+            driverName: `${bestDriver.firstName} ${bestDriver.lastName}`,
+            vehicleName: bestVehicle ? `${bestVehicle.name} (${bestVehicle.licensePlate})` : null,
+          });
+        } else {
+          let reason = "No eligible driver found";
+          if (wheelchair) {
+            const wheelchairDrivers = eligibleDrivers.filter(d => {
+              const v = driverVehicleMap.get(d.id);
+              return v?.wheelchairAccessible && d.cityId === trip.cityId;
+            });
+            if (wheelchairDrivers.length === 0) {
+              reason = "Requires wheelchair vehicle — no wheelchair-accessible drivers in this city";
+            } else {
+              reason = "Requires wheelchair vehicle — all wheelchair drivers have time conflicts";
+            }
+          } else {
+            const cityDrivers = eligibleDrivers.filter(d => d.cityId === trip.cityId);
+            if (cityDrivers.length === 0) {
+              reason = "No active drivers available in this city";
+            } else {
+              reason = "All drivers have time conflicts (< 30 min gap)";
+            }
+          }
+          result.needsAttention.push({
+            tripId: trip.id,
+            tripPublicId: trip.publicId,
+            patientName,
+            pickupTime: trip.pickupTime,
+            pickupAddress: trip.pickupAddress,
+            dropoffAddress: trip.dropoffAddress,
+            pickupLat: trip.pickupLat,
+            pickupLng: trip.pickupLng,
+            reason,
+          });
+        }
+      }
+
+      if (result.assigned.length > 0) {
+        await storage.createAuditLog({
+          userId: req.user!.userId,
+          action: "AUTO_ASSIGN_DAY",
+          entity: "trips",
+          entityId: null,
+          details: `Auto-assigned ${result.assigned.length} trips for ${date} in city ${city_id}. ${result.needsAttention.length} need attention.`,
+          cityId: city_id,
+        });
+      }
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("[AutoAssignDay] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
 }

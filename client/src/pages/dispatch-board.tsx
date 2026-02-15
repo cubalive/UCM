@@ -148,6 +148,12 @@ function isDriverNotReady(trip: any): boolean {
   return false;
 }
 
+interface AutoAssignResult {
+  assigned: { tripId: number; tripPublicId: string; driverId: number; driverName: string; vehicleName: string | null }[];
+  needsAttention: { tripId: number; tripPublicId: string; patientName: string; pickupTime: string; pickupAddress?: string; dropoffAddress?: string; pickupLat?: number | null; pickupLng?: number | null; reason: string }[];
+  message?: string;
+}
+
 export default function DispatchBoardPage() {
   const { token, selectedCity } = useAuth();
   const { toast } = useToast();
@@ -156,6 +162,8 @@ export default function DispatchBoardPage() {
   const [assignTrip, setAssignTrip] = useState<any | null>(null);
   const [reassignTrip, setReassignTrip] = useState<any | null>(null);
   const [confirmAssign, setConfirmAssign] = useState<{ tripId: number; driverId: number; vehicleId?: number; warning: string } | null>(null);
+  const [showAutoAssignConfirm, setShowAutoAssignConfirm] = useState(false);
+  const [autoAssignResult, setAutoAssignResult] = useState<AutoAssignResult | null>(null);
 
   const cityId = selectedCity?.id;
 
@@ -213,6 +221,33 @@ export default function DispatchBoardPage() {
     },
   });
 
+  const todayDate = new Date().toLocaleDateString("en-CA");
+
+  const autoAssignMutation = useMutation({
+    mutationFn: () => {
+      if (!cityId) throw new Error("Select a city first");
+      return apiFetch("/api/dispatch/auto-assign-day", token, {
+        method: "POST",
+        body: JSON.stringify({ date: todayDate, city_id: cityId }),
+      });
+    },
+    onSuccess: (data: AutoAssignResult) => {
+      setShowAutoAssignConfirm(false);
+      setAutoAssignResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/drivers/status"] });
+      if (data.assigned.length > 0) {
+        toast({ title: `${data.assigned.length} trips assigned successfully` });
+      } else if (data.message) {
+        toast({ title: data.message });
+      }
+    },
+    onError: (err: any) => {
+      setShowAutoAssignConfirm(false);
+      toast({ title: "Auto-assign failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const trips = tripsQuery.data || [];
   const driverStatus = driverStatusQuery.data || { available: [], on_trip: [], paused: [], hold: [], logged_out: [] };
 
@@ -227,17 +262,46 @@ export default function DispatchBoardPage() {
             {selectedCity ? selectedCity.name : "All Cities"}
           </p>
         </div>
-        <div className="relative w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search trips..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-            data-testid="input-dispatch-search"
-          />
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            size="lg"
+            onClick={() => setShowAutoAssignConfirm(true)}
+            disabled={!cityId || autoAssignMutation.isPending}
+            data-testid="button-auto-assign-day"
+          >
+            {autoAssignMutation.isPending ? (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                Assigning...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 mr-2" />
+                Auto Assign Day
+              </>
+            )}
+          </Button>
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search trips..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+              data-testid="input-dispatch-search"
+            />
+          </div>
         </div>
       </div>
+
+      {autoAssignResult && autoAssignResult.needsAttention.length > 0 && (
+        <NeedsAttentionPanel
+          items={autoAssignResult.needsAttention}
+          onAssign={(trip) => setAssignTrip(trip)}
+          onDismiss={() => setAutoAssignResult(null)}
+          assignedCount={autoAssignResult.assigned.length}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
@@ -404,7 +468,115 @@ export default function DispatchBoardPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={showAutoAssignConfirm} onOpenChange={setShowAutoAssignConfirm}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              Auto Assign Day
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground" data-testid="text-auto-assign-confirm">
+              This will automatically assign all unassigned trips for today ({todayDate}) in {selectedCity?.name || "the selected city"} to available drivers.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Matching considers wheelchair requirements, city, and 30-minute gap between trips.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowAutoAssignConfirm(false)} data-testid="button-cancel-auto-assign">
+                Cancel
+              </Button>
+              <Button
+                onClick={() => autoAssignMutation.mutate()}
+                disabled={autoAssignMutation.isPending}
+                data-testid="button-confirm-auto-assign"
+              >
+                {autoAssignMutation.isPending ? "Running..." : "Run Auto Assign"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function NeedsAttentionPanel({
+  items,
+  onAssign,
+  onDismiss,
+  assignedCount,
+}: {
+  items: AutoAssignResult["needsAttention"];
+  onAssign: (trip: any) => void;
+  onDismiss: () => void;
+  assignedCount: number;
+}) {
+  return (
+    <Card className="border-amber-300 dark:border-amber-700" data-testid="panel-needs-attention">
+      <CardHeader className="py-3 px-4 flex flex-row items-center justify-between gap-2 space-y-0">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-500" />
+          <CardTitle className="text-sm font-semibold">
+            Needs Attention ({items.length})
+          </CardTitle>
+          {assignedCount > 0 && (
+            <Badge variant="secondary" className="text-xs">{assignedCount} assigned</Badge>
+          )}
+        </div>
+        <Button variant="ghost" size="sm" onClick={onDismiss} data-testid="button-dismiss-attention">
+          Dismiss
+        </Button>
+      </CardHeader>
+      <CardContent className="px-4 pb-3 pt-0">
+        <div className="space-y-2" data-testid="list-needs-attention">
+          {items.map((item) => (
+            <div
+              key={item.tripId}
+              className="flex items-center justify-between gap-3 rounded-md border border-amber-200 dark:border-amber-800 p-3"
+              data-testid={`attention-trip-${item.tripId}`}
+            >
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium" data-testid={`text-attention-trip-id-${item.tripId}`}>{item.tripPublicId}</span>
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {item.pickupTime}
+                  </span>
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <User className="w-3 h-3" />
+                    {item.patientName}
+                  </span>
+                </div>
+                <p className="text-xs text-amber-700 dark:text-amber-400" data-testid={`text-attention-reason-${item.tripId}`}>
+                  {item.reason}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onAssign({
+                  id: item.tripId,
+                  publicId: item.tripPublicId,
+                  pickupAddress: item.pickupAddress,
+                  dropoffAddress: item.dropoffAddress,
+                  pickupLat: item.pickupLat,
+                  pickupLng: item.pickupLng,
+                  pickupTime: item.pickupTime,
+                  patientName: item.patientName,
+                })}
+                data-testid={`button-manual-assign-${item.tripId}`}
+              >
+                <UserPlus className="w-3.5 h-3.5 mr-1" />
+                Assign
+              </Button>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
