@@ -2575,6 +2575,15 @@ export async function registerRoutes(
       }
       const callerCompanyId = getCompanyIdFromAuth(req);
       const autoRequestSource = isClinic ? "clinic" : "internal";
+
+      if (!parsed.data.clinicId) {
+        const { getDefaultPrivateClinicId } = await import("./lib/defaultClinic");
+        (parsed.data as any).clinicId = await getDefaultPrivateClinicId(parsed.data.cityId);
+        if (!(parsed.data as any).requestSource) {
+          (parsed.data as any).requestSource = "phone";
+        }
+      }
+
       const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, companyId: callerCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource } as any);
       await storage.createAuditLog({
         userId: req.user!.userId,
@@ -3243,11 +3252,17 @@ export async function registerRoutes(
       } as any);
       storage.revokeTokensForTrip(id).catch(() => {});
       let invoiceId: number | null = null;
-      if (isBillable && finalFee > 0 && trip.clinicId) {
+      if (isBillable && finalFee > 0) {
         try {
+          let cancelClinicId = trip.clinicId;
+          if (!cancelClinicId) {
+            const { getDefaultPrivateClinicId } = await import("./lib/defaultClinic");
+            cancelClinicId = await getDefaultPrivateClinicId(trip.cityId);
+            await storage.updateTrip(id, { clinicId: cancelClinicId } as any);
+          }
           const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
           const invoice = await storage.createInvoice({
-            clinicId: trip.clinicId,
+            clinicId: cancelClinicId,
             tripId: id,
             patientName: patient ? `${patient.firstName} ${patient.lastName}` : "Unknown",
             serviceDate: trip.scheduledDate,
@@ -4981,11 +4996,18 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Valid amount is required" });
       }
 
+      let tripClinicId = trip.clinicId;
+      if (!tripClinicId) {
+        const { getDefaultPrivateClinicId } = await import("./lib/defaultClinic");
+        tripClinicId = await getDefaultPrivateClinicId(trip.cityId);
+        await storage.updateTrip(trip.id, { clinicId: tripClinicId } as any);
+      }
+
       const patient = await storage.getPatient(trip.patientId);
       const patientName = patient ? `${patient.firstName} ${patient.lastName}` : "Unknown";
 
       const invoice = await storage.createInvoice({
-        clinicId: trip.clinicId!,
+        clinicId: tripClinicId,
         tripId: trip.id,
         patientName,
         serviceDate: trip.scheduledDate,

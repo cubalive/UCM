@@ -1933,6 +1933,7 @@ function TripForm({
   const [driverId, setDriverId] = useState("");
   const [vehicleId, setVehicleId] = useState("");
   const [clinicId, setClinicId] = useState("");
+  const [tripSource, setTripSource] = useState<"clinic" | "private">("clinic");
   const [scheduledDate, setScheduledDate] = useState("");
   const [pickupTime, setPickupTime] = useState("");
   const [estimatedArrivalTime, setEstimatedArrivalTime] = useState("");
@@ -2015,11 +2016,14 @@ function TripForm({
       dropoffLng: dropoffAddr.lng,
     };
 
+    const effectiveClinicId = tripSource === "private" ? null : (clinicId ? parseInt(clinicId) : null);
+    const effectiveRequestSource = tripSource === "private" ? "phone" : undefined;
+
     if (tripType === "recurring") {
       onSubmit({
         _isSeries: true,
         patientId: parseInt(patientId),
-        clinicId: clinicId ? parseInt(clinicId) : null,
+        clinicId: effectiveClinicId,
         driverId: driverId ? parseInt(driverId) : null,
         vehicleId: vehicleId ? parseInt(vehicleId) : null,
         pattern: seriesPattern,
@@ -2030,6 +2034,7 @@ function TripForm({
         pickupTime,
         estimatedArrivalTime,
         notes: notes || null,
+        ...(effectiveRequestSource ? { requestSource: effectiveRequestSource } : {}),
         ...addressFields,
       });
     } else {
@@ -2037,7 +2042,7 @@ function TripForm({
         patientId: parseInt(patientId),
         driverId: driverId ? parseInt(driverId) : null,
         vehicleId: vehicleId ? parseInt(vehicleId) : null,
-        clinicId: clinicId ? parseInt(clinicId) : null,
+        clinicId: effectiveClinicId,
         scheduledDate,
         scheduledTime: pickupTime,
         pickupTime,
@@ -2045,6 +2050,7 @@ function TripForm({
         tripType,
         recurringDays: null,
         notes: notes || null,
+        ...(effectiveRequestSource ? { requestSource: effectiveRequestSource } : {}),
         ...addressFields,
       });
     }
@@ -2130,16 +2136,41 @@ function TripForm({
       />
 
       <div className="space-y-2">
-        <Label>Clinic</Label>
-        <Select value={clinicId} onValueChange={setClinicId}>
-          <SelectTrigger data-testid="select-trip-clinic"><SelectValue placeholder="Select clinic (optional)" /></SelectTrigger>
-          <SelectContent>
-            {clinics.map((c) => (
-              <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Label>Trip Source</Label>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={tripSource === "clinic" ? "default" : "outline"}
+            onClick={() => setTripSource("clinic")}
+            data-testid="button-source-clinic"
+          >
+            Clinic
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={tripSource === "private" ? "default" : "outline"}
+            onClick={() => { setTripSource("private"); setClinicId(""); }}
+            data-testid="button-source-private"
+          >
+            Private Pay (Phone)
+          </Button>
+        </div>
       </div>
+      {tripSource === "clinic" && (
+        <div className="space-y-2">
+          <Label>Clinic</Label>
+          <Select value={clinicId} onValueChange={setClinicId}>
+            <SelectTrigger data-testid="select-trip-clinic"><SelectValue placeholder="Select clinic (optional)" /></SelectTrigger>
+            <SelectContent>
+              {clinics.map((c) => (
+                <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Driver</Label>
