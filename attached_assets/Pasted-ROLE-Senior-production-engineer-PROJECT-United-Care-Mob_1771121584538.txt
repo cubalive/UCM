@@ -1,0 +1,251 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE
+Make Daily Assignments 100% schedule-driven and operationally accurate.
+"Unassigned Drivers" must reflect REAL availability:
+ONLY drivers who are:
+1) Scheduled for that city/date
+2) Logged in (online)
+3) Not on HOLD
+4) Have zero assignments for that day
+
+Drivers who are logged out OR not scheduled must NEVER appear in Unassigned.
+
+This change must NOT break existing scheduler logic.
+
+------------------------------------------------------------
+DEFINITIONS (SOURCE OF TRUTH)
+------------------------------------------------------------
+
+scheduledDriversForDay =
+drivers scheduled for selected (city, date)
+using existing schedule system.
+
+eligibleDrivers =
+scheduledDriversForDay
+FILTER:
+- isLoggedIn = true
+- isOnHold = false
+
+driversWithAssignmentsForDay =
+distinct driver_id from trips
+WHERE trip.date = selectedDate
+AND city = selectedCity
+AND status NOT IN (cancelled)
+
+unassignedDrivers =
+eligibleDrivers
+MINUS driversWithAssignmentsForDay
+
+------------------------------------------------------------
+TASK 1 — FIND SCHEDULE SOURCE
+------------------------------------------------------------
+
+Search codebase for:
+- schedule
+- driver_schedule
+- availability
+- shifts
+- scheduler
+- runToday
+- assignments API
+
+Identify which table/function currently defines driver availability.
+Use THAT as source of truth.
+
+If multiple systems exist:
+Use the one already used by scheduler engine.
+
+If no schedule exists:
+Use existing HOLD/availability logic.
+DO NOT create new schema unless absolutely required.
+
+------------------------------------------------------------
+TASK 2 — ONLINE STATUS SOURCE
+------------------------------------------------------------
+
+Find existing online detection logic:
+- driver sessions
+- auth tokens
+- heartbeat
+- last_seen
+
+Create helper:
+
+isDriverLoggedIn(driverId)
+
+True if:
+driver has active session
+OR last_seen within existing threshold.
+
+Logged-out drivers must be excluded from eligibleDrivers.
+
+------------------------------------------------------------
+TASK 3 — FIX DAILY ASSIGNMENTS API
+------------------------------------------------------------
+
+Locate API powering:
+Daily Assignments page.
+
+Replace logic with:
+
+scheduledDrivers =
+getScheduledDrivers(city, date)
+
+eligibleDrivers =
+scheduledDrivers
+WHERE logged_in = true
+AND hold = false
+
+assignedDrivers =
+distinct drivers from trips for that day/city
+
+unassignedDrivers =
+eligibleDrivers MINUS assignedDrivers
+
+Return payload:
+
+{
+ scheduledDrivers: [
+   { id, name, vehicle, loggedIn }
+ ],
+ unassignedDrivers: [
+   { id, name, vehicle }
+ ],
+ counts: {
+   scheduledCount,
+   assignedCount,
+   unassignedCount,
+   activeVehiclesCount
+ }
+}
+
+IMPORTANT:
+Drivers NOT scheduled must NEVER appear.
+Drivers logged out must NEVER appear in unassigned.
+Drivers on HOLD must NEVER appear.
+
+------------------------------------------------------------
+TASK 4 — FRONTEND FIX
+------------------------------------------------------------
+
+On /assignments page:
+
+Replace any driver list logic with API results.
+
+Unassigned section must show:
+ONLY unassignedDrivers from API.
+
+Driver chips:
+show only eligibleDrivers.
+
+If driver scheduled but logged out:
+DO NOT show in Unassigned.
+
+OPTIONAL:
+Add small info line:
+"X scheduled drivers are offline"
+
+But do NOT list them.
+
+------------------------------------------------------------
+TASK 5 — SCHEDULER ACTIVE INDICATOR
+------------------------------------------------------------
+
+"SCHEDULER ACTIVE" must reflect:
+
+true if:
+scheduledDriversForDay > 0
+
+false if:
+no schedule exists.
+
+If zero scheduled drivers:
+Show message:
+"No driver schedule found for this date."
+
+------------------------------------------------------------
+TASK 6 — RUN TODAY BUTTON
+------------------------------------------------------------
+
+When scheduler runs:
+
+It must only assign to:
+eligibleDrivers (scheduled + logged in + not on hold)
+
+If none exist:
+Return:
+"No eligible drivers available."
+
+Do NOT assign to logged-out drivers.
+Do NOT assign to unscheduled drivers.
+
+------------------------------------------------------------
+TASK 7 — EDGE CASES
+------------------------------------------------------------
+
+Case 1:
+Driver scheduled but logged out
+→ not in Unassigned
+→ not eligible for assignment
+
+Case 2:
+Driver scheduled + logged in
+→ appears in Unassigned if no trips
+
+Case 3:
+Driver not scheduled but logged in
+→ never appears
+
+Case 4:
+Driver scheduled but ON HOLD
+→ never appears
+
+------------------------------------------------------------
+TASK 8 — VERIFY
+------------------------------------------------------------
+
+Test A:
+3 drivers scheduled
+1 logged in
+2 logged out
+
+Result:
+Unassigned = 1
+
+Test B:
+Driver scheduled but has trips
+→ not in unassigned
+
+Test C:
+No schedule exists
+→ Unassigned = 0
+→ show "No driver schedule found"
+
+------------------------------------------------------------
+DO NOT
+------------------------------------------------------------
+Do NOT reset DB
+Do NOT change invoice system
+Do NOT rewrite scheduler
+Do NOT create new tables unless required
+Do NOT allow logged-out drivers in Unassigned
+
+------------------------------------------------------------
+SUCCESS CRITERIA
+------------------------------------------------------------
+
+• Unassigned Drivers reflects REAL drivers available
+• Logged-out drivers never appear
+• Only scheduled drivers counted
+• Scheduler assigns only eligible drivers
+• UI matches backend counts exactly
+• Zero operational confusion

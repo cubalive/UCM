@@ -749,3 +749,80 @@ export const driverOffers = pgTable("driver_offers", {
 export const insertDriverOfferSchema = createInsertSchema(driverOffers).omit({ id: true });
 export type DriverOffer = typeof driverOffers.$inferSelect;
 export type InsertDriverOffer = z.infer<typeof insertDriverOfferSchema>;
+
+export const driverWeeklySchedules = pgTable("driver_weekly_schedules", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  monEnabled: boolean("mon_enabled").notNull().default(false),
+  monStart: text("mon_start").default("06:00"),
+  monEnd: text("mon_end").default("18:00"),
+  tueEnabled: boolean("tue_enabled").notNull().default(false),
+  tueStart: text("tue_start").default("06:00"),
+  tueEnd: text("tue_end").default("18:00"),
+  wedEnabled: boolean("wed_enabled").notNull().default(false),
+  wedStart: text("wed_start").default("06:00"),
+  wedEnd: text("wed_end").default("18:00"),
+  thuEnabled: boolean("thu_enabled").notNull().default(false),
+  thuStart: text("thu_start").default("06:00"),
+  thuEnd: text("thu_end").default("18:00"),
+  friEnabled: boolean("fri_enabled").notNull().default(false),
+  friStart: text("fri_start").default("06:00"),
+  friEnd: text("fri_end").default("18:00"),
+  satEnabled: boolean("sat_enabled").notNull().default(false),
+  satStart: text("sat_start").default("06:00"),
+  satEnd: text("sat_end").default("18:00"),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const sundayRosters = pgTable("sunday_rosters", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  rosterDate: text("roster_date").notNull(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  enabled: boolean("enabled").notNull().default(false),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const sundayRosterDrivers = pgTable("sunday_roster_drivers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  rosterId: integer("roster_id").notNull().references(() => sundayRosters.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+});
+
+export const substitutePool = pgTable("substitute_pool", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  poolDate: text("pool_date").notNull(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  addedBy: integer("added_by").references(() => users.id),
+  addedAt: timestamp("added_at").defaultNow(),
+});
+
+export const driverReplacements = pgTable("driver_replacements", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  replacementDate: text("replacement_date").notNull(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  outDriverId: integer("out_driver_id").notNull().references(() => drivers.id),
+  substituteDriverId: integer("substitute_driver_id").notNull().references(() => drivers.id),
+  status: text("status").notNull().default("active"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDriverWeeklyScheduleSchema = createInsertSchema(driverWeeklySchedules).omit({ id: true });
+export type DriverWeeklySchedule = typeof driverWeeklySchedules.$inferSelect;
+export type InsertDriverWeeklySchedule = z.infer<typeof insertDriverWeeklyScheduleSchema>;
+
+export const insertSundayRosterSchema = createInsertSchema(sundayRosters).omit({ id: true });
+export type SundayRoster = typeof sundayRosters.$inferSelect;
+export type InsertSundayRoster = z.infer<typeof insertSundayRosterSchema>;
+
+export const insertSubstitutePoolSchema = createInsertSchema(substitutePool).omit({ id: true });
+export type SubstitutePoolEntry = typeof substitutePool.$inferSelect;
+export type InsertSubstitutePool = z.infer<typeof insertSubstitutePoolSchema>;
+
+export const insertDriverReplacementSchema = createInsertSchema(driverReplacements).omit({ id: true });
+export type DriverReplacement = typeof driverReplacements.$inferSelect;
+export type InsertDriverReplacement = z.infer<typeof insertDriverReplacementSchema>;

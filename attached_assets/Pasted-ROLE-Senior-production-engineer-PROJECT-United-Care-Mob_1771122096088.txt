@@ -1,0 +1,229 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+FEATURE: EDITABLE PRICING / TARIFFS FOR PRIVATE PAY (ADMIN + DISPATCH)
+We already have a private-pay auto-quote calculation.
+Right now tariffs seem hardcoded or fixed.
+We need tariffs stored in DB and editable in the app so we can react to market competition.
+The system must keep auto-calculating quotes, but using editable tariff values.
+
+PERMISSIONS
+- super_admin and dispatch can VIEW + EDIT tariffs
+- clinic_user/driver/patient cannot edit tariffs
+
+------------------------------------------------------------
+GOAL
+------------------------------------------------------------
+1) Add a "Pricing" (or "Billing") tab with editable tariff controls.
+2) Store tariffs in database (not hardcoded).
+3) All private-pay calculations must use DB tariffs.
+4) Support city-based pricing (and optionally service type).
+5) Maintain safe defaults + audit log of changes.
+6) Do NOT break existing clinic pricing (if separate) or invoices.
+
+------------------------------------------------------------
+PHASE 1 — IDENTIFY CURRENT PRICING LOGIC
+------------------------------------------------------------
+Search codebase for:
+- quote
+- pricing
+- tariff
+- rate
+- private pay
+- base fare
+- per mile
+- per minute
+- wait time
+- minimum fare
+- wheelchair
+- stairs
+- after hours
+- cancel fee
+
+Locate the function used by private bookings / private trips and the endpoints:
+- /api/quote
+- /api/private/quote
+- any computePrice() service
+
+Document current formula and variables used.
+
+------------------------------------------------------------
+PHASE 2 — DATA MODEL (MINIMAL, FLEXIBLE)
+------------------------------------------------------------
+If no pricing tables exist, create:
+
+TABLE: pricing_profiles
+- id uuid pk
+- name text (e.g., "Private Pay - Las Vegas Default")
+- city text
+- is_active bool default true
+- applies_to text default 'private'  -- private/clinic (use enum-like text)
+- created_by uuid
+- created_at timestamp
+- updated_by uuid
+- updated_at timestamp
+
+TABLE: pricing_rules
+- id uuid pk
+- profile_id uuid fk pricing_profiles.id
+- key text UNIQUE per profile (example keys below)
+- value_numeric numeric null
+- value_text text null
+- enabled bool default true
+- updated_by uuid
+- updated_at timestamp
+UNIQUE(profile_id, key)
+
+REQUIRED keys for PRIVATE PAY profile (use numeric):
+- base_fare
+- per_mile
+- per_minute (optional if used)
+- minimum_fare
+- round_trip_discount_percent (optional)
+- wait_per_minute
+- cancel_fee
+- no_show_fee
+- after_hours_multiplier (optional)
+- wheelchair_surcharge
+- assisted_surcharge (optional)
+
+If your system currently uses fewer fields, only store those + keep room to expand.
+
+TABLE: pricing_audit_log
+- id uuid pk
+- profile_id uuid
+- key text
+- old_value text
+- new_value text
+- changed_by uuid
+- changed_at timestamp
+- note text null
+
+Do NOT modify existing trip/invoice schemas.
+
+------------------------------------------------------------
+PHASE 3 — PRICING RESOLUTION LOGIC (SINGLE SOURCE OF TRUTH)
+------------------------------------------------------------
+Implement helper:
+
+getActivePricingProfile({city, applies_to:'private'}) -> profile + rules map
+
+Rules resolution:
+- Find active profile for city and applies_to='private'
+- If none found:
+  - fallback to global default profile (city='ALL' or name contains Default)
+- If still none found:
+  - fallback to hardcoded defaults ONLY as emergency (log warning)
+  - but also auto-create a default profile + rules so UI can edit next time
+
+Return a rates object:
+{
+ baseFare,
+ perMile,
+ perMinute,
+ minimumFare,
+ waitPerMinute,
+ cancelFee,
+ noShowFee,
+ wheelchairSurcharge,
+ ...
+}
+
+------------------------------------------------------------
+PHASE 4 — UPDATE ALL PRIVATE PAY QUOTES TO USE DB TARIFFS
+------------------------------------------------------------
+Modify pricing engine:
+- Replace hardcoded constants with rates from getActivePricingProfile()
+- Keep the same formula we already implemented.
+- Output breakdown must include the rates used (for transparency):
+
+Example quote response:
+{
+ total,
+ breakdown: {
+   base_fare,
+   distance_miles,
+   distance_charge,
+   time_minutes,
+   time_charge,
+   surcharges: {...},
+   minimum_fare_applied: true/false
+ },
+ rates_used: {
+   base_fare,
+   per_mile,
+   per_minute,
+   minimum_fare,
+   wheelchair_surcharge,
+   ...
+ }
+}
+
+This lets dispatch/admin explain prices and verify competitiveness.
+
+------------------------------------------------------------
+PHASE 5 — PRICING (BILLING) TAB UI (ADMIN + DISPATCH)
+------------------------------------------------------------
+Add new tab: "Pricing" (or "Billing")
+
+Features:
+1) City selector
+2) Profile selector (optional; start with 1 active profile per city)
+3) Editable fields (inputs) for the tariff keys
+4) Save button (persists to pricing_rules)
+5) Show "Last updated by" + timestamp
+6) Add "Reset to default" (restores to known baseline values) with confirmation
+7) Add "Preview Quote" mini tool:
+   - enter miles/minutes + wheelchair toggle
+   - shows computed total using current tariffs (no DB write)
+   - confirms system uses updated numbers immediately
+
+Permissions:
+- dispatch + super_admin can edit
+- others cannot view or view-only (your choice; default: hidden)
+
+------------------------------------------------------------
+PHASE 6 — APPLY TO PRIVATE TRIPS + PRIVATE INVOICES
+------------------------------------------------------------
+Ensure these parts use the DB tariffs:
+- private trip creation auto-price
+- quote endpoint for Lovable private bookings
+- invoice generation for private trips (if invoice uses computed price)
+
+IMPORTANT:
+We must store the final price on the trip/invoice at time of booking.
+Rates can change later, but past trips must keep original charged price.
+
+Implementation:
+- When quote is accepted / trip is created:
+  - store price_total on trip
+  - store pricing_snapshot JSON (rates_used + breakdown) for audit
+
+Do NOT recompute historical trip prices when tariffs change.
+
+------------------------------------------------------------
+PHASE 7 — VERIFY
+------------------------------------------------------------
+1) Change per_mile in Pricing tab
+2) Run Preview Quote -> total changes
+3) Create a private trip -> uses new total
+4) Update tariffs again -> old trip price remains unchanged
+5) Ensure clinic trips unaffected (unless applies_to='clinic' also implemented)
+
+DO NOT
+- Do NOT reset DB
+- Do NOT hardcode pricing constants (except emergency fallback)
+- Do NOT retroactively change historical charges
+
+SUCCESS CRITERIA
+- Admin/Dispatch can edit tariffs anytime
+- Quotes and private trips use DB tariffs immediately
+- Historical trips keep their charged price via snapshot
+- System supports market competition adjustments quickly

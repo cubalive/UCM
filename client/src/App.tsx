@@ -41,6 +41,7 @@ import DispatchBoardPage from "@/pages/dispatch-board";
 import ClinicTripsPage from "@/pages/clinic-trips";
 import DriverDashboard from "@/pages/driver-dashboard";
 import BillingPage from "@/pages/billing";
+import SchedulePage from "@/pages/schedule";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
 import NotFound from "@/pages/not-found";
@@ -133,6 +134,7 @@ function Router() {
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>
       <Route path="/auto-assignment">{() => <ProtectedRoute resource="dispatch" component={AutoAssignmentPage} />}</Route>
       <Route path="/dispatch-board">{() => <ProtectedRoute resource="dispatch" component={DispatchBoardPage} />}</Route>
+      <Route path="/schedule">{() => <ProtectedRoute resource="dispatch" component={SchedulePage} />}</Route>
       <Route path="/clinic-trips">{() => <ClinicRoute component={ClinicTripsPage} />}</Route>
       <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>

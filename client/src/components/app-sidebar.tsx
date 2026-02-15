@@ -39,6 +39,7 @@ import {
   Gauge,
   Map,
   Archive,
+  Calendar,
   CalendarCheck,
   BarChart3,
   Activity,
@@ -76,6 +77,7 @@ const navItems: NavItem[] = [
   { titleKey: "nav.opsHealth", url: "/ops-health", icon: Activity, resource: "dispatch" },
   { titleKey: "nav.opsChecks", url: "/ops-checks", icon: ShieldCheck, resource: "dispatch" },
   { titleKey: "nav.autoAssign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
+  { titleKey: "nav.schedule", url: "/schedule", icon: Calendar, resource: "dispatch" },
 ];
 
 const adminItems: NavItem[] = [
