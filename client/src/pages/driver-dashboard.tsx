@@ -37,6 +37,7 @@ import {
   Coffee,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -1519,6 +1520,8 @@ function TripCard({
   const isCancelled = trip.status === "CANCELLED" || trip.status === "NO_SHOW";
   const isLocked = isCompleted || isCancelled;
 
+  const [showProgress, setShowProgress] = useState(false);
+
   return (
     <Card data-testid={`card-trip-${trip.id}`}>
       <CardContent className="py-4">
@@ -1532,12 +1535,7 @@ function TripCard({
               {isLocked && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
             </div>
 
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <Clock className="w-3.5 h-3.5 flex-shrink-0" />
-              <span data-testid={`text-trip-time-${trip.id}`}>{trip.pickupTime || trip.scheduledTime || "—"}</span>
-              <span className="mx-1">|</span>
-              <span>{trip.scheduledDate}</span>
-            </div>
+            <TripDateTimeHeader trip={trip} />
 
             <div className="space-y-1">
               <div className="flex items-start gap-1 text-sm">
@@ -1549,6 +1547,8 @@ function TripCard({
                 <span className="truncate" data-testid={`text-dropoff-${trip.id}`}>{trip.dropoffAddress || "Dropoff not set"}</span>
               </div>
             </div>
+
+            <TripMetricsCard trip={trip} />
 
             {trip.patientName && (
               <div className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -1582,6 +1582,23 @@ function TripCard({
             )}
           </div>
         </div>
+
+        {(isCompleted || isCancelled || ACTIVE_STATUSES.includes(trip.status)) && (
+          <div className="mt-3 border-t pt-3">
+            <button
+              type="button"
+              className="text-xs text-muted-foreground flex items-center gap-1 mb-2"
+              onClick={() => setShowProgress(!showProgress)}
+              data-testid={`button-toggle-progress-${trip.id}`}
+            >
+              <CheckCircle className="w-3 h-3" />
+              {showProgress ? "Hide" : "Show"} Trip Progress
+            </button>
+            {showProgress && (
+              <TripProgressTimeline trip={trip} compact showHeader={false} showMetrics={false} />
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

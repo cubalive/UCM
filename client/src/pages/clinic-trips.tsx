@@ -78,6 +78,7 @@ import {
   Pencil,
   CreditCard,
 } from "lucide-react";
+import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
 
 const STATUS_COLORS: Record<string, string> = {
   SCHEDULED: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -2933,6 +2934,8 @@ function TripDetail({ trip, onTrack }: { trip: any; onTrack: () => void }) {
           </div>
         </div>
 
+        <TripDateTimeHeader trip={trip} />
+
         <div className="grid grid-cols-1 gap-2 text-sm">
           <div className="flex items-start gap-2">
             <MapPin className="w-4 h-4 mt-0.5 text-emerald-500 flex-shrink-0" />
@@ -2950,13 +2953,9 @@ function TripDetail({ trip, onTrack }: { trip: any; onTrack: () => void }) {
           </div>
         </div>
 
+        <TripMetricsCard trip={trip} />
+
         <div className="flex items-center gap-4 text-sm flex-wrap">
-          {trip.pickupTime && (
-            <span className="flex items-center gap-1 text-muted-foreground">
-              <Clock className="w-3.5 h-3.5" />
-              {trip.pickupTime} on {trip.scheduledDate}
-            </span>
-          )}
           {trip.lastEtaMinutes != null && (
             <span className="flex items-center gap-1 font-medium">
               <Navigation className="w-3.5 h-3.5 text-blue-500" />
@@ -3002,7 +3001,7 @@ function TripDetail({ trip, onTrack }: { trip: any; onTrack: () => void }) {
         </Card>
       )}
 
-      <TripProgressBar status={trip.status} />
+      <TripProgressTimeline trip={trip} showHeader={false} showMetrics={false} />
 
       {trip.notes && (
         <div>

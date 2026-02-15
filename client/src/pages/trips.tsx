@@ -31,6 +31,7 @@ import { AddressAutocomplete, type StructuredAddress } from "@/components/addres
 import { useTranslation } from "react-i18next";
 import { RecurringSchedule, type TripType, type SeriesPattern, type SeriesEndType } from "@/components/recurring-schedule";
 import { TripStaticMap } from "@/components/trip-static-map";
+import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
 
 function normalizePhoneToE164(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -1585,15 +1586,19 @@ function TripDetailDialog({
               )}
             </div>
 
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Schedule</h3>
-              <p className="text-sm" data-testid="text-trip-schedule">{trip.scheduledDate}</p>
-              <p className="text-sm" data-testid="text-trip-pickup-time">Pickup: {trip.pickupTime}</p>
-              <p className="text-sm" data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</p>
+            <TripDateTimeHeader trip={trip} />
+
+            <div className="space-y-1">
+              <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                <span data-testid="text-trip-pickup-time">Pickup: {trip.pickupTime}</span>
+                <span data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</span>
+              </div>
               {trip.recurringDays?.length > 0 && (
-                <p className="text-sm" data-testid="text-trip-recurring-days">Recurring: {trip.recurringDays.join(", ")}</p>
+                <p className="text-sm text-muted-foreground" data-testid="text-trip-recurring-days">Recurring: {trip.recurringDays.join(", ")}</p>
               )}
             </div>
+
+            <TripMetricsCard trip={trip} />
 
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-muted-foreground">Pickup</h3>
@@ -1706,6 +1711,8 @@ function TripDetailDialog({
                 )}
               </div>
             )}
+
+            <TripProgressTimeline trip={trip} showHeader={false} showMetrics={false} />
 
             {trip.notes && (
               <div className="space-y-2">
