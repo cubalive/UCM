@@ -1,0 +1,109 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Make driver.unitedcaremobility.com a dedicated driver-only PWA experience using same codebase.
+
+---------------------------------------
+PHASE 1 — HOST DETECTION (NO REPLIT BUGS)
+---------------------------------------
+Implement robust host detection in the client router:
+
+const host = window.location.host;
+const isProdDomain = host.endsWith("unitedcaremobility.com");
+const isDriverHost = isProdDomain && host.startsWith("driver.");
+const isAppHost = isProdDomain && (host.startsWith("app.") || host === "app.unitedcaremobility.com");
+
+Rules:
+- If NOT isProdDomain (e.g. Replit preview), do NOT apply subdomain restrictions.
+- If isDriverHost:
+  - "/" redirects to "/driver"
+  - any non-driver routes redirect to "/driver"
+  - hide all non-driver navigation and pages
+- app host remains unchanged.
+
+---------------------------------------
+PHASE 2 — DRIVER-ONLY ROUTE GUARD
+---------------------------------------
+On driver host:
+- If user not logged in -> show login
+- If logged in but role != DRIVER -> show Unauthorized + Logout button
+- Prevent access to /admin, /trips list, /clinic pages (redirect)
+
+Do not weaken server RBAC. Server remains source of truth.
+
+---------------------------------------
+PHASE 3 — DRIVER PWA MANIFEST (SEPARATE)
+---------------------------------------
+Serve a different manifest when on driver host:
+
+- name: "UCM Driver"
+- short_name: "UCM Driver"
+- start_url: "/driver"
+- scope: "/"
+- display: "standalone"
+- theme_color / background_color set (match current brand)
+- icons reuse existing icons if available (no new assets required)
+
+Implementation approach:
+A) Add a small runtime manifest endpoint from server:
+   GET /manifest.webmanifest
+   If Host starts with driver. -> return driver manifest JSON
+   else return existing main manifest
+OR
+B) Frontend sets <link rel="manifest"> dynamically based on isDriverHost.
+
+Pick the simplest option compatible with current setup.
+
+---------------------------------------
+PHASE 4 — DRIVER GPS UX + RELIABILITY
+---------------------------------------
+In driver dashboard:
+1) Add clear GPS permission banner:
+   - states: "Permission needed" / "GPS active" / "GPS stale" / "Offline"
+   - CTA: "Enable Location" triggers requestPermission + watchPosition
+
+2) Implement stable location sending:
+   - watchPosition with highAccuracy true (configurable)
+   - throttle send to server max every 2s (already rate-limited server-side)
+   - queue last known position in localStorage when offline
+   - retry send on reconnect (navigator.onLine event)
+   - show last sent time and stale indicator (>120s)
+
+3) Ensure driver location posts are scoped:
+   POST /api/driver/location must continue to require DRIVER auth.
+
+---------------------------------------
+PHASE 5 — NAVIGATION BUTTONS
+---------------------------------------
+Driver app:
+- "Navigate" button opens:
+  - Apple Maps on iOS
+  - Google Maps on Android
+- Preserve existing nav chooser if present; default smart choice is OK.
+
+---------------------------------------
+PHASE 6 — CORS + ORIGINS
+---------------------------------------
+Backend must allow both:
+- https://app.unitedcaremobility.com
+- https://driver.unitedcaremobility.com
+Use existing allowed origin mechanism; ensure credentials/cookies (if used) still work.
+
+---------------------------------------
+VERIFY
+---------------------------------------
+1) Replit preview loads normal app UI (no ASCII splash).
+2) https://driver.unitedcaremobility.com loads driver dashboard and nothing else.
+3) Driver login works and can see active trip.
+4) GPS banner works; location sends succeed; stale indicator shows correctly.
+5) Install prompt works (PWA) and launches into /driver.
+6) app subdomain unaffected.
+
+DO NOT MODIFY:
+shared/permissions.ts

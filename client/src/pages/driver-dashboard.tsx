@@ -46,6 +46,9 @@ import {
   LogOut,
   TrendingUp,
   Target,
+  Wifi,
+  WifiOff,
+  Satellite,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
@@ -98,6 +101,43 @@ const isStandalone =
   typeof window !== "undefined" &&
   (window.matchMedia("(display-mode: standalone)").matches ||
     (window.navigator as any).standalone === true);
+
+const LOCATION_QUEUE_KEY = "ucm_driver_location_queue";
+
+function getQueuedLocations(): Array<{ lat: number; lng: number; accuracy: number | null; timestamp: number }> {
+  try {
+    const raw = localStorage.getItem(LOCATION_QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function queueLocation(lat: number, lng: number, accuracy: number | null, timestamp: number) {
+  const queue = getQueuedLocations();
+  queue.push({ lat, lng, accuracy, timestamp });
+  if (queue.length > 50) queue.splice(0, queue.length - 50);
+  try { localStorage.setItem(LOCATION_QUEUE_KEY, JSON.stringify(queue)); } catch {}
+}
+
+function clearLocationQueue() {
+  try { localStorage.removeItem(LOCATION_QUEUE_KEY); } catch {}
+}
+
+function useNetworkStatus() {
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  return online;
+}
 
 function useGeolocation(isActive: boolean) {
   const [permission, setPermission] = useState<"granted" | "denied" | "prompt">("prompt");
@@ -196,6 +236,78 @@ function useGeolocation(isActive: boolean) {
   }, [isActive, permission]);
 
   return { permission, location, watchError, requestPermission, isStandalone };
+}
+
+type GpsStatus = "permission_needed" | "gps_active" | "gps_stale" | "offline" | "watch_error";
+const GPS_STALE_THRESHOLD_MS = 120000;
+
+function GpsStatusBanner({ status, lastSentTime, onRequestPermission }: {
+  status: GpsStatus;
+  lastSentTime: number | null;
+  onRequestPermission: () => void;
+}) {
+  if (status === "gps_active") return null;
+
+  const config: Record<Exclude<GpsStatus, "gps_active">, { bg: string; icon: any; label: string; sublabel?: string; action?: boolean }> = {
+    permission_needed: {
+      bg: "bg-blue-600",
+      icon: LocateFixed,
+      label: "Location permission needed",
+      action: true,
+    },
+    gps_stale: {
+      bg: "bg-amber-600",
+      icon: Satellite,
+      label: "GPS signal stale",
+      sublabel: lastSentTime ? `Last update ${formatTimeSince(lastSentTime)}` : "No recent update",
+    },
+    offline: {
+      bg: "bg-red-700",
+      icon: WifiOff,
+      label: "Device offline",
+      sublabel: "Locations queued for retry",
+    },
+    watch_error: {
+      bg: "bg-amber-600",
+      icon: AlertTriangle,
+      label: "GPS signal lost",
+      sublabel: "Attempting to reconnect...",
+    },
+  };
+
+  const c = config[status];
+  const Icon = c.icon;
+
+  return (
+    <div
+      className={`absolute top-3 left-3 right-3 z-20 ${c.bg} text-white rounded-md shadow-lg px-4 py-2.5 flex items-center gap-3`}
+      data-testid={`banner-gps-${status.replace("_", "-")}`}
+    >
+      <Icon className="w-5 h-5 flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <span className="font-medium text-sm">{c.label}</span>
+        {c.sublabel && <span className="text-xs opacity-90 ml-2">{c.sublabel}</span>}
+      </div>
+      {c.action && (
+        <Button
+          onClick={onRequestPermission}
+          variant="outline"
+          className="text-white border-white/40 min-h-[36px] text-sm px-3"
+          data-testid="button-gps-banner-enable"
+        >
+          Enable
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function formatTimeSince(timestamp: number): string {
+  const diff = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (diff < 5) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
 }
 
 function useLoadGoogleMaps(token: string | null) {
@@ -601,12 +713,7 @@ function FullScreenMap({
       {!mapsLoaded && (
         <div className="absolute inset-0 bg-muted animate-pulse z-10" data-testid="skeleton-map" />
       )}
-      {isGpsStale && (
-        <div className="absolute top-3 left-3 bg-amber-600 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-2 shadow-md z-20" data-testid="badge-gps-stale">
-          <AlertTriangle className="w-5 h-5" />
-          GPS Signal Lost
-        </div>
-      )}
+      {/* GPS stale badge removed - replaced by GpsStatusBanner in parent */}
     </div>
   );
 }
@@ -697,20 +804,66 @@ export default function DriverDashboard() {
   const hasActiveTrip = todayTrips.some((t: any) => ACTIVE_STATUSES.includes(t.status));
 
   const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverOnline || hasActiveTrip);
+  const isNetworkOnline = useNetworkStatus();
 
   const lastSentRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
+  const [lastSentTime, setLastSentTime] = useState<number | null>(null);
+  const [, forceRender] = useState(0);
   const gpsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const staleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    staleTimerRef.current = setInterval(() => forceRender((c) => c + 1), 10000);
+    return () => { if (staleTimerRef.current) clearInterval(staleTimerRef.current); };
+  }, []);
 
   const sendLocation = useCallback(async (lat: number, lng: number, accuracy?: number, timestamp?: number) => {
     if (!token) return;
+    const ts = timestamp ?? Date.now();
+    if (!navigator.onLine) {
+      queueLocation(lat, lng, accuracy ?? null, ts);
+      console.log("[GPS] Offline — queued location");
+      return;
+    }
     try {
       await apiFetch("/api/driver/me/location", token, {
         method: "POST",
-        body: JSON.stringify({ lat, lng, accuracy: accuracy ?? null, timestamp: timestamp ?? Date.now() }),
+        body: JSON.stringify({ lat, lng, accuracy: accuracy ?? null, timestamp: ts }),
       });
       lastSentRef.current = { lat, lng, time: Date.now() };
-    } catch {}
+      setLastSentTime(Date.now());
+    } catch {
+      queueLocation(lat, lng, accuracy ?? null, ts);
+      console.log("[GPS] Send failed — queued location");
+    }
   }, [token]);
+
+  const flushQueue = useCallback(async () => {
+    if (!token || !navigator.onLine) return;
+    const queue = getQueuedLocations();
+    if (queue.length === 0) return;
+    console.log("[GPS] Flushing", queue.length, "queued locations");
+    clearLocationQueue();
+    for (const loc of queue) {
+      try {
+        await apiFetch("/api/driver/me/location", token, {
+          method: "POST",
+          body: JSON.stringify(loc),
+        });
+        lastSentRef.current = { lat: loc.lat, lng: loc.lng, time: Date.now() };
+        setLastSentTime(Date.now());
+      } catch {
+        queueLocation(loc.lat, loc.lng, loc.accuracy, loc.timestamp);
+        break;
+      }
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (isNetworkOnline) {
+      flushQueue();
+    }
+  }, [isNetworkOnline, flushQueue]);
 
   useEffect(() => {
     const shouldTrack = isDriverOnline || hasActiveTrip;
@@ -767,6 +920,16 @@ export default function DriverDashboard() {
       if (gpsTimerRef.current) { clearInterval(gpsTimerRef.current); gpsTimerRef.current = null; }
     };
   }, [isDriverOnline, hasActiveTrip, geoLocation?.lat, geoLocation?.lng, sendLocation]);
+
+  const gpsStatus: GpsStatus = (() => {
+    if (!isNetworkOnline) return "offline";
+    if (geoPermission === "prompt") return "permission_needed";
+    if (geoWatchError) return "watch_error";
+    const lastUpdateTime = lastSentTime || (geoLocation ? geoLocation.timestamp : null);
+    if (lastUpdateTime && (Date.now() - lastUpdateTime) > GPS_STALE_THRESHOLD_MS) return "gps_stale";
+    if (geoLocation && !geoWatchError) return "gps_active";
+    return "permission_needed";
+  })();
 
   const toggleActiveMutation = useMutation({
     mutationFn: (active: boolean) =>
@@ -1101,6 +1264,15 @@ export default function DriverDashboard() {
           gpsWatchError={geoWatchError}
         />
 
+        {/* GPS status banner */}
+        {!goTimeTrip && (
+          <GpsStatusBanner
+            status={gpsStatus}
+            lastSentTime={lastSentTime}
+            onRequestPermission={requestPermission}
+          />
+        )}
+
         {/* Go-time alert banner on map */}
         {goTimeTrip && (
           <div
@@ -1288,8 +1460,29 @@ export default function DriverDashboard() {
           >
             {isOnBreak ? "On Break" : isDriverActive ? "Online" : "Offline"}
           </Badge>
-          {geoLocation && !geoWatchError && (
-            <LocateFixed className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+          {gpsStatus === "gps_active" && (
+            <div className="flex items-center gap-1.5 flex-shrink-0" data-testid="div-gps-active-indicator">
+              <Satellite className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              {lastSentTime && (
+                <span className="text-xs text-muted-foreground" data-testid="text-last-sent-time">
+                  {formatTimeSince(lastSentTime)}
+                </span>
+              )}
+            </div>
+          )}
+          {gpsStatus === "gps_stale" && (
+            <div className="flex items-center gap-1.5 flex-shrink-0" data-testid="div-gps-stale-indicator">
+              <Satellite className="w-4 h-4 text-amber-500" />
+              <span className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-gps-stale-time">
+                Stale {lastSentTime ? formatTimeSince(lastSentTime) : ""}
+              </span>
+            </div>
+          )}
+          {gpsStatus === "offline" && (
+            <div className="flex items-center gap-1.5 flex-shrink-0" data-testid="div-offline-indicator">
+              <WifiOff className="w-4 h-4 text-red-500" />
+              <span className="text-xs text-red-600 dark:text-red-400">Offline</span>
+            </div>
           )}
         </div>
         <Button
