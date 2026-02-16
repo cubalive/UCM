@@ -1,0 +1,67 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+OBJECTIVE:
+Add an in-app, dev-only debug panel on Trip Details pages to confirm:
+1) Supabase Realtime connected or not
+2) Polling fallback active or not (and its interval)
+3) Google Directions / route recompute frequency
+
+---------------------------------------
+TASK 1 — ADD FEATURE FLAG
+---------------------------------------
+Add env flag:
+UCM_DEBUG_REALTIME=true/false
+Default false in production.
+
+---------------------------------------
+TASK 2 — TRIP DETAILS DEBUG PANEL (DEV ONLY)
+---------------------------------------
+On Trip Details pages (clinic tracking, dispatch trip details, driver active trip):
+If UCM_DEBUG_REALTIME=true show a small fixed panel (top-right) with:
+
+- Realtime: CONNECTED / DISCONNECTED
+- Channel: trip:{tripId}
+- Last event type received + timestamp
+- Polling fallback: ON/OFF + interval seconds
+- Directions calls (local counter): count in last 60s
+- Recompute blocked by throttle (if tracked)
+
+This panel must not affect layout or performance.
+
+---------------------------------------
+TASK 3 — INSTRUMENT DIRECTIONS/RECOMPUTE
+---------------------------------------
+Wherever Directions API is called (server or client), increment a counter:
+- directionsCallsLast60s
+Reset every 60 seconds (rolling window).
+
+Also log (dev only):
+console.debug("[UCM] Directions call", {tripId, reason, ts})
+
+---------------------------------------
+TASK 4 — INSTRUMENT REALTIME
+---------------------------------------
+When subscribing:
+console.debug("[UCM] Realtime subscribe", {channel})
+On connect/disconnect:
+console.debug("[UCM] Realtime status", {connected})
+On receiving event:
+console.debug("[UCM] Realtime event", {type, ts})
+
+---------------------------------------
+VERIFY
+---------------------------------------
+- Trips list page shows no debug panel
+- Trip Details shows panel when flag enabled
+- Realtime shows CONNECTED when working
+- Polling fallback shows OFF when realtime connected
+- Directions calls stay <= 1 at open and <= 1 per 45-60s thereafter
+
+DO NOT MODIFY:
+shared/permissions.ts
