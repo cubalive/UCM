@@ -11,6 +11,7 @@ import { useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { isDriverHost, getCredentials, TOKEN_KEY } from "@/lib/hostDetection";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -39,15 +40,14 @@ export default function LoginPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
-      credentials: "include",
+      credentials: getCredentials(),
     })
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data.message || "Login link failed");
         }
-        localStorage.setItem("ucm_token", data.token);
-        const { isDriverHost } = await import("@/lib/hostDetection");
+        localStorage.setItem(TOKEN_KEY, data.token);
         window.location.href = isDriverHost ? "/driver" : "/";
       })
       .catch((err: any) => {
@@ -85,7 +85,7 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: forgotEmail }),
-        credentials: "include",
+        credentials: getCredentials(),
       });
       const data = await res.json();
       if (!res.ok) {

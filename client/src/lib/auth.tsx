@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { User, City } from "@shared/schema";
+import { TOKEN_KEY, getCredentials, isDriverHost } from "@/lib/hostDetection";
 
 interface AuthUser extends Omit<User, "password"> {
   cityAccess: number[];
@@ -60,7 +61,7 @@ function storeWorkingCityId(cityId: number | null) {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem("ucm_token"));
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
   const [selectedCity, setSelectedCityRaw] = useState<City | null>(null);
   const [cities, setCities] = useState<City[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,8 +126,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     try {
       const [authRes, meRes] = await Promise.all([
-        fetch("/api/auth/me", { headers: { Authorization: `Bearer ${t}` }, credentials: "include" }),
-        fetch("/api/me", { headers: { Authorization: `Bearer ${t}` }, credentials: "include" }),
+        fetch("/api/auth/me", { headers: { Authorization: `Bearer ${t}` }, credentials: getCredentials() }),
+        fetch("/api/me", { headers: { Authorization: `Bearer ${t}` }, credentials: getCredentials() }),
       ]);
 
       if (!authRes.ok) throw new Error("Session expired. Please log in again.");
@@ -154,7 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(null);
       setUser(null);
       setMeData(null);
-      localStorage.removeItem("ucm_token");
+      localStorage.removeItem(TOKEN_KEY);
     } finally {
       setLoading(false);
     }
@@ -165,14 +166,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       fetchUser(token);
     } else if (IS_DEV && devLoginAttempts < 2 && !devBypassed) {
       setLoading(true);
-      fetch("/api/auth/dev-session", { credentials: "include" })
+      fetch("/api/auth/dev-session", { credentials: getCredentials() })
         .then((res) => {
           if (!res.ok) throw new Error("Dev session failed");
           return res.json();
         })
         .then((data) => {
           setToken(data.token);
-          localStorage.setItem("ucm_token", data.token);
+          localStorage.setItem(TOKEN_KEY, data.token);
           setUser(data.user);
           setCities(data.cities || []);
           restoreCity(data.cities || [], data.user?.role || "");
@@ -213,7 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
-      credentials: "include",
+      credentials: getCredentials(),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -221,7 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const data = await res.json();
     setToken(data.token);
-    localStorage.setItem("ucm_token", data.token);
+    localStorage.setItem(TOKEN_KEY, data.token);
     setUser(data.user);
     setCities(data.cities || []);
 
@@ -235,7 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const meRes = await fetch("/api/me", {
         headers: { Authorization: `Bearer ${data.token}` },
-        credentials: "include",
+        credentials: getCredentials(),
       });
       if (meRes.ok) {
         setMeData(await meRes.json());
@@ -249,14 +250,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await fetch("/api/auth/driver-logout", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          credentials: "include",
+          credentials: getCredentials(),
         });
       } catch {}
     } else {
       try {
         await fetch("/api/auth/logout", {
           method: "POST",
-          credentials: "include",
+          credentials: getCredentials(),
         });
       } catch {}
     }
@@ -268,7 +269,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setMeData(null);
     setError(null);
     setMustChangePassword(false);
-    localStorage.removeItem("ucm_token");
+    localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem("ucm_working_city_id");
   };
 

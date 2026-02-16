@@ -266,10 +266,17 @@ export async function registerRoutes(
 
   app.get("/api/me", async (req, res) => {
     const header = req.headers.authorization;
-    if (!header?.startsWith("Bearer ")) {
+    let token: string | undefined;
+
+    if (header?.startsWith("Bearer ")) {
+      token = header.slice(7);
+    } else if (req.cookies?.ucm_session) {
+      token = req.cookies.ucm_session;
+    }
+
+    if (!token) {
       return res.status(401).json({ message: "No token provided" });
     }
-    const token = header.slice(7);
 
     const sbServer = getSupabaseServer();
     if (sbServer) {
@@ -287,9 +294,12 @@ export async function registerRoutes(
           }
 
           return res.json({
+            ok: true,
             id: sbUser.id,
             email: sbUser.email,
             role: profile.role,
+            userId: sbUser.id,
+            companyId: null,
             city_id: profile.city_id,
             ucm_id: null,
           });
@@ -307,9 +317,12 @@ export async function registerRoutes(
       const primaryCityId = cityAccess.length > 0 ? cityAccess[0] : null;
 
       return res.json({
+        ok: true,
         id: user.id,
+        userId: user.id,
         email: user.email,
         role: user.role,
+        companyId: user.companyId || null,
         city_id: primaryCityId,
         ucm_id: user.publicId,
       });

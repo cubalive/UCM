@@ -1,5 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { getStoredToken, getStoredCityId } from "./api";
+import { getCredentials } from "./hostDetection";
 
 function getDeviceFingerprint(): string | null {
   try {
@@ -65,7 +66,7 @@ export async function apiRequest(
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
+    credentials: getCredentials(),
   });
 
   await throwIfResNotOk(res);
@@ -79,7 +80,7 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
+      credentials: getCredentials(),
       headers: buildDefaultHeaders(),
     });
 

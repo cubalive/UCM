@@ -62,8 +62,9 @@ function AuthDebugPanel() {
 
   const checkSession = async () => {
     try {
+      const { getCredentials: getCreds } = await import("@/lib/hostDetection");
       const res = await fetch("/api/auth/me", {
-        credentials: "include",
+        credentials: getCreds(),
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const hasCookie = document.cookie.includes("ucm_session") || res.ok;

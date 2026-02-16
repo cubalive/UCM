@@ -1,3 +1,5 @@
+import { getCredentials, TOKEN_KEY, DRIVER_TOKEN_KEY, APP_TOKEN_KEY } from "@/lib/hostDetection";
+
 export function getStoredCityId(): string | null {
   try {
     return localStorage.getItem("ucm_working_city_id");
@@ -8,7 +10,7 @@ export function getStoredCityId(): string | null {
 
 export function getStoredToken(): string | null {
   try {
-    return localStorage.getItem("ucm_token");
+    return localStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
   }
@@ -50,6 +52,17 @@ function buildHeaders(token: string | null, extra?: Record<string, string>): Rec
   return headers;
 }
 
+function clearTokenAndRedirect() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(DRIVER_TOKEN_KEY);
+    localStorage.removeItem(APP_TOKEN_KEY);
+  } catch {}
+  if (window.location.pathname !== "/login") {
+    window.location.href = "/login";
+  }
+}
+
 export async function apiFetch(
   url: string,
   token: string | null,
@@ -60,16 +73,20 @@ export async function apiFetch(
 
   const headers = buildHeaders(token, extraHeaders);
 
-  const res = await fetch(url, { ...options, headers, credentials: "include" });
+  const res = await fetch(url, { ...options, headers, credentials: getCredentials() });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }));
-    if (err.code === "SESSION_REVOKED") {
-      window.dispatchEvent(new CustomEvent("ucm-session-revoked", { detail: { code: "SESSION_REVOKED" } }));
-      const error: any = new Error(err.message || "Session revoked");
-      error.code = err.code;
+    if (res.status === 401) {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      if (err.code === "SESSION_REVOKED") {
+        window.dispatchEvent(new CustomEvent("ucm-session-revoked", { detail: { code: "SESSION_REVOKED" } }));
+      }
+      clearTokenAndRedirect();
+      const error: any = new Error(err.message || "Session expired");
+      error.code = err.code || "UNAUTHORIZED";
       error.data = err;
       throw error;
     }
+    const err = await res.json().catch(() => ({ message: res.statusText }));
     if (err.code === "MAX_DEVICES") {
       const error: any = new Error(err.message || "Maximum devices reached");
       error.code = err.code;
