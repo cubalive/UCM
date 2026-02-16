@@ -1,0 +1,24 @@
+<!--
+  Add these permissions to android/app/src/main/AndroidManifest.xml
+  after running `npx cap add android`
+
+  Place inside the <manifest> tag, before <application>:
+-->
+
+<!-- Location Permissions -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+<!-- Foreground Service (required for background location on Android 8+) -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+<!--
+  Inside the <application> tag, add a foreground service declaration:
+
+  <service
+    android:name="com.equimaps.capacitor_background_geolocation.BackgroundGeolocationService"
+    android:foregroundServiceType="location"
+    android:exported="false" />
+-->

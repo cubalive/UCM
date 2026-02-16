@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Add these keys to ios/App/App/Info.plist after running `npx cap add ios`
+-->
+<dict>
+  <!-- Location Permission Descriptions -->
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>UCM Driver needs your location to track your position during active trips and update dispatch.</string>
+
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>UCM Driver needs background location access to continue tracking your position while the app is in the background during active trips.</string>
+
+  <key>NSLocationAlwaysUsageDescription</key>
+  <string>UCM Driver needs background location access to continue tracking your position while the app is in the background during active trips.</string>
+
+  <!-- Background Modes -->
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>location</string>
+    <string>fetch</string>
+  </array>
+</dict>

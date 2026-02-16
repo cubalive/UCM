@@ -49,6 +49,7 @@ import {
   Wifi,
   WifiOff,
   Satellite,
+  Radio,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
@@ -101,6 +102,105 @@ const isStandalone =
   typeof window !== "undefined" &&
   (window.matchMedia("(display-mode: standalone)").matches ||
     (window.navigator as any).standalone === true);
+
+const isNativePlatform = typeof (window as any).Capacitor !== "undefined" && (window as any).Capacitor.isNativePlatform?.() === true;
+
+function useNativeBackgroundTracking(token: string | null) {
+  const [tracking, setTracking] = useState(false);
+  const [bgLastSent, setBgLastSent] = useState<number | null>(null);
+  const watcherIdRef = useRef<string | null>(null);
+  const bgThrottleRef = useRef<number>(0);
+
+  const startTracking = useCallback(async () => {
+    if (!isNativePlatform || !token) return;
+    if (watcherIdRef.current) {
+      console.log('[BG-GPS] Already tracking, watcher id:', watcherIdRef.current);
+      return;
+    }
+    try {
+      const cap = (window as any).Capacitor;
+      const Preferences = cap.Plugins?.Preferences;
+      if (Preferences) {
+        await Preferences.set({ key: 'ucm_driver_jwt', value: token });
+      }
+
+      const BackgroundGeolocation = cap.Plugins?.BackgroundGeolocation;
+      if (!BackgroundGeolocation) {
+        console.warn('[BG-GPS] BackgroundGeolocation plugin not available');
+        return;
+      }
+
+      const id = await BackgroundGeolocation.addWatcher(
+        {
+          backgroundMessage: 'UCM Driver is tracking your location for active trips.',
+          backgroundTitle: 'UCM Driver - Location Active',
+          requestPermissions: true,
+          stale: false,
+          distanceFilter: 20,
+        },
+        (location: any, error: any) => {
+          if (error) {
+            console.warn('[BG-GPS] Error:', error.code);
+            return;
+          }
+          if (location) {
+            const now = Date.now();
+            if (now - bgThrottleRef.current < 2000) return;
+            bgThrottleRef.current = now;
+
+            const postToken = token;
+            if (!postToken) return;
+
+            fetch('https://app.unitedcaremobility.com/api/driver/me/location', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${postToken}`,
+              },
+              body: JSON.stringify({
+                lat: location.latitude,
+                lng: location.longitude,
+                accuracy: location.accuracy,
+                timestamp: location.time || now,
+              }),
+            }).then((res) => {
+              if (res.ok) {
+                setBgLastSent(Date.now());
+              } else {
+                console.warn('[BG-GPS] Location post failed:', res.status);
+              }
+            }).catch((err) => {
+              console.error('[BG-GPS] Location post error:', err);
+            });
+          }
+        }
+      );
+      watcherIdRef.current = id;
+      setTracking(true);
+      console.log('[BG-GPS] Background tracking started, watcher id:', id);
+    } catch (err) {
+      console.error('[BG-GPS] Failed to start:', err);
+    }
+  }, [token]);
+
+  const stopTracking = useCallback(async () => {
+    if (!isNativePlatform || !watcherIdRef.current) return;
+    try {
+      const cap = (window as any).Capacitor;
+      const BackgroundGeolocation = cap.Plugins?.BackgroundGeolocation;
+      if (BackgroundGeolocation) {
+        await BackgroundGeolocation.removeWatcher({ id: watcherIdRef.current });
+        console.log('[BG-GPS] Background tracking stopped, watcher id:', watcherIdRef.current);
+      }
+      watcherIdRef.current = null;
+      setTracking(false);
+    } catch (err) {
+      console.error('[BG-GPS] Failed to stop:', err);
+    }
+  }, []);
+
+  return { tracking, bgLastSent, startTracking, stopTracking };
+}
 
 const LOCATION_QUEUE_KEY = "ucm_driver_location_queue";
 
@@ -805,6 +905,7 @@ export default function DriverDashboard() {
 
   const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverOnline || hasActiveTrip);
   const isNetworkOnline = useNetworkStatus();
+  const { tracking: bgTracking, bgLastSent, startTracking: bgStart, stopTracking: bgStop } = useNativeBackgroundTracking(token);
 
   const lastSentRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const [lastSentTime, setLastSentTime] = useState<number | null>(null);
@@ -1608,7 +1709,38 @@ export default function DriverDashboard() {
                     </div>
                   )}
 
-                  {/* S7: Logout / Go Offline */}
+                  {/* S7: Background Tracking (native only) */}
+                  {isNativePlatform && (
+                    <div className="border-t pt-3">
+                      <Card data-testid="card-background-tracking">
+                        <CardContent className="py-4 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <Radio className="w-5 h-5 text-primary" />
+                            <span className="font-semibold text-base">Background Tracking</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Keep location tracking active even when the app is in the background.
+                          </p>
+                          {bgLastSent && (
+                            <p className="text-xs text-muted-foreground" data-testid="text-bg-last-sent">
+                              Last sent: {formatTimeSince(bgLastSent)}
+                            </p>
+                          )}
+                          <Button
+                            onClick={bgTracking ? bgStop : bgStart}
+                            variant={bgTracking ? "destructive" : "default"}
+                            className="w-full min-h-[44px] text-base"
+                            data-testid={bgTracking ? "button-stop-bg-tracking" : "button-start-bg-tracking"}
+                          >
+                            <Satellite className="w-5 h-5 mr-2" />
+                            {bgTracking ? "Stop Tracking" : "Start Tracking"}
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* S8: Logout / Go Offline */}
                   <div className="border-t pt-3 space-y-2">
                     {isDriverOnline && (
                       <Button

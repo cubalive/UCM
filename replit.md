@@ -57,6 +57,16 @@ The application follows a client-server architecture.
     - Invoice Email & Stripe Payment Links: Automatic invoice email sending with Stripe checkout integration for private/internal patients.
     - Clinic Cancel/Billing Workflow: Detailed process for managing cancellations, fault parties, billable status, and generating invoices with cancel fees.
 
+## Mobile Driver App (Capacitor)
+- **Location**: `mobile-driver/` — separate build target, does not affect web app
+- **App ID**: `com.unitedcaremobility.driver`
+- **Wraps**: `https://driver.unitedcaremobility.com` via Capacitor server.url
+- **Background GPS**: `@capacitor-community/background-geolocation` plugin posts to `/api/driver/me/location` with JWT auth
+- **Token Bridge**: JWT stored via Capacitor Preferences plugin, consumed by background location poster
+- **Native UI**: Background Tracking card in driver dashboard drawer (only visible on native platform via `window.Capacitor.isNativePlatform()`)
+- **Build**: Run `cd mobile-driver && bash setup.sh`, then `npm run cap:ios` or `npm run cap:android`
+- **Host Detection**: Uses `isProdDomain = host.endsWith("unitedcaremobility.com")` pattern (not isReplit negative guard)
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **Replit DB**: Operational data storage.
