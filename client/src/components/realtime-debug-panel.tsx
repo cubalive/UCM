@@ -74,7 +74,7 @@ export function RealtimeDebugPanel({
       setPingResult("network error");
     } finally {
       setPingSending(false);
-      setTimeout(() => setPingResult(null), 3000);
+      setTimeout(() => setPingResult(null), 5000);
     }
   }, [token, tripId, pingSending]);
 

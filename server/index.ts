@@ -33,6 +33,8 @@ function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;
   if (CORS_EXACT_ORIGINS.has(origin)) return true;
   if (/^https:\/\/[a-z0-9\-]+\.lovable\.app$/i.test(origin)) return true;
+  if (/^https:\/\/[a-z0-9\-]+\.replit\.dev$/i.test(origin)) return true;
+  if (/^https:\/\/[a-z0-9\-]+\.picard\.replit\.dev$/i.test(origin)) return true;
   return false;
 }
 
