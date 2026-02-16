@@ -14,11 +14,36 @@ const directionsMetrics = {
   trackingRequests: 0,
 };
 
+const ROLLING_WINDOW_MS = 60_000;
+const rollingCallTimestamps: number[] = [];
+
+function pruneRollingWindow() {
+  const cutoff = Date.now() - ROLLING_WINDOW_MS;
+  while (rollingCallTimestamps.length > 0 && rollingCallTimestamps[0] < cutoff) {
+    rollingCallTimestamps.shift();
+  }
+}
+
+function recordDirectionsCall(reason?: string, tripId?: number) {
+  pruneRollingWindow();
+  rollingCallTimestamps.push(Date.now());
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[UCM] Directions call", { tripId: tripId ?? null, reason: reason ?? "unknown", ts: Date.now() });
+  }
+}
+
+export function getDirectionsCallsLast60s(): number {
+  pruneRollingWindow();
+  return rollingCallTimestamps.length;
+}
+
 export function getDirectionsMetrics() {
+  pruneRollingWindow();
   const uptimeMs = Date.now() - directionsMetrics.startedAt;
   const uptimeMin = Math.max(1, uptimeMs / 60_000);
   return {
     directions_calls_per_min: Math.round(((directionsMetrics.etaCalls + directionsMetrics.buildRouteCalls) / uptimeMin) * 100) / 100,
+    directions_calls_last_60s: rollingCallTimestamps.length,
     eta_calls_total: directionsMetrics.etaCalls,
     eta_cache_hits: directionsMetrics.etaCacheHits,
     build_route_calls_total: directionsMetrics.buildRouteCalls,
@@ -31,8 +56,11 @@ export function getDirectionsMetrics() {
   };
 }
 
-export function incrDirectionsMetric(key: keyof typeof directionsMetrics) {
+export function incrDirectionsMetric(key: keyof typeof directionsMetrics, reason?: string, tripId?: number) {
   if (key !== "startedAt") (directionsMetrics as any)[key]++;
+  if (key === "etaCalls" || key === "buildRouteCalls") {
+    recordDirectionsCall(reason ?? key, tripId);
+  }
 }
 
 interface CacheEntry<T> {

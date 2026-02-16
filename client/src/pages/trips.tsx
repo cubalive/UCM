@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useTripRealtime } from "@/hooks/use-trip-realtime";
+import { RealtimeDebugPanel } from "@/components/realtime-debug-panel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1407,7 +1408,7 @@ function TripDetailDialog({
     });
   }, [trip.id]);
 
-  const { connected: rtConnected } = useTripRealtime({
+  const { connected: rtConnected, debugInfo: rtDebugInfo } = useTripRealtime({
     tripId: isActiveTrip && hasDriver ? trip.id : null,
     authToken: token,
     onStatusChange: handleRtStatusChange,
@@ -1671,11 +1672,13 @@ function TripDetailDialog({
               </div>
             )}
 
-            {isActiveTrip && hasDriver && import.meta.env.DEV && (
-              <div className="flex items-center gap-1.5" data-testid="text-realtime-status">
-                <span className={`inline-block w-2 h-2 rounded-full ${rtConnected ? "bg-green-500" : "bg-red-500"}`} />
-                <span className="text-xs text-muted-foreground">Realtime: {rtConnected ? "Connected" : "Disconnected"}</span>
-              </div>
+            {isActiveTrip && hasDriver && (
+              <RealtimeDebugPanel
+                debugInfo={rtDebugInfo}
+                pollingActive={!rtConnected}
+                pollingIntervalMs={rtConnected ? false : 120000}
+                tripId={trip.id}
+              />
             )}
 
             {canSendSms && (

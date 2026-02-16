@@ -7321,5 +7321,18 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
     }
   );
 
+  app.get("/api/ops/directions-metrics",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "DRIVER", "CLINIC_USER"),
+    async (_req, res) => {
+      try {
+        const { getDirectionsMetrics } = await import("./lib/googleMaps");
+        res.json({ ok: true, ...getDirectionsMetrics() });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, message: err.message });
+      }
+    }
+  );
+
   return httpServer;
 }

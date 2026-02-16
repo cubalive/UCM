@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useTripRealtime } from "@/hooks/use-trip-realtime";
+import { RealtimeDebugPanel } from "@/components/realtime-debug-panel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -635,7 +636,7 @@ export default function DriverDashboard() {
 
   const [rtActiveTripId, setRtActiveTripId] = useState<number | null>(null);
 
-  const { connected: rtConnected } = useTripRealtime({
+  const { connected: rtConnected, debugInfo: rtDebugInfo } = useTripRealtime({
     tripId: rtActiveTripId,
     authToken: token,
     onStatusChange: handleRtStatusChange,
@@ -1233,12 +1234,12 @@ export default function DriverDashboard() {
                           {activeTrip.distanceMiles != null && ` / ${activeTrip.distanceMiles} mi`}
                         </span>
                       )}
-                      {import.meta.env.DEV && (
-                        <span className="flex items-center gap-1" data-testid="text-realtime-status">
-                          <span className={`inline-block w-2 h-2 rounded-full ${rtConnected ? "bg-green-500" : "bg-red-500"}`} />
-                          <span className="text-xs text-muted-foreground">{rtConnected ? "RT" : "Poll"}</span>
-                        </span>
-                      )}
+                      <RealtimeDebugPanel
+                        debugInfo={rtDebugInfo}
+                        pollingActive={!rtConnected}
+                        pollingIntervalMs={rtConnected ? false : 30000}
+                        tripId={rtActiveTripId}
+                      />
                     </div>
                     <div className="flex items-start gap-1.5 text-sm">
                       <Navigation className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600" />
