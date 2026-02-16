@@ -1576,6 +1576,25 @@ export default function DriverDashboard() {
     }
   }, [toast]);
 
+  const nextPickupCountdown = (() => {
+    if (!nextPickup?.pickupTime || !nextPickup?.scheduledDate) return null;
+    try {
+      const pickupDateTime = new Date(`${nextPickup.scheduledDate}T${nextPickup.pickupTime}`);
+      const diffSec = Math.max(0, Math.floor((pickupDateTime.getTime() - Date.now()) / 1000));
+      return diffSec;
+    } catch { return null; }
+  })();
+
+  const [pickupCountdownVal, setPickupCountdownVal] = useState(0);
+  useEffect(() => {
+    if (nextPickupCountdown != null) setPickupCountdownVal(nextPickupCountdown);
+  }, [nextPickupCountdown]);
+  useEffect(() => {
+    if (!nextPickup) return;
+    const iv = setInterval(() => setPickupCountdownVal((p) => Math.max(0, p - 1)), 1000);
+    return () => clearInterval(iv);
+  }, [nextPickup?.id]);
+
   if (geoPermission === "prompt") {
     return (
       <div className="flex items-center justify-center min-h-[60vh] p-4">
@@ -1680,25 +1699,6 @@ export default function DriverDashboard() {
   const metrics = metricsQuery.data;
   const bonus = bonusQuery.data;
   const scheduleChanges = scheduleChangeQuery.data || [];
-
-  const nextPickupCountdown = (() => {
-    if (!nextPickup?.pickupTime || !nextPickup?.scheduledDate) return null;
-    try {
-      const pickupDateTime = new Date(`${nextPickup.scheduledDate}T${nextPickup.pickupTime}`);
-      const diffSec = Math.max(0, Math.floor((pickupDateTime.getTime() - Date.now()) / 1000));
-      return diffSec;
-    } catch { return null; }
-  })();
-
-  const [pickupCountdownVal, setPickupCountdownVal] = useState(0);
-  useEffect(() => {
-    if (nextPickupCountdown != null) setPickupCountdownVal(nextPickupCountdown);
-  }, [nextPickupCountdown]);
-  useEffect(() => {
-    if (!nextPickup) return;
-    const iv = setInterval(() => setPickupCountdownVal((p) => Math.max(0, p - 1)), 1000);
-    return () => clearInterval(iv);
-  }, [nextPickup?.id]);
 
   return (
     <div className="relative w-full h-[calc(100vh-3.5rem)] flex flex-col" data-testid="div-driver-map-home">

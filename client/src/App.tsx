@@ -16,6 +16,7 @@ import { can, type Resource } from "@shared/permissions";
 import { useTranslation } from "react-i18next";
 import "@/i18n";
 import { isDriverHost, getTokenKey } from "@/lib/hostDetection";
+import { pushError } from "@/lib/errorLog";
 import { CitySelectionModal } from "@/components/city-selection-modal";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
@@ -492,8 +493,23 @@ export default App;
 if (isDriverHost) {
   window.onerror = (message, source, lineno, colno, error) => {
     console.error("[UCM] Global error:", { message, source, lineno, colno, stack: error?.stack });
+    pushError({
+      ts: Date.now(),
+      type: "error",
+      message: String(message),
+      source: source ? String(source) : undefined,
+      line: lineno ?? undefined,
+      col: colno ?? undefined,
+      stack: error?.stack,
+    });
   };
   window.onunhandledrejection = (event: PromiseRejectionEvent) => {
     console.error("[UCM] Unhandled promise rejection:", event.reason?.message || event.reason, event.reason?.stack);
+    pushError({
+      ts: Date.now(),
+      type: "rejection",
+      message: event.reason?.message || String(event.reason),
+      stack: event.reason?.stack,
+    });
   };
 }
