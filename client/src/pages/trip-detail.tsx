@@ -42,6 +42,7 @@ export default function TripDetailPage() {
   const tripId = parseInt(params.id || "0");
   const [, navigate] = useLocation();
   const { token, user } = useAuth();
+  const debugEnabled = import.meta.env.VITE_UCM_DEBUG === 'true';
 
   const { data: trip, isLoading, error } = useQuery<any>({
     queryKey: ["/api/trips", tripId],
@@ -119,6 +120,20 @@ export default function TripDetailPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-4xl mx-auto overflow-y-auto h-full" data-testid="trip-detail-page">
+      {debugEnabled && (
+        <div style={{
+          position: 'fixed',
+          top: '10px',
+          right: '10px',
+          background: 'black',
+          color: 'lime',
+          padding: '8px',
+          zIndex: 9999,
+          fontSize: '12px'
+        }} data-testid="badge-realtime-debug">
+          REALTIME DEBUG ACTIVE
+        </div>
+      )}
       <div className="flex items-center gap-3 flex-wrap">
         <Button variant="ghost" onClick={() => navigate("/trips")} data-testid="button-back-trips">
           <ArrowLeft className="w-4 h-4 mr-2" />

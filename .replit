@@ -45,9 +45,9 @@ waitForPort = 5000
 [userenv.shared]
 PUBLIC_BASE_URL = "https://asset-manager-admin6151.replit.app"
 ALLOWED_ORIGIN_1 = "https://unitedcaremobility.lovable.app"
+VITE_UCM_DEBUG = "true"
 
 [userenv.development]
-VITE_UCM_DEBUG = "true"
 
 [userenv.production]
 
