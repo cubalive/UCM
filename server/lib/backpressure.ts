@@ -1,23 +1,28 @@
 import { cache } from "./cache";
 import { getJson, setJson } from "./redis";
 
-const PUBLISH_INTERVAL_LOCATION_NORMAL = 5_000;
-const PUBLISH_INTERVAL_LOCATION_DEGRADED = 10_000;
+const PUBLISH_INTERVALS = [5_000, 10_000, 15_000] as const;
 const PUBLISH_INTERVAL_ETA = 60_000;
 
-const DEGRADE_LATENCY_THRESHOLD_MS = 2000;
-const DEGRADE_CHECK_INTERVAL_MS = 30_000;
+const DEGRADE_TIER1_LATENCY_MS = 1500;
+const DEGRADE_TIER2_LATENCY_MS = 3000;
+const DEGRADE_CHECK_INTERVAL_MS = 15_000;
 const DEGRADE_RECOVERY_MS = 60_000;
-const CONTENTION_THRESHOLD = 10;
+const CONTENTION_TIER1 = 8;
+const CONTENTION_TIER2 = 20;
 const CONTENTION_WINDOW_MS = 60_000;
+
+type DegradeTier = 0 | 1 | 2;
 
 interface BackpressureMetrics {
   publish_dropped_by_throttle: number;
   publish_dropped_location: number;
   publish_dropped_eta: number;
   degrade_mode_on: boolean;
+  degrade_tier: DegradeTier;
   degrade_mode_reason: string | null;
   degrade_mode_since: number | null;
+  publish_interval_ms: number;
   directions_timeout_count: number;
   directions_lock_contention_count: number;
 }
@@ -27,8 +32,10 @@ const metrics: BackpressureMetrics = {
   publish_dropped_location: 0,
   publish_dropped_eta: 0,
   degrade_mode_on: false,
+  degrade_tier: 0,
   degrade_mode_reason: null,
   degrade_mode_since: null,
+  publish_interval_ms: PUBLISH_INTERVALS[0],
   directions_timeout_count: 0,
   directions_lock_contention_count: 0,
 };
@@ -61,30 +68,50 @@ function getRecentContentionCount(): number {
   return contentionTimestamps.length;
 }
 
+function computeDegradeTier(): { tier: DegradeTier; reason: string | null } {
+  const p95 = getP95Latency();
+  const recentContention = getRecentContentionCount();
+
+  if (p95 > DEGRADE_TIER2_LATENCY_MS || recentContention >= CONTENTION_TIER2) {
+    const reasons: string[] = [];
+    if (p95 > DEGRADE_TIER2_LATENCY_MS) reasons.push(`p95=${p95}ms>${DEGRADE_TIER2_LATENCY_MS}ms`);
+    if (recentContention >= CONTENTION_TIER2) reasons.push(`contention=${recentContention}>=${CONTENTION_TIER2}/min`);
+    return { tier: 2, reason: reasons.join("; ") };
+  }
+
+  if (p95 > DEGRADE_TIER1_LATENCY_MS || recentContention >= CONTENTION_TIER1) {
+    const reasons: string[] = [];
+    if (p95 > DEGRADE_TIER1_LATENCY_MS) reasons.push(`p95=${p95}ms>${DEGRADE_TIER1_LATENCY_MS}ms`);
+    if (recentContention >= CONTENTION_TIER1) reasons.push(`contention=${recentContention}>=${CONTENTION_TIER1}/min`);
+    return { tier: 1, reason: reasons.join("; ") };
+  }
+
+  return { tier: 0, reason: null };
+}
+
 function checkDegradeMode(): void {
   const now = Date.now();
   if (now - lastDegradeCheck < DEGRADE_CHECK_INTERVAL_MS) return;
   lastDegradeCheck = now;
 
-  const p95 = getP95Latency();
-  const recentContention = getRecentContentionCount();
-  const highLatency = p95 > DEGRADE_LATENCY_THRESHOLD_MS;
-  const highContention = recentContention >= CONTENTION_THRESHOLD;
+  const { tier, reason } = computeDegradeTier();
 
-  if (!metrics.degrade_mode_on && (highLatency || highContention)) {
+  if (tier > metrics.degrade_tier) {
+    metrics.degrade_tier = tier;
     metrics.degrade_mode_on = true;
-    const reasons: string[] = [];
-    if (highLatency) reasons.push(`p95_latency=${p95}ms exceeds ${DEGRADE_LATENCY_THRESHOLD_MS}ms`);
-    if (highContention) reasons.push(`contention=${recentContention} exceeds ${CONTENTION_THRESHOLD}/min`);
-    metrics.degrade_mode_reason = reasons.join("; ");
-    metrics.degrade_mode_since = now;
-    console.warn(`[BACKPRESSURE] Entering degraded mode: ${metrics.degrade_mode_reason}`);
-  } else if (metrics.degrade_mode_on && !highLatency && !highContention) {
+    metrics.degrade_mode_reason = reason;
+    metrics.degrade_mode_since = metrics.degrade_mode_since || now;
+    metrics.publish_interval_ms = PUBLISH_INTERVALS[tier];
+    console.warn(`[BACKPRESSURE] Escalated to tier ${tier} (interval=${PUBLISH_INTERVALS[tier]}ms): ${reason}`);
+  } else if (tier < metrics.degrade_tier) {
     if (metrics.degrade_mode_since && (now - metrics.degrade_mode_since) > DEGRADE_RECOVERY_MS) {
-      console.log(`[BACKPRESSURE] Exiting degraded mode (p95=${p95}ms, contention=${recentContention})`);
-      metrics.degrade_mode_on = false;
-      metrics.degrade_mode_reason = null;
-      metrics.degrade_mode_since = null;
+      const prevTier = metrics.degrade_tier;
+      metrics.degrade_tier = tier;
+      metrics.degrade_mode_on = tier > 0;
+      metrics.degrade_mode_reason = reason;
+      metrics.publish_interval_ms = PUBLISH_INTERVALS[tier];
+      if (tier === 0) metrics.degrade_mode_since = null;
+      console.log(`[BACKPRESSURE] De-escalated from tier ${prevTier} to ${tier} (interval=${PUBLISH_INTERVALS[tier]}ms)`);
     }
   }
 }
@@ -94,12 +121,18 @@ export function isDegradeMode(): boolean {
   return metrics.degrade_mode_on;
 }
 
+export function getDegradeTier(): DegradeTier {
+  checkDegradeMode();
+  return metrics.degrade_tier;
+}
+
 export function getLocationPublishInterval(): number {
-  return isDegradeMode() ? PUBLISH_INTERVAL_LOCATION_DEGRADED : PUBLISH_INTERVAL_LOCATION_NORMAL;
+  checkDegradeMode();
+  return PUBLISH_INTERVALS[metrics.degrade_tier];
 }
 
 export function isEtaPublishAllowed(): boolean {
-  return !isDegradeMode();
+  return getDegradeTier() < 2;
 }
 
 export function shouldPublishLocation(tripId: number): boolean {

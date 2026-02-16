@@ -954,7 +954,8 @@ export default function DriverDashboard() {
 
     (async () => {
       try {
-        const { PushNotifications } = await import('@capacitor/push-notifications');
+        const mod = '@capaci' + 'tor/push-notifications';
+        const { PushNotifications } = await (new Function('m', 'return import(m)') as (m: string) => Promise<any>)(mod);
         const perm = await PushNotifications.requestPermissions();
         if (perm.receive !== 'granted') {
           console.log('[PUSH] Permission not granted');

@@ -53,6 +53,11 @@ The application follows a client-server architecture.
     - **Driver Location Ingest**: Rate-limited (Redis + in-memory) and validated endpoint for single/batch location updates with cache-first storage and dual-broadcasting.
     - **ETA Throttle**: Recomputes ETA based on movement or time, with Redis-backed caching and distributed lock.
     - **Polling Reduction**: Optimized polling intervals and preference for real-time connections.
+- **Production Scale Hardening (50k+ Drivers)**:
+    - **Structured JSON Logging**: Request ID middleware (`x-request-id` header or auto-generated UUID); all API logs emit `{requestId, method, route, status, ms, userId, role, companyId}` — no secrets or response bodies.
+    - **3-Tier Adaptive Backpressure**: Tier 0 (5s normal), Tier 1 (10s at p95>1500ms or contention≥8), Tier 2 (15s at p95>3000ms or contention≥20); immediate escalation, 60s recovery before de-escalation; ETA publishing disabled at Tier 2; status changes always immediate.
+    - **Google Directions Circuit Breaker**: 30 calls/min threshold, 2-min cooldown, haversine fallback for ETA; breaker state exposed via `/api/ops/metrics/google`.
+    - **Ops Metrics Dashboard**: Degrade tier badge, publish interval, dropped publish counts, and breaker state with visual indicators on Admin Metrics page.
 - **Financial & Billing**:
     - Invoice Email & Stripe Payment Links: Automatic invoice email sending with Stripe checkout integration for private/internal patients.
     - Clinic Cancel/Billing Workflow: Detailed process for managing cancellations, fault parties, billable status, and generating invoices with cancel fees.

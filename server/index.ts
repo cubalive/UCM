@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -10,6 +11,12 @@ const httpServer = createServer(app);
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
+  }
+}
+
+declare module "express-serve-static-core" {
+  interface Request {
+    requestId?: string;
   }
 }
 
@@ -73,26 +80,31 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  req.requestId = (req.headers["x-request-id"] as string) || crypto.randomUUID().slice(0, 12);
+  next();
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
 
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
+      const auth = (req as any).user;
+      const entry: Record<string, unknown> = {
+        requestId: req.requestId,
+        method: req.method,
+        route: path,
+        status: res.statusCode,
+        ms: duration,
+      };
+      if (auth?.userId) entry.userId = auth.userId;
+      if (auth?.role) entry.role = auth.role;
+      if (auth?.companyId) entry.companyId = auth.companyId;
 
-      log(logLine);
+      console.log(JSON.stringify(entry));
 
       recordReqMetric(req.method, path, res.statusCode, duration);
     }

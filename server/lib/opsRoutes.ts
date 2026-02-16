@@ -879,19 +879,22 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/ops/metrics", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res) => {
+  app.get("/api/ops/metrics", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const { getRequestMetricsSummary } = await import("./requestMetrics");
       const { getRedisMetrics } = await import("./redis");
       const { getRealtimeMetrics } = await import("./supabaseRealtime");
       const { getDirectionsMetrics } = await import("./googleMaps");
-      const { getBackpressureMetrics } = await import("./backpressure");
+      const { getBackpressureMetrics, getDegradeTier, getLocationPublishInterval } = await import("./backpressure");
       const { getActiveConnectionCount, getActiveSubscriptionCount } = await import("./realtime");
       const { getIngestMetrics } = await import("./driverLocationIngest");
+
+      const bp = getBackpressureMetrics();
 
       res.json({
         ok: true,
         ts: new Date().toISOString(),
+        requestId: req.requestId,
         request: getRequestMetricsSummary(),
         redis: getRedisMetrics(),
         realtime: {
@@ -900,7 +903,11 @@ export function registerOpsRoutes(app: Express) {
           ws_subscriptions: getActiveSubscriptionCount(),
         },
         google: getDirectionsMetrics(),
-        backpressure: getBackpressureMetrics(),
+        backpressure: {
+          ...bp,
+          degrade_tier: getDegradeTier(),
+          publish_interval_ms: getLocationPublishInterval(),
+        },
         gps_ingest: getIngestMetrics(),
       });
     } catch (err: any) {

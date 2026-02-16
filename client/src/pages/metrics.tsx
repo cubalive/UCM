@@ -78,6 +78,13 @@ interface MetricsData {
     shed_pct: number;
     avg_queue_depth: number;
     p95_latency_ms: number;
+    degrade_mode_on: boolean;
+    degrade_tier: number;
+    degrade_mode_reason: string | null;
+    publish_interval_ms: number;
+    publish_dropped_by_throttle: number;
+    publish_dropped_location: number;
+    publish_dropped_eta: number;
   };
   gps_ingest: {
     gps_ingest_requests_per_min: number;
@@ -796,31 +803,48 @@ export default function MetricsPage() {
           </CardContent>
         </Card>
 
-        {/* Backpressure */}
+        {/* Backpressure / Adaptive Publish */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-              Backpressure
+              Backpressure / Adaptive Publish
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-3">
+          <CardContent className="p-3 space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {bp?.degrade_mode_on ? (
+                <Badge variant="destructive" data-testid="badge-degrade-mode">
+                  Tier {bp.degrade_tier} Degraded
+                </Badge>
+              ) : (
+                <Badge variant="default" data-testid="badge-degrade-mode">
+                  Normal
+                </Badge>
+              )}
+              <span className="text-xs text-muted-foreground tabular-nums" data-testid="text-publish-interval">
+                Publish interval: <strong className="text-foreground">{bp?.publish_interval_ms ?? 5000}ms</strong>
+              </span>
+            </div>
+            {bp?.degrade_mode_reason && (
+              <p className="text-xs text-destructive" data-testid="text-degrade-reason">{bp.degrade_mode_reason}</p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className="text-xs text-muted-foreground">p95 Latency</p>
                 <p className="text-lg font-semibold tabular-nums" data-testid="text-bp-p95">{bp?.p95_latency_ms ?? 0}ms</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Shed Rate</p>
-                <p className="text-lg font-semibold tabular-nums">{bp?.shed_pct ?? 0}%</p>
+                <p className="text-xs text-muted-foreground">Dropped (throttle)</p>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-bp-dropped">{bp?.publish_dropped_by_throttle ?? 0}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Total Requests</p>
-                <p className="text-sm font-semibold tabular-nums">{bp?.total_requests ?? 0}</p>
+                <p className="text-xs text-muted-foreground">Dropped Location</p>
+                <p className="text-sm font-semibold tabular-nums">{bp?.publish_dropped_location ?? 0}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Rejected</p>
-                <p className="text-sm font-semibold tabular-nums">{bp?.rejected_requests ?? 0}</p>
+                <p className="text-xs text-muted-foreground">Dropped ETA</p>
+                <p className="text-sm font-semibold tabular-nums">{bp?.publish_dropped_eta ?? 0}</p>
               </div>
             </div>
           </CardContent>
