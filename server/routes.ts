@@ -7730,5 +7730,18 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
     }
   );
 
+  app.get("/api/ops/cors-origins",
+    authMiddleware,
+    requireRole("SUPER_ADMIN"),
+    async (_req: AuthRequest, res) => {
+      const { allowedAppOrigins, allowedPublicOrigins } = await import("./index");
+      res.json({
+        ok: true,
+        allowedAppOrigins: Array.from(allowedAppOrigins),
+        allowedPublicOrigins: Array.from(allowedPublicOrigins),
+      });
+    }
+  );
+
   return httpServer;
 }

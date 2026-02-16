@@ -39,40 +39,86 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-const CORS_EXACT_ORIGINS = new Set([
+function readOriginList(prefix: string): Set<string> {
+  const origins = new Set<string>();
+  for (let i = 1; i <= 10; i++) {
+    const val = process.env[`${prefix}_${i}`]?.trim();
+    if (val) origins.add(val);
+  }
+  return origins;
+}
+
+const BUILTIN_APP_ORIGINS = new Set([
   "https://unitedcaremobility.com",
   "https://www.unitedcaremobility.com",
   "https://app.unitedcaremobility.com",
   "https://driver.unitedcaremobility.com",
   "https://admin.unitedcaremobility.com",
-  "https://lovable.app",
 ]);
 
-function isAllowedOrigin(origin: string): boolean {
+const envAppOrigins = readOriginList("ALLOWED_APP_ORIGIN");
+const envPublicOrigins = readOriginList("ALLOWED_PUBLIC_ORIGIN");
+const envLegacyOrigins = readOriginList("ALLOWED_ORIGIN");
+
+export const allowedAppOrigins = new Set(Array.from(BUILTIN_APP_ORIGINS).concat(Array.from(envAppOrigins), Array.from(envLegacyOrigins)));
+export const allowedPublicOrigins = new Set(Array.from(envPublicOrigins).concat(Array.from(envLegacyOrigins)));
+
+function isReplitDev(origin: string): boolean {
+  return /^https:\/\/[a-z0-9\-]+\.replit\.dev$/i.test(origin)
+    || /^https:\/\/[a-z0-9\-]+\.picard\.replit\.dev$/i.test(origin);
+}
+
+function isAppOrigin(origin: string): boolean {
   if (!origin) return false;
-  if (CORS_EXACT_ORIGINS.has(origin)) return true;
-  if (/^https:\/\/[a-z0-9\-]+\.lovable\.app$/i.test(origin)) return true;
-  if (/^https:\/\/[a-z0-9\-]+\.replit\.dev$/i.test(origin)) return true;
-  if (/^https:\/\/[a-z0-9\-]+\.picard\.replit\.dev$/i.test(origin)) return true;
+  if (allowedAppOrigins.has(origin)) return true;
+  if (isReplitDev(origin)) return true;
   return false;
 }
 
-app.use("/api", (req, res, next) => {
+function isPublicOrigin(origin: string): boolean {
+  if (!origin) return false;
+  if (allowedPublicOrigins.has(origin)) return true;
+  if (/^https:\/\/[a-z0-9\-]+\.lovable\.app$/i.test(origin)) return true;
+  if (isReplitDev(origin)) return true;
+  return false;
+}
+
+app.use("/api/public", (req, res, next) => {
   const origin = req.headers.origin || "";
   res.setHeader("Vary", "Origin");
 
-  if (isAllowedOrigin(origin)) {
+  if (isPublicOrigin(origin) || isAppOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Max-Age", "86400");
+  } else if (origin) {
+    console.warn(`[CORS] Blocked public origin="${origin}" path="${req.path}" method="${req.method}"`);
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+app.use("/api", (req, res, next) => {
+  if (req.path.startsWith("/public")) return next();
+
+  const origin = req.headers.origin || "";
+  res.setHeader("Vary", "Origin");
+
+  if (isAppOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Stripe-Signature");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Max-Age", "86400");
   } else if (origin) {
     console.warn(`[CORS] Blocked origin="${origin}" path="${req.path}" method="${req.method}"`);
   }
 
   if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
+    return res.sendStatus(204);
   }
   next();
 });
