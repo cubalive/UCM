@@ -14,6 +14,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { can, type Resource } from "@shared/permissions";
 import { useTranslation } from "react-i18next";
 import "@/i18n";
+import { isDriverHost, isProductionSubdomain } from "@/lib/hostDetection";
 import { CitySelectionModal } from "@/components/city-selection-modal";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
@@ -122,7 +123,23 @@ function HomeRedirect() {
   return <Redirect to="/unauthorized" />;
 }
 
+function DriverSubdomainRouter() {
+  return (
+    <Switch>
+      <Route path="/">{() => <DriverRoute component={DriverDashboard} />}</Route>
+      <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
+      <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
+      <Route path="/unauthorized" component={UnauthorizedPage} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
 function Router() {
+  if (isDriverHost) {
+    return <DriverSubdomainRouter />;
+  }
+
   return (
     <Switch>
       <Route path="/" component={HomeRedirect} />
