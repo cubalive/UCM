@@ -63,6 +63,21 @@ export function registerTrackingRoutes(app: Express) {
           return res.json({ ok: false, message: "Pickup coordinates unavailable" });
         }
 
+        const { getGpsStaleInfo } = await import("./driverLocationIngest");
+        const gpsInfo = getGpsStaleInfo(trip.driverId!);
+
+        if (gpsInfo.hide_eta) {
+          return res.json({
+            ok: true,
+            eta_minutes: null,
+            distance_text: null,
+            updated_at: null,
+            source: "hidden",
+            gps_stale: gpsInfo.gps_stale,
+            stale_reason: gpsInfo.stale_reason,
+          });
+        }
+
         try {
           const { getThrottledEta } = await import("./etaThrottle");
           const eta = await getThrottledEta(trip.driverId!, { lat: trip.pickupLat, lng: trip.pickupLng }, trip.id);
@@ -80,6 +95,8 @@ export function registerTrackingRoutes(app: Express) {
               distance_text: `${eta.distanceMiles} mi`,
               updated_at: new Date().toISOString(),
               source: eta.source,
+              gps_stale: gpsInfo.gps_stale,
+              stale_reason: gpsInfo.stale_reason || undefined,
             });
           }
 
@@ -90,9 +107,10 @@ export function registerTrackingRoutes(app: Express) {
               distance_text: trip.distanceMiles ? `${trip.distanceMiles} mi` : null,
               updated_at: trip.lastEtaUpdatedAt?.toISOString() || null,
               source: "cached",
+              gps_stale: gpsInfo.gps_stale,
             });
           }
-          return res.json({ ok: false, message: "Could not calculate ETA" });
+          return res.json({ ok: false, message: "Could not calculate ETA", gps_stale: gpsInfo.gps_stale });
         } catch (etaErr: any) {
           if (trip.lastEtaMinutes != null) {
             return res.json({
@@ -101,9 +119,10 @@ export function registerTrackingRoutes(app: Express) {
               distance_text: trip.distanceMiles ? `${trip.distanceMiles} mi` : null,
               updated_at: trip.lastEtaUpdatedAt?.toISOString() || null,
               source: "cached",
+              gps_stale: gpsInfo.gps_stale,
             });
           }
-          return res.json({ ok: false, message: "Could not calculate ETA" });
+          return res.json({ ok: false, message: "Could not calculate ETA", gps_stale: gpsInfo.gps_stale });
         }
       } catch (err: any) {
         res.status(500).json({ ok: false, message: err.message });
@@ -388,7 +407,15 @@ export function registerTrackingRoutes(app: Express) {
             updated_at: driver.lastSeenAt ? driver.lastSeenAt.toISOString() : null,
           };
 
-          if (trip.lastEtaMinutes != null) {
+          let gpsStale: any = null;
+          try {
+            const { getGpsStaleInfo } = await import("./driverLocationIngest");
+            gpsStale = getGpsStaleInfo(driver.id);
+          } catch {}
+
+          if (gpsStale?.hide_eta) {
+            etaData = null;
+          } else if (trip.lastEtaMinutes != null) {
             etaData = {
               minutes: trip.lastEtaMinutes,
               distance_text: trip.distanceMiles ? `${trip.distanceMiles} mi` : null,
@@ -406,6 +433,11 @@ export function registerTrackingRoutes(app: Express) {
                 };
               }
             } catch {}
+          }
+
+          if (driverData && gpsStale) {
+            (driverData as any).gps_stale = gpsStale.gps_stale;
+            if (gpsStale.stale_reason) (driverData as any).stale_reason = gpsStale.stale_reason;
           }
         }
       }

@@ -8,25 +8,123 @@ import { broadcastToTrip } from "./realtime";
 const RATE_LIMIT_MS = 2000;
 const MAX_SPEED_MPS = 55; // ~123 mph
 const MAX_STALE_S = 60;
-const MAX_BATCH_STALE_S = 600; // 10 minutes for offline batch points
+const MAX_BATCH_STALE_S = 600; // 10 min for offline batch
 const MAX_BATCH_SIZE = 50;
 const SPAM_WINDOW_MS = 10_000;
 const SPAM_MAX_REQUESTS = 20;
+const GPS_STALE_THRESHOLD_MS = 120_000;  // 2 min => gps_stale=true
+const GPS_ETA_HIDE_THRESHOLD_MS = 300_000; // 5 min => eta=null
 
 const singleLocationSchema = z.object({
-  driver_id: z.number().int().positive(),
-  lat: z.number().min(-90).max(90),
-  lng: z.number().min(-180).max(180),
+  driver_id: z.number().int().positive().optional(),
+  driverId: z.number().int().positive().optional(),
+  trip_id: z.number().int().positive().optional(),
+  tripId: z.number().int().positive().optional(),
+  lat: z.number().min(-90).max(90).refine(v => !isNaN(v), { message: "lat must not be NaN" }),
+  lng: z.number().min(-180).max(180).refine(v => !isNaN(v), { message: "lng must not be NaN" }),
   timestamp: z.number().optional(),
+  ts: z.number().optional(),
   heading: z.number().min(0).max(360).optional(),
   speed: z.number().min(0).optional(),
-});
+  accuracy: z.number().min(0).optional(),
+  status: z.string().optional(),
+}).refine(d => !!(d.driver_id || d.driverId), { message: "driverId or driver_id required" });
 
 const batchLocationSchema = z.object({
-  points: z.array(singleLocationSchema).min(1).max(MAX_BATCH_SIZE),
+  points: z.array(z.object({
+    driver_id: z.number().int().positive().optional(),
+    driverId: z.number().int().positive().optional(),
+    trip_id: z.number().int().positive().optional(),
+    tripId: z.number().int().positive().optional(),
+    lat: z.number().min(-90).max(90).refine(v => !isNaN(v), { message: "lat must not be NaN" }),
+    lng: z.number().min(-180).max(180).refine(v => !isNaN(v), { message: "lng must not be NaN" }),
+    timestamp: z.number().optional(),
+    ts: z.number().optional(),
+    heading: z.number().min(0).max(360).optional(),
+    speed: z.number().min(0).optional(),
+    accuracy: z.number().min(0).optional(),
+    status: z.string().optional(),
+  }).refine(d => !!(d.driver_id || d.driverId), { message: "driverId or driver_id required" })).min(1).max(MAX_BATCH_SIZE),
 });
 
-const locationRequestSchema = z.union([singleLocationSchema, batchLocationSchema]);
+const locationRequestSchema = z.union([batchLocationSchema, singleLocationSchema]);
+
+interface NormalizedPoint {
+  driverId: number;
+  tripId?: number;
+  lat: number;
+  lng: number;
+  timestamp: number;
+  heading?: number;
+  speed?: number;
+  accuracy?: number;
+  status?: string;
+}
+
+function normalizePoint(raw: any): NormalizedPoint {
+  return {
+    driverId: raw.driverId || raw.driver_id,
+    tripId: raw.tripId || raw.trip_id,
+    lat: raw.lat,
+    lng: raw.lng,
+    timestamp: raw.ts || raw.timestamp || Date.now(),
+    heading: raw.heading,
+    speed: raw.speed,
+    accuracy: raw.accuracy,
+    status: raw.status,
+  };
+}
+
+const metrics = {
+  requestsTotal: 0,
+  rejectedRateLimit: 0,
+  rejectedValidation: 0,
+  dbWrites: 0,
+  acceptedTotal: 0,
+  lastResetAt: Date.now(),
+
+  windowRequests: 0,
+  windowRejectedRateLimit: 0,
+  windowRejectedValidation: 0,
+  windowDbWrites: 0,
+  windowStartedAt: Date.now(),
+};
+
+function resetWindow() {
+  const now = Date.now();
+  if (now - metrics.windowStartedAt >= 60_000) {
+    metrics.windowRequests = 0;
+    metrics.windowRejectedRateLimit = 0;
+    metrics.windowRejectedValidation = 0;
+    metrics.windowDbWrites = 0;
+    metrics.windowStartedAt = now;
+  }
+}
+
+function recordRequest() { metrics.requestsTotal++; metrics.windowRequests++; resetWindow(); }
+function recordRejectedRateLimit() { metrics.rejectedRateLimit++; metrics.windowRejectedRateLimit++; }
+function recordRejectedValidation() { metrics.rejectedValidation++; metrics.windowRejectedValidation++; }
+function recordDbWrite() { metrics.dbWrites++; metrics.windowDbWrites++; }
+function recordAccepted() { metrics.acceptedTotal++; }
+
+export function getIngestMetrics() {
+  resetWindow();
+  const elapsedMin = Math.max(1, (Date.now() - metrics.lastResetAt) / 60_000);
+  return {
+    gps_ingest_requests_per_min: Math.round(metrics.windowRequests / Math.max(1, (Date.now() - metrics.windowStartedAt) / 60_000)),
+    gps_ingest_rejected_rate_limit: metrics.windowRejectedRateLimit,
+    gps_ingest_rejected_validation: metrics.windowRejectedValidation,
+    db_location_writes_per_min: Math.round(metrics.windowDbWrites / Math.max(1, (Date.now() - metrics.windowStartedAt) / 60_000)),
+    totals: {
+      requests: metrics.requestsTotal,
+      accepted: metrics.acceptedTotal,
+      rejected_rate_limit: metrics.rejectedRateLimit,
+      rejected_validation: metrics.rejectedValidation,
+      db_writes: metrics.dbWrites,
+      uptime_minutes: Math.round(elapsedMin),
+    },
+  };
+}
 
 function haversineDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
@@ -64,22 +162,20 @@ function checkSpam(driverId: number): boolean {
 }
 
 function processSinglePoint(
-  driverId: number,
-  lat: number,
-  lng: number,
-  timestamp: number,
-  heading?: number,
-  speed?: number,
+  point: NormalizedPoint,
 ): { accepted: boolean; reason?: string } {
   const now = Date.now();
+  const { driverId, lat, lng, timestamp, heading, speed } = point;
 
   if (Math.abs(now - timestamp) > MAX_STALE_S * 1000) {
+    recordRejectedValidation();
     return { accepted: false, reason: "stale_timestamp" };
   }
 
   const rateKey = cacheKeys("driver_rate", driverId);
   const lastUpdate = cache.get<number>(rateKey);
   if (lastUpdate && (now - lastUpdate) < RATE_LIMIT_MS) {
+    recordRejectedRateLimit();
     return { accepted: false, reason: "rate_limited" };
   }
 
@@ -87,30 +183,35 @@ function processSinglePoint(
   const prev = cache.get<CachedDriverLocation>(locKey);
 
   if (prev && isImpossibleJump(prev, { lat, lng, timestamp })) {
+    recordRejectedValidation();
     return { accepted: false, reason: "impossible_jump" };
   }
 
   const entry: CachedDriverLocation = { driverId, lat, lng, timestamp, heading, speed };
   cache.set(locKey, entry, CACHE_TTL.DRIVER_LOCATION);
   cache.set(rateKey, now, CACHE_TTL.DRIVER_RATE_LIMIT);
+  recordAccepted();
 
   return { accepted: true };
 }
 
 function processBatchPoints(
   driverId: number,
-  points: Array<{ lat: number; lng: number; timestamp: number; heading?: number; speed?: number }>,
-): Array<{ accepted: boolean; reason?: string }> {
+  points: NormalizedPoint[],
+): Array<{ accepted: boolean; reason?: string; historical?: boolean }> {
   const now = Date.now();
   const sorted = [...points].sort((a, b) => a.timestamp - b.timestamp);
-  const results: Array<{ accepted: boolean; reason?: string }> = [];
+  const results: Array<{ accepted: boolean; reason?: string; historical?: boolean }> = [];
 
   const locKey = cacheKeys("driver_location", driverId);
   let lastValid = cache.get<CachedDriverLocation>(locKey);
-  let latestAccepted: { lat: number; lng: number; timestamp: number; heading?: number; speed?: number } | null = null;
+  let latestAccepted: NormalizedPoint | null = null;
 
   for (const point of sorted) {
-    if (Math.abs(now - point.timestamp) > MAX_BATCH_STALE_S * 1000) {
+    const age = Math.abs(now - point.timestamp);
+
+    if (age > MAX_BATCH_STALE_S * 1000) {
+      recordRejectedValidation();
       results.push({ accepted: false, reason: "stale_timestamp" });
       continue;
     }
@@ -119,13 +220,16 @@ function processBatchPoints(
       { lat: lastValid.lat, lng: lastValid.lng, timestamp: lastValid.timestamp },
       { lat: point.lat, lng: point.lng, timestamp: point.timestamp }
     )) {
+      recordRejectedValidation();
       results.push({ accepted: false, reason: "impossible_jump" });
       continue;
     }
 
-    results.push({ accepted: true });
+    const isHistorical = age > MAX_STALE_S * 1000;
+    results.push({ accepted: true, historical: isHistorical || undefined });
     lastValid = { driverId, lat: point.lat, lng: point.lng, timestamp: point.timestamp, heading: point.heading, speed: point.speed };
     latestAccepted = point;
+    recordAccepted();
   }
 
   if (latestAccepted) {
@@ -161,6 +265,7 @@ async function maybePersistToDb(driverId: number, lat: number, lng: number): Pro
   } as any);
 
   cache.set(persistKey, now, 120_000);
+  recordDbWrite();
   return true;
 }
 
@@ -189,6 +294,7 @@ export function persistOnStatusEvent(driverId: number, lat: number, lng: number)
     lastSeenAt: new Date(),
   } as any).then(() => {
     cache.set(persistKey, Date.now(), 120_000);
+    recordDbWrite();
   }).catch((err: any) => {
     console.warn(`[LOCATION-INGEST] Status event persist error for driver ${driverId}: ${err.message}`);
   });
@@ -199,27 +305,68 @@ export function getDriverLocationFromCache(driverId: number): CachedDriverLocati
   return cache.get<CachedDriverLocation>(key);
 }
 
+export interface GpsStaleInfo {
+  gps_stale: boolean;
+  stale_seconds: number | null;
+  stale_reason?: string;
+  hide_eta: boolean;
+}
+
+export function getGpsStaleInfo(driverId: number): GpsStaleInfo {
+  const loc = getDriverLocationFromCache(driverId);
+  if (!loc) {
+    return { gps_stale: true, stale_seconds: null, stale_reason: "no_gps_data", hide_eta: true };
+  }
+
+  const ageMs = Date.now() - loc.timestamp;
+
+  if (ageMs > GPS_ETA_HIDE_THRESHOLD_MS) {
+    return {
+      gps_stale: true,
+      stale_seconds: Math.round(ageMs / 1000),
+      stale_reason: "last_update_over_5min",
+      hide_eta: true,
+    };
+  }
+
+  if (ageMs > GPS_STALE_THRESHOLD_MS) {
+    return {
+      gps_stale: true,
+      stale_seconds: Math.round(ageMs / 1000),
+      stale_reason: "last_update_over_2min",
+      hide_eta: false,
+    };
+  }
+
+  return { gps_stale: false, stale_seconds: Math.round(ageMs / 1000), hide_eta: false };
+}
+
 export function registerDriverLocationRoutes(app: Express): void {
   app.post("/api/driver/location",
     authMiddleware,
     requireRole("DRIVER", "ADMIN", "DISPATCH", "SUPER_ADMIN"),
     async (req: AuthRequest, res) => {
       try {
+        recordRequest();
+
         const parsed = locationRequestSchema.safeParse(req.body);
         if (!parsed.success) {
+          recordRejectedValidation();
           return res.status(400).json({ ok: false, message: "Invalid request body", errors: parsed.error.issues.slice(0, 3) });
         }
 
         const data = parsed.data;
         const isBatch = "points" in data;
-        const points = isBatch ? data.points : [data];
+        const rawPoints = isBatch ? data.points : [data];
 
-        if (points.length === 0) {
+        if (rawPoints.length === 0) {
           return res.status(400).json({ ok: false, message: "No points provided" });
         }
 
-        const driverId = points[0].driver_id;
-        const allSameDriver = points.every(p => p.driver_id === driverId);
+        const points = rawPoints.map(normalizePoint);
+
+        const driverId = points[0].driverId;
+        const allSameDriver = points.every(p => p.driverId === driverId);
         if (!allSameDriver) {
           return res.status(400).json({ ok: false, message: "All points in a batch must be for the same driver" });
         }
@@ -234,27 +381,33 @@ export function registerDriverLocationRoutes(app: Express): void {
         }
 
         if (checkSpam(driverId)) {
-          return res.status(429).json({ ok: false, message: "Too many requests", reason: "spam_detected" });
+          recordRejectedRateLimit();
+          return res.status(429).json({ ok: false, message: "Too many requests — rate limited", reason: "spam_detected" });
         }
 
-        const pointsWithTs = points.map(p => ({
-          ...p,
-          timestamp: p.timestamp || Date.now(),
-        }));
+        let results: Array<{ accepted: boolean; reason?: string; historical?: boolean }>;
 
-        let results: Array<{ accepted: boolean; reason?: string }>;
-
-        if (isBatch && pointsWithTs.length > 1) {
-          results = processBatchPoints(driverId, pointsWithTs);
+        if (isBatch && points.length > 1) {
+          results = processBatchPoints(driverId, points);
         } else {
-          const p = pointsWithTs[0];
-          results = [processSinglePoint(driverId, p.lat, p.lng, p.timestamp, p.heading, p.speed)];
+          const p = points[0];
+          const r = processSinglePoint(p);
+          results = [r];
+
+          if (!r.accepted && r.reason === "rate_limited") {
+            return res.status(429).json({
+              ok: false,
+              message: "Rate limited — max 1 update per 2 seconds",
+              reason: "rate_limited",
+              retry_after_ms: RATE_LIMIT_MS,
+            });
+          }
         }
 
         const anyAccepted = results.some(r => r.accepted);
         if (anyAccepted) {
           const lastAcceptedIdx = results.reduce((best, r, i) => r.accepted ? i : best, -1);
-          const lastPoint = pointsWithTs[isBatch ? lastAcceptedIdx : 0];
+          const lastPoint = points[isBatch ? lastAcceptedIdx : 0];
 
           await maybePersistToDb(driverId, lastPoint.lat, lastPoint.lng);
           broadcastDriverLocation(driverId, lastPoint.lat, lastPoint.lng);
@@ -274,6 +427,14 @@ export function registerDriverLocationRoutes(app: Express): void {
         console.error(`[LOCATION-INGEST] Error: ${err.message}`);
         res.status(500).json({ ok: false, message: "Internal error" });
       }
+    }
+  );
+
+  app.get("/api/ops/gps-metrics",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN"),
+    (_req, res) => {
+      res.json({ ok: true, ...getIngestMetrics() });
     }
   );
 }
