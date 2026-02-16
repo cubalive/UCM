@@ -1,4 +1,6 @@
-import { getCredentials, TOKEN_KEY, DRIVER_TOKEN_KEY, APP_TOKEN_KEY } from "@/lib/hostDetection";
+import { isDriverHost, DRIVER_TOKEN_KEY, APP_TOKEN_KEY } from "@/lib/hostDetection";
+
+const ACTIVE_TOKEN_KEY = isDriverHost ? DRIVER_TOKEN_KEY : APP_TOKEN_KEY;
 
 export function getStoredCityId(): string | null {
   try {
@@ -10,17 +12,7 @@ export function getStoredCityId(): string | null {
 
 export function getStoredToken(): string | null {
   try {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (token) return token;
-    if (TOKEN_KEY === DRIVER_TOKEN_KEY) {
-      const legacy = localStorage.getItem(APP_TOKEN_KEY);
-      if (legacy) {
-        localStorage.setItem(DRIVER_TOKEN_KEY, legacy);
-        localStorage.removeItem(APP_TOKEN_KEY);
-        return legacy;
-      }
-    }
-    return null;
+    return localStorage.getItem(ACTIVE_TOKEN_KEY);
   } catch {
     return null;
   }
@@ -64,9 +56,7 @@ function buildHeaders(token: string | null, extra?: Record<string, string>): Rec
 
 function clearTokenAndRedirect() {
   try {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(DRIVER_TOKEN_KEY);
-    localStorage.removeItem(APP_TOKEN_KEY);
+    localStorage.removeItem(ACTIVE_TOKEN_KEY);
   } catch {}
   if (window.location.pathname !== "/login") {
     window.location.href = "/login";
@@ -82,8 +72,9 @@ export async function apiFetch(
   if (options?.body) extraHeaders["Content-Type"] = "application/json";
 
   const headers = buildHeaders(token, extraHeaders);
+  const credentials: RequestCredentials = isDriverHost ? "omit" : "include";
 
-  const res = await fetch(url, { ...options, headers, credentials: getCredentials() });
+  const res = await fetch(url, { ...options, headers, credentials });
   if (!res.ok) {
     if (res.status === 401) {
       const err = await res.json().catch(() => ({ message: res.statusText }));

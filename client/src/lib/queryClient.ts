@@ -1,6 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { getStoredToken, getStoredCityId } from "./api";
-import { getCredentials } from "./hostDetection";
+import { isDriverHost } from "./hostDetection";
 
 function getDeviceFingerprint(): string | null {
   try {
@@ -26,6 +26,10 @@ function getDeviceFingerprint(): string | null {
   } catch {
     return null;
   }
+}
+
+function resolveCredentials(): RequestCredentials {
+  return isDriverHost ? "omit" : "include";
 }
 
 function buildDefaultHeaders(): Record<string, string> {
@@ -66,7 +70,7 @@ export async function apiRequest(
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
-    credentials: getCredentials(),
+    credentials: resolveCredentials(),
   });
 
   await throwIfResNotOk(res);
@@ -80,7 +84,7 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
-      credentials: getCredentials(),
+      credentials: resolveCredentials(),
       headers: buildDefaultHeaders(),
     });
 
