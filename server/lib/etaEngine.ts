@@ -1,8 +1,8 @@
 import { storage } from "../storage";
-import { etaMinutes } from "./googleMaps";
 import { autoNotifyPatient } from "./dispatchAutoSms";
-import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
-const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
+import { getThrottledEta } from "./etaThrottle";
+import { getDriverLocationFromCache } from "./driverLocationIngest";
+import { broadcastToTrip } from "./realtime";
 
 const ETA_INTERVAL_MS = 120_000;
 const TEN_MIN_THRESHOLD = 10;
@@ -12,7 +12,6 @@ let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
 async function recalculateActiveETAs() {
-  if (!GOOGLE_MAPS_KEY) return;
   if (running) {
     console.log("[ETA-ENGINE] Skipping cycle — previous cycle still running");
     return;
@@ -27,25 +26,32 @@ async function recalculateActiveETAs() {
       try {
         if (!trip.driverId) continue;
 
-        const driver = await storage.getDriver(trip.driverId);
-        if (!driver) continue;
-        if (!driver.lastLat || !driver.lastLng) continue;
-
         const toDropoff = ["PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"].includes(trip.status);
         const destLat = toDropoff ? trip.dropoffLat : trip.pickupLat;
         const destLng = toDropoff ? trip.dropoffLng : trip.pickupLng;
         if (!destLat || !destLng) continue;
 
-        const eta = await etaMinutes(
-          { lat: driver.lastLat, lng: driver.lastLng },
-          { lat: destLat, lng: destLng }
-        );
+        const cachedLoc = getDriverLocationFromCache(trip.driverId);
+
+        if (!cachedLoc) {
+          const driver = await storage.getDriver(trip.driverId);
+          if (!driver || !driver.lastLat || !driver.lastLng) continue;
+        }
+
+        const eta = await getThrottledEta(trip.driverId, { lat: destLat, lng: destLng }, trip.id);
+
+        if (!eta) continue;
 
         await storage.updateTrip(trip.id, {
           lastEtaMinutes: eta.minutes,
           distanceMiles: eta.distanceMiles.toString(),
           lastEtaUpdatedAt: new Date(),
         } as any);
+
+        broadcastToTrip(trip.id, {
+          type: "eta_update",
+          data: { minutes: eta.minutes, distanceMiles: eta.distanceMiles, source: eta.source },
+        });
 
         if (eta.minutes <= TEN_MIN_THRESHOLD) {
           const alreadySent10 = await storage.hasSmsBeenSent(trip.id, "eta_10");
@@ -63,7 +69,7 @@ async function recalculateActiveETAs() {
           }
         }
 
-        console.log(`[ETA-ENGINE] Trip ${trip.id}: ETA ${eta.minutes}min, ${eta.distanceMiles}mi`);
+        console.log(`[ETA-ENGINE] Trip ${trip.id}: ETA ${eta.minutes}min, ${eta.distanceMiles}mi (${eta.source})`);
       } catch (err: any) {
         console.warn(`[ETA-ENGINE] Failed for trip ${trip.id}: ${err.message}`);
       }

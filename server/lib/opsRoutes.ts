@@ -579,8 +579,56 @@ export function registerOpsRoutes(app: Express) {
       const tripsList = await storage.getTripsForCityAndDate(cityId, date);
       const health = computeCityOpsHealth(tripsList, cityId, city.name, date, city.timezone);
 
+      let dbOk = true;
+      try {
+        const { pool } = await import("../db");
+        await pool.query("SELECT 1");
+      } catch {
+        dbOk = false;
+        health.alerts.push({ code: "DB_CONNECTION_ERROR", severity: "critical", title: "Database connection error", count: 1 });
+        health.overall = "red";
+      }
+
+      if (dbOk) {
+        try {
+          const allDrivers = await storage.getDrivers(cityId);
+          const activeDrivers = allDrivers.filter(d => d.active && !d.deletedAt && d.status === "ACTIVE");
+          const now = Date.now();
+          const STALE_GPS_MS = 5 * 60 * 1000;
+          const staleGps = activeDrivers.filter(d => {
+            if (!d.lastSeenAt) return false;
+            if (d.dispatchStatus === "off") return false;
+            return (now - new Date(d.lastSeenAt).getTime()) > STALE_GPS_MS;
+          });
+          if (staleGps.length > 0) {
+            health.alerts.push({
+              code: "STALE_DRIVER_GPS",
+              severity: staleGps.length > 3 ? "critical" : "warning",
+              title: `Drivers with stale GPS (>5 min)`,
+              count: staleGps.length,
+            });
+            if (staleGps.length > 3 && health.overall !== "red") health.overall = "red";
+            else if (health.overall === "green") health.overall = "yellow";
+          }
+        } catch {}
+
+        const { getActiveConnectionCount } = await import("./realtime");
+        const wsConnections = getActiveConnectionCount();
+
+        (health as any).websocket_connections = wsConnections;
+        (health as any).cache_stats = {
+          driver_locations: (await import("./cache")).cache.keys("driver:.*:last_location").length,
+          trip_etas: (await import("./cache")).cache.keys("trip:.*:eta").length,
+        };
+      }
+
       const recentAlerts = await storage.getOpsAlertsByCityAndDate(cityId, date);
       health.lastSmsSentAt = recentAlerts.length > 0 ? recentAlerts[0].sentAt?.toISOString() : null;
+
+      const criticalCount = health.alerts.filter(a => a.severity === "critical").length;
+      const warningCount = health.alerts.filter(a => a.severity === "warning").length;
+      if (criticalCount > 0) health.overall = "red";
+      else if (warningCount > 0 && health.overall === "green") health.overall = "yellow";
 
       res.json(health);
     } catch (err: any) {

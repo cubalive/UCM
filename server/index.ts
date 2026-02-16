@@ -105,6 +105,12 @@ app.use((req, res, next) => {
 
   await registerRoutes(httpServer, app);
 
+  const { initWebSocket } = await import("./lib/realtime");
+  initWebSocket(httpServer);
+
+  const { registerDriverLocationRoutes } = await import("./lib/driverLocationIngest");
+  registerDriverLocationRoutes(app);
+
   const { startEtaEngine } = await import("./lib/etaEngine");
   startEtaEngine();
 

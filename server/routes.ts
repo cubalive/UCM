@@ -3131,6 +3131,20 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
       const updated = await db.update(trips).set(updateData).where(eq(trips.id, id)).returning();
       const updatedTrip = updated[0];
 
+      import("./lib/realtime").then(({ broadcastToTrip }) => {
+        broadcastToTrip(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
+      }).catch(() => {});
+
+      const STATUS_PERSIST_TRIGGERS = ["ARRIVED_PICKUP", "PICKED_UP", "ARRIVED_DROPOFF", "EN_ROUTE_TO_DROPOFF"];
+      if (updatedTrip.driverId && STATUS_PERSIST_TRIGGERS.includes(parsed.data.status)) {
+        import("./lib/driverLocationIngest").then(({ persistOnStatusEvent, getDriverLocationFromCache }) => {
+          const loc = getDriverLocationFromCache(updatedTrip.driverId!);
+          if (loc) {
+            persistOnStatusEvent(updatedTrip.driverId!, loc.lat, loc.lng);
+          }
+        }).catch(() => {});
+      }
+
       if (parsed.data.status === "EN_ROUTE_TO_PICKUP" || parsed.data.status === "IN_PROGRESS") {
         import("./lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
           autoNotifyPatient(id, "arrived");
@@ -5119,7 +5133,15 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
 
       const result = await db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt));
       const enriched = await enrichTripsWithRelations(result);
-      res.json(enriched);
+      const sanitized = enriched.map((t: any) => {
+        const { routePolyline, lastEtaMinutes, distanceMiles, lastEtaUpdatedAt, ...rest } = t;
+        if (rest.driver) {
+          const { lastLat, lastLng, lastLocationAt, ...driverRest } = rest.driver;
+          rest.driver = driverRest;
+        }
+        return rest;
+      });
+      res.json(sanitized);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

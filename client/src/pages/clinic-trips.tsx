@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useTripWs } from "@/hooks/use-trip-ws";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
@@ -360,7 +361,7 @@ function OpsDashboard() {
     queryKey: ["/api/clinic/trips", "completed", "dialysis"],
     queryFn: () => apiFetch("/api/clinic/trips?status=completed&tripType=dialysis", token),
     enabled: !!token,
-    refetchInterval: 30000,
+    refetchInterval: 60000,
   });
 
   useEffect(() => {
@@ -1417,14 +1418,13 @@ function TripsSection() {
     queryKey: ["/api/clinic/trips", tripTab, tripTypeFilter],
     queryFn: () => apiFetch(`/api/clinic/trips?${queryParams.toString()}`, token),
     enabled: !!token,
-    refetchInterval: tripTab === "live" ? 15000 : 30000,
+    refetchInterval: 60000,
   });
 
   const tripDetailQuery = useQuery<any>({
     queryKey: ["/api/clinic/trips", selectedTripId],
     queryFn: () => apiFetch(`/api/clinic/trips/${selectedTripId}`, token),
     enabled: !!token && !!selectedTripId,
-    refetchInterval: 30000,
   });
 
   const patientsQuery = useQuery<any[]>({
@@ -2068,11 +2068,45 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
     return ((window as any).__UCM_MAP__?.[trackingMapKeyRef.current]) as ClinicTrackingMapStore | null;
   }
 
+  const handleWsDriverLocation = useCallback((locData: { lat: number; lng: number }) => {
+    queryClient.setQueryData(["/api/clinic/trips", tripId, "tracking"], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        driver: { ...old.driver, lat: locData.lat, lng: locData.lng, updated_at: new Date().toISOString() },
+      };
+    });
+  }, [tripId]);
+
+  const handleWsStatusChange = useCallback((statusData: { status: string }) => {
+    queryClient.invalidateQueries({ queryKey: ["/api/clinic/trips", tripId, "tracking"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/clinic/trips"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/clinic/active-trips"] });
+  }, [tripId]);
+
+  const handleWsEtaUpdate = useCallback((etaData: { minutes: number; distanceMiles: number }) => {
+    queryClient.setQueryData(["/api/clinic/trips", tripId, "tracking"], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        eta: { ...old.eta, minutes: etaData.minutes, distance_text: `${etaData.distanceMiles} mi`, updated_at: new Date().toISOString() },
+      };
+    });
+  }, [tripId]);
+
+  const { connected: wsConnected } = useTripWs({
+    tripId,
+    token,
+    onDriverLocation: handleWsDriverLocation,
+    onStatusChange: handleWsStatusChange,
+    onEtaUpdate: handleWsEtaUpdate,
+  });
+
   const trackingQuery = useQuery<any>({
     queryKey: ["/api/clinic/trips", tripId, "tracking"],
     queryFn: () => apiFetch(`/api/clinic/trips/${tripId}/tracking`, token),
     enabled: !!token && !!tripId,
-    refetchInterval: 10000,
+    refetchInterval: wsConnected ? false : 10000,
   });
 
   const data = trackingQuery.data;

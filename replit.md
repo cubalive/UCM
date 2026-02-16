@@ -63,6 +63,15 @@ The application follows a client-server architecture.
 
 - **Clinic Cancel/Billing Workflow**: Full cancel-request-to-billing pipeline. Clinic requests cancel (sets `approval_status='cancel_requested'`, computes `cancel_stage` from trip state, defaults `fault_party='clinic'`, `billable=true`). Dispatch reviews in Cancel Requests queue with approval modal: selects `fault_party` (clinic/driver/patient/dispatch/unknown), auto-derives billable (driver/dispatch fault = non-billable), shows cancel fee based on stage (pre_assign=$0, assigned=$25, enroute_pickup=$50, arrived_pickup=$75, picked_up=service started), allows fee override with required note. Approve creates invoice if billable+fee>0. Reject reverts to approved. "Create Return Trip" button for picked_up stage swaps pickup/dropoff and auto-assigns same driver. Trip columns: `billable`, `fault_party`, `cancel_stage`, `parent_trip_id`, `cancel_fee`, `cancel_fee_override`, `cancel_fee_override_note`. Invoice columns: `reason`, `fault_party`, `related_trip_id`. Audit actions: `clinic_cancel_request`, `dispatch_cancel_approve`, `dispatch_cancel_reject`, `CREATE_RETURN_TRIP`.
 
+- **Production Hardening (Realtime & Performance)**:
+    - **WebSocket Server**: `server/lib/realtime.ts` — WS server on `/ws` path, JWT-authenticated connections, trip-scoped channels (`subscribe_trip`/`unsubscribe_trip`). Events: `driver_location` (max 5s), `status_change` (instant), `eta_update` (max 60s). Auto-cleanup on disconnect.
+    - **In-Memory Cache**: `server/lib/cache.ts` — TTL-based cache (swappable to Redis). Keys: `driver:{id}:last_location` (120s TTL), `trip:{id}:driver_last` (120s), `trip:{id}:eta` (60s), `driver:{id}:rate_limit` (5s), `driver:{id}:last_persist` (120s).
+    - **Driver Location Ingest**: `POST /api/driver/location` — Single or batch (up to 50 points). Validations: rate limit (1 per 2s per driver), stale timestamp rejection (>60s), impossible jump detection (>123mph). Cache-first storage, DB persistence only every 60s or on status events (ARRIVED/PICKED_UP/DROPOFF).
+    - **ETA Throttle**: `server/lib/etaThrottle.ts` — Recomputes ETA only if driver moved >300m or 45s since last calc. Google Directions with haversine fallback (25mph estimate). Results cached 60s.
+    - **Polling Reduction**: Clinic trip list polls max 60s (was 15-30s). Trip detail no polling (was 30s). Tracking view falls back to 10s polling only when WebSocket disconnected.
+    - **WebSocket Client Hook**: `client/src/hooks/use-trip-ws.ts` — React hook for trip subscriptions. Auto-reconnect on disconnect. Disables HTTP polling when connected.
+    - **Ops Health Enhanced**: `/api/ops/health` returns GREEN/YELLOW/RED with stale GPS checks (>5min), DB connectivity test, WebSocket connection count, cache stats.
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **Replit DB**: Operational data storage.
