@@ -201,6 +201,33 @@ function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
+function DriverHostUnauthorized() {
+  const { logout } = useAuth();
+  return (
+    <div className="flex items-center justify-center min-h-screen" data-testid="driver-host-unauthorized">
+      <Card className="w-full max-w-md mx-4">
+        <CardHeader className="flex flex-row items-center gap-3">
+          <AlertTriangle className="h-6 w-6 text-destructive flex-shrink-0" />
+          <CardTitle data-testid="text-driver-host-unauthorized-title">Driver Access Only</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground" data-testid="text-driver-host-unauthorized-message">
+            This portal is exclusively for drivers. Your account does not have driver access. Please use the main application instead.
+          </p>
+          <Button
+            onClick={() => logout()}
+            variant="destructive"
+            className="w-full"
+            data-testid="button-driver-host-logout"
+          >
+            Sign Out
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function AuthenticatedApp() {
   const { user, loading, error, retry, mustChangePassword, cityRequired } = useAuth();
 
@@ -226,6 +253,18 @@ function AuthenticatedApp() {
 
   if (mustChangePassword) {
     return <ChangePasswordPage />;
+  }
+
+  if (isDriverHost) {
+    const role = user.role.toUpperCase();
+    if (role !== "DRIVER") {
+      return <DriverHostUnauthorized />;
+    }
+    return (
+      <main className="h-screen w-full overflow-auto">
+        <DriverSubdomainRouter />
+      </main>
+    );
   }
 
   if (cityRequired) {
