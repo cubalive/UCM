@@ -1,0 +1,77 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Add a new Admin tab/page "Metrics" visible to SUPER_ADMIN (and optionally DISPATCH/COMPANY_ADMIN)
+that displays live system metrics from /api/ops/metrics endpoints.
+
+REQUIREMENTS:
+1) Add navigation entry in Admin UI (sidebar/top tabs) named: "Metrics"
+2) Route: /admin/metrics (or /settings/metrics if that matches existing structure)
+3) RBAC: only allow SUPER_ADMIN by default (optionally DISPATCH + COMPANY_ADMIN if already consistent)
+4) UI must be mobile-friendly and fast (no maps, no heavy queries)
+5) Use React Query for fetching, with sensible intervals:
+   - /api/ops/metrics: refetch every 15s
+   - /api/ops/metrics/google: refetch every 30s
+   - /api/ops/health: refetch every 15s
+6) Provide clear error and loading states.
+
+DATA SOURCES:
+- GET /api/ops/health
+- GET /api/ops/metrics
+- GET /api/ops/metrics/google
+- (optional) GET /api/ops/metrics/routes
+
+UI LAYOUT (cards + charts):
+A) Top row “Status Cards”:
+- Overall Health (GREEN/YELLOW/RED)
+- p95 latency (ms)
+- Error rate (last 5 min)
+- Requests/min (last 5 min)
+
+B) Redis / Cache:
+- cache hit rate (%)
+- cache hits vs misses (small chart)
+- redis ok/fail indicator
+
+C) Realtime:
+- tokens issued/min
+- publishes/min by type (location/eta/status)
+- last publish timestamp
+
+D) Google Directions Guard:
+- directions calls/min
+- failures/min
+- breaker ON/OFF + time remaining (if available)
+- “lock contention” count (if available)
+
+CHARTS:
+Use recharts (already installed):
+- LineChart for p95 latency over time (rolling window)
+- BarChart for cache hits/misses
+- LineChart for directions calls/min + failures
+
+IMPLEMENTATION DETAILS:
+1) Create page component:
+   client/src/pages/admin/metrics.tsx (or wherever admin pages live)
+2) Add it to router with RBAC guard.
+3) Create a small hook:
+   useOpsMetrics() that fetches 3 endpoints in parallel and merges for UI.
+4) No secrets should be shown. Only aggregated stats.
+
+VERIFY:
+- Admin can open Metrics tab on mobile and desktop.
+- Non-admin roles get 403/redirect.
+- Page renders within 1s and updates without flicker.
+- No additional load on maps/directions caused by this page.
+
+DO NOT MODIFY:
+shared/permissions.ts unless strictly necessary (prefer existing role checks).
+
+DONE WHEN:
+A visible "Metrics" tab exists in Admin and shows live health/latency/cache/realtime/google breaker stats.
