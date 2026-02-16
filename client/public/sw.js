@@ -1,4 +1,5 @@
-const CACHE_NAME = "ucm-cache-v3";
+const APP_VERSION = "__UCM_BUILD__";
+const CACHE_NAME = `ucm-cache-${APP_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 
 const PRECACHE_URLS = [
@@ -39,7 +40,7 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((key) => key !== CACHE_NAME)
+          .filter((key) => key.startsWith("ucm-cache-") && key !== CACHE_NAME)
           .map((key) => caches.delete(key))
       )
     )
@@ -80,6 +81,15 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(networkFirst(event.request));
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+  if (event.data === "CHECK_VERSION") {
+    event.source?.postMessage({ type: "SW_VERSION", version: APP_VERSION });
+  }
 });
 
 async function staleWhileRevalidate(request) {

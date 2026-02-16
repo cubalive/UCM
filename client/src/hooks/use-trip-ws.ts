@@ -15,15 +15,21 @@ interface UseTripWsOptions {
   onEtaUpdate?: (data: { minutes: number; distanceMiles: number }) => void;
 }
 
+const WS_RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
+const MAX_WS_RECONNECT_ATTEMPTS = 10;
+
 export function useTripWs({ tripId, token, onDriverLocation, onStatusChange, onEtaUpdate }: UseTripWsOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const mountedRef = useRef(true);
   const [connected, setConnected] = useState(false);
   const callbacksRef = useRef({ onDriverLocation, onStatusChange, onEtaUpdate });
   callbacksRef.current = { onDriverLocation, onStatusChange, onEtaUpdate };
 
   const connect = useCallback(() => {
     if (!token || !tripId) return;
+    if (!mountedRef.current) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
@@ -34,7 +40,12 @@ export function useTripWs({ tripId, token, onDriverLocation, onStatusChange, onE
 
       ws.onopen = () => {
         setConnected(true);
-        ws.send(JSON.stringify({ type: "subscribe_trip", tripId }));
+        reconnectAttemptRef.current = 0;
+        try {
+          ws.send(JSON.stringify({ type: "subscribe_trip", tripId }));
+        } catch (e) {
+          console.warn("[UCM] WS send subscribe error:", e);
+        }
       };
 
       ws.onmessage = (event) => {
@@ -51,41 +62,62 @@ export function useTripWs({ tripId, token, onDriverLocation, onStatusChange, onE
               callbacksRef.current.onEtaUpdate?.(msg.data);
               break;
           }
-        } catch {}
+        } catch (e) {
+          console.warn("[UCM] WS message parse error:", e);
+        }
       };
 
       ws.onclose = () => {
         setConnected(false);
         wsRef.current = null;
+        if (!mountedRef.current) return;
+        const attempt = reconnectAttemptRef.current;
+        if (attempt >= MAX_WS_RECONNECT_ATTEMPTS) {
+          console.warn("[UCM] WS max reconnect attempts reached, giving up");
+          return;
+        }
+        const delayIdx = Math.min(attempt, WS_RECONNECT_DELAYS.length - 1);
+        const delay = WS_RECONNECT_DELAYS[delayIdx];
+        reconnectAttemptRef.current = attempt + 1;
         reconnectTimerRef.current = setTimeout(() => {
-          connect();
-        }, 5000);
+          if (mountedRef.current) connect();
+        }, delay);
       };
 
-      ws.onerror = () => {
-        ws.close();
+      ws.onerror = (e) => {
+        console.warn("[UCM] WS error, closing", e);
+        try { ws.close(); } catch {}
       };
-    } catch {}
+    } catch (e) {
+      console.error("[UCM] WS connect() crashed:", e);
+    }
   }, [token, tripId]);
 
   useEffect(() => {
+    mountedRef.current = true;
+    reconnectAttemptRef.current = 0;
     connect();
 
     return () => {
+      mountedRef.current = false;
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
       if (wsRef.current) {
-        wsRef.current.close();
+        try { wsRef.current.close(); } catch {}
         wsRef.current = null;
       }
     };
   }, [connect]);
 
   const sendPing = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "ping" }));
+    try {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "ping" }));
+      }
+    } catch (e) {
+      console.warn("[UCM] WS sendPing error:", e);
     }
   }, []);
 

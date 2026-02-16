@@ -183,106 +183,136 @@ export function useTripRealtime({
   }, [clearReconnectTimer]);
 
   const connect = useCallback(() => {
-    if (!tripId || !authToken) return;
-    if (pausedRef.current) return;
+    try {
+      if (!tripId || !authToken) return;
+      if (pausedRef.current) return;
 
-    removeChannel();
-    clearReconnectTimer();
+      removeChannel();
+      clearReconnectTimer();
 
-    if (!VITE_SUPABASE_URL || !VITE_SUPABASE_ANON_KEY) {
-      setError("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY");
-      return;
-    }
+      if (!VITE_SUPABASE_URL || !VITE_SUPABASE_ANON_KEY) {
+        setError("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY");
+        startPollingFallback();
+        return;
+      }
 
-    const client = getSharedClient();
-    if (!client) {
-      setError("Failed to create Supabase client");
-      return;
-    }
+      const client = getSharedClient();
+      if (!client) {
+        setError("Failed to create Supabase client");
+        startPollingFallback();
+        return;
+      }
 
-    const channelName = `trip:${tripId}`;
-    setDebugInfo((prev) => ({ ...prev, connectionState: "CONNECTING", errorReason: null, channel: channelName }));
+      const channelName = `trip:${tripId}`;
+      setDebugInfo((prev) => ({ ...prev, connectionState: "CONNECTING", errorReason: null, channel: channelName }));
 
-    const channel = client.channel(channelName, {
-      config: {
-        broadcast: { self: true },
-      },
-    });
-
-    channel
-      .on("broadcast", { event: "driver_location" }, (payload) => {
-        if (pausedRef.current) return;
-        const data = payload.payload as TripRealtimeEvent;
-        recordEvent("driver_location");
-
-        if (data.seq != null && data.seq <= lastSeqRef.current) return;
-        if (data.seq != null) lastSeqRef.current = data.seq;
-
-        const now = Date.now();
-        if (now - lastLocationRenderRef.current < LOCATION_RENDER_MS) return;
-        lastLocationRenderRef.current = now;
-        if (data.driverId && data.lat != null && data.lng != null) {
-          callbacksRef.current.onDriverLocation?.({
-            driverId: data.driverId,
-            lat: data.lat,
-            lng: data.lng,
-            ts: data.ts || now,
-          });
-        }
-      })
-      .on("broadcast", { event: "status_change" }, (payload) => {
-        const data = payload.payload as TripRealtimeEvent;
-        recordEvent("status_change");
-        if (data.status) {
-          callbacksRef.current.onStatusChange?.({
-            status: data.status,
-            tripId: data.tripId || tripId,
-          });
-        }
-      })
-      .on("broadcast", { event: "eta_update" }, (payload) => {
-        if (pausedRef.current) return;
-        const data = payload.payload as TripRealtimeEvent;
-        recordEvent("eta_update");
-        const now = Date.now();
-        if (now - lastEtaRenderRef.current < ETA_RENDER_MS) return;
-        lastEtaRenderRef.current = now;
-        if (data.minutes != null && data.distanceMiles != null) {
-          callbacksRef.current.onEtaUpdate?.({
-            minutes: data.minutes,
-            distanceMiles: data.distanceMiles,
-          });
-        }
-      })
-      .on("broadcast", { event: "test_ping" }, (payload) => {
-        const data = payload.payload as TripRealtimeEvent;
-        recordEvent("test_ping");
-        callbacksRef.current.onTestPing?.({
-          ts: data.ts || Date.now(),
-          message: data.message || "ok",
-        });
-      })
-      .subscribe((status, err) => {
-        if (!mountedRef.current) return;
-        if (status === "SUBSCRIBED") {
-          setConnected(true);
-          reconnectAttemptRef.current = 0;
-          clearPollTimer();
-          setDebugInfo((prev) => ({
-            ...prev,
-            connected: true,
-            connectionState: "CONNECTED",
-            errorReason: null,
-          }));
-        } else if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          const reason = status === "CLOSED" ? "Channel closed" : status === "TIMED_OUT" ? "Connection timed out" : (err?.message || "CHANNEL_ERROR");
-          setError(reason);
-          startPollingFallback();
-          scheduleReconnect();
-        }
+      const channel = client.channel(channelName, {
+        config: {
+          broadcast: { self: true },
+        },
       });
 
-    channelRef.current = channel;
+      channel
+        .on("broadcast", { event: "driver_location" }, (payload) => {
+          try {
+            if (pausedRef.current) return;
+            const data = payload.payload as TripRealtimeEvent;
+            recordEvent("driver_location");
+
+            if (data.seq != null && data.seq <= lastSeqRef.current) return;
+            if (data.seq != null) lastSeqRef.current = data.seq;
+
+            const now = Date.now();
+            if (now - lastLocationRenderRef.current < LOCATION_RENDER_MS) return;
+            lastLocationRenderRef.current = now;
+            if (data.driverId && data.lat != null && data.lng != null) {
+              callbacksRef.current.onDriverLocation?.({
+                driverId: data.driverId,
+                lat: data.lat,
+                lng: data.lng,
+                ts: data.ts || now,
+              });
+            }
+          } catch (e) {
+            console.warn("[UCM] Realtime driver_location handler error:", e);
+          }
+        })
+        .on("broadcast", { event: "status_change" }, (payload) => {
+          try {
+            const data = payload.payload as TripRealtimeEvent;
+            recordEvent("status_change");
+            if (data.status) {
+              callbacksRef.current.onStatusChange?.({
+                status: data.status,
+                tripId: data.tripId || tripId,
+              });
+            }
+          } catch (e) {
+            console.warn("[UCM] Realtime status_change handler error:", e);
+          }
+        })
+        .on("broadcast", { event: "eta_update" }, (payload) => {
+          try {
+            if (pausedRef.current) return;
+            const data = payload.payload as TripRealtimeEvent;
+            recordEvent("eta_update");
+            const now = Date.now();
+            if (now - lastEtaRenderRef.current < ETA_RENDER_MS) return;
+            lastEtaRenderRef.current = now;
+            if (data.minutes != null && data.distanceMiles != null) {
+              callbacksRef.current.onEtaUpdate?.({
+                minutes: data.minutes,
+                distanceMiles: data.distanceMiles,
+              });
+            }
+          } catch (e) {
+            console.warn("[UCM] Realtime eta_update handler error:", e);
+          }
+        })
+        .on("broadcast", { event: "test_ping" }, (payload) => {
+          try {
+            const data = payload.payload as TripRealtimeEvent;
+            recordEvent("test_ping");
+            callbacksRef.current.onTestPing?.({
+              ts: data.ts || Date.now(),
+              message: data.message || "ok",
+            });
+          } catch (e) {
+            console.warn("[UCM] Realtime test_ping handler error:", e);
+          }
+        })
+        .subscribe((status, err) => {
+          try {
+            if (!mountedRef.current) return;
+            if (status === "SUBSCRIBED") {
+              setConnected(true);
+              reconnectAttemptRef.current = 0;
+              clearPollTimer();
+              setDebugInfo((prev) => ({
+                ...prev,
+                connected: true,
+                connectionState: "CONNECTED",
+                errorReason: null,
+              }));
+            } else if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+              const reason = status === "CLOSED" ? "Channel closed" : status === "TIMED_OUT" ? "Connection timed out" : (err?.message || "CHANNEL_ERROR");
+              setError(reason);
+              startPollingFallback();
+              scheduleReconnect();
+            }
+          } catch (e) {
+            console.warn("[UCM] Realtime subscribe callback error:", e);
+            startPollingFallback();
+          }
+        });
+
+      channelRef.current = channel;
+    } catch (e) {
+      console.error("[UCM] Realtime connect() crashed:", e);
+      setError(`Connect failed: ${(e as Error).message}`);
+      startPollingFallback();
+      scheduleReconnect();
+    }
   }, [tripId, authToken, removeChannel, clearReconnectTimer, clearPollTimer, recordEvent, setError, startPollingFallback, scheduleReconnect]);
 
   connectRef.current = connect;

@@ -330,19 +330,28 @@ function DriverHostUnauthorized() {
   );
 }
 
+const showDebugDetails = UCM_DEBUG || (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug"));
+
 class DriverErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { hasError: boolean; error: Error | null }
+  { hasError: boolean; error: Error | null; errorInfo: React.ErrorInfo | null; detailsOpen: boolean }
 > {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, errorInfo: null, detailsOpen: false };
   }
   static getDerivedStateFromError(error: Error) {
     return { hasError: true, error };
   }
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("[UCM] DriverErrorBoundary caught:", error.message);
+    console.error("[UCM] Component stack:", errorInfo.componentStack);
+    console.error("[UCM] Stack trace:", error.stack);
+    this.setState({ errorInfo });
+  }
   render() {
     if (this.state.hasError) {
+      const canShowDetails = showDebugDetails || isDriverHost;
       return (
         <div className="flex items-center justify-center min-h-screen" data-testid="driver-error-boundary">
           <Card className="w-full max-w-md mx-4">
@@ -354,10 +363,29 @@ class DriverErrorBoundary extends React.Component<
               <p className="text-sm text-muted-foreground">
                 The driver app encountered an unexpected error. Please reload the page.
               </p>
-              {UCM_DEBUG && this.state.error && (
-                <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-40" data-testid="text-error-detail">
-                  {this.state.error.message}
-                </pre>
+              {canShowDetails && this.state.error && (
+                <div>
+                  <button
+                    onClick={() => this.setState({ detailsOpen: !this.state.detailsOpen })}
+                    className="text-xs text-muted-foreground underline mb-2"
+                    data-testid="button-toggle-error-details"
+                  >
+                    {this.state.detailsOpen ? "Hide error details" : "Show error details"}
+                  </button>
+                  {this.state.detailsOpen && (
+                    <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-60 break-all whitespace-pre-wrap" data-testid="text-error-detail">
+                      {this.state.error.message}
+                      {"\n\n"}
+                      {this.state.error.stack}
+                      {this.state.errorInfo?.componentStack && (
+                        <>
+                          {"\n\nComponent Stack:"}
+                          {this.state.errorInfo.componentStack}
+                        </>
+                      )}
+                    </pre>
+                  )}
+                </div>
               )}
               <Button onClick={() => window.location.reload()} className="w-full" data-testid="button-reload">
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -460,3 +488,12 @@ function App() {
 }
 
 export default App;
+
+if (isDriverHost) {
+  window.onerror = (message, source, lineno, colno, error) => {
+    console.error("[UCM] Global error:", { message, source, lineno, colno, stack: error?.stack });
+  };
+  window.onunhandledrejection = (event: PromiseRejectionEvent) => {
+    console.error("[UCM] Unhandled promise rejection:", event.reason?.message || event.reason, event.reason?.stack);
+  };
+}
