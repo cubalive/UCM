@@ -878,4 +878,60 @@ export function registerOpsRoutes(app: Express) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  app.get("/api/ops/redis-diagnostics", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res) => {
+    try {
+      const { isRedisConnected, setJson, getJson, del, incr, setNx } = await import("./redis");
+      const redisConnected = isRedisConnected();
+
+      const testKey = `diag:test:${Date.now()}`;
+      const rlKey = `diag:rl:${Date.now()}`;
+      const lockKey = `diag:lock:${Date.now()}`;
+
+      let canSetGet = false;
+      const cacheSample: { set: string; get: string; cleanup: string } = { set: "fail", get: "fail", cleanup: "fail" };
+      const rateLimitTest: { firstIncr: number | null; secondIncr: number | null; wouldBeRateLimited: boolean } = { firstIncr: null, secondIncr: null, wouldBeRateLimited: false };
+      const lockTest: { firstLock: boolean | null; secondLock: boolean | null; secondFailed: boolean } = { firstLock: null, secondLock: null, secondFailed: false };
+
+      try {
+        await setJson(testKey, { status: "ok", ts: Date.now() }, 10);
+        cacheSample.set = "ok";
+        const retrieved = await getJson<{ status: string; ts: number }>(testKey);
+        cacheSample.get = retrieved && retrieved.status === "ok" ? "ok" : "fail";
+        canSetGet = cacheSample.set === "ok" && cacheSample.get === "ok";
+        await del(testKey);
+        cacheSample.cleanup = "ok";
+      } catch (err: any) {
+        cacheSample.set = `error: ${err.message}`;
+      }
+
+      try {
+        rateLimitTest.firstIncr = await incr(rlKey, 10);
+        rateLimitTest.secondIncr = await incr(rlKey, 10);
+        rateLimitTest.wouldBeRateLimited = (rateLimitTest.secondIncr ?? 0) > 1;
+        await del(rlKey);
+      } catch (err: any) {
+        rateLimitTest.firstIncr = -1;
+      }
+
+      try {
+        lockTest.firstLock = await setNx(lockKey, "holder-1", 10);
+        lockTest.secondLock = await setNx(lockKey, "holder-2", 10);
+        lockTest.secondFailed = lockTest.firstLock === true && lockTest.secondLock === false;
+        await del(lockKey);
+      } catch (err: any) {
+        lockTest.firstLock = null;
+      }
+
+      res.json({
+        redisConnected,
+        canSetGet,
+        cacheSample,
+        rateLimitTest,
+        lockTest,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 }
