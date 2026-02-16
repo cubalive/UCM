@@ -51,6 +51,63 @@ import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useState as useStateHook } from "react";
+
+const UCM_DEBUG = import.meta.env.VITE_UCM_DEBUG === "true";
+
+function AuthDebugPanel() {
+  const { user, token } = useAuth();
+  const [sessionInfo, setSessionInfo] = useStateHook<{ cookie: boolean; bearer: boolean } | null>(null);
+  const [open, setOpen] = useStateHook(false);
+
+  const checkSession = async () => {
+    try {
+      const res = await fetch("/api/auth/me", {
+        credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const hasCookie = document.cookie.includes("ucm_session") || res.ok;
+      setSessionInfo({
+        cookie: hasCookie,
+        bearer: !!token,
+      });
+    } catch {
+      setSessionInfo({ cookie: false, bearer: !!token });
+    }
+    setOpen(true);
+  };
+
+  if (!UCM_DEBUG) return null;
+
+  return (
+    <div className="fixed bottom-2 right-2 z-[9999]" data-testid="debug-panel">
+      <button
+        onClick={checkSession}
+        className="text-[10px] px-2 py-1 rounded bg-muted text-muted-foreground border opacity-60 hover:opacity-100"
+        data-testid="button-debug-toggle"
+      >
+        DBG
+      </button>
+      {open && sessionInfo && (
+        <div className="absolute bottom-8 right-0 bg-card border rounded p-2 text-[11px] space-y-1 min-w-[180px] shadow-md">
+          <div data-testid="text-debug-user">User: {user?.email || "none"}</div>
+          <div data-testid="text-debug-role">Role: {user?.role || "none"}</div>
+          <div data-testid="text-debug-auth-mode">Auth: {sessionInfo.bearer ? "Bearer" : sessionInfo.cookie ? "Cookie" : "None"}</div>
+          <div data-testid="text-debug-bearer">Bearer: {sessionInfo.bearer ? "yes" : "no"}</div>
+          <div data-testid="text-debug-cookie">Cookie present: {sessionInfo.cookie ? "yes" : "no"}</div>
+          <div data-testid="text-debug-host">Host: {window.location.host}</div>
+          <button
+            onClick={() => setOpen(false)}
+            className="text-[10px] text-muted-foreground underline"
+            data-testid="button-debug-close"
+          >
+            close
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ProtectedRoute({ resource, component: Component }: { resource: Resource; component: React.ComponentType }) {
   const { user } = useAuth();
@@ -263,6 +320,7 @@ function AuthenticatedApp() {
     return (
       <main className="h-screen w-full overflow-auto">
         <DriverSubdomainRouter />
+        <AuthDebugPanel />
       </main>
     );
   }
@@ -287,6 +345,7 @@ function AuthenticatedApp() {
           </main>
         </div>
       </div>
+      <AuthDebugPanel />
     </SidebarProvider>
   );
 }

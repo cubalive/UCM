@@ -6,6 +6,29 @@ import { users, userCityAccess, sessionRevocations } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-change-me";
+const IS_PROD = process.env.NODE_ENV === "production";
+const UCM_COOKIE = "ucm_session";
+
+export function setAuthCookie(res: Response, token: string): void {
+  res.cookie(UCM_COOKIE, token, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: IS_PROD ? "none" : "lax",
+    domain: IS_PROD ? ".unitedcaremobility.com" : undefined,
+    maxAge: 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+}
+
+export function clearAuthCookie(res: Response): void {
+  res.clearCookie(UCM_COOKIE, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: IS_PROD ? "none" : "lax",
+    domain: IS_PROD ? ".unitedcaremobility.com" : undefined,
+    path: "/",
+  });
+}
 
 export interface AuthPayload {
   userId: number;
@@ -67,12 +90,19 @@ export function invalidateRevocationCache(userId: number): void {
 
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  let token: string | undefined;
+
+  if (header?.startsWith("Bearer ")) {
+    token = header.slice(7);
+  } else if (req.cookies?.[UCM_COOKIE]) {
+    token = req.cookies[UCM_COOKIE];
+  }
+
+  if (!token) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
   try {
-    const token = header.slice(7);
     const payload = verifyToken(token);
     req.user = payload;
 

@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import crypto from "crypto";
+import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -7,6 +8,13 @@ import { recordRequest as recordReqMetric } from "./lib/requestMetrics";
 
 const app = express();
 const httpServer = createServer(app);
+
+const IS_PROD = process.env.NODE_ENV === "production";
+if (IS_PROD) {
+  app.set("trust proxy", 1);
+}
+
+app.use(cookieParser());
 
 declare module "http" {
   interface IncomingMessage {
@@ -57,7 +65,7 @@ app.use("/api", (req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Stripe-Signature");
-    res.setHeader("Access-Control-Allow-Credentials", "false");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Max-Age", "86400");
   } else if (origin) {
     console.warn(`[CORS] Blocked origin="${origin}" path="${req.path}" method="${req.method}"`);

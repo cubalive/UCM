@@ -125,8 +125,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     try {
       const [authRes, meRes] = await Promise.all([
-        fetch("/api/auth/me", { headers: { Authorization: `Bearer ${t}` } }),
-        fetch("/api/me", { headers: { Authorization: `Bearer ${t}` } }),
+        fetch("/api/auth/me", { headers: { Authorization: `Bearer ${t}` }, credentials: "include" }),
+        fetch("/api/me", { headers: { Authorization: `Bearer ${t}` }, credentials: "include" }),
       ]);
 
       if (!authRes.ok) throw new Error("Session expired. Please log in again.");
@@ -165,7 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       fetchUser(token);
     } else if (IS_DEV && devLoginAttempts < 2 && !devBypassed) {
       setLoading(true);
-      fetch("/api/auth/dev-session")
+      fetch("/api/auth/dev-session", { credentials: "include" })
         .then((res) => {
           if (!res.ok) throw new Error("Dev session failed");
           return res.json();
@@ -213,6 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      credentials: "include",
     });
     if (!res.ok) {
       const err = await res.json();
@@ -234,6 +235,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const meRes = await fetch("/api/me", {
         headers: { Authorization: `Bearer ${data.token}` },
+        credentials: "include",
       });
       if (meRes.ok) {
         setMeData(await meRes.json());
@@ -247,6 +249,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await fetch("/api/auth/driver-logout", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          credentials: "include",
+        });
+      } catch {}
+    } else {
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          credentials: "include",
         });
       } catch {}
     }

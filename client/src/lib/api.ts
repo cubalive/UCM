@@ -60,7 +60,7 @@ export async function apiFetch(
 
   const headers = buildHeaders(token, extraHeaders);
 
-  const res = await fetch(url, { ...options, headers });
+  const res = await fetch(url, { ...options, headers, credentials: "include" });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
     if (err.code === "SESSION_REVOKED") {

@@ -39,6 +39,7 @@ export default function LoginPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
+      credentials: "include",
     })
       .then(async (res) => {
         const data = await res.json();
@@ -46,7 +47,8 @@ export default function LoginPage() {
           throw new Error(data.message || "Login link failed");
         }
         localStorage.setItem("ucm_token", data.token);
-        window.location.href = "/";
+        const { isDriverHost } = await import("@/lib/hostDetection");
+        window.location.href = isDriverHost ? "/driver" : "/";
       })
       .catch((err: any) => {
         setTokenError(err.message || "Login link failed");
@@ -83,6 +85,7 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: forgotEmail }),
+        credentials: "include",
       });
       const data = await res.json();
       if (!res.ok) {

@@ -16,7 +16,7 @@ The application follows a client-server architecture.
 - **Admin Dashboards**: Comprehensive dashboards for operational oversight, financial metrics, and automation health.
 
 **Technical Implementations & Feature Specifications:**
-- **Authentication**: JWT-based with `bcryptjs` for password hashing and Magic Link Login via email.
+- **Authentication**: JWT-based with `bcryptjs` for password hashing and Magic Link Login via email. Dual-auth: Bearer token (primary) + httpOnly session cookie fallback (`ucm_session`) for Safari ITP compatibility. Cookie set on login/token-login, domain `.unitedcaremobility.com` in production (`Secure; SameSite=None; HttpOnly`). CORS `credentials: true` for all allowed origins.
 - **Authorization**: Role-Based Access Control (RBAC) with roles like SUPER_ADMIN, ADMIN, DISPATCH, DRIVER, VIEWER, COMPANY_ADMIN, CLINIC_USER.
 - **Data Management**: PostgreSQL with Drizzle ORM; multi-city data segregation; public ID system (e.g., `01UCM000001`).
 - **Dispatch Engine**: Automated driver-vehicle and trip assignment, real-time tracking, ETA calculation, and safety rule enforcement.

@@ -2,7 +2,7 @@ import type { Express } from "express";
 import PDFDocument from "pdfkit";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, invalidateRevocationCache, type AuthRequest } from "./auth";
+import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, invalidateRevocationCache, setAuthCookie, clearAuthCookie, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
 import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens } from "@shared/schema";
 import { registerPushToken, unregisterPushToken, sendPushToDriver, isPushEnabled } from "./lib/push";
@@ -203,6 +203,8 @@ export async function registerRoutes(
         cityId: null,
       });
 
+      setAuthCookie(res, token);
+
       res.json({
         token,
         user: { ...safeUser, cityAccess },
@@ -232,6 +234,7 @@ export async function registerRoutes(
           ? allCities
           : allCities.filter((c) => cityAccess.includes(c.id));
         const { password, ...safeUser } = user;
+        setAuthCookie(res, token);
         res.json({
           token,
           user: { ...safeUser, cityAccess },
@@ -1665,16 +1668,25 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/auth/logout", (_req, res) => {
+    clearAuthCookie(res);
+    res.json({ ok: true });
+  });
+
   app.post("/api/auth/driver-logout", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
-      if (!user?.driverId) return res.json({ ok: true });
+      if (!user?.driverId) {
+        clearAuthCookie(res);
+        return res.json({ ok: true });
+      }
       await db.update(drivers).set({
         dispatchStatus: "off",
         lastLat: null,
         lastLng: null,
         lastSeenAt: null,
       }).where(eq(drivers.id, user.driverId));
+      clearAuthCookie(res);
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -4877,6 +4889,8 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         details: `User ${user.email} logged in via magic link`,
         cityId: null,
       });
+
+      setAuthCookie(res, jwtToken);
 
       res.json({
         token: jwtToken,
