@@ -58,23 +58,26 @@ const UCM_DEBUG = import.meta.env.VITE_UCM_DEBUG === "true";
 
 function AuthDebugPanel() {
   const { user, token } = useAuth();
-  const [sessionInfo, setSessionInfo] = useStateHook<{ cookie: boolean; bearer: boolean } | null>(null);
+  const [sessionInfo, setSessionInfo] = useStateHook<{ cookie: boolean; bearer: boolean; status: number; response: string } | null>(null);
   const [open, setOpen] = useStateHook(false);
 
   const checkSession = async () => {
     try {
-      const { getCredentials: getCreds } = await import("@/lib/hostDetection");
-      const res = await fetch("/api/auth/me", {
-        credentials: getCreds(),
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const hasCookie = document.cookie.includes("ucm_session") || res.ok;
+      const { getCredentials: getCreds, isDriverHost: isDrv } = await import("@/lib/hostDetection");
+      const creds = isDrv ? "omit" as RequestCredentials : getCreds();
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/me", { credentials: creds, headers });
+      const body = await res.text();
+      const hasCookie = !isDrv && document.cookie.includes("ucm_session");
       setSessionInfo({
         cookie: hasCookie,
         bearer: !!token,
+        status: res.status,
+        response: body.slice(0, 200),
       });
     } catch {
-      setSessionInfo({ cookie: false, bearer: !!token });
+      setSessionInfo({ cookie: false, bearer: !!token, status: 0, response: "fetch failed" });
     }
     setOpen(true);
   };
@@ -91,12 +94,14 @@ function AuthDebugPanel() {
         DBG
       </button>
       {open && sessionInfo && (
-        <div className="absolute bottom-8 right-0 bg-card border rounded p-2 text-[11px] space-y-1 min-w-[180px] shadow-md">
+        <div className="absolute bottom-8 right-0 bg-card border rounded p-2 text-[11px] space-y-1 min-w-[220px] shadow-md">
           <div data-testid="text-debug-user">User: {user?.email || "none"}</div>
           <div data-testid="text-debug-role">Role: {user?.role || "none"}</div>
           <div data-testid="text-debug-auth-mode">Auth: {sessionInfo.bearer ? "Bearer" : sessionInfo.cookie ? "Cookie" : "None"}</div>
-          <div data-testid="text-debug-bearer">Bearer: {sessionInfo.bearer ? "yes" : "no"}</div>
-          <div data-testid="text-debug-cookie">Cookie present: {sessionInfo.cookie ? "yes" : "no"}</div>
+          <div data-testid="text-debug-bearer">Token present: {sessionInfo.bearer ? "yes" : "no"}</div>
+          <div data-testid="text-debug-cookie">Cookie: {sessionInfo.cookie ? "yes" : "no"}</div>
+          <div data-testid="text-debug-status">Status: {sessionInfo.status}</div>
+          <div data-testid="text-debug-response" className="break-all max-h-16 overflow-auto">{sessionInfo.response}</div>
           <div data-testid="text-debug-host">Host: {window.location.host}</div>
           <button
             onClick={() => setOpen(false)}

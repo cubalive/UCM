@@ -216,6 +216,77 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/auth/login-jwt", async (req, res) => {
+    try {
+      const parsed = loginSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid email or password format" });
+      }
+
+      const normalizedEmail = parsed.data.email.trim().toLowerCase();
+      const user = await storage.getUserByEmail(normalizedEmail);
+      if (!user) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      const valid = await comparePassword(parsed.data.password, user.password);
+      if (!valid) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      if (!user.active) {
+        return res.status(403).json({ message: "Account disabled" });
+      }
+
+      if (user.role === "DRIVER" && user.driverId && process.env.DRIVER_DEVICE_BINDING === "true") {
+        const deviceHash = req.headers["x-ucm-device"] as string;
+        if (deviceHash) {
+          const existing = await db.select().from(driverDevices).where(eq(driverDevices.driverId, user.driverId));
+          const match = existing.find(d => d.deviceFingerprintHash === deviceHash);
+          if (match) {
+            await db.update(driverDevices).set({ lastSeenAt: new Date() }).where(eq(driverDevices.id, match.id));
+          } else if (existing.length >= 2) {
+            return res.status(403).json({ message: "Maximum devices reached. Contact dispatch to remove a device.", code: "MAX_DEVICES" });
+          } else {
+            await db.insert(driverDevices).values({
+              driverId: user.driverId,
+              companyId: user.companyId || null,
+              deviceFingerprintHash: deviceHash,
+              deviceLabel: req.headers["x-ucm-device-label"] as string || null,
+            });
+          }
+        }
+      }
+
+      const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null });
+      const cityAccess = await storage.getUserCityAccess(user.id);
+      const allCities = await storage.getCities();
+      const accessibleCities = user.role === "SUPER_ADMIN"
+        ? allCities
+        : allCities.filter((c) => cityAccess.includes(c.id));
+
+      const { password, ...safeUser } = user;
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "LOGIN",
+        entity: "user",
+        entityId: user.id,
+        details: `User ${user.email} logged in via JWT`,
+        cityId: null,
+      });
+
+      res.json({
+        token,
+        user: { ...safeUser, cityAccess },
+        cities: accessibleCities,
+        mustChangePassword: user.mustChangePassword || false,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   if (process.env.NODE_ENV === "development") {
     app.get("/api/auth/dev-session", async (_req, res) => {
       try {

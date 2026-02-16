@@ -125,12 +125,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setError(null);
     try {
+      const creds = getCredentials();
       const authRes = await fetch("/api/auth/me", {
         headers: { Authorization: `Bearer ${t}` },
-        credentials: getCredentials(),
+        credentials: creds,
       });
 
-      if (!authRes.ok) throw new Error("Session expired. Please log in again.");
+      if (!authRes.ok) {
+        if (authRes.status === 401 || authRes.status === 403) {
+          localStorage.removeItem(TOKEN_KEY);
+          setToken(null);
+          setUser(null);
+          setMeData(null);
+          setLoading(false);
+          return;
+        }
+        throw new Error("Session expired. Please log in again.");
+      }
 
       const data = await authRes.json();
 
@@ -147,7 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const meRes = await fetch("/api/me", {
           headers: { Authorization: `Bearer ${t}` },
-          credentials: getCredentials(),
+          credentials: creds,
         });
         if (meRes.ok) {
           setMeData(await meRes.json());
@@ -213,11 +224,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     setError(null);
-    const res = await fetch("/api/auth/login", {
+    const loginUrl = isDriverHost ? "/api/auth/login-jwt" : "/api/auth/login";
+    const creds = getCredentials();
+    const res = await fetch(loginUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
-      credentials: getCredentials(),
+      credentials: creds,
     });
     if (!res.ok) {
       const err = await res.json();
@@ -239,7 +252,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const meRes = await fetch("/api/me", {
         headers: { Authorization: `Bearer ${data.token}` },
-        credentials: getCredentials(),
+        credentials: creds,
       });
       if (meRes.ok) {
         setMeData(await meRes.json());
