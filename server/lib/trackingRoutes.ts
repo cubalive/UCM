@@ -63,38 +63,36 @@ export function registerTrackingRoutes(app: Express) {
           return res.json({ ok: false, message: "Pickup coordinates unavailable" });
         }
 
-        if (!GOOGLE_MAPS_KEY) {
+        try {
+          const { getThrottledEta } = await import("./etaThrottle");
+          const eta = await getThrottledEta(trip.driverId!, { lat: trip.pickupLat, lng: trip.pickupLng }, trip.id);
+
+          if (eta) {
+            await storage.updateTrip(trip.id, {
+              lastEtaMinutes: eta.minutes,
+              distanceMiles: eta.distanceMiles.toString(),
+              lastEtaUpdatedAt: new Date(),
+            } as any);
+
+            return res.json({
+              ok: true,
+              eta_minutes: eta.minutes,
+              distance_text: `${eta.distanceMiles} mi`,
+              updated_at: new Date().toISOString(),
+              source: eta.source,
+            });
+          }
+
           if (trip.lastEtaMinutes != null) {
             return res.json({
               ok: true,
               eta_minutes: trip.lastEtaMinutes,
               distance_text: trip.distanceMiles ? `${trip.distanceMiles} mi` : null,
-              updated_at: trip.lastEtaUpdatedAt?.toISOString() || new Date().toISOString(),
+              updated_at: trip.lastEtaUpdatedAt?.toISOString() || null,
               source: "cached",
             });
           }
-          return res.json({ ok: false, message: "Maps API not configured" });
-        }
-
-        try {
-          const eta = await etaMinutes(
-            { lat: driver.lastLat, lng: driver.lastLng },
-            { lat: trip.pickupLat, lng: trip.pickupLng }
-          );
-
-          await storage.updateTrip(trip.id, {
-            lastEtaMinutes: eta.minutes,
-            distanceMiles: eta.distanceMiles.toString(),
-            lastEtaUpdatedAt: new Date(),
-          } as any);
-
-          return res.json({
-            ok: true,
-            eta_minutes: eta.minutes,
-            distance_text: `${eta.distanceMiles} mi`,
-            updated_at: new Date().toISOString(),
-            source: "live",
-          });
+          return res.json({ ok: false, message: "Could not calculate ETA" });
         } catch (etaErr: any) {
           if (trip.lastEtaMinutes != null) {
             return res.json({
@@ -375,10 +373,18 @@ export function registerTrackingRoutes(app: Express) {
       if (trip.driverId) {
         const driver = await storage.getDriver(trip.driverId);
         if (driver) {
+          let driverLat = driver.lastLat;
+          let driverLng = driver.lastLng;
+          try {
+            const { getDriverLocationFromCache } = await import("./driverLocationIngest");
+            const cached = getDriverLocationFromCache(driver.id);
+            if (cached) { driverLat = cached.lat; driverLng = cached.lng; }
+          } catch {}
+
           driverData = {
             name: `${driver.firstName} ${driver.lastName}`,
-            lat: driver.lastLat,
-            lng: driver.lastLng,
+            lat: driverLat,
+            lng: driverLng,
             updated_at: driver.lastSeenAt ? driver.lastSeenAt.toISOString() : null,
           };
 
@@ -388,21 +394,17 @@ export function registerTrackingRoutes(app: Express) {
               distance_text: trip.distanceMiles ? `${trip.distanceMiles} mi` : null,
               updated_at: trip.lastEtaUpdatedAt ? trip.lastEtaUpdatedAt.toISOString() : null,
             };
-          } else if (
-            GOOGLE_MAPS_KEY &&
-            driver.lastLat && driver.lastLng &&
-            trip.pickupLat && trip.pickupLng
-          ) {
+          } else if (trip.pickupLat && trip.pickupLng) {
             try {
-              const eta = await etaMinutes(
-                { lat: driver.lastLat, lng: driver.lastLng },
-                { lat: trip.pickupLat, lng: trip.pickupLng }
-              );
-              etaData = {
-                minutes: eta.minutes,
-                distance_text: `${eta.distanceMiles} mi`,
-                updated_at: new Date().toISOString(),
-              };
+              const { getThrottledEta } = await import("./etaThrottle");
+              const eta = await getThrottledEta(trip.driverId!, { lat: trip.pickupLat, lng: trip.pickupLng }, trip.id);
+              if (eta) {
+                etaData = {
+                  minutes: eta.minutes,
+                  distance_text: `${eta.distanceMiles} mi`,
+                  updated_at: new Date().toISOString(),
+                };
+              }
             } catch {}
           }
         }

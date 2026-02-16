@@ -153,6 +153,23 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 
 async function calculateAndStoreEta(tripId: number, driverLat: number | null, driverLng: number | null, pickupLat: number | null, pickupLng: number | null, pickupAddress: string, dropoffAddress: string) {
   try {
+    if (pickupLat && pickupLng) {
+      const { getThrottledEta } = await import("./etaThrottle");
+      const driverId = await getDriverIdForTrip(tripId);
+      if (driverId) {
+        const eta = await getThrottledEta(driverId, { lat: pickupLat, lng: pickupLng }, tripId);
+        if (eta) {
+          await storage.updateTrip(tripId, {
+            lastEtaMinutes: eta.minutes,
+            distanceMiles: eta.distanceMiles.toString(),
+            durationMinutes: eta.minutes,
+            lastEtaUpdatedAt: new Date(),
+          } as any);
+          return { minutes: eta.minutes, distanceMiles: eta.distanceMiles };
+        }
+      }
+    }
+
     if (!GOOGLE_MAPS_KEY) return null;
 
     const origin = (driverLat && driverLng)
@@ -173,6 +190,15 @@ async function calculateAndStoreEta(tripId: number, driverLat: number | null, dr
     return eta;
   } catch (err: any) {
     console.warn(`ETA calculation failed for trip ${tripId}: ${err.message}`);
+    return null;
+  }
+}
+
+async function getDriverIdForTrip(tripId: number): Promise<number | null> {
+  try {
+    const trip = await storage.getTrip(tripId);
+    return trip?.driverId ?? null;
+  } catch {
     return null;
   }
 }
@@ -505,12 +531,10 @@ export function registerDispatchRoutes(app: Express) {
           );
           if (activeTrip) {
             let etaMins: number | null = null;
-            if (driver.lastLat && driver.lastLng && activeTrip.pickupLat && activeTrip.pickupLng) {
+            if (activeTrip.pickupLat && activeTrip.pickupLng) {
               try {
-                const eta = await etaMinutes(
-                  { lat: driver.lastLat, lng: driver.lastLng },
-                  { lat: activeTrip.pickupLat, lng: activeTrip.pickupLng }
-                );
+                const { getThrottledEta } = await import("./etaThrottle");
+                const eta = await getThrottledEta(driver_id, { lat: activeTrip.pickupLat, lng: activeTrip.pickupLng }, activeTrip.id);
                 if (eta) etaMins = eta.minutes;
               } catch {}
             }
