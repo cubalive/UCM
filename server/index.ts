@@ -42,7 +42,7 @@ app.use(express.urlencoded({ extended: false }));
 function readOriginList(prefix: string): Set<string> {
   const origins = new Set<string>();
   for (let i = 1; i <= 10; i++) {
-    const val = process.env[`${prefix}_${i}`]?.trim();
+    const val = process.env[`${prefix}_${i}`]?.trim().replace(/\/+$/, "");
     if (val) origins.add(val);
   }
   return origins;
@@ -60,8 +60,11 @@ const envAppOrigins = readOriginList("ALLOWED_APP_ORIGIN");
 const envPublicOrigins = readOriginList("ALLOWED_PUBLIC_ORIGIN");
 const envLegacyOrigins = readOriginList("ALLOWED_ORIGIN");
 
-export const allowedAppOrigins = new Set(Array.from(BUILTIN_APP_ORIGINS).concat(Array.from(envAppOrigins), Array.from(envLegacyOrigins)));
-export const allowedPublicOrigins = new Set(Array.from(envPublicOrigins).concat(Array.from(envLegacyOrigins)));
+const hasNewVars = envAppOrigins.size > 0 || envPublicOrigins.size > 0;
+const legacyAsApp = hasNewVars ? [] : Array.from(envLegacyOrigins);
+
+export const allowedAppOrigins = new Set(Array.from(BUILTIN_APP_ORIGINS).concat(Array.from(envAppOrigins), legacyAsApp));
+export const allowedPublicOrigins = new Set(Array.from(envPublicOrigins));
 
 function isReplitDev(origin: string): boolean {
   return /^https:\/\/[a-z0-9\-]+\.replit\.dev$/i.test(origin)

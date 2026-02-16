@@ -1,0 +1,119 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Make the system stable and never fail due to CORS/cookies:
+1) Split CORS: public vs private
+2) Private origins: app + driver ONLY
+3) Public origins: Lovable ONLY (for public booking endpoints)
+4) Driver auth must NOT depend on cookies (JWT Bearer)
+5) Add a SUPER_ADMIN diagnostics endpoint to confirm allowed origins in production
+
+CONSTRAINTS:
+- Do not modify shared/permissions.ts
+- Do not relax RBAC
+- Do not expose private APIs to Lovable
+
+---------------------------------------
+PHASE 0 — ENV VARS (READ ONLY IN CODE)
+---------------------------------------
+Read env vars as lists (ignore empty):
+- ALLOWED_APP_ORIGIN_1..10
+- ALLOWED_PUBLIC_ORIGIN_1..10
+Also support legacy vars if present:
+- ALLOWED_ORIGIN_1..10 (treat as app origins ONLY if the new vars are missing)
+
+Expected values:
+App origins:
+  https://app.unitedcaremobility.com
+  https://driver.unitedcaremobility.com
+Public origins:
+  https://unitedcaremobility.lovable.app
+
+---------------------------------------
+PHASE 1 — CORS MIDDLEWARE (STRICT)
+---------------------------------------
+Implement two CORS middlewares:
+
+A) publicCors: apply ONLY to routes under /api/public/*
+   - origin must be in allowedPublicOrigins
+   - methods: GET,POST,OPTIONS
+   - allowed headers: Content-Type, Authorization
+   - credentials: false
+   - respond to OPTIONS with 204
+
+B) appCors: apply to ALL other /api/* routes
+   - origin must be in allowedAppOrigins
+   - methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+   - allowed headers: Content-Type, Authorization
+   - credentials: false (driver uses Bearer; do not rely on cookies)
+   - respond to OPTIONS with 204
+
+Do NOT use "*".
+
+---------------------------------------
+PHASE 2 — DRIVER AUTH (JWT BEARER, NO COOKIES REQUIRED)
+---------------------------------------
+1) Ensure /api/me accepts Authorization: Bearer <token> and returns:
+   { ok:true, userId, role, companyId, email }
+2) Ensure driver login endpoint returns a JWT:
+   - If /api/auth/login-jwt exists, verify it is used by driver.
+   - If missing, create POST /api/auth/login-jwt {email,password} -> {token,user}
+3) Frontend driver must:
+   - store token in localStorage key "ucm_driver_token"
+   - attach Authorization header on every request via a single apiFetch wrapper
+   - on 401: clear token and redirect to /login
+
+---------------------------------------
+PHASE 3 — HOST ROUTING SAFETY
+---------------------------------------
+On driver host:
+- "/" must redirect to "/driver"
+- Any non-/driver non-/login routes redirect to "/driver"
+Prevent blank screens: add ErrorBoundary overlay showing message when VITE_UCM_DEBUG=true.
+
+---------------------------------------
+PHASE 4 — DIAGNOSTICS (SUPER_ADMIN ONLY)
+---------------------------------------
+Add GET /api/ops/cors-origins (SUPER_ADMIN only):
+Returns:
+{
+  allowedAppOrigins: string[],
+  allowedPublicOrigins: string[],
+  host: string,
+  envMode: string
+}
+
+Add GET /api/ops/auth-diagnostics (SUPER_ADMIN only):
+Returns:
+{
+  jwtSecretPresent: boolean,
+  driverTokenHeaderSeen: boolean (based on request),
+}
+
+---------------------------------------
+VERIFY (MUST DO)
+---------------------------------------
+1) From app.unitedcaremobility.com:
+   - /api/me works (existing auth unaffected)
+2) From driver.unitedcaremobility.com:
+   - login stores token
+   - driver calls /api/me via apiFetch returns 200
+3) From lovable domain:
+   - /api/public/* works
+   - /api/* (private) is blocked by CORS
+4) OPTIONS preflight returns 204 with correct headers for both public and app routes
+
+Deliverables:
+- List files changed
+- Exact env vars to set in Replit
+- Steps to republish and test
+
+END.

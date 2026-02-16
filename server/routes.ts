@@ -7739,6 +7739,21 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         ok: true,
         allowedAppOrigins: Array.from(allowedAppOrigins),
         allowedPublicOrigins: Array.from(allowedPublicOrigins),
+        host: _req.headers.host || "unknown",
+        envMode: process.env.NODE_ENV || "development",
+      });
+    }
+  );
+
+  app.get("/api/ops/auth-diagnostics",
+    authMiddleware,
+    requireRole("SUPER_ADMIN"),
+    (req: AuthRequest, res) => {
+      const authHeader = req.headers["authorization"] || "";
+      res.json({
+        ok: true,
+        jwtSecretPresent: !!(process.env.JWT_SECRET),
+        driverTokenHeaderSeen: authHeader.startsWith("Bearer "),
       });
     }
   );

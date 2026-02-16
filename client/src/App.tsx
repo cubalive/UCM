@@ -1,3 +1,4 @@
+import React from "react";
 import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -187,8 +188,9 @@ function DriverSubdomainRouter() {
       <Route path="/">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
+      <Route path="/login">{() => <Redirect to="/" />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
-      <Route component={NotFound} />
+      <Route>{() => <Redirect to="/driver" />}</Route>
     </Switch>
   );
 }
@@ -286,6 +288,48 @@ function DriverHostUnauthorized() {
   );
 }
 
+class DriverErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center min-h-screen" data-testid="driver-error-boundary">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader className="flex flex-row items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0" />
+              <CardTitle>Something went wrong</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                The driver app encountered an unexpected error. Please reload the page.
+              </p>
+              {UCM_DEBUG && this.state.error && (
+                <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-40" data-testid="text-error-detail">
+                  {this.state.error.message}
+                </pre>
+              )}
+              <Button onClick={() => window.location.reload()} className="w-full" data-testid="button-reload">
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Reload
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function AuthenticatedApp() {
   const { user, loading, error, retry, mustChangePassword, cityRequired } = useAuth();
 
@@ -319,10 +363,12 @@ function AuthenticatedApp() {
       return <DriverHostUnauthorized />;
     }
     return (
-      <main className="h-screen w-full overflow-auto">
-        <DriverSubdomainRouter />
-        <AuthDebugPanel />
-      </main>
+      <DriverErrorBoundary>
+        <main className="h-screen w-full overflow-auto">
+          <DriverSubdomainRouter />
+          <AuthDebugPanel />
+        </main>
+      </DriverErrorBoundary>
     );
   }
 
