@@ -437,6 +437,19 @@ export function registerDriverLocationRoutes(app: Express): void {
       res.json({ ok: true, ...getIngestMetrics() });
     }
   );
+
+  app.get("/api/ops/directions-metrics",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN"),
+    async (_req, res) => {
+      try {
+        const { getDirectionsMetrics } = await import("./googleMaps");
+        res.json({ ok: true, ...getDirectionsMetrics() });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, message: err.message });
+      }
+    }
+  );
 }
 
 export { haversineDistanceMeters };

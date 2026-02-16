@@ -365,6 +365,7 @@ export function registerTrackingRoutes(app: Express) {
 
   app.get("/api/public/trips/track/:token", async (req, res) => {
     try {
+      try { const { incrDirectionsMetric } = await import("./googleMaps"); incrDirectionsMetric("trackingRequests"); } catch {}
       const tokenValue = req.params.token;
       if (!tokenValue || tokenValue.length < 16) {
         return res.status(400).json({ ok: false, message: "Invalid token" });
@@ -457,6 +458,7 @@ export function registerTrackingRoutes(app: Express) {
         },
         driver: driverData,
         eta: etaData,
+        route_polyline: trip.routePolyline || null,
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, message: "Internal error" });

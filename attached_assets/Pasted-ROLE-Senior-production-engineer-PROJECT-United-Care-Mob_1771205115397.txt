@@ -1,0 +1,105 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT reset database
+- Do NOT recreate schema
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Replace any fragile Replit WebSocket fanout with Supabase Realtime for Trip Details ONLY,
+using trip-scoped channels trip:{tripId}, with secure server-issued realtime tokens
+and broadcast events (no Postgres writes for live GPS).
+
+---------------------------------------
+PHASE 0 — REQUIRED ENV VARS
+---------------------------------------
+Add/verify Replit Secrets:
+- SUPABASE_URL
+- SUPABASE_ANON_KEY (public)
+- SUPABASE_SERVICE_ROLE_KEY (server only, secret)
+- SUPABASE_JWT_SECRET (server only, secret; used to sign realtime access tokens)
+Keep existing DATABASE_URL/JWT_SECRET/etc unchanged.
+
+---------------------------------------
+PHASE 1 — SERVER: ISSUE REALTIME TOKEN (RBAC-GATED)
+---------------------------------------
+Create endpoint:
+POST /api/realtime/token
+
+Input:
+- tripId
+
+Auth:
+- must require existing JWT auth (CLINIC_USER/dispatch/super_admin/driver as appropriate)
+
+Rules:
+- For CLINIC_USER: verify trip belongs to same clinic/company (existing ownership checks)
+- For dispatch/company_admin: verify company ownership
+- For driver: verify assigned to trip or company rules
+
+Output:
+- short-lived JWT (e.g., exp 10 minutes) signed with SUPABASE_JWT_SECRET
+- include claims:
+  role: "authenticated"
+  sub: userId
+  companyId, clinicId (if available)
+Return token to client.
+
+---------------------------------------
+PHASE 2 — SERVER: PUBLISH EVENTS TO SUPABASE REALTIME
+---------------------------------------
+When live driver location is accepted (from /api/driver/location) AND throttled:
+- publish to Supabase Realtime channel "trip:{tripId}" using SERVICE_ROLE_KEY
+Event types (broadcast):
+- "driver_location" max every 5s
+- "eta_update" max every 60s (use existing cache/throttle rules)
+- "status_change" immediate
+
+IMPORTANT:
+Do NOT write every GPS update to Postgres.
+Use cache for last location + sampled DB writes only (already implemented in prior prompts).
+
+---------------------------------------
+PHASE 3 — CLIENT (TRIP DETAILS ONLY): SUBSCRIBE VIA SUPABASE-JS
+---------------------------------------
+On Trip Details open:
+1) call existing snapshot endpoint for trip details (trip + last driver + cached ETA/polyline)
+2) call POST /api/realtime/token to get realtime token
+3) initialize supabase-js with SUPABASE_URL + SUPABASE_ANON_KEY and set auth token
+4) subscribe to channel "trip:{tripId}" and listen for broadcast events:
+   - driver_location (update marker, no flicker)
+   - eta_update (update text only)
+   - status_change (update status UI)
+
+On Trip Details close:
+- unsubscribe cleanly.
+
+Trip list pages must NOT subscribe.
+
+---------------------------------------
+PHASE 4 — SECURITY HARDENING
+---------------------------------------
+- Token TTL 10 minutes; client refreshes by requesting a new token if needed.
+- Server rejects token requests if user lacks ownership (403).
+- Channel names remain trip-scoped only: "trip:{tripId}" (no global channels).
+- Never expose SERVICE_ROLE_KEY to client.
+
+---------------------------------------
+PHASE 5 — VERIFY
+---------------------------------------
+Verify with logs/counters:
+- realtime_token_issued_per_min
+- realtime_broadcasts_per_min by event type
+- directions_calls_per_min stays low (from prior throttle)
+Verify in browser:
+- Trip list triggers 0 realtime connections
+- Trip details receives updates without polling spam
+- Location updates no faster than 5s to clinic
+
+DO NOT MODIFY:
+shared/permissions.ts
+
+DONE WHEN:
+Trip Details live tracking works through Supabase Realtime broadcast securely, and polling/WS fanout is removed or disabled for clinic Trip Details.

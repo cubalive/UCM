@@ -2106,7 +2106,7 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
     queryKey: ["/api/clinic/trips", tripId, "tracking"],
     queryFn: () => apiFetch(`/api/clinic/trips/${tripId}/tracking`, token),
     enabled: !!token && !!tripId,
-    refetchInterval: wsConnected ? false : 10000,
+    refetchInterval: wsConnected ? false : 30000,
   });
 
   const data = trackingQuery.data;

@@ -3,6 +3,38 @@ const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 
 const GOOGLE_API_BASE = "https://maps.googleapis.com/maps/api";
 
+const directionsMetrics = {
+  startedAt: Date.now(),
+  etaCalls: 0,
+  etaCacheHits: 0,
+  buildRouteCalls: 0,
+  buildRouteCacheHits: 0,
+  recomputeRequests: 0,
+  recomputeThrottled: 0,
+  trackingRequests: 0,
+};
+
+export function getDirectionsMetrics() {
+  const uptimeMs = Date.now() - directionsMetrics.startedAt;
+  const uptimeMin = Math.max(1, uptimeMs / 60_000);
+  return {
+    directions_calls_per_min: Math.round(((directionsMetrics.etaCalls + directionsMetrics.buildRouteCalls) / uptimeMin) * 100) / 100,
+    eta_calls_total: directionsMetrics.etaCalls,
+    eta_cache_hits: directionsMetrics.etaCacheHits,
+    build_route_calls_total: directionsMetrics.buildRouteCalls,
+    build_route_cache_hits: directionsMetrics.buildRouteCacheHits,
+    recompute_requests_total: directionsMetrics.recomputeRequests,
+    recompute_blocked_by_throttle: directionsMetrics.recomputeThrottled,
+    tracking_requests_total: directionsMetrics.trackingRequests,
+    tracking_requests_per_min: Math.round((directionsMetrics.trackingRequests / uptimeMin) * 100) / 100,
+    uptime_minutes: Math.round(uptimeMin * 10) / 10,
+  };
+}
+
+export function incrDirectionsMetric(key: keyof typeof directionsMetrics) {
+  if (key !== "startedAt") (directionsMetrics as any)[key]++;
+}
+
 interface CacheEntry<T> {
   data: T;
   expiresAt: number;
@@ -215,7 +247,11 @@ export async function etaMinutes(
   const destStr = locationToString(destination);
   const key = cacheKey("eta", originStr, destStr);
   const cached = etaCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    directionsMetrics.etaCacheHits++;
+    return cached;
+  }
+  directionsMetrics.etaCalls++;
 
   const url =
     `${GOOGLE_API_BASE}/directions/json` +
@@ -255,7 +291,11 @@ export async function buildRoute(
   const wpStrs = (waypoints || []).map(locationToString);
   const key = cacheKey("route", originStr, destStr, ...wpStrs);
   const cached = routeCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    directionsMetrics.buildRouteCacheHits++;
+    return cached;
+  }
+  directionsMetrics.buildRouteCalls++;
 
   let url =
     `${GOOGLE_API_BASE}/directions/json` +

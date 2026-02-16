@@ -41,6 +41,7 @@ interface TrackingData {
     eta_minutes: number;
     distance_text: string;
   } | null;
+  route_polyline?: string | null;
 }
 
 const STATUS_DISPLAY: Record<string, { label: string; color: string; icon: typeof Clock }> = {
@@ -90,7 +91,7 @@ export default function PublicTrackingPage() {
 
   useEffect(() => {
     fetchTracking();
-    const interval = setInterval(fetchTracking, 15000);
+    const interval = setInterval(fetchTracking, 30000);
     return () => clearInterval(interval);
   }, [fetchTracking]);
 
@@ -99,9 +100,9 @@ export default function PublicTrackingPage() {
     container: HTMLDivElement;
     driverMarker: google.maps.Marker | null;
     pickupMarker: google.maps.Marker | null;
-    directionsRenderer: google.maps.DirectionsRenderer | null;
+    routePolyline: google.maps.Polyline | null;
     boundsFit: boolean;
-    directionsRendered: boolean;
+    routeRendered: boolean;
   }
 
   function getTrackingMapStore(): TrackingMapStore | null {
@@ -155,7 +156,6 @@ export default function PublicTrackingPage() {
       container.className = "w-full h-full rounded-md ucm-map-container";
       container.style.minHeight = "300px";
 
-      console.log("MAP INIT public-tracking");
       const map = new google.maps.Map(container, {
         center: driverPos,
         zoom: 13,
@@ -166,13 +166,7 @@ export default function PublicTrackingPage() {
         ],
       });
 
-      const directionsRenderer = new google.maps.DirectionsRenderer({
-        map,
-        suppressMarkers: true,
-        polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 4, strokeOpacity: 0.7 },
-      });
-
-      entry = { map, container, driverMarker: null, pickupMarker: null, directionsRenderer, boundsFit: false, directionsRendered: false };
+      entry = { map, container, driverMarker: null, pickupMarker: null, routePolyline: null, boundsFit: false, routeRendered: false };
       store[mapKeyRef.current] = entry;
     }
 
@@ -244,21 +238,18 @@ export default function PublicTrackingPage() {
         entry.map.fitBounds(bounds, 60);
       }
 
-      if (entry.directionsRenderer && !entry.directionsRendered) {
-        entry.directionsRendered = true;
-        const directionsService = new google.maps.DirectionsService();
-        directionsService.route(
-          {
-            origin: driverPos,
-            destination: pickupPos,
-            travelMode: google.maps.TravelMode.DRIVING,
-          },
-          (result, status) => {
-            if (status === "OK" && result) {
-              entry.directionsRenderer?.setDirections(result);
-            }
-          }
-        );
+      if (!entry.routeRendered && trackingData.route_polyline && window.google?.maps?.geometry?.encoding) {
+        entry.routeRendered = true;
+        try {
+          const path = google.maps.geometry.encoding.decodePath(trackingData.route_polyline);
+          entry.routePolyline = new google.maps.Polyline({
+            path,
+            map: entry.map,
+            strokeColor: "#3b82f6",
+            strokeWeight: 4,
+            strokeOpacity: 0.7,
+          });
+        } catch {}
       }
     }
   }

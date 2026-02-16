@@ -3800,21 +3800,23 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         return res.status(400).json({ message: "Trip missing target coordinates" });
       }
 
+      const { incrDirectionsMetric } = await import("./lib/googleMaps");
+      incrDirectionsMetric("recomputeRequests");
+
       const { cache, cacheKeys } = await import("./lib/cache");
       const routeCacheKey = `trip:${id}:route_last_compute`;
       const lastCompute = cache.get<number>(routeCacheKey);
-      if (lastCompute && (Date.now() - lastCompute) < 20_000) {
+      if (lastCompute && (Date.now() - lastCompute) < 45_000) {
+        incrDirectionsMetric("recomputeThrottled");
         const existingTrip = await storage.getTrip(id);
-        if (existingTrip?.routePolyline) {
-          return res.json({
-            ok: true,
-            polyline: existingTrip.routePolyline,
-            etaMinutes: existingTrip.lastEtaMinutes,
-            distanceMiles: existingTrip.distanceMiles ? parseFloat(existingTrip.distanceMiles) : null,
-            updatedAt: existingTrip.lastEtaUpdatedAt?.toISOString() || new Date().toISOString(),
-            source: "throttled",
-          });
-        }
+        return res.json({
+          ok: true,
+          polyline: existingTrip?.routePolyline || null,
+          etaMinutes: existingTrip?.lastEtaMinutes || null,
+          distanceMiles: existingTrip?.distanceMiles ? parseFloat(existingTrip.distanceMiles) : null,
+          updatedAt: existingTrip?.lastEtaUpdatedAt?.toISOString() || new Date().toISOString(),
+          source: "throttled",
+        });
       }
 
       try {
@@ -3833,7 +3835,7 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         };
 
         await storage.updateTrip(id, updateData);
-        cache.set(routeCacheKey, Date.now(), 30_000);
+        cache.set(routeCacheKey, Date.now(), 50_000);
 
         res.json({
           ok: true,
@@ -3856,6 +3858,7 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
           lastEtaUpdatedAt: new Date(),
         };
         await storage.updateTrip(id, updateData);
+        cache.set(routeCacheKey, Date.now(), 50_000);
 
         res.json({
           ok: true,

@@ -269,9 +269,9 @@ function useAutoReroute(
 ) {
   const lastRecomputeRef = useRef<{ lat: number; lng: number; time: number; status: string } | null>(null);
   const pendingRef = useRef(false);
-  const SOFT_THROTTLE_MS = 20000;
-  const HARD_THROTTLE_MS = 10000;
-  const MIN_DISTANCE_M = 120;
+  const SOFT_THROTTLE_MS = 45000;
+  const HARD_THROTTLE_MS = 20000;
+  const MIN_DISTANCE_M = 300;
 
   function distMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
     const R = 6371000;
@@ -624,7 +624,7 @@ export default function DriverDashboard() {
     queryKey: ["/api/driver/active-trip"],
     queryFn: () => apiFetch("/api/driver/active-trip", token),
     enabled: !!token,
-    refetchInterval: 10000,
+    refetchInterval: 30000,
   });
 
   const profileQuery = useQuery<any>({
@@ -637,7 +637,7 @@ export default function DriverDashboard() {
     queryKey: ["/api/driver/my-trips", selectedDate],
     queryFn: () => apiFetch(`/api/driver/my-trips?date=${selectedDate}`, token),
     enabled: !!token,
-    refetchInterval: 15000,
+    refetchInterval: 60000,
   });
 
   const metricsQuery = useQuery<any>({
@@ -2021,7 +2021,7 @@ function TripChat({
     queryKey: ["/api/trips", tripId, "messages"],
     queryFn: () => apiFetch(`/api/trips/${tripId}/messages`, token),
     enabled: !!token,
-    refetchInterval: 5000,
+    refetchInterval: 60000,
   });
 
   const sendMutation = useMutation({
