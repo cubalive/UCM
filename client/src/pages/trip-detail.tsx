@@ -78,7 +78,7 @@ export default function TripDetailPage() {
   }, [tripId]);
 
   const { connected: rtConnected, debugInfo: rtDebugInfo } = useTripRealtime({
-    tripId: isActiveTrip && hasDriver ? tripId : null,
+    tripId: (isActiveTrip && hasDriver) || debugEnabled ? tripId : null,
     authToken: token,
     onStatusChange: handleRtStatusChange,
     onEtaUpdate: handleRtEtaUpdate,
@@ -121,18 +121,12 @@ export default function TripDetailPage() {
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-4xl mx-auto overflow-y-auto h-full" data-testid="trip-detail-page">
       {debugEnabled && (
-        <div style={{
-          position: 'fixed',
-          top: '10px',
-          right: '10px',
-          background: 'black',
-          color: 'lime',
-          padding: '8px',
-          zIndex: 9999,
-          fontSize: '12px'
-        }} data-testid="badge-realtime-debug">
-          REALTIME DEBUG ACTIVE
-        </div>
+        <RealtimeDebugPanel
+          debugInfo={rtDebugInfo}
+          pollingActive={!rtConnected}
+          pollingIntervalMs={rtConnected ? false : 60000}
+          tripId={trip.id}
+        />
       )}
       <div className="flex items-center gap-3 flex-wrap">
         <Button variant="ghost" onClick={() => navigate("/trips")} data-testid="button-back-trips">
@@ -248,14 +242,6 @@ export default function TripDetailPage() {
         </Card>
       </div>
 
-      {isActiveTrip && hasDriver && (
-        <RealtimeDebugPanel
-          debugInfo={rtDebugInfo}
-          pollingActive={!rtConnected}
-          pollingIntervalMs={rtConnected ? false : 60000}
-          tripId={trip.id}
-        />
-      )}
     </div>
   );
 }

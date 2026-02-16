@@ -1,0 +1,82 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+On /trips/:id (Trip Details), when VITE_UCM_DEBUG=true, show a real debug panel that confirms:
+- Supabase Realtime connected
+- Polling fallback status
+- Last event received
+- A "Send Test Ping" button that proves server publish -> client receive works.
+
+---------------------------------------
+TASK 1 — DEBUG FLAG (VITE)
+---------------------------------------
+In Trip Details page component:
+const debugEnabled = import.meta.env.VITE_UCM_DEBUG === 'true';
+
+---------------------------------------
+TASK 2 — REALTIME STATUS STATE
+---------------------------------------
+Track and display:
+- realtimeStatus: CONNECTING | CONNECTED | DISCONNECTED
+- lastEvent: { type, ts }
+- pollingFallback: ON/OFF + interval seconds
+
+When realtime subscription succeeds -> CONNECTED and pollingFallback OFF.
+When realtime errors/disconnects -> DISCONNECTED and enable fallback polling:
+  location every 10s
+  ETA every 60s
+
+---------------------------------------
+TASK 3 — TEST PING ENDPOINT (SERVER)
+---------------------------------------
+Create endpoint (JWT required):
+POST /api/realtime/test
+Body: { tripId }
+
+Auth:
+- super_admin or dispatch only (reuse existing role checks)
+
+Action:
+Publish to Supabase Realtime channel "trip:{tripId}" using SUPABASE_SERVICE_ROLE_KEY:
+event: "test_ping"
+payload: { ts: Date.now(), message: "ok" }
+
+Return { ok: true }.
+
+---------------------------------------
+TASK 4 — CLIENT: SEND TEST PING
+---------------------------------------
+If debugEnabled:
+Render button "Send Test Ping" that calls /api/realtime/test with current tripId.
+On receiving "test_ping" event:
+Update lastEvent to show test_ping + seconds ago.
+
+---------------------------------------
+TASK 5 — UI PANEL (IMPOSSIBLE TO MISS)
+---------------------------------------
+If debugEnabled:
+Render fixed panel top-right with:
+- Realtime: <status>
+- Channel: trip:{tripId}
+- Polling fallback: ON/OFF (<interval>s)
+- Last event: <type> (<seconds ago>)
+- Button: Send Test Ping
+
+Keep the existing "REALTIME DEBUG ACTIVE" badge or replace it with this panel.
+
+---------------------------------------
+VERIFY
+---------------------------------------
+1) Open /trips/:id with VITE_UCM_DEBUG=true
+2) Panel shows CONNECTING then CONNECTED (or DISCONNECTED)
+3) Tap "Send Test Ping" -> last event updates to test_ping instantly
+4) When CONNECTED, polling fallback is OFF
+
+DO NOT MODIFY:
+shared/permissions.ts

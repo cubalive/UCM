@@ -28,7 +28,7 @@ export function RealtimeDebugPanel({
   const [pingResult, setPingResult] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  if (!DEBUG_ENABLED || !import.meta.env.DEV) return null;
+  if (!DEBUG_ENABLED) return null;
 
   const directionsQuery = useQuery<any>({
     queryKey: ["/api/ops/directions-metrics"],
@@ -169,9 +169,9 @@ export function RealtimeDebugPanel({
             </div>
             <button
               onClick={sendTestPing}
-              disabled={pingSending || !debugInfo.connected}
+              disabled={pingSending}
               className={`w-full rounded px-2 py-1 text-[11px] font-medium transition-colors ${
-                pingSending || !debugInfo.connected
+                pingSending
                   ? "bg-white/10 text-white/30 cursor-not-allowed"
                   : "bg-white/20 text-white hover:bg-white/30 cursor-pointer"
               }`}
@@ -181,7 +181,7 @@ export function RealtimeDebugPanel({
             </button>
             {pingResult && (
               <div className={`text-[10px] ${pingResult === "sent" ? "text-green-400" : "text-red-400"}`} data-testid="text-ping-result">
-                {pingResult === "sent" ? "Ping sent successfully" : `Error: ${pingResult}`}
+                {pingResult === "sent" ? "Ping published to server" : `Error: ${pingResult}`}
               </div>
             )}
           </div>
