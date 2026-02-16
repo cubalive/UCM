@@ -1700,11 +1700,30 @@ export async function registerRoutes(
       if (typeof lat !== "number" || typeof lng !== "number") {
         return res.status(400).json({ message: "lat and lng are required numbers" });
       }
-      await db.update(drivers).set({
-        lastLat: lat,
-        lastLng: lng,
-        lastSeenAt: new Date(),
-      }).where(eq(drivers.id, user.driverId));
+
+      const { cache, cacheKeys, CACHE_TTL } = await import("./lib/cache");
+      const { broadcastToTrip } = await import("./lib/realtime");
+      const locKey = cacheKeys("driver_location", user.driverId);
+      cache.set(locKey, { driverId: user.driverId, lat, lng, timestamp: Date.now(), heading, speed }, CACHE_TTL.DRIVER_LOCATION);
+
+      const persistKey = cacheKeys("driver_last_persist", user.driverId);
+      const lastPersist = cache.get<number>(persistKey);
+      if (!lastPersist || (Date.now() - lastPersist) >= 60_000) {
+        await db.update(drivers).set({
+          lastLat: lat,
+          lastLng: lng,
+          lastSeenAt: new Date(),
+        }).where(eq(drivers.id, user.driverId));
+        cache.set(persistKey, Date.now(), 120_000);
+      }
+
+      const allTrips = await storage.getActiveTripsForDriver(user.driverId);
+      for (const trip of allTrips) {
+        const tripLocKey = cacheKeys("trip_driver_last", trip.id);
+        cache.set(tripLocKey, { driverId: user.driverId, lat, lng, timestamp: Date.now() }, CACHE_TTL.TRIP_DRIVER_LAST);
+        broadcastToTrip(trip.id, { type: "driver_location", data: { driverId: user.driverId, lat, lng, ts: Date.now() } });
+      }
+
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -1763,7 +1782,6 @@ export async function registerRoutes(
     }
   });
 
-  // Driver presence heartbeat
   app.post("/api/driver/presence/heartbeat", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
@@ -1773,12 +1791,29 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Driver profile inactive or deleted" });
       }
       const { lat, lng } = req.body;
-      const updateData: any = { lastSeenAt: new Date() };
-      if (typeof lat === "number" && typeof lng === "number") {
-        updateData.lastLat = lat;
-        updateData.lastLng = lng;
+      const hasGps = typeof lat === "number" && typeof lng === "number";
+
+      const { cache, cacheKeys, CACHE_TTL } = await import("./lib/cache");
+
+      if (hasGps) {
+        const locKey = cacheKeys("driver_location", user.driverId);
+        cache.set(locKey, { driverId: user.driverId, lat, lng, timestamp: Date.now() }, CACHE_TTL.DRIVER_LOCATION);
       }
-      await db.update(drivers).set(updateData).where(eq(drivers.id, user.driverId));
+
+      const persistKey = cacheKeys("driver_last_persist", user.driverId);
+      const lastPersist = cache.get<number>(persistKey);
+      const shouldPersist = !lastPersist || (Date.now() - lastPersist) >= 60_000;
+
+      if (shouldPersist) {
+        const updateData: any = { lastSeenAt: new Date() };
+        if (hasGps) {
+          updateData.lastLat = lat;
+          updateData.lastLng = lng;
+        }
+        await db.update(drivers).set(updateData).where(eq(drivers.id, user.driverId));
+        cache.set(persistKey, Date.now(), 120_000);
+      }
+
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -4647,9 +4682,16 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
             const lastSeenMs = driver.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
             const isOnline = lastSeenMs < PRESENCE_TIMEOUT && driver.dispatchStatus !== "off" && driver.dispatchStatus !== "hold";
             const vehicle = driver.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
+            let cachedLat = driver.lastLat;
+            let cachedLng = driver.lastLng;
+            try {
+              const { getDriverLocationFromCache } = await import("./lib/driverLocationIngest");
+              const cached = getDriverLocationFromCache(driver.id);
+              if (cached) { cachedLat = cached.lat; cachedLng = cached.lng; }
+            } catch {}
             driverData = {
               id: driver.id, firstName: driver.firstName, lastName: driver.lastName,
-              phone: driver.phone, lastLat: driver.lastLat, lastLng: driver.lastLng,
+              phone: driver.phone, lastLat: cachedLat, lastLng: cachedLng,
               lastSeenAt: driver.lastSeenAt, isOnline,
               vehicleColor: vehicle?.color || null,
               vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
@@ -4758,6 +4800,11 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
           if (driver) {
             driverLastLat = driver.lastLat ?? null;
             driverLastLng = driver.lastLng ?? null;
+            try {
+              const { getDriverLocationFromCache } = await import("./lib/driverLocationIngest");
+              const cached = getDriverLocationFromCache(driver.id);
+              if (cached) { driverLastLat = cached.lat; driverLastLng = cached.lng; }
+            } catch {}
             driverLastSeenAt = driver.lastSeenAt ? new Date(driver.lastSeenAt).toISOString() : null;
             const lastSeenMs = driver.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
             driverStale = lastSeenMs > STALE_THRESHOLD_MS;
@@ -4991,12 +5038,19 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
               && driver.dispatchStatus !== "off"
               && driver.dispatchStatus !== "hold";
             const vehicle = driver.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
+            let cachedLat2 = driver.lastLat;
+            let cachedLng2 = driver.lastLng;
+            try {
+              const { getDriverLocationFromCache } = await import("./lib/driverLocationIngest");
+              const cached = getDriverLocationFromCache(driver.id);
+              if (cached) { cachedLat2 = cached.lat; cachedLng2 = cached.lng; }
+            } catch {}
             driverData = {
               id: driver.id,
               firstName: driver.firstName,
               lastName: driver.lastName,
-              lastLat: driver.lastLat,
-              lastLng: driver.lastLng,
+              lastLat: cachedLat2,
+              lastLng: cachedLng2,
               lastSeenAt: driver.lastSeenAt,
               dispatchStatus: driver.dispatchStatus,
               isOnline,
@@ -5386,12 +5440,25 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
 
       const driverVisible = trip.lastEtaMinutes != null && trip.lastEtaMinutes < 15;
 
+      let driverLat = driver?.lastLat ?? null;
+      let driverLng = driver?.lastLng ?? null;
+      if (driver) {
+        try {
+          const { getDriverLocationFromCache } = await import("./lib/driverLocationIngest");
+          const cached = getDriverLocationFromCache(driver.id);
+          if (cached) {
+            driverLat = cached.lat;
+            driverLng = cached.lng;
+          }
+        } catch {}
+      }
+
       const driverData = driver ? {
         id: driver.id,
         name: `${driver.firstName} ${driver.lastName}`,
         phone: driver.phone,
-        lat: driverVisible ? driver.lastLat : null,
-        lng: driverVisible ? driver.lastLng : null,
+        lat: driverVisible ? driverLat : null,
+        lng: driverVisible ? driverLng : null,
         lastSeenAt: driver.lastSeenAt,
         connected: driver.lastSeenAt ? (Date.now() - new Date(driver.lastSeenAt).getTime()) < 120000 : false,
         vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
