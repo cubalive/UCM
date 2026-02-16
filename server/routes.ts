@@ -7790,7 +7790,7 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
 
   app.get("/api/ops/directions-metrics",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "DRIVER", "CLINIC_USER"),
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (_req, res) => {
       try {
         const { getDirectionsMetrics } = await import("./lib/googleMaps");

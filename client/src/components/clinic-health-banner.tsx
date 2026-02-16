@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { isDriverHost } from "@/lib/hostDetection";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,7 @@ export function ClinicHealthBanner({ clinicId }: { clinicId: number }) {
   const healthQuery = useQuery<ClinicHealthData>({
     queryKey: ["/api/ops/clinic-health", clinicId],
     queryFn: () => apiFetch(`/api/ops/clinic-health?clinic_id=${clinicId}`, token),
-    enabled: !!clinicId && !!token && !!canView,
+    enabled: !isDriverHost && !!clinicId && !!token && !!canView,
     refetchInterval: 60000,
     retry: false,
   });

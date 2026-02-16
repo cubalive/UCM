@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { isDriverHost } from "@/lib/hostDetection";
 import type { RealtimeDebugInfo } from "@/hooks/use-trip-realtime";
 
 interface RealtimeDebugPanelProps {
@@ -20,15 +21,16 @@ export function RealtimeDebugPanel({
   pollingIntervalMs,
   tripId,
 }: RealtimeDebugPanelProps) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [directionsLast60s, setDirectionsLast60s] = useState(0);
   const [recomputeThrottled, setRecomputeThrottled] = useState(0);
   const [pingSending, setPingSending] = useState(false);
   const [pingResult, setPingResult] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [, forceUpdate] = useState(0);
 
-  if (!DEBUG_ENABLED) return null;
+  const isOpsAllowed = !isDriverHost && !!user && ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role);
 
   const directionsQuery = useQuery<any>({
     queryKey: ["/api/ops/directions-metrics"],
@@ -40,8 +42,8 @@ export function RealtimeDebugPanel({
       if (!resp.ok) return null;
       return resp.json();
     },
-    enabled: !!token && !!tripId,
-    refetchInterval: 10000,
+    enabled: DEBUG_ENABLED && isOpsAllowed && !!token && !!tripId,
+    refetchInterval: DEBUG_ENABLED && isOpsAllowed ? 10000 : false,
   });
 
   useEffect(() => {
@@ -50,6 +52,13 @@ export function RealtimeDebugPanel({
       setRecomputeThrottled(directionsQuery.data.recompute_blocked_by_throttle ?? 0);
     }
   }, [directionsQuery.data]);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => forceUpdate((n) => n + 1), 2000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
 
   const sendTestPing = useCallback(async () => {
     if (!token || !tripId || pingSending) return;
@@ -78,6 +87,8 @@ export function RealtimeDebugPanel({
     }
   }, [token, tripId, pingSending]);
 
+  if (!DEBUG_ENABLED) return null;
+
   const pollingLabel = pollingActive
     ? `ON (${typeof pollingIntervalMs === "number" ? `${pollingIntervalMs / 1000}s` : "—"})`
     : "OFF";
@@ -92,14 +103,6 @@ export function RealtimeDebugPanel({
       : debugInfo.connectionState === "CONNECTING"
         ? "bg-yellow-400"
         : "bg-red-400";
-
-  const [, forceUpdate] = useState(0);
-  useEffect(() => {
-    intervalRef.current = setInterval(() => forceUpdate((n) => n + 1), 2000);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, []);
 
   if (collapsed) {
     return (
@@ -165,14 +168,16 @@ export function RealtimeDebugPanel({
           <span>Polling fallback: {pollingLabel}</span>
         </div>
 
-        <div className="border-t border-white/20 pt-1.5 mt-1.5">
-          <div className="opacity-80">
-            Directions (60s): {directionsLast60s}
+        {isOpsAllowed && (
+          <div className="border-t border-white/20 pt-1.5 mt-1.5">
+            <div className="opacity-80">
+              Directions (60s): {directionsLast60s}
+            </div>
+            <div className="opacity-80">
+              Recompute throttled: {recomputeThrottled}
+            </div>
           </div>
-          <div className="opacity-80">
-            Recompute throttled: {recomputeThrottled}
-          </div>
-        </div>
+        )}
 
         {tripId && (
           <div className="border-t border-white/20 pt-1.5 mt-1.5 space-y-1">

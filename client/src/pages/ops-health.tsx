@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { isDriverHost } from "@/lib/hostDetection";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -142,14 +143,14 @@ function CityHealthTab() {
   const healthQuery = useQuery<OpsHealth>({
     queryKey: ["/api/ops/health", selectedCity?.id, today],
     queryFn: () => apiFetch(`/api/ops/health?city_id=${selectedCity?.id}&date=${today}`, token),
-    enabled: !!selectedCity && !!token,
+    enabled: !isDriverHost && !!selectedCity && !!token,
     refetchInterval: 60000,
   });
 
   const historyQuery = useQuery<AlertLogEntry[]>({
     queryKey: ["/api/ops/alerts/history", selectedCity?.id, today],
     queryFn: () => apiFetch(`/api/ops/alerts/history?city_id=${selectedCity?.id}&date=${today}`, token),
-    enabled: !!selectedCity && !!token,
+    enabled: !isDriverHost && !!selectedCity && !!token,
   });
 
   const testSmsMutation = useMutation({
@@ -293,7 +294,7 @@ function ClinicHealthTab() {
   const clinicHealthQuery = useQuery<any>({
     queryKey: ["/api/ops/clinic-health", selectedClinicId],
     queryFn: () => apiFetch(`/api/ops/clinic-health?clinic_id=${selectedClinicId}`, token),
-    enabled: !!selectedClinicId && !!token,
+    enabled: !isDriverHost && !!selectedClinicId && !!token,
     refetchInterval: 60000,
   });
 
@@ -396,7 +397,7 @@ function SystemStatusTab() {
   const statusQuery = useQuery<AlertSystemHealth>({
     queryKey: ["/api/ops/alerts/health"],
     queryFn: () => apiFetch("/api/ops/alerts/health", token),
-    enabled: !!token,
+    enabled: !isDriverHost && !!token,
   });
 
   const runOnceMutation = useMutation({

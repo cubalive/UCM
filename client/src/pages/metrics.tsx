@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { isDriverHost } from "@/lib/hostDetection";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -267,19 +268,19 @@ export default function MetricsPage() {
     queryKey: ["/api/ops/metrics"],
     refetchInterval: 15_000,
     retry: 2,
-    enabled: !!user && user.role === "SUPER_ADMIN",
+    enabled: !isDriverHost && !!user && user.role === "SUPER_ADMIN",
   });
 
   const { data: googleData, isLoading: googleLoading } = useQuery<GoogleMetrics>({
     queryKey: ["/api/ops/metrics/google"],
     refetchInterval: 30_000,
     retry: 2,
-    enabled: !!user && user.role === "SUPER_ADMIN",
+    enabled: !isDriverHost && !!user && user.role === "SUPER_ADMIN",
   });
 
   const { data: healthData, isLoading: healthLoading } = useQuery<HealthData>({
     queryKey: ["/api/ops/health", selectedCity?.id],
-    enabled: !!user && !!selectedCity?.id && ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role),
+    enabled: !isDriverHost && !!user && !!selectedCity?.id && ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role),
     refetchInterval: 15_000,
     retry: 2,
     meta: { queryParams: `?city_id=${selectedCity?.id || 1}` },
@@ -296,21 +297,21 @@ export default function MetricsPage() {
     queryKey: ["/api/ops/metrics/routes"],
     refetchInterval: 30_000,
     retry: 1,
-    enabled: !!user && user.role === "SUPER_ADMIN",
+    enabled: !isDriverHost && !!user && user.role === "SUPER_ADMIN",
   });
 
   const { data: adminSummary, refetch: refetchAdmin } = useQuery<AdminSummary>({
     queryKey: ["/api/admin/metrics/summary"],
     refetchInterval: 10_000,
     retry: 2,
-    enabled: !!user && user.role === "SUPER_ADMIN",
+    enabled: !isDriverHost && !!user && user.role === "SUPER_ADMIN",
   });
 
   const { data: adminCounts } = useQuery<AdminCounts>({
     queryKey: ["/api/admin/metrics/counts"],
     refetchInterval: 15_000,
     retry: 2,
-    enabled: !!user && user.role === "SUPER_ADMIN",
+    enabled: !isDriverHost && !!user && user.role === "SUPER_ADMIN",
   });
 
   const { toast } = useToast();
