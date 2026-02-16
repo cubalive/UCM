@@ -146,6 +146,12 @@ export function RealtimeDebugPanel({
           </div>
         )}
 
+        {import.meta.env.VITE_SUPABASE_ANON_KEY && !import.meta.env.VITE_SUPABASE_ANON_KEY.startsWith("eyJ") && (
+          <div className="text-orange-400 text-[10px] break-words">
+            Key invalid: should start with "eyJ"
+          </div>
+        )}
+
         <div className="opacity-80">
           Channel: {debugInfo.channel ?? "—"}
         </div>
