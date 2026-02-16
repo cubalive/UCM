@@ -414,14 +414,6 @@ export default function TripsPage() {
             <Card key={trip.id} className="hover-elevate cursor-pointer" onClick={() => setDetailTrip(trip)} data-testid={`card-trip-${trip.id}`}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <TripStaticMap
-                    tripId={trip.id}
-                    pickupLat={trip.pickupLat}
-                    dropoffLat={trip.dropoffLat}
-                    size="thumb"
-                    token={token}
-                    className="w-[120px] h-[60px] flex-shrink-0 hidden sm:block"
-                  />
                   <div className="space-y-1 min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-mono font-medium" data-testid={`text-trip-id-${trip.id}`}>
@@ -1811,7 +1803,7 @@ function TripMessagingPanel({ tripId, tripStatus, token }: { tripId: number; tri
     queryKey: ["/api/trips", tripId, "messages"],
     queryFn: () => apiFetch(`/api/trips/${tripId}/messages`, token),
     enabled: !!token,
-    refetchInterval: 15000,
+    refetchInterval: 60000,
   });
 
   const sendMsgMutation = useMutation({
