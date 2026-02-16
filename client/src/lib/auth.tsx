@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { User, City } from "@shared/schema";
-import { TOKEN_KEY, getCredentials, isDriverHost } from "@/lib/hostDetection";
+import { TOKEN_KEY, getCredentials, isDriverHost, DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
 
 interface AuthUser extends Omit<User, "password"> {
   cityAccess: number[];
@@ -57,6 +57,26 @@ function storeWorkingCityId(cityId: number | null) {
       localStorage.setItem("ucm_working_city_id", String(cityId));
     }
   } catch {}
+}
+
+function buildDriverUser(me: any): AuthUser {
+  return {
+    id: me.userId ?? me.id,
+    email: me.email || "",
+    role: me.role || "DRIVER",
+    firstName: me.firstName || me.email?.split("@")[0] || "",
+    lastName: me.lastName || "",
+    active: true,
+    publicId: me.ucm_id || "",
+    phone: me.phone || null,
+    cityAccess: [],
+    createdAt: new Date(),
+    mustChangePassword: false,
+    clinicId: null,
+    driverId: me.driverId || null,
+    companyId: me.companyId || null,
+    cityId: me.city_id || null,
+  } as unknown as AuthUser;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -121,7 +141,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchUser = useCallback(async (t: string) => {
+  const fetchDriverUser = useCallback(async (t: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/me", {
+        headers: { Authorization: `Bearer ${t}` },
+        credentials: "omit",
+      });
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem(DRIVER_TOKEN_KEY);
+          setToken(null);
+          setUser(null);
+          setMeData(null);
+          setLoading(false);
+          return;
+        }
+        throw new Error("Session expired. Please log in again.");
+      }
+
+      const me = await res.json();
+      const driverUser = buildDriverUser(me);
+      setUser(driverUser);
+      setCities([]);
+      setMeData(me);
+      setMustChangePassword(false);
+      setCityChosen(true);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message || "Failed to load user session");
+      setToken(null);
+      setUser(null);
+      setMeData(null);
+      localStorage.removeItem(DRIVER_TOKEN_KEY);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchAppUser = useCallback(async (t: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -175,10 +235,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [restoreCity]);
 
+  const fetchUser = useCallback(async (t: string) => {
+    if (isDriverHost) {
+      return fetchDriverUser(t);
+    }
+    return fetchAppUser(t);
+  }, [fetchDriverUser, fetchAppUser]);
+
   useEffect(() => {
     if (token) {
       fetchUser(token);
-    } else if (IS_DEV && devLoginAttempts < 2 && !devBypassed) {
+    } else if (!isDriverHost && IS_DEV && devLoginAttempts < 2 && !devBypassed) {
       setLoading(true);
       fetch("/api/auth/dev-session", { credentials: getCredentials() })
         .then((res) => {
@@ -224,9 +291,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     setError(null);
-    const loginUrl = isDriverHost ? "/api/auth/login-jwt" : "/api/auth/login";
+
+    if (isDriverHost) {
+      const res = await fetch("/api/auth/login-jwt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        credentials: "omit",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Login failed");
+      }
+      const data = await res.json();
+      localStorage.setItem(DRIVER_TOKEN_KEY, data.token);
+      setToken(data.token);
+
+      const meRes = await fetch("/api/me", {
+        headers: { Authorization: `Bearer ${data.token}` },
+        credentials: "omit",
+      });
+      if (meRes.ok) {
+        const me = await meRes.json();
+        const driverUser = buildDriverUser(me);
+        setUser(driverUser);
+        setCities([]);
+        setMeData(me);
+        setMustChangePassword(false);
+        setCityChosen(true);
+      } else {
+        setUser(data.user ? buildDriverUser(data.user) : null);
+      }
+      return;
+    }
+
     const creds = getCredentials();
-    const res = await fetch(loginUrl, {
+    const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
@@ -261,7 +361,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    if (token && user?.role?.toUpperCase() === "DRIVER") {
+    if (isDriverHost) {
+      try {
+        await fetch("/api/auth/driver-logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          credentials: "omit",
+        });
+      } catch {}
+      localStorage.removeItem(DRIVER_TOKEN_KEY);
+    } else if (token && user?.role?.toUpperCase() === "DRIVER") {
       try {
         await fetch("/api/auth/driver-logout", {
           method: "POST",
@@ -269,6 +378,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           credentials: getCredentials(),
         });
       } catch {}
+      localStorage.removeItem(TOKEN_KEY);
     } else {
       try {
         await fetch("/api/auth/logout", {
@@ -276,6 +386,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           credentials: getCredentials(),
         });
       } catch {}
+      localStorage.removeItem(TOKEN_KEY);
     }
     setToken(null);
     setUser(null);
@@ -285,7 +396,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setMeData(null);
     setError(null);
     setMustChangePassword(false);
-    localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem("ucm_working_city_id");
   };
 

@@ -1,0 +1,71 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+- Do not modify shared/permissions.ts
+
+GOAL:
+Fix driver subdomain auth permanently:
+- Driver uses JWT Bearer only
+- Driver never sends cookies (credentials omit)
+- Driver never calls /api/auth/me (use /api/me)
+- Driver token key is always "ucm_driver_token"
+- Keep main app auth unchanged
+
+TASKS (client/src/lib/auth.ts):
+
+1) Token storage:
+- Introduce:
+  const DRIVER_TOKEN_KEY = "ucm_driver_token";
+  const APP_TOKEN_KEY = TOKEN_KEY; // existing
+- Initialize token state with:
+  const initialToken = isDriverHost ? localStorage.getItem(DRIVER_TOKEN_KEY) : localStorage.getItem(APP_TOKEN_KEY);
+
+- When setting token after login:
+  if isDriverHost -> localStorage.setItem(DRIVER_TOKEN_KEY, token)
+  else -> localStorage.setItem(APP_TOKEN_KEY, token)
+
+- When clearing token:
+  if isDriverHost -> remove DRIVER_TOKEN_KEY
+  else -> remove APP_TOKEN_KEY
+
+2) Driver fetchUser flow:
+- If isDriverHost:
+  - If no token: setLoading(false) and return
+  - Call GET "/api/me" with headers Authorization Bearer token and credentials:"omit"
+  - If 200:
+      setUser({ id, email, role, cityAccess: [], clinicId:null ... minimal fields required by UI })
+      setCities([]); setMeData(payload)
+      setMustChangePassword(false); setCityChosen(true)
+  - If 401/403: clear token and setUser(null)
+
+- If NOT driver host:
+  - Keep existing behavior (can continue using /api/auth/me and cities, etc.)
+
+3) Driver login:
+- If isDriverHost:
+  POST "/api/auth/login-jwt" with credentials:"omit"
+  store token in DRIVER_TOKEN_KEY
+  setToken, then immediately call GET "/api/me" (omit) and setUser from it
+- If NOT driver host:
+  keep existing /api/auth/login
+
+4) Driver logout:
+- If isDriverHost:
+  clear token locally + POST /api/auth/driver-logout with credentials:"omit" (best-effort)
+- Else keep existing /api/auth/logout with getCredentials()
+
+5) Disable DEV session auto-login on driver host:
+- Wrap the DEV auto-login block with: if (!isDriverHost && IS_DEV ...)
+
+VERIFY:
+- driver.unitedcaremobility.com login works on iOS Safari
+- refresh stays logged in
+- no calls to /api/auth/me on driver host
+- /api/me returns 200 using Bearer
+- app host unaffected
+
+Deliver: files changed list and how verified.
