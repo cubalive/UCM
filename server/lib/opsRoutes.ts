@@ -879,6 +879,61 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/ops/metrics", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res) => {
+    try {
+      const { getRequestMetricsSummary } = await import("./requestMetrics");
+      const { getRedisMetrics } = await import("./redis");
+      const { getRealtimeMetrics } = await import("./supabaseRealtime");
+      const { getDirectionsMetrics } = await import("./googleMaps");
+      const { getBackpressureMetrics } = await import("./backpressure");
+      const { getActiveConnectionCount, getActiveSubscriptionCount } = await import("./realtime");
+      const { getIngestMetrics } = await import("./driverLocationIngest");
+
+      res.json({
+        ok: true,
+        ts: new Date().toISOString(),
+        request: getRequestMetricsSummary(),
+        redis: getRedisMetrics(),
+        realtime: {
+          ...getRealtimeMetrics(),
+          ws_connections: getActiveConnectionCount(),
+          ws_subscriptions: getActiveSubscriptionCount(),
+        },
+        google: getDirectionsMetrics(),
+        backpressure: getBackpressureMetrics(),
+        gps_ingest: getIngestMetrics(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/ops/metrics/routes", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getTopRoutes } = await import("./requestMetrics");
+      const limit = parseInt(req.query.limit as string) || 20;
+      res.json({
+        ok: true,
+        window: "5min",
+        routes: getTopRoutes(Math.min(limit, 100)),
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/ops/metrics/google", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res) => {
+    try {
+      const { getDirectionsMetrics } = await import("./googleMaps");
+      res.json({
+        ok: true,
+        ...getDirectionsMetrics(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   app.get("/api/ops/redis-diagnostics", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res) => {
     try {
       const { isRedisConnected, setJson, getJson, del, incr, setNx } = await import("./redis");

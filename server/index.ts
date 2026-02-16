@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { recordRequest as recordReqMetric } from "./lib/requestMetrics";
 
 const app = express();
 const httpServer = createServer(app);
@@ -90,6 +91,8 @@ app.use((req, res, next) => {
       }
 
       log(logLine);
+
+      recordReqMetric(req.method, path, res.statusCode, duration);
     }
   });
 

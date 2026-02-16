@@ -12,10 +12,29 @@ const redisMetrics = {
   hits: 0,
   misses: 0,
   sets: 0,
+  gets: 0,
   errors: 0,
   rateLimited: 0,
   lockContention: 0,
 };
+
+const keyCategoryHits: Record<string, number> = {
+  "trip:eta": 0,
+  "trip:polyline": 0,
+  "trip:driver_location": 0,
+};
+const keyCategoryMisses: Record<string, number> = {
+  "trip:eta": 0,
+  "trip:polyline": 0,
+  "trip:driver_location": 0,
+};
+
+function classifyKey(key: string): string | null {
+  if (key.match(/^trip:\d+:eta/)) return "trip:eta";
+  if (key.match(/^trip:\d+:polyline/)) return "trip:polyline";
+  if (key.match(/^trip:\d+:driver_location/)) return "trip:driver_location";
+  return null;
+}
 
 if (UPSTASH_URL && UPSTASH_TOKEN) {
   try {
@@ -31,6 +50,8 @@ if (UPSTASH_URL && UPSTASH_TOKEN) {
 }
 
 export async function getJson<T>(key: string): Promise<T | null> {
+  redisMetrics.gets++;
+  const cat = classifyKey(key);
   if (!redis) {
     return cache.get<T>(key);
   }
@@ -38,9 +59,11 @@ export async function getJson<T>(key: string): Promise<T | null> {
     const val = await redis.get<T>(key);
     if (val !== null && val !== undefined) {
       redisMetrics.hits++;
+      if (cat) keyCategoryHits[cat]++;
       return val;
     }
     redisMetrics.misses++;
+    if (cat) keyCategoryMisses[cat]++;
     return null;
   } catch (err: any) {
     redisMetrics.errors++;
@@ -131,13 +154,19 @@ export function getRedisMetrics() {
   const total = redisMetrics.hits + redisMetrics.misses;
   return {
     redis_connected: isRedisConnected(),
+    redis_get_count: redisMetrics.gets,
+    redis_set_count: redisMetrics.sets,
     cache_hit_rate: total > 0 ? Math.round((redisMetrics.hits / total) * 100) : 0,
     cache_hits: redisMetrics.hits,
     cache_misses: redisMetrics.misses,
-    cache_sets: redisMetrics.sets,
     cache_errors: redisMetrics.errors,
     gps_rate_limited_count: redisMetrics.rateLimited,
     eta_lock_contention_count: redisMetrics.lockContention,
+    cache_by_key: {
+      "trip:eta": { hits: keyCategoryHits["trip:eta"], misses: keyCategoryMisses["trip:eta"] },
+      "trip:polyline": { hits: keyCategoryHits["trip:polyline"], misses: keyCategoryMisses["trip:polyline"] },
+      "trip:driver_location": { hits: keyCategoryHits["trip:driver_location"], misses: keyCategoryMisses["trip:driver_location"] },
+    },
     last_error: lastError,
   };
 }

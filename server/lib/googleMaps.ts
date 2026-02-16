@@ -12,15 +12,25 @@ const directionsMetrics = {
   recomputeRequests: 0,
   recomputeThrottled: 0,
   trackingRequests: 0,
+  failures: 0,
+  circuitBreakerTrips: 0,
 };
 
 const ROLLING_WINDOW_MS = 60_000;
 const rollingCallTimestamps: number[] = [];
+const rollingFailureTimestamps: number[] = [];
+
+const CIRCUIT_BREAKER_THRESHOLD = parseInt(process.env.DIRECTIONS_RATE_LIMIT || "30", 10);
+const CIRCUIT_BREAKER_COOLDOWN_MS = 2 * 60 * 1000;
+let circuitBreakerOpenUntil: number | null = null;
 
 function pruneRollingWindow() {
   const cutoff = Date.now() - ROLLING_WINDOW_MS;
   while (rollingCallTimestamps.length > 0 && rollingCallTimestamps[0] < cutoff) {
     rollingCallTimestamps.shift();
+  }
+  while (rollingFailureTimestamps.length > 0 && rollingFailureTimestamps[0] < cutoff) {
+    rollingFailureTimestamps.shift();
   }
 }
 
@@ -30,6 +40,29 @@ function recordDirectionsCall(reason?: string, tripId?: number) {
   if (process.env.NODE_ENV !== "production") {
     console.debug("[UCM] Directions call", { tripId: tripId ?? null, reason: reason ?? "unknown", ts: Date.now() });
   }
+}
+
+function recordDirectionsFailure() {
+  directionsMetrics.failures++;
+  rollingFailureTimestamps.push(Date.now());
+}
+
+export function isCircuitBreakerOpen(): boolean {
+  if (circuitBreakerOpenUntil && Date.now() < circuitBreakerOpenUntil) {
+    return true;
+  }
+  if (circuitBreakerOpenUntil && Date.now() >= circuitBreakerOpenUntil) {
+    console.log("[DIRECTIONS-CB] Circuit breaker reset after cooldown");
+    circuitBreakerOpenUntil = null;
+  }
+  pruneRollingWindow();
+  if (rollingCallTimestamps.length >= CIRCUIT_BREAKER_THRESHOLD) {
+    circuitBreakerOpenUntil = Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS;
+    directionsMetrics.circuitBreakerTrips++;
+    console.warn(`[DIRECTIONS-CB] Circuit breaker OPEN: ${rollingCallTimestamps.length} calls/min >= threshold ${CIRCUIT_BREAKER_THRESHOLD}. Blocking for 2 minutes.`);
+    return true;
+  }
+  return false;
 }
 
 export function getDirectionsCallsLast60s(): number {
@@ -44,6 +77,8 @@ export function getDirectionsMetrics() {
   return {
     directions_calls_per_min: Math.round(((directionsMetrics.etaCalls + directionsMetrics.buildRouteCalls) / uptimeMin) * 100) / 100,
     directions_calls_last_60s: rollingCallTimestamps.length,
+    directions_failures_last_60s: rollingFailureTimestamps.length,
+    directions_failures_total: directionsMetrics.failures,
     eta_calls_total: directionsMetrics.etaCalls,
     eta_cache_hits: directionsMetrics.etaCacheHits,
     build_route_calls_total: directionsMetrics.buildRouteCalls,
@@ -52,6 +87,15 @@ export function getDirectionsMetrics() {
     recompute_blocked_by_throttle: directionsMetrics.recomputeThrottled,
     tracking_requests_total: directionsMetrics.trackingRequests,
     tracking_requests_per_min: Math.round((directionsMetrics.trackingRequests / uptimeMin) * 100) / 100,
+    circuit_breaker: {
+      open: circuitBreakerOpenUntil !== null && Date.now() < circuitBreakerOpenUntil,
+      threshold_per_min: CIRCUIT_BREAKER_THRESHOLD,
+      cooldown_seconds: CIRCUIT_BREAKER_COOLDOWN_MS / 1000,
+      trips_total: directionsMetrics.circuitBreakerTrips,
+      open_until: circuitBreakerOpenUntil && Date.now() < circuitBreakerOpenUntil
+        ? new Date(circuitBreakerOpenUntil).toISOString()
+        : null,
+    },
     uptime_minutes: Math.round(uptimeMin * 10) / 10,
   };
 }
@@ -294,6 +338,11 @@ export async function etaMinutes(
     directionsMetrics.etaCacheHits++;
     return cached;
   }
+
+  if (isCircuitBreakerOpen()) {
+    return haversineEtaFallback(origin, destination);
+  }
+
   directionsMetrics.etaCalls++;
 
   const url =
@@ -304,9 +353,16 @@ export async function etaMinutes(
     `&traffic_model=best_guess` +
     `&key=${GOOGLE_MAPS_KEY}`;
 
-  const data = await googleFetch(url);
+  let data: any;
+  try {
+    data = await googleFetch(url);
+  } catch (err: any) {
+    recordDirectionsFailure();
+    throw err;
+  }
 
   if (data.status !== "OK" || !data.routes?.length) {
+    recordDirectionsFailure();
     throw new Error(`ETA failed: ${data.status} - ${data.error_message || "No route found"}`);
   }
 
@@ -324,6 +380,15 @@ export async function etaMinutes(
   return result;
 }
 
+function haversineEtaFallback(origin: LocationInput, destination: LocationInput): ETAResult {
+  const o = typeof origin === "string" ? { lat: 0, lng: 0 } : origin;
+  const d = typeof destination === "string" ? { lat: 0, lng: 0 } : destination;
+  const distMeters = haversineDistanceMeters(o.lat, o.lng, d.lat, d.lng);
+  const distMiles = distMeters / 1609.344;
+  const minutes = Math.round((distMiles / 25) * 60);
+  return { minutes: Math.max(1, minutes), distanceMiles: Math.round(distMiles * 10) / 10, usedTraffic: false };
+}
+
 export async function buildRoute(
   origin: LocationInput,
   destination: LocationInput,
@@ -338,6 +403,11 @@ export async function buildRoute(
     directionsMetrics.buildRouteCacheHits++;
     return cached;
   }
+
+  if (isCircuitBreakerOpen()) {
+    throw new Error("Directions API circuit breaker is open — too many calls per minute. Retry in 2 minutes.");
+  }
+
   directionsMetrics.buildRouteCalls++;
 
   let url =
@@ -352,9 +422,16 @@ export async function buildRoute(
     url += `&waypoints=optimize:true|${wpStrs.map(encodeURIComponent).join("|")}`;
   }
 
-  const data = await googleFetch(url);
+  let data: any;
+  try {
+    data = await googleFetch(url);
+  } catch (err: any) {
+    recordDirectionsFailure();
+    throw err;
+  }
 
   if (data.status !== "OK" || !data.routes?.length) {
+    recordDirectionsFailure();
     throw new Error(`Route failed: ${data.status} - ${data.error_message || "No route found"}`);
   }
 
