@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
 import { cache, cacheKeys, CACHE_TTL, type CachedDriverLocation } from "./cache";
 import { broadcastToTrip } from "./realtime";
+import { broadcastTripSupabaseThrottled } from "./supabaseRealtime";
 
 const RATE_LIMIT_MS = 2000;
 const MAX_SPEED_MPS = 55; // ~123 mph
@@ -280,6 +281,11 @@ async function broadcastDriverLocation(driverId: number, lat: number, lng: numbe
         type: "driver_location",
         data: { driverId, lat, lng, ts: Date.now() },
       });
+
+      broadcastTripSupabaseThrottled(trip.id, {
+        type: "driver_location",
+        data: { driverId, lat, lng, ts: Date.now() },
+      }).catch(() => {});
     }
   } catch (err: any) {
     console.warn(`[LOCATION-INGEST] Broadcast error for driver ${driverId}: ${err.message}`);

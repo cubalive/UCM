@@ -8,75 +8,56 @@ I prefer iterative development with a focus on clear, modular code. I appreciate
 
 ## System Architecture
 The application follows a client-server architecture.
-- **Frontend**: Built with React, Vite, Tailwind CSS, and shadcn/ui, located in the `client/` directory, emphasizing a clean, intuitive design.
-- **Backend**: An Express.js API in the `server/` directory, handling business logic, data access, and integrations.
-- **Database**: PostgreSQL with Drizzle ORM for primary data; Replit DB for operational data.
-- **Authentication**: JWT-based with `bcryptjs` for password hashing.
-- **Authorization**: Role-Based Access Control (RBAC) supporting SUPER_ADMIN, ADMIN, DISPATCH, DRIVER, VIEWER, COMPANY_ADMIN, CLINIC_USER roles.
-- **Multi-city Support**: Data segregation by city for core entities.
-- **Public ID System**: Standardized `01UCM000001` format for public identifiers.
-- **Dispatch Engine**: Manages driver-vehicle assignment, trip assignment with ETA, automated dispatching, and real-time driver tracking, incorporating safety rules.
-- **SMS Notifications**: Twilio integrated for template-based and custom SMS, with opt-out compliance.
+
+**UI/UX Decisions:**
+- **Frontend**: Built with React, Vite, Tailwind CSS, and shadcn/ui for a clean, intuitive design.
+- **Color Scheme**: Emphasizes clarity and ease of use.
+- **Live Maps**: Uber-like map views for drivers and live tracking for clinics with real-time updates and navigation options.
+- **Admin Dashboards**: Comprehensive dashboards for operational oversight, financial metrics, and automation health.
+
+**Technical Implementations & Feature Specifications:**
+- **Authentication**: JWT-based with `bcryptjs` for password hashing and Magic Link Login via email.
+- **Authorization**: Role-Based Access Control (RBAC) with roles like SUPER_ADMIN, ADMIN, DISPATCH, DRIVER, VIEWER, COMPANY_ADMIN, CLINIC_USER.
+- **Data Management**: PostgreSQL with Drizzle ORM; multi-city data segregation; public ID system (e.g., `01UCM000001`).
+- **Dispatch Engine**: Automated driver-vehicle and trip assignment, real-time tracking, ETA calculation, and safety rule enforcement.
+- **Communication**: SMS notifications (Twilio) and branded email services (Resend).
+- **Location Services**: Google Maps integration for geocoding, autocomplete, ETA, route optimization, and live maps with server-side caching.
 - **Audit Logging**: Comprehensive logging of key system actions.
-- **Google Maps Integration**: Geocoding, address autocomplete, ETA, route optimization, live driver maps, with server-side caching and rate limiting.
-- **Project Structure**: `client/`, `server/`, `shared/` directories. `shared/schema.ts` for Drizzle/Zod schemas. `server/routes.ts` centralizes API routes with Zod validation and RBAC.
-- **Trip Sharing & Tracking**: Shareable public tracking links.
-- **Live Map**: Real-time driver location tracking with role-based views.
-- **Clinic Address-City Enforcement**: Clinic addresses must match their service city.
-- **Static Map Thumbnails**: Google Static Maps API for trip route thumbnails.
-- **Magic Link Login**: User login via email magic links using Resend.
-- **Email Service**: Branded email for user actions (login links, passwords).
-- **Archive Management**: Soft-delete system for entities (clinics, drivers, patients, users, vehicles, trips) with granular RBAC for archiving, restoring, and permanent deletion.
-- **Vehicle Makes & Models**: Controlled dropdowns for selection.
-- **Trip Approval Workflow**: `approval_status` (pending/approved/cancel_requested/cancelled) separate from operational status, with role-based approval and cancellation processes.
-- **Recurring Trip Series**: `trip_series` table for pattern-based scheduling (MWF, TThS, Daily, Custom) with end conditions (date or occurrence count).
-- **No-Show/Late Tracking**: `trip_events` table tracks events (late_driver, late_patient, no_show_driver, no_show_patient) with UI for recording.
-- **Driver Bonus System**: `driver_bonus_rules` configures per-city bonuses. Weekly metrics and bonus computation available.
-- **7-Phase Automation System**:
-    - **Route Engine**: Daily scheduler grouping trips into route batches by city, time window, type, and ZIP cluster.
-    - **Vehicle & Trip Auto-Assignment**: Daily assignment of vehicles to drivers and distribution of scheduled trips.
-    - **Anti No-Show System**: Checks for confirmation reminders and flags at-risk trips.
-    - **Driver Score System**: Weekly 0-100 scoring based on performance metrics.
-    - **Financial Dashboard**: Overview of daily and date-range financial metrics.
-    - **Map Status Badges**: Live map shows active trip status for drivers.
-    - **Ops Health Automation Tab**: Displays automation metrics and scheduler status.
-    - **Auto Assignment Center**: UI for manual auto-assignment with city isolation and priority rules.
-- **Production Hardening**:
-    - **ARRIVED_DROPOFF Status**: New trip status with associated timestamp and UI updates.
-    - **Terminal Status Lockdown**: Server-side enforcement preventing edits on COMPLETED, CANCELLED, NO_SHOW trips.
-    - **SMS Config Check**: Frontend/backend check for Twilio configuration, hiding SMS features if not configured.
-    - **Ops Health System**: `/api/ops/health` endpoint providing system status (GREEN/YELLOW/RED) with computed alerts.
-- **Public Booking API**: Unauthenticated endpoints for quotes, booking requests, and status checks, with CORS restrictions and rate limiting. Includes a private pricing engine and optional Stripe integration.
-- **Recurring Patient Schedules**: `recurring_schedules` table for patient-specific recurring schedules. Midnight scheduler generates trips for the next 7 days based on active schedules.
-- **Clinic Portal**: Comprehensive portal for clinics (`/clinic-trips`) with tabs for Dashboard, Trips, Patients, and Reports. Dashboard shows today's trips, active trips with live tracking, recurring schedules, and patient counts. Live map tracking with driver marker (vehicle-colored), route, ETA, status badge. Trips tab has create/view/track. Patients tab has search/add/edit. Reports tab has CSV export. All data clinic-scoped with server-side RBAC enforcement.
-- **Clinic Trip Tracking**: GET `/api/clinic/trips/:id/tracking` returns live driver location, vehicle color, route data, ETA. Auto-hides when trip reaches terminal status (COMPLETED/CANCELLED/NO_SHOW). Enforces clinicId ownership (403 on cross-clinic access).
-- **Clinic Active Trips ETA**: GET `/api/clinic/active-trips` returns active trips (ASSIGNED through ARRIVED_DROPOFF) with ETA-to-clinic calculated via Google Directions API (haversine fallback at 25mph). 60s server-side cache per trip. 5-minute stale threshold hides ETA when driver GPS is outdated. CLINIC_USER role + clinicId enforcement. Frontend Ops Dashboard has Live/Scheduled/Completed sub-tabs with trip cards showing real-time ETA, stale indicators, and diff-based map marker updates (no flicker).
-- **Driver Presence System**: Heartbeat endpoint updates `lastSeenAt` for drivers. Dashboard displays driver stats (IN_ROUTE, ACTIVE, OFFLINE/HOLD) based on presence and dispatch status.
-- **Driver Live Map**: Uber-like map view in driver dashboard (`/driver`) with live GPS position marker, active trip pickup (A) / dropoff (B) markers, TRUE route polyline (Google Directions API), ETA + distance display, Navigate button (Apple Maps on iOS, Google Maps on Android), GPS stale indicator (>120s without GPS updates), and Map/List toggle. Auto-reroute: throttled recompute every 20s + 150m movement or on status change. Endpoint: `GET /api/driver/active-trip` returns active (non-terminal) trip with route + ETA + distance data; company-isolated. `POST /api/trips/:id/route/recompute` computes and persists route polyline, ETA, distance via Google Directions API (auth: driver/dispatch/clinic).
-- **Go-Time Alert System**: `city_settings` columns (`driver_go_time_minutes`, `driver_go_time_repeat_minutes`) configure per-city alert timing. `driver_trip_alerts` table tracks alert display/acknowledgment. `GET /api/driver/upcoming-go-time` returns timezone-aware countdown for upcoming pickups. Driver dashboard shows gradient banner with countdown timer and "Start Route" button that acknowledges alert and sets trip to EN_ROUTE_TO_PICKUP.
-- **Driver Offer Acceptance**: `driver_offers` table with 90s TTL. `GET /api/driver/offers/active` returns pending offers (auto-expires stale ones). `POST /api/driver/offers/:id/accept` assigns trip to driver. `POST /api/driver/offers/:id/decline` cancels offer. Driver dashboard shows offer card with countdown, blue "ACCEPT REQUEST" button, and stable no-flicker rendering via refs.
-- **Navigation App Chooser**: Modal with Google Maps/Waze/Apple Maps options. Saves driver preference to localStorage (`ucm_driver_nav_app`). Auto-skips dialog when preference saved. Integrated with Go-Time "Start Route" and active trip navigation. URL generation uses trip phase (pickup vs dropoff stages).
-- **Google Maps Flicker Fix**: Live map uses diff-based imperative marker updates (Map keyed by driver_id) instead of clear-and-recreate pattern. `fitBounds` only runs on initial load. InfoWindow click handlers read from stable data refs. Icon cache prevents redundant SVG generation.
-- **Multi-company Isolation**: `companies` table with `company_id` on all core entities (users, drivers, vehicles, clinics, patients, trips). JWT includes `companyId`. Server-side company filtering on GET list endpoints (AND with city filter). 403 enforcement on GET-by-ID and mutation endpoints via `checkCompanyOwnership`. SUPER_ADMIN bypasses company filters (companyId=null). Company management API: `GET/POST /api/companies` (SUPER_ADMIN), `POST /api/companies/:id/admin` creates COMPANY_ADMIN user. Company scoping applied in routes.ts and lib routes (dispatch, tracking). Shared helpers: `getCompanyIdFromAuth`, `applyCompanyFilter`, `checkCompanyOwnership` in `server/auth.ts`.
-
-- **Invoice Email & Stripe Payment Links**: Patient `email` column on patients table (required for private/internal source). Invoice delivery tracking: `email_to`, `email_status`, `email_sent_at`, `email_error`, `stripe_payment_link`, `stripe_checkout_session_id`. `POST /api/invoices/:id/send-email` creates Stripe Checkout Session and sends branded payment email via Resend. Auto-sends on invoice creation for private/internal patients. Trip invoice panel shows Send/Resend Email and Copy Payment Link buttons with email status display. Service: `server/services/invoiceEmailService.ts`.
-
-- **Clinic Cancel/Billing Workflow**: Full cancel-request-to-billing pipeline. Clinic requests cancel (sets `approval_status='cancel_requested'`, computes `cancel_stage` from trip state, defaults `fault_party='clinic'`, `billable=true`). Dispatch reviews in Cancel Requests queue with approval modal: selects `fault_party` (clinic/driver/patient/dispatch/unknown), auto-derives billable (driver/dispatch fault = non-billable), shows cancel fee based on stage (pre_assign=$0, assigned=$25, enroute_pickup=$50, arrived_pickup=$75, picked_up=service started), allows fee override with required note. Approve creates invoice if billable+fee>0. Reject reverts to approved. "Create Return Trip" button for picked_up stage swaps pickup/dropoff and auto-assigns same driver. Trip columns: `billable`, `fault_party`, `cancel_stage`, `parent_trip_id`, `cancel_fee`, `cancel_fee_override`, `cancel_fee_override_note`. Invoice columns: `reason`, `fault_party`, `related_trip_id`. Audit actions: `clinic_cancel_request`, `dispatch_cancel_approve`, `dispatch_cancel_reject`, `CREATE_RETURN_TRIP`.
-
-- **Production Hardening (Realtime & Performance)**:
-    - **WebSocket Server**: `server/lib/realtime.ts` — WS server on `/ws` path, JWT-authenticated connections, trip-scoped channels (`subscribe_trip`/`unsubscribe_trip`). Events: `driver_location` (max 5s), `status_change` (instant), `eta_update` (max 60s). Auto-cleanup on disconnect.
-    - **In-Memory Cache**: `server/lib/cache.ts` — TTL-based cache (swappable to Redis). Keys: `driver:{id}:last_location` (120s TTL), `trip:{id}:driver_last` (120s), `trip:{id}:eta` (60s), `driver:{id}:rate_limit` (5s), `driver:{id}:last_persist` (120s).
-    - **Driver Location Ingest**: `POST /api/driver/location` — Single or batch (up to 50 points). Validations: rate limit (1 per 2s per driver), stale timestamp rejection (>60s), impossible jump detection (>123mph). Cache-first storage, DB persistence only every 60s or on status events (ARRIVED/PICKED_UP/DROPOFF).
-    - **ETA Throttle**: `server/lib/etaThrottle.ts` — Recomputes ETA only if driver moved >300m or 45s since last calc. Google Directions with haversine fallback (25mph estimate). Results cached 60s.
-    - **Polling Reduction**: Clinic trip list polls max 60s (was 15-30s). Trip detail no polling (was 30s). Tracking view falls back to 10s polling only when WebSocket disconnected.
-    - **WebSocket Client Hook**: `client/src/hooks/use-trip-ws.ts` — React hook for trip subscriptions. Auto-reconnect on disconnect. Disables HTTP polling when connected.
-    - **Ops Health Enhanced**: `/api/ops/health` returns GREEN/YELLOW/RED with stale GPS checks (>5min), DB connectivity test, WebSocket connection count, cache stats.
+- **Trip Management**:
+    - Shareable public tracking links.
+    - Clinic address-city enforcement.
+    - Static map thumbnails for trip routes.
+    - Archive management with soft-delete and RBAC for entities.
+    - Controlled dropdowns for vehicle makes & models.
+    - Trip Approval Workflow with `approval_status`, fault party, billable status, and cancel fee calculation.
+    - Recurring Trip Series with pattern-based scheduling and end conditions.
+    - No-Show/Late Tracking via `trip_events`.
+    - Go-Time Alert System for drivers with configurable city settings.
+    - Driver Offer Acceptance system with TTL.
+- **Automation & Operational Features**:
+    - **7-Phase Automation System**: Route Engine, Vehicle & Trip Auto-Assignment, Anti No-Show System, Driver Score System, Financial Dashboard, Map Status Badges, Ops Health Automation Tab, Auto Assignment Center.
+    - **Ops Health System**: Provides system status (GREEN/YELLOW/RED) with alerts.
+    - **Driver Presence System**: Heartbeat endpoint for driver status tracking.
+- **Portals & APIs**:
+    - **Public Booking API**: Unauthenticated endpoints for quotes, booking requests, and status checks with CORS and rate limiting.
+    - **Clinic Portal**: Comprehensive portal for clinics with dashboards, trip management, patient management, and reports, all clinic-scoped with RBAC.
+    - **Multi-company Isolation**: `companies` table with `company_id` on core entities, server-side company filtering, and `checkCompanyOwnership` for security.
+- **Realtime & Performance Hardening**:
+    - **WebSocket Server**: JWT-authenticated, trip-scoped channels for real-time driver location, status, and ETA updates.
+    - **Supabase Realtime**: Dual-broadcast for trip details, with token-based authentication and client-side hooks for robust real-time experiences.
+    - **In-Memory Cache**: TTL-based caching for frequently accessed data (driver locations, ETA).
+    - **Driver Location Ingest**: Rate-limited and validated endpoint for single/batch location updates with cache-first storage and dual-broadcasting.
+    - **ETA Throttle**: Recomputes ETA based on movement or time, with caching.
+    - **Polling Reduction**: Optimized polling intervals and preference for real-time connections.
+- **Financial & Billing**:
+    - Invoice Email & Stripe Payment Links: Automatic invoice email sending with Stripe checkout integration for private/internal patients.
+    - Clinic Cancel/Billing Workflow: Detailed process for managing cancellations, fault parties, billable status, and generating invoices with cancel fees.
 
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **Replit DB**: Operational data storage.
-- **Supabase**: User authentication profiles, city management, and Row-Level Security (RLS), private requests storage.
-- **Google Maps Platform**: Maps JavaScript API, Directions API, Geocoding API, Places API for location, ETA, routing, and live maps.
+- **Supabase**: User authentication profiles, city management, Row-Level Security (RLS), and private requests storage.
+- **Google Maps Platform**: Maps JavaScript API, Directions API, Geocoding API, Places API.
 - **Twilio**: SMS messaging and opt-out requests.
-- **Resend**: Transactional email delivery (magic links, notifications).
+- **Resend**: Transactional email delivery.
 - **Stripe**: (Optional) Payment intent verification for public booking requests.

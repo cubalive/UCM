@@ -3,6 +3,7 @@ import { autoNotifyPatient } from "./dispatchAutoSms";
 import { getThrottledEta } from "./etaThrottle";
 import { getDriverLocationFromCache } from "./driverLocationIngest";
 import { broadcastToTrip } from "./realtime";
+import { broadcastTripSupabaseThrottled } from "./supabaseRealtime";
 
 const ETA_INTERVAL_MS = 120_000;
 const TEN_MIN_THRESHOLD = 10;
@@ -52,6 +53,11 @@ async function recalculateActiveETAs() {
           type: "eta_update",
           data: { minutes: eta.minutes, distanceMiles: eta.distanceMiles, source: eta.source },
         });
+
+        broadcastTripSupabaseThrottled(trip.id, {
+          type: "eta_update",
+          data: { minutes: eta.minutes, distanceMiles: eta.distanceMiles, source: eta.source },
+        }).catch(() => {});
 
         if (eta.minutes <= TEN_MIN_THRESHOLD) {
           const alreadySent10 = await storage.hasSmsBeenSent(trip.id, "eta_10");

@@ -1722,6 +1722,10 @@ export async function registerRoutes(
         const tripLocKey = cacheKeys("trip_driver_last", trip.id);
         cache.set(tripLocKey, { driverId: user.driverId, lat, lng, timestamp: Date.now() }, CACHE_TTL.TRIP_DRIVER_LAST);
         broadcastToTrip(trip.id, { type: "driver_location", data: { driverId: user.driverId, lat, lng, ts: Date.now() } });
+
+        import("./lib/supabaseRealtime").then(({ broadcastTripSupabaseThrottled }) => {
+          broadcastTripSupabaseThrottled(trip.id, { type: "driver_location", data: { driverId: user.driverId, lat, lng, ts: Date.now() } });
+        }).catch(() => {});
       }
 
       res.json({ ok: true });
@@ -3168,6 +3172,10 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
 
       import("./lib/realtime").then(({ broadcastToTrip }) => {
         broadcastToTrip(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
+      }).catch(() => {});
+
+      import("./lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
+        broadcastTripSupabase(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
       }).catch(() => {});
 
       const STATUS_PERSIST_TRIGGERS = ["ARRIVED_PICKUP", "PICKED_UP", "ARRIVED_DROPOFF", "EN_ROUTE_TO_DROPOFF"];
@@ -7234,6 +7242,84 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
       allowCompletedEdit: process.env.ALLOW_COMPLETED_EDIT === "true" && req.user?.role === "SUPER_ADMIN",
     });
   });
+
+  app.post("/api/realtime/token",
+    authMiddleware,
+    requireRole("CLINIC_USER", "DISPATCH", "ADMIN", "SUPER_ADMIN", "DRIVER", "COMPANY_ADMIN"),
+    async (req: AuthRequest, res) => {
+      try {
+        const { tripId } = req.body;
+        if (!tripId || isNaN(Number(tripId))) {
+          return res.status(400).json({ message: "tripId is required" });
+        }
+
+        const id = Number(tripId);
+        const trip = await storage.getTrip(id);
+        if (!trip) {
+          return res.status(404).json({ message: "Trip not found" });
+        }
+
+        const user = await storage.getUser(req.user!.userId);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        const companyId = getCompanyIdFromAuth(req);
+        if (!checkCompanyOwnership(trip, companyId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+
+        if (user.role === "CLINIC_USER") {
+          if (!user.clinicId || trip.clinicId !== user.clinicId) {
+            return res.status(403).json({ message: "You can only access your clinic's trips" });
+          }
+        }
+
+        if (user.role === "DRIVER") {
+          if (!user.driverId || !trip.driverId || trip.driverId !== user.driverId) {
+            return res.status(403).json({ message: "You can only access trips assigned to you" });
+          }
+        }
+
+        const { signRealtimeToken, recordTokenIssued } = await import("./lib/supabaseRealtime");
+        const token = signRealtimeToken({
+          userId: user.id,
+          role: user.role,
+          companyId: user.companyId || null,
+          clinicId: user.clinicId || null,
+          tripId: id,
+        });
+
+        if (!token) {
+          return res.status(500).json({ message: "Realtime token signing not configured" });
+        }
+
+        recordTokenIssued();
+
+        res.json({
+          token,
+          channel: `trip:${id}`,
+          supabaseUrl: process.env.SUPABASE_URL || null,
+          anonKey: process.env.SUPABASE_ANON_KEY || null,
+          expiresIn: 600,
+        });
+      } catch (err: any) {
+        console.error("[REALTIME-TOKEN]", err.message);
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.get("/api/ops/realtime-metrics",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN"),
+    async (_req, res) => {
+      try {
+        const { getRealtimeMetrics } = await import("./lib/supabaseRealtime");
+        res.json({ ok: true, ...getRealtimeMetrics() });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, message: err.message });
+      }
+    }
+  );
 
   return httpServer;
 }

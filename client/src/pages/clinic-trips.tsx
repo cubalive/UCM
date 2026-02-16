@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useTripWs } from "@/hooks/use-trip-ws";
+import { useTripRealtime } from "@/hooks/use-trip-realtime";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
@@ -2094,9 +2094,9 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
     });
   }, [tripId]);
 
-  const { connected: wsConnected } = useTripWs({
+  const { connected: wsConnected } = useTripRealtime({
     tripId,
-    token,
+    authToken: token,
     onDriverLocation: handleWsDriverLocation,
     onStatusChange: handleWsStatusChange,
     onEtaUpdate: handleWsEtaUpdate,
