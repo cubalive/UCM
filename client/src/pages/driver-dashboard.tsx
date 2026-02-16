@@ -58,6 +58,7 @@ import {
   MapPinCheck,
   Wrench,
   CloudRain,
+  Settings,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
@@ -147,22 +148,30 @@ const isNativePlatform = typeof (window as any).Capacitor !== "undefined" && (wi
 function useNativeBackgroundTracking(token: string | null) {
   const [tracking, setTracking] = useState(false);
   const [bgLastSent, setBgLastSent] = useState<number | null>(null);
+  const [bgAccuracy, setBgAccuracy] = useState<number | null>(null);
+  const [bgPermissionDenied, setBgPermissionDenied] = useState(false);
   const watcherIdRef = useRef<string | null>(null);
   const bgThrottleRef = useRef<number>(0);
+  const bgLastLatRef = useRef<number>(0);
+  const bgLastLngRef = useRef<number>(0);
+  const tokenRef = useRef<string | null>(token);
+
+  useEffect(() => {
+    tokenRef.current = token;
+    if (isNativePlatform && token) {
+      const cap = (window as any).Capacitor;
+      const Prefs = cap?.Plugins?.Preferences;
+      if (Prefs) {
+        Prefs.set({ key: 'ucm_driver_jwt', value: token }).catch(() => {});
+      }
+    }
+  }, [token]);
 
   const startTracking = useCallback(async () => {
-    if (!isNativePlatform || !token) return;
-    if (watcherIdRef.current) {
-      console.log('[BG-GPS] Already tracking, watcher id:', watcherIdRef.current);
-      return;
-    }
+    if (!isNativePlatform || !tokenRef.current) return;
+    if (watcherIdRef.current) return;
     try {
       const cap = (window as any).Capacitor;
-      const Preferences = cap.Plugins?.Preferences;
-      if (Preferences) {
-        await Preferences.set({ key: 'ucm_driver_jwt', value: token });
-      }
-
       const BackgroundGeolocation = cap.Plugins?.BackgroundGeolocation;
       if (!BackgroundGeolocation) {
         console.warn('[BG-GPS] BackgroundGeolocation plugin not available');
@@ -175,26 +184,40 @@ function useNativeBackgroundTracking(token: string | null) {
           backgroundTitle: 'UCM Driver - Location Active',
           requestPermissions: true,
           stale: false,
-          distanceFilter: 20,
+          distanceFilter: 25,
         },
         (location: any, error: any) => {
           if (error) {
+            if (error.code === 'NOT_AUTHORIZED') {
+              setBgPermissionDenied(true);
+            }
             console.warn('[BG-GPS] Error:', error.code);
             return;
           }
           if (location) {
+            setBgPermissionDenied(false);
             const now = Date.now();
-            if (now - bgThrottleRef.current < 2000) return;
+            const speedMps = location.speed || 0;
+            const interval = speedMps < 1.5 ? 15000 : speedMps < 10 ? 5000 : 2000;
+            if (now - bgThrottleRef.current < interval) return;
+
+            const R = 6371000;
+            const dLat = (location.latitude - bgLastLatRef.current) * Math.PI / 180;
+            const dLng = (location.longitude - bgLastLngRef.current) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(bgLastLatRef.current * Math.PI / 180) * Math.cos(location.latitude * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+            const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            if (dist < 25 && (now - bgThrottleRef.current) < 15000) return;
+
             bgThrottleRef.current = now;
+            const currentToken = tokenRef.current;
+            if (!currentToken) return;
 
-            const postToken = token;
-            if (!postToken) return;
-
-            fetch('https://app.unitedcaremobility.com/api/driver/me/location', {
+            const host = window.location.origin || 'https://driver.unitedcaremobility.com';
+            fetch(`${host}/api/driver/me/location`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${postToken}`,
+                'Authorization': `Bearer ${currentToken}`,
               },
               body: JSON.stringify({
                 lat: location.latitude,
@@ -205,22 +228,22 @@ function useNativeBackgroundTracking(token: string | null) {
             }).then((res) => {
               if (res.ok) {
                 setBgLastSent(Date.now());
-              } else {
-                console.warn('[BG-GPS] Location post failed:', res.status);
+                setBgAccuracy(Math.round(location.accuracy));
+                bgLastLatRef.current = location.latitude;
+                bgLastLngRef.current = location.longitude;
               }
-            }).catch((err) => {
-              console.error('[BG-GPS] Location post error:', err);
-            });
+            }).catch(() => {});
           }
         }
       );
       watcherIdRef.current = id;
       setTracking(true);
+      setBgPermissionDenied(false);
       console.log('[BG-GPS] Background tracking started, watcher id:', id);
     } catch (err) {
       console.error('[BG-GPS] Failed to start:', err);
     }
-  }, [token]);
+  }, []);
 
   const stopTracking = useCallback(async () => {
     if (!isNativePlatform || !watcherIdRef.current) return;
@@ -229,7 +252,6 @@ function useNativeBackgroundTracking(token: string | null) {
       const BackgroundGeolocation = cap.Plugins?.BackgroundGeolocation;
       if (BackgroundGeolocation) {
         await BackgroundGeolocation.removeWatcher({ id: watcherIdRef.current });
-        console.log('[BG-GPS] Background tracking stopped, watcher id:', watcherIdRef.current);
       }
       watcherIdRef.current = null;
       setTracking(false);
@@ -238,7 +260,20 @@ function useNativeBackgroundTracking(token: string | null) {
     }
   }, []);
 
-  return { tracking, bgLastSent, startTracking, stopTracking };
+  const openSettings = useCallback(async () => {
+    if (!isNativePlatform) return;
+    try {
+      const cap = (window as any).Capacitor;
+      const BackgroundGeolocation = cap.Plugins?.BackgroundGeolocation;
+      if (BackgroundGeolocation) {
+        await BackgroundGeolocation.openSettings();
+      }
+    } catch {}
+  }, []);
+
+  const isStale = bgLastSent !== null && (Date.now() - bgLastSent > 120000);
+
+  return { tracking, bgLastSent, bgAccuracy, bgPermissionDenied, isStale, startTracking, stopTracking, openSettings };
 }
 
 const LOCATION_QUEUE_KEY = "ucm_driver_location_queue";
@@ -976,7 +1011,7 @@ export default function DriverDashboard() {
 
   const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverOnline || hasActiveTrip);
   const isNetworkOnline = useNetworkStatus();
-  const { tracking: bgTracking, bgLastSent, startTracking: bgStart, stopTracking: bgStop } = useNativeBackgroundTracking(token);
+  const { tracking: bgTracking, bgLastSent, bgAccuracy, bgPermissionDenied, isStale: bgStale, startTracking: bgStart, stopTracking: bgStop, openSettings: bgOpenSettings } = useNativeBackgroundTracking(token);
 
   const lastSentRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const [lastSentTime, setLastSentTime] = useState<number | null>(null);
@@ -1103,6 +1138,15 @@ export default function DriverDashboard() {
     return () => clearInterval(hbInterval);
   }, [isDriverOnline, token, isNetworkOnline]);
 
+  useEffect(() => {
+    if (!isNativePlatform) return;
+    if (isDriverOnline && token && !bgTracking) {
+      bgStart();
+    } else if (!isDriverOnline && bgTracking) {
+      bgStop();
+    }
+  }, [isDriverOnline, token, bgTracking, bgStart, bgStop]);
+
   const gpsStatus: GpsStatus = (() => {
     if (!isNetworkOnline) return "offline";
     if (geoPermission === "prompt") return "permission_needed";
@@ -1119,9 +1163,16 @@ export default function DriverDashboard() {
         method: "POST",
         body: JSON.stringify({ active }),
       }),
-    onSuccess: () => {
+    onSuccess: (_data: any, active: boolean) => {
       queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
-      toast({ title: isDriverActive ? "You are now offline" : "You are now online" });
+      toast({ title: active ? "You are now online" : "You are now offline" });
+      if (isNativePlatform) {
+        if (active) {
+          bgStart();
+        } else {
+          bgStop();
+        }
+      }
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -2176,17 +2227,43 @@ export default function DriverDashboard() {
                     <div className="border-t pt-3">
                       <Card data-testid="card-background-tracking">
                         <CardContent className="py-4 space-y-3">
-                          <div className="flex items-center gap-2">
-                            <Radio className="w-5 h-5 text-primary" />
-                            <span className="font-semibold text-base">Background Tracking</span>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Radio className="w-5 h-5 text-primary" />
+                              <span className="font-semibold text-base">Background Tracking</span>
+                            </div>
+                            <Badge variant={bgTracking ? (bgStale ? "secondary" : "default") : "outline"} data-testid="badge-bg-status">
+                              {bgTracking ? (bgStale ? "Stale" : "Running") : "Stopped"}
+                            </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            Keep location tracking active even when the app is in the background.
+                            GPS continues sending your position to dispatch while the app is in the background.
                           </p>
-                          {bgLastSent && (
-                            <p className="text-xs text-muted-foreground" data-testid="text-bg-last-sent">
-                              Last sent: {formatTimeSince(bgLastSent)}
-                            </p>
+                          {bgTracking && (
+                            <div className="space-y-1">
+                              {bgLastSent && (
+                                <p className="text-xs text-muted-foreground" data-testid="text-bg-last-sent">
+                                  Last sent: {formatTimeSince(bgLastSent)}
+                                  {bgAccuracy !== null && ` · Accuracy: ${bgAccuracy}m`}
+                                </p>
+                              )}
+                              {bgStale && (
+                                <p className="text-xs text-destructive" data-testid="text-bg-stale-warning">
+                                  GPS signal may be weak or blocked. Move to an open area.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          {bgPermissionDenied && (
+                            <Button
+                              variant="outline"
+                              className="w-full min-h-[44px] text-base"
+                              onClick={bgOpenSettings}
+                              data-testid="button-bg-open-settings"
+                            >
+                              <Settings className="w-5 h-5 mr-2" />
+                              Open Location Settings
+                            </Button>
                           )}
                           <Button
                             onClick={bgTracking ? bgStop : bgStart}
@@ -2195,7 +2272,7 @@ export default function DriverDashboard() {
                             data-testid={bgTracking ? "button-stop-bg-tracking" : "button-start-bg-tracking"}
                           >
                             <Satellite className="w-5 h-5 mr-2" />
-                            {bgTracking ? "Stop Tracking" : "Start Tracking"}
+                            {bgTracking ? "Stop Background GPS" : "Start Background GPS"}
                           </Button>
                         </CardContent>
                       </Card>

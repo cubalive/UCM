@@ -9,19 +9,19 @@ const config: CapacitorConfig = {
     cleartext: false,
   },
   plugins: {
-    BackgroundGeolocation: {
-      notifications: {
-        title: 'UCM Driver',
-        text: 'Tracking your location',
-      },
+    SplashScreen: {
+      launchAutoHide: true,
+      androidScaleType: 'CENTER_CROP',
     },
   },
   ios: {
     scheme: 'UCMDriver',
     contentInset: 'automatic',
+    backgroundColor: '#ffffff',
   },
   android: {
     allowMixedContent: false,
+    backgroundColor: '#ffffff',
   },
 };
 

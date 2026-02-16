@@ -72,8 +72,12 @@ The application follows a client-server architecture.
 - **App ID**: `com.unitedcaremobility.driver`
 - **Wraps**: `https://driver.unitedcaremobility.com` via Capacitor server.url
 - **Background GPS**: `@capacitor-community/background-geolocation` plugin posts to `/api/driver/me/location` with JWT auth
-- **Token Bridge**: JWT stored via Capacitor Preferences plugin, consumed by background location poster
-- **Native UI**: Background Tracking card in driver dashboard drawer (only visible on native platform via `window.Capacitor.isNativePlatform()`)
+- **Adaptive Intervals**: Moving (>1.5 m/s): 2-5s; Stationary: 15s; Distance filter: 25m; Offline queue up to 100 locations with auto-flush
+- **Token Bridge**: Web app pushes JWT to native Preferences on login and token refresh; native reads from Preferences for background posts; `tokenRef` pattern avoids stale closures
+- **Native UI**: Background Tracking card in driver dashboard drawer (only visible on native platform via `window.Capacitor.isNativePlatform()`) with Running/Stopped/Stale status badge, accuracy display, stale warning (>2min), and permission-denied settings shortcut
+- **Auto Start/Stop**: Background tracking automatically starts on CONNECT (Go Online) and stops on DISCONNECT (Go Offline); also auto-resumes if driver was already online at page load
+- **iOS Config**: `ios-config/Info.plist.additions` — WhenInUse + Always permission descriptions, UIBackgroundModes (location, fetch, processing)
+- **Android Config**: `android-config/AndroidManifest.additions.xml` — FINE/COARSE/BACKGROUND_LOCATION, FOREGROUND_SERVICE_LOCATION, WAKE_LOCK, foreground service declaration
 - **Build**: Run `cd mobile-driver && bash setup.sh`, then `npm run cap:ios` or `npm run cap:android`
 - **Host Detection**: Uses `isProdDomain = host.endsWith("unitedcaremobility.com")` pattern (not isReplit negative guard)
 
