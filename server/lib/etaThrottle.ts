@@ -3,6 +3,7 @@ import { haversineDistanceMeters, getDriverLocationFromCache } from "./driverLoc
 import { etaMinutes } from "./googleMaps";
 import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
 import { getJson, setJson, setNx, recordLockContention } from "./redis";
+import { recordDirectionsTimeout, recordDirectionsLockContention } from "./backpressure";
 
 const MOVEMENT_THRESHOLD_M = 300;
 const TIME_THRESHOLD_MS = 45_000;
@@ -76,6 +77,7 @@ export async function getThrottledEta(
   const lockAcquired = await setNx(`lock:eta:${tripId}`, "1", 10);
   if (!lockAcquired) {
     recordLockContention();
+    recordDirectionsLockContention();
     return cachedEta;
   }
 
@@ -93,7 +95,10 @@ export async function getThrottledEta(
         computedAt: Date.now(),
         source: "google",
       };
-    } catch {
+    } catch (err: any) {
+      if (err.message?.includes("timeout")) {
+        recordDirectionsTimeout();
+      }
       eta = haversineEta(
         { lat: driverLoc.lat, lng: driverLoc.lng },
         destination,

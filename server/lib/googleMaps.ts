@@ -164,12 +164,27 @@ function cacheKey(...parts: string[]): string {
   return parts.map((p) => p.trim().toLowerCase()).join("|");
 }
 
-async function googleFetch(url: string): Promise<any> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Google Maps API error: ${res.status} ${res.statusText}`);
+const DIRECTIONS_TIMEOUT_MS = 8000;
+
+async function googleFetch(url: string, timeoutMs?: number): Promise<any> {
+  const controller = new AbortController();
+  const timeout = timeoutMs || DIRECTIONS_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) {
+      throw new Error(`Google Maps API error: ${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  } catch (err: any) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") {
+      throw new Error(`Google Maps API timeout after ${timeout}ms`);
+    }
+    throw err;
   }
-  return res.json();
 }
 
 export async function geocodeAddress(address: string): Promise<GeocodeResult> {

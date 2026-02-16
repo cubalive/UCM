@@ -124,7 +124,7 @@ export default function TripDetailPage() {
         <RealtimeDebugPanel
           debugInfo={rtDebugInfo}
           pollingActive={!rtConnected}
-          pollingIntervalMs={rtConnected ? false : 60000}
+          pollingIntervalMs={rtConnected ? false : 10000}
           tripId={trip.id}
         />
       )}

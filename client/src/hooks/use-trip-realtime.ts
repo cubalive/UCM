@@ -53,6 +53,12 @@ function getSharedClient(): SupabaseClient | null {
   return sharedClient;
 }
 
+const LOCATION_DEBOUNCE_MS = 5_000;
+const ETA_DEBOUNCE_MS = 60_000;
+const POLL_LOCATION_CONNECTED_MS = 30_000;
+const POLL_LOCATION_DISCONNECTED_MS = 10_000;
+const POLL_ETA_MS = 60_000;
+
 export function useTripRealtime({
   tripId,
   authToken,
@@ -74,6 +80,8 @@ export function useTripRealtime({
   const callbacksRef = useRef({ onDriverLocation, onStatusChange, onEtaUpdate, onTestPing });
   callbacksRef.current = { onDriverLocation, onStatusChange, onEtaUpdate, onTestPing };
   const mountedRef = useRef(true);
+  const lastLocationRenderRef = useRef(0);
+  const lastEtaRenderRef = useRef(0);
 
   const recordEvent = useCallback((type: string) => {
     const ts = Date.now();
@@ -152,12 +160,15 @@ export function useTripRealtime({
       .on("broadcast", { event: "driver_location" }, (payload) => {
         const data = payload.payload as TripRealtimeEvent;
         recordEvent("driver_location");
+        const now = Date.now();
+        if (now - lastLocationRenderRef.current < LOCATION_DEBOUNCE_MS) return;
+        lastLocationRenderRef.current = now;
         if (data.driverId && data.lat != null && data.lng != null) {
           callbacksRef.current.onDriverLocation?.({
             driverId: data.driverId,
             lat: data.lat,
             lng: data.lng,
-            ts: data.ts || Date.now(),
+            ts: data.ts || now,
           });
         }
       })
@@ -174,6 +185,9 @@ export function useTripRealtime({
       .on("broadcast", { event: "eta_update" }, (payload) => {
         const data = payload.payload as TripRealtimeEvent;
         recordEvent("eta_update");
+        const now = Date.now();
+        if (now - lastEtaRenderRef.current < ETA_DEBOUNCE_MS) return;
+        lastEtaRenderRef.current = now;
         if (data.minutes != null && data.distanceMiles != null) {
           callbacksRef.current.onEtaUpdate?.({
             minutes: data.minutes,

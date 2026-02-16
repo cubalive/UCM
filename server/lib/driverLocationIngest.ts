@@ -6,6 +6,7 @@ import { cache, cacheKeys, CACHE_TTL, type CachedDriverLocation } from "./cache"
 import { broadcastToTrip } from "./realtime";
 import { broadcastTripSupabaseThrottled } from "./supabaseRealtime";
 import { getJson, setJson, incr, recordRateLimited } from "./redis";
+import { shouldPublishLocationRedis, recordLatencySample } from "./backpressure";
 
 const RATE_LIMIT_MS = 2000;
 const MAX_SPEED_MPS = 55; // ~123 mph
@@ -282,6 +283,9 @@ async function broadcastDriverLocation(driverId: number, lat: number, lng: numbe
       cache.set(tripLocKey, locData, CACHE_TTL.TRIP_DRIVER_LAST);
       setJson(`trip:${trip.id}:driver_location`, locData, 120).catch(() => {});
 
+      const allowed = await shouldPublishLocationRedis(trip.id);
+      if (!allowed) continue;
+
       broadcastToTrip(trip.id, {
         type: "driver_location",
         data: { driverId, lat, lng, ts: Date.now() },
@@ -367,6 +371,7 @@ export function registerDriverLocationRoutes(app: Express): void {
     authMiddleware,
     requireRole("DRIVER", "ADMIN", "DISPATCH", "SUPER_ADMIN"),
     async (req: AuthRequest, res) => {
+      const reqStart = Date.now();
       try {
         recordRequest();
 
@@ -461,6 +466,7 @@ export function registerDriverLocationRoutes(app: Express): void {
         const accepted = results.filter(r => r.accepted).length;
         const rejected = results.filter(r => !r.accepted).length;
 
+        recordLatencySample(Date.now() - reqStart);
         res.json({
           ok: true,
           accepted,
@@ -469,6 +475,7 @@ export function registerDriverLocationRoutes(app: Express): void {
           details: isBatch ? results : undefined,
         });
       } catch (err: any) {
+        recordLatencySample(Date.now() - reqStart);
         console.error(`[LOCATION-INGEST] Error: ${err.message}`);
         res.status(500).json({ ok: false, message: "Internal error" });
       }
@@ -480,7 +487,13 @@ export function registerDriverLocationRoutes(app: Express): void {
     requireRole("SUPER_ADMIN", "ADMIN"),
     async (_req, res) => {
       const { getRedisMetrics } = await import("./redis");
-      res.json({ ok: true, ...getIngestMetrics(), redis: getRedisMetrics() });
+      const { getBackpressureMetrics } = await import("./backpressure");
+      res.json({
+        ok: true,
+        ...getIngestMetrics(),
+        redis: getRedisMetrics(),
+        backpressure: getBackpressureMetrics(),
+      });
     }
   );
 

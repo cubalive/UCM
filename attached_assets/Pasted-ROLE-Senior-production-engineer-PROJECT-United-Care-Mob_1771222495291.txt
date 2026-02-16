@@ -1,0 +1,67 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+OBJECTIVE:
+Make the system resilient under high traffic by enforcing backpressure,
+adaptive update rates, and graceful degradation. Redis is already available.
+
+---------------------------------------
+1) GLOBAL THROTTLES (SERVER)
+---------------------------------------
+Implement/ensure:
+- Per-trip publish throttle (Redis):
+  trip:{tripId}:pub:last_ts
+  driver_location broadcasts <= 1 every 5s per trip
+  eta_update <= 1 every 60s per trip
+- Per-driver ingest throttle already exists (2s). Keep.
+
+Add "system load shedding" switches:
+- if redis reports high contention or server latency p95 > threshold:
+  increase driver_location publish interval from 5s -> 10s
+  disable eta_update temporarily (keep cached)
+  keep status_change always immediate
+
+---------------------------------------
+2) CLIENT UPDATE STRATEGY (Trip Details)
+---------------------------------------
+When realtime connected:
+- location updates: render at most every 5s (debounce UI updates)
+- ETA: update at most every 60s
+If disconnected:
+- fallback polling: location 10s, ETA 60s
+
+---------------------------------------
+3) HEAVY FEATURES OFF OUTSIDE TRIP DETAILS
+---------------------------------------
+Enforce at code level:
+- No Directions calls on list pages
+- No realtime subscribe on list pages
+- Static map thumbnails only for lists (existing)
+
+---------------------------------------
+4) HARD LIMITS
+---------------------------------------
+Add max payload sizes:
+- JSON body limit for express (e.g. 256kb)
+- reject unexpected large payloads (413)
+
+Add request timeouts for Google calls:
+- Directions timeout (e.g. 6-8s) with fallback to cached / haversine
+
+---------------------------------------
+5) VERIFY
+---------------------------------------
+Add counters (in memory ok, Redis optional):
+- publish_dropped_by_throttle
+- degrade_mode_on/off + reason
+- directions_timeout_count
+- directions_lock_contention_count
+
+DONE WHEN:
+Under simulated high refresh/multi-view of same trip, Directions calls do not spike,
+UI remains responsive, and system can degrade without crashing.
