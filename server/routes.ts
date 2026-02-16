@@ -7324,8 +7324,6 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         res.json({
           token,
           channel: `trip:${id}`,
-          supabaseUrl: process.env.SUPABASE_URL || null,
-          anonKey: process.env.SUPABASE_ANON_KEY || null,
           expiresIn: 600,
         });
       } catch (err: any) {

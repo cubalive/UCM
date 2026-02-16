@@ -140,6 +140,12 @@ export function RealtimeDebugPanel({
           <span>Realtime: {debugInfo.connectionState}</span>
         </div>
 
+        {debugInfo.errorReason && (
+          <div className="text-red-400 text-[10px] break-words" data-testid="text-realtime-error">
+            {debugInfo.errorReason}
+          </div>
+        )}
+
         <div className="opacity-80">
           Channel: {debugInfo.channel ?? "—"}
         </div>

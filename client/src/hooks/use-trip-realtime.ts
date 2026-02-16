@@ -1,6 +1,9 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 
+const VITE_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const VITE_SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
 interface TripRealtimeEvent {
   driverId?: number;
   lat?: number;
@@ -26,8 +29,6 @@ interface UseTripRealtimeOptions {
 interface RealtimeTokenResponse {
   token: string;
   channel: string;
-  supabaseUrl: string;
-  anonKey: string;
   expiresIn: number;
 }
 
@@ -39,6 +40,7 @@ export interface RealtimeDebugInfo {
   channel: string | null;
   lastEventType: string | null;
   lastEventTs: number | null;
+  errorReason: string | null;
 }
 
 export function useTripRealtime({
@@ -56,6 +58,7 @@ export function useTripRealtime({
     channel: null,
     lastEventType: null,
     lastEventTs: null,
+    errorReason: null,
   });
   const clientRef = useRef<SupabaseClient | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -67,10 +70,19 @@ export function useTripRealtime({
 
   const recordEvent = useCallback((type: string) => {
     const ts = Date.now();
-    if (import.meta.env.DEV) {
-      console.debug("[UCM] Realtime event", { type, ts });
-    }
+    console.debug("[UCM] Realtime event", { type, ts });
     setDebugInfo((prev) => ({ ...prev, lastEventType: type, lastEventTs: ts }));
+  }, []);
+
+  const setError = useCallback((reason: string) => {
+    console.warn("[UCM] Realtime error:", reason);
+    setConnected(false);
+    setDebugInfo((prev) => ({
+      ...prev,
+      connected: false,
+      connectionState: "DISCONNECTED",
+      errorReason: reason,
+    }));
   }, []);
 
   const cleanup = useCallback(() => {
@@ -91,7 +103,14 @@ export function useTripRealtime({
       clientRef.current = null;
     }
     setConnected(false);
-    setDebugInfo({ connectionState: "DISCONNECTED", connected: false, channel: null, lastEventType: null, lastEventTs: null });
+    setDebugInfo({
+      connectionState: "DISCONNECTED",
+      connected: false,
+      channel: null,
+      lastEventType: null,
+      lastEventTs: null,
+      errorReason: null,
+    });
   }, []);
 
   const connect = useCallback(async () => {
@@ -99,7 +118,12 @@ export function useTripRealtime({
 
     cleanup();
 
-    setDebugInfo((prev) => ({ ...prev, connectionState: "CONNECTING" }));
+    if (!VITE_SUPABASE_URL || !VITE_SUPABASE_ANON_KEY) {
+      setError("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY");
+      return;
+    }
+
+    setDebugInfo((prev) => ({ ...prev, connectionState: "CONNECTING", errorReason: null }));
 
     try {
       const resp = await fetch("/api/realtime/token", {
@@ -112,30 +136,27 @@ export function useTripRealtime({
       });
 
       if (!resp.ok) {
-        console.warn("[TRIP-RT] Token request failed:", resp.status);
-        setDebugInfo((prev) => ({ ...prev, connectionState: "DISCONNECTED" }));
+        const errData = await resp.json().catch(() => ({ message: `HTTP ${resp.status}` }));
+        setError(`Token request failed: ${errData.message || resp.status}`);
         return;
       }
 
       const tokenData: RealtimeTokenResponse = await resp.json();
-      if (!tokenData.supabaseUrl || !tokenData.anonKey || !tokenData.token) {
-        console.warn("[TRIP-RT] Missing realtime config");
-        setDebugInfo((prev) => ({ ...prev, connectionState: "DISCONNECTED" }));
+      if (!tokenData.token) {
+        setError("Server returned empty token");
         return;
       }
 
       if (!mountedRef.current) return;
 
       channelNameRef.current = tokenData.channel;
-      if (import.meta.env.DEV) {
-        console.debug("[UCM] Realtime subscribe", { channel: tokenData.channel });
-      }
+      console.debug("[UCM] Realtime subscribe", { channel: tokenData.channel, supabaseUrl: VITE_SUPABASE_URL });
       setDebugInfo((prev) => ({ ...prev, channel: tokenData.channel }));
 
-      const client = createClient(tokenData.supabaseUrl, tokenData.anonKey, {
+      const client = createClient(VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, {
         realtime: {
           params: {
-            apikey: tokenData.anonKey,
+            apikey: VITE_SUPABASE_ANON_KEY,
           },
         },
         global: {
@@ -199,18 +220,23 @@ export function useTripRealtime({
             message: data.message || "ok",
           });
         })
-        .subscribe((status) => {
+        .subscribe((status, err) => {
           if (!mountedRef.current) return;
-          const isConnected = status === "SUBSCRIBED";
-          if (import.meta.env.DEV) {
-            console.debug("[UCM] Realtime status", { connected: isConnected, status });
-          }
-          if (isConnected) {
+          console.debug("[UCM] Realtime status", { status, error: err?.message });
+          if (status === "SUBSCRIBED") {
             setConnected(true);
-            setDebugInfo((prev) => ({ ...prev, connected: true, connectionState: "CONNECTED" }));
-          } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
-            setConnected(false);
-            setDebugInfo((prev) => ({ ...prev, connected: false, connectionState: "DISCONNECTED" }));
+            setDebugInfo((prev) => ({
+              ...prev,
+              connected: true,
+              connectionState: "CONNECTED",
+              errorReason: null,
+            }));
+          } else if (status === "CLOSED") {
+            setError("Channel closed");
+          } else if (status === "CHANNEL_ERROR") {
+            setError(err?.message || "CHANNEL_ERROR (check Supabase project settings)");
+          } else if (status === "TIMED_OUT") {
+            setError("Connection timed out");
           }
         });
 
@@ -222,12 +248,10 @@ export function useTripRealtime({
           connect();
         }
       }, refreshMs);
-    } catch (err) {
-      console.warn("[TRIP-RT] Connection error:", err);
-      setConnected(false);
-      setDebugInfo((prev) => ({ ...prev, connected: false, connectionState: "DISCONNECTED" }));
+    } catch (err: any) {
+      setError(err?.message || "Connection error");
     }
-  }, [tripId, authToken, cleanup, recordEvent]);
+  }, [tripId, authToken, cleanup, recordEvent, setError]);
 
   useEffect(() => {
     mountedRef.current = true;
