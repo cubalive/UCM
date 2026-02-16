@@ -10,7 +10,17 @@ export function getStoredCityId(): string | null {
 
 export function getStoredToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) return token;
+    if (TOKEN_KEY === DRIVER_TOKEN_KEY) {
+      const legacy = localStorage.getItem(APP_TOKEN_KEY);
+      if (legacy) {
+        localStorage.setItem(DRIVER_TOKEN_KEY, legacy);
+        localStorage.removeItem(APP_TOKEN_KEY);
+        return legacy;
+      }
+    }
+    return null;
   } catch {
     return null;
   }

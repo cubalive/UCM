@@ -125,24 +125,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const [authRes, meRes] = await Promise.all([
-        fetch("/api/auth/me", { headers: { Authorization: `Bearer ${t}` }, credentials: getCredentials() }),
-        fetch("/api/me", { headers: { Authorization: `Bearer ${t}` }, credentials: getCredentials() }),
-      ]);
+      const authRes = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${t}` },
+        credentials: getCredentials(),
+      });
 
       if (!authRes.ok) throw new Error("Session expired. Please log in again.");
 
-      if (!meRes.ok) {
-        const meErr = await meRes.json().catch(() => ({ message: "Failed to load user context" }));
-        throw new Error(meErr.message || "Failed to load user context");
-      }
-
       const data = await authRes.json();
-      const me = await meRes.json();
 
       setUser(data.user);
       setCities(data.cities || []);
-      setMeData(me);
       setError(null);
 
       if (data.user?.mustChangePassword) {
@@ -150,6 +143,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       restoreCity(data.cities || [], data.user?.role || "");
+
+      try {
+        const meRes = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${t}` },
+          credentials: getCredentials(),
+        });
+        if (meRes.ok) {
+          setMeData(await meRes.json());
+        }
+      } catch {}
     } catch (e: any) {
       setError(e.message || "Failed to load user session");
       setToken(null);
