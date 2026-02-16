@@ -9,6 +9,7 @@ interface TripRealtimeEvent {
   lat?: number;
   lng?: number;
   ts?: number;
+  seq?: number;
   tripId?: number;
   status?: string;
   minutes?: number;
@@ -53,11 +54,10 @@ function getSharedClient(): SupabaseClient | null {
   return sharedClient;
 }
 
-const LOCATION_DEBOUNCE_MS = 5_000;
-const ETA_DEBOUNCE_MS = 60_000;
-const POLL_LOCATION_CONNECTED_MS = 30_000;
-const POLL_LOCATION_DISCONNECTED_MS = 10_000;
-const POLL_ETA_MS = 60_000;
+const LOCATION_RENDER_MS = 5_000;
+const ETA_RENDER_MS = 60_000;
+const RECONNECT_DELAYS = [2_000, 5_000, 10_000, 30_000];
+const POLL_INTERVAL_DISCONNECTED_MS = 10_000;
 
 export function useTripRealtime({
   tripId,
@@ -82,10 +82,15 @@ export function useTripRealtime({
   const mountedRef = useRef(true);
   const lastLocationRenderRef = useRef(0);
   const lastEtaRenderRef = useRef(0);
+  const lastSeqRef = useRef(0);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pausedRef = useRef(false);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectRef = useRef<() => void>(() => {});
 
   const recordEvent = useCallback((type: string) => {
     const ts = Date.now();
-    console.debug("[UCM] Realtime event", { type, ts });
     setDebugInfo((prev) => ({ ...prev, lastEventType: type, lastEventTs: ts }));
   }, []);
 
@@ -100,16 +105,34 @@ export function useTripRealtime({
     }));
   }, []);
 
-  const cleanup = useCallback(() => {
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const clearPollTimer = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const removeChannel = useCallback(() => {
     if (channelRef.current) {
       try {
         const client = getSharedClient();
-        if (client) {
-          client.removeChannel(channelRef.current);
-        }
+        if (client) client.removeChannel(channelRef.current);
       } catch {}
       channelRef.current = null;
     }
+  }, []);
+
+  const cleanup = useCallback(() => {
+    clearReconnectTimer();
+    clearPollTimer();
+    removeChannel();
     setConnected(false);
     setDebugInfo({
       connectionState: "DISCONNECTED",
@@ -119,12 +142,52 @@ export function useTripRealtime({
       lastEventTs: null,
       errorReason: null,
     });
-  }, []);
+  }, [clearReconnectTimer, clearPollTimer, removeChannel]);
+
+  const startPollingFallback = useCallback(() => {
+    clearPollTimer();
+    if (!tripId || !authToken) return;
+    pollTimerRef.current = setInterval(async () => {
+      if (!mountedRef.current || pausedRef.current) return;
+      try {
+        const res = await fetch(`/api/trips/${tripId}/eta-to-pickup`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.minutes != null && data.distanceMiles != null) {
+            callbacksRef.current.onEtaUpdate?.({
+              minutes: data.minutes,
+              distanceMiles: data.distanceMiles,
+            });
+          }
+        }
+      } catch {}
+    }, POLL_INTERVAL_DISCONNECTED_MS);
+  }, [tripId, authToken, clearPollTimer]);
+
+  const scheduleReconnect = useCallback(() => {
+    if (!mountedRef.current || pausedRef.current) return;
+    clearReconnectTimer();
+
+    const attempt = reconnectAttemptRef.current;
+    const delayIdx = Math.min(attempt, RECONNECT_DELAYS.length - 1);
+    const delay = RECONNECT_DELAYS[delayIdx];
+    reconnectAttemptRef.current = attempt + 1;
+
+    reconnectTimerRef.current = setTimeout(() => {
+      if (mountedRef.current && !pausedRef.current) {
+        connectRef.current();
+      }
+    }, delay);
+  }, [clearReconnectTimer]);
 
   const connect = useCallback(() => {
     if (!tripId || !authToken) return;
+    if (pausedRef.current) return;
 
-    cleanup();
+    removeChannel();
+    clearReconnectTimer();
 
     if (!VITE_SUPABASE_URL || !VITE_SUPABASE_ANON_KEY) {
       setError("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY");
@@ -138,16 +201,6 @@ export function useTripRealtime({
     }
 
     const channelName = `trip:${tripId}`;
-
-    const urlSafe = VITE_SUPABASE_URL.substring(0, 40) + "...";
-    const keyLen = VITE_SUPABASE_ANON_KEY.length;
-    const keySafe = VITE_SUPABASE_ANON_KEY.substring(0, 15) + "..." + VITE_SUPABASE_ANON_KEY.substring(keyLen - 6);
-    const looksLikeJwt = VITE_SUPABASE_ANON_KEY.startsWith("eyJ");
-    console.warn("[UCM] Realtime connecting", { channel: channelName, url: urlSafe, keyPrefix: keySafe, keyLength: keyLen, looksLikeJwt });
-    if (!looksLikeJwt) {
-      console.error("[UCM] VITE_SUPABASE_ANON_KEY does NOT look like a JWT/anon key. It should start with 'eyJ' and be ~200+ chars. Current length:", keyLen, "starts with:", VITE_SUPABASE_ANON_KEY.substring(0, 20));
-    }
-
     setDebugInfo((prev) => ({ ...prev, connectionState: "CONNECTING", errorReason: null, channel: channelName }));
 
     const channel = client.channel(channelName, {
@@ -158,10 +211,15 @@ export function useTripRealtime({
 
     channel
       .on("broadcast", { event: "driver_location" }, (payload) => {
+        if (pausedRef.current) return;
         const data = payload.payload as TripRealtimeEvent;
         recordEvent("driver_location");
+
+        if (data.seq != null && data.seq <= lastSeqRef.current) return;
+        if (data.seq != null) lastSeqRef.current = data.seq;
+
         const now = Date.now();
-        if (now - lastLocationRenderRef.current < LOCATION_DEBOUNCE_MS) return;
+        if (now - lastLocationRenderRef.current < LOCATION_RENDER_MS) return;
         lastLocationRenderRef.current = now;
         if (data.driverId && data.lat != null && data.lng != null) {
           callbacksRef.current.onDriverLocation?.({
@@ -183,10 +241,11 @@ export function useTripRealtime({
         }
       })
       .on("broadcast", { event: "eta_update" }, (payload) => {
+        if (pausedRef.current) return;
         const data = payload.payload as TripRealtimeEvent;
         recordEvent("eta_update");
         const now = Date.now();
-        if (now - lastEtaRenderRef.current < ETA_DEBOUNCE_MS) return;
+        if (now - lastEtaRenderRef.current < ETA_RENDER_MS) return;
         lastEtaRenderRef.current = now;
         if (data.minutes != null && data.distanceMiles != null) {
           callbacksRef.current.onEtaUpdate?.({
@@ -205,36 +264,64 @@ export function useTripRealtime({
       })
       .subscribe((status, err) => {
         if (!mountedRef.current) return;
-        console.debug("[UCM] Realtime status", { status, error: err?.message });
         if (status === "SUBSCRIBED") {
           setConnected(true);
+          reconnectAttemptRef.current = 0;
+          clearPollTimer();
           setDebugInfo((prev) => ({
             ...prev,
             connected: true,
             connectionState: "CONNECTED",
             errorReason: null,
           }));
-        } else if (status === "CLOSED") {
-          setError("Channel closed");
-        } else if (status === "CHANNEL_ERROR") {
-          setError(err?.message || "CHANNEL_ERROR (check Supabase project settings)");
-        } else if (status === "TIMED_OUT") {
-          setError("Connection timed out");
+        } else if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          const reason = status === "CLOSED" ? "Channel closed" : status === "TIMED_OUT" ? "Connection timed out" : (err?.message || "CHANNEL_ERROR");
+          setError(reason);
+          startPollingFallback();
+          scheduleReconnect();
         }
       });
 
     channelRef.current = channel;
-  }, [tripId, authToken, cleanup, recordEvent, setError]);
+  }, [tripId, authToken, removeChannel, clearReconnectTimer, clearPollTimer, recordEvent, setError, startPollingFallback, scheduleReconnect]);
+
+  connectRef.current = connect;
 
   useEffect(() => {
     mountedRef.current = true;
+    lastSeqRef.current = 0;
+    reconnectAttemptRef.current = 0;
     connect();
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        pausedRef.current = true;
+        clearReconnectTimer();
+        clearPollTimer();
+        removeChannel();
+        setConnected(false);
+        setDebugInfo((prev) => ({
+          ...prev,
+          connected: false,
+          connectionState: "DISCONNECTED",
+          errorReason: "tab_hidden",
+        }));
+      } else {
+        pausedRef.current = false;
+        lastSeqRef.current = 0;
+        reconnectAttemptRef.current = 0;
+        connectRef.current();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       mountedRef.current = false;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       cleanup();
     };
-  }, [connect, cleanup]);
+  }, [connect, cleanup, clearReconnectTimer, clearPollTimer, removeChannel]);
 
   return { connected, debugInfo };
 }

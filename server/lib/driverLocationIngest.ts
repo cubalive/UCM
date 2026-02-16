@@ -274,6 +274,52 @@ async function maybePersistToDb(driverId: number, lat: number, lng: number): Pro
   return true;
 }
 
+const tripSequenceCounters = new Map<number, number>();
+
+function getNextSeq(tripId: number): number {
+  const seq = (tripSequenceCounters.get(tripId) || 0) + 1;
+  tripSequenceCounters.set(tripId, seq);
+  return seq;
+}
+
+interface CoalesceEntry {
+  driverId: number;
+  lat: number;
+  lng: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const COALESCE_WINDOW_MS = 5_000;
+const coalesceBuffer = new Map<number, CoalesceEntry>();
+
+function flushCoalesceEntry(tripId: number): void {
+  const entry = coalesceBuffer.get(tripId);
+  if (!entry) return;
+  coalesceBuffer.delete(tripId);
+
+  const seq = getNextSeq(tripId);
+  const ts = Date.now();
+
+  broadcastToTrip(tripId, {
+    type: "driver_location",
+    data: { driverId: entry.driverId, lat: entry.lat, lng: entry.lng, ts, seq },
+  });
+
+  broadcastTripSupabaseThrottled(tripId, {
+    type: "driver_location",
+    data: { driverId: entry.driverId, lat: entry.lat, lng: entry.lng, ts, seq },
+  }).catch(() => {});
+}
+
+function coalesceAndPublish(tripId: number, driverId: number, lat: number, lng: number): void {
+  const existing = coalesceBuffer.get(tripId);
+  if (existing) {
+    clearTimeout(existing.timer);
+  }
+  const timer = setTimeout(() => flushCoalesceEntry(tripId), COALESCE_WINDOW_MS);
+  coalesceBuffer.set(tripId, { driverId, lat, lng, timer });
+}
+
 async function broadcastDriverLocation(driverId: number, lat: number, lng: number): Promise<void> {
   try {
     const allTrips = await storage.getActiveTripsForDriver(driverId);
@@ -286,15 +332,7 @@ async function broadcastDriverLocation(driverId: number, lat: number, lng: numbe
       const allowed = await shouldPublishLocationRedis(trip.id);
       if (!allowed) continue;
 
-      broadcastToTrip(trip.id, {
-        type: "driver_location",
-        data: { driverId, lat, lng, ts: Date.now() },
-      });
-
-      broadcastTripSupabaseThrottled(trip.id, {
-        type: "driver_location",
-        data: { driverId, lat, lng, ts: Date.now() },
-      }).catch(() => {});
+      coalesceAndPublish(trip.id, driverId, lat, lng);
     }
   } catch (err: any) {
     console.warn(`[LOCATION-INGEST] Broadcast error for driver ${driverId}: ${err.message}`);
