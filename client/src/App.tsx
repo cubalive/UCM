@@ -18,6 +18,7 @@ import { CitySelectionModal } from "@/components/city-selection-modal";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import TripsPage from "@/pages/trips";
+import TripDetailPage from "@/pages/trip-detail";
 import PatientsPage from "@/pages/patients";
 import DriversPage from "@/pages/drivers";
 import VehiclesPage from "@/pages/vehicles";
@@ -117,6 +118,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={HomeRedirect} />
+      <Route path="/trips/:id">{() => <ProtectedRoute resource="trips" component={TripDetailPage} />}</Route>
       <Route path="/trips">{() => <ProtectedRoute resource="trips" component={TripsPage} />}</Route>
       <Route path="/patients">{() => <ProtectedRoute resource="patients" component={PatientsPage} />}</Route>
       <Route path="/drivers">{() => <ProtectedRoute resource="drivers" component={DriversPage} />}</Route>

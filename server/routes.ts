@@ -2793,6 +2793,33 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
     }
   });
 
+  app.get("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
+    try {
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+      const [trip] = await db.select().from(trips).where(and(eq(trips.id, tripId), isNull(trips.deletedAt)));
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+      const companyId = getCompanyIdFromAuth(req);
+      if (companyId && trip.companyId !== companyId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const user = await storage.getUser(req.user!.userId);
+      if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
+        const clinic = await storage.getClinic(user.clinicId);
+        if (!clinic || trip.cityId !== clinic.cityId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      res.json(trip);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   const createTripSchema = insertTripSchema.omit({ publicId: true }).refine(
     (d) => !!d.pickupZip,
     { message: "Pickup ZIP code is required", path: ["pickupZip"] }

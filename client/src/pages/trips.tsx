@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -91,6 +92,7 @@ export default function TripsPage() {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const { t } = useTranslation();
+  const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [detailTrip, setDetailTrip] = useState<any>(null);
@@ -413,7 +415,7 @@ export default function TripsPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map((trip: any) => (
-            <Card key={trip.id} className="hover-elevate cursor-pointer" onClick={() => setDetailTrip(trip)} data-testid={`card-trip-${trip.id}`}>
+            <Card key={trip.id} className="hover-elevate cursor-pointer" onClick={() => navigate(`/trips/${trip.id}`)} data-testid={`card-trip-${trip.id}`}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="space-y-1 min-w-0 flex-1">
@@ -463,7 +465,7 @@ export default function TripsPage() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={(e) => { e.stopPropagation(); setDetailTrip(trip); }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/trips/${trip.id}`); }}
                       data-testid={`button-view-trip-${trip.id}`}
                     >
                       <Eye className="w-4 h-4" />
