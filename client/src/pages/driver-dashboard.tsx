@@ -947,6 +947,48 @@ export default function DriverDashboard() {
     return () => window.removeEventListener("ucm-session-revoked", handleFetchError);
   }, [logout, toast]);
 
+  useEffect(() => {
+    if (!token) return;
+    const cap = (window as any).Capacitor;
+    if (!cap?.isNativePlatform?.()) return;
+
+    (async () => {
+      try {
+        const { PushNotifications } = await import('@capacitor/push-notifications');
+        const perm = await PushNotifications.requestPermissions();
+        if (perm.receive !== 'granted') {
+          console.log('[PUSH] Permission not granted');
+          return;
+        }
+
+        await PushNotifications.addListener('registration', async (t: { value: string }) => {
+          const platform = /iphone|ipad/i.test(navigator.userAgent) ? 'ios' : 'android';
+          try {
+            await apiFetch('/api/driver/push-token', token, {
+              method: 'POST',
+              body: JSON.stringify({ platform, token: t.value }),
+            });
+          } catch (e: any) {
+            console.error('[PUSH] Token registration failed:', e.message);
+          }
+        });
+
+        await PushNotifications.addListener('pushNotificationActionPerformed', (action: any) => {
+          const data = action?.notification?.data;
+          if (data?.tripId) {
+            queryClient.invalidateQueries({ queryKey: ['/api/driver/active-trip'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/driver/my-trips'] });
+          }
+        });
+
+        await PushNotifications.register();
+        console.log('[PUSH] Push notifications initialized');
+      } catch (err: any) {
+        console.log('[PUSH] Push not available:', err.message);
+      }
+    })();
+  }, [token]);
+
   const mapsLoaded = useLoadGoogleMaps(token);
 
   const handleRtStatusChange = useCallback((statusData: { status: string; tripId: number }) => {

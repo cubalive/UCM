@@ -4,7 +4,8 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, invalidateRevocationCache, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens } from "@shared/schema";
+import { registerPushToken, unregisterPushToken, sendPushToDriver, isPushEnabled } from "./lib/push";
 import { z } from "zod";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
@@ -2016,6 +2017,13 @@ export async function registerRoutes(
               lastShownAt: new Date(),
             }).returning();
             alertRecord = newAlert;
+
+            const minsLeft = Math.ceil((pickupMs - nowMs) / 60000);
+            sendPushToDriver(user.driverId, {
+              title: "Go Time!",
+              body: `Your pickup at ${trip.pickupAddress || "scheduled location"} is in ${minsLeft} min.`,
+              data: { tripId: String(trip.id), action: "go_time", alertId: String(newAlert.id) },
+            }).catch(err => console.error(`[PUSH] Go-time push failed:`, err.message));
           }
 
           const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
@@ -2558,6 +2566,40 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
     }
   });
 
+  app.post("/api/driver/push-token", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const schema = z.object({
+        platform: z.enum(["ios", "android", "web"]),
+        token: z.string().min(1).max(4096),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
+
+      await registerPushToken(user.driverId, user.companyId || null, parsed.data.platform, parsed.data.token);
+      res.json({ message: "Token registered", pushEnabled: isPushEnabled() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/driver/push-token", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const { token } = req.body;
+      if (!token) return res.status(400).json({ message: "Token required" });
+
+      await unregisterPushToken(user.driverId, token);
+      res.json({ message: "Token removed" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Driver score history for charts
   app.get("/api/driver/score-history", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
     try {
@@ -2872,6 +2914,12 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         cityId: trip.cityId,
       });
 
+      sendPushToDriver(driverId, {
+        title: "New Trip Offer",
+        body: `You have a new trip offer for ${trip.pickupAddress || "pickup"}. Respond in ${OFFER_TTL_SECONDS}s.`,
+        data: { tripId: String(id), action: "trip_offer", offerId: String(offer.id) },
+      }).catch(err => console.error(`[PUSH] Offer push failed for driver ${driverId}:`, err.message));
+
       res.json({
         offerId: offer.id,
         tripId: id,
@@ -2977,6 +3025,15 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         senderRole: req.user!.role,
         message: message.trim(),
       }).returning();
+
+      if (trip.driverId && req.user!.role !== "DRIVER") {
+        sendPushToDriver(trip.driverId, {
+          title: "Dispatch Message",
+          body: message.trim().length > 100 ? message.trim().slice(0, 97) + "..." : message.trim(),
+          data: { tripId: String(tripId), action: "dispatch_message", messageId: String(newMsg.id) },
+        }).catch(err => console.error(`[PUSH] Dispatch message push failed:`, err.message));
+      }
+
       res.json(newMsg);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

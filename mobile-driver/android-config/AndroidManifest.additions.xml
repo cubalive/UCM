@@ -17,6 +17,9 @@
 <!-- Wake Lock for reliable background updates -->
 <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+<!-- Push Notifications (Firebase Cloud Messaging) -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
 <!-- Request ignore battery optimizations (shown as a toggle in the app) -->
 <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 

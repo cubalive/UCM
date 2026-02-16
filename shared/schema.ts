@@ -1053,3 +1053,21 @@ export type InsertDriverDevice = z.infer<typeof insertDriverDeviceSchema>;
 export const insertSessionRevocationSchema = createInsertSchema(sessionRevocations).omit({ id: true, createdAt: true });
 export type SessionRevocation = typeof sessionRevocations.$inferSelect;
 export type InsertSessionRevocation = z.infer<typeof insertSessionRevocationSchema>;
+
+export const pushPlatformEnum = pgEnum("push_platform", ["ios", "android", "web"]);
+
+export const driverPushTokens = pgTable("driver_push_tokens", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id").references(() => companies.id),
+  platform: pushPlatformEnum("platform").notNull(),
+  token: text("token").notNull(),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_push_tokens_unique").on(table.driverId, table.token),
+]);
+
+export const insertDriverPushTokenSchema = createInsertSchema(driverPushTokens).omit({ id: true, createdAt: true });
+export type DriverPushToken = typeof driverPushTokens.$inferSelect;
+export type InsertDriverPushToken = z.infer<typeof insertDriverPushTokenSchema>;

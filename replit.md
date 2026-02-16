@@ -76,8 +76,9 @@ The application follows a client-server architecture.
 - **Token Bridge**: Web app pushes JWT to native Preferences on login and token refresh; native reads from Preferences for background posts; `tokenRef` pattern avoids stale closures
 - **Native UI**: Background Tracking card in driver dashboard drawer (only visible on native platform via `window.Capacitor.isNativePlatform()`) with Running/Stopped/Stale status badge, accuracy display, stale warning (>2min), and permission-denied settings shortcut
 - **Auto Start/Stop**: Background tracking automatically starts on CONNECT (Go Online) and stops on DISCONNECT (Go Offline); also auto-resumes if driver was already online at page load
-- **iOS Config**: `ios-config/Info.plist.additions` — WhenInUse + Always permission descriptions, UIBackgroundModes (location, fetch, processing)
-- **Android Config**: `android-config/AndroidManifest.additions.xml` — FINE/COARSE/BACKGROUND_LOCATION, FOREGROUND_SERVICE_LOCATION, WAKE_LOCK, foreground service declaration
+- **Push Notifications**: Firebase Cloud Messaging (FCM) via `firebase-admin` SDK; token stored in `driver_push_tokens` table; triggers on trip offer, go-time alert, dispatch message; Capacitor `@capacitor/push-notifications` plugin handles native registration; graceful degradation when `FIREBASE_SERVICE_ACCOUNT_JSON` not set; stale token auto-cleanup on send failure
+- **iOS Config**: `ios-config/Info.plist.additions` — WhenInUse + Always permission descriptions, UIBackgroundModes (location, fetch, processing, remote-notification)
+- **Android Config**: `android-config/AndroidManifest.additions.xml` — FINE/COARSE/BACKGROUND_LOCATION, FOREGROUND_SERVICE_LOCATION, WAKE_LOCK, POST_NOTIFICATIONS, foreground service declaration
 - **Build**: Run `cd mobile-driver && bash setup.sh`, then `npm run cap:ios` or `npm run cap:android`
 - **Host Detection**: Uses `isProdDomain = host.endsWith("unitedcaremobility.com")` pattern (not isReplit negative guard)
 
