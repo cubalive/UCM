@@ -1,0 +1,68 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+- Do not modify shared/permissions.ts
+
+GOAL:
+Make driver.unitedcaremobility.com fully JWT Bearer-based (no cookies required) and eliminate "No token provided" by ensuring ALL driver API calls attach Authorization header.
+
+CONTEXT:
+Backend CORS is already correct and includes driver origin.
+Backend authMiddleware supports Bearer and cookies.
+Problem is frontend not sending Bearer on driver host.
+
+TASKS:
+
+A) Standardize token key + API wrapper
+1) Define a single token key:
+   const DRIVER_TOKEN_KEY = "ucm_driver_token";
+
+2) Create a single fetch wrapper (new file or existing, e.g. client/src/lib/apiFetch.ts):
+   - Reads token from localStorage
+   - Attaches Authorization: Bearer <token> when present
+   - Uses relative URLs ("/api/...") only (no PUBLIC_BASE_URL in frontend)
+   - Sets credentials:"omit" (driver must not rely on cookies)
+   - On 401: clears token and throws
+
+B) Ensure React Query uses that wrapper
+1) In client/src/lib/queryClient.ts (or where you define apiRequest/queryFn):
+   - Ensure every request uses the wrapper so the header is always attached.
+   - This is critical because many pages call apiRequest/queryClient and not raw fetch.
+
+C) AuthProvider driver mode
+In client/src/lib/auth (AuthProvider/useAuth):
+1) If isDriverHost:
+   - token := localStorage.getItem(DRIVER_TOKEN_KEY)
+   - If token exists, call GET "/api/me" using the wrapper
+   - If ok, set user+token; else clear token and user=null
+   - login action (driver host) uses POST "/api/auth/login-jwt" and stores token
+   - logout clears localStorage token
+
+2) If not driver host:
+   - Leave existing behavior unchanged.
+
+D) Fix App.tsx driver router
+Your DriverSubdomainRouter currently redirects /login -> "/".
+Change so on driver host:
+- "/login" renders LoginPage (not redirect)
+- "/" redirects to "/driver" ONLY when user is authenticated; otherwise shows LoginPage.
+
+E) Add a REAL verification button (no devtools)
+In driver dashboard (or debug panel when VITE_UCM_DEBUG=true):
+- Add "Test Auth" button that calls wrapper GET "/api/me"
+- Show status + JSON on screen
+
+VERIFY (MUST):
+1) On driver subdomain: login -> token stored -> app loads
+2) Test Auth button shows 200 + ok:true
+3) Refresh -> still logged in
+4) app subdomain unaffected
+
+Deliver:
+- Files changed list
+- Where token is stored
+- Where header is injected (exact function)

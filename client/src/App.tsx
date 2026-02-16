@@ -193,7 +193,7 @@ function DriverSubdomainRouter() {
       <Route path="/">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
-      <Route path="/login">{() => <Redirect to="/" />}</Route>
+      <Route path="/login" component={LoginPage} />
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route>{() => <Redirect to="/driver" />}</Route>
     </Switch>

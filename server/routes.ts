@@ -203,7 +203,7 @@ export async function registerRoutes(
         cityId: null,
       });
 
-      setAuthCookie(res, token);
+      setAuthCookie(res, token, req);
 
       res.json({
         token,
@@ -305,7 +305,7 @@ export async function registerRoutes(
           ? allCities
           : allCities.filter((c) => cityAccess.includes(c.id));
         const { password, ...safeUser } = user;
-        setAuthCookie(res, token);
+        setAuthCookie(res, token, req);
         res.json({
           token,
           user: { ...safeUser, cityAccess },
@@ -1752,8 +1752,8 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/logout", (_req, res) => {
-    clearAuthCookie(res);
+  app.post("/api/auth/logout", (req, res) => {
+    clearAuthCookie(res, req);
     res.json({ ok: true });
   });
 
@@ -1761,7 +1761,7 @@ export async function registerRoutes(
     try {
       const user = await storage.getUser(req.user!.userId);
       if (!user?.driverId) {
-        clearAuthCookie(res);
+        clearAuthCookie(res, req);
         return res.json({ ok: true });
       }
       await db.update(drivers).set({
@@ -1770,7 +1770,7 @@ export async function registerRoutes(
         lastLng: null,
         lastSeenAt: null,
       }).where(eq(drivers.id, user.driverId));
-      clearAuthCookie(res);
+      clearAuthCookie(res, req);
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -4974,7 +4974,7 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         cityId: null,
       });
 
-      setAuthCookie(res, jwtToken);
+      setAuthCookie(res, jwtToken, req);
 
       res.json({
         token: jwtToken,

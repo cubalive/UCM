@@ -9,23 +9,33 @@ const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-change-me";
 const IS_PROD = process.env.NODE_ENV === "production";
 const UCM_COOKIE = "ucm_session";
 
-export function setAuthCookie(res: Response, token: string): void {
+function getCookieDomain(req: Request): string | undefined {
+  const host = req.hostname || req.headers.host || "";
+  if (host.endsWith("unitedcaremobility.com")) {
+    return ".unitedcaremobility.com";
+  }
+  return undefined;
+}
+
+export function setAuthCookie(res: Response, token: string, req: Request): void {
+  const domain = getCookieDomain(req);
   res.cookie(UCM_COOKIE, token, {
     httpOnly: true,
     secure: IS_PROD,
     sameSite: IS_PROD ? "none" : "lax",
-    domain: IS_PROD ? ".unitedcaremobility.com" : undefined,
+    domain,
     maxAge: 24 * 60 * 60 * 1000,
     path: "/",
   });
 }
 
-export function clearAuthCookie(res: Response): void {
+export function clearAuthCookie(res: Response, req: Request): void {
+  const domain = getCookieDomain(req);
   res.clearCookie(UCM_COOKIE, {
     httpOnly: true,
     secure: IS_PROD,
     sameSite: IS_PROD ? "none" : "lax",
-    domain: IS_PROD ? ".unitedcaremobility.com" : undefined,
+    domain,
     path: "/",
   });
 }

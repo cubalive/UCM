@@ -1,0 +1,50 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+- Do not modify shared/permissions.ts
+
+GOAL:
+1) Make driver.unitedcaremobility.com use JWT Bearer auth only (no cookies).
+2) Keep app.unitedcaremobility.com cookie auth working as-is.
+3) Fix cookie domain so it does not break on replit.app / preview.
+
+TASKS:
+
+A) Backend cookie hardening (server/auth.ts):
+- Modify setAuthCookie/clearAuthCookie so "domain: .unitedcaremobility.com" is ONLY set when the request host endsWith("unitedcaremobility.com").
+- Otherwise, omit domain (undefined).
+- Keep sameSite/secure behavior as-is.
+
+Implementation detail:
+- Add helper getCookieDomain(req) in routes where cookie is set, OR change setAuthCookie signature to accept req and decide domain safely.
+- Ensure no cookie is attempted with domain mismatch.
+
+B) Driver subdomain = Bearer-only:
+- Ensure there is a POST /api/auth/login-jwt endpoint that returns { token, user } for DRIVER role login.
+- On driver host, frontend must store token in localStorage key "ucm_driver_token".
+- AuthProvider must, when isDriverHost is true:
+  - Read token from localStorage
+  - Call GET /api/me with Authorization: Bearer <token>, credentials:"omit"
+  - If 401/403, clear token and show LoginPage
+- Ensure all driver API calls use Authorization header from stored token (centralize in queryClient/apiFetch).
+
+C) Fix driver routing:
+- On driver host, route "/login" must render LoginPage (do NOT Redirect to "/").
+- Confirm refresh on driver keeps session (token persists).
+
+D) Verification steps (must do):
+1) Login driver on driver.unitedcaremobility.com
+2) Confirm GET /api/me returns 200 with Bearer auth
+3) Refresh page -> still logged in
+4) app.unitedcaremobility.com login still works (cookie mode) and /trips loads
+5) Confirm no endpoint returns "No token provided" in normal driver flow
+
+Deliver:
+- Files changed list
+- Exact endpoints used
+- Notes on how to revoke driver token (logout clears localStorage)
