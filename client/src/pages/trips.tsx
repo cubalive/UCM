@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import { useTripRealtime } from "@/hooks/use-trip-realtime";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1391,14 +1392,33 @@ function TripDetailDialog({
 
   const todayStr = getTodayInTimezone(cityTimezone);
 
-  const isActiveTrip = trip.status === "ASSIGNED" || trip.status === "IN_PROGRESS";
+  const isActiveTrip = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"].includes(trip.status);
   const hasDriver = !!trip.driverId;
+
+  const handleRtStatusChange = useCallback((statusData: { status: string; tripId: number }) => {
+    queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/trips", trip.id, "eta-to-pickup"] });
+  }, [trip.id]);
+
+  const handleRtEtaUpdate = useCallback((etaData: { minutes: number; distanceMiles: number }) => {
+    queryClient.setQueryData(["/api/trips", trip.id, "eta-to-pickup"], (old: any) => {
+      if (!old) return old;
+      return { ...old, eta_minutes: etaData.minutes, distance_text: `${etaData.distanceMiles.toFixed(1)} mi`, updated_at: new Date().toISOString(), source: "realtime" };
+    });
+  }, [trip.id]);
+
+  const { connected: rtConnected } = useTripRealtime({
+    tripId: isActiveTrip && hasDriver ? trip.id : null,
+    authToken: token,
+    onStatusChange: handleRtStatusChange,
+    onEtaUpdate: handleRtEtaUpdate,
+  });
 
   const { data: etaData } = useQuery<{ ok: boolean; eta_minutes?: number; distance_text?: string; updated_at?: string; source?: string; message?: string }>({
     queryKey: ["/api/trips", trip.id, "eta-to-pickup"],
     queryFn: () => apiFetch(`/api/trips/${trip.id}/eta-to-pickup`, token),
     enabled: !!token && hasDriver && isActiveTrip,
-    refetchInterval: 120000,
+    refetchInterval: rtConnected ? false : 120000,
   });
 
   const createTokenMutation = useMutation({
@@ -1648,6 +1668,13 @@ function TripDetailDialog({
                     Driver is 5 minutes away
                   </Badge>
                 )}
+              </div>
+            )}
+
+            {isActiveTrip && hasDriver && import.meta.env.DEV && (
+              <div className="flex items-center gap-1.5" data-testid="text-realtime-status">
+                <span className={`inline-block w-2 h-2 rounded-full ${rtConnected ? "bg-green-500" : "bg-red-500"}`} />
+                <span className="text-xs text-muted-foreground">Realtime: {rtConnected ? "Connected" : "Disconnected"}</span>
               </div>
             )}
 

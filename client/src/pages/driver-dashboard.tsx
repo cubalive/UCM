@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import { useTripRealtime } from "@/hooks/use-trip-realtime";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -620,12 +621,38 @@ export default function DriverDashboard() {
 
   const mapsLoaded = useLoadGoogleMaps(token);
 
+  const handleRtStatusChange = useCallback((statusData: { status: string; tripId: number }) => {
+    queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
+  }, []);
+
+  const handleRtEtaUpdate = useCallback((etaData: { minutes: number; distanceMiles: number }) => {
+    queryClient.setQueryData(["/api/driver/active-trip"], (old: any) => {
+      if (!old?.trip) return old;
+      return { ...old, trip: { ...old.trip, lastEtaMinutes: etaData.minutes, distanceMiles: etaData.distanceMiles, lastEtaUpdatedAt: new Date().toISOString() } };
+    });
+  }, []);
+
+  const [rtActiveTripId, setRtActiveTripId] = useState<number | null>(null);
+
+  const { connected: rtConnected } = useTripRealtime({
+    tripId: rtActiveTripId,
+    authToken: token,
+    onStatusChange: handleRtStatusChange,
+    onEtaUpdate: handleRtEtaUpdate,
+  });
+
   const activeTripQuery = useQuery<{ trip: ActiveTripData | null }>({
     queryKey: ["/api/driver/active-trip"],
     queryFn: () => apiFetch("/api/driver/active-trip", token),
     enabled: !!token,
-    refetchInterval: 30000,
+    refetchInterval: rtConnected ? false : 30000,
   });
+
+  useEffect(() => {
+    const tripId = activeTripQuery.data?.trip?.id ?? null;
+    setRtActiveTripId(tripId);
+  }, [activeTripQuery.data?.trip?.id]);
 
   const profileQuery = useQuery<any>({
     queryKey: ["/api/driver/profile"],
@@ -1204,6 +1231,12 @@ export default function DriverDashboard() {
                           <Timer className="w-4 h-4" />
                           ~{activeTrip.lastEtaMinutes} min
                           {activeTrip.distanceMiles != null && ` / ${activeTrip.distanceMiles} mi`}
+                        </span>
+                      )}
+                      {import.meta.env.DEV && (
+                        <span className="flex items-center gap-1" data-testid="text-realtime-status">
+                          <span className={`inline-block w-2 h-2 rounded-full ${rtConnected ? "bg-green-500" : "bg-red-500"}`} />
+                          <span className="text-xs text-muted-foreground">{rtConnected ? "RT" : "Poll"}</span>
                         </span>
                       )}
                     </div>

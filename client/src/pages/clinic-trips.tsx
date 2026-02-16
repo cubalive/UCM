@@ -2355,7 +2355,15 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
         </DialogHeader>
       </div>
 
-      <div ref={trackingWrapperRef} className="w-full h-64 sm:h-80 bg-muted" data-testid="div-tracking-map" style={{ display: hasDriverLocation && mapAvailable ? "block" : "none" }} />
+      <div className="relative">
+        <div ref={trackingWrapperRef} className="w-full h-64 sm:h-80 bg-muted" data-testid="div-tracking-map" style={{ display: hasDriverLocation && mapAvailable ? "block" : "none" }} />
+        {import.meta.env.DEV && hasDriverLocation && mapAvailable && (
+          <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-background/80 rounded px-2 py-1" data-testid="text-realtime-status">
+            <span className={`inline-block w-2 h-2 rounded-full ${wsConnected ? "bg-green-500" : "bg-red-500"}`} />
+            <span className="text-xs text-muted-foreground">Realtime: {wsConnected ? "Connected" : "Disconnected"}</span>
+          </div>
+        )}
+      </div>
       {!hasDriverLocation && (
         <div className="w-full h-48 bg-muted flex items-center justify-center">
           <div className="text-center text-muted-foreground">
