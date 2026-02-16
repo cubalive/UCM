@@ -32,6 +32,7 @@ interface AuthContextType {
   hasAccess: (cityId: number) => boolean;
   isSuperAdmin: boolean;
   clearMustChangePassword: () => void;
+  lastAuthStatus: number | null;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -59,26 +60,6 @@ function storeWorkingCityId(cityId: number | null) {
   } catch {}
 }
 
-function buildDriverUser(me: any): AuthUser {
-  return {
-    id: me.userId ?? me.id,
-    email: me.email || "",
-    role: me.role || "DRIVER",
-    firstName: me.firstName || me.email?.split("@")[0] || "",
-    lastName: me.lastName || "",
-    active: true,
-    publicId: me.ucm_id || "",
-    phone: me.phone || null,
-    cityAccess: [],
-    createdAt: new Date(),
-    mustChangePassword: false,
-    clinicId: null,
-    driverId: me.driverId || null,
-    companyId: me.companyId || null,
-    cityId: me.city_id || null,
-  } as unknown as AuthUser;
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(() => {
@@ -94,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [devLoginAttempts, setDevLoginAttempts] = useState(0);
   const [devBypassed, setDevBypassed] = useState(false);
   const [cityChosen, setCityChosen] = useState(false);
+  const [lastAuthStatus, setLastAuthStatus] = useState<number | null>(null);
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN" || (user?.role as string) === "super_admin";
 
@@ -148,33 +130,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/me", {
+      const res = await fetch("/api/auth/me", {
         headers: { Authorization: `Bearer ${t}` },
         credentials: "omit",
       });
+      setLastAuthStatus(res.status);
 
       if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: res.statusText }));
+        const msg = `Auth failed (${res.status}): ${body.message || "Session expired"}`;
+
         if (res.status === 401 || res.status === 403) {
-          localStorage.removeItem(DRIVER_TOKEN_KEY);
-          setToken(null);
+          setError(msg);
           setUser(null);
           setMeData(null);
+          localStorage.removeItem(DRIVER_TOKEN_KEY);
+          setToken(null);
           setLoading(false);
           return;
         }
-        throw new Error("Session expired. Please log in again.");
+        throw new Error(msg);
       }
 
-      const me = await res.json();
-      const driverUser = buildDriverUser(me);
-      setUser(driverUser);
-      setCities([]);
-      setMeData(me);
-      setMustChangePassword(false);
+      const data = await res.json();
+      setUser(data.user);
+      setCities(data.cities || []);
+      setMeData(null);
+      setMustChangePassword(data.user?.mustChangePassword || false);
       setCityChosen(true);
       setError(null);
+
+      try {
+        const meRes = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${t}` },
+          credentials: "omit",
+        });
+        if (meRes.ok) {
+          setMeData(await meRes.json());
+        }
+      } catch {}
     } catch (e: any) {
-      setError(e.message || "Failed to load user session");
+      setError(e.message || "Failed to load driver session");
       setToken(null);
       setUser(null);
       setMeData(null);
@@ -193,6 +189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         headers: { Authorization: `Bearer ${t}` },
         credentials: creds,
       });
+      setLastAuthStatus(authRes.status);
 
       if (!authRes.ok) {
         if (authRes.status === 401 || authRes.status === 403) {
@@ -294,6 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     setError(null);
+    setLastAuthStatus(null);
 
     if (isDriverHost) {
       const res = await fetch("/api/auth/login-jwt", {
@@ -302,6 +300,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
         credentials: "omit",
       });
+      setLastAuthStatus(res.status);
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || "Login failed");
@@ -309,22 +308,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       localStorage.setItem(DRIVER_TOKEN_KEY, data.token);
       setToken(data.token);
-
-      const meRes = await fetch("/api/me", {
-        headers: { Authorization: `Bearer ${data.token}` },
-        credentials: "omit",
-      });
-      if (meRes.ok) {
-        const me = await meRes.json();
-        const driverUser = buildDriverUser(me);
-        setUser(driverUser);
-        setCities([]);
-        setMeData(me);
-        setMustChangePassword(false);
-        setCityChosen(true);
-      } else {
-        setUser(data.user ? buildDriverUser(data.user) : null);
-      }
+      setUser(data.user);
+      setCities(data.cities || []);
+      setMeData(null);
+      setMustChangePassword(data.mustChangePassword || false);
+      setCityChosen(true);
       return;
     }
 
@@ -335,6 +323,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
       credentials: creds,
     });
+    setLastAuthStatus(res.status);
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.message || "Login failed");
@@ -399,6 +388,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setMeData(null);
     setError(null);
     setMustChangePassword(false);
+    setLastAuthStatus(null);
     localStorage.removeItem("ucm_working_city_id");
   };
 
@@ -435,6 +425,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         hasAccess,
         isSuperAdmin,
         clearMustChangePassword,
+        lastAuthStatus,
       }}
     >
       {children}

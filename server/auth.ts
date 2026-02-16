@@ -5,8 +5,14 @@ import { db } from "./db";
 import { users, userCityAccess, sessionRevocations } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 
-const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-change-me";
 const IS_PROD = process.env.NODE_ENV === "production";
+
+if (IS_PROD && !process.env.JWT_SECRET) {
+  console.error("[AUTH] FATAL: JWT_SECRET not set in production. Tokens will be insecure.");
+  process.exit(1);
+}
+
+const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-dev-only";
 const UCM_COOKIE = "ucm_session";
 
 function getCookieDomain(req: Request): string | undefined {
