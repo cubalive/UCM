@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import type { RealtimeDebugInfo } from "@/hooks/use-trip-realtime";
@@ -10,7 +10,9 @@ interface RealtimeDebugPanelProps {
   tripId: number | null;
 }
 
-const DEBUG_ENABLED = import.meta.env.VITE_UCM_DEBUG_REALTIME === "true";
+const DEBUG_ENABLED =
+  import.meta.env.VITE_UCM_DEBUG === "true" ||
+  import.meta.env.VITE_UCM_DEBUG_REALTIME === "true";
 
 export function RealtimeDebugPanel({
   debugInfo,
@@ -22,6 +24,8 @@ export function RealtimeDebugPanel({
   const [collapsed, setCollapsed] = useState(false);
   const [directionsLast60s, setDirectionsLast60s] = useState(0);
   const [recomputeThrottled, setRecomputeThrottled] = useState(0);
+  const [pingSending, setPingSending] = useState(false);
+  const [pingResult, setPingResult] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   if (!DEBUG_ENABLED || !import.meta.env.DEV) return null;
@@ -47,6 +51,33 @@ export function RealtimeDebugPanel({
     }
   }, [directionsQuery.data]);
 
+  const sendTestPing = useCallback(async () => {
+    if (!token || !tripId || pingSending) return;
+    setPingSending(true);
+    setPingResult(null);
+    try {
+      const resp = await fetch("/api/realtime/test", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ tripId }),
+      });
+      if (resp.ok) {
+        setPingResult("sent");
+      } else {
+        const data = await resp.json().catch(() => ({ message: "failed" }));
+        setPingResult(data.message || "error");
+      }
+    } catch (err) {
+      setPingResult("network error");
+    } finally {
+      setPingSending(false);
+      setTimeout(() => setPingResult(null), 3000);
+    }
+  }, [token, tripId, pingSending]);
+
   const pollingLabel = pollingActive
     ? `ON (${typeof pollingIntervalMs === "number" ? `${pollingIntervalMs / 1000}s` : "—"})`
     : "OFF";
@@ -54,6 +85,13 @@ export function RealtimeDebugPanel({
   const lastEventAge = debugInfo.lastEventTs
     ? `${Math.round((Date.now() - debugInfo.lastEventTs) / 1000)}s ago`
     : "—";
+
+  const statusColor =
+    debugInfo.connectionState === "CONNECTED"
+      ? "bg-green-400"
+      : debugInfo.connectionState === "CONNECTING"
+        ? "bg-yellow-400"
+        : "bg-red-400";
 
   const [, forceUpdate] = useState(0);
   useEffect(() => {
@@ -72,7 +110,7 @@ export function RealtimeDebugPanel({
         data-testid="debug-panel-collapsed"
       >
         <div className="flex items-center gap-1 rounded px-2 py-1 text-xs font-mono bg-black/80 text-white">
-          <span className={`inline-block w-2 h-2 rounded-full ${debugInfo.connected ? "bg-green-400" : "bg-red-400"}`} />
+          <span className={`inline-block w-2 h-2 rounded-full ${statusColor}`} />
           UCM
         </div>
       </div>
@@ -98,8 +136,8 @@ export function RealtimeDebugPanel({
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${debugInfo.connected ? "bg-green-400" : "bg-red-400"}`} />
-          <span>Realtime: {debugInfo.connected ? "CONNECTED" : "DISCONNECTED"}</span>
+          <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${statusColor}`} />
+          <span>Realtime: {debugInfo.connectionState}</span>
         </div>
 
         <div className="opacity-80">
@@ -125,8 +163,27 @@ export function RealtimeDebugPanel({
         </div>
 
         {tripId && (
-          <div className="opacity-50 text-[10px]">
-            Trip #{tripId}
+          <div className="border-t border-white/20 pt-1.5 mt-1.5 space-y-1">
+            <div className="opacity-50 text-[10px]">
+              Trip #{tripId}
+            </div>
+            <button
+              onClick={sendTestPing}
+              disabled={pingSending || !debugInfo.connected}
+              className={`w-full rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                pingSending || !debugInfo.connected
+                  ? "bg-white/10 text-white/30 cursor-not-allowed"
+                  : "bg-white/20 text-white hover:bg-white/30 cursor-pointer"
+              }`}
+              data-testid="button-send-test-ping"
+            >
+              {pingSending ? "Sending..." : "Send Test Ping"}
+            </button>
+            {pingResult && (
+              <div className={`text-[10px] ${pingResult === "sent" ? "text-green-400" : "text-red-400"}`} data-testid="text-ping-result">
+                {pingResult === "sent" ? "Ping sent successfully" : `Error: ${pingResult}`}
+              </div>
+            )}
           </div>
         )}
       </div>

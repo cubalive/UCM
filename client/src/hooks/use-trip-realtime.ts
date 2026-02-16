@@ -11,6 +11,7 @@ interface TripRealtimeEvent {
   minutes?: number;
   distanceMiles?: number;
   source?: string;
+  message?: string;
 }
 
 interface UseTripRealtimeOptions {
@@ -19,6 +20,7 @@ interface UseTripRealtimeOptions {
   onDriverLocation?: (data: { driverId: number; lat: number; lng: number; ts: number }) => void;
   onStatusChange?: (data: { status: string; tripId: number }) => void;
   onEtaUpdate?: (data: { minutes: number; distanceMiles: number }) => void;
+  onTestPing?: (data: { ts: number; message: string }) => void;
 }
 
 interface RealtimeTokenResponse {
@@ -29,7 +31,10 @@ interface RealtimeTokenResponse {
   expiresIn: number;
 }
 
+export type RealtimeConnectionState = "DISCONNECTED" | "CONNECTING" | "CONNECTED";
+
 export interface RealtimeDebugInfo {
+  connectionState: RealtimeConnectionState;
   connected: boolean;
   channel: string | null;
   lastEventType: string | null;
@@ -42,9 +47,11 @@ export function useTripRealtime({
   onDriverLocation,
   onStatusChange,
   onEtaUpdate,
+  onTestPing,
 }: UseTripRealtimeOptions) {
   const [connected, setConnected] = useState(false);
   const [debugInfo, setDebugInfo] = useState<RealtimeDebugInfo>({
+    connectionState: "DISCONNECTED",
     connected: false,
     channel: null,
     lastEventType: null,
@@ -53,8 +60,8 @@ export function useTripRealtime({
   const clientRef = useRef<SupabaseClient | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const callbacksRef = useRef({ onDriverLocation, onStatusChange, onEtaUpdate });
-  callbacksRef.current = { onDriverLocation, onStatusChange, onEtaUpdate };
+  const callbacksRef = useRef({ onDriverLocation, onStatusChange, onEtaUpdate, onTestPing });
+  callbacksRef.current = { onDriverLocation, onStatusChange, onEtaUpdate, onTestPing };
   const mountedRef = useRef(true);
   const channelNameRef = useRef<string | null>(null);
 
@@ -84,13 +91,15 @@ export function useTripRealtime({
       clientRef.current = null;
     }
     setConnected(false);
-    setDebugInfo({ connected: false, channel: null, lastEventType: null, lastEventTs: null });
+    setDebugInfo({ connectionState: "DISCONNECTED", connected: false, channel: null, lastEventType: null, lastEventTs: null });
   }, []);
 
   const connect = useCallback(async () => {
     if (!tripId || !authToken) return;
 
     cleanup();
+
+    setDebugInfo((prev) => ({ ...prev, connectionState: "CONNECTING" }));
 
     try {
       const resp = await fetch("/api/realtime/token", {
@@ -104,12 +113,14 @@ export function useTripRealtime({
 
       if (!resp.ok) {
         console.warn("[TRIP-RT] Token request failed:", resp.status);
+        setDebugInfo((prev) => ({ ...prev, connectionState: "DISCONNECTED" }));
         return;
       }
 
       const tokenData: RealtimeTokenResponse = await resp.json();
       if (!tokenData.supabaseUrl || !tokenData.anonKey || !tokenData.token) {
         console.warn("[TRIP-RT] Missing realtime config");
+        setDebugInfo((prev) => ({ ...prev, connectionState: "DISCONNECTED" }));
         return;
       }
 
@@ -143,7 +154,7 @@ export function useTripRealtime({
 
       const channel = client.channel(tokenData.channel, {
         config: {
-          broadcast: { self: false },
+          broadcast: { self: true },
         },
       });
 
@@ -180,6 +191,14 @@ export function useTripRealtime({
             });
           }
         })
+        .on("broadcast", { event: "test_ping" }, (payload) => {
+          const data = payload.payload as TripRealtimeEvent;
+          recordEvent("test_ping");
+          callbacksRef.current.onTestPing?.({
+            ts: data.ts || Date.now(),
+            message: data.message || "ok",
+          });
+        })
         .subscribe((status) => {
           if (!mountedRef.current) return;
           const isConnected = status === "SUBSCRIBED";
@@ -188,10 +207,10 @@ export function useTripRealtime({
           }
           if (isConnected) {
             setConnected(true);
-            setDebugInfo((prev) => ({ ...prev, connected: true }));
+            setDebugInfo((prev) => ({ ...prev, connected: true, connectionState: "CONNECTED" }));
           } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
             setConnected(false);
-            setDebugInfo((prev) => ({ ...prev, connected: false }));
+            setDebugInfo((prev) => ({ ...prev, connected: false, connectionState: "DISCONNECTED" }));
           }
         });
 
@@ -206,7 +225,7 @@ export function useTripRealtime({
     } catch (err) {
       console.warn("[TRIP-RT] Connection error:", err);
       setConnected(false);
-      setDebugInfo((prev) => ({ ...prev, connected: false }));
+      setDebugInfo((prev) => ({ ...prev, connected: false, connectionState: "DISCONNECTED" }));
     }
   }, [tripId, authToken, cleanup, recordEvent]);
 

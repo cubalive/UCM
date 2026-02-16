@@ -647,7 +647,7 @@ export default function DriverDashboard() {
     queryKey: ["/api/driver/active-trip"],
     queryFn: () => apiFetch("/api/driver/active-trip", token),
     enabled: !!token,
-    refetchInterval: rtConnected ? false : 30000,
+    refetchInterval: rtConnected ? false : 10000,
   });
 
   useEffect(() => {
@@ -1237,7 +1237,7 @@ export default function DriverDashboard() {
                       <RealtimeDebugPanel
                         debugInfo={rtDebugInfo}
                         pollingActive={!rtConnected}
-                        pollingIntervalMs={rtConnected ? false : 30000}
+                        pollingIntervalMs={rtConnected ? false : 10000}
                         tripId={rtActiveTripId}
                       />
                     </div>

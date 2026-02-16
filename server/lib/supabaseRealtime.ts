@@ -93,7 +93,7 @@ const channelCache = new Map<string, any>();
 export async function broadcastTripSupabase(
   tripId: number,
   event: {
-    type: "driver_location" | "status_change" | "eta_update";
+    type: "driver_location" | "status_change" | "eta_update" | "test_ping";
     data: any;
   }
 ): Promise<void> {
@@ -136,7 +136,7 @@ const locationThrottleCache = new Map<number, number>();
 export async function broadcastTripSupabaseThrottled(
   tripId: number,
   event: {
-    type: "driver_location" | "status_change" | "eta_update";
+    type: "driver_location" | "status_change" | "eta_update" | "test_ping";
     data: any;
   }
 ): Promise<void> {

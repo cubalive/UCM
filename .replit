@@ -48,6 +48,7 @@ ALLOWED_ORIGIN_1 = "https://unitedcaremobility.lovable.app"
 
 [userenv.development]
 VITE_UCM_DEBUG_REALTIME = "true"
+VITE_UCM_DEBUG = "true"
 
 [userenv.production]
 

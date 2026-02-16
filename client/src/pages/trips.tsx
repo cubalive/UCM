@@ -1419,7 +1419,7 @@ function TripDetailDialog({
     queryKey: ["/api/trips", trip.id, "eta-to-pickup"],
     queryFn: () => apiFetch(`/api/trips/${trip.id}/eta-to-pickup`, token),
     enabled: !!token && hasDriver && isActiveTrip,
-    refetchInterval: rtConnected ? false : 120000,
+    refetchInterval: 60000,
   });
 
   const createTokenMutation = useMutation({
@@ -1676,7 +1676,7 @@ function TripDetailDialog({
               <RealtimeDebugPanel
                 debugInfo={rtDebugInfo}
                 pollingActive={!rtConnected}
-                pollingIntervalMs={rtConnected ? false : 120000}
+                pollingIntervalMs={rtConnected ? false : 60000}
                 tripId={trip.id}
               />
             )}

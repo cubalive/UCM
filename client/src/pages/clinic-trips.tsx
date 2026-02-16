@@ -2107,7 +2107,7 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
     queryKey: ["/api/clinic/trips", tripId, "tracking"],
     queryFn: () => apiFetch(`/api/clinic/trips/${tripId}/tracking`, token),
     enabled: !!token && !!tripId,
-    refetchInterval: wsConnected ? false : 30000,
+    refetchInterval: wsConnected ? false : 10000,
   });
 
   const data = trackingQuery.data;
@@ -2361,7 +2361,7 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
         <RealtimeDebugPanel
           debugInfo={wsDebugInfo}
           pollingActive={!wsConnected}
-          pollingIntervalMs={wsConnected ? false : 30000}
+          pollingIntervalMs={wsConnected ? false : 10000}
           tripId={tripId}
         />
       </div>

@@ -7321,6 +7321,28 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
     }
   );
 
+  app.post("/api/realtime/test",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "DISPATCH"),
+    async (req, res) => {
+      try {
+        const { tripId } = req.body;
+        if (!tripId) {
+          return res.status(400).json({ ok: false, message: "tripId required" });
+        }
+        const { broadcastTripSupabase } = await import("./lib/supabaseRealtime");
+        await broadcastTripSupabase(tripId, {
+          type: "test_ping",
+          data: { message: "ok" },
+        });
+        res.json({ ok: true, tripId, ts: Date.now() });
+      } catch (err: any) {
+        console.error("[REALTIME-TEST]", err.message);
+        res.status(500).json({ ok: false, message: err.message });
+      }
+    }
+  );
+
   app.get("/api/ops/directions-metrics",
     authMiddleware,
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "DRIVER", "CLINIC_USER"),
