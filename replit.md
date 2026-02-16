@@ -57,6 +57,16 @@ The application follows a client-server architecture.
     - Invoice Email & Stripe Payment Links: Automatic invoice email sending with Stripe checkout integration for private/internal patients.
     - Clinic Cancel/Billing Workflow: Detailed process for managing cancellations, fault parties, billable status, and generating invoices with cancel fees.
 
+## Driver App Experience
+- **Today Dashboard**: Card-based home view with Next Pickup, Active Trip, Today's Schedule, Weekly Bonus Progress
+- **Status Confirmations**: Trip status transitions require confirmation dialog with timestamp display and optional quick notes
+- **Support Events**: "Need Help" panel with 5 event types (patient_not_ready, patient_no_show, address_incorrect, vehicle_issue, traffic_delay), stored in `driver_support_events` table
+- **Offline Queue**: Dual queue system — GPS location queue + action queue for status transitions and support events, with automatic flush on reconnect
+- **Heartbeat**: 30-second interval heartbeat ping to `/api/driver/heartbeat` when online
+- **Navigation UX**: Copy-address fallback, auto-destination by trip phase, nav app preference persistence (localStorage)
+- **Score Trend Chart**: Recharts-based AreaChart in metrics drawer showing score/completion/on-time trends from `/api/driver/score-history`
+- **GPS Security**: Server-side anti-spoofing with coordinate validation, mock location rejection, accuracy warnings, and velocity-based teleport detection
+
 ## Mobile Driver App (Capacitor)
 - **Location**: `mobile-driver/` — separate build target, does not affect web app
 - **App ID**: `com.unitedcaremobility.driver`

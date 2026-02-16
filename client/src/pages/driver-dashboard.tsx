@@ -50,9 +50,18 @@ import {
   WifiOff,
   Satellite,
   Radio,
+  ClipboardCopy,
+  HelpCircle,
+  RefreshCw,
+  Eye,
+  UserX,
+  MapPinCheck,
+  Wrench,
+  CloudRain,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Area, AreaChart } from "recharts";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -97,6 +106,36 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+
+const PHASE_LABELS: Record<string, string> = {
+  ASSIGNED: "To Pickup",
+  EN_ROUTE_TO_PICKUP: "To Pickup",
+  ARRIVED_PICKUP: "At Pickup",
+  PICKED_UP: "In Transit",
+  EN_ROUTE_TO_DROPOFF: "In Transit",
+  ARRIVED_DROPOFF: "At Dropoff",
+  IN_PROGRESS: "In Progress",
+};
+
+const SUPPORT_EVENT_TYPES = [
+  { type: "patient_not_ready", label: "Patient Not Ready", icon: Clock },
+  { type: "patient_no_show", label: "Patient No-Show", icon: UserX },
+  { type: "address_incorrect", label: "Address Incorrect", icon: MapPinCheck },
+  { type: "vehicle_issue", label: "Vehicle Issue", icon: Wrench },
+  { type: "traffic_delay", label: "Traffic Delay", icon: CloudRain },
+] as const;
+
+function getDestinationAddress(trip: ActiveTripData): string {
+  const isPickupPhase = PICKUP_STAGES.includes(trip.status);
+  return isPickupPhase ? trip.pickupAddress : trip.dropoffAddress;
+}
+
+function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).then(() => true).catch(() => false);
+  }
+  return Promise.resolve(false);
+}
 
 const isStandalone =
   typeof window !== "undefined" &&
@@ -220,6 +259,38 @@ function queueLocation(lat: number, lng: number, accuracy: number | null, timest
 
 function clearLocationQueue() {
   try { localStorage.removeItem(LOCATION_QUEUE_KEY); } catch {}
+}
+
+const ACTION_QUEUE_KEY = "ucm_driver_action_queue";
+
+type QueuedAction = {
+  id: string;
+  type: "status_transition" | "support_event";
+  payload: any;
+  timestamp: number;
+};
+
+function getQueuedActions(): QueuedAction[] {
+  try {
+    const raw = localStorage.getItem(ACTION_QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function queueAction(action: Omit<QueuedAction, "id" | "timestamp">) {
+  const queue = getQueuedActions();
+  queue.push({ ...action, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, timestamp: Date.now() });
+  if (queue.length > 50) queue.splice(0, queue.length - 50);
+  try { localStorage.setItem(ACTION_QUEUE_KEY, JSON.stringify(queue)); } catch {}
+}
+
+function clearActionQueue() {
+  try { localStorage.removeItem(ACTION_QUEUE_KEY); } catch {}
+}
+
+function removeActionFromQueue(id: string) {
+  const queue = getQueuedActions().filter(a => a.id !== id);
+  try { localStorage.setItem(ACTION_QUEUE_KEY, JSON.stringify(queue)); } catch {}
 }
 
 function useNetworkStatus() {
@@ -380,7 +451,7 @@ function GpsStatusBanner({ status, lastSentTime, onRequestPermission }: {
 
   return (
     <div
-      className={`absolute top-3 left-3 right-3 z-20 ${c.bg} text-white rounded-md shadow-lg px-4 py-2.5 flex items-center gap-3`}
+      className={`${c.bg} text-white rounded-md shadow-lg px-4 py-2.5 flex items-center gap-3`}
       data-testid={`banner-gps-${status.replace("_", "-")}`}
     >
       <Icon className="w-5 h-5 flex-shrink-0" />
@@ -1022,6 +1093,16 @@ export default function DriverDashboard() {
     };
   }, [isDriverOnline, hasActiveTrip, geoLocation?.lat, geoLocation?.lng, sendLocation]);
 
+  useEffect(() => {
+    if (!isDriverOnline || !token || !isNetworkOnline) return;
+    const sendHeartbeat = () => {
+      apiFetch("/api/driver/heartbeat", token, { method: "POST" }).catch(() => {});
+    };
+    sendHeartbeat();
+    const hbInterval = setInterval(sendHeartbeat, 30000);
+    return () => clearInterval(hbInterval);
+  }, [isDriverOnline, token, isNetworkOnline]);
+
   const gpsStatus: GpsStatus = (() => {
     if (!isNetworkOnline) return "offline";
     if (geoPermission === "prompt") return "permission_needed";
@@ -1081,6 +1162,12 @@ export default function DriverDashboard() {
   const [navChooserTrip, setNavChooserTrip] = useState<ActiveTripData | null>(null);
   const [showNavChooser, setShowNavChooser] = useState(false);
   const [rememberNav, setRememberNav] = useState(false);
+  const [showMap, setShowMap] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{ tripId: number; nextStatus: string; label: string } | null>(null);
+  const [confirmNote, setConfirmNote] = useState("");
+  const [needHelpOpen, setNeedHelpOpen] = useState(false);
+  const [needHelpNote, setNeedHelpNote] = useState("");
+  const [supportSubmitting, setSupportSubmitting] = useState(false);
 
   const goTimeQuery = useQuery<{ goTimeTrips: any[] }>({
     queryKey: ["/api/driver/upcoming-go-time"],
@@ -1249,6 +1336,138 @@ export default function DriverDashboard() {
 
   useAutoReroute(activeTrip, geoLocation, token);
 
+  const nextPickup = todayTrips.find((t: any) => t.status === "SCHEDULED" || t.status === "ASSIGNED");
+
+  const handleStatusWithConfirm = useCallback((tripId: number, currentStatus: string) => {
+    const flow = STATUS_FLOW[currentStatus];
+    if (!flow) return;
+    setConfirmDialog({ tripId, nextStatus: flow.next, label: flow.label });
+    setConfirmNote("");
+  }, []);
+
+  const flushActionQueue = useCallback(async () => {
+    if (!token || !navigator.onLine) return;
+    const queue = getQueuedActions();
+    if (queue.length === 0) return;
+    console.log("[QUEUE] Flushing", queue.length, "queued actions");
+    let flushed = 0;
+    let retryCount = 0;
+    for (const action of queue) {
+      try {
+        if (action.type === "status_transition") {
+          const res = await apiFetch(`/api/trips/${action.payload.tripId}/status`, token, {
+            method: "PATCH",
+            body: JSON.stringify({ status: action.payload.status, idempotencyKey: action.id }),
+          }).catch((err: any) => {
+            if (err?.message?.includes("already") || err?.status === 409) {
+              return { ok: true, alreadyApplied: true };
+            }
+            throw err;
+          });
+          if (action.payload.note) {
+            await apiFetch(`/api/trips/${action.payload.tripId}/messages`, token, {
+              method: "POST",
+              body: JSON.stringify({ message: `[Status Note] ${action.payload.note}` }),
+            }).catch(() => {});
+          }
+        } else if (action.type === "support_event") {
+          await apiFetch("/api/driver/support-event", token, {
+            method: "POST",
+            body: JSON.stringify({ ...action.payload, idempotencyKey: action.id }),
+          }).catch(() => {});
+        }
+        removeActionFromQueue(action.id);
+        flushed++;
+      } catch {
+        retryCount++;
+        console.warn("[QUEUE] Failed to flush action, will retry later:", action.id);
+        if (retryCount >= 3) break;
+      }
+    }
+    if (flushed > 0) {
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+      toast({ title: `${flushed} change${flushed > 1 ? "s" : ""} synced` });
+    }
+  }, [token, toast]);
+
+  useEffect(() => {
+    if (isNetworkOnline && getQueuedActions().length > 0) {
+      flushActionQueue();
+    }
+  }, [isNetworkOnline, flushActionQueue]);
+
+  const handleConfirmSubmit = useCallback(async () => {
+    if (!confirmDialog) return;
+    const { tripId, nextStatus } = confirmDialog;
+    const note = confirmNote.trim();
+    setConfirmDialog(null);
+    setConfirmNote("");
+    if (!navigator.onLine) {
+      queueAction({
+        type: "status_transition",
+        payload: { tripId, status: nextStatus, note: note || undefined },
+      });
+      toast({ title: "Offline - saved for sync", description: "Status change will sync when you reconnect." });
+      return;
+    }
+    try {
+      await apiFetch(`/api/trips/${tripId}/status`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+      if (note && token) {
+        await apiFetch(`/api/trips/${tripId}/messages`, token, {
+          method: "POST",
+          body: JSON.stringify({ message: `[Status Note] ${note}` }),
+        }).catch(() => {});
+      }
+    } catch (err: any) {
+      toast({ title: "Status update failed", description: err?.message || "Try again", variant: "destructive" });
+    }
+  }, [confirmDialog, confirmNote, token, toast]);
+
+  const handleSupportEvent = useCallback(async (eventType: string) => {
+    if (!activeTrip || !token) return;
+    setSupportSubmitting(true);
+    if (!navigator.onLine) {
+      queueAction({
+        type: "support_event",
+        payload: { tripId: activeTrip.id, eventType, notes: needHelpNote.trim() || undefined },
+      });
+      toast({ title: "Offline - saved for sync", description: "Support event will sync when you reconnect." });
+      setNeedHelpOpen(false);
+      setNeedHelpNote("");
+      setSupportSubmitting(false);
+      return;
+    }
+    try {
+      await apiFetch("/api/driver/support-event", token, {
+        method: "POST",
+        body: JSON.stringify({ tripId: activeTrip.id, eventType, notes: needHelpNote.trim() || undefined }),
+      });
+      toast({ title: "Support event reported" });
+      setNeedHelpOpen(false);
+      setNeedHelpNote("");
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSupportSubmitting(false);
+    }
+  }, [activeTrip, token, needHelpNote, toast]);
+
+  const handleCopyAddress = useCallback(async (trip: ActiveTripData) => {
+    const addr = getDestinationAddress(trip);
+    const ok = await copyToClipboard(addr);
+    if (ok) {
+      toast({ title: "Address copied" });
+    } else {
+      toast({ title: "Could not copy", variant: "destructive" });
+    }
+  }, [toast]);
+
   if (geoPermission === "prompt") {
     return (
       <div className="flex items-center justify-center min-h-[60vh] p-4">
@@ -1354,200 +1573,441 @@ export default function DriverDashboard() {
   const bonus = bonusQuery.data;
   const scheduleChanges = scheduleChangeQuery.data || [];
 
+  const nextPickupCountdown = (() => {
+    if (!nextPickup?.pickupTime || !nextPickup?.scheduledDate) return null;
+    try {
+      const pickupDateTime = new Date(`${nextPickup.scheduledDate}T${nextPickup.pickupTime}`);
+      const diffSec = Math.max(0, Math.floor((pickupDateTime.getTime() - Date.now()) / 1000));
+      return diffSec;
+    } catch { return null; }
+  })();
+
+  const [pickupCountdownVal, setPickupCountdownVal] = useState(0);
+  useEffect(() => {
+    if (nextPickupCountdown != null) setPickupCountdownVal(nextPickupCountdown);
+  }, [nextPickupCountdown]);
+  useEffect(() => {
+    if (!nextPickup) return;
+    const iv = setInterval(() => setPickupCountdownVal((p) => Math.max(0, p - 1)), 1000);
+    return () => clearInterval(iv);
+  }, [nextPickup?.id]);
+
   return (
     <div className="relative w-full h-[calc(100vh-3.5rem)] flex flex-col" data-testid="div-driver-map-home">
-      {/* MAP - takes all available space */}
-      <div className="flex-1 relative min-h-0">
-        <FullScreenMap
-          driverLocation={geoLocation}
-          activeTrip={activeTrip}
-          mapsLoaded={mapsLoaded}
-          gpsWatchError={geoWatchError}
-        />
-
-        {/* GPS status banner */}
-        {!goTimeTrip && (
+      {/* TODAY HOME DASHBOARD - scrollable card layout */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="px-4 py-4 space-y-4 max-w-lg mx-auto">
+          {/* GPS status banner at top */}
           <GpsStatusBanner
             status={gpsStatus}
             lastSentTime={lastSentTime}
             onRequestPermission={requestPermission}
           />
-        )}
 
-        {/* Go-time alert banner on map */}
-        {goTimeTrip && (
-          <div
-            className="absolute top-3 left-3 right-3 z-20 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md shadow-lg px-4 py-3"
-            data-testid="banner-go-time"
-          >
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <Bell className="w-6 h-6 flex-shrink-0" />
-                <span className="font-semibold text-base" data-testid="text-go-time-countdown">
-                  Pickup in {formatCountdown(goTimeCountdown)}
-                </span>
-                <span className="text-sm truncate opacity-90" data-testid="text-go-time-address">
-                  {goTimeTrip.pickupAddress?.length > 30
-                    ? goTimeTrip.pickupAddress.substring(0, 30) + "..."
-                    : goTimeTrip.pickupAddress}
-                </span>
-              </div>
-              <Button
-                onClick={() => handleGoTimeStartRoute(goTimeTrip)}
-                disabled={acknowledgeMutation.isPending || statusMutation.isPending}
-                className="min-h-[44px] text-base"
-                data-testid="button-go-time-start-route"
-              >
-                <Navigation className="w-5 h-5 mr-2" />
-                Start Route
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Navigate button on map */}
-        {activeTrip && (
-          <div className="absolute top-3 right-3 z-10">
-            <Button
-              onClick={() => openNavigation(activeTrip)}
-              className="shadow-lg min-h-[44px] text-base px-4"
-              data-testid="button-navigate"
+          {/* Go-time alert banner */}
+          {goTimeTrip && (
+            <div
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md shadow-lg px-4 py-3"
+              data-testid="banner-go-time"
             >
-              <Navigation className="w-5 h-5 mr-2" />
-              Navigate
-            </Button>
-          </div>
-        )}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <Bell className="w-6 h-6 flex-shrink-0" />
+                  <span className="font-semibold text-base" data-testid="text-go-time-countdown">
+                    Pickup in {formatCountdown(goTimeCountdown)}
+                  </span>
+                  <span className="text-sm truncate opacity-90" data-testid="text-go-time-address">
+                    {goTimeTrip.pickupAddress?.length > 30
+                      ? goTimeTrip.pickupAddress.substring(0, 30) + "..."
+                      : goTimeTrip.pickupAddress}
+                  </span>
+                </div>
+                <Button
+                  onClick={() => handleGoTimeStartRoute(goTimeTrip)}
+                  disabled={acknowledgeMutation.isPending || statusMutation.isPending}
+                  className="min-h-[44px] text-base"
+                  data-testid="button-go-time-start-route"
+                >
+                  <Navigation className="w-5 h-5 mr-2" />
+                  Start Route
+                </Button>
+              </div>
+            </div>
+          )}
 
-        {/* TRIP OFFER CARD - overlay on map (z-30 so it floats above everything) */}
-        {(stableOffer || offerExpiredMsg) && (
-          <div className="absolute bottom-4 left-3 right-3 z-30" data-testid="card-driver-offer">
-            <Card className="shadow-xl border-2 border-primary/20">
-              <CardContent className="py-4 space-y-3">
-                {offerExpiredMsg ? (
-                  <p className="text-center text-base font-medium text-muted-foreground" data-testid="text-offer-expired">
-                    Request expired
-                  </p>
-                ) : stableOffer && (
-                  <>
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <div className="flex items-center gap-2">
-                        <MapPinned className="w-5 h-5 text-primary flex-shrink-0" />
-                        <span className="font-mono text-sm font-medium" data-testid="text-offer-public-id">{stableOffer.publicId}</span>
+          {/* TRIP OFFER CARD */}
+          {(stableOffer || offerExpiredMsg) && (
+            <div data-testid="card-driver-offer">
+              <Card className="shadow-xl border-2 border-primary/20">
+                <CardContent className="py-4 space-y-3">
+                  {offerExpiredMsg ? (
+                    <p className="text-center text-base font-medium text-muted-foreground" data-testid="text-offer-expired">
+                      Request expired
+                    </p>
+                  ) : stableOffer && (
+                    <>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <MapPinned className="w-5 h-5 text-primary flex-shrink-0" />
+                          <span className="font-mono text-sm font-medium" data-testid="text-offer-public-id">{stableOffer.publicId}</span>
+                        </div>
+                        <Badge variant="secondary" data-testid="badge-offer-countdown">
+                          <Timer className="w-4 h-4 mr-1" />
+                          Expires in {formatCountdown(offerCountdown)}
+                        </Badge>
                       </div>
-                      <Badge variant="secondary" data-testid="badge-offer-countdown">
-                        <Timer className="w-4 h-4 mr-1" />
-                        Expires in {formatCountdown(offerCountdown)}
-                      </Badge>
-                    </div>
-                    {stableOffer.patientName && (
-                      <div className="flex items-center gap-2 text-base text-muted-foreground">
-                        <User className="w-5 h-5" />
-                        <span data-testid="text-offer-patient">{stableOffer.patientName}</span>
-                      </div>
-                    )}
-                    <div className="space-y-1.5">
-                      <div className="flex items-start gap-2 text-base">
-                        <Navigation className="w-5 h-5 mt-0.5 flex-shrink-0 text-green-600" />
-                        <span className="truncate" data-testid="text-offer-pickup">{stableOffer.pickupAddress}</span>
-                      </div>
-                      <div className="flex items-start gap-2 text-base">
-                        <MapPin className="w-5 h-5 mt-0.5 flex-shrink-0 text-red-600" />
-                        <span className="truncate" data-testid="text-offer-dropoff">{stableOffer.dropoffAddress}</span>
-                      </div>
-                    </div>
-                    {stableOffer.pickupTime && (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Clock className="w-4 h-4" />
-                        <span data-testid="text-offer-pickup-time">{stableOffer.pickupTime}</span>
-                      </div>
-                    )}
-                    <div className="flex gap-3">
-                      <Button
-                        className="flex-1 min-h-[48px] text-base font-semibold"
-                        onClick={() => acceptOfferMutation.mutate(stableOffer.offerId)}
-                        disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
-                        data-testid="button-accept-offer"
-                      >
-                        ACCEPT REQUEST
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="min-h-[48px] text-base px-6"
-                        onClick={() => declineOfferMutation.mutate(stableOffer.offerId)}
-                        disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
-                        data-testid="button-decline-offer"
-                      >
-                        Decline
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Active trip card overlay on map */}
-        {activeTrip && !stableOffer && !offerExpiredMsg && (
-          <div className="absolute bottom-4 left-3 right-3 z-20" data-testid="card-active-trip-overlay">
-            <Card className="shadow-xl">
-              <CardContent className="py-3 px-4">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-sm font-medium">{activeTrip.publicId}</span>
-                      <Badge className={STATUS_COLORS[activeTrip.status] || ""} data-testid="badge-active-trip-status">
-                        {STATUS_LABELS[activeTrip.status] || activeTrip.status}
-                      </Badge>
-                      {activeTrip.lastEtaMinutes != null && (
-                        <span className="text-sm text-muted-foreground flex items-center gap-1" data-testid="text-active-trip-eta">
-                          <Timer className="w-4 h-4" />
-                          ~{activeTrip.lastEtaMinutes} min
-                          {activeTrip.distanceMiles != null && ` / ${activeTrip.distanceMiles} mi`}
-                        </span>
+                      {stableOffer.patientName && (
+                        <div className="flex items-center gap-2 text-base text-muted-foreground">
+                          <User className="w-5 h-5" />
+                          <span data-testid="text-offer-patient">{stableOffer.patientName}</span>
+                        </div>
                       )}
-                      <RealtimeDebugPanel
-                        debugInfo={rtDebugInfo}
-                        pollingActive={!rtConnected}
-                        pollingIntervalMs={rtConnected ? false : 10000}
-                        tripId={rtActiveTripId}
-                      />
-                    </div>
-                    <div className="flex items-start gap-1.5 text-sm">
-                      <Navigation className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600" />
-                      <span className="truncate">{activeTrip.pickupAddress}</span>
-                    </div>
-                    <div className="flex items-start gap-1.5 text-sm">
-                      <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600" />
-                      <span className="truncate">{activeTrip.dropoffAddress}</span>
-                    </div>
+                      <div className="space-y-1.5">
+                        <div className="flex items-start gap-2 text-base">
+                          <Navigation className="w-5 h-5 mt-0.5 flex-shrink-0 text-green-600" />
+                          <span className="truncate" data-testid="text-offer-pickup">{stableOffer.pickupAddress}</span>
+                        </div>
+                        <div className="flex items-start gap-2 text-base">
+                          <MapPin className="w-5 h-5 mt-0.5 flex-shrink-0 text-red-600" />
+                          <span className="truncate" data-testid="text-offer-dropoff">{stableOffer.dropoffAddress}</span>
+                        </div>
+                      </div>
+                      {stableOffer.pickupTime && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Clock className="w-4 h-4" />
+                          <span data-testid="text-offer-pickup-time">{stableOffer.pickupTime}</span>
+                        </div>
+                      )}
+                      <div className="flex gap-3">
+                        <Button
+                          className="flex-1 min-h-[48px] text-base font-semibold"
+                          onClick={() => acceptOfferMutation.mutate(stableOffer.offerId)}
+                          disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
+                          data-testid="button-accept-offer"
+                        >
+                          ACCEPT REQUEST
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="min-h-[48px] text-base px-6"
+                          onClick={() => declineOfferMutation.mutate(stableOffer.offerId)}
+                          disabled={acceptOfferMutation.isPending || declineOfferMutation.isPending}
+                          data-testid="button-decline-offer"
+                        >
+                          Decline
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* BLOCK 2: Active Trip Card */}
+          {activeTrip && (
+            <Card data-testid="card-active-trip-overlay">
+              <CardContent className="py-4 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-sm font-medium">{activeTrip.publicId}</span>
+                    <Badge className={STATUS_COLORS[activeTrip.status] || ""} data-testid="badge-active-trip-status">
+                      {PHASE_LABELS[activeTrip.status] || STATUS_LABELS[activeTrip.status] || activeTrip.status}
+                    </Badge>
                   </div>
+                  <div className="flex items-center gap-2">
+                    {activeTrip.lastEtaMinutes != null && (
+                      <span className="text-sm text-muted-foreground flex items-center gap-1" data-testid="text-active-trip-eta">
+                        <Timer className="w-4 h-4" />
+                        ~{activeTrip.lastEtaMinutes} min
+                        {activeTrip.distanceMiles != null && ` / ${activeTrip.distanceMiles} mi`}
+                      </span>
+                    )}
+                    <RealtimeDebugPanel
+                      debugInfo={rtDebugInfo}
+                      pollingActive={!rtConnected}
+                      pollingIntervalMs={rtConnected ? false : 10000}
+                      tripId={rtActiveTripId}
+                    />
+                  </div>
+                </div>
+
+                {activeTrip.patientName && (
+                  <div className="flex items-center gap-2 text-base">
+                    <User className="w-5 h-5 text-muted-foreground" />
+                    <span className="font-medium">{activeTrip.patientName}</span>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <div className="flex items-start gap-2 text-base">
+                    <Navigation className="w-5 h-5 mt-0.5 flex-shrink-0 text-green-600" />
+                    <span className="truncate">{activeTrip.pickupAddress}</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-base">
+                    <MapPin className="w-5 h-5 mt-0.5 flex-shrink-0 text-red-600" />
+                    <span className="truncate">{activeTrip.dropoffAddress}</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 flex-wrap">
                   {STATUS_FLOW[activeTrip.status] && (
                     <Button
-                      onClick={() => statusMutation.mutate({ tripId: activeTrip.id, status: STATUS_FLOW[activeTrip.status].next })}
+                      onClick={() => handleStatusWithConfirm(activeTrip.id, activeTrip.status)}
                       disabled={statusMutation.isPending}
-                      className="min-h-[44px] text-base whitespace-nowrap"
+                      className="flex-1 min-h-[48px] text-base font-semibold"
                       data-testid="button-active-trip-action"
                     >
                       {(() => { const Icon = STATUS_FLOW[activeTrip.status].icon; return <Icon className="w-5 h-5 mr-2" />; })()}
                       {STATUS_FLOW[activeTrip.status].label}
                     </Button>
                   )}
+                  <Button
+                    variant="outline"
+                    onClick={() => openNavigation(activeTrip)}
+                    className="min-h-[48px] text-base"
+                    data-testid="button-navigate"
+                  >
+                    <Navigation className="w-5 h-5 mr-2" />
+                    Navigate
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleCopyAddress(activeTrip)}
+                    data-testid="button-copy-address"
+                  >
+                    <ClipboardCopy className="w-5 h-5" />
+                  </Button>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowMap(true)}
+                    className="min-h-[44px] text-base"
+                    data-testid="button-view-map"
+                  >
+                    <Eye className="w-5 h-5 mr-2" />
+                    View Map
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setNeedHelpOpen(true)}
+                    className="min-h-[44px] text-base"
+                    data-testid="button-need-help"
+                  >
+                    <HelpCircle className="w-5 h-5 mr-2" />
+                    Need Help
+                  </Button>
                 </div>
               </CardContent>
             </Card>
-          </div>
-        )}
+          )}
 
-        {/* Menu button - floating top left (below GPS stale badge if present) */}
-        <button
-          onClick={() => setDrawerOpen(true)}
-          className="absolute bottom-20 left-3 z-10 w-12 h-12 rounded-full bg-background shadow-lg border border-border flex items-center justify-center hover-elevate"
-          data-testid="button-open-drawer"
-        >
-          <Menu className="w-6 h-6" />
-        </button>
+          {/* BLOCK 1: Next Pickup Card */}
+          {!activeTrip && (
+            <Card data-testid="card-next-pickup">
+              <CardContent className="py-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-primary" />
+                  <span className="font-semibold text-base">Next Pickup</span>
+                </div>
+                {nextPickup ? (
+                  <>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="text-3xl font-bold font-mono" data-testid="text-next-pickup-countdown">
+                        {pickupCountdownVal > 3600
+                          ? `${Math.floor(pickupCountdownVal / 3600)}h ${Math.floor((pickupCountdownVal % 3600) / 60)}m`
+                          : formatCountdown(pickupCountdownVal)}
+                      </div>
+                      <Badge className={STATUS_COLORS[nextPickup.status] || ""} data-testid="badge-next-pickup-status">
+                        {STATUS_LABELS[nextPickup.status] || nextPickup.status}
+                      </Badge>
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <CalendarDays className="w-4 h-4" />
+                        <span data-testid="text-next-pickup-time">{nextPickup.pickupTime} - {nextPickup.scheduledDate}</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-base">
+                        <Navigation className="w-5 h-5 mt-0.5 flex-shrink-0 text-green-600" />
+                        <span className="truncate" data-testid="text-next-pickup-address">{nextPickup.pickupAddress || "Pickup not set"}</span>
+                      </div>
+                    </div>
+                    {nextPickup.status === "ASSIGNED" && (
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => handleStatusWithConfirm(nextPickup.id, nextPickup.status)}
+                          disabled={statusMutation.isPending}
+                          className="flex-1 min-h-[48px] text-base font-semibold"
+                          data-testid="button-next-pickup-action"
+                        >
+                          <PlayCircle className="w-5 h-5 mr-2" />
+                          Start Trip
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            const tripForNav: ActiveTripData = {
+                              id: nextPickup.id, publicId: nextPickup.publicId || "", status: nextPickup.status,
+                              pickupAddress: nextPickup.pickupAddress || "", pickupLat: nextPickup.pickupLat || null,
+                              pickupLng: nextPickup.pickupLng || null, dropoffAddress: nextPickup.dropoffAddress || "",
+                              dropoffLat: nextPickup.dropoffLat || null, dropoffLng: nextPickup.dropoffLng || null,
+                              routePolyline: null, lastEtaMinutes: null, lastEtaUpdatedAt: null,
+                              distanceMiles: null, scheduledDate: nextPickup.scheduledDate || "", pickupTime: nextPickup.pickupTime || "",
+                              patientName: nextPickup.patientName || null,
+                            };
+                            openNavigation(tripForNav);
+                          }}
+                          className="min-h-[48px] text-base"
+                          data-testid="button-next-pickup-navigate"
+                        >
+                          <Navigation className="w-5 h-5 mr-2" />
+                          Navigate
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-4">
+                    <CalendarDays className="w-10 h-10 mx-auto text-muted-foreground mb-2" />
+                    <p className="text-base text-muted-foreground" data-testid="text-no-upcoming-pickups">No upcoming pickups</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* BLOCK 3: Today's Schedule */}
+          <Card data-testid="card-today-schedule">
+            <CardContent className="py-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="w-5 h-5 text-primary" />
+                  <span className="font-semibold text-base">Today&apos;s Schedule</span>
+                  <Badge variant="secondary">{todayTrips.length}</Badge>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
+                    queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+                  }}
+                  data-testid="button-refresh-schedule"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                </Button>
+              </div>
+              {tripsQuery.isLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : todayTrips.length === 0 ? (
+                <p className="text-base text-muted-foreground text-center py-3" data-testid="text-no-trips">
+                  No trips scheduled for today.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {todayTrips.map((trip: any) => (
+                    <div
+                      key={trip.id}
+                      className="flex items-center gap-3 rounded-md bg-muted/50 px-3 py-2.5 min-h-[48px]"
+                      data-testid={`card-trip-${trip.id}`}
+                    >
+                      <div className="flex-1 min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium" data-testid={`text-trip-time-${trip.id}`}>
+                            {trip.pickupTime || "N/A"}
+                          </span>
+                          <Badge className={STATUS_COLORS[trip.status] || ""} data-testid={`badge-trip-status-${trip.id}`}>
+                            {STATUS_LABELS[trip.status] || trip.status}
+                          </Badge>
+                        </div>
+                        <div className="flex items-start gap-1.5 text-sm text-muted-foreground">
+                          <Navigation className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-green-600" />
+                          <span className="truncate" data-testid={`text-pickup-${trip.id}`}>{trip.pickupAddress || "N/A"}</span>
+                        </div>
+                        <div className="flex items-start gap-1.5 text-sm text-muted-foreground">
+                          <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-red-600" />
+                          <span className="truncate" data-testid={`text-dropoff-${trip.id}`}>{trip.dropoffAddress || "N/A"}</span>
+                        </div>
+                      </div>
+                      {ACTIVE_STATUSES.includes(trip.status) && STATUS_FLOW[trip.status] && (
+                        <Button
+                          onClick={() => handleStatusWithConfirm(trip.id, trip.status)}
+                          disabled={statusMutation.isPending}
+                          className="min-h-[44px] text-sm whitespace-nowrap"
+                          data-testid={`button-trip-action-${trip.id}`}
+                        >
+                          {STATUS_FLOW[trip.status].label}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Button
+                variant="outline"
+                className="w-full min-h-[44px] text-base"
+                onClick={() => { setDrawerSection("trips"); setDrawerOpen(true); }}
+                data-testid="button-view-all-trips"
+              >
+                View All Trips
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* BLOCK 4: Weekly Bonus Progress (compact) */}
+          {bonus?.active && (
+            <Card data-testid="card-bonus-compact">
+              <CardContent className="py-4 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Trophy className={`w-5 h-5 ${bonus.qualifies ? "text-green-600" : "text-muted-foreground"}`} />
+                    <span className="font-semibold text-base">Weekly Bonus</span>
+                  </div>
+                  <span className="text-lg font-bold" data-testid="text-bonus-compact-amount">
+                    {bonus.weeklyAmountCents ? `$${(bonus.weeklyAmountCents / 100).toFixed(2)}` : ""}
+                  </span>
+                </div>
+                <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      bonus.progressColor === "green" ? "bg-green-500" : bonus.progressColor === "yellow" ? "bg-yellow-500" : "bg-red-500"
+                    }`}
+                    style={{ width: `${Math.min(100, bonus.overallProgress || 0)}%` }}
+                    data-testid="div-bonus-progress-bar"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm text-muted-foreground">{bonus.overallProgress}% progress</span>
+                  <button
+                    onClick={() => { setDrawerSection("bonus"); setDrawerOpen(true); }}
+                    className="text-sm text-primary font-medium min-h-[44px] flex items-center"
+                    data-testid="button-view-bonus-breakdown"
+                  >
+                    View breakdown
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Menu button */}
+          <Button
+            variant="outline"
+            className="w-full min-h-[48px] text-base"
+            onClick={() => setDrawerOpen(true)}
+            data-testid="button-open-drawer"
+          >
+            <Menu className="w-5 h-5 mr-2" />
+            Menu
+          </Button>
+        </div>
       </div>
 
       {/* BOTTOM STRIP - Online/Offline only */}
@@ -1582,7 +2042,9 @@ export default function DriverDashboard() {
           {gpsStatus === "offline" && (
             <div className="flex items-center gap-1.5 flex-shrink-0" data-testid="div-offline-indicator">
               <WifiOff className="w-4 h-4 text-red-500" />
-              <span className="text-xs text-red-600 dark:text-red-400">Offline</span>
+              <span className="text-xs text-red-600 dark:text-red-400">
+                Offline{getQueuedActions().length > 0 ? ` (${getQueuedActions().length} pending)` : ""}
+              </span>
             </div>
           )}
         </div>
@@ -1877,6 +2339,125 @@ export default function DriverDashboard() {
         </div>
       )}
 
+      {/* Map overlay */}
+      {showMap && (
+        <div className="fixed inset-0 z-50 flex flex-col" data-testid="overlay-map">
+          <div className="flex items-center justify-between gap-2 p-3 bg-background border-b">
+            <span className="text-lg font-semibold">Live Map</span>
+            <Button variant="ghost" size="icon" onClick={() => setShowMap(false)} data-testid="button-close-map">
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+          <div className="flex-1 relative min-h-0">
+            <FullScreenMap
+              driverLocation={geoLocation}
+              activeTrip={activeTrip}
+              mapsLoaded={mapsLoaded}
+              gpsWatchError={geoWatchError}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Confirm status dialog */}
+      {confirmDialog && (
+        <div className="fixed inset-0 bg-background/80 z-50 flex items-end justify-center p-4 sm:items-center" data-testid="overlay-confirm-status">
+          <Card className="w-full max-w-md">
+            <div className="flex items-center justify-between gap-2 p-4 border-b">
+              <span className="text-lg font-semibold">Confirm Action</span>
+              <Button variant="ghost" size="icon" onClick={() => setConfirmDialog(null)} data-testid="button-cancel-confirm">
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+            <CardContent className="py-4 space-y-4">
+              <p className="text-base font-medium" data-testid="text-confirm-action">
+                {confirmDialog.label}?
+              </p>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Clock className="w-4 h-4" />
+                <span data-testid="text-confirm-timestamp">{new Date().toLocaleTimeString()}</span>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Quick note (optional)</label>
+                <Textarea
+                  value={confirmNote}
+                  onChange={(e) => setConfirmNote(e.target.value)}
+                  placeholder="Add a note..."
+                  className="text-base"
+                  rows={2}
+                  data-testid="input-confirm-note"
+                />
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  className="flex-1 min-h-[48px] text-base font-semibold"
+                  onClick={handleConfirmSubmit}
+                  disabled={statusMutation.isPending}
+                  data-testid="button-confirm-submit"
+                >
+                  <CheckCircle className="w-5 h-5 mr-2" />
+                  Confirm
+                </Button>
+                <Button
+                  variant="outline"
+                  className="min-h-[48px] text-base px-6"
+                  onClick={() => setConfirmDialog(null)}
+                  data-testid="button-confirm-cancel"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Need Help panel */}
+      {needHelpOpen && activeTrip && (
+        <div className="fixed inset-0 bg-background/80 z-50 flex items-end justify-center p-4 sm:items-center" data-testid="overlay-need-help">
+          <Card className="w-full max-w-md">
+            <div className="flex items-center justify-between gap-2 p-4 border-b">
+              <span className="text-lg font-semibold">Need Help</span>
+              <Button variant="ghost" size="icon" onClick={() => { setNeedHelpOpen(false); setNeedHelpNote(""); }} data-testid="button-close-help">
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+            <CardContent className="py-4 space-y-3">
+              <p className="text-sm text-muted-foreground">Select an issue to report for trip {activeTrip.publicId}</p>
+              <div className="space-y-2">
+                {SUPPORT_EVENT_TYPES.map((evt) => {
+                  const EvtIcon = evt.icon;
+                  return (
+                    <Button
+                      key={evt.type}
+                      variant="outline"
+                      className="w-full justify-start gap-3 min-h-[48px] text-base"
+                      onClick={() => handleSupportEvent(evt.type)}
+                      disabled={supportSubmitting}
+                      data-testid={`button-support-${evt.type}`}
+                    >
+                      <EvtIcon className="w-5 h-5" />
+                      {evt.label}
+                    </Button>
+                  );
+                })}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Additional notes (optional)</label>
+                <Textarea
+                  value={needHelpNote}
+                  onChange={(e) => setNeedHelpNote(e.target.value)}
+                  placeholder="Describe the issue..."
+                  className="text-base"
+                  rows={2}
+                  data-testid="input-help-note"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Chat overlay */}
       {chatTripId && (
         <TripChat
@@ -2130,7 +2711,56 @@ function DrawerScheduleChangeSection({ token, scheduleChanges, onSubmitSuccess }
   );
 }
 
+function ScoreTrendChart({ token }: { token: string | null }) {
+  const { data, isLoading, isError } = useQuery<{ history: Array<{ weekStart: string; overallScore: number; completionRate: number; onTimeRate: number }> }>({
+    queryKey: ["/api/driver/score-history"],
+    queryFn: () => token ? apiFetch("/api/driver/score-history", token) : Promise.resolve({ history: [] }),
+    enabled: !!token,
+    staleTime: 300000,
+    retry: 1,
+  });
+
+  if (isLoading) return <Skeleton className="h-40 w-full" />;
+  if (isError) return <p className="text-xs text-muted-foreground text-center py-2">Could not load score history</p>;
+  if (!data?.history?.length) return <p className="text-xs text-muted-foreground text-center py-2">No score history yet</p>;
+
+  const chartData = data.history.map(h => ({
+    week: h.weekStart ? new Date(h.weekStart).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "",
+    score: h.overallScore ?? 0,
+    completion: h.completionRate ?? 0,
+    onTime: h.onTimeRate ?? 0,
+  }));
+
+  return (
+    <div className="space-y-2" data-testid="div-score-trend">
+      <p className="text-sm font-medium">Score Trend</p>
+      <ResponsiveContainer width="100%" height={160}>
+        <AreaChart data={chartData}>
+          <defs>
+            <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+          <XAxis dataKey="week" tick={{ fontSize: 11 }} className="fill-muted-foreground" />
+          <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} className="fill-muted-foreground" />
+          <Tooltip
+            contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "13px" }}
+            labelStyle={{ color: "hsl(var(--foreground))" }}
+          />
+          <Area type="monotone" dataKey="score" stroke="hsl(var(--primary))" fill="url(#scoreGrad)" strokeWidth={2} name="Score" />
+          <Line type="monotone" dataKey="completion" stroke="hsl(var(--chart-2))" strokeWidth={1.5} dot={false} name="Completion %" />
+          <Line type="monotone" dataKey="onTime" stroke="hsl(var(--chart-3))" strokeWidth={1.5} dot={false} name="On-Time %" />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function DrawerMetricsSection({ metrics, isLoading }: { metrics: any; isLoading: boolean }) {
+  const { token } = useAuth();
+
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -2166,6 +2796,8 @@ function DrawerMetricsSection({ metrics, isLoading }: { metrics: any; isLoading:
           <p className="text-sm text-muted-foreground">/100</p>
         </div>
       )}
+
+      <ScoreTrendChart token={token} />
     </div>
   );
 }

@@ -6,6 +6,7 @@ interface CacheEntry<T> {
 interface CacheStore {
   get<T>(key: string): T | null;
   set<T>(key: string, value: T, ttlMs: number): void;
+  setIfNotExists<T>(key: string, value: T, ttlMs: number): boolean;
   delete(key: string): boolean;
   has(key: string): boolean;
   keys(pattern?: string): string[];
@@ -33,6 +34,13 @@ class InMemoryCache implements CacheStore {
 
   set<T>(key: string, value: T, ttlMs: number): void {
     this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
+  }
+
+  setIfNotExists<T>(key: string, value: T, ttlMs: number): boolean {
+    const existing = this.get(key);
+    if (existing !== null) return false;
+    this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
+    return true;
   }
 
   delete(key: string): boolean {

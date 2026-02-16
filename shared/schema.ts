@@ -715,6 +715,22 @@ export const driverScores = pgTable("driver_scores", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const driverSupportEvents = pgTable("driver_support_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  tripId: integer("trip_id").references(() => trips.id),
+  eventType: text("event_type").notNull(),
+  notes: text("notes"),
+  resolved: boolean("resolved").notNull().default(false),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertDriverSupportEventSchema = createInsertSchema(driverSupportEvents).omit({ id: true, createdAt: true, resolved: true, resolvedBy: true, resolvedAt: true });
+export type DriverSupportEvent = typeof driverSupportEvents.$inferSelect;
+export type InsertDriverSupportEvent = z.infer<typeof insertDriverSupportEventSchema>;
+
 export const insertRouteBatchSchema = createInsertSchema(routeBatches).omit({ id: true, createdAt: true });
 export const insertDriverScoreSchema = createInsertSchema(driverScores).omit({ id: true, createdAt: true });
 

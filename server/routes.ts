@@ -1696,12 +1696,47 @@ export async function registerRoutes(
     try {
       const user = await storage.getUser(req.user!.userId);
       if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
-      const { lat, lng, heading, speed } = req.body;
+      const { lat, lng, heading, speed, accuracy, isMock } = req.body;
       if (typeof lat !== "number" || typeof lng !== "number") {
         return res.status(400).json({ message: "lat and lng are required numbers" });
       }
 
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return res.status(400).json({ message: "Invalid coordinates" });
+      }
+
+      if (isMock === true) {
+        console.warn(`[GPS-GUARD] Mock location detected from driver ${user.driverId}`);
+        return res.status(422).json({ message: "Mock locations not accepted" });
+      }
+
+      if (typeof accuracy === "number" && accuracy > 500) {
+        console.warn(`[GPS-GUARD] Very low accuracy (${accuracy}m) from driver ${user.driverId}`);
+      }
+
       const { cache, cacheKeys, CACHE_TTL } = await import("./lib/cache");
+
+      const prevLocKey = `driver:${user.driverId}:prev_loc`;
+      const spoofCountKey = `driver:${user.driverId}:spoof_count`;
+      const prevLoc = cache.get<{ lat: number; lng: number; ts: number }>(prevLocKey);
+      if (prevLoc) {
+        const timeDiffSec = (Date.now() - prevLoc.ts) / 1000;
+        if (timeDiffSec > 1) {
+          const dLat = lat - prevLoc.lat;
+          const dLng = lng - prevLoc.lng;
+          const distKm = Math.sqrt(dLat * dLat + dLng * dLng) * 111.32;
+          const speedKmH = (distKm / timeDiffSec) * 3600;
+          if (speedKmH > 500) {
+            const count = (cache.get<number>(spoofCountKey) || 0) + 1;
+            cache.set(spoofCountKey, count, 600_000);
+            console.warn(`[GPS-GUARD] Teleport rejected for driver ${user.driverId}: ${speedKmH.toFixed(0)} km/h (count: ${count})`);
+            return res.status(422).json({ message: "Location update rejected: impossible movement detected" });
+          } else if (speedKmH > 300) {
+            console.warn(`[GPS-GUARD] High velocity from driver ${user.driverId}: ${speedKmH.toFixed(0)} km/h`);
+          }
+        }
+      }
+      cache.set(prevLocKey, { lat, lng, ts: Date.now() }, 300_000);
       const { broadcastToTrip } = await import("./lib/realtime");
       const locKey = cacheKeys("driver_location", user.driverId);
       cache.set(locKey, { driverId: user.driverId, lat, lng, timestamp: Date.now(), heading, speed }, CACHE_TTL.DRIVER_LOCATION);
@@ -2324,6 +2359,136 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
           minCompletionRate, currentCompletionRate: completionRate,
         },
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Driver support event creation
+  app.post("/api/driver/support-event", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const { tripId, eventType, notes, idempotencyKey } = req.body;
+      if (!eventType) return res.status(400).json({ message: "eventType is required" });
+
+      if (idempotencyKey) {
+        const { cache } = await import("./lib/cache");
+        const idemKey = `idem:support:${idempotencyKey}`;
+        const claimed = cache.setIfNotExists(idemKey, true, 600_000);
+        if (!claimed) {
+          return res.json({ message: "Already recorded", idempotent: true });
+        }
+      }
+
+      const validTypes = ["patient_not_ready", "patient_no_show", "address_incorrect", "vehicle_issue", "traffic_delay"];
+      if (!validTypes.includes(eventType)) return res.status(400).json({ message: "Invalid event type" });
+
+      const { driverSupportEvents } = await import("@shared/schema");
+      const [event] = await db.insert(driverSupportEvents).values({
+        driverId: user.driverId,
+        tripId: tripId || null,
+        eventType,
+        notes: notes || null,
+      }).returning();
+
+      const driver = await storage.getDriver(user.driverId);
+      if (tripId) {
+        const trip = await storage.getTrip(tripId);
+        const tripRef = trip ? (trip.publicId || `#${tripId}`) : `#${tripId}`;
+        const eventLabel = eventType.replace(/_/g, " ");
+        const msgText = `[Support Alert] ${driver?.firstName} ${driver?.lastName} reported: ${eventLabel}${notes ? ` — ${notes}` : ""} (Trip ${tripRef})`;
+        try {
+          await db.insert(tripMessages).values({
+            tripId,
+            senderId: user.id,
+            senderRole: "DRIVER",
+            message: msgText,
+          });
+        } catch (msgErr: any) {
+          console.warn("[SUPPORT-EVENT] Failed to create trip message:", msgErr.message);
+        }
+      }
+
+      console.log(`[SUPPORT-EVENT] Driver ${driver?.firstName} ${driver?.lastName} reported ${eventType} for trip ${tripId || "N/A"}`);
+
+      res.json({ event });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Get support events for dispatch
+  app.get("/api/dispatch/support-events", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { driverSupportEvents } = await import("@shared/schema");
+      const events = await db.select().from(driverSupportEvents)
+        .orderBy(desc(driverSupportEvents.createdAt))
+        .limit(100);
+
+      const enriched = await Promise.all(events.map(async (e) => {
+        const driver = await storage.getDriver(e.driverId);
+        const trip = e.tripId ? await storage.getTrip(e.tripId) : null;
+        return {
+          ...e,
+          driverName: driver ? `${driver.firstName} ${driver.lastName}` : null,
+          tripPublicId: trip?.publicId || null,
+        };
+      }));
+
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Resolve support event
+  app.patch("/api/dispatch/support-events/:id/resolve", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { driverSupportEvents } = await import("@shared/schema");
+      const eventId = parseInt(req.params.id);
+      await db.update(driverSupportEvents).set({
+        resolved: true,
+        resolvedBy: req.user!.userId,
+        resolvedAt: new Date(),
+      }).where(eq(driverSupportEvents.id, eventId));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Driver heartbeat (presence ping)
+  app.post("/api/driver/heartbeat", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      await db.update(drivers).set({ lastSeenAt: new Date() }).where(eq(drivers.id, user.driverId));
+
+      res.json({
+        dispatchStatus: driver.dispatchStatus,
+        serverTime: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Driver score history for charts
+  app.get("/api/driver/score-history", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const history = await db.select().from(driverScores)
+        .where(eq(driverScores.driverId, user.driverId))
+        .orderBy(driverScores.weekStart)
+        .limit(12);
+
+      res.json({ history });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -3172,6 +3337,17 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         return res.status(400).json({ message: "Invalid status" });
       }
       const id = parseInt(req.params.id);
+
+      const idempotencyKey = req.body.idempotencyKey;
+      if (idempotencyKey) {
+        const { cache } = await import("./lib/cache");
+        const idemKey = `idem:status:${idempotencyKey}`;
+        const claimed = cache.setIfNotExists(idemKey, true, 600_000);
+        if (!claimed) {
+          return res.json({ message: "Already applied", idempotent: true });
+        }
+      }
+
       const trip = await storage.getTrip(id);
       if (!trip) return res.status(404).json({ message: "Trip not found" });
 
@@ -3180,8 +3356,16 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
       if (req.user!.role === "DRIVER") {
         const user = await storage.getUser(req.user!.userId);
         if (!user?.driverId || trip.driverId !== user.driverId) {
+          if (idempotencyKey) {
+            const { cache } = await import("./lib/cache");
+            cache.delete(`idem:status:${idempotencyKey}`);
+          }
           return res.status(403).json({ message: "You can only update status for your assigned trips" });
         }
+      }
+
+      if (trip.status === parsed.data.status) {
+        return res.json({ message: "Already in this status", idempotent: true });
       }
 
       const allowedNext = VALID_TRANSITIONS[trip.status] || [];
