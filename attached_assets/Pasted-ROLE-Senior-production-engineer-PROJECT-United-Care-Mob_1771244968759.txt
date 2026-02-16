@@ -1,0 +1,167 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Implement export option B (multiple CSV per section) + JSON download in Admin → Metrics page.
+Client-side only. Use already-fetched React Query data. No new endpoints. Keep RBAC as-is.
+
+CONTEXT:
+Metrics page already fetches:
+- GET /api/ops/health
+- GET /api/ops/metrics
+- GET /api/ops/metrics/google
+- (optional) GET /api/ops/metrics/routes
+
+---------------------------------------
+TASK 1 — EXPORT TOOLBAR UI
+---------------------------------------
+On the Admin Metrics page (top-right):
+Add a compact toolbar with buttons:
+- Download JSON
+- CSV: Summary
+- CSV: Health
+- CSV: Redis/Cache
+- CSV: Realtime
+- CSV: Google
+- CSV: Routes
+
+Routes button:
+- Enabled only if routes data exists (query present + response non-empty).
+- Otherwise disabled with small tooltip/help text "Routes metrics not available".
+
+---------------------------------------
+TASK 2 — CSV/JSON GENERATORS (CLIENT)
+---------------------------------------
+Create helpers (e.g. client/src/lib/export.ts):
+
+A) toCsv(rows: Array<Record<string, any>>): string
+Rules:
+- stable column order: union of keys, but prefer explicit column lists per section.
+- escape values:
+  - convert null/undefined to ""
+  - stringify objects as JSON
+  - wrap in quotes if contains comma, quote, or newline
+  - escape quotes by doubling (" -> "")
+- prepend UTF-8 BOM for Excel: "\ufeff" + csv
+
+B) downloadTextFile(filename: string, content: string, mime: string)
+Use Blob + URL.createObjectURL + hidden <a download> click.
+
+C) buildTimestamp(): YYYYMMDD-HHMM (local time)
+
+---------------------------------------
+TASK 3 — DOWNLOAD JSON
+---------------------------------------
+Download JSON combines latest query results already in memory:
+{
+  generatedAt: ISO timestamp,
+  health: <healthResponse>,
+  metrics: <metricsResponse>,
+  google: <googleResponse>,
+  routes: <routesResponse|null>
+}
+
+Filename: ucm-metrics-YYYYMMDD-HHMM.json
+No refetch. If a section missing, include null and still download.
+
+---------------------------------------
+TASK 4 — MULTI CSV EXPORTS (B)
+---------------------------------------
+Create 6 exporters, each building rows with explicit columns.
+
+1) SUMMARY CSV
+Filename: ucm-metrics-summary-YYYYMMDD-HHMM.csv
+One row with KPIs:
+- generatedAt
+- healthStatus
+- reqPerMin
+- errorRatePct
+- p95LatencyMs
+- redisOk
+- cacheHitRatePct
+- realtimeTokensIssuedPerMin
+- realtimePublishesPerMin_location
+- realtimePublishesPerMin_eta
+- realtimePublishesPerMin_status
+- directionsCallsPerMin
+- directionsFailuresPerMin
+- breakerOn
+
+If some fields are missing in your metrics JSON, map best-effort and leave empty strings.
+
+2) HEALTH CSV
+Filename: ucm-metrics-health-YYYYMMDD-HHMM.csv
+One row with:
+- generatedAt
+- overall (GREEN/YELLOW/RED)
+- db (ok/fail + latency if present)
+- redis (ok/fail)
+- gpsStaleRate (if present)
+- lastError (if present)
+
+3) REDIS/CACHE CSV
+Filename: ucm-metrics-cache-YYYYMMDD-HHMM.csv
+Rows for each cache family (or one row with multiple columns):
+Preferred rows format:
+- generatedAt
+- keyFamily (trip:eta, trip:polyline, trip:driver_location, driver:last_location)
+- hits
+- misses
+- hitRatePct
+
+If only aggregate hit/miss exists, export one row with keyFamily="all".
+
+4) REALTIME CSV
+Filename: ucm-metrics-realtime-YYYYMMDD-HHMM.csv
+Rows per event type:
+- generatedAt
+- eventType (driver_location / eta_update / status_change / test_ping)
+- publishesPerMin
+Plus header-level fields (separate row with eventType="__totals__"):
+- tokensIssuedPerMin
+- lastPublishAt (if present)
+
+5) GOOGLE CSV
+Filename: ucm-metrics-google-YYYYMMDD-HHMM.csv
+One row:
+- generatedAt
+- directionsCallsPerMin
+- directionsFailuresPerMin
+- breakerOn
+- breakerRemainingSec (if present)
+- lockContentionCount (if present)
+- timeoutsCount (if present)
+
+6) ROUTES CSV (optional)
+Filename: ucm-metrics-routes-YYYYMMDD-HHMM.csv
+Rows from /api/ops/metrics/routes:
+- generatedAt
+- route
+- count
+- p95Ms
+- errorCount
+If routes endpoint missing or response empty, disable button.
+
+---------------------------------------
+TASK 5 — UX
+---------------------------------------
+- Use existing toast system (shadcn toast) or a simple alert fallback:
+  "Downloaded ucm-metrics-....csv"
+- If data missing for a section, show toast:
+  "Metrics not loaded yet. Try again in a few seconds."
+- Do NOT refetch just to export.
+
+---------------------------------------
+VERIFY
+---------------------------------------
+1) Open Admin → Metrics on mobile and desktop.
+2) All buttons appear.
+3) JSON downloads.
+4) Each CSV downloads with correct filename and opens in Excel (BOM included).
+5) Routes CSV button disables gracefully if routes not available.
+6) No changes to shared/permissions.ts.

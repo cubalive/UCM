@@ -19,6 +19,8 @@ import {
   Radio,
   Server,
   BarChart3,
+  Download,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   LineChart,
@@ -144,6 +146,42 @@ interface GoogleHistoryPoint {
 }
 
 const MAX_HISTORY = 20;
+
+function csvEscape(val: unknown): string {
+  const s = String(val ?? "");
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function arrayToCsv(rows: Record<string, unknown>[]): string {
+  if (rows.length === 0) return "";
+  const headers = Object.keys(rows[0]);
+  const lines = [headers.map(csvEscape).join(",")];
+  for (const row of rows) {
+    lines.push(headers.map((h) => csvEscape(row[h])).join(","));
+  }
+  return lines.join("\n");
+}
+
+function downloadFile(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function fileTimestamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
 
 function formatTime(ts: string) {
   try {
@@ -333,10 +371,58 @@ export default function MetricsPage() {
             </p>
           )}
         </div>
-        <Button size="sm" variant="outline" onClick={() => refetchMetrics()} data-testid="button-refresh-metrics">
-          <RefreshCw className="mr-2 h-3 w-3" />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!metrics}
+            onClick={() => {
+              const ts = fileTimestamp();
+              const payload = {
+                generatedAt: new Date().toISOString(),
+                health: healthData ?? null,
+                metrics: metrics ?? null,
+                google: googleData ?? metrics?.google ?? null,
+              };
+              downloadFile(JSON.stringify(payload, null, 2), `ucm-metrics-${ts}.json`, "application/json");
+            }}
+            data-testid="button-download-json"
+          >
+            <Download className="mr-2 h-3 w-3" />
+            Download JSON
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!metrics}
+            onClick={() => {
+              const ts = fileTimestamp();
+              const goog = googleData || metrics?.google;
+              const row: Record<string, unknown> = {
+                generatedAt: new Date().toISOString(),
+                healthStatus: healthData?.overall ?? "N/A",
+                p95LatencyMs: metrics?.request.p95_latency_ms ?? 0,
+                errorRate: metrics?.request.error_rate_pct ?? 0,
+                reqPer5Min: metrics?.request.total_requests_5min ?? 0,
+                cacheHitRate: metrics?.redis.cache_hit_rate ?? 0,
+                redisOk: metrics?.redis.redis_connected ? "yes" : "no",
+                realtimePublishesPerMin_location: metrics?.realtime.realtime_broadcasts_by_type?.location ?? 0,
+                realtimePublishesPerMin_eta: metrics?.realtime.realtime_broadcasts_by_type?.eta ?? 0,
+                directionsCallsPerMin: goog?.directions_calls_per_min ?? 0,
+                breakerOn: goog?.circuit_breaker?.open ? "yes" : "no",
+              };
+              downloadFile(arrayToCsv([row]), `ucm-metrics-summary-${ts}.csv`, "text/csv");
+            }}
+            data-testid="button-export-csv"
+          >
+            <FileSpreadsheet className="mr-2 h-3 w-3" />
+            Export CSV
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => refetchMetrics()} data-testid="button-refresh-metrics">
+            <RefreshCw className="mr-2 h-3 w-3" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Status Cards Row */}
