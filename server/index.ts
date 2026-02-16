@@ -188,6 +188,9 @@ app.use((req, res, next) => {
   const { registerDriverLocationRoutes } = await import("./lib/driverLocationIngest");
   registerDriverLocationRoutes(app);
 
+  const { registerAdminMetricsRoutes } = await import("./lib/adminMetricsRoutes");
+  registerAdminMetricsRoutes(app);
+
   const { startEtaEngine } = await import("./lib/etaEngine");
   startEtaEngine();
 

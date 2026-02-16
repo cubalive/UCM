@@ -5,6 +5,7 @@ import { getDriverLocationFromCache } from "./driverLocationIngest";
 import { broadcastToTrip } from "./realtime";
 import { broadcastTripSupabaseThrottled } from "./supabaseRealtime";
 import { shouldPublishEta } from "./backpressure";
+import { tickJob, failJob } from "./jobHeartbeat";
 
 const ETA_INTERVAL_MS = 120_000;
 const TEN_MIN_THRESHOLD = 10;
@@ -20,6 +21,7 @@ async function recalculateActiveETAs() {
   }
 
   running = true;
+  tickJob("eta");
   try {
     const activeTrips = await storage.getActiveEnRouteTrips();
     if (activeTrips.length === 0) return;
@@ -85,6 +87,7 @@ async function recalculateActiveETAs() {
     }
   } catch (err: any) {
     console.error(`[ETA-ENGINE] Cycle error: ${err.message}`);
+    failJob("eta", err.message);
   } finally {
     running = false;
   }

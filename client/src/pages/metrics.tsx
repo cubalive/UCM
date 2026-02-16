@@ -24,6 +24,11 @@ import {
   BarChart3,
   Download,
   FileSpreadsheet,
+  Users,
+  Car,
+  Building2,
+  CheckCircle2,
+  Cog,
 } from "lucide-react";
 import {
   LineChart,
@@ -139,6 +144,37 @@ interface HealthData {
   }>;
   redis?: string;
   redis_latency_ms?: number;
+}
+
+interface AdminSummary {
+  ok: boolean;
+  ts: string;
+  env: string;
+  version?: string;
+  uptimeSec: number;
+  requests: { rpm: number; p50ms: number; p95ms: number; errors5xx: number; errors4xx: number };
+  db: { ok: boolean; latencyMs: number };
+  ws: { ok: boolean; clients: number; subscriptions: number };
+  jobs: {
+    eta: { ok: boolean; lastTickAt: string | null; lastError: string | null; tickCount: number };
+    autoAssign: { ok: boolean; lastTickAt: string | null; lastError: string | null; tickCount: number };
+  };
+  counts: { tripsToday: number; tripsInProgress: number; driversOnline: number; activeClinics: number };
+}
+
+interface AdminCounts {
+  ok: boolean;
+  ts: string;
+  date: string;
+  tripsToday: number;
+  tripsInProgress: number;
+  tripsCompleted: number;
+  tripsCancelled: number;
+  tripsScheduled: number;
+  driversOnline: number;
+  totalDrivers: number;
+  activeClinics: number;
+  totalClinics: number;
 }
 
 interface HistoryPoint {
@@ -263,15 +299,31 @@ export default function MetricsPage() {
     enabled: !!user && user.role === "SUPER_ADMIN",
   });
 
+  const { data: adminSummary, refetch: refetchAdmin } = useQuery<AdminSummary>({
+    queryKey: ["/api/admin/metrics/summary"],
+    refetchInterval: 10_000,
+    retry: 2,
+    enabled: !!user && user.role === "SUPER_ADMIN",
+  });
+
+  const { data: adminCounts } = useQuery<AdminCounts>({
+    queryKey: ["/api/admin/metrics/counts"],
+    refetchInterval: 15_000,
+    retry: 2,
+    enabled: !!user && user.role === "SUPER_ADMIN",
+  });
+
   const { toast } = useToast();
 
   const hasRoutes = !!(routesData?.routes && routesData.routes.length > 0);
 
   function exportJson() {
-    if (!metrics) { toast({ title: "Metrics not loaded yet. Try again in a few seconds.", variant: "destructive" }); return; }
+    if (!metrics && !adminSummary) { toast({ title: "Metrics not loaded yet. Try again in a few seconds.", variant: "destructive" }); return; }
     const ts = buildTimestamp();
     const payload = {
       generatedAt: new Date().toISOString(),
+      adminSummary: adminSummary ?? null,
+      adminCounts: adminCounts ?? null,
       health: healthData ?? null,
       metrics: metrics ?? null,
       google: googleData ?? metrics?.google ?? null,
@@ -498,7 +550,7 @@ export default function MetricsPage() {
             </p>
           )}
         </div>
-        <Button size="sm" variant="outline" onClick={() => refetchMetrics()} data-testid="button-refresh-metrics">
+        <Button size="sm" variant="outline" onClick={() => { refetchMetrics(); refetchAdmin(); }} data-testid="button-refresh-metrics">
           <RefreshCw className="mr-2 h-3 w-3" />
           Refresh
         </Button>
@@ -586,6 +638,207 @@ export default function MetricsPage() {
           icon={BarChart3}
         />
       </div>
+
+      {adminSummary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          <Card data-testid="card-api-status">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted-foreground">API</p>
+                  <Badge variant={adminSummary.ok ? "default" : "destructive"}>
+                    {adminSummary.ok ? "OK" : "ERROR"}
+                  </Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-db-status">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                  <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted-foreground">Database</p>
+                  <Badge variant={adminSummary.db.ok ? "default" : "destructive"}>
+                    {adminSummary.db.ok ? "OK" : "DOWN"}
+                  </Badge>
+                  <p className="text-xs text-muted-foreground tabular-nums mt-0.5" data-testid="text-db-latency">{adminSummary.db.latencyMs}ms</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-ws-status">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                  <Wifi className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted-foreground">WebSocket</p>
+                  <Badge variant={adminSummary.ws.ok ? "default" : "destructive"}>
+                    {adminSummary.ws.ok ? "OK" : "DOWN"}
+                  </Badge>
+                  <p className="text-xs text-muted-foreground tabular-nums mt-0.5" data-testid="text-ws-clients">{adminSummary.ws.clients} clients</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-eta-job">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                  <Cog className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted-foreground">ETA Engine</p>
+                  <Badge variant={adminSummary.jobs.eta.ok ? "default" : "destructive"}>
+                    {adminSummary.jobs.eta.ok ? "RUNNING" : "STOPPED"}
+                  </Badge>
+                  {adminSummary.jobs.eta.lastTickAt && (
+                    <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-eta-tick">
+                      {formatTime(adminSummary.jobs.eta.lastTickAt)}
+                    </p>
+                  )}
+                  {adminSummary.jobs.eta.lastError && (
+                    <p className="text-xs text-destructive truncate mt-0.5">{adminSummary.jobs.eta.lastError}</p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-autoassign-job">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                  <Car className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted-foreground">Auto-Assign</p>
+                  <Badge variant={adminSummary.jobs.autoAssign.ok ? "default" : "destructive"}>
+                    {adminSummary.jobs.autoAssign.ok ? "RUNNING" : "STOPPED"}
+                  </Badge>
+                  {adminSummary.jobs.autoAssign.lastTickAt && (
+                    <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-assign-tick">
+                      {formatTime(adminSummary.jobs.autoAssign.lastTickAt)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <MetricCard
+            title="RPM"
+            value={adminSummary.requests.rpm}
+            subtitle={`5xx: ${adminSummary.requests.errors5xx} / 4xx: ${adminSummary.requests.errors4xx}`}
+            icon={BarChart3}
+          />
+
+          <Card data-testid="card-uptime">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                  <Server className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-muted-foreground">Uptime</p>
+                  <p className="text-lg font-semibold tabular-nums" data-testid="text-uptime">
+                    {adminSummary.uptimeSec >= 3600
+                      ? `${Math.floor(adminSummary.uptimeSec / 3600)}h ${Math.floor((adminSummary.uptimeSec % 3600) / 60)}m`
+                      : `${Math.floor(adminSummary.uptimeSec / 60)}m`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{adminSummary.env} v{adminSummary.version}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {adminCounts && (
+        <Card data-testid="card-counts">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              Today's Counts ({adminCounts.date})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Trips Today</p>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-trips-today">{adminCounts.tripsToday}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">In Progress</p>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-trips-progress">{adminCounts.tripsInProgress}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Completed</p>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-trips-completed">{adminCounts.tripsCompleted}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Drivers Online</p>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-drivers-online">{adminCounts.driversOnline} / {adminCounts.totalDrivers}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Active Clinics</p>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-active-clinics">{adminCounts.activeClinics} / {adminCounts.totalClinics}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Scheduled</p>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-trips-scheduled">{adminCounts.tripsScheduled}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {routesData?.routes && routesData.routes.length > 0 && (
+        <Card data-testid="card-routes-table">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              Request Routes (5min window)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-3">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-1.5 px-2 font-medium text-muted-foreground">Route</th>
+                    <th className="text-right py-1.5 px-2 font-medium text-muted-foreground">Count</th>
+                    <th className="text-right py-1.5 px-2 font-medium text-muted-foreground">Errors</th>
+                    <th className="text-right py-1.5 px-2 font-medium text-muted-foreground">p50</th>
+                    <th className="text-right py-1.5 px-2 font-medium text-muted-foreground">p95</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {routesData.routes.map((r, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="py-1.5 px-2 font-mono text-foreground" data-testid={`text-route-${i}`}>{r.route}</td>
+                      <td className="text-right py-1.5 px-2 tabular-nums">{r.request_count}</td>
+                      <td className="text-right py-1.5 px-2 tabular-nums">{r.error_count}</td>
+                      <td className="text-right py-1.5 px-2 tabular-nums">{r.p50_ms}ms</td>
+                      <td className="text-right py-1.5 px-2 tabular-nums">{r.p95_ms}ms</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Charts + Detail Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

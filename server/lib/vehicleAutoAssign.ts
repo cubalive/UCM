@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import type { CitySettings, City } from "@shared/schema";
 import { getScheduledDriverIdsForDay } from "./scheduleRoutes";
 import { isDriverOnline } from "./driverClassification";
+import { tickJob, failJob } from "./jobHeartbeat";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -223,6 +224,7 @@ export function startVehicleAutoAssignScheduler() {
   console.log("[VehicleAutoAssign] Scheduler started (checks every 60s)");
 
   schedulerInterval = setInterval(async () => {
+    tickJob("autoAssign");
     try {
       const allCities = await storage.getCities();
       const allSettings = await storage.getAllCitySettings();
@@ -260,6 +262,7 @@ export function startVehicleAutoAssignScheduler() {
       }
     } catch (err: any) {
       console.error("[VehicleAutoAssign] Scheduler error:", err.message);
+      failJob("autoAssign", err.message);
     }
   }, 60_000);
 }
