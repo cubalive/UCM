@@ -933,6 +933,20 @@ export default function DriverDashboard() {
   const [drawerSection, setDrawerSection] = useState<string | null>(null);
   const [tripsTab, setTripsTab] = useState<"scheduled" | "history">("scheduled");
 
+  const [sessionRevoked, setSessionRevoked] = useState(false);
+
+  useEffect(() => {
+    const handleFetchError = (event: any) => {
+      if (event?.detail?.code === "SESSION_REVOKED") {
+        setSessionRevoked(true);
+        toast({ title: "Session Revoked", description: "You have been logged out by dispatch.", variant: "destructive" });
+        setTimeout(() => logout(), 2000);
+      }
+    };
+    window.addEventListener("ucm-session-revoked", handleFetchError);
+    return () => window.removeEventListener("ucm-session-revoked", handleFetchError);
+  }, [logout, toast]);
+
   const mapsLoaded = useLoadGoogleMaps(token);
 
   const handleRtStatusChange = useCallback((statusData: { status: string; tripId: number }) => {

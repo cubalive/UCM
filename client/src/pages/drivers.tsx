@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive, LogOut } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 
@@ -178,6 +178,15 @@ export default function DriversPage() {
       toast({ title: "Driver archived" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const forceLogoutMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/dispatch/drivers/${id}/revoke-sessions`, token, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      toast({ title: "Driver sessions revoked", description: "Driver will be logged out on their next request." });
+    },
+    onError: (err: any) => toast({ title: "Failed to revoke sessions", description: err.message, variant: "destructive" }),
   });
 
   const backfillMutation = useMutation({
@@ -370,6 +379,20 @@ export default function DriversPage() {
                         Reset Password
                       </Button>
                     )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (window.confirm(`Force logout driver ${d.firstName} ${d.lastName}? They will need to log in again.`)) {
+                          forceLogoutMutation.mutate(d.id);
+                        }
+                      }}
+                      disabled={forceLogoutMutation.isPending}
+                      data-testid={`button-force-logout-${d.id}`}
+                    >
+                      <LogOut className="w-3 h-3 mr-2" />
+                      Force Logout
+                    </Button>
                   </div>
                 )}
               </CardContent>

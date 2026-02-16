@@ -1025,3 +1025,31 @@ export type ClinicBillingInvoiceLine = typeof clinicBillingInvoiceLines.$inferSe
 export type InsertClinicBillingInvoiceLine = z.infer<typeof insertClinicBillingInvoiceLineSchema>;
 
 export type BillingAuditEntry = typeof billingAuditLog.$inferSelect;
+
+export const driverDevices = pgTable("driver_devices", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id").references(() => companies.id),
+  deviceFingerprintHash: text("device_fingerprint_hash").notNull(),
+  deviceLabel: text("device_label"),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const sessionRevocations = pgTable("session_revocations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  companyId: integer("company_id").references(() => companies.id),
+  revokedAfter: timestamp("revoked_after").notNull(),
+  reason: text("reason"),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertDriverDeviceSchema = createInsertSchema(driverDevices).omit({ id: true, createdAt: true });
+export type DriverDevice = typeof driverDevices.$inferSelect;
+export type InsertDriverDevice = z.infer<typeof insertDriverDeviceSchema>;
+
+export const insertSessionRevocationSchema = createInsertSchema(sessionRevocations).omit({ id: true, createdAt: true });
+export type SessionRevocation = typeof sessionRevocations.$inferSelect;
+export type InsertSessionRevocation = z.infer<typeof insertSessionRevocationSchema>;

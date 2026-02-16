@@ -2,9 +2,9 @@ import type { Express } from "express";
 import PDFDocument from "pdfkit";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, type AuthRequest } from "./auth";
+import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, invalidateRevocationCache, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations } from "@shared/schema";
 import { z } from "zod";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { db } from "./db";
@@ -159,6 +159,28 @@ export async function registerRoutes(
 
       if (!user.active) {
         return res.status(403).json({ message: "Account disabled" });
+      }
+
+      if (user.role === "DRIVER" && user.driverId && process.env.DRIVER_DEVICE_BINDING === "true") {
+        const deviceHash = req.headers["x-ucm-device"] as string;
+        if (deviceHash) {
+          const existing = await db.select().from(driverDevices).where(eq(driverDevices.driverId, user.driverId));
+          const match = existing.find(d => d.deviceFingerprintHash === deviceHash);
+          if (match) {
+            await db.update(driverDevices).set({ lastSeenAt: new Date() }).where(eq(driverDevices.id, match.id));
+          } else if (existing.length >= 2) {
+            console.warn(`[DEVICE-BIND] Driver ${user.driverId} denied: max 2 devices reached`);
+            return res.status(403).json({ message: "Maximum devices reached. Contact dispatch to remove a device.", code: "MAX_DEVICES" });
+          } else {
+            await db.insert(driverDevices).values({
+              driverId: user.driverId,
+              companyId: user.companyId || null,
+              deviceFingerprintHash: deviceHash,
+              deviceLabel: req.headers["x-ucm-device-label"] as string || null,
+            });
+            console.log(`[DEVICE-BIND] Registered new device for driver ${user.driverId} (${existing.length + 1}/2)`);
+          }
+        }
       }
 
       const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null });
@@ -1686,6 +1708,65 @@ export async function registerRoutes(
         };
       }));
       res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/dispatch/drivers/:id/revoke-sessions", authMiddleware, requireRole("DISPATCH", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const driverId = parseInt(req.params.id);
+      const driver = await storage.getDriver(driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      const driverUser = driver.userId ? await storage.getUser(driver.userId) : null;
+      if (!driverUser) return res.status(404).json({ message: "No user account linked to this driver" });
+
+      const { reason } = req.body;
+      await db.insert(sessionRevocations).values({
+        userId: driverUser.id,
+        companyId: driverUser.companyId || null,
+        revokedAfter: new Date(),
+        reason: reason || "Force logout by dispatch",
+        createdByUserId: req.user!.userId,
+      });
+      invalidateRevocationCache(driverUser.id);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "REVOKE_SESSIONS",
+        entity: "driver",
+        entityId: driverId,
+        details: `Sessions revoked for driver ${driver.firstName} ${driver.lastName}. Reason: ${reason || "Force logout by dispatch"}`,
+        cityId: driver.cityId,
+      });
+
+      console.log(`[SESSION-REVOKE] User ${req.user!.userId} revoked sessions for driver ${driverId} (userId=${driverUser.id})`);
+      res.json({ message: "All sessions revoked", driverId, userId: driverUser.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/dispatch/drivers/:id/devices", authMiddleware, requireRole("DISPATCH", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const driverId = parseInt(req.params.id);
+      const devices = await db.select().from(driverDevices).where(eq(driverDevices.driverId, driverId));
+      res.json(devices);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/dispatch/drivers/:id/devices/:deviceId", authMiddleware, requireRole("DISPATCH", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const driverId = parseInt(req.params.id);
+      const deviceId = parseInt(req.params.deviceId);
+      const device = await db.select().from(driverDevices).where(and(eq(driverDevices.id, deviceId), eq(driverDevices.driverId, driverId))).then(r => r[0]);
+      if (!device) return res.status(404).json({ message: "Device not found" });
+      await db.delete(driverDevices).where(eq(driverDevices.id, deviceId));
+      console.log(`[DEVICE-BIND] Device ${deviceId} removed from driver ${driverId} by user ${req.user!.userId}`);
+      res.json({ message: "Device removed" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

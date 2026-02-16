@@ -1,18 +1,52 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { getStoredToken, getStoredCityId } from "./api";
 
+function getDeviceFingerprint(): string | null {
+  try {
+    let installId = localStorage.getItem("ucm_install_id");
+    if (!installId) {
+      installId = crypto.randomUUID?.() || Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem("ucm_install_id", installId);
+    }
+    const raw = [
+      navigator.userAgent,
+      navigator.platform || "",
+      Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      `${screen.width}x${screen.height}`,
+      installId,
+    ].join("|");
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw.charCodeAt(i);
+      hash = ((hash << 5) - hash) + ch;
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
+  } catch {
+    return null;
+  }
+}
+
 function buildDefaultHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   const token = getStoredToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const cityId = getStoredCityId();
   if (cityId) headers["X-City-Id"] = cityId;
+  const fp = getDeviceFingerprint();
+  if (fp) headers["X-UCM-Device"] = fp;
   return headers;
 }
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.code === "SESSION_REVOKED") {
+        window.dispatchEvent(new CustomEvent("ucm-session-revoked", { detail: { code: "SESSION_REVOKED" } }));
+      }
+    } catch {}
     throw new Error(`${res.status}: ${text}`);
   }
 }

@@ -2,8 +2,8 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type { Request, Response, NextFunction } from "express";
 import { db } from "./db";
-import { users, userCityAccess } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { users, userCityAccess, sessionRevocations } from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-change-me";
 
@@ -11,6 +11,7 @@ export interface AuthPayload {
   userId: number;
   role: string;
   companyId?: number | null;
+  iat?: number;
 }
 
 export function signToken(payload: AuthPayload): string {
@@ -33,6 +34,37 @@ export interface AuthRequest extends Request {
   user?: AuthPayload;
 }
 
+const revocationCache = new Map<number, { revokedAfter: number; cachedAt: number }>();
+const REVOCATION_CACHE_TTL = 30_000;
+
+async function getLatestRevocation(userId: number): Promise<number | null> {
+  const cached = revocationCache.get(userId);
+  if (cached && (Date.now() - cached.cachedAt) < REVOCATION_CACHE_TTL) {
+    return cached.revokedAfter;
+  }
+  try {
+    const rows = await db
+      .select({ revokedAfter: sessionRevocations.revokedAfter })
+      .from(sessionRevocations)
+      .where(eq(sessionRevocations.userId, userId))
+      .orderBy(desc(sessionRevocations.revokedAfter))
+      .limit(1);
+    if (rows.length > 0) {
+      const ts = rows[0].revokedAfter.getTime() / 1000;
+      revocationCache.set(userId, { revokedAfter: ts, cachedAt: Date.now() });
+      return ts;
+    }
+    revocationCache.set(userId, { revokedAfter: 0, cachedAt: Date.now() });
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function invalidateRevocationCache(userId: number): void {
+  revocationCache.delete(userId);
+}
+
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
@@ -43,7 +75,17 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
     const token = header.slice(7);
     const payload = verifyToken(token);
     req.user = payload;
-    next();
+
+    if (payload.role === "SUPER_ADMIN") {
+      return next();
+    }
+
+    getLatestRevocation(payload.userId).then((revokedAfterSec) => {
+      if (revokedAfterSec && payload.iat && payload.iat < revokedAfterSec) {
+        return res.status(401).json({ message: "Session revoked", code: "SESSION_REVOKED" });
+      }
+      next();
+    }).catch(() => next());
   } catch {
     return res.status(401).json({ message: "Invalid token" });
   }
