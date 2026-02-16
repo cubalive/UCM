@@ -28,6 +28,8 @@ const CORS_EXACT_ORIGINS = new Set([
   "https://unitedcaremobility.com",
   "https://www.unitedcaremobility.com",
   "https://app.unitedcaremobility.com",
+  "https://driver.unitedcaremobility.com",
+  "https://admin.unitedcaremobility.com",
   "https://lovable.app",
 ]);
 

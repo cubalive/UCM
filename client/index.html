@@ -16,7 +16,18 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/branding/apple-touch-icon.png" />
     <link rel="apple-touch-icon" sizes="167x167" href="/branding/apple-touch-icon-167.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="/branding/apple-touch-icon-152.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="manifest" id="pwa-manifest" href="/manifest.webmanifest" />
+    <script>
+      (function() {
+        var h = window.location.host;
+        if (h.indexOf("repl") === -1 && h.indexOf("replit") === -1 && h.indexOf("driver.") === 0) {
+          document.getElementById("pwa-manifest").setAttribute("href", "/manifest-driver.webmanifest");
+          document.title = "UCM Driver";
+          var metaTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+          if (metaTitle) metaTitle.setAttribute("content", "UCM Driver");
+        }
+      })();
+    </script>
     <link rel="apple-touch-startup-image" href="/branding/splash-2048.png" media="(device-width: 1024px)" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
