@@ -52,6 +52,7 @@ import {
   Receipt,
   ShieldCheck,
   Banknote,
+  BarChart,
 } from "lucide-react";
 
 interface NavItem {
@@ -59,6 +60,7 @@ interface NavItem {
   url: string;
   icon: typeof LayoutDashboard;
   resource: Resource;
+  superAdminOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -90,6 +92,7 @@ const adminItems: NavItem[] = [
   { titleKey: "nav.pricing", url: "/pricing", icon: Banknote, resource: "audit" },
   { titleKey: "nav.auditLog", url: "/audit", icon: ClipboardList, resource: "audit" },
   { titleKey: "nav.archive", url: "/archive", icon: Archive, resource: "audit" },
+  { titleKey: "nav.metrics", url: "/metrics", icon: BarChart, resource: "audit", superAdminOnly: true },
 ];
 
 export function AppSidebar() {
@@ -125,6 +128,7 @@ export function AppSidebar() {
   const visibleAdmin = isDriver
     ? []
     : adminItems.filter((item) => {
+        if (item.superAdminOnly && upperRole !== "SUPER_ADMIN") return false;
         if (item.url === "/archive" && ["DISPATCH", "ADMIN", "SUPER_ADMIN"].includes(upperRole)) return true;
         return can(role, item.resource);
       });
