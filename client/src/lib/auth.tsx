@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { User, City } from "@shared/schema";
-import { TOKEN_KEY, getCredentials, isDriverHost, DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
+import { getTokenKey, getCredentials, isDriverHost, DRIVER_TOKEN_KEY, migrateLegacyTokenIfNeeded } from "@/lib/hostDetection";
 
 interface AuthUser extends Omit<User, "password"> {
   cityAccess: number[];
@@ -81,7 +81,10 @@ function buildDriverUser(me: any): AuthUser {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [token, setToken] = useState<string | null>(() => {
+    migrateLegacyTokenIfNeeded();
+    return localStorage.getItem(getTokenKey());
+  });
   const [selectedCity, setSelectedCityRaw] = useState<City | null>(null);
   const [cities, setCities] = useState<City[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,7 +196,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!authRes.ok) {
         if (authRes.status === 401 || authRes.status === 403) {
-          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(getTokenKey());
           setToken(null);
           setUser(null);
           setMeData(null);
@@ -229,7 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(null);
       setUser(null);
       setMeData(null);
-      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(getTokenKey());
     } finally {
       setLoading(false);
     }
@@ -254,7 +257,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })
         .then((data) => {
           setToken(data.token);
-          localStorage.setItem(TOKEN_KEY, data.token);
+          localStorage.setItem(getTokenKey(), data.token);
           setUser(data.user);
           setCities(data.cities || []);
           restoreCity(data.cities || [], data.user?.role || "");
@@ -338,7 +341,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const data = await res.json();
     setToken(data.token);
-    localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(getTokenKey(), data.token);
     setUser(data.user);
     setCities(data.cities || []);
 
@@ -378,7 +381,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           credentials: getCredentials(),
         });
       } catch {}
-      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(getTokenKey());
     } else {
       try {
         await fetch("/api/auth/logout", {
@@ -386,7 +389,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           credentials: getCredentials(),
         });
       } catch {}
-      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(getTokenKey());
     }
     setToken(null);
     setUser(null);

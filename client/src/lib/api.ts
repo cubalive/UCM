@@ -1,6 +1,4 @@
-import { isDriverHost, DRIVER_TOKEN_KEY, APP_TOKEN_KEY } from "@/lib/hostDetection";
-
-const ACTIVE_TOKEN_KEY = isDriverHost ? DRIVER_TOKEN_KEY : APP_TOKEN_KEY;
+import { isDriverHost, getTokenKey } from "@/lib/hostDetection";
 
 export function getStoredCityId(): string | null {
   try {
@@ -12,7 +10,7 @@ export function getStoredCityId(): string | null {
 
 export function getStoredToken(): string | null {
   try {
-    return localStorage.getItem(ACTIVE_TOKEN_KEY);
+    return localStorage.getItem(getTokenKey());
   } catch {
     return null;
   }
@@ -56,7 +54,7 @@ function buildHeaders(token: string | null, extra?: Record<string, string>): Rec
 
 function clearTokenAndRedirect() {
   try {
-    localStorage.removeItem(ACTIVE_TOKEN_KEY);
+    localStorage.removeItem(getTokenKey());
   } catch {}
   if (window.location.pathname !== "/login") {
     window.location.href = "/login";

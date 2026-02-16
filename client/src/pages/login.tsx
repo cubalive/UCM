@@ -11,7 +11,7 @@ import { useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
-import { isDriverHost, getCredentials, TOKEN_KEY } from "@/lib/hostDetection";
+import { isDriverHost, getCredentials, getTokenKey } from "@/lib/hostDetection";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -47,7 +47,7 @@ export default function LoginPage() {
         if (!res.ok) {
           throw new Error(data.message || "Login link failed");
         }
-        localStorage.setItem(TOKEN_KEY, data.token);
+        localStorage.setItem(getTokenKey(), data.token);
         window.location.href = isDriverHost ? "/driver" : "/";
       })
       .catch((err: any) => {
