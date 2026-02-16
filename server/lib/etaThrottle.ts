@@ -2,6 +2,7 @@ import { cache, cacheKeys, CACHE_TTL, type CachedEta, type CachedDriverLocation 
 import { haversineDistanceMeters, getDriverLocationFromCache } from "./driverLocationIngest";
 import { etaMinutes } from "./googleMaps";
 import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
+import { getJson, setJson, setNx, recordLockContention } from "./redis";
 
 const MOVEMENT_THRESHOLD_M = 300;
 const TIME_THRESHOLD_MS = 45_000;
@@ -37,7 +38,15 @@ export async function getThrottledEta(
   tripId: number,
 ): Promise<CachedEta | null> {
   const etaCacheKey = cacheKeys("trip_eta", tripId);
-  const cachedEta = cache.get<CachedEta>(etaCacheKey);
+  let cachedEta = cache.get<CachedEta>(etaCacheKey);
+
+  if (!cachedEta) {
+    const redisEta = await getJson<CachedEta>(`trip:${tripId}:eta`);
+    if (redisEta) {
+      cachedEta = redisEta;
+      cache.set(etaCacheKey, redisEta, CACHE_TTL.TRIP_ETA);
+    }
+  }
 
   const driverLoc = getDriverLocationFromCache(driverId);
   if (!driverLoc) {
@@ -61,6 +70,12 @@ export async function getThrottledEta(
   }
 
   if (!shouldRecompute && cachedEta) {
+    return cachedEta;
+  }
+
+  const lockAcquired = await setNx(`lock:eta:${tripId}`, "1", 10);
+  if (!lockAcquired) {
+    recordLockContention();
     return cachedEta;
   }
 
@@ -92,6 +107,7 @@ export async function getThrottledEta(
   }
 
   cache.set(etaCacheKey, eta, CACHE_TTL.TRIP_ETA);
+  setJson(`trip:${tripId}:eta`, eta, 60).catch(() => {});
   cache.set(calcKey, { lat: driverLoc.lat, lng: driverLoc.lng, computedAt: Date.now() }, 120_000);
 
   return eta;

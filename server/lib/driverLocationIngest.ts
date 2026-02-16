@@ -5,6 +5,7 @@ import { authMiddleware, requireRole, getCompanyIdFromAuth, checkCompanyOwnershi
 import { cache, cacheKeys, CACHE_TTL, type CachedDriverLocation } from "./cache";
 import { broadcastToTrip } from "./realtime";
 import { broadcastTripSupabaseThrottled } from "./supabaseRealtime";
+import { getJson, setJson, incr, recordRateLimited } from "./redis";
 
 const RATE_LIMIT_MS = 2000;
 const MAX_SPEED_MPS = 55; // ~123 mph
@@ -191,6 +192,7 @@ function processSinglePoint(
   const entry: CachedDriverLocation = { driverId, lat, lng, timestamp, heading, speed };
   cache.set(locKey, entry, CACHE_TTL.DRIVER_LOCATION);
   cache.set(rateKey, now, CACHE_TTL.DRIVER_RATE_LIMIT);
+  setJson(`driver:${driverId}:last_location`, entry, 120).catch(() => {});
   recordAccepted();
 
   return { accepted: true };
@@ -243,6 +245,7 @@ function processBatchPoints(
       speed: latestAccepted.speed,
     };
     cache.set(locKey, entry, CACHE_TTL.DRIVER_LOCATION);
+    setJson(`driver:${driverId}:last_location`, entry, 120).catch(() => {});
     const rateKey = cacheKeys("driver_rate", driverId);
     cache.set(rateKey, now, CACHE_TTL.DRIVER_RATE_LIMIT);
   }
@@ -275,7 +278,9 @@ async function broadcastDriverLocation(driverId: number, lat: number, lng: numbe
     const allTrips = await storage.getActiveTripsForDriver(driverId);
     for (const trip of allTrips) {
       const tripLocKey = cacheKeys("trip_driver_last", trip.id);
-      cache.set(tripLocKey, { driverId, lat, lng, timestamp: Date.now() }, CACHE_TTL.TRIP_DRIVER_LAST);
+      const locData = { driverId, lat, lng, timestamp: Date.now() };
+      cache.set(tripLocKey, locData, CACHE_TTL.TRIP_DRIVER_LAST);
+      setJson(`trip:${trip.id}:driver_location`, locData, 120).catch(() => {});
 
       broadcastToTrip(trip.id, {
         type: "driver_location",
@@ -309,6 +314,16 @@ export function persistOnStatusEvent(driverId: number, lat: number, lng: number)
 export function getDriverLocationFromCache(driverId: number): CachedDriverLocation | null {
   const key = cacheKeys("driver_location", driverId);
   return cache.get<CachedDriverLocation>(key);
+}
+
+export async function getDriverLocationFromRedis(driverId: number): Promise<CachedDriverLocation | null> {
+  const memResult = getDriverLocationFromCache(driverId);
+  if (memResult) return memResult;
+  const redisResult = await getJson<CachedDriverLocation>(`driver:${driverId}:last_location`);
+  if (redisResult) {
+    cache.set(cacheKeys("driver_location", driverId), redisResult, CACHE_TTL.DRIVER_LOCATION);
+  }
+  return redisResult;
 }
 
 export interface GpsStaleInfo {
@@ -391,6 +406,30 @@ export function registerDriverLocationRoutes(app: Express): void {
           return res.status(429).json({ ok: false, message: "Too many requests — rate limited", reason: "spam_detected" });
         }
 
+        const ipAddr = req.ip || req.socket.remoteAddress || "unknown";
+        try {
+          const ipCount = await incr(`rl:ip:${ipAddr}`, 60);
+          if (ipCount > 60) {
+            recordRejectedRateLimit();
+            recordRateLimited();
+            return res.status(429).json({ ok: false, message: "IP rate limit exceeded", reason: "ip_rate_limit" });
+          }
+
+          const driverCount = await incr(`rl:driver:${driverId}`, 2);
+          if (driverCount > 1) {
+            recordRejectedRateLimit();
+            recordRateLimited();
+            return res.status(429).json({
+              ok: false,
+              message: "Rate limited — max 1 update per 2 seconds",
+              reason: "redis_rate_limit",
+              retry_after_ms: RATE_LIMIT_MS,
+            });
+          }
+        } catch (err: any) {
+          console.warn(`[LOCATION-INGEST] Redis rate limit check failed, falling through: ${err.message}`);
+        }
+
         let results: Array<{ accepted: boolean; reason?: string; historical?: boolean }>;
 
         if (isBatch && points.length > 1) {
@@ -439,8 +478,9 @@ export function registerDriverLocationRoutes(app: Express): void {
   app.get("/api/ops/gps-metrics",
     authMiddleware,
     requireRole("SUPER_ADMIN", "ADMIN"),
-    (_req, res) => {
-      res.json({ ok: true, ...getIngestMetrics() });
+    async (_req, res) => {
+      const { getRedisMetrics } = await import("./redis");
+      res.json({ ok: true, ...getIngestMetrics(), redis: getRedisMetrics() });
     }
   );
 

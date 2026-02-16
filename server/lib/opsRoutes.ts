@@ -589,6 +589,33 @@ export function registerOpsRoutes(app: Express) {
         health.overall = "red";
       }
 
+      let redisOk = true;
+      try {
+        const { pingRedis, getLastRedisError, getRedisMetrics, isRedisConnected } = await import("./redis");
+        const redisConfigured = isRedisConnected();
+        if (redisConfigured) {
+          const redisPing = await pingRedis();
+          redisOk = redisPing.ok;
+          (health as any).redis = redisPing.ok ? "OK" : "FAIL";
+          (health as any).redis_latency_ms = redisPing.latencyMs;
+          if (!redisPing.ok) {
+            (health as any).lastRedisError = redisPing.error || getLastRedisError();
+            health.alerts.push({ code: "REDIS_CONNECTION_ERROR", severity: "critical", title: "Redis connection error", count: 1 });
+            health.overall = "red";
+          }
+        } else {
+          (health as any).redis = "NOT_CONFIGURED";
+          (health as any).redis_fallback = "in-memory";
+        }
+        (health as any).redis_metrics = getRedisMetrics();
+      } catch (err: any) {
+        redisOk = false;
+        (health as any).redis = "FAIL";
+        (health as any).lastRedisError = err.message;
+        health.alerts.push({ code: "REDIS_CONNECTION_ERROR", severity: "critical", title: "Redis connection error", count: 1 });
+        health.overall = "red";
+      }
+
       if (dbOk) {
         try {
           const allDrivers = await storage.getDrivers(cityId);

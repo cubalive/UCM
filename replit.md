@@ -45,9 +45,13 @@ The application follows a client-server architecture.
 - **Realtime & Performance Hardening**:
     - **WebSocket Server**: JWT-authenticated, trip-scoped channels for real-time driver location, status, and ETA updates.
     - **Supabase Realtime**: Dual-broadcast for trip details, with token-based authentication and client-side hooks for robust real-time experiences.
-    - **In-Memory Cache**: TTL-based caching for frequently accessed data (driver locations, ETA).
-    - **Driver Location Ingest**: Rate-limited and validated endpoint for single/batch location updates with cache-first storage and dual-broadcasting.
-    - **ETA Throttle**: Recomputes ETA based on movement or time, with caching.
+    - **Upstash Redis (REST)**: Production-grade distributed cache (`server/lib/redis.ts`) with safe fallback to in-memory cache if env vars missing. Used for:
+      - Shared TTL cache: `driver:{id}:last_location` (120s), `trip:{id}:driver_location` (120s), `trip:{id}:eta` (60s).
+      - Distributed rate limiting: `rl:driver:{id}` (1 update/2s), `rl:ip:{ip}` (60 req/min) for GPS ingest.
+      - Distributed locks: `lock:eta:{tripId}` (SETNX, 10s TTL) to prevent Directions API stampedes.
+    - **In-Memory Cache**: Write-through layer for fast synchronous reads; Redis is source of truth.
+    - **Driver Location Ingest**: Rate-limited (Redis + in-memory) and validated endpoint for single/batch location updates with cache-first storage and dual-broadcasting.
+    - **ETA Throttle**: Recomputes ETA based on movement or time, with Redis-backed caching and distributed lock.
     - **Polling Reduction**: Optimized polling intervals and preference for real-time connections.
 - **Financial & Billing**:
     - Invoice Email & Stripe Payment Links: Automatic invoice email sending with Stripe checkout integration for private/internal patients.
