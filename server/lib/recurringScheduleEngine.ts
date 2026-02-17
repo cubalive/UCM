@@ -37,7 +37,7 @@ async function tripExistsForDate(patientId: number, date: string, pickupTime: st
   return existing.length > 0;
 }
 
-async function getClinicForPatient(patient: Patient): Promise<{ address: string; lat: string | null; lng: string | null } | null> {
+async function getClinicForPatient(patient: Patient): Promise<{ address: string; lat: number | null; lng: number | null } | null> {
   if (!patient.clinicId) return null;
   const [clinic] = await db.select().from(clinics).where(eq(clinics.id, patient.clinicId)).limit(1);
   if (!clinic || !clinic.address) return null;

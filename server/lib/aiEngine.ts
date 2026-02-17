@@ -114,9 +114,9 @@ async function computeSnapshot(): Promise<EngineSnapshot> {
   const unassignedTrips = activeTrips.filter(t => !t.driverId && t.status !== "COMPLETED" && t.status !== "CANCELLED" && t.status !== "NO_SHOW");
 
   const activeDrivers = recentDrivers.filter(d => d.active && !d.deletedAt && d.status === "ACTIVE");
-  const onlineDrivers = activeDrivers.filter(d => d.dispatchStatus === "available" || d.dispatchStatus === "on_trip");
+  const onlineDrivers = activeDrivers.filter(d => d.dispatchStatus === "available" || d.dispatchStatus === "enroute");
   const availableDrivers = activeDrivers.filter(d => d.dispatchStatus === "available");
-  const onTripDrivers = activeDrivers.filter(d => d.dispatchStatus === "on_trip");
+  const onTripDrivers = activeDrivers.filter(d => d.dispatchStatus === "enroute");
   const offDrivers = activeDrivers.filter(d => d.dispatchStatus === "off" || !d.dispatchStatus);
 
   const completedWithDuration = completedTrips.filter(t => {
@@ -132,7 +132,7 @@ async function computeSnapshot(): Promise<EngineSnapshot> {
     : 0;
 
   const todayRevenueDelta = completedTrips.reduce((s, t) => {
-    const price = t.price ? parseFloat(t.price) : 0;
+    const price = (t as any).price ? parseFloat((t as any).price) : 0;
     return s + price;
   }, 0);
 

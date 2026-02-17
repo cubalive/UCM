@@ -108,7 +108,7 @@ export async function computeScoresForCompany(companyId: number, window: "7d" | 
     const isStaleGps = driver.lastSeenAt
       ? (Date.now() - new Date(driver.lastSeenAt).getTime()) > GPS_STALE_THRESHOLD_MIN * 60_000
       : true;
-    const gpsQuality = isStaleGps && (driver.dispatchStatus === "available" || driver.dispatchStatus === "on_trip")
+    const gpsQuality = isStaleGps && (driver.dispatchStatus === "available" || driver.dispatchStatus === "enroute")
       ? 3 : 10;
 
     let acceptedQuickly = 0;
@@ -180,7 +180,7 @@ export async function runAnomalySweep(companyId: number): Promise<{ detected: nu
       isNull(drivers.deletedAt),
       or(
         eq(drivers.dispatchStatus, "available"),
-        eq(drivers.dispatchStatus, "on_trip"),
+        eq(drivers.dispatchStatus, "enroute"),
       ),
     )
   );
@@ -235,7 +235,7 @@ export async function runAnomalySweep(companyId: number): Promise<{ detected: nu
 
   for (const [driverId, dTrips] of driverTripMap.entries()) {
     if (dTrips.length < 3) continue;
-    const lateToday = dTrips.filter(t => {
+    const lateToday = dTrips.filter((t: typeof todayTrips[number]) => {
       if (t.status !== "COMPLETED" || !t.pickedUpAt) return false;
       const scheduledMins = timeToMinutes(t.pickupTime || t.scheduledTime);
       if (scheduledMins == null) return false;

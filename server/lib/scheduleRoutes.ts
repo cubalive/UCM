@@ -7,7 +7,7 @@ import { z } from "zod";
 import { isDriverOnline } from "./driverClassification";
 import { storage } from "../storage";
 
-const NOT_STARTED_STATUSES = ["SCHEDULED", "ASSIGNED"];
+const NOT_STARTED_STATUSES: ("SCHEDULED" | "ASSIGNED")[] = ["SCHEDULED", "ASSIGNED"];
 
 function getDayKey(date: string): string | null {
   const d = new Date(date + "T12:00:00Z");

@@ -1289,7 +1289,7 @@ function CycleInvoicesTab() {
       `/api/cycle-invoices/${invoiceId}/pdf`,
       `invoice_${invoiceNumber || invoiceId}.pdf`,
       "application/pdf",
-      (url: string, init?: RequestInit) => rawAuthFetch(url, token, init),
+      (url: string, init?: RequestInit) => rawAuthFetch(url, init),
       (msg: string) => toast({ title: msg, variant: "destructive" }),
     );
   };

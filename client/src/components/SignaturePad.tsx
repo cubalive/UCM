@@ -41,7 +41,7 @@ export default function SignaturePad({ onSave, label = "Sign here", height = 120
             className: "w-full h-full rounded-md",
             style: { width: "100%", height: "100%" },
             "data-testid": "canvas-signature",
-          }}
+          } as any}
           onEnd={handleEnd}
           penColor="#1a365d"
           backgroundColor="rgba(0,0,0,0)"

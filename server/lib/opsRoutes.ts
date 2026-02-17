@@ -744,8 +744,11 @@ export function registerOpsRoutes(app: Express) {
 
       if (!clinicId) return res.status(400).json({ error: "clinic_id required" });
 
-      if (req.user!.role === "VIEWER" && req.user!.clinicId !== clinicId) {
-        return res.status(403).json({ error: "Access denied" });
+      if (req.user!.role === "VIEWER") {
+        const viewerUser = await storage.getUser(req.user!.userId);
+        if (viewerUser?.clinicId !== clinicId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
       }
 
       const clinic = await storage.getClinic(clinicId);
@@ -833,8 +836,11 @@ export function registerOpsRoutes(app: Express) {
       if (!clinic_id || !message) return res.status(400).json({ error: "clinic_id and message required" });
 
       const parsedClinicId = parseInt(clinic_id);
-      if (req.user!.role === "VIEWER" && req.user!.clinicId !== parsedClinicId) {
-        return res.status(403).json({ error: "Access denied" });
+      if (req.user!.role === "VIEWER") {
+        const viewerUser = await storage.getUser(req.user!.userId);
+        if (viewerUser?.clinicId !== parsedClinicId) {
+          return res.status(403).json({ error: "Access denied" });
+        }
       }
 
       const clinic = await storage.getClinic(parsedClinicId);
@@ -1301,7 +1307,6 @@ export function registerOpsRoutes(app: Express) {
           .filter(r => r.query_budget_warnings > 0)
           .map(r => ({ route: r.route, query_count: r.query_budget_warnings })),
         query_budget_violations: summary.query_budget_violations,
-        ...summary,
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });

@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { authMiddleware, requireRole, getUserCityIds, type AuthRequest } from "../auth";
 import { generatePublicId } from "../public-id";
 import { z } from "zod";
+import type { Trip } from "@shared/schema";
 
 const VALID_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -230,7 +231,7 @@ export function registerTripSeriesRoutes(app: Express) {
         const user = await storage.getUser(req.user!.userId);
         const isClinic = user?.role === "VIEWER" && user.clinicId != null;
 
-        const createdTrips = [];
+        const createdTrips: Array<Trip> = [];
         for (const date of dates) {
           const publicId = await generatePublicId();
           const approvalFields: Record<string, any> = {};

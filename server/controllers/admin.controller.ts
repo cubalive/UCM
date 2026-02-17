@@ -1086,8 +1086,8 @@ export async function opsJobsHandler(req: AuthRequest, res: Response) {
     let query = db.select().from(jobs).$dynamic();
 
     const conditions: any[] = [];
-    if (statusFilter) conditions.push(eq(jobs.status, statusFilter));
-    if (typeFilter) conditions.push(eq(jobs.type, typeFilter));
+    if (statusFilter) conditions.push(eq(jobs.status, statusFilter as any));
+    if (typeFilter) conditions.push(eq(jobs.type, typeFilter as any));
 
     if (conditions.length > 0) {
       query = query.where(and(...conditions));

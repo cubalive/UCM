@@ -826,7 +826,13 @@ export function registerClinicBillingRoutes(app: Express) {
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid tariff data", errors: parsed.error.flatten() });
       }
-      const updated = await storage.updateClinicTariff(id, parsed.data);
+      const updateData: Record<string, any> = {};
+      if (parsed.data.baseFee !== undefined) updateData.baseFeeCents = Math.round(parseFloat(parsed.data.baseFee) * 100);
+      if (parsed.data.perMileRate !== undefined) updateData.perMileCents = Math.round(parseFloat(parsed.data.perMileRate) * 100);
+      if (parsed.data.waitTimePerMinute !== undefined) updateData.waitMinuteCents = Math.round(parseFloat(parsed.data.waitTimePerMinute) * 100);
+      if (parsed.data.wheelchairExtra !== undefined) updateData.wheelchairExtraCents = Math.round(parseFloat(parsed.data.wheelchairExtra) * 100);
+      if (parsed.data.effectiveFrom !== undefined) updateData.effectiveFrom = new Date(parsed.data.effectiveFrom);
+      const updated = await storage.updateClinicTariff(id, updateData);
       if (!updated) return res.status(404).json({ message: "Tariff not found" });
       res.json(updated);
     } catch (err: any) {

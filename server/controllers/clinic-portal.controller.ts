@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { type AuthRequest } from "../auth";
 import { db } from "../db";
 import { trips, patients, recurringSchedules, driverOffers } from "@shared/schema";
-import { eq, and, isNull, inArray, desc, gte, sql } from "drizzle-orm";
+import { eq, and, isNull, inArray, desc, gte, sql, or } from "drizzle-orm";
 import { generateTripPdf } from "../lib/tripPdfGenerator";
 
 const clinicEtaCache = new Map<number, { eta: number | null; stale: boolean; updatedAt: string; }>();
@@ -46,8 +46,8 @@ async function enrichTripsWithRelations(tripList: any[]) {
       driverLastLng: driver?.lastLng || null,
       driverLastSeenAt: driver?.lastSeenAt || null,
       vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
-      vehicleType: vehicle?.type || null,
-      vehicleColor: vehicle?.color || null,
+      vehicleType: (vehicle as any)?.type || null,
+      vehicleColor: (vehicle as any)?.color || null,
       vehicleMake: vehicle?.make || null,
       vehicleModel: vehicle?.model || null,
       cityName: city?.name || null,
@@ -249,7 +249,7 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
             id: driver.id, firstName: driver.firstName, lastName: driver.lastName,
             phone: driver.phone, lastLat: cachedLat, lastLng: cachedLng,
             lastSeenAt: driver.lastSeenAt, isOnline,
-            vehicleColor: vehicle?.color || null,
+            vehicleColor: (vehicle as any)?.color || null,
             vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
           };
         }
@@ -327,7 +327,7 @@ export async function clinicActiveTripsHandler(req: AuthRequest, res: Response) 
     const clinicTrips = await db.select().from(trips).where(
       and(
         eq(trips.clinicId, user.clinicId),
-        inArray(trips.status, ACTIVE_STATUSES),
+        inArray(trips.status, ACTIVE_STATUSES as any),
         isNull(trips.deletedAt),
       )
     );
@@ -363,7 +363,7 @@ export async function clinicActiveTripsHandler(req: AuthRequest, res: Response) 
             lastLng: driverLastLng,
             lastSeenAt: driverLastSeenAt,
             stale: driverStale,
-            vehicleColor: vehicle?.color || null,
+            vehicleColor: (vehicle as any)?.color || null,
             vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
           };
         }
@@ -568,7 +568,7 @@ export async function clinicMapHandler(req: AuthRequest, res: Response) {
     const clinicTrips = await db.select().from(trips).where(
       and(
         eq(trips.clinicId, user.clinicId),
-        inArray(trips.status, CLINIC_MAP_STATUSES),
+        inArray(trips.status, CLINIC_MAP_STATUSES as any),
         isNull(trips.deletedAt),
       )
     );
@@ -599,7 +599,7 @@ export async function clinicMapHandler(req: AuthRequest, res: Response) {
             lastSeenAt: driver.lastSeenAt,
             dispatchStatus: driver.dispatchStatus,
             isOnline,
-            vehicleColor: vehicle?.color || null,
+            vehicleColor: (vehicle as any)?.color || null,
             vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
           };
         }
@@ -916,7 +916,7 @@ export async function clinicTripTrackingHandler(req: AuthRequest, res: Response)
       lastSeenAt: driver.lastSeenAt,
       connected: driver.lastSeenAt ? (Date.now() - new Date(driver.lastSeenAt).getTime()) < 120000 : false,
       vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
-      vehicleColor: vehicle?.color || null,
+      vehicleColor: (vehicle as any)?.color || null,
       vehicleMake: vehicle?.make || null,
       vehicleModel: vehicle?.model || null,
       driverVisible,

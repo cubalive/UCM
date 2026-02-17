@@ -195,7 +195,7 @@ export async function getDispatchActiveDriversHandler(req: AuthRequest, res: Res
       return {
         ...d,
         vehicleName: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
-        vehicleType: vehicle?.type || null,
+        vehicleType: vehicle?.capability || null,
         cityName: city?.name || null,
       };
     }));
@@ -1259,7 +1259,7 @@ export async function getDriverSwapsEligibleHandler(req: AuthRequest, res: Respo
 
     const conditions: any[] = [
       ne(drivers.id, user.driverId),
-      eq(drivers.status, "active"),
+      eq(drivers.status, "active" as any),
     ];
     if (requesterDriver.companyId) conditions.push(eq(drivers.companyId, requesterDriver.companyId));
     if (requesterDriver.cityId) conditions.push(eq(drivers.cityId, requesterDriver.cityId));
@@ -1869,8 +1869,8 @@ export async function getDriverTripsActiveHandler(req: AuthRequest, res: Respons
         pickupTime: trip.pickupTime,
         patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
         patientPhone: patient?.phone || null,
-        scheduledPickupAt: trip.scheduledPickupAt,
-        enRoutePickupAt: trip.enRoutePickupAt,
+        scheduledPickupAt: (trip as any).scheduledPickupAt,
+        enRoutePickupAt: (trip as any).enRoutePickupAt,
         arrivedPickupAt: trip.arrivedPickupAt,
         pickedUpAt: trip.pickedUpAt,
         enRouteDropoffAt: trip.enRouteDropoffAt,
@@ -2035,7 +2035,7 @@ export async function getDriverMetricsWeeklyHandler(req: AuthRequest, res: Respo
       score: currentScore?.score ?? null,
       totalMiles: Math.round(totalMiles * 10) / 10,
       bonusActive: bonusRule?.isEnabled || false,
-      bonusAmount: bonusRule?.isEnabled ? bonusRule.bonusAmountCents : null,
+      bonusAmount: bonusRule?.isEnabled ? (bonusRule as any).bonusAmountCents : null,
     });
   } catch (err: any) {
     res.status(500).json({ message: err.message });

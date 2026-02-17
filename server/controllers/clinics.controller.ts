@@ -75,7 +75,8 @@ export async function createClinicHandler(req: AuthRequest, res: Response) {
         name: clinic.name,
         email: clinic.email!,
       });
-      clinic = await storage.updateClinic(clinic.id, { authUserId: result.userId } as any);
+      const updatedClinic = await storage.updateClinic(clinic.id, { authUserId: result.userId } as any);
+      if (updatedClinic) clinic = updatedClinic;
       authProvisioned = true;
       if (result.tempPassword) tempPassword = result.tempPassword;
       console.log(`[clinicCreate] Auth user ${result.isNew ? "created" : "linked"}: ${result.userId}`);

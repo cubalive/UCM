@@ -136,7 +136,8 @@ export async function loginJwtHandler(req: Request, res: Response) {
     const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null });
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
-    const accessibleCities = user.role === "SUPER_ADMIN"
+    const userRole = user.role as string;
+    const accessibleCities = userRole === "SUPER_ADMIN"
       ? allCities
       : allCities.filter((c) => cityAccess.includes(c.id));
 

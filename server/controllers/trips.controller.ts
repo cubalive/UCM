@@ -152,8 +152,8 @@ export async function enrichTripsWithRelations(tripList: any[]) {
       driverLastLng: driver?.lastLng || null,
       driverLastSeenAt: driver?.lastSeenAt || null,
       vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
-      vehicleType: vehicle?.type || null,
-      vehicleColor: vehicle?.color || null,
+      vehicleType: vehicle?.capability || null,
+      vehicleColor: vehicle?.colorHex || null,
       vehicleMake: vehicle?.make || null,
       vehicleModel: vehicle?.model || null,
       cityName: city?.name || null,
@@ -590,8 +590,8 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
           dropoffAddress: parsed.data.dropoffAddress,
           scheduledDate: parsed.data.scheduledDate || new Date().toISOString().slice(0, 10),
           scheduledTime: parsed.data.scheduledTime,
-          isWheelchair: parsed.data.serviceType === "wheelchair",
-          roundTrip: parsed.data.roundTrip === true,
+          isWheelchair: (parsed.data as any).serviceType === "wheelchair",
+          roundTrip: (parsed.data as any).roundTrip === true,
           cityName: city?.name || "ALL",
         });
         pricingFields.priceTotalCents = quote.totalCents;

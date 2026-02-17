@@ -66,9 +66,7 @@ export async function createCompanyAdminHandler(req: AuthRequest, res: Response)
     } as any);
 
     if (cityIds && Array.isArray(cityIds)) {
-      for (const cid of cityIds) {
-        await storage.createUserCity({ userId: newUser.id, cityId: cid });
-      }
+      await storage.setUserCityAccess(newUser.id, cityIds);
     }
 
     res.json({ id: newUser.id, email: newUser.email, role: newUser.role, companyId: newUser.companyId });

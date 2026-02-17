@@ -292,8 +292,7 @@ export async function sendInvoiceEmailHandler(req: AuthRequest, res: Response) {
       action: "SEND_INVOICE_EMAIL",
       entity: "invoice",
       entityId: invoiceId,
-      details: `Invoice email sent to ${invoice.emailTo}`,
-      ipAddress: req.ip || null,
+      details: `Invoice email sent to ${invoice.emailTo}. IP: ${req.ip || "unknown"}`,
     });
 
     res.json({ success: true, paymentLink: result.paymentLink });
@@ -587,7 +586,7 @@ export async function verifyTripHandler(req: AuthRequest, res: Response) {
   try {
     const { token } = req.params;
     if (!token) return res.status(400).json({ message: "Token required" });
-    const [trip] = await db.select().from(trips).where(eq(trips.verificationToken, token)).limit(1);
+    const [trip] = await db.select().from(trips).where(eq(trips.verificationToken, token as string)).limit(1);
     if (!trip) return res.status(404).json({ message: "Trip not found or invalid token" });
     const sig = await storage.getTripSignature(trip.id);
     const clinic = trip.clinicId ? await storage.getClinic(trip.clinicId) : null;

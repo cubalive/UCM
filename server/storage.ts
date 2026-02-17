@@ -764,7 +764,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getActiveDriverIdsForClinic(cityId: number, clinicId: number): Promise<number[]> {
-    const activeStatuses = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+    const activeStatuses: ("ASSIGNED" | "EN_ROUTE_TO_PICKUP" | "ARRIVED_PICKUP" | "PICKED_UP" | "EN_ROUTE_TO_DROPOFF" | "ARRIVED_DROPOFF" | "IN_PROGRESS")[] = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
     const rows = await db
       .selectDistinct({ driverId: trips.driverId })
       .from(trips)

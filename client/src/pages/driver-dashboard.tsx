@@ -1067,7 +1067,8 @@ export default function DriverDashboard() {
   const isDriverOnline = isDriverActive || isOnBreak;
   const hasActiveTrip = todayTrips.some((t: any) => ACTIVE_STATUSES.includes(t.status));
 
-  const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverOnline || hasActiveTrip);
+  const { permission: _geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverOnline || hasActiveTrip);
+  const geoPermission: string = _geoPermission;
   const isNetworkOnline = useNetworkStatus();
   const { tracking: bgTracking, bgLastSent, bgAccuracy, bgPermissionDenied, isStale: bgStale, startTracking: bgStart, stopTracking: bgStop, openSettings: bgOpenSettings } = useNativeBackgroundTracking(token);
 
