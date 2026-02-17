@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, invalidateRevocationCache, setAuthCookie, clearAuthCookie, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, tripBilling } from "@shared/schema";
 import { registerPushToken, unregisterPushToken, sendPushToDriver, isPushEnabled } from "./lib/push";
 import { z } from "zod";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
@@ -2708,6 +2708,142 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         .limit(12);
 
       res.json({ history });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/trips", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const scope = (req.query.scope as string) || "today";
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 50);
+      const today = new Date().toISOString().split("T")[0];
+
+      let conditions: any[] = [eq(trips.driverId, user.driverId), isNull(trips.deletedAt)];
+
+      if (scope === "today") {
+        conditions.push(eq(trips.scheduledDate, today));
+      } else if (scope === "scheduled") {
+        conditions.push(sql`${trips.scheduledDate} >= ${today}`);
+        conditions.push(sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`);
+      } else if (scope === "completed") {
+        conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
+      }
+
+      const total = await db.select({ count: sql<number>`count(*)` }).from(trips)
+        .where(and(...conditions)).then(r => Number(r[0]?.count || 0));
+
+      const results = await db.select().from(trips)
+        .where(and(...conditions))
+        .orderBy(scope === "completed" ? desc(trips.scheduledDate) : trips.scheduledDate)
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+
+      res.json({ trips: results, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/earnings", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const range = (req.query.range as string) || "week";
+      const now = new Date();
+      const today = now.toISOString().split("T")[0];
+
+      let startDate = today;
+      if (range === "week") {
+        const d = new Date(now);
+        d.setDate(d.getDate() - d.getDay());
+        startDate = d.toISOString().split("T")[0];
+      } else if (range === "month") {
+        startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      }
+
+      const completedTrips = await db.select().from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          eq(trips.status, "COMPLETED"),
+          sql`${trips.scheduledDate} >= ${startDate}`,
+          sql`${trips.scheduledDate} <= ${today}`,
+          isNull(trips.deletedAt),
+        ));
+
+      let totalCents = 0;
+      const billingRecords = await db.select().from(tripBilling)
+        .where(inArray(tripBilling.tripId, completedTrips.length > 0 ? completedTrips.map(t => t.id) : [-1]));
+
+      for (const b of billingRecords) {
+        totalCents += b.totalCents || 0;
+      }
+
+      res.json({
+        range,
+        startDate,
+        endDate: today,
+        totalCents,
+        tripCount: completedTrips.length,
+        items: completedTrips.slice(0, 20).map(t => ({
+          tripId: t.id,
+          publicId: t.publicId,
+          date: t.scheduledDate,
+          pickupAddress: t.pickupAddress,
+          dropoffAddress: t.dropoffAddress,
+          amountCents: billingRecords.find(b => b.tripId === t.id)?.totalCents || 0,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/driver/emergency", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      const schema = z.object({
+        lat: z.union([z.string(), z.number()]).optional().transform(v => v != null ? String(v) : null),
+        lng: z.union([z.string(), z.number()]).optional().transform(v => v != null ? String(v) : null),
+        note: z.string().optional(),
+      });
+      const data = schema.parse(req.body);
+
+      const [event] = await db.insert(driverEmergencyEvents).values({
+        driverId: user.driverId,
+        companyId: driver.companyId || null,
+        lat: data.lat || null,
+        lng: data.lng || null,
+        note: data.note || null,
+      }).returning();
+
+      let companyFilter: any[] = [inArray(users.role, ["ADMIN", "DISPATCH", "SUPER_ADMIN"]), eq(users.active, true), isNull(users.deletedAt)];
+      if (driver.companyId) {
+        companyFilter.push(or(eq(users.companyId, driver.companyId), isNull(users.companyId)));
+      }
+      const dispatchUsers = await db.select().from(users).where(and(...companyFilter));
+      for (const du of dispatchUsers) {
+        if (du.email) {
+          await sendEmail({
+            to: du.email,
+            subject: `EMERGENCY ALERT - Driver ${driver.firstName} ${driver.lastName}`,
+            html: `<p style="color:red;font-size:18px;font-weight:bold;">EMERGENCY ALERT</p>
+<p>Driver <strong>${driver.firstName} ${driver.lastName}</strong> has triggered an emergency alert.</p>
+${data.note ? `<p><strong>Note:</strong> ${data.note}</p>` : ""}
+${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.google.com/?q=${data.lat},${data.lng}">View on Map</a></p>` : ""}
+<p><strong>Time:</strong> ${new Date().toISOString()}</p>`,
+          });
+        }
+      }
+
+      res.json({ ok: true, event });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

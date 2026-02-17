@@ -43,7 +43,7 @@ import ArchivePage from "@/pages/archive";
 import AutoAssignmentPage from "@/pages/auto-assignment";
 import DispatchBoardPage from "@/pages/dispatch-board";
 import ClinicTripsPage from "@/pages/clinic-trips";
-import DriverDashboard from "@/pages/driver-dashboard";
+import DriverDashboard from "@/pages/driver-portal";
 import BillingPage from "@/pages/billing";
 import ClinicBillingPage from "@/pages/clinic-billing";
 import SchedulePage from "@/pages/schedule";

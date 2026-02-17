@@ -1,0 +1,172 @@
+ROLE: Senior production engineer
+PROJECT: UCM — Driver Portal (Pro + Gamified)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- Sequential execution only
+- Do NOT reset database
+- Do NOT recreate existing tables
+- Extend existing system only
+- Do NOT modify shared/permissions.ts
+- Driver subdomain must emit ZERO /api/ops/* calls
+
+GOAL
+Implement a "Professional + Gamified" driver app on driver.unitedcaremobility.com:
+- Map-first home + big Connect
+- Trips center (Scheduled/Today/Completed/Offers)
+- Trip details timeline + navigate + safe status buttons (step locked)
+- Performance scoreboard + weekly ranking
+- Bonuses progress (unlock goals)
+- Earnings summary
+- Schedule week view + day change request workflow
+- Safety: emergency alert + quick checklist
+
+====================================================
+1) NAV & LAYOUT (MOBILE FIRST)
+====================================================
+- Driver portal only, no admin sidebar/header.
+- Bottom navigation (mobile) or simple menu:
+  Home, Trips, Performance, Bonuses, Earnings, Schedule, Settings
+- Touch targets >= 44px. No tiny icons.
+
+====================================================
+2) HOME (MAP + CONNECT)
+====================================================
+- Keep existing map logic; ensure stable rendering.
+- Big button:
+  - CONNECT (offline) -> POST /api/driver/connect
+  - CONNECTED (online) -> shows status
+- Add Disconnect in Settings -> POST /api/driver/disconnect
+- Add pre-connect checklist modal (2–3 toggles) only when clicking CONNECT:
+  - Clean
+  - Fuel OK
+  - Ramp OK (only if driver has wheelchair vehicle)
+  Store completion client-side (localStorage) for the day.
+
+Backend:
+- Ensure presence fields exist (reuse if present). If missing:
+  drivers: isOnline boolean default false, lastSeenAt timestamp
+- Heartbeat: every 30s while online -> POST /api/driver/heartbeat
+
+====================================================
+3) TRIPS CENTER
+====================================================
+UI Tabs:
+- Offers (if driver_offers exists)
+- Today
+- Scheduled (next 7 days)
+- Completed (last 30 days, paginated)
+
+Endpoints (driver-only, company scoped):
+- GET /api/driver/trips?scope=today|scheduled|completed&page=&pageSize=
+- GET /api/driver/offers (if exists)
+Trip card:
+- time, short addresses, status badge, ETA (if available), Open
+
+Trip Details:
+- Map + route
+- Timeline (timestamps):
+  scheduled_pickup, arrived_pickup, picked_up, arrived_dropoff, completed
+- Navigate button (reuse existing chooser)
+- Quick Actions buttons with server-side locks:
+  - ARRIVED_PICKUP allowed only from ASSIGNED/EN_ROUTE_TO_PICKUP
+  - PICKED_UP allowed only after ARRIVED_PICKUP
+  - ARRIVED_DROPOFF allowed only after PICKED_UP
+  - COMPLETE allowed only after ARRIVED_DROPOFF
+Backend:
+- Create/ensure endpoints to update status safely; reject illegal transitions with 400.
+
+====================================================
+4) PERFORMANCE SCOREBOARD + RANKING
+====================================================
+UI:
+- Score 0–100 (weekly)
+- On-time %, acceptance %, trips completed, late count, no-show count
+- Weekly rank: "#X of Y"
+
+Backend:
+- GET /api/driver/metrics?week=YYYY-WW
+Return:
+{week, score0to100, onTimeRate, acceptanceRate, tripsCompleted, lateCount, noShowCount, bonusCents, rank, totalDrivers}
+If ranking data not available, compute from existing weekly metrics table; else return rank=null but keep shape stable.
+
+====================================================
+5) BONUSES PROGRESS (GAMIFIED)
+====================================================
+UI:
+- Bonus earned this week
+- Progress tiles:
+  - Goal: Trips target (e.g. 25)
+  - Goal: On-time >= 95%
+  - Goal: Acceptance >= 90%
+  - Streak: days without cancel
+Show “X remaining to unlock $Y”
+
+Backend:
+- If driver_bonus_rules exists, reuse.
+- Add endpoint:
+  GET /api/driver/bonuses?week=YYYY-WW
+Return:
+{week, bonusCents, goals:[{id,label,target,current,remaining,unlockCents,completed}]}
+
+====================================================
+6) EARNINGS
+====================================================
+UI:
+- Today / Week / Month totals
+- History list (optional)
+
+Backend:
+- If you have payouts table, use it. If not, compute earnings from completed trips billed amounts for that driver (or $0 until enabled).
+- Endpoint:
+  GET /api/driver/earnings?range=today|week|month
+Return: {range, totalCents, breakdown?, items?}
+
+====================================================
+7) SCHEDULE + DAY CHANGE REQUEST
+====================================================
+UI:
+- Week view Mon–Sun
+- Button: Request day change
+- Requests list with status
+
+DB:
+- driver_schedule_change_requests (create if missing):
+  id, driver_id, company_id, requested_day(0-6), request_type(swap|off|other),
+  reason, status(pending|approved|denied), dispatcher_note, created_at, decided_at
+
+Endpoints:
+- POST /api/driver/schedule-change (driver)
+- GET  /api/driver/schedule-change (driver)
+- PATCH /api/dispatch/schedule-change/:id approve/deny (dispatch/admin/super_admin)
+
+Email:
+- On create -> email dispatch
+- On approve/deny -> email driver
+
+====================================================
+8) SAFETY: EMERGENCY ALERT
+====================================================
+UI:
+- Small “Emergency” button in Settings (or header)
+Backend:
+- POST /api/driver/emergency
+Store:
+  driver_id, company_id, lat,lng(optional), created_at, note(optional)
+Send email/SMS to dispatch if configured.
+
+====================================================
+9) VERIFICATION (MUST DO)
+====================================================
+- Driver portal loads with no /api/ops/* calls
+- CONNECT/DISCONNECT works + heartbeat updates lastSeenAt
+- Trips tabs load, Trip Details works, status transitions are locked
+- Performance/Bonuses/Earnings endpoints return stable schema
+- Schedule change request works end-to-end (dispatch approve/deny + emails)
+- No React minified errors
+
+DELIVERABLE
+- Files changed
+- Migrations created
+- Endpoint list
+- How to test quickly

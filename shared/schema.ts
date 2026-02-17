@@ -1143,6 +1143,18 @@ export const insertClinicInvoiceItemSchema = createInsertSchema(clinicInvoiceIte
 export type ClinicInvoiceItem = typeof clinicInvoiceItems.$inferSelect;
 export type InsertClinicInvoiceItem = z.infer<typeof insertClinicInvoiceItemSchema>;
 
+export const driverEmergencyEvents = pgTable("driver_emergency_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id"),
+  lat: text("lat"),
+  lng: text("lng"),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type DriverEmergencyEvent = typeof driverEmergencyEvents.$inferSelect;
+
 export function isVehicleCompatible(mobilityRequirement: string, vehicleCapability: string): boolean {
   if (mobilityRequirement === "WHEELCHAIR") {
     return vehicleCapability === "WHEELCHAIR";
