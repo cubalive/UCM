@@ -331,8 +331,22 @@ export const trips = pgTable("trips", {
   cancelWindow: text("cancel_window"),
   priceTotalCents: integer("price_total_cents"),
   pricingSnapshot: jsonb("pricing_snapshot"),
+  verificationToken: text("verification_token"),
+  pdfHash: text("pdf_hash"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const tripSignatures = pgTable("trip_signatures", {
+  tripId: integer("trip_id").primaryKey().references(() => trips.id),
+  driverSigBase64: text("driver_sig_base64"),
+  clinicSigBase64: text("clinic_sig_base64"),
+  driverSignedAt: timestamp("driver_signed_at"),
+  clinicSignedAt: timestamp("clinic_signed_at"),
+});
+
+export const insertTripSignatureSchema = createInsertSchema(tripSignatures);
+export type InsertTripSignature = z.infer<typeof insertTripSignatureSchema>;
+export type TripSignature = typeof tripSignatures.$inferSelect;
 
 export const tripMessages = pgTable("trip_messages", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
