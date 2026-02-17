@@ -1261,6 +1261,19 @@ export const cycleInvoiceStatusEnum = pgEnum("cycle_invoice_status", [
   "void",
 ]);
 
+export const invoicePaymentStatusEnum = pgEnum("invoice_payment_status", [
+  "unpaid",
+  "partial",
+  "paid",
+  "overdue",
+]);
+
+export const paymentMethodEnum = pgEnum("payment_method", [
+  "stripe",
+  "ach",
+  "manual",
+]);
+
 export const clinicBillingSettings = pgTable("clinic_billing_settings", {
   clinicId: integer("clinic_id").primaryKey().references(() => clinics.id),
   billingCycle: billingCycleEnum("billing_cycle").notNull().default("weekly"),
@@ -1294,10 +1307,20 @@ export const billingCycleInvoices = pgTable("billing_cycle_invoices", {
   notes: text("notes"),
   createdBy: integer("created_by").references(() => users.id),
   finalizedAt: timestamp("finalized_at"),
+  invoiceNumber: text("invoice_number").unique(),
+  paymentStatus: invoicePaymentStatusEnum("payment_status").notNull().default("unpaid"),
+  amountPaidCents: integer("amount_paid_cents").notNull().default(0),
+  balanceDueCents: integer("balance_due_cents").notNull().default(0),
+  dueDate: timestamp("due_date"),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeCheckoutUrl: text("stripe_checkout_url"),
+  lastPaymentAt: timestamp("last_payment_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   index("bci_clinic_period_idx").on(table.clinicId, table.periodStart, table.periodEnd, table.status),
+  index("bci_payment_status_idx").on(table.paymentStatus, table.dueDate),
 ]);
 
 export const insertBillingCycleInvoiceSchema = createInsertSchema(billingCycleInvoices).omit({ id: true, createdAt: true, updatedAt: true });
@@ -1320,6 +1343,33 @@ export const billingCycleInvoiceItems = pgTable("billing_cycle_invoice_items", {
 export const insertBillingCycleInvoiceItemSchema = createInsertSchema(billingCycleInvoiceItems).omit({ id: true, createdAt: true });
 export type BillingCycleInvoiceItem = typeof billingCycleInvoiceItems.$inferSelect;
 export type InsertBillingCycleInvoiceItem = z.infer<typeof insertBillingCycleInvoiceItemSchema>;
+
+export const invoicePayments = pgTable("invoice_payments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  invoiceId: integer("invoice_id").notNull().references(() => billingCycleInvoices.id, { onDelete: "cascade" }),
+  amountCents: integer("amount_cents").notNull(),
+  method: paymentMethodEnum("method").notNull(),
+  reference: text("reference"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeChargeId: text("stripe_charge_id"),
+  paidAt: timestamp("paid_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("ip_invoice_paid_idx").on(table.invoiceId, table.paidAt),
+]);
+
+export const insertInvoicePaymentSchema = createInsertSchema(invoicePayments).omit({ id: true, createdAt: true });
+export type InvoicePayment = typeof invoicePayments.$inferSelect;
+export type InsertInvoicePayment = z.infer<typeof insertInvoicePaymentSchema>;
+
+export const invoiceSequences = pgTable("invoice_sequences", {
+  id: integer("id").primaryKey().default(1),
+  lastNumber: integer("last_number").notNull().default(0),
+  prefix: text("prefix").notNull().default("INV"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type InvoiceSequence = typeof invoiceSequences.$inferSelect;
 
 export function isVehicleCompatible(mobilityRequirement: string, vehicleCapability: string): boolean {
   if (mobilityRequirement === "WHEELCHAIR") {
