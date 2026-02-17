@@ -150,6 +150,7 @@ export const vehicles = pgTable("vehicles", {
   year: integer("year"),
   capacity: integer("capacity").notNull().default(4),
   wheelchairAccessible: boolean("wheelchair_accessible").notNull().default(false),
+  capability: text("capability").notNull().default("SEDAN"),
   status: vehicleStatusEnum("status").notNull().default("ACTIVE"),
   lastServiceDate: timestamp("last_service_date"),
   maintenanceNotes: text("maintenance_notes"),
@@ -318,6 +319,7 @@ export const trips = pgTable("trips", {
   cancelFee: numeric("cancel_fee", { precision: 10, scale: 2 }),
   cancelFeeOverride: numeric("cancel_fee_override", { precision: 10, scale: 2 }),
   cancelFeeOverrideNote: text("cancel_fee_override_note"),
+  mobilityRequirement: text("mobility_requirement").notNull().default("STANDARD"),
   passengerCount: integer("passenger_count").notNull().default(1),
   billingOutcome: text("billing_outcome"),
   billingReason: text("billing_reason"),
@@ -1071,3 +1073,79 @@ export const driverPushTokens = pgTable("driver_push_tokens", {
 export const insertDriverPushTokenSchema = createInsertSchema(driverPushTokens).omit({ id: true, createdAt: true });
 export type DriverPushToken = typeof driverPushTokens.$inferSelect;
 export type InsertDriverPushToken = z.infer<typeof insertDriverPushTokenSchema>;
+
+export const clinicTariffs = pgTable("clinic_tariffs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  cityId: integer("city_id").references(() => cities.id),
+  baseFeeCents: integer("base_fee_cents").notNull().default(0),
+  perMileCents: integer("per_mile_cents").notNull().default(0),
+  waitMinuteCents: integer("wait_minute_cents").notNull().default(0),
+  wheelchairExtraCents: integer("wheelchair_extra_cents").notNull().default(0),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const tripBilling = pgTable("trip_billing", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id).unique(),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  cityId: integer("city_id").references(() => cities.id),
+  mobilityRequirement: text("mobility_requirement").notNull().default("STANDARD"),
+  distanceMiles: numeric("distance_miles", { precision: 10, scale: 2 }),
+  waitMinutes: integer("wait_minutes").notNull().default(0),
+  baseFeeCents: integer("base_fee_cents").notNull().default(0),
+  mileageCents: integer("mileage_cents").notNull().default(0),
+  waitCents: integer("wait_cents").notNull().default(0),
+  wheelchairCents: integer("wheelchair_cents").notNull().default(0),
+  totalCents: integer("total_cents").notNull().default(0),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const clinicInvoicesMonthly = pgTable("clinic_invoices_monthly", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  cityId: integer("city_id").references(() => cities.id),
+  periodMonth: text("period_month").notNull(),
+  subtotalCents: integer("subtotal_cents").notNull().default(0),
+  adjustmentsCents: integer("adjustments_cents").notNull().default(0),
+  totalCents: integer("total_cents").notNull().default(0),
+  status: text("status").notNull().default("draft"),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+  sentAt: timestamp("sent_at"),
+  paidAt: timestamp("paid_at"),
+});
+
+export const clinicInvoiceItems = pgTable("clinic_invoice_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  invoiceId: integer("invoice_id").notNull().references(() => clinicInvoicesMonthly.id),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  amountCents: integer("amount_cents").notNull().default(0),
+  lineJson: text("line_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertClinicTariffSchema = createInsertSchema(clinicTariffs).omit({ id: true, createdAt: true });
+export type ClinicTariff = typeof clinicTariffs.$inferSelect;
+export type InsertClinicTariff = z.infer<typeof insertClinicTariffSchema>;
+
+export const insertTripBillingSchema = createInsertSchema(tripBilling).omit({ id: true, createdAt: true });
+export type TripBilling = typeof tripBilling.$inferSelect;
+export type InsertTripBilling = z.infer<typeof insertTripBillingSchema>;
+
+export const insertClinicInvoiceMonthlySchema = createInsertSchema(clinicInvoicesMonthly).omit({ id: true, generatedAt: true });
+export type ClinicInvoiceMonthly = typeof clinicInvoicesMonthly.$inferSelect;
+export type InsertClinicInvoiceMonthly = z.infer<typeof insertClinicInvoiceMonthlySchema>;
+
+export const insertClinicInvoiceItemSchema = createInsertSchema(clinicInvoiceItems).omit({ id: true, createdAt: true });
+export type ClinicInvoiceItem = typeof clinicInvoiceItems.$inferSelect;
+export type InsertClinicInvoiceItem = z.infer<typeof insertClinicInvoiceItemSchema>;
+
+export function isVehicleCompatible(mobilityRequirement: string, vehicleCapability: string): boolean {
+  if (mobilityRequirement === "WHEELCHAIR") {
+    return vehicleCapability === "WHEELCHAIR";
+  }
+  return true;
+}

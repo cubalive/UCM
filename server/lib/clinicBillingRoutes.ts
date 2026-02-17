@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
 import { db } from "../db";
+import { storage } from "../storage";
 import {
   clinicBillingProfiles,
   clinicBillingRules,
@@ -11,6 +12,11 @@ import {
   patients,
   clinics,
   cities,
+  clinicTariffs,
+  tripBilling,
+  clinicInvoicesMonthly,
+  clinicInvoiceItems,
+  insertClinicTariffSchema,
 } from "@shared/schema";
 import { eq, and, sql, gte, lte, isNull, inArray, desc } from "drizzle-orm";
 import { z } from "zod";
@@ -779,4 +785,203 @@ export function registerClinicBillingRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.get("/api/tariffs", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
+      if (!clinicId) return res.status(400).json({ message: "clinic_id required" });
+      const tariffs = await storage.getClinicTariffs(clinicId);
+      res.json(tariffs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/tariffs", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const parsed = insertClinicTariffSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+      const tariff = await storage.createClinicTariff(parsed.data);
+      res.json(tariff);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  const updateTariffSchema = z.object({
+    baseFee: z.string().optional(),
+    perMileRate: z.string().optional(),
+    waitTimePerMinute: z.string().optional(),
+    wheelchairExtra: z.string().optional(),
+    effectiveFrom: z.string().optional(),
+    effectiveTo: z.string().nullable().optional(),
+  });
+
+  app.patch("/api/tariffs/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const parsed = updateTariffSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid tariff data", errors: parsed.error.flatten() });
+      }
+      const updated = await storage.updateClinicTariff(id, parsed.data);
+      if (!updated) return res.status(404).json({ message: "Tariff not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/trip-billing/:tripId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const tripId = parseInt(req.params.tripId);
+      const billing = await storage.getTripBilling(tripId);
+      if (!billing) return res.status(404).json({ message: "No billing record for this trip" });
+      res.json(billing);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/trip-billing/clinic/:clinicId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.params.clinicId);
+      const month = req.query.month as string | undefined;
+      const billings = await storage.getTripBillingsByClinic(clinicId, month);
+      res.json(billings);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/monthly-invoices", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
+      const invoicesResult = await storage.getClinicInvoicesMonthly(clinicId);
+      const enriched = await Promise.all(invoicesResult.map(async (inv: any) => {
+        const clinic = await storage.getClinic(inv.clinicId);
+        return { ...inv, clinicName: clinic?.name };
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/monthly-invoices/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const invoice = await storage.getClinicInvoiceMonthly(id);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+      const items = await storage.getClinicInvoiceItems(id);
+      const clinic = await storage.getClinic(invoice.clinicId);
+      res.json({ invoice: { ...invoice, clinicName: clinic?.name }, items });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/monthly-invoices/generate", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        clinicId: z.number(),
+        periodMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      });
+      const data = schema.parse(req.body);
+
+      const billings = await storage.getTripBillingsByClinic(data.clinicId, data.periodMonth);
+      const pendingBillings = billings.filter(b => b.status === "pending");
+      if (pendingBillings.length === 0) {
+        return res.status(400).json({ message: "No pending trip billings found for this period" });
+      }
+
+      const subtotalCents = pendingBillings.reduce((sum, b) => sum + b.totalCents, 0);
+
+      const invoice = await storage.createClinicInvoiceMonthly({
+        clinicId: data.clinicId,
+        cityId: pendingBillings[0].cityId,
+        periodMonth: data.periodMonth,
+        subtotalCents,
+        adjustmentsCents: 0,
+        totalCents: subtotalCents,
+        status: "draft",
+      });
+
+      for (const billing of pendingBillings) {
+        await storage.createClinicInvoiceItem({
+          invoiceId: invoice.id,
+          tripId: billing.tripId,
+          amountCents: billing.totalCents,
+          lineJson: JSON.stringify(billing),
+        });
+      }
+
+      for (const billing of pendingBillings) {
+        await db.update(tripBilling).set({ status: "invoiced" }).where(eq(tripBilling.id, billing.id));
+      }
+
+      res.json({ invoice, itemCount: pendingBillings.length });
+    } catch (err: any) {
+      res.status(err.issues ? 400 : 500).json({ message: err.message || String(err) });
+    }
+  });
+
+  app.patch("/api/monthly-invoices/:id/status", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = req.body;
+      if (!["draft", "sent", "paid"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+      const updateData: any = { status };
+      if (status === "sent") updateData.sentAt = new Date();
+      if (status === "paid") updateData.paidAt = new Date();
+      const updated = await storage.updateClinicInvoiceMonthly(id, updateData);
+      if (!updated) return res.status(404).json({ message: "Invoice not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+}
+
+export async function computeTripBilling(tripId: number): Promise<void> {
+  const trip = await storage.getTrip(tripId);
+  if (!trip || !trip.clinicId) return;
+
+  const existing = await storage.getTripBilling(tripId);
+  if (existing) return;
+
+  const tariff = await storage.getActiveTariff(trip.clinicId, trip.cityId);
+  if (!tariff) {
+    console.log(`[TARIFF-BILLING] No active tariff for clinic ${trip.clinicId}, skipping trip ${tripId}`);
+    return;
+  }
+
+  const distanceMiles = trip.distanceMiles ? parseFloat(trip.distanceMiles) : 0;
+  const waitMinutes = 0;
+  const mobilityReq = trip.mobilityRequirement || "STANDARD";
+
+  const baseFeeCents = tariff.baseFeeCents;
+  const mileageCents = Math.round(tariff.perMileCents * distanceMiles);
+  const waitCents = tariff.waitMinuteCents * waitMinutes;
+  const wheelchairCents = mobilityReq === "WHEELCHAIR" ? tariff.wheelchairExtraCents : 0;
+  const totalCents = baseFeeCents + mileageCents + waitCents + wheelchairCents;
+
+  await storage.createTripBilling({
+    tripId,
+    clinicId: trip.clinicId,
+    cityId: trip.cityId,
+    mobilityRequirement: mobilityReq,
+    distanceMiles: distanceMiles.toFixed(2),
+    waitMinutes,
+    baseFeeCents,
+    mileageCents,
+    waitCents,
+    wheelchairCents,
+    totalCents,
+    status: "pending",
+  });
+
+  console.log(`[TARIFF-BILLING] Trip ${tripId} billed: base=$${(baseFeeCents / 100).toFixed(2)} + mileage=$${(mileageCents / 100).toFixed(2)} + wait=$${(waitCents / 100).toFixed(2)} + wheelchair=$${(wheelchairCents / 100).toFixed(2)} = $${(totalCents / 100).toFixed(2)}`);
 }

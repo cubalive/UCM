@@ -17,6 +17,10 @@ import {
   type ClinicHelpRequest, type InsertClinicHelpRequest,
   type RouteBatch, type InsertRouteBatch, type DriverScore, type InsertDriverScore,
   recurringSchedules, type RecurringSchedule, type InsertRecurringSchedule,
+  clinicTariffs, type ClinicTariff, type InsertClinicTariff,
+  tripBilling, type TripBilling, type InsertTripBilling,
+  clinicInvoicesMonthly, type ClinicInvoiceMonthly, type InsertClinicInvoiceMonthly,
+  clinicInvoiceItems, type ClinicInvoiceItem, type InsertClinicInvoiceItem,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -174,6 +178,24 @@ export interface IStorage {
   createRecurringSchedule(data: InsertRecurringSchedule): Promise<RecurringSchedule>;
   updateRecurringSchedule(id: number, data: Partial<RecurringSchedule>): Promise<RecurringSchedule | undefined>;
   deleteRecurringSchedule(id: number): Promise<void>;
+
+  getClinicTariffs(clinicId: number): Promise<ClinicTariff[]>;
+  getClinicTariff(id: number): Promise<ClinicTariff | undefined>;
+  getActiveTariff(clinicId: number, cityId?: number | null): Promise<ClinicTariff | undefined>;
+  createClinicTariff(data: InsertClinicTariff): Promise<ClinicTariff>;
+  updateClinicTariff(id: number, data: Partial<ClinicTariff>): Promise<ClinicTariff | undefined>;
+
+  getTripBilling(tripId: number): Promise<TripBilling | undefined>;
+  createTripBilling(data: InsertTripBilling): Promise<TripBilling>;
+  getTripBillingsByClinic(clinicId: number, month?: string): Promise<TripBilling[]>;
+
+  getClinicInvoicesMonthly(clinicId?: number): Promise<ClinicInvoiceMonthly[]>;
+  getClinicInvoiceMonthly(id: number): Promise<ClinicInvoiceMonthly | undefined>;
+  createClinicInvoiceMonthly(data: InsertClinicInvoiceMonthly): Promise<ClinicInvoiceMonthly>;
+  updateClinicInvoiceMonthly(id: number, data: Partial<ClinicInvoiceMonthly>): Promise<ClinicInvoiceMonthly | undefined>;
+
+  createClinicInvoiceItem(data: InsertClinicInvoiceItem): Promise<ClinicInvoiceItem>;
+  getClinicInvoiceItems(invoiceId: number): Promise<ClinicInvoiceItem[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1247,6 +1269,83 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRecurringSchedule(id: number): Promise<void> {
     await db.delete(recurringSchedules).where(eq(recurringSchedules.id, id));
+  }
+
+  async getClinicTariffs(clinicId: number): Promise<ClinicTariff[]> {
+    return db.select().from(clinicTariffs).where(eq(clinicTariffs.clinicId, clinicId)).orderBy(desc(clinicTariffs.effectiveFrom));
+  }
+
+  async getClinicTariff(id: number): Promise<ClinicTariff | undefined> {
+    const [row] = await db.select().from(clinicTariffs).where(eq(clinicTariffs.id, id));
+    return row;
+  }
+
+  async getActiveTariff(clinicId: number, cityId?: number | null): Promise<ClinicTariff | undefined> {
+    const conditions = [eq(clinicTariffs.clinicId, clinicId), eq(clinicTariffs.active, true)];
+    if (cityId) conditions.push(eq(clinicTariffs.cityId, cityId));
+    const [row] = await db.select().from(clinicTariffs).where(and(...conditions)).orderBy(desc(clinicTariffs.effectiveFrom)).limit(1);
+    return row;
+  }
+
+  async createClinicTariff(data: InsertClinicTariff): Promise<ClinicTariff> {
+    const [row] = await db.insert(clinicTariffs).values(data).returning();
+    return row;
+  }
+
+  async updateClinicTariff(id: number, data: Partial<ClinicTariff>): Promise<ClinicTariff | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    const [row] = await db.update(clinicTariffs).set(updateData).where(eq(clinicTariffs.id, id)).returning();
+    return row;
+  }
+
+  async getTripBilling(tripId: number): Promise<TripBilling | undefined> {
+    const [row] = await db.select().from(tripBilling).where(eq(tripBilling.tripId, tripId));
+    return row;
+  }
+
+  async createTripBilling(data: InsertTripBilling): Promise<TripBilling> {
+    const [row] = await db.insert(tripBilling).values(data).returning();
+    return row;
+  }
+
+  async getTripBillingsByClinic(clinicId: number, month?: string): Promise<TripBilling[]> {
+    const conditions = [eq(tripBilling.clinicId, clinicId)];
+    if (month) {
+      conditions.push(sql`to_char(${tripBilling.createdAt}, 'YYYY-MM') = ${month}`);
+    }
+    return db.select().from(tripBilling).where(and(...conditions)).orderBy(desc(tripBilling.createdAt));
+  }
+
+  async getClinicInvoicesMonthly(clinicId?: number): Promise<ClinicInvoiceMonthly[]> {
+    if (clinicId) {
+      return db.select().from(clinicInvoicesMonthly).where(eq(clinicInvoicesMonthly.clinicId, clinicId)).orderBy(desc(clinicInvoicesMonthly.generatedAt));
+    }
+    return db.select().from(clinicInvoicesMonthly).orderBy(desc(clinicInvoicesMonthly.generatedAt));
+  }
+
+  async getClinicInvoiceMonthly(id: number): Promise<ClinicInvoiceMonthly | undefined> {
+    const [row] = await db.select().from(clinicInvoicesMonthly).where(eq(clinicInvoicesMonthly.id, id));
+    return row;
+  }
+
+  async createClinicInvoiceMonthly(data: InsertClinicInvoiceMonthly): Promise<ClinicInvoiceMonthly> {
+    const [row] = await db.insert(clinicInvoicesMonthly).values(data).returning();
+    return row;
+  }
+
+  async updateClinicInvoiceMonthly(id: number, data: Partial<ClinicInvoiceMonthly>): Promise<ClinicInvoiceMonthly | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    const [row] = await db.update(clinicInvoicesMonthly).set(updateData).where(eq(clinicInvoicesMonthly.id, id)).returning();
+    return row;
+  }
+
+  async createClinicInvoiceItem(data: InsertClinicInvoiceItem): Promise<ClinicInvoiceItem> {
+    const [row] = await db.insert(clinicInvoiceItems).values(data).returning();
+    return row;
+  }
+
+  async getClinicInvoiceItems(invoiceId: number): Promise<ClinicInvoiceItem[]> {
+    return db.select().from(clinicInvoiceItems).where(eq(clinicInvoiceItems.invoiceId, invoiceId));
   }
 }
 

@@ -168,6 +168,9 @@ export default function VehiclesPage() {
                     {v.wheelchairAccessible && (
                       <Badge variant="secondary"><Accessibility className="w-3 h-3 mr-1" />WC</Badge>
                     )}
+                    {v.capability && v.capability !== "SEDAN" && (
+                      <Badge variant="outline" data-testid={`badge-capability-${v.id}`}>{v.capability}</Badge>
+                    )}
                     <div className="flex gap-1">
                       <Button
                         size="icon"
@@ -239,6 +242,7 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
     year: initialData?.year?.toString() || "",
     capacity: initialData?.capacity?.toString() || "4",
     wheelchairAccessible: initialData?.wheelchairAccessible || false,
+    capability: initialData?.capability || "SEDAN",
     colorHex: initialData?.colorHex || "#3B82F6",
     cityId: (initialData?.cityId || defaultCityId)?.toString() || "",
     status: initialData?.status || "ACTIVE",
@@ -292,6 +296,7 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
       capacity: parseInt(form.capacity),
       cityId: parseInt(form.cityId),
       wheelchairAccessible: form.wheelchairAccessible,
+      capability: form.capability,
       status: form.status,
       lastServiceDate: form.lastServiceDate || null,
       maintenanceNotes: form.maintenanceNotes || null,
@@ -386,6 +391,18 @@ function VehicleForm({ cities, defaultCityId, initialData, onSubmit, loading, is
       <div className="flex items-center gap-3">
         <Switch checked={form.wheelchairAccessible} onCheckedChange={(v) => setForm({ ...form, wheelchairAccessible: v })} data-testid="switch-vehicle-wheelchair" />
         <Label>Wheelchair Accessible</Label>
+      </div>
+      <div className="space-y-2">
+        <Label>Vehicle Capability</Label>
+        <Select value={form.capability} onValueChange={(v) => setForm({ ...form, capability: v })}>
+          <SelectTrigger data-testid="select-vehicle-capability"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="SEDAN">Sedan</SelectItem>
+            <SelectItem value="WHEELCHAIR">Wheelchair Van</SelectItem>
+            <SelectItem value="STRETCHER">Stretcher</SelectItem>
+            <SelectItem value="BARIATRIC">Bariatric</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       {isEdit && (
         <>

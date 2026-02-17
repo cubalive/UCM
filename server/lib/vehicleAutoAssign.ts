@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import type { CitySettings, City } from "@shared/schema";
+import { isVehicleCompatible } from "@shared/schema";
 import { getScheduledDriverIdsForDay } from "./scheduleRoutes";
 import { isDriverOnline } from "./driverClassification";
 import { tickJob, failJob } from "./jobHeartbeat";
@@ -166,20 +167,31 @@ async function autoAssignTripsToDrivers(city: City, date: string): Promise<{ ass
   let assigned = 0;
   let issues = 0;
 
+  const allVehicles = (await storage.getVehicles(city.id)).filter(v => v.status === "ACTIVE");
+  const vehicleMap = new Map(allVehicles.map(v => [v.id, v]));
+
   for (const trip of unassignedTrips) {
     if (assignedDriverIds.length === 0) {
       issues++;
       continue;
     }
 
-    let bestDriver = assignedDriverIds[0];
-    let minTrips = driverTripCount.get(bestDriver) || 0;
+    let bestDriver: number | null = null;
+    let minTrips = Infinity;
     for (const dId of assignedDriverIds) {
+      const assignment = assignments.find(a => a.driverId === dId && a.status === "active");
+      const vehicle = assignment?.vehicleId ? vehicleMap.get(assignment.vehicleId) : null;
+      if (!isVehicleCompatible(trip.mobilityRequirement || "STANDARD", vehicle?.capability || "SEDAN")) continue;
       const cnt = driverTripCount.get(dId) || 0;
       if (cnt < minTrips) {
         minTrips = cnt;
         bestDriver = dId;
       }
+    }
+
+    if (!bestDriver) {
+      issues++;
+      continue;
     }
 
     const assignment = assignments.find(a => a.driverId === bestDriver && a.status === "active");

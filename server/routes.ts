@@ -2981,6 +2981,16 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
         return res.status(409).json({ message: assignCheck.warning, requiresConfirmation: true });
       }
 
+      if (vehicleId && trip.mobilityRequirement) {
+        const vehicle = await storage.getVehicle(vehicleId);
+        if (vehicle) {
+          const { isVehicleCompatible } = await import("@shared/schema");
+          if (!isVehicleCompatible(trip.mobilityRequirement, vehicle.capability)) {
+            return res.status(400).json({ message: `Vehicle capability "${vehicle.capability || "STANDARD"}" is not compatible with trip mobility requirement "${trip.mobilityRequirement}".` });
+          }
+        }
+      }
+
       await db.update(driverOffers).set({ status: "cancelled" }).where(
         and(
           eq(driverOffers.tripId, id),
@@ -3655,6 +3665,14 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
           import("./lib/clinicBillingRoutes").then(({ autoBillingClassify }) => {
             autoBillingClassify(updatedTrip).catch((err: any) => {
               console.error(`[BILLING] Auto-classify failed for trip ${id}:`, err.message);
+            });
+          }).catch(() => {});
+        }
+
+        if (parsed.data.status === "COMPLETED" && updatedTrip.clinicId) {
+          import("./lib/clinicBillingRoutes").then(({ computeTripBilling }) => {
+            computeTripBilling(id).catch((err: any) => {
+              console.error(`[TARIFF-BILLING] Auto-compute failed for trip ${id}:`, err.message);
             });
           }).catch(() => {});
         }

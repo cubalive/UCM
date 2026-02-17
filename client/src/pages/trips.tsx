@@ -1381,6 +1381,7 @@ function TripDetailDialog({
   const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
 
   const [editTripType, setEditTripType] = useState<TripType>(trip.tripType || "one_time");
+  const [editMobilityRequirement, setEditMobilityRequirement] = useState(trip.mobilityRequirement || "STANDARD");
   const [editRecurringDays, setEditRecurringDays] = useState<string[]>(trip.recurringDays || []);
   const [editScheduledDate, setEditScheduledDate] = useState(trip.scheduledDate || "");
   const [editPickupTime, setEditPickupTime] = useState(trip.pickupTime || "");
@@ -1453,6 +1454,7 @@ function TripDetailDialog({
     } else {
       updateMutation.mutate({
         tripType: editTripType,
+        mobilityRequirement: editMobilityRequirement,
         recurringDays: editTripType === "recurring" ? editRecurringDays : null,
         scheduledDate: editScheduledDate,
         scheduledTime: editPickupTime,
@@ -1485,6 +1487,9 @@ function TripDetailDialog({
                 Series #{trip.tripSeriesId}
               </Badge>
             )}
+            {trip.mobilityRequirement && trip.mobilityRequirement !== "STANDARD" && (
+              <Badge variant="outline" data-testid="badge-detail-mobility">{trip.mobilityRequirement}</Badge>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -1501,6 +1506,19 @@ function TripDetailDialog({
           <div className="space-y-4">
             {(!isClinicUser || trip.approvalStatus === "pending") && (
               <>
+                <div className="space-y-2">
+                  <Label>Mobility Requirement</Label>
+                  <Select value={editMobilityRequirement} onValueChange={setEditMobilityRequirement}>
+                    <SelectTrigger data-testid="select-edit-trip-mobility"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="STANDARD">Standard</SelectItem>
+                      <SelectItem value="WHEELCHAIR">Wheelchair</SelectItem>
+                      <SelectItem value="STRETCHER">Stretcher</SelectItem>
+                      <SelectItem value="BARIATRIC">Bariatric</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <RecurringSchedule
                   tripType={editTripType}
                   onTripTypeChange={setEditTripType}
@@ -2017,6 +2035,7 @@ function TripForm({
   const [estimatedArrivalTime, setEstimatedArrivalTime] = useState("");
   const [notes, setNotes] = useState("");
   const [tripType, setTripType] = useState<TripType>("one_time");
+  const [mobilityRequirement, setMobilityRequirement] = useState("STANDARD");
   const [recurringDays, setRecurringDays] = useState<string[]>([]);
   const [seriesPattern, setSeriesPattern] = useState<SeriesPattern>("custom");
   const [seriesEndType, setSeriesEndType] = useState<SeriesEndType>("end_date");
@@ -2126,6 +2145,7 @@ function TripForm({
         pickupTime,
         estimatedArrivalTime,
         tripType,
+        mobilityRequirement,
         recurringDays: null,
         notes: notes || null,
         ...(effectiveRequestSource ? { requestSource: effectiveRequestSource } : {}),
@@ -2144,6 +2164,19 @@ function TripForm({
             {patients.map((p) => (
               <SelectItem key={p.id} value={p.id.toString()}>{p.firstName} {p.lastName}</SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Mobility Requirement</Label>
+        <Select value={mobilityRequirement} onValueChange={setMobilityRequirement}>
+          <SelectTrigger data-testid="select-trip-mobility"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="STANDARD">Standard</SelectItem>
+            <SelectItem value="WHEELCHAIR">Wheelchair</SelectItem>
+            <SelectItem value="STRETCHER">Stretcher</SelectItem>
+            <SelectItem value="BARIATRIC">Bariatric</SelectItem>
           </SelectContent>
         </Select>
       </div>

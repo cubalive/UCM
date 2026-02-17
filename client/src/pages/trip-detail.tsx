@@ -146,6 +146,9 @@ export default function TripDetailPage() {
           {trip.tripType === "recurring" && (
             <Badge variant="outline">Recurring</Badge>
           )}
+          {trip.mobilityRequirement && trip.mobilityRequirement !== "STANDARD" && (
+            <Badge variant="outline" data-testid="badge-mobility-requirement">{trip.mobilityRequirement}</Badge>
+          )}
         </div>
       </div>
 

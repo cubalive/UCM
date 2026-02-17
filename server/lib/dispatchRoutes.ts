@@ -6,6 +6,7 @@ import { z } from "zod";
 import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 import { autoNotifyPatient } from "./dispatchAutoSms";
+import { isVehicleCompatible } from "@shared/schema";
 import { tripLockedGuard } from "./tripLockGuard";
 import { isDriverOnline, isDriverVisibleOnMap, isDriverAssignable, classifyDrivers } from "./driverClassification";
 
@@ -314,6 +315,12 @@ export function registerDispatchRoutes(app: Express) {
           });
         }
 
+        if (!isVehicleCompatible(trip.mobilityRequirement || "STANDARD", vehicle.capability || "SEDAN")) {
+          return res.status(400).json({
+            message: `Trip requires ${trip.mobilityRequirement} but vehicle capability is ${vehicle.capability || "SEDAN"}`,
+          });
+        }
+
         if (trip.scheduledDate && trip.pickupTime) {
           const driverTripsForDay = await storage.getTripsByDriverAndDate(driver_id, trip.scheduledDate);
           const activeDriverTrips = driverTripsForDay.filter(t => t.id !== trip_id && !TERMINAL_STATUSES.includes(t.status));
@@ -449,6 +456,11 @@ export function registerDispatchRoutes(app: Express) {
 
           const patient = await storage.getPatient(trip.patientId);
           if (patient?.wheelchairRequired && !vehicle.wheelchairAccessible) {
+            skipped++;
+            continue;
+          }
+
+          if (!isVehicleCompatible(trip.mobilityRequirement || "STANDARD", vehicle.capability || "SEDAN")) {
             skipped++;
             continue;
           }
@@ -836,6 +848,12 @@ export function registerDispatchRoutes(app: Express) {
           });
         }
 
+        if (!isVehicleCompatible(trip.mobilityRequirement || "STANDARD", vehicle.capability || "SEDAN")) {
+          return res.status(400).json({
+            message: `Trip requires ${trip.mobilityRequirement} but the new driver's vehicle capability is ${vehicle.capability || "SEDAN"}`,
+          });
+        }
+
         if (trip.scheduledDate && trip.pickupTime) {
           const driverTripsForDay = await storage.getTripsByDriverAndDate(new_driver_id, trip.scheduledDate);
           const activeDriverTrips = driverTripsForDay.filter(t => t.id !== tripId && !TERMINAL_STATUSES.includes(t.status));
@@ -1027,6 +1045,7 @@ export function registerDispatchRoutes(app: Express) {
 
           const vehicle = driverVehicleMap.get(driver.id);
           if (wheelchair && (!vehicle || !vehicle.wheelchairAccessible)) continue;
+          if (!isVehicleCompatible(trip.mobilityRequirement || "STANDARD", vehicle?.capability || "SEDAN")) continue;
 
           const tripCount = (driverTrips.get(driver.id) || []).length;
           if (tripCount < bestTripCount) {
