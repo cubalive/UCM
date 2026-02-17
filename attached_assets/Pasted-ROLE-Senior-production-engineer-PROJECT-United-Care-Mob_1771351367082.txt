@@ -1,0 +1,157 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement MULTI-TENANT “Option 1” end-to-end so SUPER_ADMIN can (1) create/view tenants (companies), (2) create a Company Admin for any tenant, and (3) “impersonate/scope” the UI + API calls to a selected tenant without changing DB data or breaking existing flows.
+
+Context (what exists already):
+- DB schema already has `companies` table and `users.companyId`.
+- Backend already has endpoints:
+  - GET  /api/companies   (SUPER_ADMIN)
+  - POST /api/companies   (SUPER_ADMIN)
+  - POST /api/companies/:id/admin (SUPER_ADMIN) creates COMPANY_ADMIN with companyId
+- There is server/lib/tenantGuard.ts that scopes non-super-admin users by `req.user.companyId`.
+- Missing piece: SUPER_ADMIN has no UI to manage companies and no “scope as tenant” mechanism; so it feels like multi-tenant “doesn’t exist”.
+
+Hard requirements:
+1) Do NOT change database contents (no deletes, no resets). No destructive migrations.
+2) Do NOT remove tables/columns.
+3) Implement the missing tenant UX and safe scoping for SUPER_ADMIN.
+4) Role gating must be strict:
+   - SUPER_ADMIN: can see all companies and can impersonate any company context.
+   - COMPANY_ADMIN / DISPATCH / CLINIC_USER / DRIVER: MUST remain scoped to their own companyId (existing tenantGuard behavior).
+5) Must be stable + non-breaking.
+
+========================================================
+PHASE A — DISCOVERY (NO CODE YET)
+========================================================
+1) Locate current front-end route/layout for Settings/Admin.
+2) Locate API client (fetch wrapper) where headers can be added globally.
+3) Confirm auth model: where req.user is set (authMiddleware) and where role is stored.
+4) Confirm where tenantGuard is applied (which endpoints use it), and verify it’s safe to extend for SUPER_ADMIN impersonation.
+
+Deliverable for Phase A:
+- Short “Status” summary:
+  - Where the Settings UI lives
+  - Where API fetch wrapper lives
+  - Where authMiddleware is defined
+  - Where tenantGuard is used
+
+STOP after Phase A only if something is missing/unknown that blocks implementation and list exactly what file to inspect next.
+Otherwise proceed.
+
+========================================================
+PHASE B — SUPER_ADMIN “TENANT SCOPE” (IMPERSONATION) MECHANISM
+========================================================
+Goal: Allow SUPER_ADMIN to optionally operate as a selected company without changing their actual user record.
+
+Implementation (safest):
+1) Add support for an OPTIONAL header for SUPER_ADMIN requests:
+   - Header name: `x-ucm-company-id`
+   - Value: integer company id
+
+2) Update `server/lib/tenantGuard.ts`:
+   - If req.user.role === "SUPER_ADMIN":
+     - If header `x-ucm-company-id` is present and valid int:
+       - return that companyId as “effective company scope” (but do NOT override the actual req.user.companyId stored).
+     - Else: no scoping (current behavior).
+   - For non-super-admin roles: keep existing behavior exactly (scope strictly to req.user.companyId).
+
+3) Update any helper that returns actor context (if exists) to include:
+   - `effectiveCompanyId` (either header-selected for SUPER_ADMIN or req.user.companyId for everyone else)
+
+4) Do NOT change DB. No migrations needed.
+
+Verification:
+- As SUPER_ADMIN without header: GET /api/companies works and other endpoints behave as before.
+- As SUPER_ADMIN with header set: endpoints that rely on tenantGuard must behave “as if” within that company.
+
+========================================================
+PHASE C — FRONTEND: SUPER_ADMIN Companies UI + Tenant Scope Switcher
+========================================================
+Build a minimal, professional Settings page:
+Route: Settings → Companies (visible only if role === SUPER_ADMIN)
+
+UI requirements:
+1) Company list table:
+   - name, createdAt (if available), id
+   - button: “Set Scope” (select this company as current scope)
+2) Create company form:
+   - name (required)
+   - optional: contactEmail/phone if schema supports, else skip
+   - calls POST /api/companies
+3) Create Company Admin modal/form per company:
+   - email (required)
+   - password (required) OR generate random temp password if you already have a pattern (show it once)
+   - firstName, lastName optional
+   - cityIds optional (if you already have cities selection)
+   - calls POST /api/companies/:id/admin
+4) Tenant scope badge in top nav (SUPER_ADMIN only):
+   - shows: “Scoped: <CompanyName>” or “Scoped: ALL”
+   - action: Clear Scope → sets to ALL
+
+State handling:
+- Store selected company scope in localStorage:
+  - key: `ucm.superadmin.companyScopeId`
+- When present, ALL API calls from frontend must include:
+  - header `x-ucm-company-id: <id>`
+
+Implementation detail:
+- Modify the single API fetch wrapper to include header automatically when SUPER_ADMIN and scope is set.
+- Do NOT add the header for non-super-admin roles.
+
+========================================================
+PHASE D — ROLE GATING + SAFETY CHECKS
+========================================================
+1) Ensure Settings → Companies is not reachable by non-super-admin:
+   - frontend route guard
+   - backend already enforces on /api/companies endpoints (keep it)
+2) Ensure no endpoint accepts companyId from query/body for non-super-admin in a way that bypasses tenant scoping.
+   - If you find any, fix by forcing companyId = effectiveCompanyId from tenantGuard.
+
+========================================================
+PHASE E — VERIFY (MUST RUN)
+========================================================
+Run commands and record outcomes:
+1) npm run check
+2) npm run build
+3) npm run dev (server starts)
+
+Manual verification:
+A) Login as SUPER_ADMIN:
+- Create a company
+- Create a company admin
+- Set scope to that company
+- Navigate to existing pages (clinics/drivers/trips) and confirm results are scoped (no cross-company data leakage)
+- Clear scope (ALL) and confirm SUPER_ADMIN sees everything again
+
+B) Login as COMPANY_ADMIN for that tenant:
+- Confirm they cannot see /settings/companies
+- Confirm they only see their tenant data (tenantGuard unchanged)
+
+========================================================
+DELIVERABLES (REQUIRED)
+========================================================
+1) Exact code changes with file paths + line ranges:
+   - server/lib/tenantGuard.ts
+   - auth context helper (if applicable)
+   - frontend API fetch wrapper
+   - new Settings → Companies page + route
+   - top nav badge/switcher
+2) Command results (check/build/dev)
+3) If ANY failures remain, list them and stop.
+
+IMPORTANT:
+- Do NOT touch or reset DB data.
+- Do NOT “rewrite architecture”.
+- Keep changes minimal and targeted.
+- No new external services.
+
+START NOW.
