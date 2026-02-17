@@ -1,0 +1,170 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement ARCHIVE / UNARCHIVE for Clinics, Drivers, Patients with strict RBAC + tenant scoping.
+Admin (SUPER_ADMIN) and Company roles (DISPATCH / CLINIC_ADMIN if exists) can archive/unarchive within their tenant.
+No hard deletes. No DB reset. Non-breaking.
+
+DEFINITION:
+Archive = make record inactive AND set deletedAt timestamp (soft delete) WITHOUT removing data.
+Unarchive = set active=true AND deletedAt=NULL.
+
+SCOPE:
+Entities:
+- clinics
+- drivers
+- patients
+
+Roles:
+- SUPER_ADMIN: can archive/unarchive ANY tenant.
+- DISPATCH: can archive/unarchive ONLY within actor.companyId and ONLY within actor.allowedCityIds (if city scoped).
+- CLINIC_USER: cannot archive/unarchive (read-only for their clinic).
+- DRIVER: cannot archive/unarchive.
+
+HARD REQUIREMENTS:
+1) Server-side enforcement only (client cannot bypass).
+2) Tenant isolation: ALWAYS filter by actor.companyId unless SUPER_ADMIN.
+3) City isolation for DISPATCH if userCityAccess exists: validate entity.cityId is in allowed list.
+4) Prevent archiving if entity has ACTIVE trips:
+   - clinics: block if has active trips (SCHEDULED/ASSIGNED/IN_PROGRESS)
+   - drivers: block if has active trips
+   - patients: block if has active trips
+5) Audit log entry for every archive/unarchive:
+   action, entity_type, entity_id, actor_user_id, actor_role, company_id, city_id, before/after snapshot summary.
+
+IMPLEMENTATION PLAN (DO IN ORDER):
+
+PHASE 1 — CONFIRM CURRENT SCHEMA + HELPERS
+A) Inspect existing schema fields:
+- clinics.active (boolean?), clinics.deletedAt (timestamp nullable?)
+- drivers.active, drivers.deletedAt
+- patients.active, patients.deletedAt
+If any are missing, add ONLY the missing columns with safe defaults (active=true, deletedAt=null) using Drizzle schema + migration.
+
+B) Confirm existing queries already hide archived:
+- getClinics/getDrivers/getPatients: filter active=true AND deletedAt IS NULL (already present)
+- getArchivedClinics/getArchivedDrivers/getArchivedPatients: already present -> keep.
+
+C) Identify auth helpers:
+- getActorContext(): { userId, role, companyId, clinicId, cityId, allowedCityIds[] }
+- requireRole(...roles)
+If missing, add minimal middleware.
+
+PHASE 2 — STORAGE METHODS (SERVER)
+Add to IStorage + DatabaseStorage:
+
+// Clinics
+archiveClinic(clinicId: number, actor: ActorContext): Promise<Clinic>
+unarchiveClinic(clinicId: number, actor: ActorContext): Promise<Clinic>
+
+// Drivers
+archiveDriver(driverId: number, actor: ActorContext): Promise<Driver>
+unarchiveDriver(driverId: number, actor: ActorContext): Promise<Driver>
+
+// Patients
+archivePatient(patientId: number, actor: ActorContext): Promise<Patient>
+unarchivePatient(patientId: number, actor: ActorContext): Promise<Patient>
+
+Rules inside each method:
+1) Load entity by id with scoping:
+   - if SUPER_ADMIN: by id
+   - else: where id AND companyId=actor.companyId (if column exists) AND (cityId in allowedCityIds for DISPATCH if city scoped)
+2) If not found -> throw 404.
+3) Active trip guard:
+   - Query trips where entity matches AND status in ('SCHEDULED','ASSIGNED','IN_PROGRESS') AND deletedAt IS NULL
+   - If exists -> throw 409 with message "Cannot archive: active trips exist"
+4) Update entity:
+   - archive: set active=false, deletedAt=now()
+   - unarchive: set active=true, deletedAt=null
+5) Insert auditLog row:
+   - eventType: 'archive_clinic' / 'unarchive_clinic' / etc
+   - entityType: 'clinic'/'driver'/'patient'
+   - entityId: id
+   - metadata JSON: { beforeActive, afterActive, beforeDeletedAt, afterDeletedAt, companyId, cityId }
+
+PHASE 3 — API ROUTES
+Create routes in server (where existing routes live; DO NOT invent /routes/controllers if not present).
+Add endpoints:
+
+POST /api/admin/clinics/:id/archive
+POST /api/admin/clinics/:id/unarchive
+POST /api/admin/drivers/:id/archive
+POST /api/admin/drivers/:id/unarchive
+POST /api/admin/patients/:id/archive
+POST /api/admin/patients/:id/unarchive
+
+Auth:
+- requireAuth
+- requireRole('SUPER_ADMIN','DISPATCH')  (and 'COMPANY_ADMIN' if exists)
+
+Behavior:
+- Return updated entity JSON (sanitized).
+- On guard failure: return 409 with clear error.
+- On forbidden: 403.
+- On not found: 404.
+
+PHASE 4 — UI (MINIMAL)
+A) Add "Archive" button in:
+- Clinics list + clinic detail
+- Drivers list + driver detail
+- Patients list + patient detail
+
+B) Confirmation modal:
+- "Archive will hide this record and prevent new trips. Existing history remains."
+- If API returns 409, show: "Cannot archive while there are active trips."
+
+C) Add an "Archived" tab on each page:
+- Uses existing getArchivedClinics/getArchivedDrivers/getArchivedPatients endpoints if already present; if not, add:
+  GET /api/admin/archived/clinics
+  GET /api/admin/archived/drivers
+  GET /api/admin/archived/patients
+
+D) "Unarchive" button in archived list.
+
+PHASE 5 — VERIFICATION (MUST DO)
+Run these checks:
+
+1) Typecheck:
+- npm run check
+
+2) Build:
+- npm run build
+
+3) Smoke:
+- npm run dev (server starts)
+
+4) RBAC:
+- As CLINIC_USER: calling archive endpoints -> 403
+- As DISPATCH: can archive within allowed city + company; other city/company -> 404/403
+- As SUPER_ADMIN: can archive any
+
+5) Guard:
+- Create/locate an entity with active trips -> archive returns 409
+- After trips completed/cancelled -> archive works
+
+6) Audit:
+- Verify auditLog row created for each action.
+
+DELIVERABLES (MANDATORY):
+1) Exact files changed + line ranges
+2) Routes added list
+3) curl examples:
+   - archive clinic
+   - unarchive clinic
+   - archive driver
+   - unarchive patient
+4) Verification results: npm run check/build/dev outcomes
+
+NOTES:
+- Do NOT add hard delete. Keep existing delete endpoints untouched.
+- If companyId is not present on clinics/drivers/patients tables, enforce tenant scoping via joins to cities/company mapping already used in the app; document which mapping you used.
+END.

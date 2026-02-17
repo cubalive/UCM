@@ -1,0 +1,287 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT remove tables/columns
+- Do NOT change business logic unless explicitly instructed
+- Verification first. Fixes only if explicitly requested after report.
+- Verify before exit
+
+MISSION:
+Run an ENTERPRISE-GRADE PRODUCTION READINESS AUDIT for UCM.
+Goal: Decide if SAFE TO DEPLOY and what blocks deployment.
+
+Deliverables (mandatory):
+1) PASS/FAIL checklist with evidence
+2) List of critical risks ordered by severity
+3) Exact commands run + outputs summary
+4) If failures: file + line + root cause + minimal safe fix suggestion (do not apply)
+
+========================================================
+SECTION A — REPO + ENV INTEGRITY
+========================================================
+
+A1) Identify repo structure:
+- List top-level folders (server/, client/, shared/, etc.)
+- Identify entry points:
+  - server/index or server/src/index
+  - client/main or client/src/main
+
+A2) Environment variables validation:
+- Print list of REQUIRED env vars from code (search process.env usage).
+- Confirm which are present in Replit Secrets (do NOT reveal secret values).
+- Hard fail if missing required env var.
+
+Commands:
+- grep -R "process\.env\." -n server shared client | head -200
+- npm run dev (observe startup errors)
+
+Output:
+- REQUIRED_ENV: [..]
+- MISSING_ENV: [..] (if any)
+
+========================================================
+SECTION B — TYPESCRIPT + BUILD ARTIFACTS
+========================================================
+
+B1) Type check:
+- npm run check
+- npx tsc --noEmit
+
+PASS criteria:
+- 0 TS errors
+
+B2) Build:
+- npm run build
+
+PASS criteria:
+- build succeeds
+- no warnings that imply runtime failure (e.g., missing module)
+
+B3) Lint (if exists):
+- npm run lint (optional, only if script exists)
+
+========================================================
+SECTION C — DATABASE + MIGRATIONS SAFETY (NO DATA CHANGES)
+========================================================
+
+C1) Confirm ORM + migration approach:
+- Drizzle vs Prisma vs raw SQL
+- Identify migration folder (if any) and Drizzle config
+
+C2) Confirm schema matches runtime:
+- Ensure shared/schema.ts aligns with DB assumptions
+- Validate boolean defaults typing issue is resolved if previously present
+
+C3) Ensure no destructive migration scripts:
+- Search for DROP TABLE / TRUNCATE / DELETE without WHERE
+
+Commands:
+- grep -R "DROP TABLE\|TRUNCATE\|DELETE FROM" -n server shared drizzle* migrations* | head -200
+
+PASS criteria:
+- No destructive ops in normal startup path
+
+========================================================
+SECTION D — AUTHENTICATION + SESSION SECURITY
+========================================================
+
+D1) Identify auth model:
+- Supabase JWT vs internal JWT vs session cookies
+
+D2) Verify auth middleware exists server-side:
+- requireAuth (or equivalent)
+- requireRole(...roles)
+- getActorContext() -> {userId, role, clinicId, cityId, companyId/tenantId}
+
+D3) Verify token storage & transport:
+- If cookies: HttpOnly, Secure, SameSite
+- If bearer token: verify standard Authorization header flow
+
+PASS criteria:
+- Protected routes reject unauthenticated requests (401)
+- Role-based routes reject wrong roles (403)
+- No user-controlled clinic_id / city_id overrides for restricted roles
+
+Output:
+- AUTH_MODEL: ...
+- MIDDLEWARE_FOUND: file paths
+- COOKIE/Bearer security notes
+
+========================================================
+SECTION E — AUTHZ + MULTI-TENANT ISOLATION (CRITICAL)
+========================================================
+
+E1) Confirm tenant key exists across core tables:
+- companyId or tenantId in:
+  users, clinics, drivers, patients, trips, invoices, rollups
+If missing, flag CRITICAL and propose minimal enforcement strategy.
+
+E2) Confirm scoping rules enforced in server queries:
+- SUPER_ADMIN: can access all tenants/cities
+- DISPATCH: only allowed cities in their access list
+- CLINIC_USER: forced to their clinicId
+- DRIVER: forced to their driverId
+
+E3) Attempt abuse checks (logic review + curl plan):
+- Clinic tries clinic_id=other -> must ignore/deny
+- Dispatch tries city_id not in access -> deny
+- Driver tries driver_id=other -> deny
+
+PASS criteria:
+- Every analytics/list endpoint has scoping guard at server level.
+
+Output:
+- TENANT_FIELD: (companyId/tenantId) and where enforced
+- SCOPING_GAPS: list (if any)
+
+========================================================
+SECTION F — API ROUTES INVENTORY + STABILITY
+========================================================
+
+F1) Enumerate all API routes:
+- Print route list from router definitions
+- Identify any "dead" routes not mounted
+
+F2) Confirm server/index wires routes correctly:
+- /api/... prefix consistent
+- 404 handler exists
+- Error handler exists (no raw stack leaks in prod)
+
+PASS criteria:
+- No missing controller import paths
+- Routes load without crash
+
+========================================================
+SECTION G — INTELLIGENCE CORE v1 (MEASUREMENT + RANKING)
+========================================================
+
+G1) Validate table presence in schema (code-side):
+- daily_metrics_rollup
+- weekly_score_snapshots
+- tri_scores
+- cost_leak_alerts
+- ucm_certifications
+
+G2) Validate endpoints exist and are protected:
+POST /api/intelligence/rollup/daily
+POST /api/intelligence/snapshots/weekly
+GET  /api/intelligence/rankings/drivers
+GET  /api/intelligence/rankings/clinics
+GET  /api/intelligence/me/clinic
+POST /api/intelligence/alerts/cost-bleed
+POST /api/intelligence/certify (SUPER_ADMIN only)
+
+G3) Idempotency:
+- Re-run rollup same date -> upsert not duplicate
+- Re-run alerts -> no duplicate OPEN alerts
+
+G4) Cost constants:
+- COST_PER_MILE_CENTS and COST_PER_MINUTE_CENTS are configurable + safe defaults
+
+PASS criteria:
+- Endpoints exist
+- Guards correct
+- Computation does not crash on missing optional fields
+
+Output:
+- INTELLIGENCE_STATUS: PASS/FAIL
+- Missing components / endpoints
+
+========================================================
+SECTION H — DOWNLOADS (Safari iOS) + FILE SAFETY
+========================================================
+
+H1) Frontend download mechanism:
+- Must use authenticated fetch -> blob -> download
+- Must validate response.ok BEFORE saving
+- Must handle 401/404 without writing file
+
+H2) Server headers:
+- Content-Type correct (text/csv, application/json)
+- Content-Disposition: attachment; filename="..."
+- Cache headers if needed
+- Role-gated download endpoints
+
+PASS criteria:
+- No "Unauthorized.html" saved as CSV
+- No empty 404 payload saved
+
+Output:
+- DOWNLOADS_STATUS: PASS/FAIL
+- Headers used + where set
+
+========================================================
+SECTION I — OBSERVABILITY + AUDITABILITY (ENTERPRISE)
+========================================================
+
+I1) Logging:
+- Structured logs for critical actions:
+  - login, logout
+  - create/update/delete clinic/driver/patient/trip
+  - intelligence rollup/snapshots/certify
+  - billing invoice generation
+
+I2) Audit log table usage:
+- Confirm auditLog writes exist for admin actions
+- Confirm actorId/role captured
+
+I3) Error tracking:
+- If Sentry/etc exists: confirm initialization
+- If not: propose minimal logging upgrade (no external API required)
+
+PASS criteria:
+- Audit coverage exists or gaps listed
+
+========================================================
+SECTION J — PERFORMANCE + SAFETY GUARDS
+========================================================
+
+J1) Hot queries:
+- Identify endpoints that scan trips without indexes
+- Ensure indexes exist for:
+  trips.cityId + scheduledDate/time
+  trips.status
+  trips.clinicId
+  rollup unique constraints
+
+J2) Rate limiting (minimal):
+- Login endpoint protected from brute force (even basic)
+- Sensitive exports protected
+
+J3) Payload validation:
+- Zod validation on inputs for write endpoints
+
+PASS criteria:
+- No obvious O(n) scans on large tables without filter
+
+========================================================
+SECTION K — RELEASE CHECKLIST (GATE)
+========================================================
+
+Return final decision:
+
+1) BUILD STATUS: PASS/FAIL
+2) AUTH STATUS: PASS/FAIL
+3) TENANT ISOLATION: PASS/FAIL (CRITICAL)
+4) INTELLIGENCE CORE: PASS/FAIL
+5) DOWNLOADS SAFARI: PASS/FAIL
+6) AUDIT LOGGING: PASS/FAIL
+7) PERFORMANCE RISK: LOW/MED/HIGH
+
+If ANY CRITICAL FAIL:
+- SAFE TO DEPLOY: NO
+- Provide minimal fix plan (not executed)
+
+OUTPUT FORMAT (STRICT):
+- A) Evidence log (commands + results)
+- B) PASS/FAIL table
+- C) Top 10 risks (severity: CRITICAL/HIGH/MED/LOW)
+- D) Fix plan (minimal, non-breaking)
+- E) Safe to deploy? YES/NO
+
+END.
