@@ -64,7 +64,8 @@
     "clinicBilling": "Clinic Billing",
     "pricing": "Pricing",
     "metrics": "Metrics",
-    "mobilitySystem": "Mobility System"
+    "mobilitySystem": "Mobility System",
+    "intelligence": "Intelligence"
   },
   "dashboard": {
     "title": "Dashboard",

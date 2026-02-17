@@ -50,6 +50,7 @@ import SchedulePage from "@/pages/schedule";
 import DispatchSwapsPage from "@/pages/dispatch-swaps";
 import PricingPage from "@/pages/pricing";
 import MetricsPage from "@/pages/metrics";
+import IntelligencePage from "@/pages/intelligence";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
 import NotFound from "@/pages/not-found";
@@ -277,6 +278,7 @@ function Router() {
       <Route path="/clinic-billing">{() => <ProtectedRoute resource="invoices" component={ClinicBillingPage} />}</Route>
       <Route path="/pricing">{() => <ProtectedRoute resource="audit" component={PricingPage} />}</Route>
       <Route path="/metrics">{() => <SuperAdminRoute component={MetricsPage} />}</Route>
+      <Route path="/intelligence">{() => <ProtectedRoute resource="audit" component={IntelligencePage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

@@ -28,6 +28,7 @@ import { registerPricingRoutes } from "../lib/pricingRoutes";
 import { registerAssignmentRoutes } from "../lib/assignmentRoutes";
 import { registerPublicApiRoutes } from "../lib/publicApiRoutes";
 import { registerClinicBillingRoutes } from "../lib/clinicBillingRoutes";
+import { registerIntelligenceRoutes } from "./intelligence.routes";
 import { startRouteScheduler } from "../lib/routeEngine";
 import { startNoShowScheduler } from "../lib/noShowEngine";
 import { startRecurringScheduleScheduler } from "../lib/recurringScheduleEngine";
@@ -70,6 +71,7 @@ export async function registerRoutes(
   registerDriverPortalRoutes(app);
   registerClinicPortalRoutes(app);
   registerAdminRoutes(app);
+  registerIntelligenceRoutes(app);
 
   startOpsAlertScheduler();
   startRouteScheduler();

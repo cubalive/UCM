@@ -54,6 +54,7 @@ import {
   Banknote,
   BarChart,
   ArrowLeftRight,
+  Brain,
 } from "lucide-react";
 
 interface NavItem {
@@ -94,6 +95,7 @@ const adminItems: NavItem[] = [
   { titleKey: "nav.pricing", url: "/pricing", icon: Banknote, resource: "audit" },
   { titleKey: "nav.auditLog", url: "/audit", icon: ClipboardList, resource: "audit" },
   { titleKey: "nav.archive", url: "/archive", icon: Archive, resource: "audit" },
+  { titleKey: "nav.intelligence", url: "/intelligence", icon: Brain, resource: "audit" },
   { titleKey: "nav.metrics", url: "/metrics", icon: BarChart, resource: "audit", superAdminOnly: true },
 ];
 
