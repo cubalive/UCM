@@ -223,3 +223,33 @@ export async function getUserCityIds(userId: number, role: string): Promise<numb
     .where(eq(userCityAccess.userId, userId));
   return access.map((a) => a.cityId);
 }
+
+export interface ActorContext {
+  userId: number;
+  role: string;
+  companyId: number | null;
+  clinicId: number | null;
+  driverId: number | null;
+  cityId: number | null;
+  allowedCityIds: number[];
+}
+
+export async function getActorContext(req: AuthRequest): Promise<ActorContext | null> {
+  if (!req.user) return null;
+  const { userId, role, companyId } = req.user;
+  const user = await db
+    .select({ clinicId: users.clinicId, driverId: users.driverId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .then(r => r[0]);
+  const allowedCityIds = await getUserCityIds(userId, role);
+  return {
+    userId,
+    role,
+    companyId: companyId || null,
+    clinicId: user?.clinicId || null,
+    driverId: user?.driverId || null,
+    cityId: allowedCityIds.length === 1 ? allowedCityIds[0] : null,
+    allowedCityIds,
+  };
+}

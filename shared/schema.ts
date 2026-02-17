@@ -1514,3 +1514,131 @@ export function isVehicleCompatible(mobilityRequirement: string, vehicleCapabili
   }
   return true;
 }
+
+export const dailyMetricsRollup = pgTable("daily_metrics_rollup", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  metricDate: text("metric_date").notNull(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  tripsTotal: integer("trips_total").notNull().default(0),
+  tripsCompleted: integer("trips_completed").notNull().default(0),
+  tripsCancelled: integer("trips_cancelled").notNull().default(0),
+  tripsNoShow: integer("trips_no_show").notNull().default(0),
+  onTimePickupCount: integer("on_time_pickup_count").notNull().default(0),
+  latePickupCount: integer("late_pickup_count").notNull().default(0),
+  avgPickupDelayMinutes: numeric("avg_pickup_delay_minutes"),
+  gpsVerifiedCount: integer("gps_verified_count").notNull().default(0),
+  pricingMissingCount: integer("pricing_missing_count").notNull().default(0),
+  invoicesMissingCount: integer("invoices_missing_count").notNull().default(0),
+  revenueCents: integer("revenue_cents").notNull().default(0),
+  estCostCents: integer("est_cost_cents").notNull().default(0),
+  marginCents: integer("margin_cents").notNull().default(0),
+  emptyMiles: numeric("empty_miles").notNull().default("0"),
+  idleMinutes: numeric("idle_minutes").notNull().default("0"),
+  paidMiles: numeric("paid_miles").notNull().default("0"),
+  activeMinutes: numeric("active_minutes").notNull().default("0"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("dmr_unique_idx").on(table.metricDate, table.cityId, table.clinicId, table.driverId),
+  index("dmr_city_date_idx").on(table.cityId, table.metricDate),
+]);
+
+export const insertDailyMetricsRollupSchema = createInsertSchema(dailyMetricsRollup).omit({ createdAt: true });
+export type DailyMetricsRollup = typeof dailyMetricsRollup.$inferSelect;
+export type InsertDailyMetricsRollup = z.infer<typeof insertDailyMetricsRollupSchema>;
+
+export const weeklyScoreSnapshots = pgTable("weekly_score_snapshots", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  weekStart: text("week_start").notNull(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  dpiScore: numeric("dpi_score"),
+  criScore: numeric("cri_score"),
+  triScore: numeric("tri_score"),
+  costBleedScore: numeric("cost_bleed_score"),
+  components: jsonb("components").notNull().default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("wss_unique_idx").on(table.weekStart, table.cityId, table.clinicId, table.driverId),
+  index("wss_city_week_idx").on(table.cityId, table.weekStart),
+]);
+
+export const insertWeeklyScoreSnapshotSchema = createInsertSchema(weeklyScoreSnapshots).omit({ createdAt: true });
+export type WeeklyScoreSnapshot = typeof weeklyScoreSnapshots.$inferSelect;
+export type InsertWeeklyScoreSnapshot = z.infer<typeof insertWeeklyScoreSnapshotSchema>;
+
+export const triScores = pgTable("tri_scores", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  triScore: numeric("tri_score").notNull(),
+  components: jsonb("components").notNull().default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("tri_period_city_idx").on(table.periodStart, table.cityId, table.clinicId),
+]);
+
+export const insertTriScoreSchema = createInsertSchema(triScores).omit({ createdAt: true });
+export type TriScore = typeof triScores.$inferSelect;
+export type InsertTriScore = z.infer<typeof insertTriScoreSchema>;
+
+export const costLeakAlertStatusEnum = pgEnum("cost_leak_alert_status", [
+  "OPEN",
+  "ACKNOWLEDGED",
+  "RESOLVED",
+]);
+
+export const costLeakAlertSeverityEnum = pgEnum("cost_leak_alert_severity", [
+  "YELLOW",
+  "RED",
+]);
+
+export const costLeakAlerts = pgTable("cost_leak_alerts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  alertType: text("alert_type").notNull(),
+  severity: costLeakAlertSeverityEnum("severity").notNull(),
+  status: costLeakAlertStatusEnum("status").notNull().default("OPEN"),
+  metricDate: text("metric_date").notNull(),
+  details: jsonb("details").notNull().default({}),
+  acknowledgedBy: integer("acknowledged_by").references(() => users.id),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("cla_status_sev_idx").on(table.status, table.severity, table.createdAt),
+  index("cla_city_date_idx").on(table.cityId, table.createdAt),
+]);
+
+export const insertCostLeakAlertSchema = createInsertSchema(costLeakAlerts).omit({ createdAt: true });
+export type CostLeakAlert = typeof costLeakAlerts.$inferSelect;
+export type InsertCostLeakAlert = z.infer<typeof insertCostLeakAlertSchema>;
+
+export const ucmCertifications = pgTable("ucm_certifications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  status: text("certification_status").notNull(),
+  triScore: numeric("tri_score"),
+  gpsRate: numeric("gps_rate"),
+  noShowRate: numeric("no_show_rate"),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  reason: text("reason"),
+  certifiedBy: integer("certified_by").references(() => users.id),
+  certifiedAt: timestamp("certified_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("ucm_cert_unique_idx").on(table.cityId, table.clinicId),
+]);
+
+export const insertUcmCertificationSchema = createInsertSchema(ucmCertifications).omit({ createdAt: true });
+export type UcmCertification = typeof ucmCertifications.$inferSelect;
+export type InsertUcmCertification = z.infer<typeof insertUcmCertificationSchema>;

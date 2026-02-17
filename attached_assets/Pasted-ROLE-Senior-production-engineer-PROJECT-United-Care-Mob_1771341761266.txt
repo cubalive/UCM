@@ -1,0 +1,351 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement “UCM Intelligence Core v1” end-to-end (backend + minimal UI surfaces) with strict role scoping using existing auth/tenant/city guards. Must be stable, non-breaking, and compatible with existing trip lifecycle. No expensive external APIs.
+
+========================================================
+0) BASELINE (MUST DO FIRST)
+========================================================
+A) Confirm current auth model + helpers exist:
+- Find requireRole(...) and auth middleware in server/
+- Find tenantGuard / requireCompanyScope / requireCityAccess (or equivalent)
+- Implement getActorContext(req) if missing: returns { userId, role, clinicId, cityId, tenantId, allowedCityIds? }
+
+B) Confirm Drizzle stack:
+- shared/schema.ts is source of truth
+- drizzle-kit push workflow exists (npm run db:push or similar)
+
+C) Create a checkpoint before schema changes.
+
+Run:
+- npm run check
+- npm run build
+
+If these fail for unrelated reasons, stop and report.
+
+========================================================
+PHASE 1 — SCHEMA (NON-DESTRUCTIVE)
+========================================================
+1) Trips table: ensure these columns exist (add ONLY if missing; do not remove anything):
+- scheduled_pickup_at timestamptz NOT NULL (if existing name differs, map to existing; do not duplicate blindly)
+- scheduled_dropoff_at timestamptz NULL
+- actual_arrived_pickup_at timestamptz NULL
+- actual_pickup_at timestamptz NULL
+- actual_dropoff_at timestamptz NULL
+- finalized_at timestamptz NULL
+- status text NOT NULL
+- city_id uuid NOT NULL
+- clinic_id uuid NULL
+- driver_id uuid NULL
+- vehicle_id uuid NULL
+- pricing_required boolean DEFAULT true
+- price_cents int NULL
+- currency text DEFAULT 'USD'
+- gps_verified boolean DEFAULT false
+- no_show boolean DEFAULT false
+- cancelled boolean DEFAULT false
+- cancel_reason text NULL
+- no_show_reason text NULL
+
+IMPORTANT:
+- If your existing schema already has similar columns (e.g. pickup_time), do NOT add duplicates.
+- Prefer aligning rollup logic to existing columns and only add missing ones that are required.
+
+2) Add new tables to shared/schema.ts (Drizzle):
+- daily_metrics_rollup
+- weekly_score_snapshots
+- tri_scores
+- cost_leak_alerts
+- ucm_certifications
+
+Include:
+- ids default gen_random_uuid()
+- created_at default now()
+- Unique constraints exactly as specified:
+  * daily_metrics_rollup: unique(metric_date, city_id, clinic_id, driver_id)
+  * weekly_score_snapshots: unique(week_start, city_id, clinic_id, driver_id)
+  * tri_scores: index(period_start desc, city_id, clinic_id)
+  * cost_leak_alerts: indexes (status, severity, created_at desc) and (city_id, created_at desc)
+  * ucm_certifications: unique(city_id, clinic_id)
+
+3) After edits:
+Run db push ONLY to add schema (non-destructive):
+- npm run db:push
+If push tries to DROP/RECREATE anything, STOP and report. Do NOT proceed.
+
+========================================================
+PHASE 2 — INTELLIGENCE ENGINE (BACKEND)
+========================================================
+Create a new route module:
+- server/lib/intelligenceRoutes.ts  (or server/routes/intelligence.routes.ts to match your conventions)
+and register it in server/routes/index.ts (or wherever routes are registered):
+Base path: /api/intelligence/*
+
+Use existing auth middleware:
+- SUPER_ADMIN: full
+- DISPATCH: city-scoped only
+- CLINIC_USER: forced clinic scope, cannot query other clinics
+- DRIVER: optional minimal “me” endpoint only (if role exists)
+
+------------------------------------
+2A) ENV CONSTANTS (safe defaults)
+------------------------------------
+Add env reads in server/config or directly in routes:
+- COST_PER_MILE_CENTS default 65
+- COST_PER_MINUTE_CENTS default 30
+
+------------------------------------
+2B) AUTHZ RULES (HARD)
+------------------------------------
+Implement helper functions in server/lib/intelligenceAuth.ts (or inline):
+- assertDispatchCityScope(actor, city_id):
+  * DISPATCH may ONLY use:
+    - actor.current_city_id OR
+    - city_id query param that is in actor.allowedCityIds (if your system has allowed list)
+  * SUPER_ADMIN bypass
+- forceClinicScope(actor):
+  * if CLINIC_USER, clinic_id must equal actor.clinicId and ignore any clinic_id param
+- For rankings endpoints:
+  * CLINIC_USER cannot access /rankings/*
+  * DISPATCH can access city-only rankings
+  * SUPER_ADMIN can access all
+
+------------------------------------
+2C) DAILY ROLLUP ENDPOINT
+------------------------------------
+POST /api/intelligence/rollup/daily?city_id=...&date=YYYY-MM-DD
+Auth: SUPER_ADMIN or DISPATCH
+
+Logic:
+1) Validate date and city_id
+2) Enforce city scoping for DISPATCH
+3) Query trips where scheduled_pickup_at in [date 00:00, date+1 00:00) AND city_id = given
+4) Derive metrics:
+- trips_total
+- trips_completed (status indicates completed OR actual_dropoff_at not null OR finalized)
+- trips_cancelled (cancelled=true OR status in cancelled states)
+- trips_no_show (no_show=true)
+- on_time_pickup_count:
+  actual_pickup_at <= scheduled_pickup_at + 5 minutes
+- late_pickup_count = completed - on_time
+- avg_pickup_delay_minutes:
+  avg(max(0, minutes(actual_pickup_at - scheduled_pickup_at))) for trips with both times
+- gps_verified_count = count(gps_verified=true)
+- pricing_missing_count:
+  pricing_required=true AND price_cents is null AND NOT cancelled AND NOT no_show
+- invoices_missing_count:
+  if invoices table exists in schema, count finalized trips missing invoice; else 0
+- revenue_cents = sum(price_cents) for completed, else 0
+- est_cost_cents:
+  use existing trip distance/duration fields if present (preferred)
+  else safe fallback:
+    - miles=0, minutes=0 so cost=0 (do not guess with external APIs)
+- margin_cents = revenue - est_cost
+- empty_miles, idle_minutes:
+  use existing telemetry fields if present; else 0
+
+5) Upsert daily_metrics_rollup rows for:
+- city-level (clinic_id null, driver_id null)
+- clinic-level (clinic_id grouped, driver_id null)
+- driver-level (driver_id grouped, clinic_id preserved if present)
+
+Idempotent:
+- Upsert by unique key (metric_date, city_id, clinic_id, driver_id)
+- Overwrite values on rerun
+
+------------------------------------
+2D) WEEKLY SNAPSHOTS ENDPOINT
+------------------------------------
+POST /api/intelligence/snapshots/weekly?city_id=...&weekStart=YYYY-MM-DD
+Auth: SUPER_ADMIN or DISPATCH
+
+Logic:
+1) week_end = weekStart + 7 days
+2) Load 7 days from daily_metrics_rollup for the city in range
+3) Aggregate by:
+- city-level
+- clinic-level
+- driver-level
+4) Compute scores (0–100) with clamp helper:
+
+Driver Performance Index (DPI):
+punctuality = on_time_pickup_count / max(1, trips_completed)
+completion  = trips_completed / max(1, trips_total)
+gps         = gps_verified_count / max(1, trips_total)
+empty_ratio = empty_miles / max(1, (empty_miles + paid_miles))  (if paid_miles unavailable, treat empty_ratio=0)
+idle_ratio  = idle_minutes / max(1, (idle_minutes + active_minutes)) (if unavailable, treat idle_ratio=0)
+cost_eff    = 1 - clamp(empty_ratio,0,1)
+idle_eff    = 1 - clamp(idle_ratio,0,1)
+DPI = 35*punctuality + 20*completion + 20*gps + 15*cost_eff + 10*idle_eff
+
+Clinic Reliability Index (CRI) (store but only clinic can view their own):
+no_show_control = 1 - (trips_no_show / max(1,trips_total))
+cancel_control  = 1 - (trips_cancelled / max(1,trips_total))
+punctuality_outcomes = on_time_pickup_count / max(1,trips_completed)
+CRI = 45*no_show_control + 25*cancel_control + 30*punctuality_outcomes
+
+Transport Reliability Index (TRI):
+billing_accuracy = 1 - (pricing_missing_count / max(1,trips_total))
+TRI = 40*on_time + 25*gps + 20*no_show_control + 15*billing_accuracy
+
+Cost Bleed Score:
+margin_rate = margin_cents / max(1,revenue_cents)
+Score = clamp(60*margin_rate + 20*(1-empty_ratio) + 20*(1-idle_ratio), 0, 100)
+
+5) Upsert weekly_score_snapshots for each grouping (unique week_start, city, clinic, driver)
+6) Upsert tri_scores (city + each clinic) with components json:
+{ on_time, gps, no_show_control, billing_accuracy, inputs: {counts...} }
+
+------------------------------------
+2E) RANKINGS ENDPOINTS (ROLE-SCOPED)
+------------------------------------
+GET /api/intelligence/rankings/drivers?city_id=...&weekStart=...
+Auth: SUPER_ADMIN or DISPATCH
+- Enforce dispatch city scope
+- Return top 50 by dpi_score desc for that city/week
+- Include: { rank, driver_id, name, dpi_score, trend }
+Trend:
+- Compare vs previous week snapshot if exists, else null
+
+GET /api/intelligence/rankings/clinics?city_id=...&weekStart=...
+Auth: SUPER_ADMIN or DISPATCH
+- Enforce dispatch city scope
+- Return clinics by tri_score desc for city/week
+IMPORTANT:
+- DISPATCH can see clinic TRI list but DO NOT expose revenue/margin fields here unless SUPER_ADMIN
+
+GET /api/intelligence/me/clinic?weekStart=...
+Auth: CLINIC_USER
+- Force clinic_id = actor.clinicId
+- Pull their clinic weekly snapshot + tri components
+- Also compute delta vs city average (single city row) WITHOUT exposing other clinics
+Return:
+{ clinic: {...}, cityAvg: {...}, delta: {...}, certification: {...} }
+
+Optional minimal:
+GET /api/intelligence/me/driver?weekStart=...
+Auth: DRIVER
+- Only their dpi_score and basics
+
+------------------------------------
+2F) COST BLEED ALERTS (IDEMPOTENT)
+------------------------------------
+POST /api/intelligence/alerts/cost-bleed?city_id=...&date=YYYY-MM-DD
+Auth: SUPER_ADMIN or DISPATCH
+- Enforce dispatch city scope
+- Use daily_metrics_rollup rows for the date
+Rules:
+- IDLE: idle_ratio > 0.20 => YELLOW; >0.30 => RED
+- EMPTY_MILES: empty_ratio > 0.35 => YELLOW; >0.45 => RED
+- LOW_MARGIN: margin_rate < 0.15 => YELLOW; <0.05 => RED
+- PRICING_GAPS: pricing_missing_count > 0 AND trips with pickup within next 2h => RED
+- GPS_GAPS: gps_rate < 0.90 => YELLOW; <0.80 => RED
+Idempotent:
+- Do not create duplicate OPEN alert for same (city_id, type, clinic/driver, date bucket)
+- If exists OPEN, keep it
+
+Add:
+POST /api/intelligence/alerts/:id/ack  (SUPER_ADMIN or DISPATCH)
+POST /api/intelligence/alerts/:id/resolve  (SUPER_ADMIN or DISPATCH)
+
+------------------------------------
+2G) CERTIFICATION (SUPER_ADMIN ONLY)
+------------------------------------
+POST /api/intelligence/certify?city_id=...&periodStart=YYYY-MM-DD&periodEnd=YYYY-MM-DD
+Auth: SUPER_ADMIN
+- Use tri_scores for that period/city per clinic (or recompute from weekly snapshot if period aligns)
+Rules:
+- TRI >= 85 => CERTIFIED
+- TRI >= 70 => CONDITIONAL
+- else REVOKED
+Gates:
+- if gps < 0.90 OR no_show_rate > 0.06 then force downgrade (CONDITIONAL or REVOKED depending severity)
+Upsert ucm_certifications unique(city_id, clinic_id)
+
+Return summary counts + list of changes.
+
+========================================================
+PHASE 3 — MINIMAL UI SURFACES (NON-BREAKING)
+========================================================
+Add pages without breaking existing navigation.
+
+A) SUPER_ADMIN + DISPATCH:
+Create page:
+- client/src/pages/intelligence-dashboard.tsx (or follow existing naming)
+Features:
+- City selector (use existing cities endpoint)
+- Tabs:
+  1) Driver Rankings (calls /rankings/drivers)
+  2) Clinic TRI (calls /rankings/clinics) — hide revenue/margin columns unless SUPER_ADMIN
+  3) Cost Bleed Alerts (calls new alerts list endpoint you add: GET /api/intelligence/alerts?city_id=...&status=OPEN)
+- Buttons:
+  - “Run daily rollup” (today) -> POST /rollup/daily
+  - “Run weekly snapshot” (this weekStart) -> POST /snapshots/weekly
+  - Export CSV (SUPER_ADMIN only) for drivers + clinics + alerts
+
+B) CLINIC_USER:
+Create page:
+- client/src/pages/my-performance.tsx
+Shows:
+- TRI weekly + trend
+- On-time %
+- No-show rate
+- Completed trips
+- Billing readiness (pricing_missing)
+- Certification badge + reason
+- Download weekly HTML report button:
+  - implement endpoint: GET /api/intelligence/me/clinic/report?weekStart=... returns HTML (server renders simple template)
+
+C) Routing:
+- Add route guards by role using existing role logic in client
+- Link from existing menu (admin/dispatch/clinic)
+
+========================================================
+PHASE 4 — VERIFICATION (MUST DO; SHOW RESULTS)
+========================================================
+1) Pick one city_id that already has trips in last 7 days.
+2) Run rollup for each day:
+- POST /api/intelligence/rollup/daily?city_id=...&date=YYYY-MM-DD  (7 times)
+3) Run weekly snapshot:
+- POST /api/intelligence/snapshots/weekly?city_id=...&weekStart=YYYY-MM-DD
+4) Role tests:
+- SUPER_ADMIN can hit everything
+- DISPATCH cannot query other city_id (verify 403)
+- CLINIC_USER cannot access rankings endpoints (verify 403)
+- CLINIC_USER me endpoint ignores any clinic_id param
+5) Alerts:
+- Run cost-bleed twice; verify no duplicates
+6) Certification:
+- Run certify; verify rows in ucm_certifications
+
+========================================================
+PHASE 5 — CURL EXAMPLES (MUST PROVIDE)
+========================================================
+Provide curl for:
+- daily rollup
+- weekly snapshot
+- rankings drivers
+- clinic me endpoint
+- cost alerts
+- certify
+
+========================================================
+EXIT CRITERIA (REQUIRED)
+========================================================
+- npm run check passes
+- npm run build passes
+- Server starts (npm run dev) and /api/healthz returns 200
+- You report:
+  1) Files changed list
+  2) Endpoints added list
+  3) Verification proof: command outputs + 2-3 sample responses
+
+DO NOT do any other work beyond this task.
