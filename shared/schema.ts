@@ -180,6 +180,8 @@ export const drivers = pgTable("drivers", {
   status: driverStatusEnum("status").notNull().default("ACTIVE"),
   dispatchStatus: dispatchStatusEnum("dispatch_status").notNull().default("off"),
   lastActiveAt: timestamp("last_active_at"),
+  connected: boolean("connected").notNull().default(false),
+  connectedAt: timestamp("connected_at"),
   companyId: integer("company_id").references(() => companies.id),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
@@ -1199,6 +1201,22 @@ export type InsertClinicInvoiceMonthly = z.infer<typeof insertClinicInvoiceMonth
 export const insertClinicInvoiceItemSchema = createInsertSchema(clinicInvoiceItems).omit({ id: true, createdAt: true });
 export type ClinicInvoiceItem = typeof clinicInvoiceItems.$inferSelect;
 export type InsertClinicInvoiceItem = z.infer<typeof insertClinicInvoiceItemSchema>;
+
+export const accountDeletionRequests = pgTable("account_deletion_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  role: text("role").notNull(),
+  reason: text("reason"),
+  status: text("status").notNull().default("requested"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  notes: text("notes"),
+});
+
+export const insertAccountDeletionRequestSchema = createInsertSchema(accountDeletionRequests).omit({ id: true, createdAt: true, reviewedBy: true, reviewedAt: true, notes: true });
+export type AccountDeletionRequest = typeof accountDeletionRequests.$inferSelect;
+export type InsertAccountDeletionRequest = z.infer<typeof insertAccountDeletionRequestSchema>;
 
 export const driverEmergencyEvents = pgTable("driver_emergency_events", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

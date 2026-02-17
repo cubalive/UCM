@@ -115,6 +115,7 @@ app.use("/api", (req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Stripe-Signature");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Max-Age", "86400");
   } else if (origin) {
     console.warn(`[CORS] Blocked origin="${origin}" path="${req.path}" method="${req.method}"`);

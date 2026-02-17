@@ -1,0 +1,202 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Make backend “iOS native Driver App ready” with JWT-only auth + background GPS tracking + driver CONNECT/DISCONNECT + required Apple account deletion request flow.
+
+CONTEXT:
+We already have:
+- Express API + Drizzle/Postgres
+- auth.ts supports JWT + cookie
+- sessionRevocations table exists
+- driver portal web exists
+- realtime + driver location ingest exists (or partially exists)
+We need stable mobile-native endpoints that work with Authorization: Bearer <token> (no cookies).
+
+NON-NEGOTIABLE RULES:
+- Background location should be accepted ONLY when driver is CONNECTED or has an ACTIVE TRIP.
+- No breaking changes to existing web flows.
+- Add endpoints + small helpers only.
+
+--------------------------------------------
+PHASE 1 — JWT-only mobile auth endpoints
+--------------------------------------------
+1) Ensure endpoint exists: POST /api/auth/login-jwt
+   - Input: { email, password }
+   - Output: { token, user }
+   - Must ONLY use JWT (do not require cookies).
+   - Only allow DRIVER role here; reject others with 403.
+
+2) Ensure endpoint exists: GET /api/auth/me
+   - Accept Bearer token OR cookie (existing), but mobile uses Bearer.
+   - Return { user, cities } consistent with existing web.
+
+3) Add endpoint: POST /api/auth/driver-logout
+   - Auth: DRIVER via authMiddleware
+   - Action: create sessionRevocations row for userId with revokedAfter = now()
+   - Call invalidateRevocationCache(userId)
+   - Return { ok:true }
+
+--------------------------------------------
+PHASE 2 — Driver CONNECT / DISCONNECT state
+--------------------------------------------
+Goal: A server-side “connected” state that controls whether background GPS is accepted.
+
+1) Add column(s) if missing (prefer minimal):
+   Option A (preferred): add to drivers table:
+     - connected boolean default false
+     - connectedAt timestamp nullable
+   If drivers table already has similar fields, reuse them.
+
+2) Add endpoints:
+   POST /api/driver/connect
+   POST /api/driver/disconnect
+   - Auth: requireRole("DRIVER")
+   - connect: set connected=true, connectedAt=now, lastSeenAt=now
+   - disconnect: set connected=false, lastSeenAt=now
+   - Return { ok:true, connected:boolean }
+
+3) Add endpoint: GET /api/driver/connection
+   - Auth: DRIVER
+   - Return { connected:boolean, connectedAt, lastSeenAt }
+
+--------------------------------------------
+PHASE 3 — iOS location ingest endpoint (secure + throttled)
+--------------------------------------------
+Create/confirm endpoint: POST /api/driver/location
+- Auth: DRIVER only via authMiddleware (Bearer token primary)
+- Body (Zod):
+  { lat:number, lng:number, speed?:number, heading?:number, accuracy?:number, ts?:number }
+- Security:
+  - Rate limit per driver userId (example: 1 request / 3 seconds, burst 5)
+  - Reject if NOT connected AND driver has NO active (non-terminal) trip:
+      return 403 { message:"Driver not connected" }
+- Server-side throttle:
+  - If last update < 3s ago AND movement < 20m => ignore write, return { ok:true, ignored:true }
+- Persist:
+  - Upsert latest location in existing store used by Live Map (reuse existing table or memory store)
+  - Update drivers.lastSeenAt = now
+- Realtime:
+  - Broadcast updated location to websocket subscribers (dispatch/clinic views) using existing realtime module.
+
+NOTE:
+If you already have driverLocationIngest routes, do NOT duplicate logic.
+Expose /api/driver/location as a stable alias that calls existing logic.
+
+--------------------------------------------
+PHASE 4 — Driver app data endpoints (native-friendly JSON)
+--------------------------------------------
+Add/confirm endpoints returning stable JSON (no HTML, no redirects):
+
+1) GET /api/driver/summary
+   - Auth: DRIVER
+   - Return:
+     {
+       connected:boolean,
+       lastSeenAt,
+       activeTripId?:number|null,
+       today:{ assigned:number, completed:number, cancelled:number, noShow:number },
+       week:{ completed:number, miles?:number, hours?:number },
+       score?:number|null,
+       bonusEstimate?:number|null
+     }
+
+2) GET /api/driver/trips/active
+   - Auth: DRIVER
+   - Return active trip (non-terminal) with:
+     pickup, dropoff, scheduledAt, status, routePolyline?, etaSeconds?, distanceMiles?, timestamps
+
+3) GET /api/driver/trips/upcoming?days=7
+   - Auth: DRIVER
+   - Return array of scheduled trips for next N days (default 7)
+
+4) GET /api/driver/trips/history?limit=50
+   - Auth: DRIVER
+   - Return recent completed/cancelled/no_show trips
+
+5) GET /api/driver/schedule
+   - Auth: DRIVER
+   - Return schedule blocks / availability if implemented; if not, return { items:[] } with TODO marker.
+
+6) GET /api/driver/metrics/weekly
+   - Auth: DRIVER
+   - Return weekly metrics + bonus details (reuse existing bonus system tables if present)
+
+--------------------------------------------
+PHASE 5 — Apple requirement: Account deletion request from Driver App
+--------------------------------------------
+We must provide an in-app way for drivers to request account deletion.
+
+1) Create table if missing: account_deletion_requests
+   - id serial pk
+   - userId int not null
+   - role text not null
+   - reason text nullable
+   - status text not null default 'requested'  // requested|approved|rejected|completed
+   - createdAt timestamp default now
+   - reviewedBy int nullable
+   - reviewedAt timestamp nullable
+   - notes text nullable
+
+2) Endpoint: POST /api/driver/account-deletion-request
+   - Auth: DRIVER
+   - Body: { reason?:string }
+   - Create request row (idempotent: if existing 'requested' keep one)
+   - Return { ok:true }
+
+3) Admin/Dispatch endpoint: GET /api/admin/account-deletion-requests
+   - Auth: SUPER_ADMIN or DISPATCH
+   - Return list for review
+
+4) Admin/Dispatch endpoint: POST /api/admin/account-deletion-requests/:id/resolve
+   - Auth: SUPER_ADMIN or DISPATCH
+   - Body: { status:'approved'|'rejected', notes?:string }
+   - Update row accordingly
+   - If approved, DO NOT hard delete automatically yet; mark for completion workflow.
+
+--------------------------------------------
+PHASE 6 — Hardening + correctness
+--------------------------------------------
+1) Ensure all these endpoints use authMiddleware + requireRole properly.
+2) Ensure CORS allows driver.unitedcaremobility.com and app/admin as app origins.
+3) Ensure responses are JSON; no redirects.
+4) Add audit logs for:
+   - driver_connect
+   - driver_disconnect
+   - driver_location_ingest
+   - driver_account_deletion_request
+   - account_deletion_resolve
+
+--------------------------------------------
+TEST CHECKLIST (must pass before exit)
+--------------------------------------------
+A) Auth
+- Driver login via POST /api/auth/login-jwt returns token
+- GET /api/auth/me with Bearer token works
+
+B) Connect/GPS gate
+- POST /api/driver/location when disconnected returns 403 "Driver not connected"
+- POST /api/driver/connect then location returns ok
+- POST /api/driver/disconnect then location returns 403
+
+C) Data endpoints
+- /api/driver/trips/active returns active trip or null (200)
+- /api/driver/trips/upcoming returns array
+- /api/driver/summary returns expected shape
+
+D) Deletion request
+- Driver can POST /api/driver/account-deletion-request
+- Admin/Dispatch can list and resolve requests
+
+DELIVERABLES:
+- Code changes committed in existing repo
+- No DB reset
+- Add migrations only if necessary
+- Provide brief notes: which files changed + which endpoints added

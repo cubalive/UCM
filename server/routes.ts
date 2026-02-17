@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, opsRouteGuard, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, invalidateRevocationCache, setAuthCookie, clearAuthCookie, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, tripBilling, driverShiftSwapRequests } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, tripBilling, driverShiftSwapRequests, accountDeletionRequests } from "@shared/schema";
 import { registerPushToken, unregisterPushToken, sendPushToDriver, isPushEnabled } from "./lib/push";
 import { z } from "zod";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
@@ -237,6 +237,10 @@ export async function registerRoutes(
 
       if (!user.active) {
         return res.status(403).json({ message: "Account disabled" });
+      }
+
+      if (user.role !== "DRIVER") {
+        return res.status(403).json({ message: "This endpoint is for driver accounts only" });
       }
 
       if (user.role === "DRIVER" && user.driverId && process.env.DRIVER_DEVICE_BINDING === "true") {
@@ -1761,16 +1765,38 @@ export async function registerRoutes(
   app.post("/api/auth/driver-logout", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
-      if (!user?.driverId) {
+      if (!user) {
         clearAuthCookie(res, req);
         return res.json({ ok: true });
       }
-      await db.update(drivers).set({
-        dispatchStatus: "off",
-        lastLat: null,
-        lastLng: null,
-        lastSeenAt: null,
-      }).where(eq(drivers.id, user.driverId));
+
+      await db.insert(sessionRevocations).values({
+        userId: user.id,
+        companyId: user.companyId || null,
+        revokedAfter: new Date(),
+        reason: "Driver logout",
+      });
+      invalidateRevocationCache(user.id);
+
+      if (user.driverId) {
+        await db.update(drivers).set({
+          dispatchStatus: "off",
+          connected: false,
+          lastLat: null,
+          lastLng: null,
+          lastSeenAt: null,
+        }).where(eq(drivers.id, user.driverId));
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "DRIVER_LOGOUT",
+        entity: "user",
+        entityId: user.id,
+        details: `Driver ${user.email} logged out via mobile`,
+        cityId: null,
+      });
+
       clearAuthCookie(res, req);
       res.json({ ok: true });
     } catch (err: any) {
@@ -1871,10 +1897,25 @@ export async function registerRoutes(
   });
 
   // Phase 4: Driver location heartbeat
-  app.post("/api/driver/me/location", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+  async function handleDriverLocationIngest(req: AuthRequest, res: any) {
     try {
       const user = await storage.getUser(req.user!.userId);
       if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      const hasActiveTrip = await db.select({ id: trips.id }).from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          isNull(trips.deletedAt),
+          sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
+        )).limit(1).then(r => r.length > 0);
+
+      if (!driver.connected && !hasActiveTrip) {
+        return res.status(403).json({ message: "Driver not connected" });
+      }
+
       const { lat, lng, heading, speed, accuracy, isMock } = req.body;
       if (typeof lat !== "number" || typeof lng !== "number") {
         return res.status(400).json({ message: "lat and lng are required numbers" });
@@ -1946,7 +1987,10 @@ export async function registerRoutes(
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
-  });
+  }
+
+  app.post("/api/driver/me/location", authMiddleware, requireRole("DRIVER"), handleDriverLocationIngest);
+  app.post("/api/driver/location", authMiddleware, requireRole("DRIVER"), handleDriverLocationIngest);
 
   app.get("/api/driver/active-trip", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
     try {
@@ -3338,6 +3382,451 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       }
 
       res.json({ ok: true, event });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ====== Phase 2: Driver CONNECT / DISCONNECT ======
+  app.post("/api/driver/connect", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      await db.update(drivers).set({
+        connected: true,
+        connectedAt: new Date(),
+        lastSeenAt: new Date(),
+      }).where(eq(drivers.id, user.driverId));
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "DRIVER_CONNECT",
+        entity: "driver",
+        entityId: user.driverId,
+        details: `Driver ${driver.firstName} ${driver.lastName} connected (mobile)`,
+        cityId: driver.cityId,
+      });
+
+      res.json({ ok: true, connected: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/driver/disconnect", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      await db.update(drivers).set({
+        connected: false,
+        lastSeenAt: new Date(),
+      }).where(eq(drivers.id, user.driverId));
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "DRIVER_DISCONNECT",
+        entity: "driver",
+        entityId: user.driverId,
+        details: `Driver ${driver.firstName} ${driver.lastName} disconnected (mobile)`,
+        cityId: driver.cityId,
+      });
+
+      res.json({ ok: true, connected: false });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/connection", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      res.json({
+        connected: driver.connected,
+        connectedAt: driver.connectedAt,
+        lastSeenAt: driver.lastSeenAt,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ====== Phase 4: Driver app data endpoints ======
+  app.get("/api/driver/summary", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const driver = await storage.getDriver(user.driverId);
+      if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+      const today = new Date().toISOString().split("T")[0];
+      const todayTrips = await db.select().from(trips)
+        .where(and(eq(trips.driverId, user.driverId), eq(trips.scheduledDate, today), isNull(trips.deletedAt)));
+
+      const activeTripRow = await db.select({ id: trips.id }).from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          isNull(trips.deletedAt),
+          sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
+        )).limit(1);
+
+      const now = new Date();
+      const weekDay = now.getDay();
+      const weekStartDate = new Date(now);
+      weekStartDate.setDate(now.getDate() - weekDay);
+      const weekStart = weekStartDate.toISOString().split("T")[0];
+      const weekEndDate = new Date(weekStartDate);
+      weekEndDate.setDate(weekStartDate.getDate() + 6);
+      const weekEnd = weekEndDate.toISOString().split("T")[0];
+
+      const weekTrips = await db.select().from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          sql`${trips.scheduledDate} >= ${weekStart}`,
+          sql`${trips.scheduledDate} <= ${weekEnd}`,
+          isNull(trips.deletedAt),
+        ));
+
+      const [currentScore] = await db.select().from(driverScores)
+        .where(and(eq(driverScores.driverId, user.driverId), eq(driverScores.weekStart, weekStart)));
+
+      let weekMiles = 0;
+      for (const t of weekTrips.filter(t => t.status === "COMPLETED")) {
+        weekMiles += t.distanceMiles ? Number(t.distanceMiles) : 0;
+      }
+
+      res.json({
+        connected: driver.connected,
+        lastSeenAt: driver.lastSeenAt,
+        activeTripId: activeTripRow.length > 0 ? activeTripRow[0].id : null,
+        today: {
+          assigned: todayTrips.filter(t => !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(t.status)).length,
+          completed: todayTrips.filter(t => t.status === "COMPLETED").length,
+          cancelled: todayTrips.filter(t => t.status === "CANCELLED").length,
+          noShow: todayTrips.filter(t => t.status === "NO_SHOW").length,
+        },
+        week: {
+          completed: weekTrips.filter(t => t.status === "COMPLETED").length,
+          miles: Math.round(weekMiles * 10) / 10,
+        },
+        score: currentScore?.score ?? null,
+        bonusEstimate: null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/trips/active", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const activeTrips = await db.select().from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          isNull(trips.deletedAt),
+          sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
+        )).orderBy(desc(trips.updatedAt)).limit(1);
+
+      if (activeTrips.length === 0) return res.json({ trip: null });
+
+      const trip = activeTrips[0];
+      const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+
+      res.json({
+        trip: {
+          id: trip.id,
+          publicId: trip.publicId,
+          status: trip.status,
+          pickupAddress: trip.pickupAddress,
+          pickupLat: trip.pickupLat,
+          pickupLng: trip.pickupLng,
+          dropoffAddress: trip.dropoffAddress,
+          dropoffLat: trip.dropoffLat,
+          dropoffLng: trip.dropoffLng,
+          routePolyline: trip.routePolyline,
+          lastEtaMinutes: trip.lastEtaMinutes,
+          lastEtaUpdatedAt: trip.lastEtaUpdatedAt,
+          distanceMiles: trip.distanceMiles ? Number(trip.distanceMiles) : null,
+          scheduledDate: trip.scheduledDate,
+          pickupTime: trip.pickupTime,
+          patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
+          patientPhone: patient?.phone || null,
+          scheduledPickupAt: trip.scheduledPickupAt,
+          enRoutePickupAt: trip.enRoutePickupAt,
+          arrivedPickupAt: trip.arrivedPickupAt,
+          pickedUpAt: trip.pickedUpAt,
+          enRouteDropoffAt: trip.enRouteDropoffAt,
+          arrivedDropoffAt: trip.arrivedDropoffAt,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/trips/upcoming", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const days = Math.min(parseInt(req.query.days as string) || 7, 30);
+      const today = new Date().toISOString().split("T")[0];
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + days);
+      const endDateStr = endDate.toISOString().split("T")[0];
+
+      const upcoming = await db.select().from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          isNull(trips.deletedAt),
+          sql`${trips.scheduledDate} >= ${today}`,
+          sql`${trips.scheduledDate} <= ${endDateStr}`,
+          sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
+        )).orderBy(trips.scheduledDate, trips.pickupTime);
+
+      const results = await Promise.all(upcoming.map(async (trip) => {
+        const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+        return {
+          id: trip.id,
+          publicId: trip.publicId,
+          status: trip.status,
+          scheduledDate: trip.scheduledDate,
+          pickupTime: trip.pickupTime,
+          pickupAddress: trip.pickupAddress,
+          dropoffAddress: trip.dropoffAddress,
+          patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
+          distanceMiles: trip.distanceMiles ? Number(trip.distanceMiles) : null,
+        };
+      }));
+
+      res.json({ trips: results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/trips/history", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+
+      const history = await db.select().from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          isNull(trips.deletedAt),
+          inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]),
+        )).orderBy(desc(trips.scheduledDate)).limit(limit);
+
+      const results = history.map(trip => ({
+        id: trip.id,
+        publicId: trip.publicId,
+        status: trip.status,
+        scheduledDate: trip.scheduledDate,
+        pickupTime: trip.pickupTime,
+        pickupAddress: trip.pickupAddress,
+        dropoffAddress: trip.dropoffAddress,
+        distanceMiles: trip.distanceMiles ? Number(trip.distanceMiles) : null,
+        completedAt: trip.completedAt,
+        cancelledAt: trip.cancelledAt,
+      }));
+
+      res.json({ trips: results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/schedule", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const today = new Date().toISOString().split("T")[0];
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + 14);
+      const endDateStr = endDate.toISOString().split("T")[0];
+
+      const scheduled = await db.select().from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          isNull(trips.deletedAt),
+          sql`${trips.scheduledDate} >= ${today}`,
+          sql`${trips.scheduledDate} <= ${endDateStr}`,
+          sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
+        )).orderBy(trips.scheduledDate, trips.pickupTime);
+
+      const items = scheduled.map(trip => ({
+        tripId: trip.id,
+        publicId: trip.publicId,
+        date: trip.scheduledDate,
+        time: trip.pickupTime,
+        pickupAddress: trip.pickupAddress,
+        dropoffAddress: trip.dropoffAddress,
+        status: trip.status,
+      }));
+
+      res.json({ items });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/driver/metrics/weekly", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const now = new Date();
+      const weekDay = now.getDay();
+      const weekStartDate = new Date(now);
+      weekStartDate.setDate(now.getDate() - weekDay);
+      const weekStart = weekStartDate.toISOString().split("T")[0];
+      const weekEndDate = new Date(weekStartDate);
+      weekEndDate.setDate(weekStartDate.getDate() + 6);
+      const weekEnd = weekEndDate.toISOString().split("T")[0];
+
+      const [currentScore] = await db.select().from(driverScores)
+        .where(and(eq(driverScores.driverId, user.driverId), eq(driverScores.weekStart, weekStart)));
+
+      const weekTrips = await db.select().from(trips)
+        .where(and(
+          eq(trips.driverId, user.driverId),
+          sql`${trips.scheduledDate} >= ${weekStart}`,
+          sql`${trips.scheduledDate} <= ${weekEnd}`,
+          isNull(trips.deletedAt),
+        ));
+
+      const completedTrips = weekTrips.filter(t => t.status === "COMPLETED");
+      let totalMiles = 0;
+      for (const t of completedTrips) {
+        totalMiles += t.distanceMiles ? Number(t.distanceMiles) : 0;
+      }
+
+      const [bonusRule] = await db.select().from(driverBonusRules)
+        .where(eq(driverBonusRules.cityId, (await storage.getDriver(user.driverId))?.cityId || 0));
+
+      res.json({
+        weekStart,
+        weekEnd,
+        totalTrips: weekTrips.length,
+        completedTrips: completedTrips.length,
+        cancelledTrips: weekTrips.filter(t => t.status === "CANCELLED").length,
+        noShowTrips: weekTrips.filter(t => t.status === "NO_SHOW").length,
+        completionRate: weekTrips.length > 0 ? Math.round((completedTrips.length / weekTrips.length) * 100) : 0,
+        onTimeRate: currentScore?.onTimeRate != null ? Math.round(currentScore.onTimeRate * 100) : null,
+        score: currentScore?.score ?? null,
+        totalMiles: Math.round(totalMiles * 10) / 10,
+        bonusActive: bonusRule?.isEnabled || false,
+        bonusAmount: bonusRule?.isEnabled ? bonusRule.bonusAmountCents : null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ====== Phase 5: Account deletion requests ======
+  app.post("/api/driver/account-deletion-request", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const existing = await db.select().from(accountDeletionRequests)
+        .where(and(
+          eq(accountDeletionRequests.userId, user.id),
+          eq(accountDeletionRequests.status, "requested"),
+        )).limit(1);
+
+      if (existing.length > 0) {
+        return res.json({ ok: true, message: "Deletion request already pending", requestId: existing[0].id });
+      }
+
+      const { reason } = req.body || {};
+      const [request] = await db.insert(accountDeletionRequests).values({
+        userId: user.id,
+        role: user.role,
+        reason: reason || null,
+        status: "requested",
+      }).returning();
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "ACCOUNT_DELETION_REQUEST",
+        entity: "user",
+        entityId: user.id,
+        details: `Driver ${user.email} requested account deletion. Reason: ${reason || "none"}`,
+        cityId: null,
+      });
+
+      res.json({ ok: true, requestId: request.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/account-deletion-requests", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const requests = await db.select().from(accountDeletionRequests)
+        .orderBy(desc(accountDeletionRequests.createdAt));
+
+      const enriched = await Promise.all(requests.map(async (r) => {
+        const user = await storage.getUser(r.userId);
+        return {
+          ...r,
+          userEmail: user?.email || null,
+          userName: user ? `${user.firstName} ${user.lastName}` : null,
+        };
+      }));
+
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/account-deletion-requests/:id/resolve", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const requestId = parseInt(req.params.id);
+      const [request] = await db.select().from(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.id, requestId));
+
+      if (!request) return res.status(404).json({ message: "Request not found" });
+      if (request.status !== "requested") return res.status(400).json({ message: "Request already resolved" });
+
+      const schema = z.object({
+        status: z.enum(["approved", "rejected"]),
+        notes: z.string().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request body", errors: parsed.error.flatten() });
+
+      await db.update(accountDeletionRequests).set({
+        status: parsed.data.status,
+        notes: parsed.data.notes || null,
+        reviewedBy: req.user!.userId,
+        reviewedAt: new Date(),
+      }).where(eq(accountDeletionRequests.id, requestId));
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "ACCOUNT_DELETION_RESOLVE",
+        entity: "user",
+        entityId: request.userId,
+        details: `Account deletion request #${requestId} ${parsed.data.status}. Notes: ${parsed.data.notes || "none"}`,
+        cityId: null,
+      });
+
+      res.json({ ok: true, status: parsed.data.status });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

@@ -72,6 +72,14 @@ The application follows a client-server architecture.
 - **Score Trend Chart**: Recharts-based AreaChart in metrics drawer showing score/completion/on-time trends from `/api/driver/score-history`
 - **GPS Security**: Server-side anti-spoofing with coordinate validation, mock location rejection, accuracy warnings, and velocity-based teleport detection
 
+## iOS Native Driver App API (Backend-Ready)
+- **JWT-Only Auth**: `POST /api/auth/login-jwt` (DRIVER-only, returns token+user), `GET /api/auth/me` (Bearer token), `POST /api/auth/driver-logout` (session revocation + driver reset)
+- **Connect/Disconnect**: `POST /api/driver/connect`, `POST /api/driver/disconnect`, `GET /api/driver/connection` — server-side `connected` boolean on drivers table controls GPS acceptance
+- **Location Ingest**: `POST /api/driver/location` (stable alias for `/api/driver/me/location`) — requires driver CONNECTED or active trip; rejects with 403 "Driver not connected" otherwise; includes spoof detection + throttle
+- **Data Endpoints**: `GET /api/driver/summary` (today/week stats, connected state, active trip), `GET /api/driver/trips/active` (single active trip with timestamps), `GET /api/driver/trips/upcoming?days=7`, `GET /api/driver/trips/history?limit=50`, `GET /api/driver/schedule` (next 14 days), `GET /api/driver/metrics/weekly` (scores, bonus, miles)
+- **Account Deletion (Apple)**: `POST /api/driver/account-deletion-request` (idempotent), `GET /api/admin/account-deletion-requests`, `POST /api/admin/account-deletion-requests/:id/resolve` — `account_deletion_requests` table with requested/approved/rejected/completed statuses
+- **Audit Events**: DRIVER_CONNECT, DRIVER_DISCONNECT, DRIVER_LOGOUT, ACCOUNT_DELETION_REQUEST, ACCOUNT_DELETION_RESOLVE logged to audit_log table
+
 ## Mobile Driver App (Capacitor)
 - **Location**: `mobile-driver/` — separate build target, does not affect web app
 - **App ID**: `com.unitedcaremobility.driver`
