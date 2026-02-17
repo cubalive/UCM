@@ -61,6 +61,9 @@ import DataImportPage from "@/pages/data-import";
 import CompaniesPage from "@/pages/companies";
 import TimecardsPage from "@/pages/timecards";
 import TpPayrollPage from "@/pages/tp-payroll";
+import BillingTariffsPage from "@/pages/billing-tariffs";
+import ClinicBillingV2Page from "@/pages/clinic-billing-v2";
+import SupportChatPage from "@/pages/support-chat";
 import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
@@ -301,6 +304,9 @@ function Router() {
       <Route path="/companies">{() => <SuperAdminRoute component={CompaniesPage} />}</Route>
       <Route path="/timecards">{() => <ProtectedRoute resource="time_entries" component={TimecardsPage} />}</Route>
       <Route path="/tp-payroll">{() => <ProtectedRoute resource="payroll" component={TpPayrollPage} />}</Route>
+      <Route path="/billing-config">{() => <ProtectedRoute resource="billing" component={BillingTariffsPage} />}</Route>
+      <Route path="/clinic-billing-v2">{() => <ProtectedRoute resource="billing" component={ClinicBillingV2Page} />}</Route>
+      <Route path="/support-chat">{() => <ProtectedRoute resource="support" component={SupportChatPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

@@ -13,7 +13,9 @@ export type Resource =
   | "users"
   | "audit"
   | "time_entries"
-  | "payroll";
+  | "payroll"
+  | "billing"
+  | "support";
 
 export type Permission = "read" | "write" | "self";
 
@@ -32,6 +34,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     audit: ["read"],
     time_entries: ["read", "write"],
     payroll: ["read", "write"],
+    billing: ["read", "write"],
+    support: ["read", "write"],
   },
   ADMIN: {
     dashboard: ["read"],
@@ -47,6 +51,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     audit: ["read"],
     time_entries: ["read", "write"],
     payroll: ["read", "write"],
+    billing: ["read", "write"],
+    support: ["read", "write"],
   },
   COMPANY_ADMIN: {
     dashboard: ["read"],
@@ -62,6 +68,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     audit: ["read"],
     time_entries: ["read", "write"],
     payroll: ["read", "write"],
+    billing: ["read", "write"],
+    support: ["read", "write"],
   },
   DISPATCH: {
     dashboard: ["read"],
@@ -77,6 +85,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     audit: [],
     time_entries: ["read", "write"],
     payroll: ["read"],
+    billing: ["read", "write"],
+    support: ["read", "write"],
   },
   DRIVER: {
     dashboard: [],
@@ -92,6 +102,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     audit: [],
     time_entries: ["self"],
     payroll: [],
+    billing: [],
+    support: [],
   },
   VIEWER: {
     dashboard: [],
@@ -107,6 +119,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     audit: [],
     time_entries: [],
     payroll: [],
+    billing: ["read"],
+    support: ["read", "write"],
   },
 };
 

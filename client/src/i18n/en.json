@@ -75,7 +75,10 @@
     "prediction": "Prediction",
     "publishCenter": "Publish Center",
     "dataImport": "Data Import",
-    "companies": "Companies"
+    "companies": "Companies",
+    "billingConfig": "Billing Config",
+    "clinicBillingV2": "Clinic Invoices",
+    "supportChat": "Support Chat"
   },
   "dashboard": {
     "title": "Dashboard",

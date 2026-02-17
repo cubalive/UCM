@@ -75,7 +75,10 @@
     "prediction": "Predicción",
     "publishCenter": "Centro de Publicación",
     "dataImport": "Importar Datos",
-    "companies": "Empresas"
+    "companies": "Empresas",
+    "billingConfig": "Config. Facturación",
+    "clinicBillingV2": "Facturas Clínica",
+    "supportChat": "Chat de Soporte"
   },
   "dashboard": {
     "title": "Panel Principal",

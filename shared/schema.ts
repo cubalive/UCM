@@ -16,6 +16,9 @@ export const userRoleEnum = pgEnum("user_role", [
 export const companies = pgTable("companies", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
+  dispatchPhone: text("dispatch_phone"),
+  dispatchChatEnabled: boolean("dispatch_chat_enabled").notNull().default(true),
+  dispatchCallEnabled: boolean("dispatch_call_enabled").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -334,6 +337,10 @@ export const trips = pgTable("trips", {
   pricingSnapshot: jsonb("pricing_snapshot"),
   verificationToken: text("verification_token"),
   pdfHash: text("pdf_hash"),
+  sharedGroupId: text("shared_group_id"),
+  sharedPassengerCount: integer("shared_passenger_count").notNull().default(1),
+  sharedPricingMode: text("shared_pricing_mode").notNull().default("PER_PATIENT"),
+  primaryTripId: integer("primary_trip_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -1180,33 +1187,68 @@ export type InsertDriverPushToken = z.infer<typeof insertDriverPushTokenSchema>;
 
 export const clinicTariffs = pgTable("clinic_tariffs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  companyId: integer("company_id").references(() => companies.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
   cityId: integer("city_id").references(() => cities.id),
+  name: text("name").notNull().default("Default"),
+  pricingModel: text("pricing_model").notNull().default("MILES_TIME"),
   baseFeeCents: integer("base_fee_cents").notNull().default(0),
   perMileCents: integer("per_mile_cents").notNull().default(0),
+  perMinuteCents: integer("per_minute_cents").notNull().default(0),
   waitMinuteCents: integer("wait_minute_cents").notNull().default(0),
   wheelchairExtraCents: integer("wheelchair_extra_cents").notNull().default(0),
+  sharedTripMode: text("shared_trip_mode").notNull().default("PER_PATIENT"),
+  sharedTripDiscountPct: numeric("shared_trip_discount_pct", { precision: 5, scale: 2 }).notNull().default("0"),
+  noShowFeeCents: integer("no_show_fee_cents").notNull().default(0),
+  cancelFeeCents: integer("cancel_fee_cents").notNull().default(0),
+  minimumFareCents: integer("minimum_fare_cents").notNull().default(0),
+  currency: text("currency").notNull().default("USD"),
   effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("ct_company_clinic_active_idx").on(table.companyId, table.clinicId, table.active),
+]);
 
 export const tripBilling = pgTable("trip_billing", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  tripId: integer("trip_id").notNull().references(() => trips.id).unique(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  companyId: integer("company_id").references(() => companies.id),
   clinicId: integer("clinic_id").references(() => clinics.id),
+  patientId: integer("patient_id").references(() => patients.id),
   cityId: integer("city_id").references(() => cities.id),
+  serviceDate: text("service_date"),
+  statusAtBill: text("status_at_bill").notNull().default("COMPLETED"),
+  pricingMode: text("pricing_mode").notNull().default("TARIFF"),
+  tariffId: integer("tariff_id").references(() => clinicTariffs.id),
+  contractPriceCents: integer("contract_price_cents"),
   mobilityRequirement: text("mobility_requirement").notNull().default("STANDARD"),
   distanceMiles: numeric("distance_miles", { precision: 10, scale: 2 }),
   waitMinutes: integer("wait_minutes").notNull().default(0),
   baseFeeCents: integer("base_fee_cents").notNull().default(0),
+  perMileCents: integer("per_mile_cents").notNull().default(0),
   mileageCents: integer("mileage_cents").notNull().default(0),
+  perMinuteCents: integer("per_minute_cents").notNull().default(0),
+  minutesCents: integer("minutes_cents").notNull().default(0),
   waitCents: integer("wait_cents").notNull().default(0),
   wheelchairCents: integer("wheelchair_cents").notNull().default(0),
+  sharedPassengers: integer("shared_passengers").notNull().default(1),
+  sharedDiscountCents: integer("shared_discount_cents").notNull().default(0),
+  noShowFeeCents: integer("no_show_fee_cents").notNull().default(0),
+  cancelFeeCents: integer("cancel_fee_cents").notNull().default(0),
+  adjustmentsCents: integer("adjustments_cents").notNull().default(0),
+  subtotalCents: integer("subtotal_cents").notNull().default(0),
   totalCents: integer("total_cents").notNull().default(0),
+  currency: text("currency").notNull().default("USD"),
+  components: jsonb("components").notNull().default({}),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("tb_trip_patient_idx").on(table.tripId, table.patientId),
+  index("tb_company_clinic_idx").on(table.companyId, table.clinicId),
+  index("tb_service_date_idx").on(table.serviceDate),
+]);
 
 export const clinicInvoicesMonthly = pgTable("clinic_invoices_monthly", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -1326,6 +1368,7 @@ export type InsertClinicBillingSettings = z.infer<typeof insertClinicBillingSett
 
 export const billingCycleInvoices = pgTable("billing_cycle_invoices", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").references(() => companies.id),
   clinicId: integer("clinic_id").notNull().references(() => clinics.id),
   periodStart: text("period_start").notNull(),
   periodEnd: text("period_end").notNull(),
@@ -1347,11 +1390,14 @@ export const billingCycleInvoices = pgTable("billing_cycle_invoices", {
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   stripeCheckoutUrl: text("stripe_checkout_url"),
   lastPaymentAt: timestamp("last_payment_at"),
+  locked: boolean("locked").notNull().default(false),
+  receiptUrl: text("receipt_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   index("bci_clinic_period_idx").on(table.clinicId, table.periodStart, table.periodEnd, table.status),
   index("bci_payment_status_idx").on(table.paymentStatus, table.dueDate),
+  index("bci_company_idx").on(table.companyId),
 ]);
 
 export const insertBillingCycleInvoiceSchema = createInsertSchema(billingCycleInvoices).omit({ createdAt: true, updatedAt: true });
@@ -1362,6 +1408,7 @@ export const billingCycleInvoiceItems = pgTable("billing_cycle_invoice_items", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   invoiceId: integer("invoice_id").notNull().references(() => billingCycleInvoices.id, { onDelete: "cascade" }),
   tripId: integer("trip_id").references(() => trips.id),
+  patientId: integer("patient_id").references(() => patients.id),
   description: text("description").notNull(),
   amountCents: integer("amount_cents").notNull(),
   metadata: jsonb("metadata").notNull().default({}),
@@ -2057,3 +2104,57 @@ export const tpPayrollItems = pgTable("tp_payroll_items", {
   uniqueIndex("tpi_run_driver_idx").on(table.runId, table.driverId),
   index("tpi_company_idx").on(table.companyId),
 ]);
+
+export const supportThreads = pgTable("support_threads", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  subject: text("subject").notNull().default(""),
+  status: text("status").notNull().default("OPEN"),
+  lastMessageAt: timestamp("last_message_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("st_company_status_idx").on(table.companyId, table.status),
+  index("st_clinic_idx").on(table.clinicId),
+]);
+
+export const insertSupportThreadSchema = createInsertSchema(supportThreads).omit({ id: true, createdAt: true });
+export type SupportThread = typeof supportThreads.$inferSelect;
+export type InsertSupportThread = z.infer<typeof insertSupportThreadSchema>;
+
+export const supportMessages = pgTable("support_messages", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  threadId: integer("thread_id").notNull().references(() => supportThreads.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  senderRole: text("sender_role").notNull(),
+  senderUserId: integer("sender_user_id").notNull().references(() => users.id),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("sm_thread_idx").on(table.threadId),
+]);
+
+export const insertSupportMessageSchema = createInsertSchema(supportMessages).omit({ id: true, createdAt: true });
+export type SupportMessage = typeof supportMessages.$inferSelect;
+export type InsertSupportMessage = z.infer<typeof insertSupportMessageSchema>;
+
+export const recurringPricingOverrides = pgTable("recurring_pricing_overrides", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  scheduleId: integer("schedule_id").references(() => recurringSchedules.id),
+  effectiveFrom: text("effective_from").notNull(),
+  effectiveTo: text("effective_to"),
+  priceCents: integer("price_cents").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("rpo_unique_idx").on(table.companyId, table.clinicId, table.patientId, table.scheduleId, table.effectiveFrom),
+]);
+
+export const insertRecurringPricingOverrideSchema = createInsertSchema(recurringPricingOverrides).omit({ id: true, createdAt: true });
+export type RecurringPricingOverride = typeof recurringPricingOverrides.$inferSelect;
+export type InsertRecurringPricingOverride = z.infer<typeof insertRecurringPricingOverrideSchema>;

@@ -63,6 +63,8 @@ import {
   Send,
   Upload,
   Building,
+  MessageSquare,
+  Settings2,
 } from "lucide-react";
 
 interface NavItem {
@@ -95,6 +97,9 @@ const navItems: NavItem[] = [
   { titleKey: "nav.shiftSwaps", url: "/dispatch-swaps", icon: ArrowLeftRight, resource: "dispatch" },
   { titleKey: "nav.timecards", url: "/timecards", icon: Clock, resource: "time_entries" },
   { titleKey: "nav.tpPayroll", url: "/tp-payroll", icon: Banknote, resource: "payroll" },
+  { titleKey: "nav.billingConfig", url: "/billing-config", icon: Settings2, resource: "billing" },
+  { titleKey: "nav.clinicBillingV2", url: "/clinic-billing-v2", icon: Receipt, resource: "billing" },
+  { titleKey: "nav.supportChat", url: "/support-chat", icon: MessageSquare, resource: "support" },
 ];
 
 const adminItems: NavItem[] = [
