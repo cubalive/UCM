@@ -1,5 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { getStoredToken, getStoredCityId } from "./api";
+import { getStoredToken, getStoredCityId, getStoredCompanyScopeId } from "./api";
 import { isDriverHost } from "./hostDetection";
 
 function getDeviceFingerprint(): string | null {
@@ -40,6 +40,8 @@ function buildDefaultHeaders(): Record<string, string> {
   if (cityId) headers["X-City-Id"] = cityId;
   const fp = getDeviceFingerprint();
   if (fp) headers["X-UCM-Device"] = fp;
+  const scopeId = getStoredCompanyScopeId();
+  if (scopeId) headers["x-ucm-company-id"] = scopeId;
   return headers;
 }
 

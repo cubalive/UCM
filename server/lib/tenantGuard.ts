@@ -33,6 +33,13 @@ export function tenantGuard(req: AuthRequest, res: Response, next: NextFunction)
   if (!req.user) return next();
 
   if (SUPER_ADMIN_BYPASS_ROLES.includes(req.user.role)) {
+    const headerVal = req.headers["x-ucm-company-id"];
+    if (headerVal) {
+      const parsed = parseInt(String(headerVal), 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        (req as any).companyId = parsed;
+      }
+    }
     return next();
   }
 
@@ -45,10 +52,30 @@ export function tenantGuard(req: AuthRequest, res: Response, next: NextFunction)
   next();
 }
 
+export function getEffectiveCompanyId(req: AuthRequest): number | null {
+  if (!req.user) return null;
+  if (SUPER_ADMIN_BYPASS_ROLES.includes(req.user.role)) {
+    const headerVal = req.headers["x-ucm-company-id"];
+    if (headerVal) {
+      const parsed = parseInt(String(headerVal), 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return null;
+  }
+  return req.user.companyId || null;
+}
+
 export function requireCompanyId(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) return res.status(401).json({ message: "Unauthorized" });
 
   if (SUPER_ADMIN_BYPASS_ROLES.includes(req.user.role)) {
+    const headerVal = req.headers["x-ucm-company-id"];
+    if (headerVal) {
+      const parsed = parseInt(String(headerVal), 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        (req as any).companyId = parsed;
+      }
+    }
     return next();
   }
 

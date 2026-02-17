@@ -61,6 +61,7 @@ import {
   TrendingUp,
   Send,
   Upload,
+  Building,
 } from "lucide-react";
 
 interface NavItem {
@@ -109,6 +110,7 @@ const adminItems: NavItem[] = [
   { titleKey: "nav.prediction", url: "/prediction", icon: TrendingUp, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.publishCenter", url: "/publish-center", icon: Send, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.dataImport", url: "/admin/imports", icon: Upload, resource: "audit", superAdminOnly: true },
+  { titleKey: "nav.companies", url: "/companies", icon: Building, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.metrics", url: "/metrics", icon: BarChart, resource: "audit", superAdminOnly: true },
 ];
 

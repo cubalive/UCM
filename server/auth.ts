@@ -200,7 +200,14 @@ export function opsRouteGuard(req: AuthRequest, res: Response, next: NextFunctio
 
 export function getCompanyIdFromAuth(req: AuthRequest): number | null {
   if (!req.user) return null;
-  if (req.user.role === "SUPER_ADMIN") return null;
+  if (req.user.role === "SUPER_ADMIN") {
+    const headerVal = req.headers["x-ucm-company-id"];
+    if (headerVal) {
+      const parsed = parseInt(String(headerVal), 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return null;
+  }
   return req.user.companyId || null;
 }
 
@@ -243,10 +250,18 @@ export async function getActorContext(req: AuthRequest): Promise<ActorContext | 
     .where(eq(users.id, userId))
     .then(r => r[0]);
   const allowedCityIds = await getUserCityIds(userId, role);
+  let effectiveCompanyId = companyId || null;
+  if (role === "SUPER_ADMIN") {
+    const headerVal = req.headers["x-ucm-company-id"];
+    if (headerVal) {
+      const parsed = parseInt(String(headerVal), 10);
+      if (!isNaN(parsed) && parsed > 0) effectiveCompanyId = parsed;
+    }
+  }
   return {
     userId,
     role,
-    companyId: companyId || null,
+    companyId: effectiveCompanyId,
     clinicId: user?.clinicId || null,
     driverId: user?.driverId || null,
     cityId: allowedCityIds.length === 1 ? allowedCityIds[0] : null,

@@ -42,6 +42,24 @@ function getDeviceFingerprint(): string | null {
   }
 }
 
+export function getStoredCompanyScopeId(): string | null {
+  try {
+    return localStorage.getItem("ucm.superadmin.companyScopeId");
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredCompanyScopeId(id: string | null) {
+  try {
+    if (id) {
+      localStorage.setItem("ucm.superadmin.companyScopeId", id);
+    } else {
+      localStorage.removeItem("ucm.superadmin.companyScopeId");
+    }
+  } catch {}
+}
+
 function buildHeaders(token: string | null, extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -49,6 +67,8 @@ function buildHeaders(token: string | null, extra?: Record<string, string>): Rec
   if (cityId) headers["X-City-Id"] = cityId;
   const fp = getDeviceFingerprint();
   if (fp) headers["X-UCM-Device"] = fp;
+  const scopeId = getStoredCompanyScopeId();
+  if (scopeId) headers["x-ucm-company-id"] = scopeId;
   return headers;
 }
 

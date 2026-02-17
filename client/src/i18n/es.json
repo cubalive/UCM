@@ -72,7 +72,8 @@
     "auditShield": "Escudo de Auditoría",
     "prediction": "Predicción",
     "publishCenter": "Centro de Publicación",
-    "dataImport": "Importar Datos"
+    "dataImport": "Importar Datos",
+    "companies": "Empresas"
   },
   "dashboard": {
     "title": "Panel Principal",

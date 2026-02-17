@@ -72,7 +72,8 @@
     "auditShield": "Audit Shield",
     "prediction": "Prediction",
     "publishCenter": "Publish Center",
-    "dataImport": "Data Import"
+    "dataImport": "Data Import",
+    "companies": "Companies"
   },
   "dashboard": {
     "title": "Dashboard",

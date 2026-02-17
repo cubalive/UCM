@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,12 +10,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LogOut, Settings, MapPin } from "lucide-react";
+import { LogOut, Settings, MapPin, Crosshair, X } from "lucide-react";
 import { Link } from "wouter";
 import { queryClient } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useTranslation } from "react-i18next";
+import { getStoredCompanyScopeId, setStoredCompanyScopeId } from "@/lib/api";
+import type { Company } from "@shared/schema";
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: "Super Admin",
@@ -23,6 +27,44 @@ const ROLE_LABELS: Record<string, string> = {
   DRIVER: "Driver",
   VIEWER: "Viewer",
 };
+
+function TenantScopeBadge() {
+  const [scopeId, setScopeId] = useState<string | null>(() => getStoredCompanyScopeId());
+
+  const { data: companies = [] } = useQuery<Company[]>({
+    queryKey: ["/api/companies"],
+    enabled: !!scopeId,
+  });
+
+  useEffect(() => {
+    const handler = () => setScopeId(getStoredCompanyScopeId());
+    window.addEventListener("ucm-scope-changed", handler);
+    return () => window.removeEventListener("ucm-scope-changed", handler);
+  }, []);
+
+  if (!scopeId) return null;
+
+  const companyName = companies.find(c => String(c.id) === scopeId)?.name || `#${scopeId}`;
+
+  const handleClear = () => {
+    setStoredCompanyScopeId(null);
+    setScopeId(null);
+    queryClient.invalidateQueries();
+    window.dispatchEvent(new CustomEvent("ucm-scope-changed"));
+  };
+
+  return (
+    <div className="flex items-center gap-1.5" data-testid="tenant-scope-badge">
+      <Crosshair className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+      <Badge variant="default" className="text-xs" data-testid="badge-tenant-scope">
+        {companyName}
+      </Badge>
+      <Button size="sm" variant="ghost" onClick={handleClear} data-testid="button-clear-scope-header">
+        <X className="w-3 h-3" />
+      </Button>
+    </div>
+  );
+}
 
 export function DashboardHeader() {
   const { user, selectedCity, cities, setSelectedCity, isSuperAdmin, logout } = useAuth();
@@ -104,6 +146,7 @@ export function DashboardHeader() {
       </div>
 
       <div className="flex items-center gap-1 flex-shrink-0">
+        {isSuperAdmin && <TenantScopeBadge />}
         <Badge variant="secondary" className="hidden sm:inline-flex" data-testid="badge-header-role">
           {roleLabel}
         </Badge>
