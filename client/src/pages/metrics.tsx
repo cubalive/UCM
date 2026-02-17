@@ -388,7 +388,44 @@ export default function MetricsPage() {
     });
   }, [googleData]);
 
+  if (!user || user.role !== "SUPER_ADMIN") {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]" data-testid="metrics-unauthorized">
+        <Card className="w-full max-w-sm mx-4">
+          <CardContent className="p-6 text-center space-y-3">
+            <Shield className="h-8 w-8 text-destructive mx-auto" />
+            <p className="font-semibold">Unauthorized</p>
+            <p className="text-sm text-muted-foreground">
+              System Metrics is restricted to Super Admin users only.
+              Contact your Super Admin for access.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (metricsLoading && !metrics) return <LoadingSkeleton />;
+
+  const is403or401 = metricsError instanceof Error &&
+    (metricsError.message.startsWith("403") || metricsError.message.startsWith("401"));
+
+  if (is403or401) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]" data-testid="metrics-unauthorized">
+        <Card className="w-full max-w-sm mx-4">
+          <CardContent className="p-6 text-center space-y-3">
+            <Shield className="h-8 w-8 text-destructive mx-auto" />
+            <p className="font-semibold">Unauthorized</p>
+            <p className="text-sm text-muted-foreground">
+              You do not have permission to view System Metrics.
+              Contact your Super Admin for access.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (metricsError) {
     return (
@@ -396,7 +433,10 @@ export default function MetricsPage() {
         <Card className="w-full max-w-sm mx-4">
           <CardContent className="p-6 text-center space-y-3">
             <AlertTriangle className="h-8 w-8 text-destructive mx-auto" />
-            <p className="text-sm text-muted-foreground">Failed to load metrics</p>
+            <p className="font-semibold">Failed to load metrics</p>
+            <p className="text-sm text-muted-foreground">
+              {metricsError instanceof Error ? metricsError.message : "An unexpected error occurred."}
+            </p>
             <Button onClick={() => refetchMetrics()} data-testid="button-retry-metrics">
               <RefreshCw className="mr-2 h-4 w-4" />
               Retry
@@ -405,6 +445,10 @@ export default function MetricsPage() {
         </Card>
       </div>
     );
+  }
+
+  if (!metrics && !metricsLoading) {
+    return <LoadingSkeleton />;
   }
 
   const req = metrics?.request;
