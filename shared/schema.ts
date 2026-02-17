@@ -1860,3 +1860,113 @@ export const importJobEvents = pgTable("import_job_events", {
 export const insertImportJobEventSchema = createInsertSchema(importJobEvents).omit({ createdAt: true });
 export type ImportJobEvent = typeof importJobEvents.$inferSelect;
 export type InsertImportJobEvent = z.infer<typeof insertImportJobEventSchema>;
+
+export const payrollCadenceEnum = pgEnum("payroll_cadence", ["WEEKLY", "BIWEEKLY", "MONTHLY"]);
+export const payrollPayModeEnum = pgEnum("payroll_pay_mode", ["PER_TRIP", "HOURLY"]);
+
+export const companyPayrollSettings = pgTable("company_payroll_settings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().unique().references(() => companies.id),
+  cadence: payrollCadenceEnum("cadence").notNull(),
+  paydayWeekday: integer("payday_weekday"),
+  paydayDayOfMonth: integer("payday_day_of_month"),
+  timezone: text("timezone").notNull().default("America/Los_Angeles"),
+  payMode: payrollPayModeEnum("pay_mode").notNull(),
+  hourlyRateCents: integer("hourly_rate_cents"),
+  perTripFlatCents: integer("per_trip_flat_cents"),
+  perTripPercentBps: integer("per_trip_percent_bps"),
+  requireTripFinalized: boolean("require_trip_finalized").notNull().default(true),
+  requireClinicPaid: boolean("require_clinic_paid").notNull().default(false),
+  minimumPayoutCents: integer("minimum_payout_cents").notNull().default(0),
+  holdbackDays: integer("holdback_days").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCompanyPayrollSettingsSchema = createInsertSchema(companyPayrollSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export type CompanyPayrollSettings = typeof companyPayrollSettings.$inferSelect;
+export type InsertCompanyPayrollSettings = z.infer<typeof insertCompanyPayrollSettingsSchema>;
+
+export const driverStripeAccountStatusEnum = pgEnum("driver_stripe_account_status", ["PENDING", "RESTRICTED", "ACTIVE"]);
+
+export const driverStripeAccounts = pgTable("driver_stripe_accounts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  stripeAccountId: text("stripe_account_id").notNull(),
+  status: driverStripeAccountStatusEnum("status").notNull().default("PENDING"),
+  payoutsEnabled: boolean("payouts_enabled").notNull().default(false),
+  detailsSubmitted: boolean("details_submitted").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("driver_stripe_company_driver_idx").on(table.companyId, table.driverId),
+]);
+
+export const insertDriverStripeAccountSchema = createInsertSchema(driverStripeAccounts).omit({ id: true, createdAt: true });
+export type DriverStripeAccount = typeof driverStripeAccounts.$inferSelect;
+export type InsertDriverStripeAccount = z.infer<typeof insertDriverStripeAccountSchema>;
+
+export const earningTypeEnum = pgEnum("earning_type", ["TRIP", "HOURLY", "ADJUSTMENT"]);
+export const earningStatusEnum = pgEnum("earning_status", ["EARNED", "ELIGIBLE", "IN_PAYRUN", "PAID", "VOID"]);
+
+export const driverEarningsLedger = pgTable("driver_earnings_ledger", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  tripId: integer("trip_id").references(() => trips.id),
+  earningType: earningTypeEnum("earning_type").notNull(),
+  units: numeric("units"),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  earnedAt: timestamp("earned_at").notNull(),
+  eligibleAt: timestamp("eligible_at").notNull(),
+  status: earningStatusEnum("status").notNull().default("EARNED"),
+  payrunId: integer("payrun_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("ledger_trip_driver_type_idx").on(table.companyId, table.driverId, table.tripId, table.earningType),
+  index("ledger_company_driver_status_idx").on(table.companyId, table.driverId, table.status),
+  index("ledger_eligible_at_idx").on(table.eligibleAt),
+]);
+
+export const insertDriverEarningsLedgerSchema = createInsertSchema(driverEarningsLedger).omit({ id: true, createdAt: true });
+export type DriverEarningsLedger = typeof driverEarningsLedger.$inferSelect;
+export type InsertDriverEarningsLedger = z.infer<typeof insertDriverEarningsLedgerSchema>;
+
+export const payrunStatusEnum = pgEnum("payrun_status", ["DRAFT", "APPROVED", "PROCESSING", "PAID", "FAILED", "VOID"]);
+
+export const payrollPayruns = pgTable("payroll_payruns", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  payMode: payrollPayModeEnum("pay_mode").notNull(),
+  cadence: payrollCadenceEnum("cadence").notNull(),
+  scheduledPayday: text("scheduled_payday").notNull(),
+  status: payrunStatusEnum("status").notNull().default("DRAFT"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  processedAt: timestamp("processed_at"),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertPayrollPayrunSchema = createInsertSchema(payrollPayruns).omit({ id: true, createdAt: true });
+export type PayrollPayrun = typeof payrollPayruns.$inferSelect;
+export type InsertPayrollPayrun = z.infer<typeof insertPayrollPayrunSchema>;
+
+export const payrollPayrunItems = pgTable("payroll_payrun_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  payrunId: integer("payrun_id").notNull().references(() => payrollPayruns.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  amountCents: integer("amount_cents").notNull(),
+  stripeTransferId: text("stripe_transfer_id"),
+  paidAt: timestamp("paid_at"),
+}, (table) => [
+  uniqueIndex("payrun_item_driver_idx").on(table.payrunId, table.driverId),
+]);
+
+export const insertPayrollPayrunItemSchema = createInsertSchema(payrollPayrunItems).omit({ id: true });
+export type PayrollPayrunItem = typeof payrollPayrunItems.$inferSelect;
+export type InsertPayrollPayrunItem = z.infer<typeof insertPayrollPayrunItemSchema>;

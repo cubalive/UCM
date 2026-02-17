@@ -53,6 +53,15 @@ The application follows a client-server architecture.
     - **Google Directions Circuit Breaker**: Prevents overload of Google Directions API.
     - **Ops Metrics Dashboard**: Visualizes operational metrics.
 - **Financial & Billing**: Automatic invoice email sending with Stripe integration and detailed clinic cancel/billing workflow.
+- **Company-to-Driver Payroll**:
+    - **Payroll Settings**: Per-company configuration for PER_TRIP or HOURLY pay modes, cadence (WEEKLY/BIWEEKLY/MONTHLY), holdback days, minimum payout thresholds.
+    - **Earnings Ledger**: Idempotent earnings generation from completed trips with status lifecycle (EARNED→ELIGIBLE→IN_PAYRUN→PAID).
+    - **Payrun Management**: Draft→Approved→Processing→Paid lifecycle with idempotency keys and period-based deduplication.
+    - **Stripe Transfers**: Driver Stripe Connect onboarding and automated transfers via connected accounts.
+    - **Scheduler**: Hourly background check for due payruns + internal API endpoint for manual triggers.
+    - **Role Gating**: SUPER_ADMIN (all companies), COMPANY_ADMIN (own company), DRIVER (own earnings/payruns only).
+    - **Tables**: `company_payroll_settings`, `driver_stripe_accounts`, `driver_earnings_ledger`, `payroll_payruns`, `payroll_payrun_items`.
+    - **Routes**: `server/lib/payrollRoutes.ts`.
 - **Driver App Experience**:
     - **Today Dashboard**: Card-based home view.
     - **Status Confirmations**: Requires confirmation for trip status changes.

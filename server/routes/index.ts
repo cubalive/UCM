@@ -29,6 +29,7 @@ import { registerAssignmentRoutes } from "../lib/assignmentRoutes";
 import { registerPublicApiRoutes } from "../lib/publicApiRoutes";
 import { registerClinicBillingRoutes } from "../lib/clinicBillingRoutes";
 import { registerStripeConnectRoutes } from "../lib/stripeConnectRoutes";
+import { registerPayrollRoutes, startPayrollScheduler } from "../lib/payrollRoutes";
 import { registerIntelligenceRoutes } from "./intelligence.routes";
 import { registerImportRoutes } from "./imports.routes";
 import { startRouteScheduler } from "../lib/routeEngine";
@@ -61,6 +62,7 @@ export async function registerRoutes(
   registerPublicApiRoutes(app);
   registerClinicBillingRoutes(app);
   registerStripeConnectRoutes(app);
+  registerPayrollRoutes(app);
 
   registerAuthRoutes(app);
   registerCityRoutes(app);
@@ -83,6 +85,7 @@ export async function registerRoutes(
   startRecurringScheduleScheduler();
   startAiEngine();
   startOpsScheduler();
+  startPayrollScheduler();
 
   return httpServer;
 }
