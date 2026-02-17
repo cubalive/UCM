@@ -1,0 +1,153 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT modify business logic
+- Verification mode only
+- If something is wrong, report — do NOT auto-fix
+
+OBJECTIVE:
+Run a FULL SYSTEM VERIFICATION of UCM after recent changes
+(Intelligence Core, Multi-tenant, Authenticated Downloads, Tenant UI, etc.)
+
+========================================================
+PHASE 1 — TYPE SAFETY + BUILD
+========================================================
+
+1) Run:
+   npm run check
+   npx tsc --noEmit
+
+✔ Confirm: 0 TypeScript errors
+
+2) Run:
+   npm run build
+
+✔ Confirm: build successful
+
+3) Run:
+   npm run dev (quick start check)
+
+✔ Confirm:
+   - Server starts
+   - No runtime exceptions on boot
+   - No missing env variables
+
+Return exact output summary.
+
+========================================================
+PHASE 2 — AUTH + ROLE SCOPING VALIDATION
+========================================================
+
+Simulate 4 roles:
+- SUPER_ADMIN
+- DISPATCH
+- CLINIC_USER
+- DRIVER
+
+For each role verify:
+
+1) Access control:
+   - Cannot access endpoints outside role scope
+   - Cannot query other city_id if dispatch
+   - Clinic user cannot see other clinics
+   - Driver only sees own data
+
+2) Tenant isolation:
+   - Confirm every query involving city/company/clinic is scoped
+   - Confirm tenantGuard is applied on all protected routes
+
+Return:
+✔ PASS / ❌ FAIL per role
+
+========================================================
+PHASE 3 — INTELLIGENCE CORE VALIDATION
+========================================================
+
+1) Run daily rollup for last 3 days
+2) Run weekly snapshot
+3) Check:
+   - daily_metrics_rollup rows created
+   - weekly_score_snapshots rows created
+   - tri_scores rows created
+
+4) Verify idempotency:
+   - Re-run same rollup
+   - Confirm no duplicate rows created
+
+5) Verify rankings:
+   - Drivers sorted correctly by DPI
+   - Clinics sorted correctly by TRI
+
+========================================================
+PHASE 4 — COST BLEED ALERT VALIDATION
+========================================================
+
+1) Trigger cost-bleed endpoint
+2) Confirm:
+   - Alerts created when thresholds exceeded
+   - No duplicate OPEN alerts on re-run
+   - Severity logic correct
+
+========================================================
+PHASE 5 — CERTIFICATION SYSTEM
+========================================================
+
+1) Run certification endpoint
+2) Confirm:
+   - ucm_certifications rows inserted/updated
+   - Status matches TRI thresholds
+   - Clinic UI only shows their own status
+
+========================================================
+PHASE 6 — AUTHENTICATED DOWNLOADS (Safari Fix)
+========================================================
+
+1) Test CSV/JSON downloads:
+   - Using authenticated fetch + blob
+   - Verify:
+       - Content-Type correct
+       - Content-Disposition correct
+       - No 401/404 saved as file
+       - Safari iOS compatible
+
+2) Attempt unauthorized download:
+   - Confirm 401 returned
+   - Confirm file is NOT downloaded
+
+========================================================
+PHASE 7 — MULTI-TENANT SAFETY
+========================================================
+
+1) Create test tenant
+2) Confirm:
+   - Tenant cannot see other tenant data
+   - SUPER_ADMIN can switch/impersonate if implemented
+   - No cross-tenant data leakage in queries
+
+========================================================
+OUTPUT FORMAT (STRICT)
+========================================================
+
+Return:
+
+1) BUILD STATUS
+2) ROLE ACCESS STATUS
+3) INTELLIGENCE CORE STATUS
+4) ALERT SYSTEM STATUS
+5) CERTIFICATION STATUS
+6) DOWNLOAD SYSTEM STATUS
+7) TENANT ISOLATION STATUS
+8) CRITICAL ISSUES (if any)
+9) SAFE TO DEPLOY? (YES/NO with reasoning)
+
+If ANY failure exists:
+- List exact file + line
+- Explain root cause
+- STOP (do not auto-fix)
+
+END.
