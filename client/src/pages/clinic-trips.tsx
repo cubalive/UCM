@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { downloadWithAuth } from "@/lib/export";
+import SignaturePad from "@/components/SignaturePad";
 import { useTranslation } from "react-i18next";
 import {
   Clock,
@@ -3220,6 +3221,10 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
       )}
 
       {isTerminal && (
+        <ClinicSignatureSection tripId={trip.id} token={token} />
+      )}
+
+      {isTerminal && (
         <div className="text-center">
           <Badge variant="secondary" className="gap-1">
             <Lock className="w-3 h-3" />
@@ -3239,6 +3244,84 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
         {pdfLoading ? "Generating PDF..." : "Download PDF Report"}
       </Button>
     </div>
+  );
+}
+
+function ClinicSignatureSection({ tripId, token }: { tripId: number; token: string | null }) {
+  const { toast } = useToast();
+  const [submitting, setSubmitting] = useState(false);
+
+  const sigQuery = useQuery<any>({
+    queryKey: ["/api/trips", tripId, "signature"],
+    queryFn: async () => {
+      if (!token) return null;
+      const res = await apiFetch(`/api/trips/${tripId}/signature`, token);
+      return res;
+    },
+    enabled: !!token,
+  });
+
+  const handleSave = async (dataUrl: string) => {
+    if (!token) return;
+    setSubmitting(true);
+    try {
+      await apiFetch(`/api/trips/${tripId}/signature/clinic`, token, {
+        method: "POST",
+        body: JSON.stringify({ signature: dataUrl }),
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId, "signature"] });
+      toast({ title: "Signature saved" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message || "Failed to save signature", variant: "destructive" });
+    }
+    setSubmitting(false);
+  };
+
+  const data = sigQuery.data;
+
+  return (
+    <Card>
+      <CardContent className="py-3 px-4 space-y-2">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Signatures</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+          <span className="text-muted-foreground">Driver</span>
+          <span data-testid="text-driver-signed">
+            {data?.driverSigned ? (
+              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <CheckCircle className="w-3.5 h-3.5" />
+                Signed {data.driverSignedAt ? new Date(data.driverSignedAt).toLocaleDateString() : ""}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">Not signed</span>
+            )}
+          </span>
+          <span className="text-muted-foreground">Clinic</span>
+          <span data-testid="text-clinic-signed">
+            {data?.clinicSigned ? (
+              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <CheckCircle className="w-3.5 h-3.5" />
+                Signed {data.clinicSignedAt ? new Date(data.clinicSignedAt).toLocaleDateString() : ""}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">Not signed</span>
+            )}
+          </span>
+        </div>
+        {!data?.clinicSigned && (
+          <div className="pt-2">
+            {submitting ? (
+              <div className="text-sm text-muted-foreground">Saving...</div>
+            ) : (
+              <SignaturePad
+                label="Clinic Signature"
+                onSave={handleSave}
+                height={100}
+              />
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -21,6 +21,7 @@ import {
   tripBilling, type TripBilling, type InsertTripBilling,
   clinicInvoicesMonthly, type ClinicInvoiceMonthly, type InsertClinicInvoiceMonthly,
   clinicInvoiceItems, type ClinicInvoiceItem, type InsertClinicInvoiceItem,
+  tripSignatures, type TripSignature, type InsertTripSignature,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -196,6 +197,9 @@ export interface IStorage {
 
   createClinicInvoiceItem(data: InsertClinicInvoiceItem): Promise<ClinicInvoiceItem>;
   getClinicInvoiceItems(invoiceId: number): Promise<ClinicInvoiceItem[]>;
+
+  getTripSignature(tripId: number): Promise<TripSignature | undefined>;
+  upsertTripSignature(tripId: number, data: Partial<InsertTripSignature>): Promise<TripSignature>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1346,6 +1350,21 @@ export class DatabaseStorage implements IStorage {
 
   async getClinicInvoiceItems(invoiceId: number): Promise<ClinicInvoiceItem[]> {
     return db.select().from(clinicInvoiceItems).where(eq(clinicInvoiceItems.invoiceId, invoiceId));
+  }
+
+  async getTripSignature(tripId: number): Promise<TripSignature | undefined> {
+    const [row] = await db.select().from(tripSignatures).where(eq(tripSignatures.tripId, tripId));
+    return row;
+  }
+
+  async upsertTripSignature(tripId: number, data: Partial<InsertTripSignature>): Promise<TripSignature> {
+    const existing = await this.getTripSignature(tripId);
+    if (existing) {
+      const [row] = await db.update(tripSignatures).set(data).where(eq(tripSignatures.tripId, tripId)).returning();
+      return row;
+    }
+    const [row] = await db.insert(tripSignatures).values({ tripId, ...data }).returning();
+    return row;
   }
 }
 

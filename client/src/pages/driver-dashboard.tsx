@@ -62,6 +62,7 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
+import SignaturePad from "@/components/SignaturePad";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Area, AreaChart } from "recharts";
 
 function getToday(): string {
@@ -1282,6 +1283,7 @@ export default function DriverDashboard() {
     }
   }, [showGpsGate, gpsGateLoading, geoLocation, geoPermission]);
   const [confirmDialog, setConfirmDialog] = useState<{ tripId: number; nextStatus: string; label: string } | null>(null);
+  const [driverSignature, setDriverSignature] = useState<string | null>(null);
   const [confirmNote, setConfirmNote] = useState("");
   const [needHelpOpen, setNeedHelpOpen] = useState(false);
   const [needHelpNote, setNeedHelpNote] = useState("");
@@ -1519,8 +1521,10 @@ export default function DriverDashboard() {
     if (!confirmDialog) return;
     const { tripId, nextStatus } = confirmDialog;
     const note = confirmNote.trim();
+    const sigData = driverSignature;
     setConfirmDialog(null);
     setConfirmNote("");
+    setDriverSignature(null);
     if (!navigator.onLine) {
       queueAction({
         type: "status_transition",
@@ -1530,6 +1534,12 @@ export default function DriverDashboard() {
       return;
     }
     try {
+      if (sigData && nextStatus === "COMPLETED" && token) {
+        await apiFetch(`/api/trips/${tripId}/signature/driver`, token, {
+          method: "POST",
+          body: JSON.stringify({ signature: sigData }),
+        });
+      }
       await apiFetch(`/api/trips/${tripId}/status`, token, {
         method: "PATCH",
         body: JSON.stringify({ status: nextStatus }),
@@ -1545,7 +1555,7 @@ export default function DriverDashboard() {
     } catch (err: any) {
       toast({ title: "Status update failed", description: err?.message || "Try again", variant: "destructive" });
     }
-  }, [confirmDialog, confirmNote, token, toast]);
+  }, [confirmDialog, confirmNote, driverSignature, token, toast]);
 
   const handleSupportEvent = useCallback(async (eventType: string) => {
     if (!activeTrip || !token) return;
@@ -2612,6 +2622,21 @@ export default function DriverDashboard() {
                 <Clock className="w-4 h-4" />
                 <span data-testid="text-confirm-timestamp">{new Date().toLocaleTimeString()}</span>
               </div>
+              {confirmDialog.nextStatus === "COMPLETED" && (
+                <div className="space-y-1.5">
+                  <SignaturePad
+                    label="Driver Signature (required for trip completion)"
+                    onSave={(dataUrl) => setDriverSignature(dataUrl)}
+                    height={100}
+                  />
+                  {driverSignature && (
+                    <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      <span data-testid="text-signature-saved">Signature captured</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label className="text-sm text-muted-foreground">Quick note (optional)</label>
                 <Textarea
@@ -2627,16 +2652,16 @@ export default function DriverDashboard() {
                 <Button
                   className="flex-1 min-h-[48px] text-base font-semibold"
                   onClick={handleConfirmSubmit}
-                  disabled={statusMutation.isPending}
+                  disabled={statusMutation.isPending || (confirmDialog.nextStatus === "COMPLETED" && !driverSignature)}
                   data-testid="button-confirm-submit"
                 >
                   <CheckCircle className="w-5 h-5 mr-2" />
-                  Confirm
+                  {confirmDialog.nextStatus === "COMPLETED" ? "Sign & Complete" : "Confirm"}
                 </Button>
                 <Button
                   variant="outline"
                   className="min-h-[48px] text-base px-6"
-                  onClick={() => setConfirmDialog(null)}
+                  onClick={() => { setConfirmDialog(null); setDriverSignature(null); }}
                   data-testid="button-confirm-cancel"
                 >
                   Cancel
