@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -41,6 +42,10 @@ import {
   CheckCircle,
   ChevronLeft,
   ChevronRight,
+  FileText,
+  Check,
+  X,
+  Loader2,
 } from "lucide-react";
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat"] as const;
@@ -851,6 +856,208 @@ function ReplaceDriverTab({ cityId, token }: { cityId: number; token: string }) 
   );
 }
 
+function ChangeRequestsTab({ cityId, token }: { cityId: number; token: string }) {
+  const { toast } = useToast();
+  const [statusFilter, setStatusFilter] = useState<string>("PENDING");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [decidingId, setDecidingId] = useState<number | null>(null);
+  const [decisionAction, setDecisionAction] = useState<"APPROVED" | "REJECTED">("APPROVED");
+  const [decisionNote, setDecisionNote] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/dispatch/schedule-change", cityId, statusFilter],
+    queryFn: () => apiFetch(`/api/dispatch/schedule-change?cityId=${cityId}&status=${statusFilter}`, token),
+    enabled: !!cityId,
+  });
+
+  const decideMutation = useMutation({
+    mutationFn: (payload: { id: number; status: "APPROVED" | "REJECTED"; decisionNote?: string }) =>
+      apiFetch(`/api/dispatch/schedule-change/${payload.id}/decide`, token, {
+        method: "POST",
+        body: JSON.stringify({ status: payload.status, decisionNote: payload.decisionNote }),
+      }),
+    onSuccess: () => {
+      toast({ title: `Request ${decisionAction.toLowerCase()}` });
+      queryClient.invalidateQueries({ queryKey: ["/api/dispatch/schedule-change"] });
+      setDecidingId(null);
+      setDecisionNote("");
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const requests = data || [];
+  const filteredRequests = typeFilter === "all"
+    ? requests
+    : requests.filter((r: any) => r.requestType === typeFilter);
+
+  const statusBadgeClass: Record<string, string> = {
+    PENDING: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    APPROVED: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    REJECTED: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+    CANCELLED: "bg-muted text-muted-foreground",
+  };
+
+  const typeLabels: Record<string, string> = {
+    DAY_CHANGE: "Day Change",
+    TIME_CHANGE: "Time Change",
+    UNAVAILABLE: "Unavailable",
+    SWAP_REQUEST: "Swap Request",
+  };
+
+  function openDecisionDialog(id: number, action: "APPROVED" | "REJECTED") {
+    setDecidingId(id);
+    setDecisionAction(action);
+    setDecisionNote("");
+  }
+
+  function confirmDecision() {
+    if (!decidingId) return;
+    if (decisionAction === "REJECTED" && !decisionNote.trim()) {
+      toast({ title: "Required", description: "A note is required when rejecting a request", variant: "destructive" });
+      return;
+    }
+    decideMutation.mutate({ id: decidingId, status: decisionAction, decisionNote: decisionNote.trim() || undefined });
+  }
+
+  return (
+    <div className="space-y-4" data-testid="div-change-requests-tab">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[140px]" data-testid="select-cr-status-filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PENDING">Pending</SelectItem>
+            <SelectItem value="APPROVED">Approved</SelectItem>
+            <SelectItem value="REJECTED">Rejected</SelectItem>
+            <SelectItem value="CANCELLED">Cancelled</SelectItem>
+            <SelectItem value="all">All</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[150px]" data-testid="select-cr-type-filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="DAY_CHANGE">Day Change</SelectItem>
+            <SelectItem value="TIME_CHANGE">Time Change</SelectItem>
+            <SelectItem value="UNAVAILABLE">Unavailable</SelectItem>
+            <SelectItem value="SWAP_REQUEST">Swap Request</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button variant="outline" size="icon" onClick={() => refetch()} data-testid="button-cr-refresh">
+          <RefreshCw className="w-4 h-4" />
+        </Button>
+        <Badge variant="secondary" data-testid="badge-cr-count">{filteredRequests.length} request{filteredRequests.length !== 1 ? "s" : ""}</Badge>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+        </div>
+      ) : filteredRequests.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <p className="text-muted-foreground" data-testid="text-no-change-requests">No {statusFilter !== "all" ? statusFilter.toLowerCase() : ""} change requests found</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {filteredRequests.map((req: any) => (
+            <Card key={req.id} data-testid={`card-cr-${req.id}`}>
+              <CardContent className="py-3 space-y-2">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium" data-testid={`text-cr-driver-${req.id}`}>
+                        {req.driverName || `Driver #${req.driverId}`}
+                      </span>
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-cr-type-${req.id}`}>
+                        {typeLabels[req.requestType] || req.requestType}
+                      </Badge>
+                      <Badge className={statusBadgeClass[req.status] || ""} data-testid={`badge-cr-status-${req.id}`}>
+                        {req.status}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground space-y-0.5">
+                      <p data-testid={`text-cr-dates-${req.id}`}>
+                        {req.currentDate && <span>Current: {req.currentDate}</span>}
+                        {req.requestedDate && <span> {req.currentDate ? "→" : "Requested:"} {req.requestedDate}</span>}
+                      </p>
+                      {(req.requestedShiftStart || req.requestedShiftEnd) && (
+                        <p>Shift: {req.requestedShiftStart || "—"} - {req.requestedShiftEnd || "—"}</p>
+                      )}
+                      <p data-testid={`text-cr-reason-${req.id}`}>Reason: {req.reason}</p>
+                      <p className="text-xs text-muted-foreground/60">Submitted {new Date(req.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    {req.decisionNote && (
+                      <div className="text-xs bg-muted/50 rounded-md px-2 py-1" data-testid={`text-cr-decision-${req.id}`}>
+                        <span className="font-medium">Decision note:</span> {req.decisionNote}
+                      </div>
+                    )}
+                  </div>
+                  {req.status === "PENDING" && (
+                    <div className="flex gap-1 shrink-0">
+                      <Button size="sm" onClick={() => openDecisionDialog(req.id, "APPROVED")} data-testid={`button-approve-cr-${req.id}`}>
+                        <Check className="w-4 h-4 mr-1" /> Approve
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => openDecisionDialog(req.id, "REJECTED")} data-testid={`button-reject-cr-${req.id}`}>
+                        <X className="w-4 h-4 mr-1" /> Reject
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={decidingId !== null} onOpenChange={(open) => { if (!open) setDecidingId(null); }}>
+        <DialogContent data-testid="dialog-cr-decision">
+          <DialogHeader>
+            <DialogTitle>{decisionAction === "APPROVED" ? "Approve" : "Reject"} Change Request</DialogTitle>
+            <DialogDescription>
+              {decisionAction === "REJECTED"
+                ? "A note is required when rejecting a request."
+                : "Add an optional note for the driver."
+              }
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="decision-note">Decision Note {decisionAction === "REJECTED" && "*"}</Label>
+              <Textarea
+                id="decision-note"
+                value={decisionNote}
+                onChange={(e) => setDecisionNote(e.target.value)}
+                placeholder={decisionAction === "REJECTED" ? "Explain why this request is being rejected..." : "Optional note..."}
+                rows={3}
+                data-testid="input-decision-note"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDecidingId(null)} data-testid="button-cancel-decision">Cancel</Button>
+            <Button
+              onClick={confirmDecision}
+              disabled={decideMutation.isPending || (decisionAction === "REJECTED" && !decisionNote.trim())}
+              variant={decisionAction === "APPROVED" ? "default" : "destructive"}
+              data-testid="button-confirm-decision"
+            >
+              {decideMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              Confirm {decisionAction === "APPROVED" ? "Approval" : "Rejection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export default function SchedulePage() {
   const { token, selectedCity } = useAuth();
   const cityId = selectedCity?.id;
@@ -888,6 +1095,10 @@ export default function SchedulePage() {
             <ArrowLeftRight className="w-4 h-4 mr-1" />
             Replace Driver
           </TabsTrigger>
+          <TabsTrigger value="change-requests" data-testid="tab-change-requests">
+            <FileText className="w-4 h-4 mr-1" />
+            Change Requests
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="weekly" className="mt-4">
@@ -904,6 +1115,10 @@ export default function SchedulePage() {
 
         <TabsContent value="replace" className="mt-4">
           <ReplaceDriverTab cityId={cityId} token={token!} />
+        </TabsContent>
+
+        <TabsContent value="change-requests" className="mt-4">
+          <ChangeRequestsTab cityId={cityId} token={token!} />
         </TabsContent>
       </Tabs>
     </div>

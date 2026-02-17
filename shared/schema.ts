@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric, uniqueIndex, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -586,20 +586,40 @@ export type InsertDriverBonusRule = z.infer<typeof insertDriverBonusRuleSchema>;
 export type VehicleMake = typeof vehicleMakes.$inferSelect;
 export type VehicleModel = typeof vehicleModels.$inferSelect;
 
+export const scheduleChangeRequestTypeEnum = pgEnum("schedule_change_request_type", [
+  "DAY_CHANGE", "TIME_CHANGE", "UNAVAILABLE", "SWAP_REQUEST",
+]);
+
+export const scheduleChangeRequestStatusEnum = pgEnum("schedule_change_request_status", [
+  "PENDING", "APPROVED", "REJECTED", "CANCELLED",
+]);
+
 export const scheduleChangeRequests = pgTable("schedule_change_requests", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").references(() => companies.id),
   driverId: integer("driver_id").notNull().references(() => drivers.id),
-  requestedDate: text("requested_date").notNull(),
-  requestType: text("request_type").notNull(),
-  notes: text("notes"),
-  status: text("status").notNull().default("pending"),
-  decisionNotes: text("decision_notes"),
+  cityId: integer("city_id").references(() => cities.id),
+  requestType: scheduleChangeRequestTypeEnum("request_type").notNull(),
+  currentDate: text("current_schedule_date"),
+  requestedDate: text("requested_date"),
+  currentShiftStart: text("current_shift_start"),
+  currentShiftEnd: text("current_shift_end"),
+  requestedShiftStart: text("requested_shift_start"),
+  requestedShiftEnd: text("requested_shift_end"),
+  reason: text("reason").notNull(),
+  status: scheduleChangeRequestStatusEnum("status").notNull().default("PENDING"),
+  dispatcherUserId: integer("dispatcher_user_id").references(() => users.id),
+  decisionNote: text("decision_note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-  decidedBy: integer("decided_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
   decidedAt: timestamp("decided_at"),
-});
+}, (table) => [
+  index("idx_scr_status_created").on(table.status, table.createdAt),
+  index("idx_scr_driver_created").on(table.driverId, table.createdAt),
+  index("idx_scr_company_status").on(table.companyId, table.status),
+]);
 
-export const insertScheduleChangeRequestSchema = createInsertSchema(scheduleChangeRequests).omit({ id: true, createdAt: true, decidedBy: true, decidedAt: true, status: true });
+export const insertScheduleChangeRequestSchema = createInsertSchema(scheduleChangeRequests).omit({ id: true, createdAt: true, updatedAt: true, dispatcherUserId: true, decidedAt: true, status: true, decisionNote: true });
 export type ScheduleChangeRequest = typeof scheduleChangeRequests.$inferSelect;
 export type InsertScheduleChangeRequest = z.infer<typeof insertScheduleChangeRequestSchema>;
 

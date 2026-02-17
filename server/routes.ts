@@ -2321,104 +2321,223 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/driver/schedule-change-requests", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+  const scheduleChangeRateLimit = new Map<number, number[]>();
+  const SCHEDULE_CHANGE_RATE_LIMIT = 10;
+  const SCHEDULE_CHANGE_RATE_WINDOW_MS = 60 * 60 * 1000;
+
+  app.post("/api/driver/schedule-change", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
       if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
-      const schema = z.object({
-        requestedDate: z.string().min(1),
-        requestType: z.enum(["swap", "cover", "unavailable", "other"]),
-        notes: z.string().optional(),
+
+      const now = Date.now();
+      const driverHits = scheduleChangeRateLimit.get(user.driverId) || [];
+      const recent = driverHits.filter(t => now - t < SCHEDULE_CHANGE_RATE_WINDOW_MS);
+      if (recent.length >= SCHEDULE_CHANGE_RATE_LIMIT) {
+        return res.status(429).json({ message: "Too many requests. Max 10 per hour." });
+      }
+
+      const createSchema = z.object({
+        requestType: z.enum(["DAY_CHANGE", "TIME_CHANGE", "UNAVAILABLE", "SWAP_REQUEST"]),
+        currentDate: z.string().optional(),
+        requestedDate: z.string().optional(),
+        currentShiftStart: z.string().optional(),
+        currentShiftEnd: z.string().optional(),
+        requestedShiftStart: z.string().optional(),
+        requestedShiftEnd: z.string().optional(),
+        reason: z.string().min(3, "Reason must be at least 3 characters"),
       });
-      const data = schema.parse(req.body);
-      const [request] = await db.insert(scheduleChangeRequests).values({
-        driverId: user.driverId,
-        requestedDate: data.requestedDate,
-        requestType: data.requestType,
-        notes: data.notes || null,
-      }).returning();
+      const parsed = createSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid data" });
+      }
+      const data = parsed.data;
 
       const driver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
-      const dispatchUsers = await db.select().from(users).where(
-        and(inArray(users.role, ["ADMIN", "DISPATCH", "SUPER_ADMIN"]), eq(users.active, true), isNull(users.deletedAt))
-      );
-      for (const du of dispatchUsers) {
-        if (du.email) {
-          await sendEmail({
-            to: du.email,
-            subject: `Schedule Change Request - ${driver?.firstName} ${driver?.lastName}`,
-            html: `<p>Driver <strong>${driver?.firstName} ${driver?.lastName}</strong> has submitted a schedule change request:</p>
-<ul><li><strong>Date:</strong> ${data.requestedDate}</li><li><strong>Type:</strong> ${data.requestType}</li><li><strong>Notes:</strong> ${data.notes || "None"}</li></ul>
-<p>Please review in the dispatch dashboard.</p>`,
-          });
-        }
-      }
+      const companyId = getCompanyIdFromAuth(req) || driver?.companyId || null;
+
+      const [request] = await db.insert(scheduleChangeRequests).values({
+        driverId: user.driverId,
+        companyId: companyId,
+        cityId: driver?.cityId || null,
+        requestType: data.requestType,
+        currentDate: data.currentDate || null,
+        requestedDate: data.requestedDate || null,
+        currentShiftStart: data.currentShiftStart || null,
+        currentShiftEnd: data.currentShiftEnd || null,
+        requestedShiftStart: data.requestedShiftStart || null,
+        requestedShiftEnd: data.requestedShiftEnd || null,
+        reason: data.reason,
+      }).returning();
+
+      recent.push(now);
+      scheduleChangeRateLimit.set(user.driverId, recent);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "DRIVER_SCHEDULE_CHANGE_REQUEST_CREATED",
+        entity: "schedule_change_request",
+        entityId: request.id,
+        details: `Type: ${data.requestType}, Requested: ${data.requestedDate || "N/A"}`,
+        cityId: driver?.cityId || null,
+      });
+
       res.json(request);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.get("/api/driver/schedule-change-requests", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+  app.get("/api/driver/schedule-change", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);
       if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const statusFilter = req.query.status as string | undefined;
+      const conditions: any[] = [eq(scheduleChangeRequests.driverId, user.driverId)];
+      if (statusFilter && statusFilter !== "all") {
+        conditions.push(eq(scheduleChangeRequests.status, statusFilter.toUpperCase() as any));
+      }
       const requests = await db.select().from(scheduleChangeRequests)
-        .where(eq(scheduleChangeRequests.driverId, user.driverId))
-        .orderBy(desc(scheduleChangeRequests.createdAt));
+        .where(and(...conditions))
+        .orderBy(desc(scheduleChangeRequests.createdAt))
+        .limit(50);
       res.json(requests);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.get("/api/schedule-change-requests", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.post("/api/driver/schedule-change/:id/cancel", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+      const [existing] = await db.select().from(scheduleChangeRequests).where(
+        and(eq(scheduleChangeRequests.id, id), eq(scheduleChangeRequests.driverId, user.driverId))
+      );
+      if (!existing) return res.status(404).json({ message: "Request not found" });
+      if (existing.status !== "PENDING") return res.status(400).json({ message: "Only PENDING requests can be cancelled" });
+
+      const [updated] = await db.update(scheduleChangeRequests).set({
+        status: "CANCELLED" as any,
+        updatedAt: new Date(),
+      }).where(eq(scheduleChangeRequests.id, id)).returning();
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "DRIVER_SCHEDULE_CHANGE_REQUEST_CANCELLED",
+        entity: "schedule_change_request",
+        entityId: id,
+        details: `Cancelled by driver`,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/dispatch/schedule-change", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const statusFilter = req.query.status as string | undefined;
+      const cityIdFilter = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
+      const companyId = getCompanyIdFromAuth(req);
       const conditions: any[] = [];
-      if (statusFilter) conditions.push(eq(scheduleChangeRequests.status, statusFilter));
+      if (statusFilter && statusFilter !== "all") {
+        conditions.push(eq(scheduleChangeRequests.status, statusFilter.toUpperCase() as any));
+      }
+      if (cityIdFilter) {
+        conditions.push(eq(scheduleChangeRequests.cityId, cityIdFilter));
+      }
+      if (companyId) {
+        conditions.push(eq(scheduleChangeRequests.companyId, companyId));
+      }
       const requests = await db.select({
         request: scheduleChangeRequests,
-        driver: { firstName: drivers.firstName, lastName: drivers.lastName, publicId: drivers.publicId },
+        driver: { firstName: drivers.firstName, lastName: drivers.lastName, publicId: drivers.publicId, cityId: drivers.cityId },
       }).from(scheduleChangeRequests)
         .innerJoin(drivers, eq(scheduleChangeRequests.driverId, drivers.id))
         .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(desc(scheduleChangeRequests.createdAt));
-      res.json(requests);
+        .orderBy(desc(scheduleChangeRequests.createdAt))
+        .limit(100);
+
+      const allCities = await storage.getCities();
+      const cityMap = new Map(allCities.map(c => [c.id, c.name]));
+      const enriched = requests.map(r => ({
+        ...r.request,
+        driverName: `${r.driver.firstName} ${r.driver.lastName}`,
+        driverPublicId: r.driver.publicId,
+        cityName: r.request.cityId ? cityMap.get(r.request.cityId) || null : null,
+      }));
+      res.json(enriched);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.patch("/api/schedule-change-requests/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.post("/api/dispatch/schedule-change/:id/decide", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-      const schema = z.object({
-        status: z.enum(["approved", "denied"]),
-        decisionNotes: z.string().optional(),
+      const decideSchema = z.object({
+        decision: z.enum(["APPROVED", "REJECTED"]),
+        decisionNote: z.string().optional(),
       });
-      const data = schema.parse(req.body);
+      const parsed = decideSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid data" });
+      }
+      const data = parsed.data;
+
+      if (data.decision === "REJECTED" && (!data.decisionNote || data.decisionNote.trim().length === 0)) {
+        return res.status(400).json({ message: "Decision note is required when rejecting" });
+      }
+
       const [existing] = await db.select().from(scheduleChangeRequests).where(eq(scheduleChangeRequests.id, id));
       if (!existing) return res.status(404).json({ message: "Request not found" });
-      if (existing.status !== "pending") return res.status(400).json({ message: `Request already ${existing.status}` });
+      if (existing.status !== "PENDING") return res.status(400).json({ message: `Request is already ${existing.status}` });
 
       const [updated] = await db.update(scheduleChangeRequests).set({
-        status: data.status,
-        decisionNotes: data.decisionNotes || null,
-        decidedBy: req.user!.userId,
+        status: data.decision as any,
+        decisionNote: data.decisionNote || null,
+        dispatcherUserId: req.user!.userId,
         decidedAt: new Date(),
+        updatedAt: new Date(),
       }).where(eq(scheduleChangeRequests.id, id)).returning();
+
+      const auditAction = data.decision === "APPROVED"
+        ? "DISPATCH_SCHEDULE_CHANGE_REQUEST_APPROVED"
+        : "DISPATCH_SCHEDULE_CHANGE_REQUEST_REJECTED";
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: auditAction,
+        entity: "schedule_change_request",
+        entityId: id,
+        details: data.decisionNote || null,
+        cityId: existing.cityId || null,
+      });
 
       const driver = await db.select().from(drivers).where(eq(drivers.id, existing.driverId)).then(r => r[0]);
       if (driver?.email) {
-        await sendEmail({
-          to: driver.email,
-          subject: `Schedule Change Request ${data.status === "approved" ? "Approved" : "Denied"}`,
-          html: `<p>Your schedule change request for <strong>${existing.requestedDate}</strong> (${existing.requestType}) has been <strong>${data.status}</strong>.</p>
-${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : ""}`,
+        const { buildScheduleDecisionEmail } = await import("./lib/email");
+        const emailContent = buildScheduleDecisionEmail({
+          driverName: `${driver.firstName} ${driver.lastName}`,
+          decision: data.decision,
+          requestType: existing.requestType,
+          currentDate: existing.currentDate,
+          requestedDate: existing.requestedDate,
+          requestedShiftStart: existing.requestedShiftStart,
+          requestedShiftEnd: existing.requestedShiftEnd,
+          decisionNote: data.decisionNote,
         });
+        const emailResult = await sendEmail({ to: driver.email, ...emailContent });
+        if (!emailResult.success) {
+          console.error(`[SCHEDULE-CHANGE] Email to driver ${driver.id} failed: ${emailResult.error}`);
+        }
       }
+
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

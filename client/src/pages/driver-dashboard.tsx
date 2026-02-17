@@ -1051,8 +1051,8 @@ export default function DriverDashboard() {
   });
 
   const scheduleChangeQuery = useQuery<any[]>({
-    queryKey: ["/api/driver/schedule-change-requests"],
-    queryFn: () => apiFetch("/api/driver/schedule-change-requests", token),
+    queryKey: ["/api/driver/schedule-change"],
+    queryFn: () => apiFetch("/api/driver/schedule-change?status=all", token),
     enabled: !!token,
   });
 
@@ -2175,7 +2175,7 @@ export default function DriverDashboard() {
           <div className="relative bg-background rounded-t-xl max-h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <span className="text-lg font-semibold">
-                {drawerSection === "trips" ? "My Trips" : drawerSection === "schedule" ? "My Schedule" : drawerSection === "schedule-change" ? "Request Day Change" : drawerSection === "metrics" ? "My Metrics" : drawerSection === "bonus" ? "Weekly Bonus" : "Menu"}
+                {drawerSection === "trips" ? "My Trips" : drawerSection === "schedule" ? "My Schedule" : drawerSection === "schedule-change" ? "Schedule Change" : drawerSection === "metrics" ? "My Metrics" : drawerSection === "bonus" ? "Weekly Bonus" : "Menu"}
               </span>
               <div className="flex items-center gap-2">
                 {drawerSection && (
@@ -2390,7 +2390,7 @@ export default function DriverDashboard() {
                   token={token}
                   scheduleChanges={scheduleChanges}
                   onSubmitSuccess={() => {
-                    queryClient.invalidateQueries({ queryKey: ["/api/driver/schedule-change-requests"] });
+                    queryClient.invalidateQueries({ queryKey: ["/api/driver/schedule-change"] });
                     toast({ title: "Request submitted to dispatch" });
                   }}
                 />
@@ -2750,73 +2750,82 @@ function DrawerScheduleChangeSection({ token, scheduleChanges, onSubmitSuccess }
   scheduleChanges: any[];
   onSubmitSuccess: () => void;
 }) {
-  const [reqDate, setReqDate] = useState("");
-  const [reqType, setReqType] = useState("unavailable");
-  const [reqNotes, setReqNotes] = useState("");
+  const { toast } = useToast();
+  const [reqType, setReqType] = useState("DAY_CHANGE");
+  const [currentDate, setCurrentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [requestedDate, setRequestedDate] = useState("");
+  const [reason, setReason] = useState("");
 
   const submitMutation = useMutation({
     mutationFn: () =>
-      apiFetch("/api/driver/schedule-change-requests", token, {
+      apiFetch("/api/driver/schedule-change", token, {
         method: "POST",
-        body: JSON.stringify({ requestedDate: reqDate, requestType: reqType, notes: reqNotes || undefined }),
+        body: JSON.stringify({ requestType: reqType, currentDate, requestedDate: requestedDate || undefined, reason }),
       }),
     onSuccess: () => {
-      setReqDate("");
-      setReqNotes("");
+      setRequestedDate("");
+      setReason("");
       onSubmitSuccess();
     },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/driver/schedule-change/${id}/cancel`, token, { method: "POST" }),
+    onSuccess: () => {
+      toast({ title: "Request cancelled" });
+      onSubmitSuccess();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const statusColors: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-    approved: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-    denied: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+    PENDING: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    APPROVED: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    REJECTED: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+    CANCELLED: "bg-muted text-muted-foreground",
+  };
+
+  const typeLabels: Record<string, string> = {
+    DAY_CHANGE: "Day Change", TIME_CHANGE: "Time Change", UNAVAILABLE: "Unavailable", SWAP_REQUEST: "Swap",
   };
 
   return (
     <div className="space-y-4" data-testid="div-drawer-schedule-change">
       <div className="space-y-3">
         <div className="space-y-1.5">
-          <Label className="text-base">Date</Label>
-          <Input
-            type="date"
-            value={reqDate}
-            onChange={(e) => setReqDate(e.target.value)}
-            className="min-h-[44px] text-base"
-            data-testid="input-schedule-change-date"
-          />
-        </div>
-        <div className="space-y-1.5">
           <Label className="text-base">Type</Label>
           <div className="grid grid-cols-2 gap-2">
-            {["unavailable", "swap", "cover", "other"].map((t) => (
+            {(["DAY_CHANGE", "TIME_CHANGE", "UNAVAILABLE", "SWAP_REQUEST"] as const).map((t) => (
               <Button
                 key={t}
                 variant={reqType === t ? "default" : "outline"}
-                className="min-h-[44px] text-base capitalize"
+                className="min-h-[44px] text-base"
                 onClick={() => setReqType(t)}
                 data-testid={`button-schedule-type-${t}`}
               >
-                {t}
+                {typeLabels[t]}
               </Button>
             ))}
           </div>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-base">Notes (optional)</Label>
-          <Textarea
-            value={reqNotes}
-            onChange={(e) => setReqNotes(e.target.value)}
-            placeholder="Any additional details..."
-            className="text-base"
-            rows={3}
-            data-testid="input-schedule-change-notes"
-          />
+          <Label className="text-base">Current Date</Label>
+          <Input type="date" value={currentDate} onChange={(e) => setCurrentDate(e.target.value)} className="min-h-[44px] text-base" data-testid="input-schedule-change-current-date" />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-base">Requested Date</Label>
+          <Input type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} className="min-h-[44px] text-base" data-testid="input-schedule-change-date" />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-base">Reason *</Label>
+          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Explain why you need this change..." className="text-base" rows={3} data-testid="input-schedule-change-reason" />
         </div>
         <Button
           className="w-full min-h-[48px] text-base"
           onClick={() => submitMutation.mutate()}
-          disabled={!reqDate || submitMutation.isPending}
+          disabled={!reason || reason.length < 3 || submitMutation.isPending}
           data-testid="button-submit-schedule-change"
         >
           <Send className="w-5 h-5 mr-2" />
@@ -2826,17 +2835,23 @@ function DrawerScheduleChangeSection({ token, scheduleChanges, onSubmitSuccess }
 
       {scheduleChanges.length > 0 && (
         <div className="space-y-2">
-          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Previous Requests</p>
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Your Requests</p>
           {scheduleChanges.map((req: any) => (
-            <div key={req.id} className="flex items-center justify-between gap-2 bg-muted/50 rounded-md px-3 py-2.5" data-testid={`div-schedule-change-${req.id}`}>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">{req.requestedDate} - <span className="capitalize">{req.requestType}</span></p>
-                {req.notes && <p className="text-xs text-muted-foreground truncate">{req.notes}</p>}
-                {req.decisionNotes && <p className="text-xs text-muted-foreground">Decision: {req.decisionNotes}</p>}
+            <div key={req.id} className="bg-muted/50 rounded-md px-3 py-2.5 space-y-1" data-testid={`div-schedule-change-${req.id}`}>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{typeLabels[req.requestType] || req.requestType}</p>
+                  <p className="text-xs text-muted-foreground">{req.currentDate && `${req.currentDate} → `}{req.requestedDate || "N/A"}</p>
+                </div>
+                <Badge className={statusColors[req.status] || ""}>{req.status}</Badge>
               </div>
-              <Badge className={statusColors[req.status] || ""}>
-                {req.status}
-              </Badge>
+              <p className="text-xs text-muted-foreground">{req.reason}</p>
+              {req.decisionNote && <p className="text-xs text-muted-foreground">Dispatch: {req.decisionNote}</p>}
+              {req.status === "PENDING" && (
+                <Button variant="outline" size="sm" onClick={() => cancelMutation.mutate(req.id)} disabled={cancelMutation.isPending} data-testid={`button-cancel-schedule-${req.id}`}>
+                  <X className="w-4 h-4 mr-1" /> Cancel
+                </Button>
+              )}
             </div>
           ))}
         </div>

@@ -92,6 +92,70 @@ export function buildLoginLinkEmail({
   };
 }
 
+const REQUEST_TYPE_LABELS: Record<string, string> = {
+  DAY_CHANGE: "Day Change",
+  TIME_CHANGE: "Time Change",
+  UNAVAILABLE: "Unavailable",
+  SWAP_REQUEST: "Swap Request",
+};
+
+export function buildScheduleDecisionEmail({
+  driverName,
+  decision,
+  requestType,
+  currentDate,
+  requestedDate,
+  requestedShiftStart,
+  requestedShiftEnd,
+  decisionNote,
+}: {
+  driverName: string;
+  decision: "APPROVED" | "REJECTED";
+  requestType: string;
+  currentDate?: string | null;
+  requestedDate?: string | null;
+  requestedShiftStart?: string | null;
+  requestedShiftEnd?: string | null;
+  decisionNote?: string | null;
+}): { subject: string; html: string } {
+  const approved = decision === "APPROVED";
+  const subject = approved
+    ? "UCM \u2014 Schedule Change Approved"
+    : "UCM \u2014 Schedule Change Update";
+  const statusColor = approved ? "#16a34a" : "#dc2626";
+  const statusLabel = approved ? "Approved" : "Rejected";
+  const typeLabel = REQUEST_TYPE_LABELS[requestType] || requestType;
+
+  const detailRows = [
+    `<tr><td style="padding:6px 12px;color:#666;">Request Type</td><td style="padding:6px 12px;font-weight:600;">${typeLabel}</td></tr>`,
+    currentDate ? `<tr><td style="padding:6px 12px;color:#666;">Current Date</td><td style="padding:6px 12px;">${currentDate}</td></tr>` : "",
+    requestedDate ? `<tr><td style="padding:6px 12px;color:#666;">Requested Date</td><td style="padding:6px 12px;">${requestedDate}</td></tr>` : "",
+    requestedShiftStart ? `<tr><td style="padding:6px 12px;color:#666;">Shift Time</td><td style="padding:6px 12px;">${requestedShiftStart}${requestedShiftEnd ? ` \u2013 ${requestedShiftEnd}` : ""}</td></tr>` : "",
+  ].filter(Boolean).join("\n");
+
+  return {
+    subject,
+    html: `<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
+  <div style="text-align:center;margin-bottom:24px;">
+    <h2 style="color:#1a1a2e;margin:0;">United Care Mobility</h2>
+    <p style="color:#666;font-size:14px;">Medical Transportation Management</p>
+  </div>
+  <div style="background:#f8f9fa;border-radius:8px;padding:24px;margin-bottom:24px;">
+    <p>Hello ${driverName},</p>
+    <p>Your schedule change request has been <span style="color:${statusColor};font-weight:700;">${statusLabel}</span>.</p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;">${detailRows}</table>
+    ${decisionNote ? `<div style="background:#fff;border-left:3px solid ${statusColor};padding:12px 16px;margin:16px 0;border-radius:4px;"><strong>Note from dispatch:</strong><br/>${decisionNote}</div>` : ""}
+    <div style="text-align:center;margin:24px 0;">
+      <a href="https://driver.unitedcaremobility.com" style="display:inline-block;background:#1a1a2e;color:#fff;text-decoration:none;padding:12px 32px;border-radius:6px;font-weight:600;">Open Driver Portal</a>
+    </div>
+  </div>
+  <p style="font-size:12px;color:#999;text-align:center;">United Care Mobility &bull; This is an automated notification.</p>
+</body></html>`,
+  };
+}
+
 export function getEmailHealth() {
   return {
     hasResendKey: !!process.env.RESEND_API_KEY,

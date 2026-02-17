@@ -1484,34 +1484,67 @@ function EarningsPage({ token }: { token: string | null }) {
 function SchedulePage({ token }: { token: string | null }) {
   const { toast } = useToast();
   const [showRequestForm, setShowRequestForm] = useState(false);
-  const [reqDate, setReqDate] = useState("");
-  const [reqType, setReqType] = useState("unavailable");
-  const [reqNotes, setReqNotes] = useState("");
+  const [reqType, setReqType] = useState<string>("DAY_CHANGE");
+  const [currentDate, setCurrentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [requestedDate, setRequestedDate] = useState("");
+  const [reqShiftStart, setReqShiftStart] = useState("");
+  const [reqShiftEnd, setReqShiftEnd] = useState("");
+  const [reason, setReason] = useState("");
+  const [listTab, setListTab] = useState<"PENDING" | "history">("PENDING");
 
   const requestsQuery = useQuery<any[]>({
-    queryKey: ["/api/driver/schedule-change-requests"],
-    queryFn: () => apiFetch("/api/driver/schedule-change-requests", token),
+    queryKey: ["/api/driver/schedule-change", listTab],
+    queryFn: () => apiFetch(`/api/driver/schedule-change?status=${listTab === "PENDING" ? "PENDING" : "all"}`, token),
     enabled: !!token,
   });
 
   const submitMutation = useMutation({
-    mutationFn: (data: { date: string; type: string; notes: string }) =>
-      apiFetch("/api/driver/schedule-change-requests", token, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+    mutationFn: (data: any) =>
+      apiFetch("/api/driver/schedule-change", token, { method: "POST", body: JSON.stringify(data) }),
     onSuccess: () => {
       toast({ title: "Request submitted" });
-      queryClient.invalidateQueries({ queryKey: ["/api/driver/schedule-change-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/schedule-change"] });
       setShowRequestForm(false);
-      setReqDate("");
-      setReqType("unavailable");
-      setReqNotes("");
+      resetForm();
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/driver/schedule-change/${id}/cancel`, token, { method: "POST" }),
+    onSuccess: () => {
+      toast({ title: "Request cancelled" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/schedule-change"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  function resetForm() {
+    setReqType("DAY_CHANGE");
+    setCurrentDate(new Date().toISOString().split("T")[0]);
+    setRequestedDate("");
+    setReqShiftStart("");
+    setReqShiftEnd("");
+    setReason("");
+  }
+
+  function handleSubmit() {
+    const payload: any = { requestType: reqType, reason };
+    if (currentDate) payload.currentDate = currentDate;
+    if (requestedDate) payload.requestedDate = requestedDate;
+    if (reqType === "TIME_CHANGE") {
+      if (reqShiftStart) payload.requestedShiftStart = reqShiftStart;
+      if (reqShiftEnd) payload.requestedShiftEnd = reqShiftEnd;
+    }
+    submitMutation.mutate(payload);
+  }
+
   const requests = requestsQuery.data || [];
+  const pendingRequests = requests.filter((r: any) => r.status === "PENDING");
+  const historyRequests = requests.filter((r: any) => r.status !== "PENDING");
+  const displayRequests = listTab === "PENDING" ? pendingRequests : historyRequests;
+
   const today = new Date();
   const startOfWeek = new Date(today);
   startOfWeek.setDate(today.getDate() - today.getDay() + 1);
@@ -1520,20 +1553,27 @@ function SchedulePage({ token }: { token: string | null }) {
     d.setDate(startOfWeek.getDate() + i);
     return d;
   });
-
   const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   const statusBadgeClass: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-    approved: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-    denied: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+    PENDING: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    APPROVED: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    REJECTED: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+    CANCELLED: "bg-muted text-muted-foreground",
+  };
+
+  const typeLabels: Record<string, string> = {
+    DAY_CHANGE: "Day Change",
+    TIME_CHANGE: "Time Change",
+    UNAVAILABLE: "Unavailable",
+    SWAP_REQUEST: "Swap Request",
   };
 
   const typeOptions = [
-    { value: "unavailable", label: "Unavailable" },
-    { value: "swap", label: "Swap" },
-    { value: "cover", label: "Cover" },
-    { value: "other", label: "Other" },
+    { value: "DAY_CHANGE", label: "Day Change" },
+    { value: "TIME_CHANGE", label: "Time Change" },
+    { value: "UNAVAILABLE", label: "Unavailable" },
+    { value: "SWAP_REQUEST", label: "Swap Request" },
   ];
 
   return (
@@ -1565,18 +1605,14 @@ function SchedulePage({ token }: { token: string | null }) {
         data-testid="button-request-change"
       >
         <FileText className="w-5 h-5 mr-2" />
-        Request Day Change
+        Request Schedule Change
       </Button>
 
       {showRequestForm && (
         <Card data-testid="card-request-form">
           <CardContent className="py-4 space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="req-date">Date</Label>
-              <Input id="req-date" type="date" value={reqDate} onChange={(e) => setReqDate(e.target.value)} className="min-h-[44px]" data-testid="input-req-date" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="req-type">Type</Label>
+              <Label>Request Type</Label>
               <div className="flex gap-1 flex-wrap" data-testid="select-req-type">
                 {typeOptions.map((opt) => (
                   <button
@@ -1593,12 +1629,32 @@ function SchedulePage({ token }: { token: string | null }) {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="req-notes">Notes</Label>
-              <Textarea id="req-notes" value={reqNotes} onChange={(e) => setReqNotes(e.target.value)} placeholder="Optional notes..." className="min-h-[44px] text-base" data-testid="input-req-notes" />
+              <Label htmlFor="req-current-date">Current Date</Label>
+              <Input id="req-current-date" type="date" value={currentDate} onChange={(e) => setCurrentDate(e.target.value)} className="min-h-[44px]" data-testid="input-current-date" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="req-requested-date">Requested Date</Label>
+              <Input id="req-requested-date" type="date" value={requestedDate} onChange={(e) => setRequestedDate(e.target.value)} className="min-h-[44px]" data-testid="input-requested-date" />
+            </div>
+            {reqType === "TIME_CHANGE" && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                  <Label htmlFor="req-shift-start">Shift Start</Label>
+                  <Input id="req-shift-start" type="time" value={reqShiftStart} onChange={(e) => setReqShiftStart(e.target.value)} className="min-h-[44px]" data-testid="input-shift-start" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="req-shift-end">Shift End</Label>
+                  <Input id="req-shift-end" type="time" value={reqShiftEnd} onChange={(e) => setReqShiftEnd(e.target.value)} className="min-h-[44px]" data-testid="input-shift-end" />
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="req-reason">Reason *</Label>
+              <Textarea id="req-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Explain why you need this change..." className="text-base" data-testid="input-reason" />
             </div>
             <Button
-              onClick={() => submitMutation.mutate({ date: reqDate, type: reqType, notes: reqNotes })}
-              disabled={!reqDate || submitMutation.isPending}
+              onClick={handleSubmit}
+              disabled={!reason || reason.length < 3 || submitMutation.isPending}
               className="w-full min-h-[44px]"
               data-testid="button-submit-request"
             >
@@ -1609,23 +1665,75 @@ function SchedulePage({ token }: { token: string | null }) {
         </Card>
       )}
 
-      {requests.length > 0 && (
-        <Card data-testid="card-existing-requests">
-          <CardContent className="py-4 space-y-2">
-            <p className="text-sm font-medium text-muted-foreground mb-2">Your Requests</p>
-            {requests.map((req: any, idx: number) => (
-              <div key={req.id || idx} className="flex items-center justify-between gap-2 py-2 border-b border-border last:border-0 min-h-[44px] flex-wrap" data-testid={`request-${req.id || idx}`}>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{req.date}</p>
-                  <p className="text-xs text-muted-foreground">{req.type}{req.notes ? ` - ${req.notes}` : ""}</p>
-                </div>
-                <Badge className={statusBadgeClass[req.status] || ""} data-testid={`badge-request-status-${req.id || idx}`}>
-                  {req.status}
-                </Badge>
-              </div>
-            ))}
+      <div className="flex gap-2" data-testid="tabs-request-list">
+        <Button
+          variant={listTab === "PENDING" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setListTab("PENDING")}
+          data-testid="tab-pending"
+        >
+          Pending {pendingRequests.length > 0 && `(${pendingRequests.length})`}
+        </Button>
+        <Button
+          variant={listTab === "history" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setListTab("history")}
+          data-testid="tab-history"
+        >
+          History
+        </Button>
+      </div>
+
+      {requestsQuery.isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      ) : displayRequests.length === 0 ? (
+        <Card>
+          <CardContent className="py-6 text-center">
+            <p className="text-sm text-muted-foreground" data-testid="text-no-requests">
+              {listTab === "PENDING" ? "No pending requests" : "No request history"}
+            </p>
           </CardContent>
         </Card>
+      ) : (
+        <div className="space-y-2">
+          {displayRequests.map((req: any) => (
+            <Card key={req.id} data-testid={`request-${req.id}`}>
+              <CardContent className="py-3 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium" data-testid={`text-request-type-${req.id}`}>{typeLabels[req.requestType] || req.requestType}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {req.currentDate && `${req.currentDate} → `}{req.requestedDate || "N/A"}
+                    </p>
+                  </div>
+                  <Badge className={statusBadgeClass[req.status] || ""} data-testid={`badge-request-status-${req.id}`}>
+                    {req.status}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground" data-testid={`text-request-reason-${req.id}`}>{req.reason}</p>
+                {req.decisionNote && (
+                  <div className="text-xs bg-muted/50 rounded-md px-2 py-1.5" data-testid={`text-decision-note-${req.id}`}>
+                    <span className="font-medium">Dispatch note:</span> {req.decisionNote}
+                  </div>
+                )}
+                {req.status === "PENDING" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => cancelMutation.mutate(req.id)}
+                    disabled={cancelMutation.isPending}
+                    data-testid={`button-cancel-request-${req.id}`}
+                  >
+                    <X className="w-4 h-4 mr-1" /> Cancel
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );

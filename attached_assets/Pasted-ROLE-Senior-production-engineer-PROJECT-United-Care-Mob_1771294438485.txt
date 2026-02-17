@@ -1,0 +1,173 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+TASK (PHASE 4 — DRIVER DAY-CHANGE REQUESTS + DISPATCH APPROVAL + EMAIL NOTIFICATIONS)
+
+Goal:
+In the Driver portal, add a Schedule feature where drivers can request a schedule/day change. Dispatch reviews and approves/rejects. Driver receives email notification (approved/rejected). Everything is audited and role-secured.
+
+Scope:
+- Driver UI: Schedule tab + “Request Change” flow
+- Dispatch UI: Queue/Inbox to approve/reject requests
+- Backend: request table + endpoints + RBAC + audit log
+- Email: notify driver of decision (Resend)
+
+-------------------------------------------------------
+A) DATABASE (extend existing, no destructive changes)
+-------------------------------------------------------
+Create table: driver_schedule_change_requests
+
+Columns:
+- id (serial/uuid)
+- public_id (optional; follow your 01UCM format if used elsewhere)
+- company_id (nullable; consistent with multi-company scoping)
+- driver_id (FK)
+- city_id (nullable if needed)
+- request_type enum: ("DAY_CHANGE","TIME_CHANGE","UNAVAILABLE","SWAP_REQUEST")
+- current_date (date, nullable)
+- requested_date (date, nullable)
+- current_shift_start (time, nullable)
+- current_shift_end (time, nullable)
+- requested_shift_start (time, nullable)
+- requested_shift_end (time, nullable)
+- reason (text, required)
+- status enum: ("PENDING","APPROVED","REJECTED","CANCELLED")
+- dispatcher_user_id (FK users, nullable)
+- decision_note (text, nullable)
+- created_at (timestamp)
+- updated_at (timestamp)
+- decided_at (timestamp, nullable)
+
+Add indexes:
+- (status, created_at)
+- (driver_id, created_at)
+- (company_id, status)
+
+-------------------------------------------------------
+B) BACKEND API (Express, RBAC enforced server-side)
+-------------------------------------------------------
+1) Driver creates request (DRIVER only)
+POST /api/driver/schedule-change
+Body (min):
+{
+  "requestType":"DAY_CHANGE",
+  "currentDate":"2026-02-16",
+  "requestedDate":"2026-02-18",
+  "reason":"Medical appointment"
+}
+- Validate with Zod
+- Enforce companyId scoping
+- status = PENDING
+- Write audit log: "DRIVER_SCHEDULE_CHANGE_REQUEST_CREATED"
+
+2) Driver views own requests
+GET /api/driver/schedule-change?status=pending|all
+- Returns only that driver’s records
+
+3) Driver cancels own pending request
+POST /api/driver/schedule-change/:id/cancel
+- Allowed only if status=PENDING
+- Audit: "DRIVER_SCHEDULE_CHANGE_REQUEST_CANCELLED"
+
+4) Dispatch queue (DISPATCH/ADMIN/SUPER_ADMIN)
+GET /api/dispatch/schedule-change?status=pending|all&cityId=...
+- Enforce companyId + city filter rules
+- Default: PENDING newest first
+
+5) Dispatch decision
+POST /api/dispatch/schedule-change/:id/decide
+Body:
+{
+  "decision":"APPROVED" | "REJECTED",
+  "decisionNote":"Approved. New shift starts at 8am."
+}
+Rules:
+- Only PENDING can be decided
+- Set dispatcher_user_id, decided_at, updated_at
+- status => APPROVED/REJECTED
+- Audit: "DISPATCH_SCHEDULE_CHANGE_REQUEST_APPROVED" or "...REJECTED"
+
+-------------------------------------------------------
+C) EMAIL NOTIFICATIONS (Resend)
+-------------------------------------------------------
+When dispatch decides:
+- Send email to driver.email (must exist) with:
+  Subject:
+   - Approved: "UCM — Schedule Change Approved"
+   - Rejected: "UCM — Schedule Change Update"
+  Body includes:
+   - request type
+   - requested date/time
+   - decision + note
+   - link to driver portal (driver.unitedcaremobility.com)
+
+Store basic delivery result:
+- optional columns: email_status, email_sent_at, email_error
+OR log in server logs + audit. (Prefer minimal: log + audit.)
+
+-------------------------------------------------------
+D) FRONTEND — DRIVER PORTAL
+-------------------------------------------------------
+1) Add Schedule tab/section in Driver dashboard:
+- Show upcoming schedule summary (if exists) or placeholder
+- Show “Request Change” button
+
+2) Request Change modal:
+Fields:
+- Request type (DAY_CHANGE default)
+- Current date (prefilled today)
+- Requested date (date picker)
+- Optional time range (if TIME_CHANGE)
+- Reason (required, min length)
+Submit -> calls POST /api/driver/schedule-change
+Show success toast + list refresh
+
+3) My Requests list:
+- Tabs: Pending / History
+- Show status badge + created date + requested date + decision note if any
+- Allow cancel if pending
+
+-------------------------------------------------------
+E) FRONTEND — DISPATCH/ADMIN APP
+-------------------------------------------------------
+Create page: /schedule-change-requests (dispatch only)
+- Table: Driver name, city, type, requested date/time, reason, created_at, status
+- Filters: status, city
+- Row opens detail drawer/modal
+- Approve/Reject buttons + required decision note (reject note required)
+- On decision: toast + list refresh
+
+-------------------------------------------------------
+F) SECURITY / STABILITY
+-------------------------------------------------------
+- Driver endpoints must require DRIVER role + userId match
+- Dispatch endpoints require DISPATCH/ADMIN/SUPER_ADMIN
+- Company isolation enforced on all queries and writes
+- No UI should call /api/ops/* from driver
+- Add rate limit (light) on POST create request (e.g., 10/hour per driver) to prevent spam
+
+-------------------------------------------------------
+G) TEST CHECKLIST (must complete)
+-------------------------------------------------------
+1) Driver can create request -> status PENDING
+2) Driver sees request in Pending
+3) Driver cannot see other drivers’ requests
+4) Dispatch sees pending queue
+5) Dispatch approve -> status APPROVED, decided_at set, audit written, email sent
+6) Dispatch reject -> status REJECTED, decision note stored, email sent
+7) Driver sees final status + note in History
+8) Driver cannot decide requests (403)
+9) Logged out -> 401
+10) Verify no crashes and no redirect loops in driver portal
+
+DELIVERABLES:
+- List files changed (db schema, routes, pages/components)
+- Screenshots/notes of successful tests (or logged outputs)
+- Confirm email send path and failure handling
