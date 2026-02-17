@@ -1,5 +1,5 @@
 import { db, pool } from "../db";
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import * as s from "@shared/schema";
 
@@ -965,6 +965,208 @@ async function seedDriverVehicleAssignments(drivers: any[], vehicles: any[], cit
   log("  Driver vehicle assignments done");
 }
 
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+interface CredentialRecord {
+  email: string;
+  role: string;
+  company: string;
+  city: string;
+  clinicId: number | null;
+  driverId: number | null;
+  password: string;
+}
+
+async function ensureUser(opts: {
+  email: string;
+  role: string;
+  companyId: number;
+  cityId?: number;
+  clinicId?: number | null;
+  driverId?: number | null;
+  firstName: string;
+  lastName: string;
+  password: string;
+}): Promise<void> {
+  const hashed = await hashPw(opts.password);
+  const existing = await db.select().from(s.users).where(eq(s.users.email, opts.email));
+
+  if (existing.length > 0) {
+    const u = existing[0];
+    const updates: any = {};
+    if (u.role !== opts.role) updates.role = opts.role;
+    if (opts.clinicId && u.clinicId !== opts.clinicId) updates.clinicId = opts.clinicId;
+    if (opts.driverId && u.driverId !== opts.driverId) updates.driverId = opts.driverId;
+    if (opts.companyId && u.companyId !== opts.companyId) updates.companyId = opts.companyId;
+    if (Object.keys(updates).length > 0) {
+      await db.update(s.users).set(updates).where(eq(s.users.id, u.id));
+    }
+    if (opts.cityId) {
+      const cityAccess = await db.select().from(s.userCityAccess)
+        .where(and(eq(s.userCityAccess.userId, u.id), eq(s.userCityAccess.cityId, opts.cityId)));
+      if (cityAccess.length === 0) {
+        try { await db.insert(s.userCityAccess).values({ userId: u.id, cityId: opts.cityId }); } catch {}
+      }
+    }
+    return;
+  }
+
+  const pid = nextPid();
+  const [newUser] = await db.insert(s.users).values({
+    publicId: pid,
+    email: opts.email,
+    password: hashed,
+    firstName: opts.firstName,
+    lastName: opts.lastName,
+    role: opts.role as any,
+    companyId: opts.companyId,
+    clinicId: opts.clinicId ?? null,
+    driverId: opts.driverId ?? null,
+    active: true,
+    mustChangePassword: false,
+  }).returning();
+
+  if (opts.cityId) {
+    try { await db.insert(s.userCityAccess).values({ userId: newUser.id, cityId: opts.cityId }); } catch {}
+  }
+}
+
+async function seedDeterministicCredentials(companies: any[], cities: any[], clinics: any[], drivers: any[]) {
+  log("Ensuring deterministic credential accounts...");
+  const credentials: CredentialRecord[] = [];
+
+  const superEmail = "superadmin@ucm.test";
+  await ensureUser({
+    email: superEmail,
+    role: "SUPER_ADMIN",
+    companyId: companies[0].id,
+    firstName: "Super",
+    lastName: "Admin",
+    password: "SeedPass123!",
+  });
+  const allCities = await db.select().from(s.cities);
+  const superUser = await db.select().from(s.users).where(eq(s.users.email, superEmail)).then(r => r[0]);
+  if (superUser) {
+    for (const city of allCities) {
+      const ex = await db.select().from(s.userCityAccess)
+        .where(and(eq(s.userCityAccess.userId, superUser.id), eq(s.userCityAccess.cityId, city.id)));
+      if (ex.length === 0) {
+        try { await db.insert(s.userCityAccess).values({ userId: superUser.id, cityId: city.id }); } catch {}
+      }
+    }
+  }
+  credentials.push({ email: superEmail, role: "SUPER_ADMIN", company: "(global)", city: "(all)", clinicId: null, driverId: null, password: "SeedPass123!" });
+
+  for (const company of companies) {
+    const slug = slugify(company.name);
+    const companyCities = cities.filter((c: any) => {
+      const companyClinic = clinics.find((cl: any) => cl.companyId === company.id && cl.cityId === c.id);
+      return !!companyClinic;
+    });
+    const primaryCity = companyCities[0] || cities[0];
+
+    const adminEmail = `${slug}.admin@ucm.test`;
+    await ensureUser({
+      email: adminEmail,
+      role: "COMPANY_ADMIN",
+      companyId: company.id,
+      cityId: primaryCity?.id,
+      firstName: "Admin",
+      lastName: company.name.split(" ")[0],
+      password: "SeedPass123!",
+    });
+    credentials.push({ email: adminEmail, role: "COMPANY_ADMIN", company: company.name, city: primaryCity?.name || "", clinicId: null, driverId: null, password: "SeedPass123!" });
+
+    const dispatchEmail = `${slug}.dispatch@ucm.test`;
+    await ensureUser({
+      email: dispatchEmail,
+      role: "DISPATCH",
+      companyId: company.id,
+      cityId: primaryCity?.id,
+      firstName: "Dispatch",
+      lastName: company.name.split(" ")[0],
+      password: "SeedPass123!",
+    });
+    credentials.push({ email: dispatchEmail, role: "DISPATCH", company: company.name, city: primaryCity?.name || "", clinicId: null, driverId: null, password: "SeedPass123!" });
+  }
+
+  const allClinics = await db.select().from(s.clinics);
+  for (const clinic of allClinics) {
+    const company = companies.find((c: any) => c.id === clinic.companyId);
+    if (!company) continue;
+    const slug = slugify(company.name);
+    const clinicEmail = `${slug}.clinic.${clinic.id}@ucm.test`;
+    await ensureUser({
+      email: clinicEmail,
+      role: "CLINIC_USER",
+      companyId: company.id,
+      cityId: clinic.cityId,
+      clinicId: clinic.id,
+      firstName: "Clinic",
+      lastName: clinic.name.split(" ")[0],
+      password: "ClinicPass123!",
+    });
+    const city = cities.find((c: any) => c.id === clinic.cityId);
+    credentials.push({ email: clinicEmail, role: "CLINIC_USER", company: company.name, city: city?.name || "", clinicId: clinic.id, driverId: null, password: "ClinicPass123!" });
+  }
+
+  const allDrivers = await db.select().from(s.drivers);
+  for (const driver of allDrivers) {
+    const company = companies.find((c: any) => c.id === driver.companyId);
+    if (!company) continue;
+    const slug = slugify(company.name);
+    const driverEmail = `${slug}.driver.${driver.id}@ucm.test`;
+    await ensureUser({
+      email: driverEmail,
+      role: "DRIVER",
+      companyId: company.id,
+      cityId: driver.cityId,
+      driverId: driver.id,
+      firstName: driver.firstName,
+      lastName: driver.lastName,
+      password: "DriverPass123!",
+    });
+    const city = cities.find((c: any) => c.id === driver.cityId);
+    credentials.push({ email: driverEmail, role: "DRIVER", company: company.name, city: city?.name || "", clinicId: null, driverId: driver.id, password: "DriverPass123!" });
+  }
+
+  console.log("\n" + "=".repeat(120));
+  console.log("  SEED CREDENTIALS TABLE");
+  console.log("=".repeat(120));
+  console.log(
+    "EMAIL".padEnd(45) +
+    "ROLE".padEnd(16) +
+    "COMPANY".padEnd(26) +
+    "CITY".padEnd(16) +
+    "CLINIC".padEnd(8) +
+    "DRIVER".padEnd(8) +
+    "PASSWORD"
+  );
+  console.log("-".repeat(120));
+  for (const c of credentials) {
+    console.log(
+      c.email.padEnd(45) +
+      c.role.padEnd(16) +
+      c.company.padEnd(26) +
+      c.city.padEnd(16) +
+      (c.clinicId ? String(c.clinicId) : "-").padEnd(8) +
+      (c.driverId ? String(c.driverId) : "-").padEnd(8) +
+      c.password
+    );
+  }
+  console.log("=".repeat(120));
+
+  const fs = await import("fs");
+  const path = await import("path");
+  const outPath = path.join(path.dirname(new URL(import.meta.url).pathname), "seed-credentials.json");
+  fs.writeFileSync(outPath, JSON.stringify(credentials, null, 2));
+  log(`Credentials written to ${outPath}`);
+
+  return credentials;
+}
+
 async function main() {
   console.log("=".repeat(60));
   log("Starting comprehensive UCM seed...");
@@ -995,6 +1197,7 @@ async function main() {
     await seedInvoiceSequence();
     await seedClinicBillingSettings(clinics);
     await seedDriverVehicleAssignments(drivers, vehicles, cities);
+    await seedDeterministicCredentials(companies, cities, clinics, drivers);
 
     console.log("=".repeat(60));
     log("Seed complete! Summary:");
