@@ -6610,7 +6610,7 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
     }
   });
 
-  app.get("/api/ops/driver-locations", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "DRIVER"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/driver-locations", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
       const role = req.user!.role;
       const userId = req.user!.userId;
@@ -6733,7 +6733,7 @@ ${data.decisionNotes ? `<p><strong>Notes:</strong> ${data.decisionNotes}</p>` : 
     }
   });
 
-  app.get("/api/ops/my-active-trips", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "DRIVER"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/my-active-trips", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
     try {
       const userId = req.user!.userId;
       const role = req.user!.role;

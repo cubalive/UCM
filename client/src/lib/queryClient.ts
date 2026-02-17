@@ -56,11 +56,22 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+function isBlockedOpsCall(url: string): boolean {
+  return isDriverHost && (url.startsWith("/api/ops") || url.startsWith("/api/admin/metrics"));
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  if (isBlockedOpsCall(url)) {
+    return new Response(JSON.stringify({ ok: false, blocked: true, reason: "ops_blocked_on_driver_host" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const headers: Record<string, string> = {
     ...buildDefaultHeaders(),
   };
@@ -83,7 +94,12 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    const url = queryKey[0] as string;
+    if (isBlockedOpsCall(url)) {
+      return null;
+    }
+
+    const res = await fetch(url, {
       credentials: resolveCredentials(),
       headers: buildDefaultHeaders(),
     });

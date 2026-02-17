@@ -36,11 +36,12 @@ export function RealtimeDebugPanel({
     queryKey: ["/api/ops/directions-metrics"],
     queryFn: async () => {
       if (!token) return null;
-      const resp = await fetch("/api/ops/directions-metrics", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!resp.ok) return null;
-      return resp.json();
+      try {
+        const { apiFetch } = await import("@/lib/api");
+        return await apiFetch("/api/ops/directions-metrics", token);
+      } catch {
+        return null;
+      }
     },
     enabled: DEBUG_ENABLED && isOpsAllowed && !!token && !!tripId,
     refetchInterval: DEBUG_ENABLED && isOpsAllowed ? 10000 : false,

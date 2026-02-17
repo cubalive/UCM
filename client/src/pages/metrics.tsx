@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { isDriverHost } from "@/lib/hostDetection";
+import { apiFetch } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -283,14 +284,7 @@ export default function MetricsPage() {
     enabled: !isDriverHost && !!user && !!selectedCity?.id && ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role),
     refetchInterval: 15_000,
     retry: 2,
-    meta: { queryParams: `?city_id=${selectedCity?.id || 1}` },
-    queryFn: async () => {
-      const res = await fetch(`/api/ops/health?city_id=${selectedCity?.id || 1}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Failed to fetch health");
-      return res.json();
-    },
+    queryFn: () => apiFetch(`/api/ops/health?city_id=${selectedCity?.id || 1}`, token),
   });
 
   const { data: routesData } = useQuery<{ ok: boolean; routes: Array<{ route: string; request_count: number; error_count: number; p50_ms: number; p95_ms: number }> }>({

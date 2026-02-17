@@ -66,6 +66,10 @@ export async function apiFetch(
   token: string | null,
   options?: RequestInit
 ) {
+  if (isDriverHost && (url.startsWith("/api/ops") || url.startsWith("/api/admin/metrics"))) {
+    return { ok: false, blocked: true, reason: "ops_blocked_on_driver_host" };
+  }
+
   const extraHeaders = (options?.headers as Record<string, string>) || {};
   if (options?.body) extraHeaders["Content-Type"] = "application/json";
 
