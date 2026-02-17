@@ -164,7 +164,7 @@ export async function enrichTripsWithRelations(tripList: any[]) {
 
 export async function assignTripHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -252,7 +252,7 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
 
 export async function getTripMessagesHandler(req: AuthRequest, res: Response) {
   try {
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -276,7 +276,7 @@ export async function getTripMessagesHandler(req: AuthRequest, res: Response) {
 
 export async function createTripMessageHandler(req: AuthRequest, res: Response) {
   try {
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -436,7 +436,7 @@ export function buildProgressEvents(tripData: any): Array<{key: string; label: s
 
 export async function getTripByIdHandler(req: AuthRequest, res: Response) {
   try {
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
 
     const [trip] = await db.select().from(trips).where(and(eq(trips.id, tripId), isNull(trips.deletedAt)));
@@ -663,7 +663,7 @@ export const updateTripSchema = z.object({
 
 export async function updateTripHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
 
     const parsed = updateTripSchema.safeParse(req.body);
@@ -827,7 +827,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid status" });
     }
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
 
     const idempotencyKey = req.body.idempotencyKey;
     if (idempotencyKey) {
@@ -941,7 +941,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
 
 export async function dialysisReturnCheckHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1020,7 +1020,7 @@ export async function dialysisReturnCheckHandler(req: AuthRequest, res: Response
 
 export async function dialysisReturnAdjustHandler(req: AuthRequest, res: Response) {
   try {
-    const outboundId = parseInt(req.params.id);
+    const outboundId = parseInt(String(req.params.id));
     if (isNaN(outboundId)) return res.status(400).json({ message: "Invalid trip ID" });
 
     const { action, returnTripId, proposedPickupTime } = req.body;
@@ -1097,7 +1097,7 @@ export async function dialysisReturnAdjustHandler(req: AuthRequest, res: Respons
 
 export async function approveTripHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1145,7 +1145,7 @@ export function computeCancelFee(cancelStage: string): number {
 
 export async function cancelRequestHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1230,7 +1230,7 @@ export async function cancelRequestHandler(req: AuthRequest, res: Response) {
 
 export async function rejectCancelHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1260,7 +1260,7 @@ export async function rejectCancelHandler(req: AuthRequest, res: Response) {
 
 export async function cancelTripHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1379,7 +1379,7 @@ export async function cancelTripHandler(req: AuthRequest, res: Response) {
 
 export async function createReturnTripHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
     const parentTrip = await storage.getTrip(id);
     if (!parentTrip) return res.status(404).json({ message: "Trip not found" });
@@ -1453,7 +1453,7 @@ export async function createReturnTripHandler(req: AuthRequest, res: Response) {
 
 export async function recomputeRouteHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1567,7 +1567,7 @@ export async function driverSignatureHandler(req: AuthRequest, res: Response) {
     if (user.role !== "DRIVER" && user.role !== "SUPER_ADMIN" && user.role !== "ADMIN") {
       return res.status(403).json({ message: "Access denied" });
     }
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1598,7 +1598,7 @@ export async function clinicSignatureHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1630,7 +1630,7 @@ export async function getSignatureHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1665,7 +1665,7 @@ export async function getSignatureHandler(req: AuthRequest, res: Response) {
 
 export async function getTripPdfHandler(req: AuthRequest, res: Response) {
   try {
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1712,7 +1712,7 @@ export async function getTripPdfHandler(req: AuthRequest, res: Response) {
 
 export async function downloadTripPdfHandler(req: AuthRequest, res: Response) {
   try {
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -1776,7 +1776,7 @@ export async function downloadTripPdfHandler(req: AuthRequest, res: Response) {
 
 export async function getTripInvoiceHandler(req: AuthRequest, res: Response) {
   try {
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
 
     const trip = await storage.getTrip(tripId);
@@ -1808,7 +1808,7 @@ export async function getTripInvoiceHandler(req: AuthRequest, res: Response) {
 
 export async function createTripInvoiceHandler(req: AuthRequest, res: Response) {
   try {
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
 
     const trip = await storage.getTrip(tripId);

@@ -1,0 +1,330 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Implement UCM Intelligence Core v1 (Measurement + Ranking) with strict role scoping:
+- SUPER_ADMIN: full access to everything
+- DISPATCH: operational dashboards only (no cross-clinic financial rankings unless explicitly allowed)
+- CLINIC_USER: only their clinic’s metrics + trip-level visibility relevant to them
+- DRIVER: only their own performance metrics (optional v1; if exists, keep it minimal)
+
+Must be stable, non-breaking, and work with existing trip lifecycle.
+No expensive external APIs required.
+
+========================================================
+PHASE 0 — AUTHZ FOUNDATION (HARD REQUIREMENT)
+========================================================
+
+1) Ensure server-side auth middleware exists:
+- Identify current auth model (Supabase JWT or internal JWT).
+- Create helper: requireRole(...roles)
+- Create helper: getActorContext() returns { userId, role, clinicId, cityId }
+
+2) Enforce city scoping for dispatch:
+- Dispatch can only access selected city_id (current_city) OR explicit city_id query param validated against their allowed city access list.
+- SUPER_ADMIN can access all cities.
+
+3) Enforce clinic scoping for clinic users:
+- All analytics endpoints must force clinic_id = actor.clinicId, ignore user-supplied clinic_id.
+
+========================================================
+PHASE 1 — DATA MODEL (NON-DESTRUCTIVE EXTENSIONS)
+========================================================
+
+A) Ensure trips table has (add if missing):
+- scheduled_pickup_at timestamptz not null
+- scheduled_dropoff_at timestamptz null
+- actual_arrived_pickup_at timestamptz null
+- actual_pickup_at timestamptz null
+- actual_dropoff_at timestamptz null
+- finalized_at timestamptz null
+- status text not null
+- city_id uuid not null
+- clinic_id uuid null
+- driver_id uuid null
+- vehicle_id uuid null
+- pricing_required boolean default true
+- price_cents int null
+- currency text default 'USD'
+- gps_verified boolean default false
+- no_show boolean default false
+- cancelled boolean default false
+- cancel_reason text null
+- no_show_reason text null
+
+B) Add new tables:
+
+1) daily_metrics_rollup
+- id uuid pk default gen_random_uuid()
+- metric_date date not null
+- tenant_id uuid not null
+- city_id uuid not null
+- clinic_id uuid null
+- driver_id uuid null
+- trips_total int not null default 0
+- trips_completed int not null default 0
+- trips_cancelled int not null default 0
+- trips_no_show int not null default 0
+- on_time_pickup_count int not null default 0
+- late_pickup_count int not null default 0
+- avg_pickup_delay_minutes numeric not null default 0
+- gps_verified_count int not null default 0
+- pricing_missing_count int not null default 0
+- invoices_missing_count int not null default 0
+- revenue_cents int not null default 0
+- est_cost_cents int not null default 0
+- margin_cents int not null default 0
+- empty_miles numeric not null default 0
+- idle_minutes numeric not null default 0
+- created_at timestamptz default now()
+Unique: (metric_date, city_id, clinic_id, driver_id)
+
+2) weekly_score_snapshots
+- id uuid pk default gen_random_uuid()
+- week_start date not null
+- week_end date not null
+- tenant_id uuid not null
+- city_id uuid not null
+- clinic_id uuid null
+- driver_id uuid null
+- dpi_score numeric null
+- cri_score numeric null
+- rei_score numeric null
+- tri_score numeric null
+- cost_bleed_score numeric null
+- margin_score numeric null
+- created_at timestamptz default now()
+Unique: (week_start, city_id, clinic_id, driver_id)
+
+3) tri_scores
+- id uuid pk default gen_random_uuid()
+- period_start date not null
+- period_end date not null
+- tenant_id uuid not null
+- city_id uuid not null
+- clinic_id uuid null
+- tri_score numeric not null
+- components jsonb not null
+- created_at timestamptz default now()
+Index: (period_start desc, city_id, clinic_id)
+
+4) cost_leak_alerts
+- id uuid pk default gen_random_uuid()
+- created_at timestamptz default now()
+- tenant_id uuid not null
+- city_id uuid not null
+- clinic_id uuid null
+- driver_id uuid null
+- severity text not null -- YELLOW|RED
+- type text not null     -- IDLE|EMPTY_MILES|LOW_MARGIN|PRICING_GAPS|GPS_GAPS
+- title text not null
+- message text not null
+- metric_value numeric not null
+- threshold numeric not null
+- status text not null default 'OPEN' -- OPEN|ACKED|RESOLVED
+- acked_by uuid null
+- acked_at timestamptz null
+Indexes: (status, severity, created_at desc), (city_id, created_at desc)
+
+5) ucm_certifications
+- id uuid pk default gen_random_uuid()
+- created_at timestamptz default now()
+- tenant_id uuid not null
+- city_id uuid not null
+- clinic_id uuid not null
+- status text not null -- CERTIFIED|CONDITIONAL|REVOKED
+- tri_score numeric not null
+- issued_at timestamptz default now()
+- expires_at timestamptz null
+- reason text not null default ''
+Unique: (city_id, clinic_id)
+
+========================================================
+PHASE 2 — ROLLUP ENGINE (DAILY METRICS)
+========================================================
+
+Create a server-side rollup job that computes daily_metrics_rollup from trips for a given city and date.
+
+A) Endpoint (protected):
+POST /api/intelligence/rollup/daily?city_id=...&date=YYYY-MM-DD
+Auth: SUPER_ADMIN or DISPATCH
+
+B) Logic:
+- Pull trips with scheduled_pickup_at within date range for that city
+- Compute:
+  - trips_total
+  - completed/cancelled/no_show
+  - on_time_pickup_count (actual_pickup_at <= scheduled_pickup_at + 5 min)
+  - late_pickup_count
+  - avg_pickup_delay_minutes
+  - gps_verified_count
+  - pricing_missing_count (pricing_required AND price_cents is null for non-finalized)
+  - invoices_missing_count (finalized AND invoice missing if invoices table exists)
+  - revenue_cents (sum price_cents for completed)
+  - est_cost_cents = (estimated miles * COST_PER_MILE_CENTS) + (duration minutes * COST_PER_MINUTE_CENTS)
+  - margin_cents = revenue_cents - est_cost_cents
+  - empty_miles, idle_minutes if available (else 0)
+- Upsert unique keys for:
+  - city-level row (clinic_id null, driver_id null)
+  - clinic-level rows
+  - driver-level rows
+
+C) Constants (env configurable, defaults safe):
+- COST_PER_MILE_CENTS default 65
+- COST_PER_MINUTE_CENTS default 30
+
+D) Idempotent:
+- Re-running same date overwrites rollup for that date keys.
+
+========================================================
+PHASE 3 — WEEKLY SCORES + RANKING (DPI/CRI/TRI/CostBleed)
+========================================================
+
+A) Endpoint (protected):
+POST /api/intelligence/snapshots/weekly?city_id=...&weekStart=YYYY-MM-DD
+Auth: SUPER_ADMIN or DISPATCH
+
+B) Build weekly score snapshots using daily_metrics_rollup (7-day window)
+
+Driver Performance Index (DPI, 0–100):
+- punctuality = on_time_pickup / max(1, completed)
+- completion  = completed / max(1, total)
+- gps         = gps_verified / max(1, total_assigned_or_active)
+- cost_eff    = 1 - clamp(empty_miles_ratio, 0, 1)
+- idle_eff    = 1 - clamp(idle_minutes_ratio, 0, 1)
+Score weights:
+DPI = 35*punctuality + 20*completion + 20*gps + 15*cost_eff + 10*idle_eff
+
+Clinic Reliability Index (CRI, 0–100) [clinic view only for their clinic]:
+- no_show_control = 1 - (no_show / max(1,total))
+- cancel_control  = 1 - (cancelled / max(1,total))
+- punctuality_outcomes = on_time_pickup / max(1,completed)
+CRI = 45*no_show_control + 25*cancel_control + 30*punctuality_outcomes
+
+Transport Reliability Index (TRI, 0–100) per clinic and per city:
+- on_time = on_time_pickup / max(1,completed)
+- gps     = gps_verified / max(1,total)
+- no_show_control = 1 - (no_show / max(1,total))
+- billing_accuracy = 1 - (pricing_missing / max(1,total))   (proxy v1)
+TRI = 40*on_time + 25*gps + 20*no_show_control + 15*billing_accuracy
+
+Cost Bleed Score (0–100):
+- margin_rate = margin / max(1,revenue)
+- empty_ratio, idle_ratio
+Score = clamp( 60*margin_rate + 20*(1-empty_ratio) + 20*(1-idle_ratio), 0, 100 )
+
+C) Store:
+- weekly_score_snapshots rows for city-level, clinic-level, driver-level
+- tri_scores rows for the same period with components jsonb
+
+D) Rankings:
+Create endpoints:
+GET /api/intelligence/rankings/drivers?city_id=...&weekStart=...
+Auth: SUPER_ADMIN or DISPATCH (dispatch sees only their city)
+Return top 50 drivers in that city: {rank, driver_id, name, dpi_score, trend}
+
+GET /api/intelligence/rankings/clinics?city_id=...&weekStart=...
+Auth: SUPER_ADMIN or DISPATCH (dispatch sees city; clinic cannot see others)
+Return top clinics in the city by tri_score.
+
+GET /api/intelligence/me/clinic?weekStart=...
+Auth: CLINIC_USER
+Return ONLY their clinic scores + deltas vs city average (not other clinics).
+
+========================================================
+PHASE 4 — COST BLEED DETECTOR (ALERTS)
+========================================================
+
+A) Endpoint:
+POST /api/intelligence/alerts/cost-bleed?city_id=...&date=YYYY-MM-DD
+Auth: SUPER_ADMIN or DISPATCH
+
+B) Rules (based on daily_metrics_rollup):
+- IDLE: idle_minutes_ratio > 0.20 => YELLOW; >0.30 => RED
+- EMPTY_MILES: empty_ratio > 0.35 => YELLOW; >0.45 => RED
+- LOW_MARGIN: margin_rate < 0.15 => YELLOW; <0.05 => RED
+- PRICING_GAPS: pricing_missing_count > 0 and trip pickup within next 2h => RED
+- GPS_GAPS: gps_verified_rate < 0.90 => YELLOW; <0.80 => RED
+
+C) Idempotent:
+Do not duplicate same alert per (city_id, type, driver_id/clinic_id, date bucket) if OPEN.
+
+========================================================
+PHASE 5 — CERTIFICATION (TRI-BASED, AUTO)
+========================================================
+
+A) Endpoint:
+POST /api/intelligence/certify?city_id=...&periodStart=YYYY-MM-DD&periodEnd=YYYY-MM-DD
+Auth: SUPER_ADMIN only
+
+B) Rules:
+- If TRI >= 85 => CERTIFIED
+- Else if TRI >= 70 => CONDITIONAL
+- Else => REVOKED
+Additionally: if gps < 0.90 OR no_show_rate > 0.06 => force CONDITIONAL/REVOKED depending severity.
+
+C) Store/Upsert ucm_certifications per clinic in that city.
+D) Return summary counts + list of changes.
+
+Clinic UI:
+- Show their certification status + why (components + failed gates)
+- Do NOT show other clinics.
+
+========================================================
+PHASE 6 — UI SURFACES (ROLE-SCOPED)
+========================================================
+
+A) SUPER_ADMIN (full):
+- Intelligence dashboard page with:
+  - City selector
+  - Driver rankings (DPI)
+  - Clinic TRI list + certification status
+  - Cost bleed alerts table
+  - Export CSV buttons
+
+B) DISPATCH (city-only):
+- Same but:
+  - No cross-city access
+  - Can view driver rankings and cost alerts
+  - Can view clinic TRI for the city (optional) but not export clinic comparisons unless SUPER_ADMIN
+
+C) CLINIC_USER:
+- "My Performance" page:
+  - TRI (weekly + trend)
+  - On-time %
+  - No-show rate
+  - Completed trips
+  - Billing readiness (pricing missing on their submitted trips)
+  - Certification badge (if certified)
+  - Weekly report download (HTML)
+
+========================================================
+PHASE 7 — VERIFICATION (MUST DO)
+========================================================
+
+1) Seed/Use existing trips in one city for last 7 days.
+2) Run daily rollup for each day.
+3) Run weekly snapshots.
+4) Hit rankings endpoints with each role:
+   - clinic cannot see other clinics
+   - dispatch cannot query other city_id
+   - super admin sees everything
+5) Generate cost bleed alerts and verify no duplicates on rerun.
+6) Run certify and verify clinic status saved.
+
+Provide curl examples for:
+- daily rollup
+- weekly snapshot
+- rankings drivers
+- clinic me endpoint
+- cost alerts
+- certify
+
+END.

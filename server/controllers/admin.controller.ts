@@ -62,7 +62,7 @@ export async function getCityMismatchHandler(req: AuthRequest, res: Response) {
 
 export async function archiveClinicHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const clinic = await storage.getClinic(id);
@@ -90,7 +90,7 @@ export async function archiveClinicHandler(req: AuthRequest, res: Response) {
 
 export async function restoreClinicHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const clinic = await storage.getClinic(id);
@@ -115,7 +115,7 @@ export async function restoreClinicHandler(req: AuthRequest, res: Response) {
 
 export async function permanentDeleteClinicHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const clinic = await storage.getClinic(id);
@@ -145,7 +145,7 @@ export async function permanentDeleteClinicHandler(req: AuthRequest, res: Respon
 
 export async function archiveDriverHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const driver = await storage.getDriver(id);
@@ -174,7 +174,7 @@ export async function archiveDriverHandler(req: AuthRequest, res: Response) {
 
 export async function restoreDriverHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const driver = await storage.getDriver(id);
@@ -199,7 +199,7 @@ export async function restoreDriverHandler(req: AuthRequest, res: Response) {
 
 export async function permanentDeleteDriverHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const driver = await storage.getDriver(id);
@@ -229,7 +229,7 @@ export async function permanentDeleteDriverHandler(req: AuthRequest, res: Respon
 
 export async function archivePatientHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const patient = await storage.getPatient(id);
@@ -257,7 +257,7 @@ export async function archivePatientHandler(req: AuthRequest, res: Response) {
 
 export async function restorePatientHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const patient = await storage.getPatient(id);
@@ -282,7 +282,7 @@ export async function restorePatientHandler(req: AuthRequest, res: Response) {
 
 export async function permanentDeletePatientHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const patient = await storage.getPatient(id);
@@ -312,7 +312,7 @@ export async function permanentDeletePatientHandler(req: AuthRequest, res: Respo
 
 export async function archiveUserHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const user = await storage.getUser(id);
@@ -355,7 +355,7 @@ export async function archiveUserHandler(req: AuthRequest, res: Response) {
 
 export async function restoreUserHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const user = await storage.getUser(id);
@@ -395,7 +395,7 @@ export async function restoreUserHandler(req: AuthRequest, res: Response) {
 
 export async function permanentDeleteUserHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const { ack, confirm } = req.body || {};
@@ -444,7 +444,7 @@ export async function permanentDeleteUserHandler(req: AuthRequest, res: Response
 
 export async function resetUserPasswordHandler(req: AuthRequest, res: Response) {
   try {
-    const targetUserId = parseInt(req.params.id);
+    const targetUserId = parseInt(String(req.params.id));
     if (isNaN(targetUserId)) return res.status(400).json({ message: "Invalid user ID" });
 
     const targetUser = await storage.getUser(targetUserId);
@@ -504,7 +504,7 @@ export async function resetUserPasswordHandler(req: AuthRequest, res: Response) 
 
 export async function resetClinicPasswordHandler(req: AuthRequest, res: Response) {
   try {
-    const clinicId = parseInt(req.params.id);
+    const clinicId = parseInt(String(req.params.id));
     if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
 
     const clinic = await storage.getClinic(clinicId);
@@ -558,7 +558,7 @@ export async function resetClinicPasswordHandler(req: AuthRequest, res: Response
 
 export async function resetDriverPasswordHandler(req: AuthRequest, res: Response) {
   try {
-    const driverId = parseInt(req.params.id);
+    const driverId = parseInt(String(req.params.id));
     if (isNaN(driverId)) return res.status(400).json({ message: "Invalid driver ID" });
 
     const driver = await storage.getDriver(driverId);
@@ -613,7 +613,7 @@ export async function resetDriverPasswordHandler(req: AuthRequest, res: Response
 
 export async function archiveVehicleHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const vehicle = await storage.getVehicle(id);
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
@@ -637,7 +637,7 @@ export async function archiveVehicleHandler(req: AuthRequest, res: Response) {
 
 export async function restoreVehicleHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const vehicle = await storage.getVehicle(id);
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
@@ -658,7 +658,7 @@ export async function restoreVehicleHandler(req: AuthRequest, res: Response) {
 
 export async function permanentDeleteVehicleHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const vehicle = await storage.getVehicle(id);
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
@@ -874,7 +874,7 @@ export async function batchPdfDownloadHandler(req: AuthRequest, res: Response) {
   try {
     const { jobId } = req.params;
     const { getJobStatus: getJobStatusHelper } = await import("../lib/jobQueue");
-    const job = await getJobStatusHelper(jobId);
+    const job = await getJobStatusHelper(String(jobId));
     if (!job) return res.status(404).json({ message: "Job not found" });
 
     const companyId = getCompanyIdFromAuth(req);
@@ -1030,7 +1030,7 @@ export function authDiagnosticsHandler(req: AuthRequest, res: Response) {
 
 export async function getJobHandler(req: AuthRequest, res: Response) {
   try {
-    const jobId = req.params.id;
+    const jobId = String(req.params.id);
     const job = await getJobStatus(jobId);
     if (!job) return res.status(404).json({ message: "Job not found" });
 

@@ -43,7 +43,7 @@ export async function createCompanyHandler(req: AuthRequest, res: Response) {
 
 export async function createCompanyAdminHandler(req: AuthRequest, res: Response) {
   try {
-    const companyId = parseInt(req.params.id);
+    const companyId = parseInt(String(req.params.id));
     if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
     const existing = await db.select().from(companies).where(eq(companies.id, companyId));
     if (!existing.length) return res.status(404).json({ message: "Company not found" });
@@ -120,7 +120,7 @@ export async function createCityHandler(req: AuthRequest, res: Response) {
 
 export async function updateCityHandler(req: AuthRequest, res: Response) {
   try {
-    const cityId = parseInt(req.params.id);
+    const cityId = parseInt(String(req.params.id));
     if (isNaN(cityId)) return res.status(400).json({ message: "Invalid city ID" });
 
     const city = await storage.getCity(cityId);

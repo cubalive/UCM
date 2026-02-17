@@ -753,7 +753,7 @@ export async function clinicTripByIdHandler(req: AuthRequest, res: Response) {
     if (!user) return res.status(404).json({ message: "User not found" });
     if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -837,7 +837,7 @@ export async function clinicTripPdfHandler(req: AuthRequest, res: Response) {
     if (!user) return res.status(404).json({ message: "User not found" });
     if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -869,7 +869,7 @@ export async function clinicTripTrackingHandler(req: AuthRequest, res: Response)
     if (!user) return res.status(404).json({ message: "User not found" });
     if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
-    const tripId = parseInt(req.params.id);
+    const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
@@ -974,7 +974,7 @@ export async function clinicInvoicesHandler(req: AuthRequest, res: Response) {
 
 export async function clinicInvoiceByIdHandler(req: AuthRequest, res: Response) {
   try {
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
     if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
     const invoice = await storage.getInvoice(invoiceId);
@@ -1003,7 +1003,7 @@ export async function clinicDeletePatientHandler(req: AuthRequest, res: Response
     if (!user || user.role !== "VIEWER" || !user.clinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const patient = await storage.getPatient(id);
     if (!patient) return res.status(404).json({ message: "Patient not found" });
@@ -1034,7 +1034,7 @@ export async function clinicDeleteTripHandler(req: AuthRequest, res: Response) {
     if (!user || user.role !== "VIEWER" || !user.clinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });

@@ -130,7 +130,7 @@ export function registerTripSeriesRoutes(app: Express) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res) => {
       try {
-        const id = parseInt(req.params.id);
+        const id = parseInt(String(req.params.id));
         const series = await storage.getTripSeriesById(id);
         if (!series) return res.status(404).json({ message: "Series not found" });
         if (!(await checkCityAccess(req, series.cityId))) {
@@ -307,7 +307,7 @@ export function registerTripSeriesRoutes(app: Express) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res) => {
       try {
-        const id = parseInt(req.params.id);
+        const id = parseInt(String(req.params.id));
         const series = await storage.getTripSeriesById(id);
         if (!series) return res.status(404).json({ message: "Series not found" });
         if (!(await checkCityAccess(req, series.cityId))) {
@@ -337,7 +337,7 @@ export function registerTripSeriesRoutes(app: Express) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res) => {
       try {
-        const id = parseInt(req.params.id);
+        const id = parseInt(String(req.params.id));
         const series = await storage.getTripSeriesById(id);
         if (!series) return res.status(404).json({ message: "Series not found" });
         if (!(await checkCityAccess(req, series.cityId))) {

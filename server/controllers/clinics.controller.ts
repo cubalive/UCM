@@ -146,7 +146,7 @@ export async function createClinicHandler(req: AuthRequest, res: Response) {
 
 export async function updateClinicHandler(req: AuthRequest, res: Response) {
   try {
-    const clinicId = parseInt(req.params.id);
+    const clinicId = parseInt(String(req.params.id));
     if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
 
     const clinic = await storage.getClinic(clinicId);

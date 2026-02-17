@@ -45,7 +45,7 @@ export async function getVehiclesHandler(req: AuthRequest, res: Response) {
 
 export async function getVehicleByIdHandler(req: AuthRequest, res: Response) {
   try {
-    const vehicle = await storage.getVehicle(parseInt(req.params.id));
+    const vehicle = await storage.getVehicle(parseInt(String(req.params.id)));
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
     if (!(await checkCityAccess(req, vehicle.cityId))) {
       return res.status(403).json({ message: "No access to this vehicle" });
@@ -62,7 +62,7 @@ export async function getVehicleByIdHandler(req: AuthRequest, res: Response) {
 
 export async function updateVehicleHandler(req: AuthRequest, res: Response) {
   try {
-    const vehicleId = parseInt(req.params.id);
+    const vehicleId = parseInt(String(req.params.id));
     const vehicle = await storage.getVehicle(vehicleId);
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
     if (!(await checkCityAccess(req, vehicle.cityId))) {

@@ -65,7 +65,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res: Response) => {
       try {
-        const batchId = parseInt(req.params.id);
+        const batchId = parseInt(String(req.params.id));
         const [batch] = await db.select().from(assignmentBatches).where(eq(assignmentBatches.id, batchId));
         if (!batch) return res.status(404).json({ message: "Batch not found" });
         if (!(await checkCityAccess(req, batch.cityId))) {
@@ -86,7 +86,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res: Response) => {
       try {
-        const batchId = parseInt(req.params.id);
+        const batchId = parseInt(String(req.params.id));
         const [batch] = await db.select().from(assignmentBatches).where(eq(assignmentBatches.id, batchId));
         if (!batch) return res.status(404).json({ message: "Batch not found" });
         if (!(await checkCityAccess(req, batch.cityId))) {
@@ -135,7 +135,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res: Response) => {
       try {
-        const batchId = parseInt(req.params.id);
+        const batchId = parseInt(String(req.params.id));
         const [batch] = await db
           .select()
           .from(assignmentBatches)
@@ -227,7 +227,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res: Response) => {
       try {
-        const tripId = parseInt(req.params.tripId);
+        const tripId = parseInt(String(req.params.tripId));
         const [trip] = await db.select().from(trips).where(eq(trips.id, tripId));
         if (!trip) return res.status(404).json({ message: "Trip not found" });
         if (!(await checkCityAccess(req, trip.cityId))) {

@@ -63,7 +63,7 @@ export function registerAutomationRoutes(app: Express) {
 
   app.post("/api/trips/:id/reassign", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const tripId = parseInt(req.params.id);
+      const tripId = parseInt(String(req.params.id));
       const { driverId, vehicleId } = req.body;
 
       const trip = await storage.getTrip(tripId);
@@ -93,7 +93,7 @@ export function registerAutomationRoutes(app: Express) {
 
   app.post("/api/trips/:id/confirm", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const tripId = parseInt(req.params.id);
+      const tripId = parseInt(String(req.params.id));
       const trip = await storage.getTrip(tripId);
       if (!trip) return res.status(404).json({ error: "Trip not found" });
 
@@ -106,7 +106,7 @@ export function registerAutomationRoutes(app: Express) {
 
   app.post("/api/trips/:id/patient-ready", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "DRIVER"), async (req: AuthRequest, res) => {
     try {
-      const tripId = parseInt(req.params.id);
+      const tripId = parseInt(String(req.params.id));
       const { ready } = req.body;
 
       const trip = await storage.getTrip(tripId);
@@ -134,7 +134,7 @@ export function registerAutomationRoutes(app: Express) {
 
   app.get("/api/patients/:id/no-show-count", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const patientId = parseInt(req.params.id);
+      const patientId = parseInt(String(req.params.id));
       const count = await storage.getPatientNoShowCount(patientId);
       res.json({ patientId, noShowCount: count });
     } catch (err: any) {
@@ -157,7 +157,7 @@ export function registerAutomationRoutes(app: Express) {
 
   app.get("/api/driver-scores/:driverId/history", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const driverId = parseInt(req.params.driverId);
+      const driverId = parseInt(String(req.params.driverId));
       const scores = await storage.getDriverScoreHistory(driverId);
       res.json(scores);
     } catch (err: any) {

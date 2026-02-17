@@ -134,7 +134,7 @@ export async function createPatientHandler(req: AuthRequest, res: Response) {
 
 export async function updatePatientHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid patient ID" });
 
     const existing = await storage.getPatient(id);

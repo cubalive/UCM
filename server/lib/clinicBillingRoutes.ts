@@ -821,7 +821,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.patch("/api/tariffs/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(String(req.params.id));
       const parsed = updateTariffSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid tariff data", errors: parsed.error.flatten() });
@@ -836,7 +836,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/trip-billing/:tripId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const tripId = parseInt(req.params.tripId);
+      const tripId = parseInt(String(req.params.tripId));
       const billing = await storage.getTripBilling(tripId);
       if (!billing) return res.status(404).json({ message: "No billing record for this trip" });
       res.json(billing);
@@ -847,7 +847,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/trip-billing/clinic/:clinicId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const clinicId = parseInt(req.params.clinicId);
+      const clinicId = parseInt(String(req.params.clinicId));
       const month = req.query.month as string | undefined;
       const billings = await storage.getTripBillingsByClinic(clinicId, month);
       res.json(billings);
@@ -872,7 +872,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/monthly-invoices/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(String(req.params.id));
       const invoice = await storage.getClinicInvoiceMonthly(id);
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
       const items = await storage.getClinicInvoiceItems(id);
@@ -930,7 +930,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.patch("/api/monthly-invoices/:id/status", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(String(req.params.id));
       const { status } = req.body;
       if (!["draft", "sent", "paid"].includes(status)) {
         return res.status(400).json({ message: "Invalid status" });
@@ -968,7 +968,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/clinics/:clinicId/billing-settings", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const clinicId = parseInt(req.params.clinicId);
+      const clinicId = parseInt(String(req.params.clinicId));
       if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
       const access = await checkClinicAccess(req, clinicId);
       if (!access.allowed) return res.status(403).json({ message: access.reason });
@@ -992,7 +992,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.put("/api/clinics/:clinicId/billing-settings", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const clinicId = parseInt(req.params.clinicId);
+      const clinicId = parseInt(String(req.params.clinicId));
       if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
       const access = await checkClinicAccess(req, clinicId);
       if (!access.allowed) return res.status(403).json({ message: access.reason });
@@ -1028,7 +1028,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.post("/api/clinics/:clinicId/cycle-invoices/preview", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const clinicId = parseInt(req.params.clinicId);
+      const clinicId = parseInt(String(req.params.clinicId));
       if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
       const access = await checkClinicAccess(req, clinicId);
       if (!access.allowed) return res.status(403).json({ message: access.reason });
@@ -1108,7 +1108,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.post("/api/clinics/:clinicId/cycle-invoices", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const clinicId = parseInt(req.params.clinicId);
+      const clinicId = parseInt(String(req.params.clinicId));
       if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
       const access = await checkClinicAccess(req, clinicId);
       if (!access.allowed) return res.status(403).json({ message: access.reason });
@@ -1232,7 +1232,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.post("/api/cycle-invoices/:invoiceId/finalize", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const invoiceId = parseInt(req.params.invoiceId);
+      const invoiceId = parseInt(String(req.params.invoiceId));
       if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
       const invoice = await storage.getBillingCycleInvoice(invoiceId);
@@ -1276,7 +1276,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/cycle-invoices/:invoiceId", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const invoiceId = parseInt(req.params.invoiceId);
+      const invoiceId = parseInt(String(req.params.invoiceId));
       if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
       const invoice = await storage.getBillingCycleInvoice(invoiceId);
@@ -1294,7 +1294,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/clinics/:clinicId/cycle-invoices", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const clinicId = parseInt(req.params.clinicId);
+      const clinicId = parseInt(String(req.params.clinicId));
       if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
 
       const access = await checkClinicAccess(req, clinicId);
@@ -1315,7 +1315,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.post("/api/cycle-invoices/:invoiceId/void", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const invoiceId = parseInt(req.params.invoiceId);
+      const invoiceId = parseInt(String(req.params.invoiceId));
       if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
       const invoice = await storage.getBillingCycleInvoice(invoiceId);
@@ -1333,7 +1333,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.post("/api/cycle-invoices/:invoiceId/create-checkout", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const invoiceId = parseInt(req.params.invoiceId);
+      const invoiceId = parseInt(String(req.params.invoiceId));
       if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
       const invoice = await storage.getBillingCycleInvoice(invoiceId);
@@ -1392,7 +1392,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.post("/api/cycle-invoices/:invoiceId/register-manual-payment", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
-      const invoiceId = parseInt(req.params.invoiceId);
+      const invoiceId = parseInt(String(req.params.invoiceId));
       if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
       const invoice = await storage.getBillingCycleInvoice(invoiceId);
@@ -1425,7 +1425,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/cycle-invoices/:invoiceId/payments", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const invoiceId = parseInt(req.params.invoiceId);
+      const invoiceId = parseInt(String(req.params.invoiceId));
       if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
       const invoice = await storage.getBillingCycleInvoice(invoiceId);
@@ -1443,7 +1443,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/cycle-invoices/:invoiceId/pdf", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const invoiceId = parseInt(req.params.invoiceId);
+      const invoiceId = parseInt(String(req.params.invoiceId));
       if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
       const invoice = await storage.getBillingCycleInvoice(invoiceId);

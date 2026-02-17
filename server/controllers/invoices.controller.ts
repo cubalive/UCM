@@ -16,7 +16,7 @@ export async function getInvoicesHandler(_req: AuthRequest, res: Response) {
 
 export async function updateInvoiceHandler(req: AuthRequest, res: Response) {
   try {
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
     if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
     const invoice = await storage.getInvoice(invoiceId);
@@ -67,7 +67,7 @@ export async function updateInvoiceHandler(req: AuthRequest, res: Response) {
 
 export async function markInvoicePaidHandler(req: AuthRequest, res: Response) {
   try {
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
     if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
     const invoice = await storage.getInvoice(invoiceId);
@@ -103,7 +103,7 @@ export async function markInvoicePaidHandler(req: AuthRequest, res: Response) {
 
 export async function invoicePdfHandler(req: AuthRequest, res: Response) {
   try {
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
     if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
     const invoice = await storage.getInvoice(invoiceId);
@@ -248,7 +248,7 @@ export async function invoicePdfHandler(req: AuthRequest, res: Response) {
 
 export async function sendInvoiceEmailHandler(req: AuthRequest, res: Response) {
   try {
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
     if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
     const invoice = await storage.getInvoice(invoiceId);
@@ -434,7 +434,7 @@ export async function generateWeeklyBillingHandler(req: AuthRequest, res: Respon
 
 export async function getWeeklyBillingTripsHandler(req: AuthRequest, res: Response) {
   try {
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
     if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
     const invoice = await storage.getInvoice(invoiceId);
@@ -474,7 +474,7 @@ export async function getWeeklyBillingTripsHandler(req: AuthRequest, res: Respon
 
 export async function getWeeklyBillingPdfHandler(req: AuthRequest, res: Response) {
   try {
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
     if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
 
     const invoice = await storage.getInvoice(invoiceId);

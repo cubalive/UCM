@@ -167,7 +167,7 @@ export async function createDriverHandler(req: AuthRequest, res: Response) {
 
 export async function updateDriverHandler(req: AuthRequest, res: Response) {
   try {
-    const driverId = parseInt(req.params.id);
+    const driverId = parseInt(String(req.params.id));
     const driver = await storage.getDriver(driverId);
     if (!driver) return res.status(404).json({ message: "Driver not found" });
     if (!(await checkCityAccess(req, driver.cityId))) {
@@ -313,7 +313,7 @@ export async function updateDriverHandler(req: AuthRequest, res: Response) {
 
 export async function getDriverVehicleHistoryHandler(req: AuthRequest, res: Response) {
   try {
-    const driverId = parseInt(req.params.id);
+    const driverId = parseInt(String(req.params.id));
     const driver = await storage.getDriver(driverId);
     if (!driver) return res.status(404).json({ message: "Driver not found" });
     if (!(await checkCityAccess(req, driver.cityId))) {

@@ -207,7 +207,7 @@ export async function getDispatchActiveDriversHandler(req: AuthRequest, res: Res
 
 export async function postDispatchRevokeSessionsHandler(req: AuthRequest, res: Response) {
   try {
-    const driverId = parseInt(req.params.id);
+    const driverId = parseInt(String(req.params.id));
     const driver = await storage.getDriver(driverId);
     if (!driver) return res.status(404).json({ message: "Driver not found" });
 
@@ -242,7 +242,7 @@ export async function postDispatchRevokeSessionsHandler(req: AuthRequest, res: R
 
 export async function getDispatchDriverDevicesHandler(req: AuthRequest, res: Response) {
   try {
-    const driverId = parseInt(req.params.id);
+    const driverId = parseInt(String(req.params.id));
     const devices = await db.select().from(driverDevices).where(eq(driverDevices.driverId, driverId));
     res.json(devices);
   } catch (err: any) {
@@ -252,8 +252,8 @@ export async function getDispatchDriverDevicesHandler(req: AuthRequest, res: Res
 
 export async function deleteDispatchDriverDeviceHandler(req: AuthRequest, res: Response) {
   try {
-    const driverId = parseInt(req.params.id);
-    const deviceId = parseInt(req.params.deviceId);
+    const driverId = parseInt(String(req.params.id));
+    const deviceId = parseInt(String(req.params.deviceId));
     const device = await db.select().from(driverDevices).where(and(eq(driverDevices.id, deviceId), eq(driverDevices.driverId, driverId))).then(r => r[0]);
     if (!device) return res.status(404).json({ message: "Device not found" });
     await db.delete(driverDevices).where(eq(driverDevices.id, deviceId));
@@ -562,7 +562,7 @@ export async function postDriverGoTimeAcknowledgeHandler(req: AuthRequest, res: 
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
-    const alertId = parseInt(req.params.alertId);
+    const alertId = parseInt(String(req.params.alertId));
     if (isNaN(alertId)) return res.status(400).json({ message: "Invalid alert ID" });
 
     const [alert] = await db.select().from(driverTripAlerts).where(
@@ -638,7 +638,7 @@ export async function postDriverOfferAcceptHandler(req: AuthRequest, res: Respon
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
-    const offerId = parseInt(req.params.offerId);
+    const offerId = parseInt(String(req.params.offerId));
     if (isNaN(offerId)) return res.status(400).json({ message: "Invalid offer ID" });
 
     const [offer] = await db.select().from(driverOffers).where(
@@ -705,7 +705,7 @@ export async function postDriverOfferDeclineHandler(req: AuthRequest, res: Respo
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
-    const offerId = parseInt(req.params.offerId);
+    const offerId = parseInt(String(req.params.offerId));
     if (isNaN(offerId)) return res.status(400).json({ message: "Invalid offer ID" });
 
     const [offer] = await db.select().from(driverOffers).where(
@@ -810,7 +810,7 @@ export async function postDriverScheduleChangeCancelHandler(req: AuthRequest, re
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const [existing] = await db.select().from(scheduleChangeRequests).where(
@@ -878,7 +878,7 @@ export async function getDispatchScheduleChangeHandler(req: AuthRequest, res: Re
 
 export async function postDispatchScheduleChangeDecideHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const decideSchema = z.object({
       decision: z.enum(["APPROVED", "REJECTED"]),
@@ -1073,7 +1073,7 @@ export async function postDriverSwapCancelHandler(req: AuthRequest, res: Respons
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     const [existing] = await db.select().from(driverShiftSwapRequests).where(
       and(eq(driverShiftSwapRequests.id, id), eq(driverShiftSwapRequests.requesterDriverId, user.driverId))
     );
@@ -1109,7 +1109,7 @@ export async function postDriverSwapDecideHandler(req: AuthRequest, res: Respons
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     const schema = z.object({
       decision: z.enum(["ACCEPT", "DECLINE"]),
       note: z.string().optional(),
@@ -1196,7 +1196,7 @@ export async function getDispatchSwapsHandler(req: AuthRequest, res: Response) {
 
 export async function postDispatchSwapDecideHandler(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     const schema = z.object({
       decision: z.enum(["APPROVE", "REJECT"]),
       note: z.string().optional(),
@@ -1480,7 +1480,7 @@ export async function getDispatchSupportEventsHandler(req: AuthRequest, res: Res
 export async function patchDispatchSupportEventResolveHandler(req: AuthRequest, res: Response) {
   try {
     const { driverSupportEvents } = await import("@shared/schema");
-    const eventId = parseInt(req.params.id);
+    const eventId = parseInt(String(req.params.id));
     await db.update(driverSupportEvents).set({
       resolved: true,
       resolvedBy: req.user!.userId,
