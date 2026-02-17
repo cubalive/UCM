@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { isDriverHost } from "@/lib/hostDetection";
 import { apiFetch } from "@/lib/api";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,7 +34,11 @@ import {
   Building2,
   CheckCircle2,
   Cog,
+  Brain,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   LineChart,
   Line,
@@ -1007,6 +1012,7 @@ export default function MetricsPage() {
         )}
 
         <PerfProfileSection />
+        <DriverIntelSection />
       </div>
     </div>
   );
@@ -1077,6 +1083,192 @@ function PerfProfileSection() {
               ))}
             </div>
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DriverIntelSection() {
+  const [window, setWindow] = useState<"7d" | "30d">("7d");
+  const [recomputing, setRecomputing] = useState(false);
+  const { toast } = useToast();
+
+  const { data: scoresData, isLoading: scoresLoading, refetch: refetchScores } = useQuery<any>({
+    queryKey: [`/api/admin/ops-intel/scores?window=${window}`],
+    refetchInterval: 60_000,
+    retry: 1,
+  });
+
+  const { data: anomaliesData, isLoading: anomaliesLoading, refetch: refetchAnomalies } = useQuery<any>({
+    queryKey: ["/api/admin/ops-intel/anomalies"],
+    refetchInterval: 30_000,
+    retry: 1,
+  });
+
+  async function handleRecompute() {
+    setRecomputing(true);
+    try {
+      await apiRequest("POST", "/api/admin/ops-intel/scores/recompute", { window });
+      toast({ title: `Scores recomputed (${window})` });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/ops-intel/scores?window=${window}`] });
+    } catch {
+      toast({ title: "Failed to recompute scores", variant: "destructive" });
+    } finally {
+      setRecomputing(false);
+    }
+  }
+
+  async function handleExportCsv() {
+    const showToastMsg = (msg: string) => toast({ title: msg, variant: "destructive" });
+    const ok = await downloadWithAuth(
+      `/api/admin/ops-intel/scores/csv?window=${window}`,
+      `driver-scores-${window}-${buildTimestamp()}.csv`,
+      "text/csv; charset=utf-8",
+      rawAuthFetch,
+      showToastMsg,
+    );
+    if (ok) toast({ title: `Downloaded driver scores CSV` });
+  }
+
+  const scores = scoresData?.scores || [];
+  const anomalies = anomaliesData?.anomalies || [];
+
+  const avgScore = scores.length > 0
+    ? Math.round(scores.reduce((sum: number, s: any) => sum + s.score, 0) / scores.length)
+    : null;
+
+  const highPerformers = scores.filter((s: any) => s.score >= 80).length;
+  const needsAttention = scores.filter((s: any) => s.score < 50).length;
+
+  if (scoresLoading && anomaliesLoading && !scoresData && !anomaliesData) return null;
+
+  return (
+    <Card className="lg:col-span-2" data-testid="card-driver-intel">
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Brain className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            Driver Intelligence
+          </CardTitle>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Select value={window} onValueChange={(v) => setWindow(v as "7d" | "30d")}>
+              <SelectTrigger className="w-24" data-testid="select-score-window">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7d" data-testid="select-item-7d">7 Days</SelectItem>
+                <SelectItem value="30d" data-testid="select-item-30d">30 Days</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="outline" onClick={handleRecompute} disabled={recomputing} data-testid="button-recompute-scores">
+              {recomputing ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+              Recompute
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleExportCsv} data-testid="button-export-scores-csv">
+              <FileSpreadsheet className="mr-1 h-3 w-3" />
+              CSV
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-3 space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <p className="text-xs text-muted-foreground">Drivers Scored</p>
+            <p className="text-lg font-semibold tabular-nums" data-testid="text-drivers-scored">{scores.length}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Avg Score</p>
+            <p className="text-lg font-semibold tabular-nums" data-testid="text-avg-score">
+              {avgScore !== null ? avgScore : "---"}
+              {avgScore !== null && avgScore >= 70 && <TrendingUp className="inline ml-1 h-3 w-3 text-green-600" />}
+              {avgScore !== null && avgScore < 50 && <TrendingDown className="inline ml-1 h-3 w-3 text-destructive" />}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">High Performers</p>
+            <p className="text-lg font-semibold tabular-nums text-green-600" data-testid="text-high-performers">{highPerformers}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Needs Attention</p>
+            <p className="text-lg font-semibold tabular-nums text-destructive" data-testid="text-needs-attention">{needsAttention}</p>
+          </div>
+        </div>
+
+        {scores.length > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Driver Scores ({window})</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {scores
+                .sort((a: any, b: any) => b.score - a.score)
+                .map((s: any) => {
+                  const c = s.components || {};
+                  return (
+                    <div key={s.id} className="flex items-center gap-2 text-xs" data-testid={`score-row-${s.driverId}`}>
+                      <span className="font-medium min-w-[120px] truncate text-foreground">
+                        {s.driverFirstName} {s.driverLastName}
+                      </span>
+                      <div className="flex-1 h-2 bg-muted rounded-md overflow-hidden">
+                        <div
+                          className={`h-full rounded-md ${
+                            s.score >= 80
+                              ? "bg-green-500"
+                              : s.score >= 50
+                                ? "bg-yellow-500"
+                                : "bg-destructive"
+                          }`}
+                          style={{ width: `${s.score}%` }}
+                        />
+                      </div>
+                      <span className="tabular-nums font-medium w-8 text-right text-foreground">{s.score}</span>
+                      <UiTooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-muted-foreground cursor-help" data-testid={`tooltip-score-${s.driverId}`}>?</span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">
+                            Punctuality: {c.punctuality ?? "-"}/40 |
+                            Completion: {c.completion ?? "-"}/25 |
+                            Cancel: {c.cancellations ?? "-"}/15 |
+                            GPS: {c.gpsQuality ?? "-"}/10 |
+                            Accept: {c.acceptance ?? "-"}/10
+                          </p>
+                        </TooltipContent>
+                      </UiTooltip>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {anomalies.length > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Active Anomalies</p>
+            <div className="space-y-1">
+              {anomalies.map((a: any) => (
+                <div key={a.id} className="flex items-center gap-2 text-xs" data-testid={`anomaly-row-${a.id}`}>
+                  <Badge
+                    variant={a.severity === "critical" ? "destructive" : "secondary"}
+                    className="text-[10px]"
+                  >
+                    {a.severity}
+                  </Badge>
+                  <span className="text-foreground flex-1 truncate">{a.title}</span>
+                  <span className="text-muted-foreground whitespace-nowrap">
+                    {a.firstSeenAt ? new Date(a.firstSeenAt).toLocaleTimeString() : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {scores.length === 0 && anomalies.length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-2" data-testid="text-no-intel-data">
+            No driver intelligence data yet. Scores will compute automatically.
+          </p>
         )}
       </CardContent>
     </Card>

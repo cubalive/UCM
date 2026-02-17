@@ -3,6 +3,7 @@ import { processPdfJob } from "./lib/pdfJobProcessor";
 import { processBatchPdfJob } from "./lib/batchPdfProcessor";
 import { logSystemEvent } from "./lib/systemEvents";
 import { setWorkerHeartbeat } from "./lib/deepHealth";
+import { computeScoresForCompany, runAnomalySweep } from "./lib/opsIntelligence";
 
 const POLL_INTERVAL = 2000;
 const STALE_CHECK_INTERVAL = 60000;
@@ -36,6 +37,21 @@ async function processJob(job: any): Promise<void> {
       case "map_snapshot":
         result = { status: "completed", message: "Map snapshot not yet implemented in worker" };
         break;
+      case "score_recompute": {
+        const companyId = (job.payload as any)?.companyId;
+        const window = (job.payload as any)?.window || "7d";
+        if (!companyId) throw new Error("score_recompute requires companyId");
+        const scored = await computeScoresForCompany(companyId, window);
+        result = { status: "completed", scored, companyId, window };
+        break;
+      }
+      case "anomaly_sweep": {
+        const sweepCompanyId = (job.payload as any)?.companyId;
+        if (!sweepCompanyId) throw new Error("anomaly_sweep requires companyId");
+        const sweepResult = await runAnomalySweep(sweepCompanyId);
+        result = { status: "completed", ...sweepResult, companyId: sweepCompanyId };
+        break;
+      }
       default:
         throw new Error(`Unknown job type: ${job.type}`);
     }

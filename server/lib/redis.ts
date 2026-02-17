@@ -142,6 +142,22 @@ export async function setNx(key: string, value: string, ttlSeconds: number): Pro
   }
 }
 
+export async function setWithTtl(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+  if (!redis) {
+    cache.set(key, value, ttlSeconds * 1000);
+    return true;
+  }
+  try {
+    await redis.set(key, value, { ex: ttlSeconds });
+    return true;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    cache.set(key, value, ttlSeconds * 1000);
+    return true;
+  }
+}
+
 export function isRedisConnected(): boolean {
   return connected && redis !== null;
 }

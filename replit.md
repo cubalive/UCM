@@ -97,6 +97,21 @@ The application follows a client-server architecture.
 - **DB Schema Note**: `drivers` table has `updated_at` column added (Feb 2026); used alongside `last_seen_at` and `last_active_at` for incremental queries
 - **Files**: `server/lib/aiEngine.ts`, `shared/schema.ts` (drivers.updatedAt, aiEngineSnapshots)
 
+## Phase 7A — Driver Intelligence Engine
+- **DB Tables**: `driver_perf_scores` (id, companyId, driverId, window, score 0-100, components JSONB, computedAt) and `ops_anomalies` (id, companyId, entityType, entityId, severity, code, title, details JSONB, firstSeenAt, lastSeenAt, isActive)
+- **Scoring Algorithm** (`server/lib/opsIntelligence.ts`): Punctuality 40pts, Completion 25pts, Cancellations 15pts, GPS Quality 10pts, Acceptance 10pts; rolling 7d/30d windows; company-scoped
+- **Anomaly Detection**: DRIVER_STALE_GPS, DRIVER_LATE_SPIKE, CLINIC_CANCEL_SPIKE, ETA_DEGRADE, QUOTA_NEAR_LIMIT; auto-resolve after 2 missed detections
+- **Background Jobs**: `score_recompute` and `anomaly_sweep` job types in worker; idempotency keys prevent duplicates
+- **Ops Scheduler** (`server/lib/opsScheduler.ts`): Redis leader lock (setNx, 30s TTL); anomaly sweep every 60s; score recompute every 15min; configurable via env vars
+- **API Endpoints**:
+  - `GET /api/admin/ops-intel/scores?window=7d|30d&company_id=N` — driver performance scores
+  - `GET /api/admin/ops-intel/anomalies?active=true|false&company_id=N` — operational anomalies
+  - `POST /api/admin/ops-intel/scores/recompute` — trigger immediate recompute
+  - `GET /api/admin/ops-intel/scores/csv?window=7d|30d&company_id=N` — CSV export
+- **Frontend**: Driver Intelligence card in metrics.tsx with score bars, window selector, recompute button, CSV export, anomaly list
+- **Env Vars**: UCM_PUNCTUALITY_GRACE_MIN (10), UCM_LATE_SPIKE_PCT (0.20), UCM_CANCEL_SPIKE_THRESHOLD (3), UCM_GPS_STALE_MIN (5), UCM_QUOTA_WARN_PCT (0.85), UCM_ANOMALY_RESOLVE_MISSES (2), UCM_OPS_ANOMALY_INTERVAL_MS (60000), UCM_SCORE_RECOMPUTE_INTERVAL_MS (900000), UCM_OPS_SCHEDULER (true|false)
+- **Files**: `server/lib/opsIntelligence.ts`, `server/lib/opsScheduler.ts`, `shared/schema.ts` (driverPerfScores, opsAnomalies), `client/src/pages/metrics.tsx`
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **Replit DB**: Operational data storage.

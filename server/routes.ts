@@ -35,6 +35,8 @@ import { companyRpmLimiter, checkDriverQuota, checkActiveTripQuota } from "./lib
 import { tenantGuard, checkCrossCompanyAccess, tenantRedisKey } from "./lib/tenantGuard";
 import { logSystemEvent, getSystemEvents } from "./lib/systemEvents";
 import { startAiEngine, getCachedSnapshot, getEngineStatus } from "./lib/aiEngine";
+import { startOpsScheduler } from "./lib/opsScheduler";
+import { getScoresForCompany, getAnomaliesForCompany, computeScoresForCompany } from "./lib/opsIntelligence";
 import { tripPdfs, jobs } from "@shared/schema";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
@@ -147,6 +149,7 @@ export async function registerRoutes(
   startNoShowScheduler();
   startRecurringScheduleScheduler();
   startAiEngine();
+  startOpsScheduler();
 
   app.post("/api/auth/login", async (req, res) => {
     try {
@@ -9458,6 +9461,78 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       try {
         const status = getEngineStatus();
         res.json({ ok: true, ...status });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, error: err.message });
+      }
+    }
+  );
+
+  app.get("/api/admin/ops-intel/scores",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN"),
+    async (req: AuthRequest, res) => {
+      try {
+        const companyId = req.user!.companyId || (req.user!.role === "SUPER_ADMIN" && req.query.company_id ? parseInt(req.query.company_id as string) : null);
+        if (!companyId) return res.status(400).json({ message: "No company context. SUPER_ADMIN: pass ?company_id=N" });
+        const window = (req.query.window === "30d" ? "30d" : "7d") as "7d" | "30d";
+        const scores = await getScoresForCompany(companyId, window);
+        res.json({ ok: true, window, scores });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, error: err.message });
+      }
+    }
+  );
+
+  app.get("/api/admin/ops-intel/anomalies",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN"),
+    async (req: AuthRequest, res) => {
+      try {
+        const companyId = req.user!.companyId || (req.user!.role === "SUPER_ADMIN" && req.query.company_id ? parseInt(req.query.company_id as string) : null);
+        if (!companyId) return res.status(400).json({ message: "No company context. SUPER_ADMIN: pass ?company_id=N" });
+        const activeOnly = req.query.active !== "false";
+        const anomalies = await getAnomaliesForCompany(companyId, activeOnly);
+        res.json({ ok: true, anomalies });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, error: err.message });
+      }
+    }
+  );
+
+  app.post("/api/admin/ops-intel/scores/recompute",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN"),
+    async (req: AuthRequest, res) => {
+      try {
+        const companyId = req.user!.companyId || (req.user!.role === "SUPER_ADMIN" && req.body.company_id ? parseInt(req.body.company_id) : null);
+        if (!companyId) return res.status(400).json({ message: "No company context. SUPER_ADMIN: pass company_id in body" });
+        const window = (req.body.window === "30d" ? "30d" : "7d") as "7d" | "30d";
+        const scored = await computeScoresForCompany(companyId, window);
+        res.json({ ok: true, scored, window });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, error: err.message });
+      }
+    }
+  );
+
+  app.get("/api/admin/ops-intel/scores/csv",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN"),
+    async (req: AuthRequest, res) => {
+      try {
+        const companyId = req.user!.companyId || (req.user!.role === "SUPER_ADMIN" && req.query.company_id ? parseInt(req.query.company_id as string) : null);
+        if (!companyId) return res.status(400).json({ message: "No company context. SUPER_ADMIN: pass ?company_id=N" });
+        const window = (req.query.window === "30d" ? "30d" : "7d") as "7d" | "30d";
+        const scores = await getScoresForCompany(companyId, window);
+        const rows = ["Driver,Score,Punctuality,Completion,Cancellations,GPS Quality,Acceptance,Computed At"];
+        for (const s of scores) {
+          const c = s.components as any || {};
+          rows.push(`"${s.driverFirstName} ${s.driverLastName}",${s.score},${c.punctuality ?? ""},${c.completion ?? ""},${c.cancellations ?? ""},${c.gpsQuality ?? ""},${c.acceptance ?? ""},${s.computedAt ? new Date(s.computedAt).toISOString() : ""}`);
+        }
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename="driver-scores-${window}.csv"`);
+        res.setHeader("Cache-Control", "no-store");
+        res.send(rows.join("\n"));
       } catch (err: any) {
         res.status(500).json({ ok: false, error: err.message });
       }

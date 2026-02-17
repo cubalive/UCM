@@ -11,7 +11,9 @@ export type JobType =
   | "invoice_generate"
   | "billing_rollup"
   | "email_send"
-  | "map_snapshot";
+  | "map_snapshot"
+  | "score_recompute"
+  | "anomaly_sweep";
 
 export interface EnqueueOptions {
   companyId?: number | null;

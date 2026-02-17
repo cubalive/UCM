@@ -1470,6 +1470,46 @@ export const aiEngineSnapshots = pgTable("ai_engine_snapshots", {
 export type AiEngineSnapshot = typeof aiEngineSnapshots.$inferSelect;
 export type InsertAiEngineSnapshot = typeof aiEngineSnapshots.$inferInsert;
 
+export const driverPerfScores = pgTable("driver_perf_scores", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  window: text("window").notNull(),
+  score: integer("score").notNull().default(0),
+  components: jsonb("components").notNull().default({}),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+}, (table) => [
+  index("dps_company_idx").on(table.companyId),
+  index("dps_driver_idx").on(table.driverId),
+  uniqueIndex("dps_company_driver_window_uniq").on(table.companyId, table.driverId, table.window),
+]);
+
+export const insertDriverPerfScoreSchema = createInsertSchema(driverPerfScores).omit({ id: true });
+export type DriverPerfScore = typeof driverPerfScores.$inferSelect;
+export type InsertDriverPerfScore = z.infer<typeof insertDriverPerfScoreSchema>;
+
+export const opsAnomalies = pgTable("ops_anomalies", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id"),
+  severity: text("severity").notNull().default("info"),
+  code: text("code").notNull(),
+  title: text("title").notNull(),
+  details: jsonb("details").notNull().default({}),
+  firstSeenAt: timestamp("first_seen_at").notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  isActive: boolean("is_active").notNull().default(true),
+}, (table) => [
+  index("opsanom_company_idx").on(table.companyId),
+  index("opsanom_active_idx").on(table.companyId, table.isActive),
+  index("opsanom_entity_idx").on(table.entityType, table.entityId),
+]);
+
+export const insertOpsAnomalySchema = createInsertSchema(opsAnomalies).omit({ id: true });
+export type OpsAnomaly = typeof opsAnomalies.$inferSelect;
+export type InsertOpsAnomaly = z.infer<typeof insertOpsAnomalySchema>;
+
 export function isVehicleCompatible(mobilityRequirement: string, vehicleCapability: string): boolean {
   if (mobilityRequirement === "WHEELCHAIR") {
     return vehicleCapability === "WHEELCHAIR";
