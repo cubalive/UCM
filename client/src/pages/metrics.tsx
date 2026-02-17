@@ -39,6 +39,9 @@ import {
   TrendingDown,
   ListChecks,
   XCircle,
+  Cpu,
+  HardDrive,
+  Gauge,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -1057,11 +1060,251 @@ export default function MetricsPage() {
           </Card>
         )}
 
+        <SystemLoadSection />
         <PerfProfileSection />
         <DriverIntelSection />
         <JobDashboardSection />
       </div>
     </div>
+  );
+}
+
+interface SystemLoadData {
+  ok: boolean;
+  timestamp: string;
+  app: { version: string; uptimeSec: number; nodeVersion: string; env: string; pid: number; platform: string; arch: string };
+  cpu: { load1: number; load5: number; load15: number; cores: number };
+  memory: { rssMB: number; heapUsedMB: number; heapTotalMB: number; externalMB: number; systemTotalMB: number; systemFreeMB: number };
+  eventLoop: { lagMs: number };
+  http: { reqPerMin: number; errPerMin: number; p50Ms: number; p95Ms: number; errors4xx5min: number; errors5xx5min: number; totalRequests5min: number; totalErrors5min: number; errorRatePct: number };
+  db: { ok: boolean; latencyMs: number };
+  build: { commit: string | null };
+}
+
+function formatUptime(sec: number): string {
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  return `${m}m ${s}s`;
+}
+
+function SystemLoadSection() {
+  const [data, setData] = useState<SystemLoadData | null>(null);
+  const [error, setError] = useState<{ status: number; message: string } | null>(null);
+  const [lastGood, setLastGood] = useState<SystemLoadData | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchSystemLoad() {
+      if (abortRef.current) abortRef.current.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+
+      try {
+        const token = localStorage.getItem("auth_token") || "";
+        const res = await fetch("/api/admin/metrics/system", {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: ctrl.signal,
+        });
+
+        if (!mounted) return;
+
+        const text = await res.text();
+        if (!res.ok) {
+          let msg = text;
+          try { msg = JSON.parse(text)?.error || JSON.parse(text)?.message || text; } catch {}
+          setError({ status: res.status, message: msg.slice(0, 300) });
+          return;
+        }
+
+        let parsed: SystemLoadData;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          setError({ status: res.status, message: `JSON parse error: ${text.slice(0, 200)}` });
+          return;
+        }
+
+        setData(parsed);
+        setLastGood(parsed);
+        setError(null);
+      } catch (err: any) {
+        if (err.name === "AbortError") return;
+        if (mounted) {
+          setError({ status: 0, message: err.message || "Network error" });
+        }
+      }
+    }
+
+    fetchSystemLoad();
+    const interval = setInterval(fetchSystemLoad, 5000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
+
+  const display = data || lastGood;
+
+  return (
+    <Card className="lg:col-span-2" data-testid="card-system-load">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <Server className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          System Load
+          {display?.timestamp && (
+            <span className="text-xs font-normal text-muted-foreground ml-auto tabular-nums" data-testid="text-system-load-time">
+              {formatTime(display.timestamp)}
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-3 space-y-3">
+        {error && (
+          <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm space-y-1" data-testid="system-load-error">
+            <p className="font-medium text-destructive">
+              Failed to load system metrics {error.status > 0 ? `(HTTP ${error.status})` : ""}
+            </p>
+            <p className="text-xs text-destructive/80 break-all">{error.message}</p>
+            {lastGood && (
+              <p className="text-xs text-muted-foreground">Showing last successful snapshot below.</p>
+            )}
+          </div>
+        )}
+
+        {!display && !error && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full" />
+            ))}
+          </div>
+        )}
+
+        {display && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div data-testid="metric-cpu-load">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <Cpu className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">CPU Load (1/5/15)</p>
+                </div>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-cpu-load">
+                  {display.cpu.load1} / {display.cpu.load5} / {display.cpu.load15}
+                </p>
+                <p className="text-xs text-muted-foreground">{display.cpu.cores} cores</p>
+              </div>
+
+              <div data-testid="metric-memory">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <HardDrive className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Memory (RSS)</p>
+                </div>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-memory-rss">
+                  {display.memory.rssMB} MB
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Heap: {display.memory.heapUsedMB}/{display.memory.heapTotalMB} MB
+                </p>
+              </div>
+
+              <div data-testid="metric-event-loop">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <Gauge className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Event Loop Lag</p>
+                </div>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-event-loop-lag">
+                  {display.eventLoop.lagMs} ms
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {display.eventLoop.lagMs < 10 ? "Healthy" : display.eventLoop.lagMs < 50 ? "Moderate" : "High"}
+                </p>
+              </div>
+
+              <div data-testid="metric-uptime">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Uptime</p>
+                </div>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-uptime">
+                  {formatUptime(display.app.uptimeSec)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  v{display.app.version} &middot; {display.app.nodeVersion}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div data-testid="metric-req-per-min">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Req/min</p>
+                </div>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-req-per-min">
+                  {display.http.reqPerMin}
+                </p>
+                <p className="text-xs text-muted-foreground">{display.http.totalRequests5min} total / 5min</p>
+              </div>
+
+              <div data-testid="metric-err-per-min">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Errors/min</p>
+                </div>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-err-per-min">
+                  {display.http.errPerMin}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {display.http.errorRatePct}% error rate
+                </p>
+              </div>
+
+              <div data-testid="metric-p95">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">p95 Latency</p>
+                </div>
+                <p className="text-lg font-semibold tabular-nums" data-testid="text-p95-latency">
+                  {display.http.p95Ms} ms
+                </p>
+                <p className="text-xs text-muted-foreground">p50: {display.http.p50Ms} ms</p>
+              </div>
+
+              <div data-testid="metric-db-health">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <DatabaseIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Database</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Badge variant={display.db.ok ? "default" : "destructive"} data-testid="badge-db-status">
+                    {display.db.ok ? "OK" : "DOWN"}
+                  </Badge>
+                  <span className="text-lg font-semibold tabular-nums" data-testid="text-db-latency-system">
+                    {display.db.latencyMs}ms
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Sys: {display.memory.systemFreeMB}/{display.memory.systemTotalMB} MB free
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {!display && error && (
+          <p className="text-xs text-muted-foreground text-center py-2" data-testid="text-system-load-no-data">
+            No system load data available. Check server connectivity.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

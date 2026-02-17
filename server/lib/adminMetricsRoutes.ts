@@ -1,3 +1,4 @@
+import os from "os";
 import type { Express } from "express";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
 import { pool } from "../db";
@@ -8,6 +9,18 @@ import { getActiveConnectionCount, getActiveSubscriptionCount } from "./realtime
 import { isDriverOnline } from "./driverClassification";
 
 const startedAt = Date.now();
+
+let eventLoopLagMs = 0;
+(function measureEventLoopLag() {
+  let last = process.hrtime.bigint();
+  setInterval(() => {
+    const now = process.hrtime.bigint();
+    const elapsedMs = Number(now - last) / 1e6;
+    const expectedMs = 500;
+    eventLoopLagMs = Math.max(0, Math.round((elapsedMs - expectedMs) * 100) / 100);
+    last = now;
+  }, 500).unref();
+})();
 
 async function measureDbLatency(): Promise<{ ok: boolean; latencyMs: number }> {
   const t0 = performance.now();
@@ -119,24 +132,62 @@ export function registerAdminMetricsRoutes(app: Express) {
   app.get("/api/admin/metrics/system", ...gate, async (_req: AuthRequest, res) => {
     try {
       const mem = process.memoryUsage();
+      const loads = os.loadavg();
+      const reqMetrics = getRequestMetricsSummary();
+      const dbResult = await measureDbLatency();
+
+      const uptimeSec = Math.floor((Date.now() - startedAt) / 1000);
+      const windowMin = Math.min(5, uptimeSec / 60);
+      const reqPerMin = windowMin > 0 ? Math.round(reqMetrics.total_requests_5min / windowMin) : 0;
+      const errPerMin = windowMin > 0 ? Math.round(reqMetrics.total_errors_5min / windowMin) : 0;
+
       res.json({
         ok: true,
-        ts: new Date().toISOString(),
-        uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
-        processUptimeSec: Math.floor(process.uptime()),
-        nodeVersion: process.version,
-        platform: process.platform,
-        arch: process.arch,
-        pid: process.pid,
-        memory: {
-          rssBytes: mem.rss,
-          heapUsedBytes: mem.heapUsed,
-          heapTotalBytes: mem.heapTotal,
-          externalBytes: mem.external,
-          rssMb: Math.round(mem.rss / 1024 / 1024),
-          heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+        timestamp: new Date().toISOString(),
+        app: {
+          version: process.env.APP_VERSION || "1.0.0",
+          uptimeSec,
+          nodeVersion: process.version,
+          env: process.env.NODE_ENV || "development",
+          pid: process.pid,
+          platform: process.platform,
+          arch: process.arch,
         },
-        env: process.env.NODE_ENV || "development",
+        cpu: {
+          load1: Math.round(loads[0] * 100) / 100,
+          load5: Math.round(loads[1] * 100) / 100,
+          load15: Math.round(loads[2] * 100) / 100,
+          cores: os.cpus().length,
+        },
+        memory: {
+          rssMB: Math.round(mem.rss / 1024 / 1024),
+          heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+          heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+          externalMB: Math.round(mem.external / 1024 / 1024),
+          systemTotalMB: Math.round(os.totalmem() / 1024 / 1024),
+          systemFreeMB: Math.round(os.freemem() / 1024 / 1024),
+        },
+        eventLoop: {
+          lagMs: eventLoopLagMs,
+        },
+        http: {
+          reqPerMin,
+          errPerMin,
+          p50Ms: reqMetrics.p50_latency_ms,
+          p95Ms: reqMetrics.p95_latency_ms,
+          errors4xx5min: reqMetrics.errors_4xx_5min,
+          errors5xx5min: reqMetrics.errors_5xx_5min,
+          totalRequests5min: reqMetrics.total_requests_5min,
+          totalErrors5min: reqMetrics.total_errors_5min,
+          errorRatePct: reqMetrics.error_rate_pct,
+        },
+        db: {
+          ok: dbResult.ok,
+          latencyMs: dbResult.latencyMs,
+        },
+        build: {
+          commit: process.env.REPL_SLUG || process.env.REPL_ID || null,
+        },
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
