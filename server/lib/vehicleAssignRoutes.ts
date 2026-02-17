@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, getUserCityIds, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, getUserCityIds, type AuthRequest } from "../auth";
 import { z } from "zod";
 import { runVehicleAutoAssignForCity, getLastRunTimestamp } from "./vehicleAutoAssign";
 import { isJobEngineRunning } from "./jobEngine";
@@ -9,7 +9,7 @@ export function registerVehicleAssignRoutes(app: Express) {
 
   app.get("/api/city-settings",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "read"),
     async (_req: AuthRequest, res) => {
       try {
         const settings = await storage.getAllCitySettings();
@@ -22,7 +22,7 @@ export function registerVehicleAssignRoutes(app: Express) {
 
   app.get("/api/city-settings/:cityId",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "read"),
     async (req: AuthRequest, res) => {
       try {
         const cityId = parseInt(req.params.cityId as string);
@@ -37,7 +37,7 @@ export function registerVehicleAssignRoutes(app: Express) {
 
   app.patch("/api/city-settings/:cityId",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN"),
+    requirePermission("cities", "write"),
     async (req: AuthRequest, res) => {
       try {
         const cityId = parseInt(req.params.cityId as string);
@@ -78,7 +78,7 @@ export function registerVehicleAssignRoutes(app: Express) {
 
   app.get("/api/vehicle-assignments",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("vehicles", "read"),
     async (req: AuthRequest, res) => {
       try {
         const cityId = parseInt(req.query.cityId as string);
@@ -100,7 +100,7 @@ export function registerVehicleAssignRoutes(app: Express) {
 
   app.post("/api/vehicle-assignments/override",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("vehicles", "write"),
     async (req: AuthRequest, res) => {
       try {
         const schema = z.object({
@@ -178,7 +178,7 @@ export function registerVehicleAssignRoutes(app: Express) {
 
   app.post("/api/dispatch/assignments/reassign-vehicle",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("vehicles", "write"),
     async (req: AuthRequest, res) => {
       try {
         const schema = z.object({
@@ -287,7 +287,7 @@ export function registerVehicleAssignRoutes(app: Express) {
 
   app.post("/api/dispatch/assignments/swap-drivers",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res) => {
       try {
         const schema = z.object({
@@ -408,7 +408,7 @@ export function registerVehicleAssignRoutes(app: Express) {
 
   app.post("/api/vehicle-assignments/trigger",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN"),
+    requirePermission("vehicles", "write"),
     async (req: AuthRequest, res) => {
       try {
         const schema = z.object({ city_id: z.number().int().positive() });

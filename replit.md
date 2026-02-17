@@ -17,7 +17,7 @@ The application follows a client-server architecture.
 
 **Technical Implementations & Feature Specifications:**
 - **Authentication**: JWT-based with `bcryptjs` and Magic Link Login, supporting dual-auth (Bearer token + httpOnly session cookie).
-- **Authorization**: Role-Based Access Control (RBAC) with various roles.
+- **Authorization**: Centralized Permission-Based Access Control using `shared/permissions.ts` ROLE_PERMISSIONS matrix as single source of truth. `requirePermission(resource, permission)` middleware in `server/auth.ts` replaces hardcoded role lists. SUPER_ADMIN-only operations and routes involving DRIVER/CLINIC_USER (not in permissions matrix) still use `requireRole()`. `isDispatchLevel()` includes COMPANY_ADMIN.
 - **Data Management**: PostgreSQL with Drizzle ORM, multi-city data segregation, and a public ID system.
 - **Dispatch Engine**: Automated driver-vehicle and trip assignment, real-time tracking, ETA, and safety rule enforcement.
 - **Communication**: SMS notifications and branded email services.

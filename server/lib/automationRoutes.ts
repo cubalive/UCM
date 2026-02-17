@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import { runRouteBatchingForCity } from "./routeEngine";
 import { checkPatientNoShowStrikes } from "./noShowEngine";
 import { computeDriverScoresForCity, computeAllCityScores } from "./driverScoreEngine";
@@ -8,7 +8,7 @@ import { z } from "zod";
 
 export function registerAutomationRoutes(app: Express) {
 
-  app.get("/api/route-batches", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/route-batches", authMiddleware, requirePermission("dispatch", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string || req.query.city_id as string);
       const date = req.query.date as string;
@@ -21,7 +21,7 @@ export function registerAutomationRoutes(app: Express) {
     }
   });
 
-  app.post("/api/route-batches/run", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/route-batches/run", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.body.cityId as string);
       if (!cityId) return res.status(400).json({ error: "cityId required" });
@@ -36,7 +36,7 @@ export function registerAutomationRoutes(app: Express) {
     }
   });
 
-  app.post("/api/route-batches/:id/assign-driver", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/route-batches/:id/assign-driver", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const batchId = parseInt(req.params.id as string);
       const { driverId } = req.body;
@@ -61,7 +61,7 @@ export function registerAutomationRoutes(app: Express) {
     }
   });
 
-  app.post("/api/trips/:id/reassign", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/trips/:id/reassign", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const tripId = parseInt(String(req.params.id));
       const { driverId, vehicleId } = req.body;
@@ -104,7 +104,7 @@ export function registerAutomationRoutes(app: Express) {
     }
   });
 
-  app.post("/api/trips/:id/patient-ready", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "DRIVER"), async (req: AuthRequest, res) => {
+  app.post("/api/trips/:id/patient-ready", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "DRIVER", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const tripId = parseInt(String(req.params.id));
       const { ready } = req.body;
@@ -132,7 +132,7 @@ export function registerAutomationRoutes(app: Express) {
     }
   });
 
-  app.get("/api/patients/:id/no-show-count", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/patients/:id/no-show-count", authMiddleware, requirePermission("patients", "read"), async (req: AuthRequest, res) => {
     try {
       const patientId = parseInt(String(req.params.id));
       const count = await storage.getPatientNoShowCount(patientId);
@@ -142,7 +142,7 @@ export function registerAutomationRoutes(app: Express) {
     }
   });
 
-  app.get("/api/driver-scores", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/driver-scores", authMiddleware, requirePermission("drivers", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string || req.query.city_id as string);
       const weekStart = req.query.weekStart as string || req.query.week_start as string;
@@ -155,7 +155,7 @@ export function registerAutomationRoutes(app: Express) {
     }
   });
 
-  app.get("/api/driver-scores/:driverId/history", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/driver-scores/:driverId/history", authMiddleware, requirePermission("drivers", "read"), async (req: AuthRequest, res) => {
     try {
       const driverId = parseInt(String(req.params.driverId));
       const scores = await storage.getDriverScoreHistory(driverId);
@@ -188,7 +188,7 @@ export function registerAutomationRoutes(app: Express) {
     }
   });
 
-  app.get("/api/financial/daily", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+  app.get("/api/financial/daily", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string || req.query.city_id as string);
       const date = req.query.date as string;
@@ -201,7 +201,7 @@ export function registerAutomationRoutes(app: Express) {
     }
   });
 
-  app.get("/api/financial/range", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+  app.get("/api/financial/range", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string || req.query.city_id as string);
       const startDate = req.query.startDate as string || req.query.start_date as string;

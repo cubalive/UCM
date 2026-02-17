@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
 import { etaMinutes } from "./googleMaps";
 import { z } from "zod";
 import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
@@ -208,7 +208,7 @@ export function registerDispatchRoutes(app: Express) {
 
   app.post("/api/dispatch/assign-driver-vehicle",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res) => {
       try {
         const parsed = assignDriverVehicleSchema.safeParse(req.body);
@@ -262,7 +262,7 @@ export function registerDispatchRoutes(app: Express) {
 
   app.post("/api/dispatch/assign-trip",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res) => {
       try {
         const parsed = assignTripSchema.safeParse(req.body);
@@ -389,7 +389,7 @@ export function registerDispatchRoutes(app: Express) {
 
   app.post("/api/dispatch/auto-assign",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res) => {
       try {
         const parsed = autoAssignSchema.safeParse(req.body);
@@ -602,7 +602,7 @@ export function registerDispatchRoutes(app: Express) {
 
   app.get("/api/dispatch/drivers/status",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res) => {
       try {
         const cityId = req.query.city_id ? parseInt(req.query.city_id as string) : undefined;
@@ -640,7 +640,7 @@ export function registerDispatchRoutes(app: Express) {
 
   app.get("/api/dispatch/map-data",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res) => {
       try {
         const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
@@ -686,7 +686,7 @@ export function registerDispatchRoutes(app: Express) {
 
   app.post("/api/dispatch/unassign-driver-vehicle",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res) => {
       try {
         const schema = z.object({ driver_id: z.number().int().positive() });
@@ -720,7 +720,7 @@ export function registerDispatchRoutes(app: Express) {
 
   app.get("/api/dispatch/trips/:tripId/reassign-candidates",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res) => {
       try {
         const tripId = parseInt(req.params.tripId as string);
@@ -791,7 +791,7 @@ export function registerDispatchRoutes(app: Express) {
 
   app.post("/api/dispatch/trips/:tripId/reassign",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res) => {
       try {
         const tripId = parseInt(req.params.tripId as string);
@@ -943,7 +943,7 @@ export function registerDispatchRoutes(app: Express) {
     needsAttention: { tripId: number; tripPublicId: string; patientName: string; pickupTime: string; pickupAddress: string; dropoffAddress: string; pickupLat: number | null; pickupLng: number | null; reason: string }[];
   }
 
-  app.post("/api/dispatch/auto-assign-day", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+  app.post("/api/dispatch/auto-assign-day", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const parsed = autoAssignDaySchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });

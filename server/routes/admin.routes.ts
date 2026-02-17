@@ -1,5 +1,5 @@
 import express, { type Express } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import {
   getCityMismatchHandler,
   archiveClinicHandler,
@@ -76,9 +76,9 @@ router.patch("/api/clinic/patients/:id/unarchive", authMiddleware, requireRole("
 router.get("/api/admin/hard-delete/preview", authMiddleware, requireRole("SUPER_ADMIN"), hardDeletePreviewHandler as any);
 router.post("/api/admin/hard-delete", authMiddleware, requireRole("SUPER_ADMIN"), hardDeleteHandler as any);
 
-router.get("/api/admin/health/deep", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), deepHealthHandler as any);
-router.get("/api/admin/ai-engine/snapshot", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), aiEngineSnapshotHandler as any);
-router.get("/api/admin/ai-engine/status", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), aiEngineStatusHandler as any);
+router.get("/api/admin/health/deep", authMiddleware, requirePermission("dashboard", "read"), deepHealthHandler as any);
+router.get("/api/admin/ai-engine/snapshot", authMiddleware, requirePermission("dashboard", "read"), aiEngineSnapshotHandler as any);
+router.get("/api/admin/ai-engine/status", authMiddleware, requirePermission("dashboard", "read"), aiEngineStatusHandler as any);
 router.get("/api/admin/ops-intel/scores", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), opsIntelScoresHandler as any);
 router.get("/api/admin/ops-intel/anomalies", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), opsIntelAnomaliesHandler as any);
 router.post("/api/admin/ops-intel/scores/recompute", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), opsIntelRecomputeHandler as any);
@@ -89,13 +89,13 @@ router.get("/api/app-config", authMiddleware, appConfigHandler as any);
 router.post("/api/realtime/token", authMiddleware, requireRole("CLINIC_USER", "DISPATCH", "ADMIN", "SUPER_ADMIN", "DRIVER", "COMPANY_ADMIN"), realtimeTokenHandler as any);
 router.get("/api/ops/realtime-metrics", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), realtimeMetricsHandler as any);
 router.post("/api/realtime/test", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), realtimeTestHandler as any);
-router.get("/api/ops/directions-metrics", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), directionsMetricsHandler as any);
+router.get("/api/ops/directions-metrics", authMiddleware, requirePermission("dashboard", "read"), directionsMetricsHandler as any);
 router.get("/api/ops/cors-origins", authMiddleware, requireRole("SUPER_ADMIN"), corsOriginsHandler as any);
 router.get("/api/ops/auth-diagnostics", authMiddleware, requireRole("SUPER_ADMIN"), authDiagnosticsHandler as any);
 router.get("/api/jobs/:id", authMiddleware, getJobHandler as any);
 router.get("/api/ops/queue-stats", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), queueStatsHandler as any);
 router.get("/api/ops/system-events", authMiddleware, requireRole("SUPER_ADMIN"), systemEventsHandler as any);
-router.get("/api/ops/jobs", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), opsJobsHandler as any);
+router.get("/api/ops/jobs", authMiddleware, requirePermission("dashboard", "read"), opsJobsHandler as any);
 router.get("/api/debug/email-health", authMiddleware, requireRole("SUPER_ADMIN"), debugEmailHealthHandler as any);
 router.get("/api/health/email", healthEmailHandler as any);
 

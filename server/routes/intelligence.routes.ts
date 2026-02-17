@@ -1,5 +1,5 @@
 import express, { type Express } from "express";
-import { authMiddleware, requireRole } from "../auth";
+import { authMiddleware, requireRole, requirePermission } from "../auth";
 import { requireCityAccess } from "../middleware/requireCityAccess";
 import {
   getDailyRollupsHandler,
@@ -53,7 +53,7 @@ const router = express.Router();
 router.get(
   "/api/intel/rollups",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  requirePermission("dashboard", "read"),
   requireCityAccess,
   getDailyRollupsHandler as any
 );
@@ -61,7 +61,7 @@ router.get(
 router.get(
   "/api/intel/snapshots",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  requirePermission("dashboard", "read"),
   requireCityAccess,
   getWeeklySnapshotsHandler as any
 );
@@ -69,7 +69,7 @@ router.get(
 router.get(
   "/api/intel/rankings/:entityType",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  requirePermission("dashboard", "read"),
   requireCityAccess,
   getRankingsHandler as any
 );
@@ -77,7 +77,7 @@ router.get(
 router.get(
   "/api/intel/tri-scores",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  requirePermission("dashboard", "read"),
   requireCityAccess,
   getTriScoresHandler as any
 );
@@ -91,7 +91,7 @@ router.get(
 router.get(
   "/api/intel/cost-leak-alerts",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  requirePermission("dashboard", "read"),
   requireCityAccess,
   getCostLeakAlertsHandler as any
 );
@@ -99,14 +99,14 @@ router.get(
 router.patch(
   "/api/intel/cost-leak-alerts/:id/acknowledge",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  requirePermission("dashboard", "read"),
   acknowledgeCostLeakAlertHandler as any
 );
 
 router.patch(
   "/api/intel/cost-leak-alerts/:id/resolve",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  requirePermission("dashboard", "read"),
   resolveCostLeakAlertHandler as any
 );
 

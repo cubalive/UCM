@@ -104,15 +104,27 @@ export async function downloadWithAuth(
   const safeBlob = mimeType ? new Blob([blob], { type: mimeType }) : blob;
 
   const objectUrl = URL.createObjectURL(safeBlob);
+
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  if (isSafari && mimeType === "application/pdf") {
+    const w = window.open(objectUrl, "_blank");
+    if (!w) {
+      window.location.href = objectUrl;
+    }
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    return true;
+  }
+
   const a = document.createElement("a");
   a.href = objectUrl;
   a.download = resolvedFilename;
   a.rel = "noopener";
+  a.target = "_blank";
   a.style.display = "none";
   document.body.appendChild(a);
   a.click();
   a.remove();
 
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
   return true;
 }

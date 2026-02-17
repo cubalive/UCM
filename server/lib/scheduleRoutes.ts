@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requirePermission, type AuthRequest } from "../auth";
 import { db } from "../db";
 import { driverWeeklySchedules, sundayRosters, sundayRosterDrivers, substitutePool, driverReplacements, drivers, trips } from "@shared/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
@@ -56,7 +56,7 @@ export async function getScheduledDriverIdsForDay(cityId: number, date: string):
 
 export function registerScheduleRoutes(app: Express) {
 
-  app.get("/api/schedules/weekly", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/schedules/weekly", authMiddleware, requirePermission("dispatch", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string);
       if (isNaN(cityId)) return res.status(400).json({ message: "cityId required" });
@@ -73,7 +73,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/schedules/weekly", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/schedules/weekly", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         cityId: z.number(),
@@ -123,7 +123,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/schedules/weekly/bulk", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/schedules/weekly/bulk", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         cityId: z.number(),
@@ -179,7 +179,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.get("/api/schedules/sunday-roster", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/schedules/sunday-roster", authMiddleware, requirePermission("dispatch", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string);
       const date = req.query.date as string;
@@ -212,7 +212,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/schedules/sunday-roster", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/schedules/sunday-roster", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         cityId: z.number(),
@@ -243,7 +243,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/schedules/sunday-roster/drivers", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/schedules/sunday-roster/drivers", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         cityId: z.number(),
@@ -278,7 +278,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/schedules/sunday-roster/drivers/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.delete("/api/schedules/sunday-roster/drivers/:id", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -290,7 +290,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.get("/api/schedules/substitutes", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/schedules/substitutes", authMiddleware, requirePermission("dispatch", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string);
       const date = req.query.date as string;
@@ -311,7 +311,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/schedules/substitutes", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/schedules/substitutes", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         cityId: z.number(),
@@ -341,7 +341,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/schedules/substitutes/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.delete("/api/schedules/substitutes/:id", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -353,7 +353,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.get("/api/schedules/replacements", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/schedules/replacements", authMiddleware, requirePermission("dispatch", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string);
       const date = req.query.date as string;
@@ -368,7 +368,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/schedules/replacements", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/schedules/replacements", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         cityId: z.number(),
@@ -419,7 +419,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/schedules/replacements/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.delete("/api/schedules/replacements/:id", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -431,7 +431,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/schedules/reassign", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/schedules/reassign", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         cityId: z.number(),
@@ -504,7 +504,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.get("/api/schedules/eligible-drivers", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/schedules/eligible-drivers", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string);
       const date = req.query.date as string;
@@ -538,7 +538,7 @@ export function registerScheduleRoutes(app: Express) {
     }
   });
 
-  app.get("/api/assignments/schedule-status", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/assignments/schedule-status", authMiddleware, requirePermission("dispatch", "write"), async (req: AuthRequest, res) => {
     try {
       const cityId = parseInt(req.query.cityId as string);
       const date = req.query.date as string;

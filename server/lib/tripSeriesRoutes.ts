@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, getUserCityIds, type AuthRequest } from "../auth";
+import { authMiddleware, requirePermission, getUserCityIds, type AuthRequest } from "../auth";
 import { generatePublicId } from "../public-id";
 import { z } from "zod";
 import type { Trip } from "@shared/schema";
@@ -111,7 +111,7 @@ export function registerTripSeriesRoutes(app: Express) {
 
   app.get("/api/trip-series",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("trips", "read"),
     async (req: AuthRequest, res) => {
       try {
         const cityId = req.query.cityId ? parseInt(String(req.query.cityId)) : undefined;
@@ -128,7 +128,7 @@ export function registerTripSeriesRoutes(app: Express) {
 
   app.get("/api/trip-series/:id",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("trips", "read"),
     async (req: AuthRequest, res) => {
       try {
         const id = parseInt(String(req.params.id));
@@ -147,7 +147,7 @@ export function registerTripSeriesRoutes(app: Express) {
 
   app.post("/api/trip-series",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("trips", "write"),
     async (req: AuthRequest, res) => {
       try {
         const parsed = createSeriesSchema.safeParse(req.body);
@@ -305,7 +305,7 @@ export function registerTripSeriesRoutes(app: Express) {
 
   app.patch("/api/trip-series/:id/deactivate",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("trips", "write"),
     async (req: AuthRequest, res) => {
       try {
         const id = parseInt(String(req.params.id));
@@ -335,7 +335,7 @@ export function registerTripSeriesRoutes(app: Express) {
 
   app.patch("/api/trip-series/:id/activate",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("trips", "write"),
     async (req: AuthRequest, res) => {
       try {
         const id = parseInt(String(req.params.id));

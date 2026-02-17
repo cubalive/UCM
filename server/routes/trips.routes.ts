@@ -1,5 +1,5 @@
 import express, { type Express } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import { requireCompanyScope, requireCityAccess } from "../middleware";
 import { idempotencyMiddleware } from "../lib/idempotency";
 import {
@@ -35,16 +35,16 @@ import {
 
 const router = express.Router();
 
-router.get("/api/recurring-schedules", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), requireCompanyScope, getRecurringSchedulesHandler as any);
-router.post("/api/recurring-schedules", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), requireCompanyScope, createRecurringScheduleHandler as any);
-router.patch("/api/recurring-schedules/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), requireCompanyScope, updateRecurringScheduleHandler as any);
-router.delete("/api/recurring-schedules/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), requireCompanyScope, deleteRecurringScheduleHandler as any);
+router.get("/api/recurring-schedules", authMiddleware, requirePermission("trips", "read"), requireCompanyScope, getRecurringSchedulesHandler as any);
+router.post("/api/recurring-schedules", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, createRecurringScheduleHandler as any);
+router.patch("/api/recurring-schedules/:id", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, updateRecurringScheduleHandler as any);
+router.delete("/api/recurring-schedules/:id", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, deleteRecurringScheduleHandler as any);
 router.post("/api/recurring-schedules/generate", authMiddleware, requireRole("SUPER_ADMIN"), generateRecurringSchedulesHandler as any);
 
-router.patch("/api/trips/:id/assign", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), requireCompanyScope, assignTripHandler as any);
+router.patch("/api/trips/:id/assign", authMiddleware, requirePermission("dispatch", "write"), requireCompanyScope, assignTripHandler as any);
 
-router.get("/api/trips/:id/messages", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER", "SUPER_ADMIN"), requireCompanyScope, getTripMessagesHandler as any);
-router.post("/api/trips/:id/messages", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER", "SUPER_ADMIN"), requireCompanyScope, createTripMessageHandler as any);
+router.get("/api/trips/:id/messages", authMiddleware, requirePermission("trips", "read"), requireCompanyScope, getTripMessagesHandler as any);
+router.post("/api/trips/:id/messages", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, createTripMessageHandler as any);
 
 router.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN"), requireCompanyScope, requireCityAccess, getTripsHandler as any);
 router.get("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), requireCompanyScope, getTripByIdHandler as any);
@@ -56,12 +56,12 @@ router.patch("/api/trips/:id/status", authMiddleware, requireRole("ADMIN", "DISP
 router.get("/api/trips/:id/dialysis-return-check", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "CLINIC_USER"), requireCompanyScope, dialysisReturnCheckHandler as any);
 router.post("/api/trips/:id/dialysis-return-adjust", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "CLINIC_USER"), requireCompanyScope, dialysisReturnAdjustHandler as any);
 
-router.patch("/api/trips/:id/approve", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), requireCompanyScope, approveTripHandler as any);
+router.patch("/api/trips/:id/approve", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, approveTripHandler as any);
 router.patch("/api/trips/:id/cancel-request", authMiddleware, requireRole("VIEWER"), requireCompanyScope, cancelRequestHandler as any);
-router.patch("/api/trips/:id/reject-cancel", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), requireCompanyScope, rejectCancelHandler as any);
-router.patch("/api/trips/:id/cancel", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), requireCompanyScope, cancelTripHandler as any);
+router.patch("/api/trips/:id/reject-cancel", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, rejectCancelHandler as any);
+router.patch("/api/trips/:id/cancel", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, cancelTripHandler as any);
 
-router.post("/api/trips/:id/return-trip", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), requireCompanyScope, createReturnTripHandler as any);
+router.post("/api/trips/:id/return-trip", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, createReturnTripHandler as any);
 router.post("/api/trips/:id/route/recompute", authMiddleware, requireCompanyScope, recomputeRouteHandler as any);
 
 router.post("/api/trips/:id/signature/driver", authMiddleware, requireCompanyScope, driverSignatureHandler as any);

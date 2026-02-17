@@ -1,0 +1,143 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT delete tables/columns
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Fix COMPANY_ADMIN access denials + enforce "company must have at least one city" during company creation, without breaking SUPER_ADMIN or existing roles. Then run a full verification matrix (auth + routes + metrics + tenant/city scoping) and prepare for a safe publish.
+
+CONTEXT:
+- Metrics page was blank but now works in preview.
+- New company logins show "Access Denied" / Forbidden because COMPANY_ADMIN is missing from ~50 route allowlists despite permissions matrix granting access.
+- Multi-tenant requires company-scoped data and city-scoped access.
+- A company with zero cities causes downstream blank/empty states and breaks navigation.
+
+GOALS:
+1) COMPANY_ADMIN must be able to use the application immediately after company creation and login.
+2) Company creation must require selecting/creating the FIRST CITY (default/base city for that company).
+3) Role-gating must be strict:
+   - SUPER_ADMIN: full access
+   - COMPANY_ADMIN (tenant admin): full access within their tenant, city-limited by allowed cities
+   - DISPATCH: operational within assigned city/cities
+   - CLINIC_USER: clinic-only within their clinic + city
+   - DRIVER: self-only (minimal)
+4) No cross-tenant access. No cross-city access for non-super roles.
+5) Must be stable in production.
+
+------------------------------------------------------------
+PHASE 1 — AUTHORITATIVE ROLE MODEL (NO GUESSING)
+------------------------------------------------------------
+A) Identify the ONE source of truth for roles in backend:
+- Where role is read from (JWT claims? DB lookup? session cookie?).
+- Implement getActorContext() => { userId, role, tenantId, companyId?, clinicId?, cityId?, allowedCityIds[] }
+
+B) Implement requireRole(...roles) helper and use it consistently.
+- Ensure COMPANY_ADMIN is a first-class role constant everywhere (not “company_admin” in one file and “COMPANY_ADMIN” in another).
+- Add a single Role enum/string union used by both server and client if possible.
+
+------------------------------------------------------------
+PHASE 2 — FIX COMPANY_ADMIN ACCESS (ROOT CAUSE)
+------------------------------------------------------------
+A) Find why COMPANY_ADMIN is blocked:
+- Locate route allowlists / middleware role arrays.
+- Diff: permissions matrix says allowed but middleware rejects.
+
+B) Fix it in ONE centralized place:
+- Prefer: one authorization function that checks role + tenant + city.
+- Remove duplicated allowlists that drift.
+
+C) Ensure COMPANY_ADMIN can access:
+- App shell pages and APIs needed by dashboard
+- Company-scoped CRUD: clinics/drivers/patients/vehicles within tenant
+- Trips within tenant and allowed city
+- Read metrics allowed for COMPANY_ADMIN? (Decide explicitly.)
+  - If policy is: "System metrics only SUPER_ADMIN" => enforce that.
+  - COMPANY_ADMIN may have "tenant metrics" page, NOT system-wide.
+
+D) Add regression guard:
+- Add a unit-ish test or lightweight runtime assert list: endpoints that must accept COMPANY_ADMIN.
+
+------------------------------------------------------------
+PHASE 3 — ENFORCE "COMPANY MUST HAVE A CITY" ON CREATE
+------------------------------------------------------------
+A) UI:
+When SUPER_ADMIN creates a company, the form MUST include:
+- Company name
+- Primary city (create/select) REQUIRED
+- Optional: timezone, service area label
+
+B) Backend:
+- Company creation endpoint must create:
+  1) tenant/company row
+  2) first city row linked to that tenant/company
+  3) ensure new COMPANY_ADMIN user is linked to tenant and granted allowedCityIds containing that first city
+- Wrap in transaction if supported.
+
+C) If company exists with zero cities:
+- Provide a repair flow: SUPER_ADMIN can add the first city and assign it.
+- Do NOT delete anything.
+
+------------------------------------------------------------
+PHASE 4 — METRICS STABILITY + ROUTE CONSISTENCY
+------------------------------------------------------------
+A) Confirm /metrics uses correct APIs and does not white-screen:
+- Add error boundary for admin pages if missing.
+- Ensure requests canceling doesn’t break render (use query library abort handling).
+
+B) Ensure /api/healthz works without auth.
+C) Ensure /api/admin/metrics/system remains SUPER_ADMIN only.
+
+------------------------------------------------------------
+PHASE 5 — VERIFICATION (MUST DO, SHOW PROOF)
+------------------------------------------------------------
+Run the following and paste results:
+
+1) Build checks:
+- npm run build
+- npm run check (tsc --noEmit) (if it times out, increase timeout or run incremental; do not claim pass without evidence)
+
+2) Auth matrix (all in PREVIEW first):
+- SUPER_ADMIN:
+  - can open /metrics
+  - can create company with first city
+  - can login as new company admin
+- COMPANY_ADMIN (newly created):
+  - can login without Access Denied
+  - can see their dashboard
+  - can CRUD within tenant
+  - cannot access /api/admin/metrics/system
+  - cannot access other tenant data
+- DISPATCH:
+  - city-scoped only
+- CLINIC_USER:
+  - clinic-scoped only
+
+3) API proof (curl-like or fetch logs):
+- GET /api/healthz => 200
+- POST /api/auth/login => 200
+- GET tenant-scoped endpoints => 200
+- Forbidden checks => 403 where expected
+
+4) Confirm changed files list:
+- Provide exact files changed + what changed in each.
+
+------------------------------------------------------------
+PHASE 6 — SAFE PUBLISH PLAN (DO NOT PUBLISH YET)
+------------------------------------------------------------
+Before publishing:
+- Confirm env vars unchanged (DATABASE_URL, JWT secrets, etc.)
+- Confirm no destructive migrations
+- Confirm preview passes
+
+EXIT CRITERIA:
+- COMPANY_ADMIN login works for a newly created company.
+- Company creation requires first city and assigns it correctly.
+- /metrics works for SUPER_ADMIN (no blank page).
+- Role gating enforced with correct 403s.
+- Provide “Files Changed” summary + verification logs.

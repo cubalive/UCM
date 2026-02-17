@@ -4,7 +4,7 @@ import { GOOGLE_MAPS_SERVER_KEY, GOOGLE_MAPS_BROWSER_KEY } from "../../lib/mapsC
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 import { geocodeAddress, placesAutocomplete, placeDetails, etaMinutes, buildRoute, googleDistanceMatrix } from "./googleMaps";
 import { checkRateLimit } from "./rateLimiter";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import { ONLINE_CUTOFF_MS } from "./driverClassification";
 import { db } from "../db";
 import { drivers } from "@shared/schema";
@@ -217,7 +217,7 @@ export function registerMapsRoutes(app: Express): void {
     driverIds: z.array(z.number()).min(1).max(25),
   });
 
-  app.post("/api/dispatch/nearest-driver", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: Request, res: Response) => {
+  app.post("/api/dispatch/nearest-driver", authMiddleware, requirePermission("dispatch", "write"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = nearestDriverSchema.safeParse(req.body);

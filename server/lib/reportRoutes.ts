@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, getUserCityIds, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, getUserCityIds, type AuthRequest } from "../auth";
 import { z } from "zod";
 import { db } from "../db";
 import { trips, tripEvents, drivers } from "@shared/schema";
@@ -11,7 +11,7 @@ export function registerReportRoutes(app: Express) {
 
   app.get("/api/trips/:tripId/events",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("trips", "read"),
     async (req: AuthRequest, res) => {
       try {
         const tripId = parseInt(req.params.tripId as string);
@@ -33,7 +33,7 @@ export function registerReportRoutes(app: Express) {
 
   app.post("/api/trips/:tripId/events",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("trips", "read"),
     async (req: AuthRequest, res) => {
       try {
         const tripId = parseInt(req.params.tripId as string);
@@ -102,7 +102,7 @@ export function registerReportRoutes(app: Express) {
 
   app.get("/api/reports/drivers/weekly",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("trips", "read"),
     async (req: AuthRequest, res) => {
       try {
         const cityId = parseInt((req.query.cityId || req.query.city_id) as string);

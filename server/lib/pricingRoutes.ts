@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import { db } from "../db";
 import { pricingProfiles, pricingRules, pricingAuditLog } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
@@ -9,7 +9,7 @@ import { calculatePrivateQuote } from "./privatePricing";
 import { storage } from "../storage";
 
 export function registerPricingRoutes(app: Express) {
-  app.get("/api/pricing/profiles", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/pricing/profiles", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const city = req.query.city as string | undefined;
       let profiles;
@@ -24,7 +24,7 @@ export function registerPricingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/pricing/profile/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/pricing/profile/:id", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const [profile] = await db.select().from(pricingProfiles).where(eq(pricingProfiles.id, id));
@@ -37,7 +37,7 @@ export function registerPricingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/pricing/active", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/pricing/active", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const city = req.query.city as string;
       if (!city) return res.status(400).json({ message: "city required" });
@@ -202,7 +202,7 @@ export function registerPricingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/pricing/preview-quote", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/pricing/preview-quote", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         miles: z.number().min(0),
@@ -261,7 +261,7 @@ export function registerPricingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/pricing/audit", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/pricing/audit", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const profileId = parseInt(req.query.profileId as string);
       if (isNaN(profileId)) return res.status(400).json({ message: "profileId required" });

@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import { db } from "../db";
 import { storage } from "../storage";
 import {
@@ -136,7 +136,7 @@ export async function autoBillingClassify(trip: any): Promise<void> {
 
 export function registerClinicBillingRoutes(app: Express) {
 
-  app.get("/api/clinic-billing/profiles", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/clinic-billing/profiles", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
       let profiles;
@@ -156,7 +156,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/clinic-billing/profiles", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/clinic-billing/profiles", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         clinicId: z.number(),
@@ -201,7 +201,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/clinic-billing/profiles/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/clinic-billing/profiles/:id", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const [profile] = await db.select().from(clinicBillingProfiles).where(eq(clinicBillingProfiles.id, id));
@@ -217,7 +217,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/clinic-billing/profiles/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.patch("/api/clinic-billing/profiles/:id", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const schema = z.object({
@@ -239,7 +239,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/clinic-billing/rules/batch", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.patch("/api/clinic-billing/rules/batch", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         rules: z.array(z.object({
@@ -262,7 +262,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/clinic-billing/rules/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.patch("/api/clinic-billing/rules/:id", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const schema = z.object({
@@ -282,7 +282,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/clinic-billing/trips/:id/billing-outcome", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/clinic-billing/trips/:id/billing-outcome", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const tripId = parseInt(req.params.id as string);
       const schema = z.object({
@@ -321,7 +321,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/clinic-billing/trips-log", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/clinic-billing/trips-log", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
       const startDate = req.query.start_date as string;
@@ -434,7 +434,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/clinic-billing/trips/:id/audit", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/clinic-billing/trips/:id/audit", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const tripId = parseInt(req.params.id as string);
       const entries = await db
@@ -448,7 +448,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/clinic-billing/invoices/generate", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/clinic-billing/invoices/generate", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         clinicId: z.number(),
@@ -617,7 +617,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/clinic-billing/invoices", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/clinic-billing/invoices", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
       let invoiceRows;
@@ -640,7 +640,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/clinic-billing/invoices/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/clinic-billing/invoices/:id", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const [invoice] = await db.select().from(clinicBillingInvoices).where(eq(clinicBillingInvoices.id, id));
@@ -707,7 +707,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/clinic-billing/invoices/:id/finalize", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+  app.post("/api/clinic-billing/invoices/:id/finalize", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const [invoice] = await db.select().from(clinicBillingInvoices).where(eq(clinicBillingInvoices.id, id));
@@ -745,7 +745,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/clinic-billing/invoices/:id/csv", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/clinic-billing/invoices/:id/csv", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const [invoice] = await db.select().from(clinicBillingInvoices).where(eq(clinicBillingInvoices.id, id));
@@ -788,7 +788,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/tariffs", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/tariffs", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
       if (!clinicId) return res.status(400).json({ message: "clinic_id required" });
@@ -799,7 +799,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/tariffs", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+  app.post("/api/tariffs", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const parsed = insertClinicTariffSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
@@ -819,7 +819,7 @@ export function registerClinicBillingRoutes(app: Express) {
     effectiveTo: z.string().nullable().optional(),
   });
 
-  app.patch("/api/tariffs/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+  app.patch("/api/tariffs/:id", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(String(req.params.id));
       const parsed = updateTariffSchema.safeParse(req.body);
@@ -840,7 +840,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/trip-billing/:tripId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/trip-billing/:tripId", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const tripId = parseInt(String(req.params.tripId));
       const billing = await storage.getTripBilling(tripId);
@@ -851,7 +851,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/trip-billing/clinic/:clinicId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/trip-billing/clinic/:clinicId", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const clinicId = parseInt(String(req.params.clinicId));
       const month = req.query.month as string | undefined;
@@ -862,7 +862,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/monthly-invoices", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/monthly-invoices", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
       const invoicesResult = await storage.getClinicInvoicesMonthly(clinicId);
@@ -876,7 +876,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/monthly-invoices/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/monthly-invoices/:id", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(String(req.params.id));
       const invoice = await storage.getClinicInvoiceMonthly(id);
@@ -889,7 +889,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/monthly-invoices/generate", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+  app.post("/api/monthly-invoices/generate", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         clinicId: z.number(),
@@ -934,7 +934,7 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/monthly-invoices/:id/status", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+  app.patch("/api/monthly-invoices/:id/status", authMiddleware, requirePermission("invoices", "write"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(String(req.params.id));
       const { status } = req.body;

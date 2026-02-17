@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import { sendSms, normalizePhone, isTwilioConfigured } from "./twilioSms";
 import { sendEmail } from "./email";
 import type { Trip, City, Clinic } from "@shared/schema";
@@ -565,7 +565,7 @@ export function stopOpsAlertScheduler() {
 }
 
 export function registerOpsRoutes(app: Express) {
-  app.get("/api/ops/health", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/health", authMiddleware, requirePermission("dashboard", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = req.query.city_id ? parseInt(req.query.city_id as string) : undefined;
       const dateParam = req.query.date as string | undefined;
@@ -664,7 +664,7 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/ops/checks", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/checks", authMiddleware, requirePermission("dashboard", "read"), async (req: AuthRequest, res) => {
     try {
       const rawCityId = req.query.city_id ? parseInt(req.query.city_id as string) : undefined;
       const cityId = rawCityId && !isNaN(rawCityId) ? rawCityId : undefined;
@@ -780,7 +780,7 @@ export function registerOpsRoutes(app: Express) {
     });
   });
 
-  app.get("/api/ops/alerts/history", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/alerts/history", authMiddleware, requirePermission("dashboard", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = req.query.city_id ? parseInt(req.query.city_id as string) : undefined;
       const date = req.query.date as string | undefined;
@@ -864,7 +864,7 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/ops/clinic-help", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/clinic-help", authMiddleware, requirePermission("dashboard", "read"), async (req: AuthRequest, res) => {
     try {
       const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
       const requests = await storage.getClinicHelpRequests(clinicId);
@@ -874,7 +874,7 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ops/clinic-help/:id/resolve", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.post("/api/ops/clinic-help/:id/resolve", authMiddleware, requirePermission("dashboard", "read"), async (req: AuthRequest, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const resolved = await storage.resolveClinicHelpRequest(id, req.user!.userId);
@@ -1158,7 +1158,7 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/ops/metrics/health.csv", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/metrics/health.csv", authMiddleware, requirePermission("dashboard", "read"), async (req: AuthRequest, res) => {
     try {
       const { getRedisMetrics, isRedisConnected } = await import("./redis");
       const redis = getRedisMetrics();

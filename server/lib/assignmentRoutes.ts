@@ -2,7 +2,7 @@ import { Express, Request, Response } from "express";
 import { db } from "../db";
 import { trips, drivers, vehicles, assignmentBatches } from "@shared/schema";
 import { eq, and, isNull, inArray } from "drizzle-orm";
-import { getUserCityIds, type AuthRequest } from "../auth";
+import { getUserCityIds, requirePermission, type AuthRequest } from "../auth";
 import {
   generateAssignmentPlan,
   applyAssignmentBatch,
@@ -10,15 +10,6 @@ import {
   saveProposals,
   overrideTripAssignment,
 } from "./assignmentEngine";
-
-function requireRole(...roles: string[]) {
-  return (req: AuthRequest, res: Response, next: Function) => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ message: "Insufficient permissions" });
-    }
-    next();
-  };
-}
 
 async function checkCityAccess(req: AuthRequest, cityId: number): Promise<boolean> {
   if (!req.user) return false;
@@ -31,7 +22,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
   app.post(
     "/api/assignment-batches/generate",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res: Response) => {
       try {
         const { cityId, date } = req.body;
@@ -62,7 +53,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
   app.post(
     "/api/assignment-batches/:id/apply",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res: Response) => {
       try {
         const batchId = parseInt(String(req.params.id));
@@ -83,7 +74,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
   app.post(
     "/api/assignment-batches/:id/cancel",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res: Response) => {
       try {
         const batchId = parseInt(String(req.params.id));
@@ -104,7 +95,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
   app.get(
     "/api/assignment-batches",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "read"),
     async (req: AuthRequest, res: Response) => {
       try {
         const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
@@ -132,7 +123,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
   app.get(
     "/api/assignment-batches/:id/proposals",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "read"),
     async (req: AuthRequest, res: Response) => {
       try {
         const batchId = parseInt(String(req.params.id));
@@ -224,7 +215,7 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
   app.patch(
     "/api/assignment-batches/trips/:tripId/override",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    requirePermission("dispatch", "write"),
     async (req: AuthRequest, res: Response) => {
       try {
         const tripId = parseInt(String(req.params.tripId));

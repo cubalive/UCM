@@ -4,6 +4,7 @@ import type { Request, Response, NextFunction } from "express";
 import { db } from "./db";
 import { users, userCityAccess, sessionRevocations } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
+import { can, type Resource, type Permission } from "@shared/permissions";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
@@ -143,7 +144,7 @@ export function normalizeRole(role: string): string {
 }
 
 export function isDispatchLevel(role: string): boolean {
-  return ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(role);
+  return ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH"].includes(role);
 }
 
 export function isCompanyScoped(user: AuthPayload): boolean {
@@ -181,6 +182,19 @@ export function requireRole(...roles: string[]) {
     }
     const effective = normalizeRole(req.user.role);
     if (roles.includes(req.user.role) || roles.includes(effective)) {
+      return next();
+    }
+    return res.status(403).json({ message: "Forbidden", code: "FORBIDDEN" });
+  };
+}
+
+export function requirePermission(resource: Resource, permission: Permission = "read") {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED" });
+    }
+    const effective = normalizeRole(req.user.role);
+    if (can(effective, resource, permission)) {
       return next();
     }
     return res.status(403).json({ message: "Forbidden", code: "FORBIDDEN" });

@@ -1,5 +1,5 @@
 import express, { type Express } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import {
   getDriverMyTripsHandler,
   getDriverProfileHandler,
@@ -64,7 +64,7 @@ router.post("/api/driver/me/break", authMiddleware, requireRole("DRIVER"), postD
 
 router.post("/api/auth/driver-logout", authMiddleware, postDriverLogoutHandler as any);
 
-router.get("/api/dispatch/drivers/active", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), getDispatchActiveDriversHandler as any);
+router.get("/api/dispatch/drivers/active", authMiddleware, requirePermission("dispatch", "read"), getDispatchActiveDriversHandler as any);
 router.post("/api/dispatch/drivers/:id/revoke-sessions", authMiddleware, requireRole("DISPATCH", "ADMIN"), postDispatchRevokeSessionsHandler as any);
 router.get("/api/dispatch/drivers/:id/devices", authMiddleware, requireRole("DISPATCH", "ADMIN"), getDispatchDriverDevicesHandler as any);
 router.delete("/api/dispatch/drivers/:id/devices/:deviceId", authMiddleware, requireRole("DISPATCH", "ADMIN"), deleteDispatchDriverDeviceHandler as any);
@@ -86,8 +86,8 @@ router.post("/api/driver/schedule-change", authMiddleware, requireRole("DRIVER")
 router.get("/api/driver/schedule-change", authMiddleware, requireRole("DRIVER"), getDriverScheduleChangeHandler as any);
 router.post("/api/driver/schedule-change/:id/cancel", authMiddleware, requireRole("DRIVER"), postDriverScheduleChangeCancelHandler as any);
 
-router.get("/api/dispatch/schedule-change", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), getDispatchScheduleChangeHandler as any);
-router.post("/api/dispatch/schedule-change/:id/decide", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), postDispatchScheduleChangeDecideHandler as any);
+router.get("/api/dispatch/schedule-change", authMiddleware, requirePermission("dispatch", "read"), getDispatchScheduleChangeHandler as any);
+router.post("/api/dispatch/schedule-change/:id/decide", authMiddleware, requirePermission("dispatch", "write"), postDispatchScheduleChangeDecideHandler as any);
 
 router.post("/api/driver/swaps", authMiddleware, requireRole("DRIVER"), postDriverSwapCreateHandler as any);
 router.get("/api/driver/swaps", authMiddleware, requireRole("DRIVER"), getDriverSwapsHandler as any);
@@ -96,15 +96,15 @@ router.post("/api/driver/swaps/:id/cancel", authMiddleware, requireRole("DRIVER"
 router.post("/api/driver/swaps/:id/decide", authMiddleware, requireRole("DRIVER"), postDriverSwapDecideHandler as any);
 router.get("/api/driver/swaps/eligible", authMiddleware, requireRole("DRIVER"), getDriverSwapsEligibleHandler as any);
 
-router.get("/api/dispatch/swaps", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), getDispatchSwapsHandler as any);
-router.post("/api/dispatch/swaps/:id/decide", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), postDispatchSwapDecideHandler as any);
+router.get("/api/dispatch/swaps", authMiddleware, requirePermission("dispatch", "read"), getDispatchSwapsHandler as any);
+router.post("/api/dispatch/swaps/:id/decide", authMiddleware, requirePermission("dispatch", "write"), postDispatchSwapDecideHandler as any);
 
 router.get("/api/driver/metrics", authMiddleware, requireRole("DRIVER"), getDriverMetricsHandler as any);
 router.get("/api/driver/bonus-progress", authMiddleware, requireRole("DRIVER"), getDriverBonusProgressHandler as any);
 
 router.post("/api/driver/support-event", authMiddleware, requireRole("DRIVER"), postDriverSupportEventHandler as any);
-router.get("/api/dispatch/support-events", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), getDispatchSupportEventsHandler as any);
-router.patch("/api/dispatch/support-events/:id/resolve", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), patchDispatchSupportEventResolveHandler as any);
+router.get("/api/dispatch/support-events", authMiddleware, requirePermission("dispatch", "read"), getDispatchSupportEventsHandler as any);
+router.patch("/api/dispatch/support-events/:id/resolve", authMiddleware, requirePermission("dispatch", "write"), patchDispatchSupportEventResolveHandler as any);
 
 router.post("/api/driver/heartbeat", authMiddleware, requireRole("DRIVER"), postDriverHeartbeatHandler as any);
 router.post("/api/driver/push-token", authMiddleware, requireRole("DRIVER"), postDriverPushTokenHandler as any);
