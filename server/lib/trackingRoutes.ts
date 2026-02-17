@@ -464,4 +464,119 @@ export function registerTrackingRoutes(app: Express) {
       res.status(500).json({ ok: false, message: "Internal error" });
     }
   });
+
+  app.get(
+    "/api/trips/:id/live",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER"),
+    async (req: AuthRequest, res) => {
+      try {
+        const tripId = parseInt(req.params.id as string);
+        if (isNaN(tripId)) return res.status(400).json({ ok: false, message: "Invalid trip ID" });
+
+        const trip = await storage.getTrip(tripId);
+        if (!trip) return res.status(404).json({ ok: false, message: "Trip not found" });
+
+        const user = await storage.getUser(req.user!.userId);
+        if (!user) return res.status(404).json({ ok: false, message: "User not found" });
+
+        if (user.role === "CLINIC_USER") {
+          if (!user.clinicId || trip.clinicId !== user.clinicId) {
+            return res.status(403).json({ ok: false, message: "Access denied" });
+          }
+        }
+        if (user.role === "COMPANY_ADMIN") {
+          if (!user.companyId || !trip.companyId || trip.companyId !== user.companyId) {
+            return res.status(403).json({ ok: false, message: "Access denied" });
+          }
+        }
+
+        if (!trip.driverId) {
+          return res.json({
+            ok: true,
+            driver_location: null,
+            eta: null,
+            message: "No driver assigned",
+          });
+        }
+
+        const { getGpsStaleInfo, getDriverLocationFromCache } = await import("./driverLocationIngest");
+        const { getThrottledEta } = await import("./etaThrottle");
+
+        const driverLoc = getDriverLocationFromCache(trip.driverId);
+        const gpsInfo = getGpsStaleInfo(trip.driverId);
+
+        let driverLocationData: any = null;
+        if (driverLoc) {
+          const ageMs = Date.now() - driverLoc.timestamp;
+          driverLocationData = {
+            lat: driverLoc.lat,
+            lng: driverLoc.lng,
+            heading: driverLoc.heading ?? null,
+            speed: driverLoc.speed ?? null,
+            last_update_seconds_ago: Math.round(ageMs / 1000),
+            gps_stale: gpsInfo.gps_stale,
+            stale_reason: gpsInfo.stale_reason || null,
+          };
+        }
+
+        let etaData: any = null;
+        if (!gpsInfo.hide_eta) {
+          const PICKUP_PHASES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP"];
+          const DROPOFF_PHASES = ["PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+
+          let destination: { lat: number; lng: number } | null = null;
+          let etaLabel = "pickup";
+
+          if (PICKUP_PHASES.includes(trip.status) && trip.pickupLat && trip.pickupLng) {
+            destination = { lat: parseFloat(trip.pickupLat as any), lng: parseFloat(trip.pickupLng as any) };
+            etaLabel = "pickup";
+          } else if (DROPOFF_PHASES.includes(trip.status) && trip.dropoffLat && trip.dropoffLng) {
+            destination = { lat: parseFloat(trip.dropoffLat as any), lng: parseFloat(trip.dropoffLng as any) };
+            etaLabel = "dropoff";
+          }
+
+          if (destination) {
+            try {
+              const eta = await getThrottledEta(trip.driverId!, destination, trip.id);
+              if (eta) {
+                etaData = {
+                  minutes: eta.minutes,
+                  distance_miles: eta.distanceMiles,
+                  destination: etaLabel,
+                  source: eta.source,
+                  computed_at: new Date(eta.computedAt).toISOString(),
+                };
+              }
+            } catch {}
+          }
+
+          if (!etaData && trip.lastEtaMinutes != null) {
+            etaData = {
+              minutes: trip.lastEtaMinutes,
+              distance_miles: trip.distanceMiles ? parseFloat(trip.distanceMiles as any) : null,
+              destination: "cached",
+              source: "cached",
+              computed_at: trip.lastEtaUpdatedAt?.toISOString() || null,
+            };
+          }
+        }
+
+        const driver = await storage.getDriver(trip.driverId);
+        const driverName = driver ? `${driver.firstName} ${driver.lastName}` : null;
+
+        res.json({
+          ok: true,
+          driver_location: driverLocationData,
+          driver_name: driverName,
+          eta: etaData,
+          trip_status: trip.status,
+          gps_stale: gpsInfo.gps_stale,
+          hide_eta: gpsInfo.hide_eta,
+        });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, message: err.message });
+      }
+    }
+  );
 }

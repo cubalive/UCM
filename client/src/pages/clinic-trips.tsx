@@ -81,6 +81,7 @@ import {
   FileText,
   Pencil,
   CreditCard,
+  Satellite,
 } from "lucide-react";
 import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
 
@@ -3134,6 +3135,10 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
         </CardContent>
       </Card>
 
+      {!isTerminal && trip.driverId && (
+        <ClinicLiveTracking tripId={trip.id} token={token} />
+      )}
+
       <Card>
         <CardContent className="py-3 px-4 space-y-2">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Full Timeline</p>
@@ -3354,5 +3359,106 @@ function TripDetail({ trip, onTrack }: { trip: any; onTrack: () => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+function ClinicLiveTracking({ tripId, token }: { tripId: number; token: string | null }) {
+  const liveQuery = useQuery<{
+    ok: boolean;
+    driver_location: { lat: number; lng: number; last_update_seconds_ago: number; gps_stale: boolean; stale_reason: string | null } | null;
+    driver_name: string | null;
+    eta: { minutes: number; distance_miles: number | null; destination: string; source: string } | null;
+    trip_status: string;
+    gps_stale: boolean;
+    hide_eta: boolean;
+  }>({
+    queryKey: ["/api/trips", tripId, "live"],
+    queryFn: () => apiFetch(`/api/trips/${tripId}/live`, token),
+    enabled: !!token && !!tripId,
+    refetchInterval: 15000,
+  });
+
+  const data = liveQuery.data;
+  if (liveQuery.isLoading) {
+    return (
+      <Card>
+        <CardContent className="py-3 px-4">
+          <div className="flex items-center gap-2">
+            <Satellite className="w-4 h-4 text-muted-foreground animate-pulse" />
+            <span className="text-sm text-muted-foreground">Loading live tracking...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data?.ok || !data.driver_location) {
+    return (
+      <Card>
+        <CardContent className="py-3 px-4">
+          <div className="flex items-center gap-2">
+            <WifiOff className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Driver location not available</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const loc = data.driver_location;
+  const eta = data.eta;
+
+  const formatLastSeen = (seconds: number): string => {
+    if (seconds < 10) return "Just now";
+    if (seconds < 60) return `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    return `${Math.floor(seconds / 3600)}h ago`;
+  };
+
+  return (
+    <Card data-testid="card-live-tracking">
+      <CardContent className="py-3 px-4 space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <Satellite className="w-3.5 h-3.5" />
+            Live Tracking
+          </p>
+          {loc.gps_stale ? (
+            <Badge variant="secondary" className="text-amber-600 dark:text-amber-400" data-testid="badge-gps-stale">
+              <AlertTriangle className="w-3 h-3 mr-1" />
+              GPS Stale
+            </Badge>
+          ) : (
+            <Badge variant="secondary" className="text-emerald-600 dark:text-emerald-400" data-testid="badge-gps-live">
+              <Radio className="w-3 h-3 mr-1" />
+              Live
+            </Badge>
+          )}
+        </div>
+
+        {data.driver_name && (
+          <p className="text-sm font-medium flex items-center gap-1.5" data-testid="text-live-driver-name">
+            <User className="w-3.5 h-3.5 text-muted-foreground" />
+            {data.driver_name}
+          </p>
+        )}
+
+        <div className="flex items-center gap-4 flex-wrap text-sm">
+          <span className="flex items-center gap-1 text-muted-foreground" data-testid="text-last-seen">
+            <Clock className="w-3.5 h-3.5" />
+            Last seen: {formatLastSeen(loc.last_update_seconds_ago)}
+          </span>
+          {eta && !data.hide_eta && (
+            <span className="flex items-center gap-1 font-medium" data-testid="text-live-eta">
+              <Navigation className="w-3.5 h-3.5 text-blue-500" />
+              ETA: {eta.minutes} min{eta.distance_miles != null ? ` (${eta.distance_miles.toFixed(1)} mi)` : ""}
+              <span className="text-xs text-muted-foreground ml-1">
+                to {eta.destination}
+              </span>
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

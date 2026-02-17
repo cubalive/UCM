@@ -1271,6 +1271,16 @@ export default function DriverDashboard() {
   const [showNavChooser, setShowNavChooser] = useState(false);
   const [rememberNav, setRememberNav] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  const [showGpsGate, setShowGpsGate] = useState(false);
+  const [gpsGateLoading, setGpsGateLoading] = useState(false);
+
+  useEffect(() => {
+    if (showGpsGate && gpsGateLoading && geoLocation && geoPermission === "granted") {
+      setShowGpsGate(false);
+      setGpsGateLoading(false);
+      toggleActiveMutation.mutate(true);
+    }
+  }, [showGpsGate, gpsGateLoading, geoLocation, geoPermission]);
   const [confirmDialog, setConfirmDialog] = useState<{ tripId: number; nextStatus: string; label: string } | null>(null);
   const [confirmNote, setConfirmNote] = useState("");
   const [needHelpOpen, setNeedHelpOpen] = useState(false);
@@ -2158,7 +2168,17 @@ export default function DriverDashboard() {
         </div>
         <Button
           variant={isDriverOnline ? "destructive" : "default"}
-          onClick={() => toggleActiveMutation.mutate(!isDriverOnline)}
+          onClick={() => {
+            if (!isDriverOnline) {
+              if (geoPermission === "granted" && geoLocation) {
+                toggleActiveMutation.mutate(true);
+              } else {
+                setShowGpsGate(true);
+              }
+            } else {
+              toggleActiveMutation.mutate(false);
+            }
+          }}
           disabled={toggleActiveMutation.isPending}
           className="min-h-[44px] text-base px-5"
           data-testid="button-toggle-active"
@@ -2494,6 +2514,87 @@ export default function DriverDashboard() {
       )}
 
       {/* Confirm status dialog */}
+      {showGpsGate && (
+        <div className="fixed inset-0 bg-background/80 z-50 flex items-end justify-center p-4 sm:items-center" data-testid="overlay-gps-gate">
+          <Card className="w-full max-w-md">
+            <div className="flex items-center justify-between gap-2 p-4 border-b">
+              <span className="text-lg font-semibold">Location Required</span>
+              <Button variant="ghost" size="icon" onClick={() => { setShowGpsGate(false); setGpsGateLoading(false); }} data-testid="button-close-gps-gate">
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+            <CardContent className="py-6 space-y-4">
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+                  <LocateFixed className="w-7 h-7 text-primary" />
+                </div>
+                <p className="text-base font-medium">Enable Location Services</p>
+                <p className="text-sm text-muted-foreground">
+                  GPS location is required to go online. This allows dispatch to track your position and assign trips.
+                </p>
+              </div>
+              {geoPermission === "denied" && (
+                <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>Location permission was denied. Please enable it in your browser or device settings, then try again.</span>
+                </div>
+              )}
+              {geoWatchError && geoPermission !== "denied" && (
+                <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>Unable to get your location. Please check your settings and try again.</span>
+                </div>
+              )}
+              <div className="flex gap-3">
+                <Button
+                  className="flex-1 min-h-[48px] text-base font-semibold"
+                  disabled={gpsGateLoading || geoPermission === "denied"}
+                  onClick={async () => {
+                    setGpsGateLoading(true);
+                    try {
+                      if (requestPermission) {
+                        await requestPermission();
+                      }
+                      await new Promise((resolve) => setTimeout(resolve, 1500));
+                      if (geoLocation) {
+                        setShowGpsGate(false);
+                        setGpsGateLoading(false);
+                        toggleActiveMutation.mutate(true);
+                      } else {
+                        setGpsGateLoading(false);
+                      }
+                    } catch {
+                      setGpsGateLoading(false);
+                    }
+                  }}
+                  data-testid="button-enable-gps"
+                >
+                  {gpsGateLoading ? (
+                    <>
+                      <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                      Getting Location...
+                    </>
+                  ) : (
+                    <>
+                      <LocateFixed className="w-5 h-5 mr-2" />
+                      Enable Location
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="min-h-[48px] text-base px-6"
+                  onClick={() => { setShowGpsGate(false); setGpsGateLoading(false); }}
+                  data-testid="button-cancel-gps-gate"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {confirmDialog && (
         <div className="fixed inset-0 bg-background/80 z-50 flex items-end justify-center p-4 sm:items-center" data-testid="overlay-confirm-status">
           <Card className="w-full max-w-md">
