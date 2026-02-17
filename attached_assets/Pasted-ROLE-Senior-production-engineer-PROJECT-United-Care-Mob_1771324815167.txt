@@ -1,0 +1,50 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM) — Replit
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+- Do NOT invent folders (no routes/controllers). Use existing structure: server/index.ts, server/routes.ts, server/lib/*Routes.ts, server/storage.ts, shared/schema.ts
+
+TASK: Provide a complete CURRENT STATUS report so we can fix and scale the system without guessing.
+
+DELIVERABLE (must be precise, no fluff):
+
+A) Build/Run Status
+1) Does backend compile? If not, list exact errors + file/line.
+2) Does frontend compile? If not, list exact errors + file/line.
+3) Current deployment URL and whether it matches latest commit.
+
+B) Routing Map (source of truth)
+1) List every route registrar called in server/routes.ts (registerMapsRoutes, registerDispatchRoutes, etc.).
+2) For each registrar, list endpoints + methods + auth role requirements.
+3) Identify any endpoints referenced by frontend that do not exist or mismatch.
+
+C) DB/Schema Status
+1) Confirm Drizzle schema matches DB tables. List missing tables/columns/indexes.
+2) List any runtime DB errors in logs (foreign key, null constraint, etc.).
+3) Confirm multi-tenant enforcement: which tables have companyId and which queries filter by it.
+
+D) Critical Bugs (top 10)
+For each bug: reproduction steps, root cause, exact file(s), proposed fix.
+Include specifically:
+- Trip Details not showing after click
+- Address autocomplete not suggesting for clinic/patient/trip addresses
+- Trips created without correct pickup/arrival times
+- Any role/permission leak (clinic seeing other clinic/company data)
+
+E) Security + Tenancy Checklist
+1) Confirm tenantGuard/applyCompanyFilter/checkCompanyOwnership usage coverage.
+2) List endpoints missing companyId/city access checks.
+3) Confirm soft delete vs hard delete consistency.
+
+F) Next Fix Plan (strict order)
+1) P0 fixes that must be done first to stabilize.
+2) P1 improvements.
+Each item must include exact files to change and how you will verify (tests or manual steps).
+
+STOP after delivering this report. Do not implement yet.

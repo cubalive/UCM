@@ -1,0 +1,99 @@
+PROMPT — MOTOR DE MEDICIÓN INVISIBLE (FASE 1)
+
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+	•	No parallel tasks
+	•	Do NOT reset database
+	•	Extend existing system only
+	•	Verify before exit
+
+GOAL:
+Implement the UCM Invisible Measurement Engine by extending the trips table and automatically computing performance metrics server-side.
+
+⸻
+
+PHASE 1 — DATABASE EXTENSION
+
+Extend existing table trips with the following columns (do not recreate table):
+	•	actual_arrival_time timestamptz null
+	•	actual_pickup_time timestamptz null
+	•	actual_dropoff_time timestamptz null
+	•	driver_arrival_delay_minutes int null
+	•	patient_ready_delay_minutes int null
+	•	total_trip_variance_minutes int null
+	•	dead_miles_before_trip numeric null
+	•	dead_miles_after_trip numeric null
+	•	reassignment_count int default 0
+	•	dispatcher_intervention_count int default 0
+	•	cancellation_type text null
+	•	cancellation_minutes_before_pickup int null
+
+Do not remove any existing columns.
+
+⸻
+
+PHASE 2 — SERVER SIDE METRIC COMPUTATION
+
+On status change events:
+
+When driver presses ARRIVED:
+	•	Set actual_arrival_time = now()
+	•	driver_arrival_delay_minutes = difference between actual_arrival_time and scheduled_pickup_time in minutes
+
+When driver presses START_TRIP:
+	•	Set actual_pickup_time = now()
+	•	patient_ready_delay_minutes = difference between actual_pickup_time and actual_arrival_time in minutes
+
+When driver presses COMPLETE_TRIP:
+	•	Set actual_dropoff_time = now()
+	•	If estimated_duration_minutes exists:
+total_trip_variance_minutes = difference between real duration and estimated_duration_minutes
+
+When trip is canceled:
+	•	cancellation_minutes_before_pickup = difference between scheduled_pickup_time and now()
+	•	Save cancellation_type based on role
+
+⸻
+
+PHASE 3 — REASSIGNMENT TRACKING
+
+If driver_id changes after initial assignment:
+	•	increment reassignment_count
+
+If dispatch edits pickup time, driver, or route:
+	•	increment dispatcher_intervention_count
+
+⸻
+
+PHASE 4 — DATA INTEGRITY RULES
+	•	Do NOT allow editing metrics manually
+	•	Do NOT allow modifying completed trips
+	•	All calculations must be server-side only
+	•	Ensure no frontend calculation logic
+
+⸻
+
+PHASE 5 — VERIFICATION
+
+Add endpoint:
+GET /api/metrics/trip/:id
+
+Return:
+{
+scheduled_pickup_time,
+actual_arrival_time,
+actual_pickup_time,
+actual_dropoff_time,
+driver_arrival_delay_minutes,
+patient_ready_delay_minutes,
+total_trip_variance_minutes,
+reassignment_count,
+dispatcher_intervention_count,
+cancellation_type
+}
+
+Confirm:
+	•	Metrics are saved correctly
+	•	No crashes if values missing
+	•	Production build remains stable

@@ -1,0 +1,147 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+CONTEXT
+Current backend structure:
+- server/index.ts mounts registerRoutes(app)
+- server/routes.ts contains most endpoints (monolithic)
+- server/storage.ts contains DB logic (Drizzle)
+- shared/schema.ts contains tables/enums/zod insert schemas
+There is NO routes/controllers folder currently; we will create it.
+
+GOAL
+Bring backend to production-grade: modular routes/controllers, strict RBAC, strict company/city scoping (multi-tenant), consistent soft-delete, safer auth/session handling, and reliable API contracts for clinics/drivers/admin.
+
+PHASE 0 — BASELINE SAFETY CHECKS (must pass before refactor)
+1) Ensure server starts and registerRoutes works.
+2) Add a /api/healthz that checks db connectivity (simple select 1) + returns version.
+3) Add structured error handler + request id middleware (x-request-id) and log errors with request id.
+
+PHASE 1 — CREATE CONTROLLER ARCHITECTURE (no behavior change yet)
+Create folders:
+- server/controllers/
+- server/routes/
+- server/middleware/
+Move logic out of server/routes.ts progressively:
+- server/routes/index.ts exports registerRoutes(app)
+- server/controllers/*.controller.ts contain handler functions
+- server/routes/*.routes.ts define Express routers and mount them
+Keep old endpoints working (same paths, same payloads).
+
+Split at minimum into:
+- auth.routes/controller
+- cities.routes/controller
+- users.routes/controller
+- clinics.routes/controller
+- patients.routes/controller
+- drivers.routes/controller
+- vehicles.routes/controller
+- trips.routes/controller
+- invoices.routes/controller
+- ops.routes/controller (ops alerts/help requests)
+- billing.routes/controller (billing cycle endpoints if present)
+
+PHASE 2 — RBAC + TENANT SCOPING (this is critical)
+Problem: Many storage methods query only by cityId/clinicId etc and do NOT consistently filter by companyId. This allows cross-company data leakage if multiple companies exist.
+
+Implement and enforce:
+A) requireRole() stays, but remove/avoid normalizeRole() hacks that map CLINIC_USER to VIEWER. Roles must be explicit and consistent.
+B) Add middleware:
+- requireAuth (already authMiddleware)
+- requireCompanyScope: if user is not SUPER_ADMIN, companyId must exist for COMPANY_ADMIN and must be applied in queries.
+- requireCityAccess: for non SUPER_ADMIN, enforce user_city_access for any city-scoped read/write.
+C) Update storage layer to accept (companyId, cityIds) in relevant methods OR create scoped wrappers:
+Example: getClinics(cityId, companyId) -> WHERE clinics.cityId=... AND (clinics.companyId=companyId OR clinics.companyId IS NULL)
+Do this for: clinics, patients, drivers, vehicles, trips, invoices, tariffs, billing.
+
+Acceptance:
+- A COMPANY_ADMIN cannot fetch clinics/patients/trips from another company.
+- A DISPATCH user can only access allowed cities (user_city_access).
+- SUPER_ADMIN bypass works.
+
+PHASE 3 — SOFT DELETE CONSISTENCY (stop hard deletes in production flows)
+Problem: schema supports deletedAt/deletedBy/deleteReason but delete*() uses db.delete() in storage for many entities.
+Implement consistent soft-delete:
+- storage.softDeleteClinic/Driver/Patient/User/Trip/Vehicle: set deletedAt=now, deletedBy=userId, deleteReason=reason, active=false where relevant
+- Keep existing hard delete only for SUPER_ADMIN maintenance (optional) but default API uses soft delete.
+- Ensure all list queries filter deletedAt IS NULL.
+
+Acceptance:
+- Deleting a clinic marks it deleted (not removed). Archived views show it.
+- Existing foreign keys do not break.
+- Trips for deleted clinic remain but are still readable by authorized roles.
+
+PHASE 4 — AUTH + SESSION HARDENING
+1) JWT_SECRET must be required in prod (already). Ensure no fallback secret is ever used in prod.
+2) Cookies: sameSite none only when HTTPS; keep secure=true in prod.
+3) Implement session revocation write path on password reset/logout:
+- create sessionRevocations record with revokedAfter = now for that user
+- call invalidateRevocationCache(userId)
+4) Add rate limit on login endpoint + audit log entries for login success/failure.
+5) Ensure password hashing uses bcrypt with proper rounds (already 10).
+
+PHASE 5 — DATA CONTRACT FIXES (trips scheduling fields)
+Problem: trips has scheduledDate + scheduledTime + pickupTime + estimatedArrivalTime, with pickupTime and estimatedArrivalTime marked NOT NULL but scheduledTime optional. This creates inconsistent payload requirements and UI bugs (missing pickup/arrival).
+Fix by enforcing:
+- For any trip creation: require pickupTime and estimatedArrivalTime OR compute defaults.
+- Add Zod validation on trip create/update endpoints.
+- Add a migration ONLY if needed (avoid schema breaking); prefer validation + defaults.
+
+Acceptance:
+- Creating trip without pickupTime/estimatedArrivalTime returns 400 with clear error.
+- Clinic UI can rely on these fields always present.
+
+PHASE 6 — AUDIT LOG COVERAGE
+Ensure create/update/delete operations write audit_log:
+- entity, entityId, action, details (JSON string ok), cityId, userId
+Coverage: clinics/patients/drivers/vehicles/trips/invoices/billing settings.
+Add helper: logAudit(action, entity, entityId, details, cityId, userId).
+
+PHASE 7 — TRIP DETAILS FOR CLINICS (API-level, UI will follow)
+Add endpoint: GET /api/clinics/trips/:tripId/details
+Return strictly “informational” payload:
+- patient name, pickup/dropoff address, scheduled date/time, pickupTime, estimatedArrivalTime
+- timestamps: assignedAt, startedAt, arrivedPickupAt, pickedUpAt, arrivedDropoffAt, completedAt
+- driver name + vehicle name + plate + colorHex
+- static map URLs if available
+No internal notes/messages/links.
+
+Acceptance:
+- Clinic user can fetch details only for trips belonging to their clinicId and allowed city/company.
+
+PHASE 8 — TESTS (minimal but real)
+Add basic integration tests or at least scriptable checks:
+- Auth required
+- Role denies
+- Company scoping denies
+- City access denies
+- Soft delete filters
+
+DELIVERABLES
+- New modular route/controller structure
+- Updated storage with scoping
+- Soft delete implemented
+- Hardened auth/session
+- Trip creation validation
+- Clinic trip details endpoint
+- Minimal tests or runnable verification script
+- Keep existing endpoints working
+
+VERIFY BEFORE EXIT
+Provide:
+1) List of files created/moved
+2) Exact commands to run locally in Replit shell to verify
+3) Example curl calls for:
+   - healthz
+   - login
+   - list clinics (scoped)
+   - clinic trip details
+4) Confirm NO DB reset and NO table recreation occurred
