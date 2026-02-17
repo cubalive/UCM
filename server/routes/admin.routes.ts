@@ -51,14 +51,14 @@ import {
 const router = express.Router();
 
 router.get("/api/admin/clinics/city-mismatch", authMiddleware, requireRole("SUPER_ADMIN"), getCityMismatchHandler as any);
-router.patch("/api/admin/clinics/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), archiveClinicHandler as any);
-router.patch("/api/admin/clinics/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), restoreClinicHandler as any);
+router.patch("/api/admin/clinics/:id/archive", authMiddleware, requirePermission("clinics", "write"), archiveClinicHandler as any);
+router.patch("/api/admin/clinics/:id/restore", authMiddleware, requirePermission("clinics", "write"), restoreClinicHandler as any);
 router.delete("/api/admin/clinics/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteClinicHandler as any);
-router.patch("/api/admin/drivers/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), archiveDriverHandler as any);
-router.patch("/api/admin/drivers/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), restoreDriverHandler as any);
+router.patch("/api/admin/drivers/:id/archive", authMiddleware, requirePermission("drivers", "write"), archiveDriverHandler as any);
+router.patch("/api/admin/drivers/:id/restore", authMiddleware, requirePermission("drivers", "write"), restoreDriverHandler as any);
 router.delete("/api/admin/drivers/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteDriverHandler as any);
-router.patch("/api/admin/patients/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), archivePatientHandler as any);
-router.patch("/api/admin/patients/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), restorePatientHandler as any);
+router.patch("/api/admin/patients/:id/archive", authMiddleware, requirePermission("patients", "write"), archivePatientHandler as any);
+router.patch("/api/admin/patients/:id/restore", authMiddleware, requirePermission("patients", "write"), restorePatientHandler as any);
 router.delete("/api/admin/patients/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeletePatientHandler as any);
 router.patch("/api/admin/users/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), archiveUserHandler as any);
 router.patch("/api/admin/users/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), restoreUserHandler as any);
@@ -66,8 +66,8 @@ router.delete("/api/admin/users/:id/permanent", authMiddleware, requireRole("SUP
 router.post("/api/admin/users/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), resetUserPasswordHandler as any);
 router.post("/api/admin/clinics/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), resetClinicPasswordHandler as any);
 router.post("/api/admin/drivers/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), resetDriverPasswordHandler as any);
-router.patch("/api/admin/vehicles/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), archiveVehicleHandler as any);
-router.patch("/api/admin/vehicles/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), restoreVehicleHandler as any);
+router.patch("/api/admin/vehicles/:id/archive", authMiddleware, requirePermission("vehicles", "write"), archiveVehicleHandler as any);
+router.patch("/api/admin/vehicles/:id/restore", authMiddleware, requirePermission("vehicles", "write"), restoreVehicleHandler as any);
 router.delete("/api/admin/vehicles/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteVehicleHandler as any);
 
 router.patch("/api/clinic/patients/:id/archive", authMiddleware, requireRole("CLINIC_USER"), clinicPatientArchiveHandler as any);
@@ -83,8 +83,8 @@ router.get("/api/admin/ops-intel/scores", authMiddleware, requireRole("SUPER_ADM
 router.get("/api/admin/ops-intel/anomalies", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), opsIntelAnomaliesHandler as any);
 router.post("/api/admin/ops-intel/scores/recompute", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), opsIntelRecomputeHandler as any);
 router.get("/api/admin/ops-intel/scores/csv", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), opsIntelScoresCsvHandler as any);
-router.post("/api/trips/pdf/batch", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), batchPdfHandler as any);
-router.get("/api/trips/pdf/batch/:jobId/download", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), batchPdfDownloadHandler as any);
+router.post("/api/trips/pdf/batch", authMiddleware, requirePermission("trips", "read"), batchPdfHandler as any);
+router.get("/api/trips/pdf/batch/:jobId/download", authMiddleware, requirePermission("trips", "read"), batchPdfDownloadHandler as any);
 router.get("/api/app-config", authMiddleware, appConfigHandler as any);
 router.post("/api/realtime/token", authMiddleware, requireRole("CLINIC_USER", "DISPATCH", "ADMIN", "SUPER_ADMIN", "DRIVER", "COMPANY_ADMIN"), realtimeTokenHandler as any);
 router.get("/api/ops/realtime-metrics", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), realtimeMetricsHandler as any);

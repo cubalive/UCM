@@ -28,18 +28,40 @@ import { useToast } from "@/hooks/use-toast";
 import { Building2, Plus, UserPlus, Crosshair, X } from "lucide-react";
 import type { Company } from "@shared/schema";
 
+const TIMEZONES = [
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Phoenix",
+  "America/Anchorage",
+  "Pacific/Honolulu",
+  "America/Indiana/Indianapolis",
+];
+
 function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [cityName, setCityName] = useState("");
+  const [cityState, setCityState] = useState("");
+  const [cityTimezone, setCityTimezone] = useState("America/New_York");
   const { toast } = useToast();
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/companies", { name: name.trim() });
+      await apiRequest("POST", "/api/companies", {
+        name: name.trim(),
+        cityName: cityName.trim(),
+        cityState: cityState.trim(),
+        cityTimezone,
+      });
     },
     onSuccess: () => {
-      toast({ title: "Company created" });
+      toast({ title: "Company created with first city" });
       setName("");
+      setCityName("");
+      setCityState("");
+      setCityTimezone("America/New_York");
       setOpen(false);
       onCreated();
     },
@@ -47,6 +69,8 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
       toast({ title: "Failed to create company", description: err.message, variant: "destructive" });
     },
   });
+
+  const canSubmit = name.trim() && cityName.trim() && cityState.trim();
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -71,9 +95,48 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
               data-testid="input-company-name"
             />
           </div>
+          <div className="border-t pt-4">
+            <p className="text-sm font-medium mb-3">Primary City (required)</p>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="city-name">City Name</Label>
+                <Input
+                  id="city-name"
+                  value={cityName}
+                  onChange={(e) => setCityName(e.target.value)}
+                  placeholder="e.g. San Francisco"
+                  data-testid="input-city-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="city-state">State</Label>
+                <Input
+                  id="city-state"
+                  value={cityState}
+                  onChange={(e) => setCityState(e.target.value)}
+                  placeholder="e.g. CA"
+                  data-testid="input-city-state"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="city-timezone">Timezone</Label>
+                <select
+                  id="city-timezone"
+                  value={cityTimezone}
+                  onChange={(e) => setCityTimezone(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  data-testid="select-city-timezone"
+                >
+                  {TIMEZONES.map(tz => (
+                    <option key={tz} value={tz}>{tz}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
           <Button
             onClick={() => createMutation.mutate()}
-            disabled={!name.trim() || createMutation.isPending}
+            disabled={!canSubmit || createMutation.isPending}
             className="w-full"
             data-testid="button-submit-company"
           >

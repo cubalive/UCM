@@ -32,10 +32,34 @@ export async function getCompaniesHandler(_req: AuthRequest, res: Response) {
 
 export async function createCompanyHandler(req: AuthRequest, res: Response) {
   try {
-    const parsed = insertCompanySchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: "Invalid company data" });
-    const [company] = await db.insert(companies).values(parsed.data).returning();
-    res.json(company);
+    const { name, cityName, cityState, cityTimezone } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ message: "Company name is required" });
+    if (!cityName || !cityName.trim()) return res.status(400).json({ message: "First city name is required" });
+    if (!cityState || !cityState.trim()) return res.status(400).json({ message: "City state is required" });
+
+    const tz = (cityTimezone && cityTimezone.trim()) || "America/New_York";
+    if (!ALLOWED_TIMEZONES.includes(tz)) {
+      return res.status(400).json({ message: `Invalid timezone. Allowed: ${ALLOWED_TIMEZONES.join(", ")}` });
+    }
+
+    const [company] = await db.insert(companies).values({ name: name.trim() }).returning();
+
+    const city = await storage.createCity({
+      name: cityName.trim(),
+      state: cityState.trim(),
+      timezone: tz,
+    });
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "CREATE",
+      entity: "company",
+      entityId: company.id,
+      details: `Created company "${company.name}" with first city "${city.name}"`,
+      cityId: city.id,
+    });
+
+    res.json({ ...company, firstCity: city });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -65,8 +89,13 @@ export async function createCompanyAdminHandler(req: AuthRequest, res: Response)
       companyId,
     } as any);
 
-    if (cityIds && Array.isArray(cityIds)) {
+    if (cityIds && Array.isArray(cityIds) && cityIds.length > 0) {
       await storage.setUserCityAccess(newUser.id, cityIds);
+    } else {
+      const allCities = await storage.getCities();
+      if (allCities.length > 0) {
+        await storage.setUserCityAccess(newUser.id, allCities.map(c => c.id));
+      }
     }
 
     res.json({ id: newUser.id, email: newUser.email, role: newUser.role, companyId: newUser.companyId });

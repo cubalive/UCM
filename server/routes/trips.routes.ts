@@ -46,15 +46,15 @@ router.patch("/api/trips/:id/assign", authMiddleware, requirePermission("dispatc
 router.get("/api/trips/:id/messages", authMiddleware, requirePermission("trips", "read"), requireCompanyScope, getTripMessagesHandler as any);
 router.post("/api/trips/:id/messages", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, createTripMessageHandler as any);
 
-router.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN"), requireCompanyScope, requireCityAccess, getTripsHandler as any);
+router.get("/api/trips", authMiddleware, requirePermission("trips", "read"), requireCompanyScope, requireCityAccess, getTripsHandler as any);
 router.get("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), requireCompanyScope, getTripByIdHandler as any);
-router.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER"), requireCompanyScope, idempotencyMiddleware, createTripHandler as any);
-router.patch("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), requireCompanyScope, updateTripHandler as any);
+router.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER", "SUPER_ADMIN"), requireCompanyScope, idempotencyMiddleware, createTripHandler as any);
+router.patch("/api/trips/:id", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, updateTripHandler as any);
 
-router.patch("/api/trips/:id/status", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER"), requireCompanyScope, updateTripStatusHandler as any);
+router.patch("/api/trips/:id/status", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER", "SUPER_ADMIN", "COMPANY_ADMIN"), requireCompanyScope, updateTripStatusHandler as any);
 
-router.get("/api/trips/:id/dialysis-return-check", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "CLINIC_USER"), requireCompanyScope, dialysisReturnCheckHandler as any);
-router.post("/api/trips/:id/dialysis-return-adjust", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "CLINIC_USER"), requireCompanyScope, dialysisReturnAdjustHandler as any);
+router.get("/api/trips/:id/dialysis-return-check", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), requireCompanyScope, dialysisReturnCheckHandler as any);
+router.post("/api/trips/:id/dialysis-return-adjust", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), requireCompanyScope, dialysisReturnAdjustHandler as any);
 
 router.patch("/api/trips/:id/approve", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, approveTripHandler as any);
 router.patch("/api/trips/:id/cancel-request", authMiddleware, requireRole("VIEWER"), requireCompanyScope, cancelRequestHandler as any);
@@ -72,7 +72,7 @@ router.get("/api/trips/:id/pdf", authMiddleware, requireRole("SUPER_ADMIN", "ADM
 router.get("/api/trips/:id/pdf/download", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "DRIVER"), requireCompanyScope, downloadTripPdfHandler as any);
 
 router.get("/api/trips/:id/invoice", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER"), requireCompanyScope, getTripInvoiceHandler as any);
-router.post("/api/trips/:id/invoice", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireCompanyScope, createTripInvoiceHandler as any);
+router.post("/api/trips/:id/invoice", authMiddleware, requirePermission("invoices", "write"), requireCompanyScope, createTripInvoiceHandler as any);
 
 export function registerTripRoutes(app: Express) {
   app.use(router);

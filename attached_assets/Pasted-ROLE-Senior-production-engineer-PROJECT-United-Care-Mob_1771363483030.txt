@@ -1,0 +1,265 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT delete tables/columns
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement Clinic Invoice Payments v1 using Stripe Connect (destination charges) so every clinic pays the correct COMPANY (tenant) Stripe account from day 1, with strict RBAC scoping, stable UI, and webhook-based finalization. Must NOT require later redesign.
+
+DEFINITION OF DONE:
+- Each COMPANY (tenant) has its own Stripe Connected Account.
+- Clinic users pay invoices ONLY for their clinic+company.
+- Funds route to the connected account for that company (destination charge).
+- Invoice becomes PAID only via webhook (not via client redirect).
+- Paid invoice shows Receipt link and status PAID.
+- Attempted cross-clinic/company access returns 404.
+- Works in Safari iOS (no downloading Unauthorized payloads; and checkout redirect works).
+
+------------------------------------------------------------
+PHASE 0 — CONFIRM CURRENT STACK (DO FIRST)
+------------------------------------------------------------
+1) Identify backend framework (Express/Fastify/etc) and where current auth middleware is.
+2) Identify existing invoice table or feature (screens show /invoices page exists).
+3) Identify current Stripe usage (keys present? webhook endpoint exists?).
+
+Output (in agent notes):
+- Auth method (Supabase JWT vs internal JWT)
+- Where getActorContext lives or implement it.
+
+------------------------------------------------------------
+PHASE 1 — DATABASE EXTENSIONS (NON-DESTRUCTIVE)
+------------------------------------------------------------
+A) Ensure invoices table has (add missing columns only; no data resets):
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null
+- clinic_id uuid not null
+- city_id uuid not null
+- period_start date null
+- period_end date null
+- status text not null default 'UNPAID'   -- UNPAID|PAID|VOID
+- amount_cents int not null
+- currency text not null default 'USD'
+- stripe_checkout_session_id text null
+- stripe_payment_intent_id text null
+- stripe_charge_id text null
+- receipt_url text null
+- paid_at timestamptz null
+- created_at timestamptz default now()
+
+Add indexes:
+- (company_id, clinic_id, created_at desc)
+- (stripe_checkout_session_id)
+- (stripe_payment_intent_id)
+
+B) Add table: company_stripe_accounts  (MANDATORY for Connect)
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null unique
+- stripe_account_id text not null
+- charges_enabled boolean not null default false
+- payouts_enabled boolean not null default false
+- details_submitted boolean not null default false
+- onboarding_status text not null default 'PENDING' -- PENDING|ACTIVE|RESTRICTED
+- created_at timestamptz default now()
+- updated_at timestamptz default now()
+
+C) Add table: stripe_webhook_events  (MANDATORY idempotency)
+- id uuid pk default gen_random_uuid()
+- stripe_event_id text not null unique
+- type text not null
+- created_at timestamptz default now()
+- processed_at timestamptz null
+- status text not null default 'RECEIVED' -- RECEIVED|PROCESSED|IGNORED|FAILED
+- error text null
+
+------------------------------------------------------------
+PHASE 2 — AUTH + SCOPING (HARD REQUIREMENT)
+------------------------------------------------------------
+Implement/ensure helpers server-side:
+1) requireRole(...roles)
+2) getActorContext(req) => { userId, role, companyId, clinicId, cityId }
+
+Rules:
+- CLINIC_USER: MUST have companyId + clinicId
+- DISPATCH: scoped by city (not needed here)
+- SUPER_ADMIN: unrestricted
+
+For ALL clinic invoice endpoints:
+- Force invoice.company_id == actor.companyId AND invoice.clinic_id == actor.clinicId
+- If mismatch → return 404 (not 403)
+- Ignore any client-supplied company_id/clinic_id
+
+------------------------------------------------------------
+PHASE 3 — STRIPE CONNECT (NO FUTURE REWORK)
+------------------------------------------------------------
+We will use Stripe Connect with destination charges:
+- Platform creates Checkout Session
+- Payment intent routes funds to connected account via transfer_data.destination
+- Platform can optionally take fee via application_fee_amount (set to 0 for now but keep plumbing)
+
+Secrets required:
+- STRIPE_SECRET_KEY (platform)
+- STRIPE_WEBHOOK_SECRET
+- APP_URL (https://app.unitedcaremobility.com)
+
+A) Connected account onboarding (SUPER_ADMIN only)
+Endpoints:
+
+1) POST /api/admin/companies/:companyId/stripe/connect/create
+Auth: SUPER_ADMIN
+- Creates Stripe connected account (type: 'express')
+- Stores stripe_account_id in company_stripe_accounts
+- Returns accountId
+
+2) POST /api/admin/companies/:companyId/stripe/connect/onboarding-link
+Auth: SUPER_ADMIN
+- Creates account link for onboarding
+- refresh_url: `${APP_URL}/admin/companies/${companyId}?stripe=refresh`
+- return_url: `${APP_URL}/admin/companies/${companyId}?stripe=return`
+- Returns { url }
+
+3) GET /api/admin/companies/:companyId/stripe/connect/status
+Auth: SUPER_ADMIN
+- Fetch account from Stripe, update charges_enabled, payouts_enabled, details_submitted
+- Set onboarding_status:
+  ACTIVE if charges_enabled && payouts_enabled
+  RESTRICTED otherwise
+- Return status
+
+UI:
+- In company admin screen, show Stripe status and "Complete onboarding" button.
+
+B) Clinic invoice payment (CLINIC_USER)
+Endpoints:
+
+1) GET /api/clinic/invoices
+Auth: CLINIC_USER
+Return invoices for actor.companyId + actor.clinicId
+
+2) GET /api/clinic/invoices/:id
+Auth: CLINIC_USER
+Return detail if scoped else 404
+
+3) POST /api/clinic/invoices/:id/pay
+Auth: CLINIC_USER
+Behavior:
+- Fetch invoice by id AND scope to actor.companyId+clinicId (404 if not found)
+- If status == PAID -> return { alreadyPaid: true, receipt_url, paid_at }
+- Fetch company_stripe_accounts by actor.companyId
+  - If missing or onboarding_status != ACTIVE:
+    return 409 with message "Company billing not enabled yet"
+- Create Stripe Checkout Session:
+  - mode: "payment"
+  - customer_email: clinic user email if available
+  - line_items: [{ price_data: { currency, product_data:{name}, unit_amount }, quantity:1 }]
+  - metadata: { invoice_id, company_id, clinic_id }
+  - success_url: `${APP_URL}/invoices?paid=1&invoice=${invoice.id}`
+  - cancel_url: `${APP_URL}/invoices?canceled=1&invoice=${invoice.id}`
+  - payment_intent_data:
+      - transfer_data.destination = stripe_account_id (CONNECTED ACCOUNT)
+      - application_fee_amount = 0  (keep field so later you can charge fee without redesign)
+      - metadata: same metadata
+- Save stripe_checkout_session_id on invoice
+- Return { url: session.url }
+
+IMPORTANT:
+- Do NOT mark invoice paid here.
+- Only webhook marks paid.
+
+C) Stripe webhook (public endpoint, signature required)
+Endpoint:
+POST /api/stripe/webhook
+
+Rules:
+- Verify signature with STRIPE_WEBHOOK_SECRET
+- Persist stripe_event_id in stripe_webhook_events (unique) BEFORE processing
+- If event already exists -> return 200 (idempotent)
+Handle events:
+1) checkout.session.completed
+- Extract session.metadata.invoice_id
+- Load invoice by id
+- Verify invoice.company_id == session.metadata.company_id and clinic_id matches
+- Fetch PaymentIntent and Charge to retrieve receipt_url if available
+- Update invoice if not already PAID:
+  - status = PAID
+  - paid_at = now()
+  - stripe_payment_intent_id = payment_intent
+  - stripe_charge_id = latest_charge
+  - receipt_url = charge.receipt_url or null
+- Mark webhook event PROCESSED
+
+Also optionally handle:
+2) charge.succeeded / payment_intent.succeeded
+- Only update if invoice found and not paid (same logic)
+
+Failure handling:
+- If mismatch -> mark event IGNORED and 200 (do not leak, do not retry forever)
+- If exception -> mark FAILED, return 500 so Stripe retries
+
+------------------------------------------------------------
+PHASE 4 — FRONTEND (CLINIC)
+------------------------------------------------------------
+Update clinic invoices UI:
+- Show columns: Date/Period, Amount, Status
+- If UNPAID -> show "Pay" button
+  - Click -> call POST /api/clinic/invoices/:id/pay
+  - If 409 -> show alert "Billing not enabled for this company"
+  - Else redirect browser to returned url
+
+- If PAID:
+  - Show "Paid" badge
+  - If receipt_url present -> show "Receipt" link opening new tab
+  - Keep existing Download column but do not download from unauth endpoints
+
+------------------------------------------------------------
+PHASE 5 — SAFARI / AUTH DOWNLOAD SAFETY (GUARD)
+------------------------------------------------------------
+Do NOT allow Safari to save Unauthorized/404 payloads as files.
+
+For any download button in clinic/admin:
+- Use authenticated fetch with Authorization header
+- Validate response.ok AND Content-Type matches expected (application/pdf, text/csv, application/json)
+- If not ok -> show toast with error and DO NOT create blob/download
+- Use blob + objectURL + <a download> click
+Server must send:
+- Content-Disposition: attachment; filename="..."
+- Cache-Control: no-store
+
+(Implement only if download buttons are present on invoices page; do not expand scope beyond that.)
+
+------------------------------------------------------------
+PHASE 6 — VERIFICATION (MUST SHOW RESULTS)
+------------------------------------------------------------
+1) SUPER_ADMIN:
+- Create connected account for a company
+- Generate onboarding link
+- Complete onboarding in Stripe test mode
+- Status returns ACTIVE
+
+2) CLINIC_USER:
+- Open invoices list for their clinic
+- Click Pay on UNPAID invoice
+- Complete Stripe test payment
+- Confirm webhook received and invoice updated to PAID
+- Refresh invoices page -> shows PAID + receipt link
+
+3) Security tests:
+- Clinic A tries to pay invoice of Clinic B -> returns 404
+- Company A user tries Company B invoice id -> 404
+- If company has no ACTIVE Stripe -> pay endpoint returns 409
+
+4) Commands:
+- npm run build (pass)
+- npm run check or npx tsc --noEmit (pass if present)
+- run server, hit /api/healthz ok
+
+DELIVERABLES:
+- List changed files
+- Proof logs: webhook processed, invoice status updated
+- Confirm verification steps 1–4
+STOP after completion.
