@@ -32,3 +32,10 @@ export function migrateLegacyTokenIfNeeded(): void {
 export function getCredentials(): RequestCredentials {
   return isDriverHost ? "omit" : "include";
 }
+
+const OPS_ALLOWED_ROLES = ["SUPER_ADMIN", "ADMIN", "DISPATCH"];
+export function isOpsAllowed(userRole: string | undefined | null): boolean {
+  if (isDriverHost) return false;
+  if (!userRole) return false;
+  return OPS_ALLOWED_ROLES.includes(userRole.toUpperCase());
+}

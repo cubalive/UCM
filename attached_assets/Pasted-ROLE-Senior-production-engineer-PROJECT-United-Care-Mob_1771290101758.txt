@@ -1,0 +1,50 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+TASK (PHASE 2 — SECURITY HARDENING OPS):
+We already confirmed DRIVER must get 403 on all /api/ops/* endpoints and Admin/SUPER_ADMIN gets 200.
+However, we still see occasional Unauthorized/404 downloads when opening JSON endpoints from mobile Safari and we previously had a React crash (#310) and redirect loops.
+
+Implement a complete defense-in-depth so DRIVER can never access ops:
+A) BACKEND (authoritative):
+1) Add/verify middleware that enforces role check server-side for ALL /api/ops/* routes:
+   - allow: SUPER_ADMIN, DISPATCH, ADMIN (whatever roles exist in codebase)
+   - deny: DRIVER, CLINIC_USER, unauthenticated (401)
+   - return JSON { message:"Forbidden", code:"FORBIDDEN" } for 403
+2) Ensure there is NO route overlap: /api/driver/* must not call ops internals.
+3) Add unit/integration tests (or minimal route smoke tests) verifying:
+   - Driver token -> /api/ops/health 403
+   - Driver token -> /api/ops/metrics 403
+   - No token -> /api/ops/health 401
+   - Admin token -> all ops endpoints 200
+
+B) FRONTEND (prevent accidental calls):
+1) Find every place that calls /api/ops/* (React Query, apiFetch/apiRequest, hooks/components like RealtimeDebugPanel, ClinicHealthBanner, ops metrics pages).
+2) Add a single gating function: isOpsAllowed(userRole, host) that returns true only for Admin/SuperAdmin/Dispatch AND when NOT isDriverHost.
+3) Ensure driver build never even mounts components that call ops:
+   - guard in router AND in components (double-check).
+4) Add safe behavior if someone hits an ops UI route on driver host:
+   - route to /unauthorized (no crash), do not start any ops queries.
+
+C) STABILITY:
+1) Add a global fetch wrapper guard: if request URL startsWith "/api/ops/" and role/host not allowed => throw a controlled error and DO NOT redirect-loop.
+2) Ensure no minified React error (#310) can happen due to conditional hooks. Fix any pattern like calling hooks conditionally; move hooks to top-level and gate with enabled flags.
+
+DELIVERABLES:
+- List files changed
+- Explain the exact cause of the React #310 risk you found (conditional hook, etc.) and how you fixed it
+- Show the gating function and where it’s applied
+- Provide a small test checklist and confirm results
+
+VERIFY BEFORE EXIT:
+- Driver portal loads, can login, can fetch /api/auth/me and driver endpoints
+- Driver cannot access ANY /api/ops/* (403)
+- Admin/SuperAdmin can access ops (200)
+- No redirect loops; no React crash

@@ -2,7 +2,7 @@ import type { Express } from "express";
 import PDFDocument from "pdfkit";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { authMiddleware, requireRole, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, invalidateRevocationCache, setAuthCookie, clearAuthCookie, type AuthRequest } from "./auth";
+import { authMiddleware, requireRole, opsRouteGuard, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, invalidateRevocationCache, setAuthCookie, clearAuthCookie, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
 import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, tripBilling } from "@shared/schema";
 import { registerPushToken, unregisterPushToken, sendPushToDriver, isPushEnabled } from "./lib/push";
@@ -126,6 +126,7 @@ export async function registerRoutes(
   registerTrackingRoutes(app);
   registerTripSeriesRoutes(app);
   registerReportRoutes(app);
+  app.use("/api/ops", authMiddleware, opsRouteGuard);
   registerOpsRoutes(app);
   registerAutomationRoutes(app);
   registerScheduleRoutes(app);

@@ -66,10 +66,10 @@ export async function apiRequest(
   data?: unknown | undefined,
 ): Promise<Response> {
   if (isBlockedOpsCall(url)) {
-    return new Response(JSON.stringify({ ok: false, blocked: true, reason: "ops_blocked_on_driver_host" }), {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    });
+    const error: any = new Error("Ops endpoints are not available on this host");
+    error.code = "OPS_BLOCKED";
+    error.data = { blocked: true, reason: "ops_blocked_on_driver_host" };
+    throw error;
   }
 
   const headers: Record<string, string> = {

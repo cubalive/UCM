@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { isDriverHost } from "@/lib/hostDetection";
+import { isDriverHost, isOpsAllowed } from "@/lib/hostDetection";
 import type { RealtimeDebugInfo } from "@/hooks/use-trip-realtime";
 
 interface RealtimeDebugPanelProps {
@@ -30,7 +30,7 @@ export function RealtimeDebugPanel({
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [, forceUpdate] = useState(0);
 
-  const isOpsAllowed = !isDriverHost && !!user && ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role);
+  const opsAllowed = isOpsAllowed(user?.role);
 
   const directionsQuery = useQuery<any>({
     queryKey: ["/api/ops/directions-metrics"],
@@ -43,8 +43,8 @@ export function RealtimeDebugPanel({
         return null;
       }
     },
-    enabled: DEBUG_ENABLED && isOpsAllowed && !!token && !!tripId,
-    refetchInterval: DEBUG_ENABLED && isOpsAllowed ? 10000 : false,
+    enabled: DEBUG_ENABLED && opsAllowed && !!token && !!tripId,
+    refetchInterval: DEBUG_ENABLED && opsAllowed ? 10000 : false,
   });
 
   useEffect(() => {
@@ -169,7 +169,7 @@ export function RealtimeDebugPanel({
           <span>Polling fallback: {pollingLabel}</span>
         </div>
 
-        {isOpsAllowed && (
+        {opsAllowed && (
           <div className="border-t border-white/20 pt-1.5 mt-1.5">
             <div className="opacity-80">
               Directions (60s): {directionsLast60s}

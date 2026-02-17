@@ -67,7 +67,10 @@ export async function apiFetch(
   options?: RequestInit
 ) {
   if (isDriverHost && (url.startsWith("/api/ops") || url.startsWith("/api/admin/metrics"))) {
-    return { ok: false, blocked: true, reason: "ops_blocked_on_driver_host" };
+    const error: any = new Error("Ops endpoints are not available on this host");
+    error.code = "OPS_BLOCKED";
+    error.data = { blocked: true, reason: "ops_blocked_on_driver_host" };
+    throw error;
   }
 
   const extraHeaders = (options?.headers as Record<string, string>) || {};

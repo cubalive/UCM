@@ -140,16 +140,27 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
 export function requireRole(...roles: string[]) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED" });
     }
     if (req.user.role === "SUPER_ADMIN") {
       return next();
     }
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ message: "Forbidden" });
+      return res.status(403).json({ message: "Forbidden", code: "FORBIDDEN" });
     }
     next();
   };
+}
+
+const OPS_DENIED_ROLES = ["DRIVER", "CLINIC_USER"];
+export function opsRouteGuard(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED" });
+  }
+  if (OPS_DENIED_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden", code: "FORBIDDEN" });
+  }
+  next();
 }
 
 export function getCompanyIdFromAuth(req: AuthRequest): number | null {
