@@ -7642,14 +7642,14 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       const invoice = await storage.getInvoice(invoiceId);
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-      if (req.user!.role === "CLINIC_USER") {
+      if (req.user!.role === "CLINIC_USER" || req.user!.role === "VIEWER") {
         const user = await storage.getUser(req.user!.userId);
         if (!user?.clinicId || user.clinicId !== invoice.clinicId) {
           return res.status(403).json({ message: "Access denied" });
         }
-      } else if (req.user!.companyId && invoice.tripId) {
-        const trip = await storage.getTrip(invoice.tripId);
-        if (trip && trip.companyId && req.user!.companyId !== trip.companyId) {
+      } else if (req.user!.companyId) {
+        const clinicForOwnership = await storage.getClinic(invoice.clinicId);
+        if (clinicForOwnership && clinicForOwnership.companyId && req.user!.companyId !== clinicForOwnership.companyId) {
           return res.status(403).json({ message: "Access denied" });
         }
       }
@@ -7666,42 +7666,112 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       res.setHeader("Content-Disposition", `attachment; filename="invoice-${invoice.id}.pdf"`);
       res.setHeader("Cache-Control", "no-store");
 
-      const doc = new PDFDocument({ margin: 50, size: "LETTER" });
+      const doc = new PDFDocument({ margin: 50, size: "LETTER", bufferPages: true });
       doc.pipe(res);
 
-      doc.fontSize(20).text("INVOICE", { align: "center" });
+      doc.fontSize(18).font("Helvetica-Bold").text("United Care Mobility", 50, 50);
+      doc.fontSize(10).font("Helvetica").text("Medical Transportation Services", 50, 72);
       doc.moveDown(0.5);
-      doc.fontSize(10).fillColor("#666").text("United Care Mobility", { align: "center" });
-      doc.moveDown(1);
+      doc.fontSize(22).font("Helvetica-Bold").text("INVOICE", 400, 50, { align: "right" });
 
-      doc.fillColor("#000").fontSize(11);
-      doc.text(`Invoice #: ${invoice.id}`);
-      doc.text(`Clinic: ${clinicName}`);
-      doc.text(`Patient: ${invoice.patientName}`);
-      doc.text(`Service Date: ${invoice.serviceDate}`);
-      doc.text(`Status: ${invoice.status.toUpperCase()}`);
-      doc.text(`Generated: ${new Date(invoice.createdAt).toLocaleDateString()}`);
+      let y = 110;
+      doc.moveTo(50, y).lineTo(562, y).strokeColor("#e0e0e0").stroke();
+      y += 15;
+
+      doc.fontSize(10).font("Helvetica-Bold");
+      doc.text("Invoice #:", 50, y);
+      doc.font("Helvetica").text(String(invoice.id), 160, y);
+      doc.font("Helvetica-Bold").text("Date:", 350, y);
+      doc.font("Helvetica").text(new Date(invoice.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), 440, y);
+      y += 18;
+
+      doc.font("Helvetica-Bold").text("Clinic:", 50, y);
+      doc.font("Helvetica").text(clinicName, 160, y);
+      y += 18;
+
+      doc.font("Helvetica-Bold").text("Patient:", 50, y);
+      doc.font("Helvetica").text(invoice.patientName || "N/A", 160, y);
+      y += 18;
+
+      doc.font("Helvetica-Bold").text("Service Date:", 50, y);
+      doc.font("Helvetica").text(invoice.serviceDate || "N/A", 160, y);
+      y += 18;
+
+      doc.font("Helvetica-Bold").text("Status:", 50, y);
+      const safeStatus = (invoice.status || "pending").toUpperCase();
+      const statusColor = safeStatus === "PAID" ? "#16a34a" : safeStatus === "OVERDUE" ? "#dc2626" : "#ca8a04";
+      doc.font("Helvetica-Bold").fillColor(statusColor).text(safeStatus, 160, y);
+      doc.fillColor("#000000");
+      y += 18;
+
       if (invoice.notes) {
-        doc.text(`Notes: ${invoice.notes}`);
+        doc.font("Helvetica-Bold").text("Notes:", 50, y);
+        doc.font("Helvetica").text(String(invoice.notes).substring(0, 200), 160, y, { width: 400 });
+        y += 18;
       }
-      doc.moveDown(1);
+      y += 10;
 
       if (tripData) {
-        doc.fontSize(13).text("Trip Details", { underline: true });
-        doc.moveDown(0.5);
-        doc.fontSize(10).fillColor("#000");
-        doc.text(`Trip ID: ${tripData.publicId || tripData.id}`);
-        doc.text(`Scheduled Date: ${tripData.scheduledDate || "N/A"}`);
-        doc.text(`Pickup: ${tripData.pickupAddress || "N/A"}`);
-        doc.text(`Dropoff: ${tripData.dropoffAddress || "N/A"}`);
-        doc.text(`Pickup Time: ${tripData.pickupTime || "N/A"}`);
-        doc.text(`Status: ${tripData.status}`);
-        doc.moveDown(1);
+        doc.moveTo(50, y).lineTo(562, y).strokeColor("#e0e0e0").stroke();
+        y += 15;
+        doc.fontSize(12).font("Helvetica-Bold").text("Trip Details", 50, y);
+        y += 20;
+
+        const tripFields: [string, string][] = [
+          ["Trip ID", tripData.publicId || String(tripData.id)],
+          ["Scheduled Date", tripData.scheduledDate || "N/A"],
+          ["Pickup Time", tripData.pickupTime || "N/A"],
+          ["Pickup Address", tripData.pickupAddress || "N/A"],
+          ["Dropoff Address", tripData.dropoffAddress || "N/A"],
+          ["Trip Status", tripData.status || "N/A"],
+        ];
+        if (tripData.arrivalAtPickup) tripFields.push(["Arrival at Pickup", tripData.arrivalAtPickup]);
+        if (tripData.departPickup) tripFields.push(["Depart Pickup", tripData.departPickup]);
+        if (tripData.arrivalAtDropoff) tripFields.push(["Arrival at Dropoff", tripData.arrivalAtDropoff]);
+
+        let driverLabel = "N/A";
+        let vehicleLabel = "N/A";
+        if (tripData.driverId) {
+          try {
+            const driver = await storage.getDriver(tripData.driverId);
+            if (driver) driverLabel = `${driver.firstName} ${driver.lastName}`;
+          } catch {}
+        }
+        if (tripData.vehicleId) {
+          try {
+            const allVehicles = tripData.cityId ? await storage.getVehicles(tripData.cityId) : [];
+            const vehicle = allVehicles.find((v: any) => v.id === tripData.vehicleId);
+            if (vehicle) vehicleLabel = `${vehicle.name}${vehicle.colorHex ? ` (${vehicle.colorHex})` : ""}`;
+          } catch {}
+        }
+        tripFields.push(["Driver", driverLabel]);
+        tripFields.push(["Vehicle", vehicleLabel]);
+
+        doc.fontSize(10).font("Helvetica");
+        for (const [label, value] of tripFields) {
+          if (y > 700) { doc.addPage(); y = 50; }
+          doc.font("Helvetica-Bold").text(`${label}:`, 50, y, { continued: false });
+          doc.font("Helvetica").text(String(value || "N/A").substring(0, 80), 200, y, { width: 360 });
+          y += 16;
+        }
+        y += 10;
       }
 
-      doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ccc");
-      doc.moveDown(0.5);
-      doc.fontSize(14).fillColor("#000").text(`Total Amount: $${parseFloat(invoice.amount).toFixed(2)}`);
+      doc.moveTo(50, y).lineTo(562, y).strokeColor("#e0e0e0").stroke();
+      y += 15;
+
+      const safeAmount = typeof invoice.amount === "string" ? parseFloat(invoice.amount) : (invoice.amount || 0);
+      doc.fontSize(14).font("Helvetica-Bold").fillColor("#000").text(`Total Amount: $${safeAmount.toFixed(2)}`, 50, y);
+      y += 30;
+
+      if (y > 700) { doc.addPage(); y = 50; }
+      doc.moveTo(50, y).lineTo(562, y).strokeColor("#e0e0e0").stroke();
+      y += 15;
+      doc.font("Helvetica").fontSize(8).fillColor("#999999");
+      doc.text("United Care Mobility | billing@unitedcaremobility.com", 50, y, { align: "center", width: 512 });
+      y += 12;
+      doc.text("Thank you for choosing our medical transportation services.", 50, y, { align: "center", width: 512 });
+      doc.fillColor("#000000");
 
       doc.end();
     } catch (err: any) {
@@ -7717,9 +7787,9 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       const invoice = await storage.getInvoice(invoiceId);
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-      if (req.user!.companyId && invoice.tripId) {
-        const trip = await storage.getTrip(invoice.tripId);
-        if (trip && trip.companyId && req.user!.companyId !== trip.companyId) {
+      if (req.user!.companyId) {
+        const clinicForOwnership = await storage.getClinic(invoice.clinicId);
+        if (clinicForOwnership && clinicForOwnership.companyId && req.user!.companyId !== clinicForOwnership.companyId) {
           return res.status(403).json({ message: "Access denied" });
         }
       }
@@ -7731,6 +7801,7 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
             const patient = await storage.getPatient(trip.patientId);
             if (patient?.email) {
               await db.update(invoices).set({ emailTo: patient.email }).where(eq(invoices.id, invoiceId));
+              (invoice as any).emailTo = patient.email;
             } else {
               return res.status(400).json({ message: "Patient has no email address. Please add an email to the patient record first." });
             }
@@ -7752,8 +7823,8 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       await storage.createAuditLog({
         userId: req.user!.userId,
         action: "SEND_INVOICE_EMAIL",
-        entityType: "invoice",
-        entityId: String(invoiceId),
+        entity: "invoice",
+        entityId: invoiceId,
         details: `Invoice email sent to ${invoice.emailTo}`,
         ipAddress: req.ip || null,
       });
@@ -7798,6 +7869,19 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       if (isNaN(clinicId) || !startDate || !endDate) {
         return res.status(400).json({ message: "clinic_id, start_date, and end_date are required" });
       }
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+        return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD" });
+      }
+      if (startDate > endDate) {
+        return res.status(400).json({ message: "start_date must be <= end_date" });
+      }
+      if (req.user!.companyId) {
+        const clinicForOwnership = await storage.getClinic(clinicId);
+        if (clinicForOwnership && clinicForOwnership.companyId && req.user!.companyId !== clinicForOwnership.companyId) {
+          return res.status(403).json({ message: "Access denied: clinic belongs to another company" });
+        }
+      }
       const companyId = req.user!.companyId || null;
       const uninvoicedTrips = await storage.getUninvoicedCompletedTrips(clinicId, startDate, endDate, companyId);
       const patients = new Map<number, any>();
@@ -7826,6 +7910,21 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       const parsedAmount = parseFloat(amount);
       if (isNaN(parsedAmount) || parsedAmount < 0) {
         return res.status(400).json({ message: "Invalid amount" });
+      }
+
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+        return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD" });
+      }
+      if (startDate > endDate) {
+        return res.status(400).json({ message: "startDate must be <= endDate" });
+      }
+
+      if (req.user!.companyId) {
+        const clinicForOwnership = await storage.getClinic(parseInt(clinicId));
+        if (clinicForOwnership && clinicForOwnership.companyId && req.user!.companyId !== clinicForOwnership.companyId) {
+          return res.status(403).json({ message: "Access denied: clinic belongs to another company" });
+        }
       }
 
       const companyId = req.user!.companyId || null;
@@ -7937,59 +8036,79 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       res.setHeader("Content-Disposition", `attachment; filename="invoice-${invoice.id}-weekly.pdf"`);
       res.setHeader("Cache-Control", "no-store");
 
-      const doc = new PDFDocument({ margin: 50, size: "LETTER" });
+      const doc = new PDFDocument({ margin: 40, size: "LETTER", layout: "landscape", bufferPages: true });
       doc.pipe(res);
 
-      doc.fontSize(20).text("INVOICE", { align: "center" });
-      doc.moveDown(0.5);
-      doc.fontSize(10).fillColor("#666").text("United Care Mobility", { align: "center" });
-      doc.moveDown(1);
+      doc.fontSize(18).font("Helvetica-Bold").text("United Care Mobility", 40, 40);
+      doc.fontSize(10).font("Helvetica").text("Medical Transportation Services", 40, 62);
+      doc.fontSize(20).font("Helvetica-Bold").text("WEEKLY INVOICE", 550, 40, { align: "right", width: 200 });
 
-      doc.fillColor("#000").fontSize(11);
-      doc.text(`Invoice #: ${invoice.id}`);
-      doc.text(`Clinic: ${clinicName}`);
-      doc.text(`Period: ${invoice.serviceDate}`);
-      doc.text(`Status: ${invoice.status.toUpperCase()}`);
-      doc.text(`Generated: ${new Date(invoice.createdAt).toLocaleDateString()}`);
-      doc.moveDown(1);
+      let y = 90;
+      doc.fontSize(10).font("Helvetica-Bold").fillColor("#000");
+      doc.text(`Invoice #: ${invoice.id}`, 40, y);
+      doc.text(`Clinic: ${clinicName}`, 250, y);
+      y += 16;
+      doc.text(`Period: ${invoice.serviceDate || "N/A"}`, 40, y);
+      const safeStatus = (invoice.status || "pending").toUpperCase();
+      doc.text(`Status: ${safeStatus}`, 250, y);
+      doc.text(`Generated: ${new Date(invoice.createdAt).toLocaleDateString()}`, 450, y);
+      y += 25;
 
-      doc.fontSize(13).text("Trip Details", { underline: true });
-      doc.moveDown(0.5);
+      const colW = { num: 30, date: 75, patient: 110, pickup: 155, dropoff: 155, time: 55, status: 70 };
+      const colX = { num: 40, date: 70, patient: 145, pickup: 255, dropoff: 410, time: 565, status: 620 };
 
-      const tableTop = doc.y;
-      const col = { num: 50, date: 80, patient: 180, pickup: 330 };
-      doc.fontSize(9).fillColor("#444");
-      doc.text("#", col.num, tableTop);
-      doc.text("Date", col.date, tableTop);
-      doc.text("Patient", col.patient, tableTop);
-      doc.text("Pickup Address", col.pickup, tableTop);
-      doc.moveTo(50, tableTop + 14).lineTo(560, tableTop + 14).stroke("#ccc");
+      function renderTableHeader(doc: any, yPos: number): number {
+        doc.fontSize(8).font("Helvetica-Bold").fillColor("#444");
+        doc.text("#", colX.num, yPos, { width: colW.num });
+        doc.text("Date", colX.date, yPos, { width: colW.date });
+        doc.text("Patient", colX.patient, yPos, { width: colW.patient });
+        doc.text("Pickup Address", colX.pickup, yPos, { width: colW.pickup });
+        doc.text("Dropoff Address", colX.dropoff, yPos, { width: colW.dropoff });
+        doc.text("Time", colX.time, yPos, { width: colW.time });
+        doc.text("Status", colX.status, yPos, { width: colW.status });
+        doc.moveTo(40, yPos + 12).lineTo(750, yPos + 12).strokeColor("#ccc").stroke();
+        return yPos + 18;
+      }
 
-      let y = tableTop + 20;
-      doc.fillColor("#000").fontSize(9);
+      y = renderTableHeader(doc, y);
+      doc.fillColor("#000").fontSize(8).font("Helvetica");
+
       linkedTrips.forEach((t: any, i: number) => {
-        if (y > 700) {
+        if (y > 540) {
           doc.addPage();
-          y = 50;
+          y = 40;
+          y = renderTableHeader(doc, y);
+          doc.fillColor("#000").fontSize(8).font("Helvetica");
         }
         const p = patients.get(t.patientId);
         const patientName = p ? `${p.firstName} ${p.lastName}` : "Unknown";
-        const pickup = (t.pickupAddress || "").substring(0, 40);
-        doc.text(String(i + 1), col.num, y, { width: 25 });
-        doc.text(t.scheduledDate || "", col.date, y, { width: 95 });
-        doc.text(patientName, col.patient, y, { width: 145 });
-        doc.text(pickup, col.pickup, y, { width: 230 });
-        y += 16;
+        const pickup = (t.pickupAddress || "N/A").substring(0, 35);
+        const dropoff = (t.dropoffAddress || "N/A").substring(0, 35);
+        const time = t.pickupTime || "N/A";
+        const status = t.status || "N/A";
+
+        doc.text(String(i + 1), colX.num, y, { width: colW.num });
+        doc.text(t.scheduledDate || "", colX.date, y, { width: colW.date });
+        doc.text(patientName.substring(0, 25), colX.patient, y, { width: colW.patient });
+        doc.text(pickup, colX.pickup, y, { width: colW.pickup });
+        doc.text(dropoff, colX.dropoff, y, { width: colW.dropoff });
+        doc.text(time, colX.time, y, { width: colW.time });
+        doc.text(status, colX.status, y, { width: colW.status });
+        y += 14;
       });
 
       y += 10;
-      if (y > 700) { doc.addPage(); y = 50; }
-      doc.moveTo(50, y).lineTo(560, y).stroke("#ccc");
-      y += 8;
-      doc.fontSize(11).fillColor("#000");
-      doc.text(`Total Trips: ${linkedTrips.length}`, 50, y);
-      y += 16;
-      doc.fontSize(13).text(`Total Amount: $${parseFloat(invoice.amount).toFixed(2)}`, 50, y);
+      if (y > 540) { doc.addPage(); y = 40; }
+      doc.moveTo(40, y).lineTo(750, y).strokeColor("#ccc").stroke();
+      y += 10;
+      doc.fontSize(11).font("Helvetica-Bold").fillColor("#000");
+      doc.text(`Total Trips: ${linkedTrips.length}`, 40, y);
+      const safeAmount = typeof invoice.amount === "string" ? parseFloat(invoice.amount) : (invoice.amount || 0);
+      doc.text(`Total Amount: $${safeAmount.toFixed(2)}`, 300, y);
+      y += 25;
+
+      doc.font("Helvetica").fontSize(8).fillColor("#999");
+      doc.text("United Care Mobility | billing@unitedcaremobility.com", 40, y, { align: "center", width: 710 });
 
       doc.end();
     } catch (err: any) {
@@ -8034,11 +8153,19 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
           }
         }
 
-        const locations = activeDrivers
+        const locations = await Promise.all(activeDrivers
           .filter((d: any) => d.lastLat != null && d.lastLng != null)
-          .map((d: any) => {
+          .map(async (d: any) => {
             const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
             const activeTrip = driverTripMap.get(d.id);
+            let patientLabel: string | null = null;
+            if (activeTrip?.patientId) {
+              try {
+                const patient = await storage.getPatient(activeTrip.patientId);
+                if (patient) patientLabel = `${patient.firstName} ${patient.lastName}`;
+              } catch {}
+              if (!patientLabel) patientLabel = `#${activeTrip.patientId}`;
+            }
             return {
               driver_id: d.id,
               driver_name: `${d.firstName} ${d.lastName}`,
@@ -8055,9 +8182,9 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
               vehicle_model: vehicle?.model ?? null,
               active_trip_status: activeTrip?.status ?? null,
               active_trip_id: activeTrip?.publicId ?? null,
-              active_trip_patient: activeTrip?.patientId ? `#${activeTrip.patientId}` : null,
+              active_trip_patient: patientLabel,
             };
-          });
+          }));
 
         return res.json(locations);
       }
@@ -8151,8 +8278,14 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
             publicId: trip.publicId,
             status: trip.status,
             pickupAddress: trip.pickupAddress,
+            dropoffAddress: trip.dropoffAddress,
             pickupTime: trip.pickupTime,
             scheduledDate: trip.scheduledDate,
+            etaMinutes: (trip as any).etaMinutes ?? null,
+            etaUpdatedAt: (trip as any).etaUpdatedAt ?? null,
+            arrivalAtPickup: (trip as any).arrivalAtPickup ?? null,
+            departPickup: (trip as any).departPickup ?? null,
+            arrivalAtDropoff: (trip as any).arrivalAtDropoff ?? null,
             driver: driverInfo,
             patient: patientInfo,
           });
@@ -8176,8 +8309,11 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
             publicId: trip.publicId,
             status: trip.status,
             pickupAddress: trip.pickupAddress,
+            dropoffAddress: trip.dropoffAddress,
             pickupTime: trip.pickupTime,
             scheduledDate: trip.scheduledDate,
+            etaMinutes: (trip as any).etaMinutes ?? null,
+            etaUpdatedAt: (trip as any).etaUpdatedAt ?? null,
             driver: driverInfo,
           },
         });

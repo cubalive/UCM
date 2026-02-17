@@ -137,6 +137,40 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
   }
 }
 
+export function normalizeRole(role: string): string {
+  if (role === "CLINIC_USER") return "VIEWER";
+  return role;
+}
+
+export function isDispatchLevel(role: string): boolean {
+  return ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(role);
+}
+
+export function isCompanyScoped(user: AuthPayload): boolean {
+  return user.role === "COMPANY_ADMIN" && user.companyId != null;
+}
+
+export interface UserProfile {
+  role: string;
+  clinicId?: number | null;
+  patientId?: number | null;
+  driverId?: number | null;
+}
+
+export function isClinicUser(user: UserProfile): boolean {
+  const role = normalizeRole(user.role);
+  return role === "VIEWER" && user.clinicId != null;
+}
+
+export function isPatientUser(user: UserProfile): boolean {
+  const role = normalizeRole(user.role);
+  return role === "VIEWER" && user.patientId != null && user.clinicId == null;
+}
+
+export function isDriverUser(user: UserProfile): boolean {
+  return user.role === "DRIVER" && user.driverId != null;
+}
+
 export function requireRole(...roles: string[]) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
@@ -145,10 +179,11 @@ export function requireRole(...roles: string[]) {
     if (req.user.role === "SUPER_ADMIN") {
       return next();
     }
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ message: "Forbidden", code: "FORBIDDEN" });
+    const effective = normalizeRole(req.user.role);
+    if (roles.includes(req.user.role) || roles.includes(effective)) {
+      return next();
     }
-    next();
+    return res.status(403).json({ message: "Forbidden", code: "FORBIDDEN" });
   };
 }
 

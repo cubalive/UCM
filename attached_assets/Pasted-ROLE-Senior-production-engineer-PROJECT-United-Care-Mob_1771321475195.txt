@@ -1,0 +1,172 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+TASK:
+Audit and fix the billing/invoice PDF + access control + weekly invoices + ops role consistency issues found in the merged routes code. Implement the fixes below with minimal surface area changes, add tests or quick curl checks, and verify endpoints.
+
+------------------------------------------------------------
+A) CRITICAL: ROLE / PERMISSION CONSISTENCY (BUG SOURCE)
+------------------------------------------------------------
+1) Normalize role names across the entire backend:
+   - The code uses: "CLINIC_USER", "VIEWER", "DRIVER", "DISPATCH", "ADMIN", "SUPER_ADMIN", "COMPANY_ADMIN"
+   - But multiple endpoints treat clinic users as VIEWER+clinicId while other endpoints check role === "CLINIC_USER".
+   - Decide ONE standard representation and enforce it everywhere:
+     Option preferred (least disruptive given existing code):
+     - Keep VIEWER as the base “external portal” role
+     - Distinguish clinic vs patient by user.clinicId / user.patientId
+     - Remove/replace CLINIC_USER checks OR map CLINIC_USER -> VIEWER in authMiddleware.
+   - Update requireRole() usage accordingly to avoid locking out valid users or granting access incorrectly.
+
+2) Create helper predicates and use them:
+   - isDispatchLevel(role) (SUPER_ADMIN/ADMIN/DISPATCH)
+   - isCompanyScoped(user) (COMPANY_ADMIN with companyId)
+   - isClinicUser(user) (role VIEWER && clinicId != null)
+   - isPatientUser(user) (role VIEWER && patientId != null && clinicId == null)
+   - isDriverUser(user) (role DRIVER && driverId != null)
+
+------------------------------------------------------------
+B) CRITICAL: COMPANY OWNERSHIP CHECKS ARE INCOMPLETE (SECURITY)
+------------------------------------------------------------
+Problem:
+- Some invoice endpoints restrict by trip.companyId only if invoice.tripId exists.
+- Weekly invoices have tripId = null, so company users could access invoices from other companies via invoiceId unless we check clinic.companyId.
+
+Fix:
+For ANY endpoint that returns invoice data (PDF, weekly, weekly trips, send-email):
+- If req.user.companyId exists, enforce:
+  - Fetch clinic via invoice.clinicId and ensure clinic.companyId === req.user.companyId
+  - Do not rely only on trip.companyId because weekly invoice has no tripId.
+
+Apply to:
+- GET /api/invoices/:id/pdf (single invoice PDF)
+- POST /api/invoices/:id/send-email
+- GET /api/billing/weekly
+- GET /api/billing/weekly/:id/trips
+- GET /api/billing/weekly/:id/pdf
+- Any other invoice fetch endpoints.
+
+------------------------------------------------------------
+C) BUG: send-email sets invoice.emailTo but uses stale invoice object
+------------------------------------------------------------
+Current behavior:
+- If invoice.emailTo is missing, it updates DB but still uses the old 'invoice' variable later.
+- Audit log details and email service might reference old value.
+
+Fix:
+- After updating invoices.emailTo, re-fetch invoice from storage (or update local invoice.emailTo) BEFORE:
+  - calling sendInvoicePaymentEmail(invoiceId)
+  - writing audit log "Invoice email sent to ..."
+
+Also:
+- Ensure sendInvoicePaymentEmail returns paymentLink and uses the final emailTo.
+
+------------------------------------------------------------
+D) PDF OUTPUT: Too minimal + missing required trip detail fields
+------------------------------------------------------------
+1) Single-invoice PDF:
+- Expand Trip Details to include (if available):
+  - Pickup address + Dropoff address
+  - Scheduled date
+  - Pickup time
+  - Arrival at pickup time
+  - Depart pickup time
+  - Arrival at dropoff time
+  - Trip status (human readable)
+  - Driver name + vehicle label/color (if available)
+  - Any relevant identifiers (trip publicId)
+- Add graceful fallbacks: "N/A"
+
+2) Weekly PDF table:
+Current table columns are too few (only date/patient/pickup).
+Add columns:
+- #, Date, Patient, Pickup, Dropoff, Pickup Time, Status
+Implement truncation/wrapping and multi-page header repeat:
+- When doc.addPage(), re-render the table header on the new page.
+
+3) PDF robustness:
+- Protect against undefined/null:
+  - invoice.status could be null -> safe uppercase
+  - invoice.amount could be string/number -> safe formatting
+- Ensure long text doesn’t overflow:
+  - use width with wrapping OR substring with ellipsis consistently
+- Keep cache-control no-store.
+
+4) Optional (if easy): include small static map image for pickup->dropoff:
+- Only if you already have a Google Static Maps key and it’s safe.
+- If not configured, skip silently.
+
+------------------------------------------------------------
+E) AUDIT LOG SCHEMA INCONSISTENCY (POTENTIAL RUNTIME ERRORS)
+------------------------------------------------------------
+I see createAuditLog called with different keys across endpoints:
+- Sometimes uses: entityType + entityId
+- Sometimes uses: entity + entityId
+This can break depending on storage.createAuditLog signature.
+
+Fix:
+- Standardize createAuditLog payload fields across all calls.
+Preferred:
+{
+  userId,
+  action,
+  entityType,
+  entityId,
+  details,
+  ipAddress?, cityId?
+}
+Update all invoice/weekly/archive/restore/delete routes in this file to match.
+
+------------------------------------------------------------
+F) WEEKLY INVOICE ENDPOINTS: VALIDATION + SCOPING
+------------------------------------------------------------
+1) GET /api/billing/weekly:
+- Currently: fetch all then filter by company’s clinicIds
+- Improve: if companyId exists, fetch only clinics for company first, then fetch weekly invoices limited to those clinicIds (avoid leaking counts/timing).
+- If storage.getWeeklyInvoices() cannot filter by clinicIds, filter server-side but ensure NO data leakage: return only filtered results, and never expose raw result length.
+
+2) PREVIEW + GENERATE:
+- Ensure clinicId belongs to the company when companyId exists.
+- Validate date range format (YYYY-MM-DD) and startDate <= endDate.
+
+3) Weekly invoice "patientName" is "Weekly: ClinicName" which is fine, but ensure UI expects it and doesn’t treat it like a real patient.
+
+------------------------------------------------------------
+G) OPS ENDPOINTS: DATA QUALITY FIXES (minor but important)
+------------------------------------------------------------
+1) /api/ops/driver-locations:
+- active_trip_patient currently returns `#${patientId}`; improve to show patient name if allowed/available for dispatch.
+- Ensure clinic/patient viewers never receive other drivers beyond allowedDriverIds.
+- Ensure city_id requirement is consistent:
+  - dispatch requires city_id (ok)
+  - clinic/patient/driver: allow city_id optional OR infer from their allowed driver/trip records; but do NOT error if not provided unless truly required.
+
+2) /api/ops/my-active-trips:
+- For clinic users, include:
+  - dropoffAddress
+  - ETA fields if you have them
+  - trip progress timestamps if present
+- For patient users, include similar trip details.
+
+(Do not add PHI beyond what their role is allowed to see.)
+
+------------------------------------------------------------
+H) QUICK VERIFICATION (MUST DO BEFORE FINISH)
+------------------------------------------------------------
+Add quick checks (either minimal tests or documented curl commands) to confirm:
+1) Company admin cannot access invoice belonging to another company (including weekly invoice with tripId null).
+2) Clinic user can only access invoice PDFs for their clinic.
+3) send-email populates emailTo then sends successfully, and audit log shows correct destination.
+4) Weekly PDF renders multi-page correctly and repeats headers.
+5) No runtime crashes from audit log payload mismatch.
+
+Return a summary:
+- Files changed
+- Endpoints verified + evidence (sample responses or logs)
+- Any remaining TODOs
