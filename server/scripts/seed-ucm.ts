@@ -5,8 +5,9 @@ import * as s from "@shared/schema";
 
 const SEED_TAG = "SEED_UCM";
 
-async function generatePublicId(): Promise<string> {
-  await db.execute(sql`CREATE SEQUENCE IF NOT EXISTS public_id_seq START WITH 1 INCREMENT BY 1`);
+let pidCounter = 0;
+
+async function initPidCounter(): Promise<void> {
   const result = await db.execute(
     sql`SELECT COALESCE(MAX(num), 0) as max_num FROM (
       SELECT CASE WHEN public_id ~ '^01UCM[0-9]+$'
@@ -22,23 +23,13 @@ async function generatePublicId(): Promise<string> {
       ) all_ids
     ) nums`
   );
-  const maxNum = parseInt((result as any).rows?.[0]?.max_num || "0");
-  if (maxNum > 0) {
-    await db.execute(sql`SELECT setval('public_id_seq', ${maxNum})`);
-  }
-  const r = await db.execute(sql`SELECT nextval('public_id_seq') as val`);
-  const val = parseInt((r as any).rows[0].val);
-  return `01UCM${String(val).padStart(6, "0")}`;
+  pidCounter = parseInt((result as any).rows?.[0]?.max_num || "0") + 100;
+  log(`  PID counter initialized at ${pidCounter}`);
 }
 
-let pidCache: string[] = [];
-async function nextPid(): Promise<string> {
-  if (pidCache.length === 0) {
-    for (let i = 0; i < 100; i++) {
-      pidCache.push(await generatePublicId());
-    }
-  }
-  return pidCache.shift()!;
+function nextPid(): string {
+  pidCounter++;
+  return `01UCM${String(pidCounter).padStart(6, "0")}`;
 }
 
 async function hashPw(pw: string): Promise<string> {
@@ -139,7 +130,7 @@ async function seedUsers(companies: any[], cities: any[]) {
   const results: any[] = [...existing];
   for (const u of userData) {
     if (results.find(e => e.email === u.email)) continue;
-    const pid = await nextPid();
+    const pid = nextPid();
     const [row] = await db.insert(s.users).values({
       publicId: pid,
       email: u.email,
@@ -255,7 +246,7 @@ async function seedVehicles(companies: any[], cities: any[]) {
     const city = cities[v.cityIdx];
     const company = companies[v.companyIdx];
     if (!city || !company) continue;
-    const pid = await nextPid();
+    const pid = nextPid();
     const [row] = await db.insert(s.vehicles).values({
       publicId: pid,
       cityId: city.id,
@@ -308,8 +299,8 @@ async function seedDrivers(companies: any[], cities: any[], vehicles: any[], use
     const vehicle = vehicles.find(v => v.licensePlate === d.vehicleLp);
     if (!city || !company) continue;
 
-    const driverPid = await nextPid();
-    const userPid = await nextPid();
+    const driverPid = nextPid();
+    const userPid = nextPid();
 
     const [driverUser] = await db.insert(s.users).values({
       publicId: userPid,
@@ -379,7 +370,7 @@ async function seedClinics(companies: any[], cities: any[], users: any[]) {
     const company = companies[c.companyIdx];
     if (!city || !company) continue;
 
-    const clinicPid = await nextPid();
+    const clinicPid = nextPid();
     const clinicEmail = `seed.clinic.${c.name.toLowerCase().replace(/\s+/g, ".")}@ucm.test`;
 
     const [clinic] = await db.insert(s.clinics).values({
@@ -397,7 +388,7 @@ async function seedClinics(companies: any[], cities: any[], users: any[]) {
       active: true,
     }).returning();
 
-    const userPid = await nextPid();
+    const userPid = nextPid();
     const [clinicUser] = await db.insert(s.users).values({
       publicId: userPid,
       email: clinicEmail,
@@ -456,7 +447,7 @@ async function seedPatients(companies: any[], cities: any[], clinics: any[]) {
     const clinic = clinics.find(c => c.name === p.clinicName);
     if (!city || !company) continue;
 
-    const pid = await nextPid();
+    const pid = nextPid();
     const [row] = await db.insert(s.patients).values({
       publicId: pid,
       cityId: city.id,
@@ -511,16 +502,17 @@ async function seedTrips(companies: any[], cities: any[], drivers: any[], vehicl
       const date = status === "SCHEDULED" ? futureDate(t + 1) : pastDate(tripIndex + 1);
       const driver = companyDrivers[tripIndex % companyDrivers.length];
       const vehicle = companyVehicles[tripIndex % companyVehicles.length] ?? null;
-      const pickupTime = `${8 + (tripIndex % 10)}:${tripIndex % 2 === 0 ? "00" : "30"}`;
-      const arrivalHour = parseInt(pickupTime.split(":")[0]) + 1;
-      const arrivalTime = `${arrivalHour}:${pickupTime.split(":")[1]}`;
+      const hour = 8 + (tripIndex % 10);
+      const minutes = tripIndex % 2 === 0 ? "00" : "30";
+      const pickupTime = `${String(hour).padStart(2, "0")}:${minutes}`;
+      const arrivalTime = `${String(hour + 1).padStart(2, "0")}:${minutes}`;
 
       const isAssigned = status !== "SCHEDULED";
       const isCompleted = status === "COMPLETED";
       const isCancelled = status === "CANCELLED";
       const isNoShow = status === "NO_SHOW";
 
-      const pid = await nextPid();
+      const pid = nextPid();
       const now = new Date();
       const scheduledTimestamp = new Date(date + "T" + pickupTime + ":00");
 
@@ -979,6 +971,7 @@ async function main() {
   console.log("=".repeat(60));
 
   try {
+    await initPidCounter();
     const companies = await seedCompanies();
     const cities = await seedCities();
     const users = await seedUsers(companies, cities);
