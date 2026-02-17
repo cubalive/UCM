@@ -820,9 +820,19 @@ export async function clinicTripByIdHandler(req: AuthRequest, res: Response) {
       routePolyline: enriched.routePolyline,
       staticMapThumbUrl: mapSnapshotUrl,
       staticMapFullUrl: mapSnapshotUrl,
+      routeImageUrl: mapSnapshotUrl,
       lastEtaMinutes: enriched.lastEtaMinutes,
       createdAt: enriched.createdAt,
       progressEvents: buildProgressEvents(enriched),
+      waitTimeMinutes: enriched.arrivedPickupAt && enriched.pickedUpAt
+        ? Math.round((new Date(enriched.pickedUpAt).getTime() - new Date(enriched.arrivedPickupAt).getTime()) / 60000)
+        : null,
+      totalDurationMinutes: enriched.startedAt && enriched.completedAt
+        ? Math.round((new Date(enriched.completedAt).getTime() - new Date(enriched.startedAt).getTime()) / 60000)
+        : enriched.durationMinutes || null,
+      transportMinutes: enriched.pickedUpAt && enriched.arrivedDropoffAt
+        ? Math.round((new Date(enriched.arrivedDropoffAt).getTime() - new Date(enriched.pickedUpAt).getTime()) / 60000)
+        : null,
     };
 
     res.json(clinicSafe);
