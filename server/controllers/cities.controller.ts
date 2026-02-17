@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, hashPassword, type AuthRequest } from "../auth";
-import { insertCitySchema, insertCompanySchema, companies, users } from "@shared/schema";
+import { insertCitySchema, insertCompanySchema, companies, cities as citiesTable, users } from "@shared/schema";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
@@ -42,24 +42,26 @@ export async function createCompanyHandler(req: AuthRequest, res: Response) {
       return res.status(400).json({ message: `Invalid timezone. Allowed: ${ALLOWED_TIMEZONES.join(", ")}` });
     }
 
-    const [company] = await db.insert(companies).values({ name: name.trim() }).returning();
-
-    const city = await storage.createCity({
-      name: cityName.trim(),
-      state: cityState.trim(),
-      timezone: tz,
+    const result = await db.transaction(async (tx) => {
+      const [company] = await tx.insert(companies).values({ name: name.trim() }).returning();
+      const [city] = await tx.insert(citiesTable).values({
+        name: cityName.trim(),
+        state: cityState.trim(),
+        timezone: tz,
+      }).returning();
+      return { company, city };
     });
 
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "CREATE",
       entity: "company",
-      entityId: company.id,
-      details: `Created company "${company.name}" with first city "${city.name}"`,
-      cityId: city.id,
+      entityId: result.company.id,
+      details: `Created company "${result.company.name}" with first city "${result.city.name}"`,
+      cityId: result.city.id,
     });
 
-    res.json({ ...company, firstCity: city });
+    res.json({ ...result.company, firstCity: result.city });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

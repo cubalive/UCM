@@ -62,11 +62,11 @@ router.patch("/api/trips/:id/reject-cancel", authMiddleware, requirePermission("
 router.patch("/api/trips/:id/cancel", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, cancelTripHandler as any);
 
 router.post("/api/trips/:id/return-trip", authMiddleware, requirePermission("trips", "write"), requireCompanyScope, createReturnTripHandler as any);
-router.post("/api/trips/:id/route/recompute", authMiddleware, requireCompanyScope, recomputeRouteHandler as any);
+router.post("/api/trips/:id/route/recompute", authMiddleware, requirePermission("dispatch", "write"), requireCompanyScope, recomputeRouteHandler as any);
 
-router.post("/api/trips/:id/signature/driver", authMiddleware, requireCompanyScope, driverSignatureHandler as any);
-router.post("/api/trips/:id/signature/clinic", authMiddleware, requireCompanyScope, clinicSignatureHandler as any);
-router.get("/api/trips/:id/signature", authMiddleware, requireCompanyScope, getSignatureHandler as any);
+router.post("/api/trips/:id/signature/driver", authMiddleware, requireRole("DRIVER", "SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireCompanyScope, driverSignatureHandler as any);
+router.post("/api/trips/:id/signature/clinic", authMiddleware, requireRole("CLINIC_USER", "SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireCompanyScope, clinicSignatureHandler as any);
+router.get("/api/trips/:id/signature", authMiddleware, requirePermission("trips", "read"), requireCompanyScope, getSignatureHandler as any);
 
 router.get("/api/trips/:id/pdf", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "DRIVER"), requireCompanyScope, getTripPdfHandler as any);
 router.get("/api/trips/:id/pdf/download", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "DRIVER"), requireCompanyScope, downloadTripPdfHandler as any);
