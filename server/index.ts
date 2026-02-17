@@ -40,14 +40,21 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-app.use(
-  "/.well-known",
-  express.static(path.join(process.cwd(), "server/public/.well-known"), {
-    setHeaders: (res) => {
-      res.setHeader("Content-Type", "application/json");
+app.get("/.well-known/assetlinks.json", (_req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  res.json([
+    {
+      relation: ["delegate_permission/common.handle_all_urls"],
+      target: {
+        namespace: "android_app",
+        package_name: "com.unitedcaremobility.driver",
+        sha256_cert_fingerprints: [
+          "0C:34:66:B4:36:FD:CC:8D:8C:8E:7C:B1:31:B9:94:D7:E7:A7:06:AD:B3:F4:68:59:33:0E:3C:CA:17:14:EF:2A",
+        ],
+      },
     },
-  }),
-);
+  ]);
+});
 
 function readOriginList(prefix: string): Set<string> {
   const origins = new Set<string>();
