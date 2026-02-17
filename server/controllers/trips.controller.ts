@@ -974,7 +974,8 @@ export async function dialysisReturnCheckHandler(req: AuthRequest, res: Response
         return res.status(403).json({ message: "Access denied: trip belongs to a different clinic" });
       }
     }
-    if (req.user!.companyId && trip.companyId && req.user!.companyId !== trip.companyId) {
+    const dialysisCompanyId = getCompanyIdFromAuth(req);
+    if (!checkCompanyOwnership(trip, dialysisCompanyId)) {
       return res.status(403).json({ message: "Access denied: trip belongs to a different company" });
     }
 
@@ -1062,7 +1063,8 @@ export async function dialysisReturnAdjustHandler(req: AuthRequest, res: Respons
         return res.status(403).json({ message: "Access denied: trip belongs to a different clinic" });
       }
     }
-    if (req.user!.companyId && outbound.companyId && req.user!.companyId !== outbound.companyId) {
+    const linkCompanyId = getCompanyIdFromAuth(req);
+    if (!checkCompanyOwnership(outbound, linkCompanyId)) {
       return res.status(403).json({ message: "Access denied: trip belongs to a different company" });
     }
 
@@ -1804,7 +1806,8 @@ export async function getTripInvoiceHandler(req: AuthRequest, res: Response) {
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
 
-    if (req.user!.companyId && trip.companyId && req.user!.companyId !== trip.companyId) {
+    const invoiceLookupCompanyId = getCompanyIdFromAuth(req);
+    if (!checkCompanyOwnership(trip, invoiceLookupCompanyId)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
@@ -1839,7 +1842,8 @@ export async function createTripInvoiceHandler(req: AuthRequest, res: Response) 
       return res.status(400).json({ message: "Invoice can only be created for completed trips" });
     }
 
-    if (req.user!.companyId && trip.companyId && req.user!.companyId !== trip.companyId) {
+    const createInvCompanyId = getCompanyIdFromAuth(req);
+    if (!checkCompanyOwnership(trip, createInvCompanyId)) {
       return res.status(403).json({ message: "Access denied" });
     }
 

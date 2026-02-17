@@ -813,7 +813,7 @@ export async function aiEngineStatusHandler(_req: AuthRequest, res: Response) {
 
 export async function opsIntelScoresHandler(req: AuthRequest, res: Response) {
   try {
-    const companyId = req.user!.companyId || (req.user!.role === "SUPER_ADMIN" && req.query.company_id ? parseInt(req.query.company_id as string) : null);
+    const companyId = getCompanyIdFromAuth(req) || (req.query.company_id ? parseInt(req.query.company_id as string) : null);
     if (!companyId) return res.status(400).json({ message: "No company context. SUPER_ADMIN: pass ?company_id=N" });
     const window = (req.query.window === "30d" ? "30d" : "7d") as "7d" | "30d";
     const scores = await getScoresForCompany(companyId, window);
@@ -825,7 +825,7 @@ export async function opsIntelScoresHandler(req: AuthRequest, res: Response) {
 
 export async function opsIntelAnomaliesHandler(req: AuthRequest, res: Response) {
   try {
-    const companyId = req.user!.companyId || (req.user!.role === "SUPER_ADMIN" && req.query.company_id ? parseInt(req.query.company_id as string) : null);
+    const companyId = getCompanyIdFromAuth(req) || (req.query.company_id ? parseInt(req.query.company_id as string) : null);
     if (!companyId) return res.status(400).json({ message: "No company context. SUPER_ADMIN: pass ?company_id=N" });
     const activeOnly = req.query.active !== "false";
     const anomalies = await getAnomaliesForCompany(companyId, activeOnly);
@@ -837,7 +837,7 @@ export async function opsIntelAnomaliesHandler(req: AuthRequest, res: Response) 
 
 export async function opsIntelRecomputeHandler(req: AuthRequest, res: Response) {
   try {
-    const companyId = req.user!.companyId || (req.user!.role === "SUPER_ADMIN" && req.body.company_id ? parseInt(req.body.company_id) : null);
+    const companyId = getCompanyIdFromAuth(req) || (req.body.company_id ? parseInt(req.body.company_id) : null);
     if (!companyId) return res.status(400).json({ message: "No company context. SUPER_ADMIN: pass company_id in body" });
     const window = (req.body.window === "30d" ? "30d" : "7d") as "7d" | "30d";
     const scored = await computeScoresForCompany(companyId, window);
@@ -849,7 +849,7 @@ export async function opsIntelRecomputeHandler(req: AuthRequest, res: Response) 
 
 export async function opsIntelScoresCsvHandler(req: AuthRequest, res: Response) {
   try {
-    const companyId = req.user!.companyId || (req.user!.role === "SUPER_ADMIN" && req.query.company_id ? parseInt(req.query.company_id as string) : null);
+    const companyId = getCompanyIdFromAuth(req) || (req.query.company_id ? parseInt(req.query.company_id as string) : null);
     if (!companyId) return res.status(400).json({ message: "No company context. SUPER_ADMIN: pass ?company_id=N" });
     const window = (req.query.window === "30d" ? "30d" : "7d") as "7d" | "30d";
     const scores = await getScoresForCompany(companyId, window);

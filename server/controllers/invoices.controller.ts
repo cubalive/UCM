@@ -1,14 +1,23 @@
 import type { Response } from "express";
 import PDFDocument from "pdfkit";
 import { storage } from "../storage";
-import { type AuthRequest } from "../auth";
+import { getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
-import { trips, invoices } from "@shared/schema";
+import { trips, invoices, clinics as clinicsTable } from "@shared/schema";
 
-export async function getInvoicesHandler(_req: AuthRequest, res: Response) {
+export async function getInvoicesHandler(req: AuthRequest, res: Response) {
   try {
-    res.json(await storage.getInvoices());
+    const companyId = getCompanyIdFromAuth(req);
+    const all = await storage.getInvoices();
+    if (!companyId) return res.json(all);
+
+    const allClinics = await storage.getClinics();
+    const companyClinicIds = new Set(
+      allClinics.filter(c => c.companyId === companyId).map(c => c.id)
+    );
+    const filtered = all.filter((inv: any) => companyClinicIds.has(inv.clinicId));
+    res.json(filtered);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -22,9 +31,10 @@ export async function updateInvoiceHandler(req: AuthRequest, res: Response) {
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-    if (invoice.tripId && req.user!.companyId) {
-      const trip = await storage.getTrip(invoice.tripId);
-      if (trip && trip.companyId && req.user!.companyId !== trip.companyId) {
+    const companyId = getCompanyIdFromAuth(req);
+    if (companyId) {
+      const clinic = await storage.getClinic(invoice.clinicId);
+      if (!checkCompanyOwnership(clinic, companyId)) {
         return res.status(403).json({ message: "Access denied" });
       }
     }
@@ -73,9 +83,10 @@ export async function markInvoicePaidHandler(req: AuthRequest, res: Response) {
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-    if (invoice.tripId && req.user!.companyId) {
-      const trip = await storage.getTrip(invoice.tripId);
-      if (trip && trip.companyId && req.user!.companyId !== trip.companyId) {
+    const companyId = getCompanyIdFromAuth(req);
+    if (companyId) {
+      const clinic = await storage.getClinic(invoice.clinicId);
+      if (!checkCompanyOwnership(clinic, companyId)) {
         return res.status(403).json({ message: "Access denied" });
       }
     }
@@ -114,9 +125,11 @@ export async function invoicePdfHandler(req: AuthRequest, res: Response) {
       if (!user?.clinicId || user.clinicId !== invoice.clinicId) {
         return res.status(403).json({ message: "Access denied" });
       }
-    } else if (req.user!.companyId) {
+    }
+    const pdfCompanyId = getCompanyIdFromAuth(req);
+    if (pdfCompanyId) {
       const clinicForOwnership = await storage.getClinic(invoice.clinicId);
-      if (clinicForOwnership && clinicForOwnership.companyId && req.user!.companyId !== clinicForOwnership.companyId) {
+      if (!checkCompanyOwnership(clinicForOwnership, pdfCompanyId)) {
         return res.status(403).json({ message: "Access denied" });
       }
     }
@@ -254,9 +267,10 @@ export async function sendInvoiceEmailHandler(req: AuthRequest, res: Response) {
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-    if (req.user!.companyId) {
+    const emailCompanyId = getCompanyIdFromAuth(req);
+    if (emailCompanyId) {
       const clinicForOwnership = await storage.getClinic(invoice.clinicId);
-      if (clinicForOwnership && clinicForOwnership.companyId && req.user!.companyId !== clinicForOwnership.companyId) {
+      if (!checkCompanyOwnership(clinicForOwnership, emailCompanyId)) {
         return res.status(403).json({ message: "Access denied" });
       }
     }
@@ -305,7 +319,7 @@ export async function sendInvoiceEmailHandler(req: AuthRequest, res: Response) {
 export async function getWeeklyBillingHandler(req: AuthRequest, res: Response) {
   try {
     const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
-    const companyId = req.user!.companyId;
+    const companyId = getCompanyIdFromAuth(req);
     let result: any[];
     if (companyId) {
       const allWeekly = await storage.getWeeklyInvoices(clinicId);
@@ -342,14 +356,14 @@ export async function getWeeklyBillingPreviewHandler(req: AuthRequest, res: Resp
     if (startDate > endDate) {
       return res.status(400).json({ message: "start_date must be <= end_date" });
     }
-    if (req.user!.companyId) {
+    const previewCompanyId = getCompanyIdFromAuth(req);
+    if (previewCompanyId) {
       const clinicForOwnership = await storage.getClinic(clinicId);
-      if (clinicForOwnership && clinicForOwnership.companyId && req.user!.companyId !== clinicForOwnership.companyId) {
+      if (!checkCompanyOwnership(clinicForOwnership, previewCompanyId)) {
         return res.status(403).json({ message: "Access denied: clinic belongs to another company" });
       }
     }
-    const companyId = req.user!.companyId || null;
-    const uninvoicedTrips = await storage.getUninvoicedCompletedTrips(clinicId, startDate, endDate, companyId);
+    const uninvoicedTrips = await storage.getUninvoicedCompletedTrips(clinicId, startDate, endDate, previewCompanyId);
     const patients = new Map<number, any>();
     for (const t of uninvoicedTrips) {
       if (!patients.has(t.patientId)) {
@@ -386,15 +400,15 @@ export async function generateWeeklyBillingHandler(req: AuthRequest, res: Respon
       return res.status(400).json({ message: "startDate must be <= endDate" });
     }
 
-    if (req.user!.companyId) {
+    const genCompanyId = getCompanyIdFromAuth(req);
+    if (genCompanyId) {
       const clinicForOwnership = await storage.getClinic(parseInt(clinicId));
-      if (clinicForOwnership && clinicForOwnership.companyId && req.user!.companyId !== clinicForOwnership.companyId) {
+      if (!checkCompanyOwnership(clinicForOwnership, genCompanyId)) {
         return res.status(403).json({ message: "Access denied: clinic belongs to another company" });
       }
     }
 
-    const companyId = req.user!.companyId || null;
-    const uninvoicedTrips = await storage.getUninvoicedCompletedTrips(parseInt(clinicId), startDate, endDate, companyId);
+    const uninvoicedTrips = await storage.getUninvoicedCompletedTrips(parseInt(clinicId), startDate, endDate, genCompanyId);
     if (uninvoicedTrips.length === 0) {
       return res.status(400).json({ message: "No uninvoiced completed trips found for this clinic and date range" });
     }
@@ -439,9 +453,10 @@ export async function getWeeklyBillingTripsHandler(req: AuthRequest, res: Respon
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-    if (req.user!.companyId) {
+    const tripsCompanyId = getCompanyIdFromAuth(req);
+    if (tripsCompanyId) {
       const clinic = await storage.getClinic(invoice.clinicId);
-      if (clinic && clinic.companyId && req.user!.companyId !== clinic.companyId) {
+      if (!checkCompanyOwnership(clinic, tripsCompanyId)) {
         return res.status(403).json({ message: "Access denied" });
       }
     }
@@ -479,9 +494,10 @@ export async function getWeeklyBillingPdfHandler(req: AuthRequest, res: Response
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-    if (req.user!.companyId) {
+    const weeklyPdfCompanyId = getCompanyIdFromAuth(req);
+    if (weeklyPdfCompanyId) {
       const clinic = await storage.getClinic(invoice.clinicId);
-      if (clinic && clinic.companyId && req.user!.companyId !== clinic.companyId) {
+      if (!checkCompanyOwnership(clinic, weeklyPdfCompanyId)) {
         return res.status(403).json({ message: "Access denied" });
       }
     }

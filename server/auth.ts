@@ -213,6 +213,9 @@ export function opsRouteGuard(req: AuthRequest, res: Response, next: NextFunctio
 }
 
 export function getCompanyIdFromAuth(req: AuthRequest): number | null {
+  const tenantId = (req as any).tenantId;
+  if (tenantId) return tenantId;
+
   if (!req.user) return null;
   if (req.user.role === "SUPER_ADMIN") {
     const headerVal = req.headers["x-ucm-company-id"];
@@ -227,13 +230,13 @@ export function getCompanyIdFromAuth(req: AuthRequest): number | null {
 
 export function applyCompanyFilter<T extends { companyId?: number | null }>(items: T[], companyId: number | null): T[] {
   if (!companyId) return items;
-  return items.filter(item => item.companyId === companyId || item.companyId === null);
+  return items.filter(item => item.companyId === companyId);
 }
 
 export function checkCompanyOwnership(entity: { companyId?: number | null } | undefined, companyId: number | null): boolean {
   if (!entity) return false;
   if (!companyId) return true;
-  return entity.companyId === companyId || entity.companyId === null;
+  return entity.companyId === companyId;
 }
 
 export async function getUserCityIds(userId: number, role: string): Promise<number[]> {
