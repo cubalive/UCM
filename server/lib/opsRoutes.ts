@@ -1096,6 +1096,62 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/ops/metrics.csv", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getRequestMetricsSummary } = await import("./requestMetrics");
+      const { getRedisMetrics, isRedisConnected } = await import("./redis");
+      const { getRealtimeMetrics } = await import("./supabaseRealtime");
+      const { getDirectionsMetrics } = await import("./googleMaps");
+      const { getBackpressureMetrics, getDegradeTier, getLocationPublishInterval } = await import("./backpressure");
+      const { getActiveConnectionCount, getActiveSubscriptionCount } = await import("./realtime");
+      const { getIngestMetrics } = await import("./driverLocationIngest");
+
+      const metrics = getRequestMetricsSummary();
+      const redis = getRedisMetrics();
+      const rt = getRealtimeMetrics();
+      const goog = getDirectionsMetrics();
+      const bp = getBackpressureMetrics();
+      const gps = getIngestMetrics();
+
+      let dbOk = false;
+      let dbLatency = 0;
+      try {
+        const start = Date.now();
+        const { pool } = await import("../db");
+        await pool.query("SELECT 1");
+        dbLatency = Date.now() - start;
+        dbOk = true;
+      } catch {}
+
+      const row: Record<string, unknown> = {
+        generatedAt: new Date().toISOString(),
+        rpm_1min: metrics.rpm_1min,
+        rpm_5min: metrics.rpm_5min,
+        rpm_15min: metrics.rpm_15min,
+        p50_latency_ms: metrics.p50_latency_ms,
+        p95_latency_ms: metrics.p95_latency_ms,
+        error_rate_pct: metrics.error_rate_pct,
+        errors_4xx: metrics.errors_4xx_5min,
+        errors_5xx: metrics.errors_5xx_5min,
+        ws_connections: getActiveConnectionCount(),
+        ws_subscriptions: getActiveSubscriptionCount(),
+        redis_connected: isRedisConnected() ? "yes" : "no",
+        cache_hit_rate: redis.cache_hit_rate,
+        db_connected: dbOk ? "yes" : "no",
+        db_latency_ms: dbLatency,
+        degrade_tier: getDegradeTier(),
+        publish_interval_ms: getLocationPublishInterval(),
+        gps_ingest_rpm: gps.gps_ingest_requests_per_min,
+        directions_calls_pm: goog?.directions_calls_per_min ?? 0,
+        breaker_open: goog?.circuit_breaker?.open ? "yes" : "no",
+      };
+
+      sendCsv(res, toCsvServer([row]), `ucm-metrics-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   app.get("/api/ops/metrics/health.csv", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
     try {
       const { getRedisMetrics, isRedisConnected } = await import("./redis");

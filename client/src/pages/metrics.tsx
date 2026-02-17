@@ -27,6 +27,7 @@ import {
   BarChart3,
   Download,
   FileSpreadsheet,
+  Loader2,
   Users,
   Car,
   Building2,
@@ -55,6 +56,11 @@ interface MetricsData {
     error_rate_pct: number;
     p50_latency_ms: number;
     p95_latency_ms: number;
+    rpm_1min: number;
+    rpm_5min: number;
+    rpm_15min: number;
+    errors_4xx_5min: number;
+    errors_5xx_5min: number;
   };
   redis: {
     redis_connected: boolean;
@@ -261,6 +267,7 @@ export default function MetricsPage() {
   const { user, selectedCity } = useAuth();
   const [latencyHistory, setLatencyHistory] = useState<HistoryPoint[]>([]);
   const [googleHistory, setGoogleHistory] = useState<GoogleHistoryPoint[]>([]);
+  const [exportLoading, setExportLoading] = useState<string | null>(null);
   const prevMetricsRef = useRef<string>("");
   const prevGoogleRef = useRef<string>("");
 
@@ -313,54 +320,24 @@ export default function MetricsPage() {
 
   const showToast = (msg: string) => toast({ title: msg, variant: "destructive" });
 
-  async function exportJson() {
-    const ts = buildTimestamp();
-    const filename = `ucm-metrics-${ts}.json`;
-    const ok = await downloadWithAuth("/api/ops/metrics/download.json", filename, "application/json", rawAuthFetch, showToast);
-    if (ok) toast({ title: `Downloaded ${filename}` });
+  async function doExport(key: string, url: string, filename: string, mime: string) {
+    setExportLoading(key);
+    try {
+      const ok = await downloadWithAuth(url, filename, mime, rawAuthFetch, showToast);
+      if (ok) toast({ title: `Downloaded ${filename}` });
+    } finally {
+      setExportLoading(null);
+    }
   }
 
-  async function exportSummaryCsv() {
-    const ts = buildTimestamp();
-    const filename = `ucm-metrics-summary-${ts}.csv`;
-    const ok = await downloadWithAuth("/api/ops/metrics/summary.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
-    if (ok) toast({ title: `Downloaded ${filename}` });
-  }
-
-  async function exportHealthCsv() {
-    const ts = buildTimestamp();
-    const filename = `ucm-metrics-health-${ts}.csv`;
-    const ok = await downloadWithAuth("/api/ops/metrics/health.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
-    if (ok) toast({ title: `Downloaded ${filename}` });
-  }
-
-  async function exportCacheCsv() {
-    const ts = buildTimestamp();
-    const filename = `ucm-metrics-cache-${ts}.csv`;
-    const ok = await downloadWithAuth("/api/ops/metrics/cache.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
-    if (ok) toast({ title: `Downloaded ${filename}` });
-  }
-
-  async function exportRealtimeCsv() {
-    const ts = buildTimestamp();
-    const filename = `ucm-metrics-realtime-${ts}.csv`;
-    const ok = await downloadWithAuth("/api/ops/metrics/realtime.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
-    if (ok) toast({ title: `Downloaded ${filename}` });
-  }
-
-  async function exportGoogleCsv() {
-    const ts = buildTimestamp();
-    const filename = `ucm-metrics-google-${ts}.csv`;
-    const ok = await downloadWithAuth("/api/ops/metrics/google.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
-    if (ok) toast({ title: `Downloaded ${filename}` });
-  }
-
-  async function exportRoutesCsv() {
-    const ts = buildTimestamp();
-    const filename = `ucm-metrics-routes-${ts}.csv`;
-    const ok = await downloadWithAuth("/api/ops/metrics/routes.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
-    if (ok) toast({ title: `Downloaded ${filename}` });
-  }
+  const exportJson = () => doExport("json", "/api/ops/metrics/download.json", `ucm-metrics-${buildTimestamp()}.json`, "application/json");
+  const exportCsv = () => doExport("csv", "/api/ops/metrics.csv", `ucm-metrics-${buildTimestamp()}.csv`, "text/csv; charset=utf-8");
+  const exportSummaryCsv = () => doExport("summary", "/api/ops/metrics/summary.csv", `ucm-metrics-summary-${buildTimestamp()}.csv`, "text/csv; charset=utf-8");
+  const exportHealthCsv = () => doExport("health", "/api/ops/metrics/health.csv", `ucm-metrics-health-${buildTimestamp()}.csv`, "text/csv; charset=utf-8");
+  const exportCacheCsv = () => doExport("cache", "/api/ops/metrics/cache.csv", `ucm-metrics-cache-${buildTimestamp()}.csv`, "text/csv; charset=utf-8");
+  const exportRealtimeCsv = () => doExport("realtime", "/api/ops/metrics/realtime.csv", `ucm-metrics-realtime-${buildTimestamp()}.csv`, "text/csv; charset=utf-8");
+  const exportGoogleCsv = () => doExport("google", "/api/ops/metrics/google.csv", `ucm-metrics-google-${buildTimestamp()}.csv`, "text/csv; charset=utf-8");
+  const exportRoutesCsv = () => doExport("routes", "/api/ops/metrics/routes.csv", `ucm-metrics-routes-${buildTimestamp()}.csv`, "text/csv; charset=utf-8");
 
   useEffect(() => {
     if (!metrics) return;
@@ -458,32 +435,36 @@ export default function MetricsPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="outline" onClick={exportJson} data-testid="button-download-json">
-          <Download className="mr-2 h-3 w-3" />
+        <Button size="sm" variant="outline" onClick={exportJson} disabled={!!exportLoading} data-testid="button-download-json">
+          {exportLoading === "json" ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Download className="mr-2 h-3 w-3" />}
           Download JSON
         </Button>
-        <Button size="sm" variant="outline" onClick={exportSummaryCsv} data-testid="button-csv-summary">
-          <FileSpreadsheet className="mr-2 h-3 w-3" />
+        <Button size="sm" variant="outline" onClick={exportCsv} disabled={!!exportLoading} data-testid="button-download-csv">
+          {exportLoading === "csv" ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <FileSpreadsheet className="mr-2 h-3 w-3" />}
+          Download CSV
+        </Button>
+        <Button size="sm" variant="outline" onClick={exportSummaryCsv} disabled={!!exportLoading} data-testid="button-csv-summary">
+          {exportLoading === "summary" ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <FileSpreadsheet className="mr-2 h-3 w-3" />}
           CSV: Summary
         </Button>
-        <Button size="sm" variant="outline" onClick={exportHealthCsv} data-testid="button-csv-health">
-          <FileSpreadsheet className="mr-2 h-3 w-3" />
+        <Button size="sm" variant="outline" onClick={exportHealthCsv} disabled={!!exportLoading} data-testid="button-csv-health">
+          {exportLoading === "health" ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <FileSpreadsheet className="mr-2 h-3 w-3" />}
           CSV: Health
         </Button>
-        <Button size="sm" variant="outline" onClick={exportCacheCsv} data-testid="button-csv-cache">
-          <FileSpreadsheet className="mr-2 h-3 w-3" />
+        <Button size="sm" variant="outline" onClick={exportCacheCsv} disabled={!!exportLoading} data-testid="button-csv-cache">
+          {exportLoading === "cache" ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <FileSpreadsheet className="mr-2 h-3 w-3" />}
           CSV: Redis/Cache
         </Button>
-        <Button size="sm" variant="outline" onClick={exportRealtimeCsv} data-testid="button-csv-realtime">
-          <FileSpreadsheet className="mr-2 h-3 w-3" />
+        <Button size="sm" variant="outline" onClick={exportRealtimeCsv} disabled={!!exportLoading} data-testid="button-csv-realtime">
+          {exportLoading === "realtime" ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <FileSpreadsheet className="mr-2 h-3 w-3" />}
           CSV: Realtime
         </Button>
-        <Button size="sm" variant="outline" onClick={exportGoogleCsv} data-testid="button-csv-google">
-          <FileSpreadsheet className="mr-2 h-3 w-3" />
+        <Button size="sm" variant="outline" onClick={exportGoogleCsv} disabled={!!exportLoading} data-testid="button-csv-google">
+          {exportLoading === "google" ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <FileSpreadsheet className="mr-2 h-3 w-3" />}
           CSV: Google
         </Button>
-        <Button size="sm" variant="outline" onClick={exportRoutesCsv} data-testid="button-csv-routes">
-          <FileSpreadsheet className="mr-2 h-3 w-3" />
+        <Button size="sm" variant="outline" onClick={exportRoutesCsv} disabled={!!exportLoading} data-testid="button-csv-routes">
+          {exportLoading === "routes" ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <FileSpreadsheet className="mr-2 h-3 w-3" />}
           CSV: Routes
         </Button>
       </div>
@@ -520,13 +501,14 @@ export default function MetricsPage() {
         <MetricCard
           title="Error Rate"
           value={req ? `${req.error_rate_pct}%` : "---"}
-          subtitle={req ? `${req.total_errors_5min} errors / 5min` : undefined}
+          subtitle={req ? `4xx: ${req.errors_4xx_5min ?? req.total_errors_5min} / 5xx: ${req.errors_5xx_5min ?? 0}` : undefined}
           icon={AlertTriangle}
         />
 
         <MetricCard
-          title="Requests / 5min"
-          value={req?.total_requests_5min ?? "---"}
+          title="RPM (1 / 5 / 15 min)"
+          value={req ? `${req.rpm_1min ?? "?"} / ${req.rpm_5min ?? "?"} / ${req.rpm_15min ?? "?"}` : "---"}
+          subtitle={req ? `${req.total_requests_5min} total / 5min` : undefined}
           icon={BarChart3}
         />
       </div>
