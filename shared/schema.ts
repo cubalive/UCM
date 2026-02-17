@@ -623,6 +623,43 @@ export const insertScheduleChangeRequestSchema = createInsertSchema(scheduleChan
 export type ScheduleChangeRequest = typeof scheduleChangeRequests.$inferSelect;
 export type InsertScheduleChangeRequest = z.infer<typeof insertScheduleChangeRequestSchema>;
 
+export const shiftSwapStatusEnum = pgEnum("shift_swap_status", [
+  "PENDING_TARGET", "DECLINED_TARGET", "ACCEPTED_TARGET", "PENDING_DISPATCH", "APPROVED_DISPATCH", "REJECTED_DISPATCH", "CANCELLED",
+]);
+
+export const driverShiftSwapRequests = pgTable("driver_shift_swap_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").references(() => companies.id),
+  cityId: integer("city_id").references(() => cities.id),
+  requesterDriverId: integer("requester_driver_id").notNull().references(() => drivers.id),
+  targetDriverId: integer("target_driver_id").notNull().references(() => drivers.id),
+  shiftDate: text("shift_date").notNull(),
+  shiftStart: text("shift_start"),
+  shiftEnd: text("shift_end"),
+  reason: text("reason").notNull(),
+  status: shiftSwapStatusEnum("status").notNull().default("PENDING_TARGET"),
+  targetDecisionNote: text("target_decision_note"),
+  dispatchUserId: integer("dispatch_user_id").references(() => users.id),
+  dispatchDecisionNote: text("dispatch_decision_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  targetDecidedAt: timestamp("target_decided_at"),
+  dispatchDecidedAt: timestamp("dispatch_decided_at"),
+}, (table) => [
+  index("idx_swap_target_status").on(table.targetDriverId, table.status),
+  index("idx_swap_requester_created").on(table.requesterDriverId, table.createdAt),
+  index("idx_swap_company_status").on(table.companyId, table.status),
+  index("idx_swap_shift_date").on(table.shiftDate),
+]);
+
+export const insertDriverShiftSwapSchema = createInsertSchema(driverShiftSwapRequests).omit({
+  id: true, createdAt: true, updatedAt: true, status: true,
+  targetDecisionNote: true, dispatchUserId: true, dispatchDecisionNote: true,
+  targetDecidedAt: true, dispatchDecidedAt: true,
+});
+export type DriverShiftSwapRequest = typeof driverShiftSwapRequests.$inferSelect;
+export type InsertDriverShiftSwapRequest = z.infer<typeof insertDriverShiftSwapSchema>;
+
 export const loginTokens = pgTable("login_tokens", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   tokenHash: text("token_hash").notNull().unique(),
