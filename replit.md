@@ -86,6 +86,17 @@ The application follows a client-server architecture.
 - **Headers**: All PDF/ZIP downloads include `Content-Disposition: attachment`, `Cache-Control: no-store`, correct `Content-Type`
 - **Files**: `server/lib/deepHealth.ts`, `server/lib/pdfWatermark.ts`, `server/lib/batchPdfProcessor.ts`
 
+## UCM Command Center AI Engine
+- **60-Second Scheduler**: `server/lib/aiEngine.ts` runs compute cycle every 60s with 5s startup delay
+- **Sentinel**: Separate 15s interval for critical risk checks only (no DB queries)
+- **Incremental Queries**: `getRecentTripsUpdatedSince` (30 min window), `getRecentDriversUpdatedSince` (10 min window) — no full table scans
+- **Redis Caching**: Snapshot cached with 55s TTL; in-memory fallback if Redis unavailable
+- **Runtime Guardrails**: SLOW warning at 5s, auto-throttle to 120s at 10s, skip next cycle on slow runs
+- **Snapshot Persistence**: `ai_engine_snapshots` table stores aggregated metrics, top 5 risks, forecast summary
+- **API Endpoints**: `GET /api/admin/ai-engine/snapshot` (cached snapshot), `GET /api/admin/ai-engine/status` (engine health)
+- **DB Schema Note**: `drivers` table has `updated_at` column added (Feb 2026); used alongside `last_seen_at` and `last_active_at` for incremental queries
+- **Files**: `server/lib/aiEngine.ts`, `shared/schema.ts` (drivers.updatedAt, aiEngineSnapshots)
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **Replit DB**: Operational data storage.

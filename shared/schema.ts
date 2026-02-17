@@ -187,6 +187,7 @@ export const drivers = pgTable("drivers", {
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
+  updatedAt: timestamp("updated_at").defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -1451,6 +1452,23 @@ export const tripPdfs = pgTable("trip_pdfs", {
 ]);
 
 export type TripPdf = typeof tripPdfs.$inferSelect;
+
+export const aiEngineSnapshots = pgTable("ai_engine_snapshots", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+  runtimeMs: integer("runtime_ms").notNull(),
+  engineStatus: text("engine_status").notNull().default("OK"),
+  tripsAnalyzed: integer("trips_analyzed").notNull().default(0),
+  driversAnalyzed: integer("drivers_analyzed").notNull().default(0),
+  metrics: jsonb("metrics").notNull(),
+  topRisks: jsonb("top_risks").notNull(),
+  forecast: jsonb("forecast").notNull(),
+}, (table) => [
+  index("ai_engine_snapshots_computed_idx").on(table.computedAt),
+]);
+
+export type AiEngineSnapshot = typeof aiEngineSnapshots.$inferSelect;
+export type InsertAiEngineSnapshot = typeof aiEngineSnapshots.$inferInsert;
 
 export function isVehicleCompatible(mobilityRequirement: string, vehicleCapability: string): boolean {
   if (mobilityRequirement === "WHEELCHAIR") {

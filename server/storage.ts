@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, or, desc, sql, inArray, count, ne, isNull } from "drizzle-orm";
+import { eq, and, or, desc, sql, inArray, count, ne, isNull, gte } from "drizzle-orm";
 import {
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
   citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog, tripSeries,
@@ -27,6 +27,7 @@ import {
   billingCycleInvoiceItems, type BillingCycleInvoiceItem, type InsertBillingCycleInvoiceItem,
   invoicePayments, type InvoicePayment, type InsertInvoicePayment,
   invoiceSequences,
+  aiEngineSnapshots, type AiEngineSnapshot, type InsertAiEngineSnapshot,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -227,6 +228,11 @@ export interface IStorage {
   findPaymentByStripePI(stripePaymentIntentId: string): Promise<InvoicePayment | undefined>;
   nextInvoiceNumber(): Promise<string>;
   getBillingCycleInvoicesByPaymentStatus(statuses: string[], clinicId?: number): Promise<BillingCycleInvoice[]>;
+
+  createAiEngineSnapshot(data: InsertAiEngineSnapshot): Promise<AiEngineSnapshot>;
+  getLatestAiEngineSnapshot(): Promise<AiEngineSnapshot | undefined>;
+  getRecentTripsUpdatedSince(since: Date): Promise<Trip[]>;
+  getRecentDriversUpdatedSince(since: Date): Promise<Driver[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1539,6 +1545,35 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(billingCycleInvoices)
       .where(and(...conditions))
       .orderBy(desc(billingCycleInvoices.dueDate));
+  }
+
+  async createAiEngineSnapshot(data: InsertAiEngineSnapshot): Promise<AiEngineSnapshot> {
+    const [row] = await db.insert(aiEngineSnapshots).values(data).returning();
+    return row;
+  }
+
+  async getLatestAiEngineSnapshot(): Promise<AiEngineSnapshot | undefined> {
+    const [row] = await db.select().from(aiEngineSnapshots).orderBy(desc(aiEngineSnapshots.computedAt)).limit(1);
+    return row;
+  }
+
+  async getRecentTripsUpdatedSince(since: Date): Promise<Trip[]> {
+    return db.select().from(trips).where(
+      and(
+        gte(trips.updatedAt, since),
+        isNull(trips.deletedAt),
+      )
+    );
+  }
+
+  async getRecentDriversUpdatedSince(since: Date): Promise<Driver[]> {
+    return db.select().from(drivers).where(
+      or(
+        gte(drivers.updatedAt, since),
+        gte(drivers.lastSeenAt, since),
+        gte(drivers.lastActiveAt, since),
+      )
+    );
   }
 }
 

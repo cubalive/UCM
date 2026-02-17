@@ -34,6 +34,7 @@ import { idempotencyMiddleware } from "./lib/idempotency";
 import { companyRpmLimiter, checkDriverQuota, checkActiveTripQuota } from "./lib/companyQuotas";
 import { tenantGuard, checkCrossCompanyAccess, tenantRedisKey } from "./lib/tenantGuard";
 import { logSystemEvent, getSystemEvents } from "./lib/systemEvents";
+import { startAiEngine, getCachedSnapshot, getEngineStatus } from "./lib/aiEngine";
 import { tripPdfs, jobs } from "@shared/schema";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
@@ -145,6 +146,7 @@ export async function registerRoutes(
   startRouteScheduler();
   startNoShowScheduler();
   startRecurringScheduleScheduler();
+  startAiEngine();
 
   app.post("/api/auth/login", async (req, res) => {
     try {
@@ -9429,6 +9431,35 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         res.send(buffer);
       } catch (err: any) {
         res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.get("/api/admin/ai-engine/snapshot",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const snapshot = await getCachedSnapshot();
+        if (!snapshot) {
+          return res.json({ ok: false, message: "No snapshot available yet" });
+        }
+        res.json({ ok: true, ...snapshot });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, error: err.message });
+      }
+    }
+  );
+
+  app.get("/api/admin/ai-engine/status",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const status = getEngineStatus();
+        res.json({ ok: true, ...status });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, error: err.message });
       }
     }
   );
