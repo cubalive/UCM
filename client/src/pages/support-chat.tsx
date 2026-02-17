@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Send, Plus, Loader2 } from "lucide-react";
+import { MessageSquare, Send, Plus, Loader2, AlertTriangle } from "lucide-react";
+import { getStoredCompanyScopeId } from "@/lib/api";
 
 export default function SupportChatPage() {
   const { token, user } = useAuth();
@@ -20,6 +21,20 @@ export default function SupportChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const isClinic = user?.role === "VIEWER" || user?.role === "CLINIC_USER";
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const hasCompanyScope = isSuperAdmin ? !!getStoredCompanyScopeId() : true;
+
+  if (!isClinic && isSuperAdmin && !hasCompanyScope) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="support-no-company">
+        <AlertTriangle className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Company Scope Required</h2>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          As a Super Admin, please select a company from the Companies page first to access support threads.
+        </p>
+      </div>
+    );
+  }
 
   const threadsQuery = useQuery<any[]>({
     queryKey: isClinic ? ["/api/clinic/support/thread"] : ["/api/company/support/threads"],

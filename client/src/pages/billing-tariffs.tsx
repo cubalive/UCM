@@ -38,23 +38,40 @@ import {
   FileText,
   Loader2,
   Pencil,
+  AlertTriangle,
 } from "lucide-react";
+import { getStoredCompanyScopeId } from "@/lib/api";
 
 function cents(v: number): string {
   return (v / 100).toFixed(2);
 }
 
 export default function BillingTariffsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [editTariff, setEditTariff] = useState<any>(null);
-  const [filterClinic, setFilterClinic] = useState("");
+  const [filterClinic, setFilterClinic] = useState("__all__");
   const [backfillFrom, setBackfillFrom] = useState("");
   const [backfillTo, setBackfillTo] = useState("");
   const [invoiceClinic, setInvoiceClinic] = useState("");
   const [invoiceFrom, setInvoiceFrom] = useState("");
   const [invoiceTo, setInvoiceTo] = useState("");
+
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const hasCompanyScope = isSuperAdmin ? !!getStoredCompanyScopeId() : true;
+
+  if (isSuperAdmin && !hasCompanyScope) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="billing-no-company">
+        <AlertTriangle className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Company Scope Required</h2>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          As a Super Admin, please select a company from the Companies page first to access billing configuration.
+        </p>
+      </div>
+    );
+  }
 
   const clinicsQuery = useQuery<any[]>({
     queryKey: ["/api/clinics"],
@@ -65,7 +82,7 @@ export default function BillingTariffsPage() {
   const tariffsQuery = useQuery<any[]>({
     queryKey: ["/api/company/billing/tariffs", filterClinic],
     queryFn: () => {
-      const params = filterClinic ? `?clinic_id=${filterClinic}` : "";
+      const params = filterClinic && filterClinic !== "__all__" ? `?clinic_id=${filterClinic}` : "";
       return apiFetch(`/api/company/billing/tariffs${params}`, token);
     },
     enabled: !!token,
@@ -219,7 +236,7 @@ export default function BillingTariffsPage() {
                 <SelectValue placeholder="All clinics" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All</SelectItem>
+                <SelectItem value="__all__">All</SelectItem>
                 {clinics.map((c: any) => (
                   <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                 ))}
@@ -357,7 +374,7 @@ export default function BillingTariffsPage() {
 
 function TariffFormDialog({ open, onClose, onSubmit, isPending, clinics, title, defaults }: any) {
   const [name, setName] = useState(defaults?.name || "");
-  const [clinicId, setClinicId] = useState(defaults?.clinicId ? String(defaults.clinicId) : "");
+  const [clinicId, setClinicId] = useState(defaults?.clinicId ? String(defaults.clinicId) : "__default__");
   const [baseFeeCents, setBaseFeeCents] = useState(defaults?.baseFeeCents || 0);
   const [perMileCents, setPerMileCents] = useState(defaults?.perMileCents || 0);
   const [perMinuteCents, setPerMinuteCents] = useState(defaults?.perMinuteCents || 0);
@@ -385,7 +402,7 @@ function TariffFormDialog({ open, onClose, onSubmit, isPending, clinics, title, 
       sharedTripDiscountPct: Number(sharedTripDiscountPct),
       active,
     };
-    if (clinicId) data.clinicId = parseInt(clinicId);
+    if (clinicId && clinicId !== "__default__") data.clinicId = parseInt(clinicId);
     onSubmit(data);
   };
 
@@ -407,7 +424,7 @@ function TariffFormDialog({ open, onClose, onSubmit, isPending, clinics, title, 
                 <SelectValue placeholder="Company Default" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Company Default</SelectItem>
+                <SelectItem value="__default__">Company Default</SelectItem>
                 {clinics.map((c: any) => (
                   <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                 ))}
