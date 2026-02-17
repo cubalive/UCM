@@ -11,6 +11,8 @@ import {
   resolveCostLeakAlertHandler,
   getCertificationsHandler,
   getTriScoresHandler,
+  getIndexesSummaryHandler,
+  getIndexesPdfHandler,
 } from "../controllers/intelligence.controller";
 
 const router = express.Router();
@@ -81,6 +83,20 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "CLINIC_USER"),
   requireCityAccess,
   getCertificationsHandler as any
+);
+
+router.get(
+  "/api/intel/indexes",
+  authMiddleware,
+  requireRole("SUPER_ADMIN"),
+  getIndexesSummaryHandler as any
+);
+
+router.get(
+  "/api/intel/indexes/export.pdf",
+  authMiddleware,
+  requireRole("SUPER_ADMIN"),
+  getIndexesPdfHandler as any
 );
 
 export function registerIntelligenceRoutes(app: Express) {

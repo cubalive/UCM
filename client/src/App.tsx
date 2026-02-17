@@ -51,6 +51,7 @@ import DispatchSwapsPage from "@/pages/dispatch-swaps";
 import PricingPage from "@/pages/pricing";
 import MetricsPage from "@/pages/metrics";
 import IntelligencePage from "@/pages/intelligence";
+import IndexesPage from "@/pages/indexes";
 import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
@@ -279,6 +280,7 @@ function Router() {
       <Route path="/billing">{() => <ProtectedRoute resource="invoices" component={BillingPage} />}</Route>
       <Route path="/clinic-billing">{() => <ProtectedRoute resource="invoices" component={ClinicBillingPage} />}</Route>
       <Route path="/pricing">{() => <ProtectedRoute resource="audit" component={PricingPage} />}</Route>
+      <Route path="/indexes">{() => <SuperAdminRoute component={IndexesPage} />}</Route>
       <Route path="/metrics">{() => <SuperAdminRoute component={MetricsPage} />}</Route>
       <Route path="/intelligence">{() => <ProtectedRoute resource="audit" component={IntelligencePage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />

@@ -1,0 +1,212 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+FEATURE: CLINIC QUARTERLY INDEX REPORT (VIEW ONCE PER QUARTER) + PDF EXPORT + ALWAYS-ON RANKING
+We will expose a clinic-facing metrics report that clinics can see ONLY once every 3 months (per quarter),
+exportable to PDF, plus a persistent Ranking view.
+
+This must NOT expose SUPER_ADMIN internal financial metrics unless explicitly listed.
+Must be clinic-scoped: clinic_user can only see their clinic.
+
+------------------------------------------------------------
+PHASE 0 — AUTHZ + VISIBILITY RULES (HARD)
+------------------------------------------------------------
+1) Clinic portal routes must enforce clinic scope server-side:
+- clinic_user can only access their clinic_id
+- dispatch can view (optional) but cannot see other clinics unless explicitly allowed
+- super_admin can view all
+
+2) Quarterly report “view once” enforcement:
+- Each clinic gets 1 view token per quarter.
+- If clinic already viewed the report this quarter:
+  - show a locked screen: “Quarterly report already viewed. Download PDF available.” (configurable)
+  - OR if you want strict: block everything including PDF after first view (choose below).
+DEFAULT RECOMMENDATION:
+- Allow unlimited PDF downloads after first view, but only 1 interactive view.
+
+------------------------------------------------------------
+PHASE 1 — DEFINE THE CLINIC-VISIBLE INDEX SET (NO INTERNAL PROFIT)
+------------------------------------------------------------
+Expose THESE 10 indices to clinics (clinic-safe, no profit/leakage dollars unless you decide later):
+
+1) Transport Reliability Index (TRI Nevada™) 0–100
+2) Clinic Trust Score (CTS) 0–100
+3) Treatment Continuity Index (TCI) %   (completed clinic trips ÷ scheduled clinic trips)
+4) Chair Protection Index %            (on-time arrivals to clinic ÷ clinic arrivals)
+5) Same-Day Recovery Index %           (recovered incidents ÷ incidents) [if incidents exist; else omit + reweight]
+6) Return Reliability Index %          (on-time returns ÷ returns)
+7) Audit Readiness Index %             (trips with full proof: timestamps completeness + photo/GPS proof)
+8) Medical Punctuality Index %         (arrived within clinic buffer threshold)
+9) Late Risk Predictor (Quarter summary) (red/yellow/green counts + top reasons)
+10) Service Stability Index 0–100      (completed ÷ assigned + penalties) [clinic-scoped variant]
+
+IMPORTANT:
+- Each index must show: value, trend vs last quarter, and the counts behind it.
+- If any sub-component data not available, omit that component and normalize weights (no blanks).
+
+------------------------------------------------------------
+PHASE 2 — QUARTER MODEL + SNAPSHOTS (REQUIRED FOR CONSISTENCY)
+------------------------------------------------------------
+We must freeze quarterly results so they don’t change later.
+
+Create tables (minimal):
+
+clinic_quarterly_reports
+- id uuid pk
+- clinic_id uuid
+- state text
+- city text
+- quarter_key text  -- e.g. "2026-Q1"
+- period_start date
+- period_end date
+- computed_at timestamp
+- computed_by uuid
+- pdf_url text nullable (stored file)
+- view_count int default 0
+- first_viewed_at timestamp nullable
+- last_viewed_at timestamp nullable
+UNIQUE(clinic_id, quarter_key)
+
+clinic_quarterly_report_metrics
+- id uuid pk
+- report_id uuid fk clinic_quarterly_reports.id
+- metric_key text
+- metric_value numeric
+- payload_json jsonb  -- counts, thresholds, trend, notes
+UNIQUE(report_id, metric_key)
+
+Ranking snapshots:
+quarterly_rankings
+- id uuid pk
+- quarter_key text
+- scope text  -- 'state'|'city'|'national'
+- state text nullable
+- city text nullable
+- metric_key text  -- primarily TRI and CTS
+- computed_at timestamp
+UNIQUE(quarter_key, scope, state, city, metric_key)
+
+quarterly_ranking_entries
+- id uuid pk
+- ranking_id uuid
+- clinic_id uuid
+- rank int
+- score numeric
+- payload_json jsonb  -- counts/trend
+UNIQUE(ranking_id, clinic_id)
+
+------------------------------------------------------------
+PHASE 3 — COMPUTATION JOB (EVERY QUARTER)
+------------------------------------------------------------
+Implement quarterly compute job:
+- Determine current quarter boundaries.
+- For each clinic:
+  - compute 10 metrics for period_start..period_end
+  - compute trend vs prior quarter (using previous snapshot)
+  - store in clinic_quarterly_reports + clinic_quarterly_report_metrics
+- Compute rankings:
+  - City ranking (within city)
+  - State ranking (within state)
+  - National ranking (all clinics)
+Ranking primary metric:
+- TRI Nevada™ (default)
+Secondary tie-breaker:
+- CTS
+Store top N and each clinic rank.
+
+No external APIs.
+
+------------------------------------------------------------
+PHASE 4 — CLINIC PORTAL UI
+------------------------------------------------------------
+Add menu item for clinic users:
+Clinic Portal → Performance (Quarterly)
+
+Screen A: Quarterly Report (locked/unlocked)
+- Quarter selector (shows available quarters: current and past)
+- For current quarter:
+  - if not computed yet: “Quarterly report not available yet.”
+  - if computed:
+    - if view_count == 0: allow full interactive view
+    - else: show locked summary + PDF download (per rule)
+Interactive view includes:
+- 10 index cards with:
+  value, trend vs last quarter, short explanation, underlying counts
+- A “Your Rank” panel:
+  - City rank (e.g., #3 of 18)
+  - State rank
+  - National rank
+- A “Key Drivers” section (top 3 positives, top 3 issues) based on payload_json reasons
+
+Screen B: Ranking (Always-on)
+Clinic Portal → Ranking
+- Default: TRI ranking
+- Tabs: City | State | National
+- Shows:
+  - clinic position highlighted
+  - top 10 list
+  - percentile (e.g., top 15%)
+- OPTIONAL: allow switching metric_key (TRI / CTS)
+
+------------------------------------------------------------
+PHASE 5 — “VIEW ONCE PER QUARTER” ENFORCEMENT
+------------------------------------------------------------
+When clinic opens the current quarter report:
+- increment view_count
+- set first_viewed_at if null
+- set last_viewed_at
+If view_count >= 1:
+- block interactive view and show locked screen
+- allow PDF download (recommended) OR block PDF too (configurable flag)
+
+Implement this server-side (not only UI).
+
+------------------------------------------------------------
+PHASE 6 — PDF EXPORT (CLINIC-SAFE)
+------------------------------------------------------------
+Endpoint:
+GET /api/clinic/quarterly-report/:quarter_key/pdf
+
+- Verify clinic_user belongs to clinic_id
+- Generate or serve stored PDF (pdf_url)
+PDF contents:
+1) Header: United Care Mobility — Quarterly Performance Report
+2) Clinic name, City, State, Quarter, Period dates
+3) “Your Rank” (City/State/National) + TRI score
+4) 10 indices section (2 columns):
+   - metric name
+   - value
+   - trend vs last quarter
+   - counts (small)
+   - threshold notes (e.g., on-time definition)
+5) “Top Drivers” (what improved / what hurt)
+6) Footer: Generated timestamp + definitions disclaimer
+
+PDF must be 1–4 pages max and professional.
+
+------------------------------------------------------------
+PHASE 7 — VERIFY (MUST DO)
+------------------------------------------------------------
+1) Clinic A opens quarterly report first time -> full view works
+2) Opens again same quarter -> locked, PDF available
+3) Clinic can only see their clinic_id report
+4) Rankings show correct City/State/National and clinic highlighted
+5) Export PDF works from clinic portal and matches the snapshot
+6) Dispatch and non-clinic roles cannot see clinic reports unless explicitly allowed
+7) SUPER_ADMIN can view all reports (admin tooling)
+
+DO NOT
+- Do NOT reset DB
+- Do NOT expose internal profit/leakage $ unless explicitly approved
+- Do NOT compute live each view (must use snapshots for quarter consistency)
+
+SUCCESS CRITERIA
+Clinics can view a quarterly performance report once per quarter, export it to PDF,
+and always see a ranking (City/State/National) based on TRI Nevada™ (and optionally CTS).

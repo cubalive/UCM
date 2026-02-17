@@ -65,7 +65,8 @@
     "pricing": "Tarifas",
     "metrics": "Métricas",
     "mobilitySystem": "Sistema de Movilidad",
-    "intelligence": "Inteligencia"
+    "intelligence": "Inteligencia",
+    "indexes": "Índices"
   },
   "dashboard": {
     "title": "Panel Principal",

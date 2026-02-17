@@ -96,6 +96,7 @@ const adminItems: NavItem[] = [
   { titleKey: "nav.auditLog", url: "/audit", icon: ClipboardList, resource: "audit" },
   { titleKey: "nav.archive", url: "/archive", icon: Archive, resource: "audit" },
   { titleKey: "nav.intelligence", url: "/intelligence", icon: Brain, resource: "audit" },
+  { titleKey: "nav.indexes", url: "/indexes", icon: Activity, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.metrics", url: "/metrics", icon: BarChart, resource: "audit", superAdminOnly: true },
 ];
 

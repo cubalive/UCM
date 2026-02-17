@@ -65,7 +65,8 @@
     "pricing": "Pricing",
     "metrics": "Metrics",
     "mobilitySystem": "Mobility System",
-    "intelligence": "Intelligence"
+    "intelligence": "Intelligence",
+    "indexes": "Indexes"
   },
   "dashboard": {
     "title": "Dashboard",

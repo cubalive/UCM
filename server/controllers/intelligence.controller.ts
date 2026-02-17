@@ -12,6 +12,8 @@ import {
   clinics,
 } from "@shared/schema";
 import { eq, and, gte, lte, desc, asc, sql, isNull, isNotNull, or, inArray } from "drizzle-orm";
+import { computeIndexes, type IndexParams } from "../lib/indexEngine";
+import { generateIndexesPdf } from "../lib/indexesPdfGenerator";
 
 function cityFilter(actor: NonNullable<Awaited<ReturnType<typeof getActorContext>>>, cityIdParam?: string) {
   const parsedCityId = cityIdParam ? parseInt(String(cityIdParam)) : null;
@@ -377,6 +379,71 @@ export async function getTriScoresHandler(req: AuthRequest, res: Response) {
     return res.json({ triScores: rows });
   } catch (err: any) {
     console.error("getTriScores error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}
+
+export async function getIndexesSummaryHandler(req: AuthRequest, res: Response) {
+  try {
+    const { dateFrom, dateTo, scope, state, city } = req.query as Record<string, string>;
+
+    if (!dateFrom || !dateTo) {
+      return res.status(400).json({ message: "dateFrom and dateTo query params required (YYYY-MM-DD)" });
+    }
+
+    const validScopes = ["general", "state", "city"];
+    const resolvedScope = validScopes.includes(scope) ? scope : "general";
+
+    if (resolvedScope === "state" && !state) {
+      return res.status(400).json({ message: "state param required for state scope" });
+    }
+    if (resolvedScope === "city" && !city) {
+      return res.status(400).json({ message: "city param required for city scope" });
+    }
+
+    const params: IndexParams = {
+      dateFrom,
+      dateTo,
+      scope: resolvedScope as IndexParams["scope"],
+      state: state || undefined,
+      city: city || undefined,
+    };
+
+    const result = await computeIndexes(params);
+    return res.json(result);
+  } catch (err: any) {
+    console.error("getIndexesSummary error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}
+
+export async function getIndexesPdfHandler(req: AuthRequest, res: Response) {
+  try {
+    const { dateFrom, dateTo, scope, state, city } = req.query as Record<string, string>;
+
+    if (!dateFrom || !dateTo) {
+      return res.status(400).json({ message: "dateFrom and dateTo required" });
+    }
+
+    const validScopes = ["general", "state", "city"];
+    const resolvedScope = validScopes.includes(scope) ? scope : "general";
+
+    const params: IndexParams = {
+      dateFrom,
+      dateTo,
+      scope: resolvedScope as IndexParams["scope"],
+      state: state || undefined,
+      city: city || undefined,
+    };
+
+    const result = await computeIndexes(params);
+    const pdfBuffer = await generateIndexesPdf(result);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="UCM_Indexes_${resolvedScope}_${dateFrom}_${dateTo}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err: any) {
+    console.error("getIndexesPdf error:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
 }
