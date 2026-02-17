@@ -105,3 +105,14 @@ export async function apiFetch(
   }
   return res.json();
 }
+
+export function rawAuthFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (isDriverHost && (url.startsWith("/api/ops") || url.startsWith("/api/admin/metrics"))) {
+    return Promise.resolve(new Response(JSON.stringify({ message: "Ops blocked on driver host" }), { status: 403 }));
+  }
+  const token = getStoredToken();
+  const extraHeaders = (init?.headers as Record<string, string>) || {};
+  const headers = buildHeaders(token, extraHeaders);
+  const credentials: RequestCredentials = isDriverHost ? "omit" : "include";
+  return fetch(url, { ...init, headers, credentials });
+}

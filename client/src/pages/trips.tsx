@@ -28,7 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import { downloadWithAuth } from "@/lib/export";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { useTranslation } from "react-i18next";
 import { RecurringSchedule, type TripType, type SeriesPattern, type SeriesEndType } from "@/components/recurring-schedule";
@@ -1034,10 +1034,7 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
     const inv = invoiceQuery.data?.invoice;
     if (!inv) return;
     setPdfLoading(true);
-    await downloadWithAuth(`/api/invoices/${inv.id}/pdf`, `invoice-${inv.id}.pdf`, token, {
-      method: "POST",
-      onError: (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
-    });
+    await downloadWithAuth(`/api/invoices/${inv.id}/pdf`, `invoice-${inv.id}.pdf`, "application/pdf", (u, i) => rawAuthFetch(u, { ...i, method: "POST" }), (msg) => toast({ title: "Error", description: msg, variant: "destructive" }));
     setPdfLoading(false);
   };
 

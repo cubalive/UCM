@@ -17,6 +17,7 @@ import {
 import { FileText, Download, Receipt, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { downloadWithAuth } from "@/lib/export";
+import { rawAuthFetch } from "@/lib/api";
 
 function InvoiceMapThumb({ tripId, token }: { tripId: number | null; token: string | null }) {
   const [failed, setFailed] = useState(false);
@@ -157,7 +158,7 @@ export default function ClinicInvoicesPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         {inv.pdfUrl ? (
-                          <DownloadPdfButton invoiceId={inv.id} pdfUrl={inv.pdfUrl} token={token} />
+                          <DownloadPdfButton invoiceId={inv.id} pdfUrl={inv.pdfUrl} />
                         ) : (
                           <span className="text-xs text-muted-foreground">N/A</span>
                         )}
@@ -174,14 +175,12 @@ export default function ClinicInvoicesPage() {
   );
 }
 
-function DownloadPdfButton({ invoiceId, pdfUrl, token }: { invoiceId: number; pdfUrl: string; token: string | null }) {
+function DownloadPdfButton({ invoiceId, pdfUrl }: { invoiceId: number; pdfUrl: string }) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const handleClick = async () => {
     setLoading(true);
-    await downloadWithAuth(pdfUrl, `invoice-${invoiceId}.pdf`, token, {
-      onError: (msg) => toast({ title: "Download failed", description: msg, variant: "destructive" }),
-    });
+    await downloadWithAuth(pdfUrl, `invoice-${invoiceId}.pdf`, "application/pdf", rawAuthFetch, (msg) => toast({ title: "Download failed", description: msg, variant: "destructive" }));
     setLoading(false);
   };
   return (

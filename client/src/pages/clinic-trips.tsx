@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTripRealtime } from "@/hooks/use-trip-realtime";
 import { RealtimeDebugPanel } from "@/components/realtime-debug-panel";
 import { queryClient } from "@/lib/queryClient";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1605,8 +1605,9 @@ function PerformanceSection() {
     const ok = await downloadWithAuth(
       `/api/clinic/trips/export?startDate=${startDate}&endDate=${endDate}`,
       `performance_${startDate}_to_${endDate}.csv`,
-      token,
-      { onError: (msg) => toast({ title: "Export failed", description: msg, variant: "destructive" }) },
+      "text/csv; charset=utf-8",
+      rawAuthFetch,
+      (msg) => toast({ title: "Export failed", description: msg, variant: "destructive" }),
     );
     if (ok) toast({ title: "Export downloaded" });
     setExporting(false);
@@ -1906,8 +1907,9 @@ function ReportsSection() {
     const ok = await downloadWithAuth(
       `/api/clinic/trips/export?startDate=${startDate}&endDate=${endDate}`,
       `trips_${startDate}_to_${endDate}.csv`,
-      token,
-      { onError: (msg) => toast({ title: "Export failed", description: msg, variant: "destructive" }) },
+      "text/csv; charset=utf-8",
+      rawAuthFetch,
+      (msg) => toast({ title: "Export failed", description: msg, variant: "destructive" }),
     );
     if (ok) toast({ title: "Export downloaded" });
     setExporting(false);
@@ -1920,8 +1922,9 @@ function ReportsSection() {
     const ok = await downloadWithAuth(
       `/api/clinic/trips/export?startDate=${sd}&endDate=${ed}`,
       `weekly_summary_${sd}_to_${ed}.csv`,
-      token,
-      { onError: (msg) => toast({ title: "Export failed", description: msg, variant: "destructive" }) },
+      "text/csv; charset=utf-8",
+      rawAuthFetch,
+      (msg) => toast({ title: "Export failed", description: msg, variant: "destructive" }),
     );
     if (ok) toast({ title: "Weekly summary downloaded" });
     setExporting(false);
@@ -2883,10 +2886,7 @@ function InvoicePanel({ tripId, tripStatus }: { tripId: number; tripStatus: stri
     const inv = invoiceQuery.data?.invoice;
     if (!inv) return;
     setPdfLoading(true);
-    await downloadWithAuth(`/api/invoices/${inv.id}/pdf`, `invoice-${inv.id}.pdf`, token, {
-      method: "POST",
-      onError: (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
-    });
+    await downloadWithAuth(`/api/invoices/${inv.id}/pdf`, `invoice-${inv.id}.pdf`, "application/pdf", (u, i) => rawAuthFetch(u, { ...i, method: "POST" }), (msg) => toast({ title: "Error", description: msg, variant: "destructive" }));
     setPdfLoading(false);
   };
 
@@ -2985,9 +2985,7 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
   const handleDownloadPdf = async () => {
     if (!token || !trip.id) return;
     setPdfLoading(true);
-    await downloadWithAuth(`/api/clinic/trips/${trip.id}/pdf`, `trip-${trip.publicId || trip.id}.pdf`, token, {
-      onError: (msg) => toast({ title: "Error", description: msg || "Failed to download PDF", variant: "destructive" }),
-    });
+    await downloadWithAuth(`/api/clinic/trips/${trip.id}/pdf`, `trip-${trip.publicId || trip.id}.pdf`, "application/pdf", rawAuthFetch, (msg) => toast({ title: "Error", description: msg || "Failed to download PDF", variant: "destructive" }));
     setPdfLoading(false);
   };
 

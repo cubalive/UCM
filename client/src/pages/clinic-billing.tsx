@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -621,9 +621,7 @@ function InvoicesTab() {
   });
 
   const handleDownloadCsv = async (invId: number) => {
-    await downloadWithAuth(`/api/clinic-billing/invoices/${invId}/csv`, `clinic-billing-${invId}.csv`, token, {
-      onError: (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
-    });
+    await downloadWithAuth(`/api/clinic-billing/invoices/${invId}/csv`, `clinic-billing-${invId}.csv`, "text/csv; charset=utf-8", rawAuthFetch, (msg) => toast({ title: "Error", description: msg, variant: "destructive" }));
   };
 
   const handleGenerate = () => {

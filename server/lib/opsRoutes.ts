@@ -996,4 +996,231 @@ export function registerOpsRoutes(app: Express) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  function csvEscape(val: unknown): string {
+    if (val === null || val === undefined) return "";
+    const s = typeof val === "object" ? JSON.stringify(val) : String(val);
+    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+
+  function toCsvServer(rows: Record<string, unknown>[], columns?: string[]): string {
+    if (rows.length === 0) return "";
+    const headers = columns ?? Object.keys(rows[0]);
+    const lines = [headers.map(csvEscape).join(",")];
+    for (const row of rows) {
+      lines.push(headers.map((h) => csvEscape(row[h])).join(","));
+    }
+    return "\ufeff" + lines.join("\n");
+  }
+
+  function sendCsv(res: any, csv: string, filename: string) {
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(csv);
+  }
+
+  app.get("/api/ops/metrics/download.json", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getRequestMetricsSummary } = await import("./requestMetrics");
+      const { getRedisMetrics } = await import("./redis");
+      const { getRealtimeMetrics } = await import("./supabaseRealtime");
+      const { getDirectionsMetrics } = await import("./googleMaps");
+      const { getBackpressureMetrics, getDegradeTier, getLocationPublishInterval } = await import("./backpressure");
+      const { getActiveConnectionCount, getActiveSubscriptionCount } = await import("./realtime");
+      const { getIngestMetrics } = await import("./driverLocationIngest");
+      const { getTopRoutes } = await import("./requestMetrics");
+
+      const bp = getBackpressureMetrics();
+      const payload = {
+        generatedAt: new Date().toISOString(),
+        request: getRequestMetricsSummary(),
+        redis: getRedisMetrics(),
+        realtime: {
+          ...getRealtimeMetrics(),
+          ws_connections: getActiveConnectionCount(),
+          ws_subscriptions: getActiveSubscriptionCount(),
+        },
+        google: getDirectionsMetrics(),
+        backpressure: {
+          ...bp,
+          degrade_tier: getDegradeTier(),
+          publish_interval_ms: getLocationPublishInterval(),
+        },
+        gps_ingest: getIngestMetrics(),
+        routes: getTopRoutes(100),
+      };
+
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="ucm-metrics-${new Date().toISOString().slice(0, 10)}.json"`);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(payload);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/ops/metrics/summary.csv", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getRequestMetricsSummary } = await import("./requestMetrics");
+      const { getRedisMetrics } = await import("./redis");
+      const { getRealtimeMetrics } = await import("./supabaseRealtime");
+      const { getDirectionsMetrics } = await import("./googleMaps");
+      const metrics = getRequestMetricsSummary();
+      const redis = getRedisMetrics();
+      const rt = getRealtimeMetrics();
+      const goog = getDirectionsMetrics();
+
+      const row: Record<string, unknown> = {
+        generatedAt: new Date().toISOString(),
+        reqPerMin: metrics.total_requests_5min,
+        errorRatePct: metrics.error_rate_pct,
+        p95LatencyMs: metrics.p95_latency_ms,
+        redisOk: redis.redis_connected ? "yes" : "no",
+        cacheHitRatePct: redis.cache_hit_rate,
+        realtimeTokensIssuedPerMin: rt.realtime_tokens_per_min,
+        realtimePublishesPerMin_location: rt.realtime_broadcasts_by_type?.location ?? 0,
+        realtimePublishesPerMin_eta: rt.realtime_broadcasts_by_type?.eta ?? 0,
+        realtimePublishesPerMin_status: rt.realtime_broadcasts_by_type?.status_change ?? 0,
+        directionsCallsPerMin: goog?.directions_calls_per_min ?? 0,
+        directionsFailuresPerMin: goog?.directions_failures_last_60s ?? 0,
+        breakerOn: goog?.circuit_breaker?.open ? "yes" : "no",
+      };
+
+      sendCsv(res, toCsvServer([row]), `ucm-metrics-summary-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/ops/metrics/health.csv", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const { getRedisMetrics, isRedisConnected } = await import("./redis");
+      const redis = getRedisMetrics();
+
+      const row: Record<string, unknown> = {
+        generatedAt: new Date().toISOString(),
+        redis: isRedisConnected() ? "ok" : "fail",
+        cacheHitRate: redis.cache_hit_rate,
+        cacheErrors: redis.cache_errors,
+        lastError: redis.last_error ?? "",
+      };
+
+      sendCsv(res, toCsvServer([row]), `ucm-metrics-health-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/ops/metrics/cache.csv", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getRedisMetrics } = await import("./redis");
+      const redis = getRedisMetrics();
+      const rows: Record<string, unknown>[] = [];
+      const now = new Date().toISOString();
+
+      if (redis.cache_by_key && Object.keys(redis.cache_by_key).length > 0) {
+        for (const [keyFamily, data] of Object.entries(redis.cache_by_key)) {
+          const total = (data as any).hits + (data as any).misses;
+          rows.push({
+            generatedAt: now,
+            keyFamily,
+            hits: (data as any).hits,
+            misses: (data as any).misses,
+            hitRatePct: total > 0 ? Math.round(((data as any).hits / total) * 100) : 0,
+          });
+        }
+      } else {
+        const total = redis.cache_hits + redis.cache_misses;
+        rows.push({
+          generatedAt: now,
+          keyFamily: "all",
+          hits: redis.cache_hits,
+          misses: redis.cache_misses,
+          hitRatePct: total > 0 ? Math.round((redis.cache_hits / total) * 100) : 0,
+        });
+      }
+
+      sendCsv(res, toCsvServer(rows, ["generatedAt", "keyFamily", "hits", "misses", "hitRatePct"]), `ucm-metrics-cache-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/ops/metrics/realtime.csv", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getRealtimeMetrics } = await import("./supabaseRealtime");
+      const { getActiveConnectionCount } = await import("./realtime");
+      const rt = getRealtimeMetrics();
+      const now = new Date().toISOString();
+      const rows: Record<string, unknown>[] = [];
+      const byType = rt.realtime_broadcasts_by_type;
+
+      if (byType) {
+        for (const [eventType, count] of Object.entries(byType)) {
+          rows.push({ generatedAt: now, eventType, publishesPerMin: count });
+        }
+      }
+      rows.push({
+        generatedAt: now,
+        eventType: "__totals__",
+        publishesPerMin: rt.realtime_broadcasts_per_min,
+        tokensIssuedPerMin: rt.realtime_tokens_per_min,
+        wsConnections: getActiveConnectionCount(),
+      });
+
+      sendCsv(res, toCsvServer(rows, ["generatedAt", "eventType", "publishesPerMin", "tokensIssuedPerMin", "wsConnections"]), `ucm-metrics-realtime-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/ops/metrics/google.csv", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getDirectionsMetrics } = await import("./googleMaps");
+      const { getRedisMetrics } = await import("./redis");
+      const goog = getDirectionsMetrics();
+      const redis = getRedisMetrics();
+
+      const row: Record<string, unknown> = {
+        generatedAt: new Date().toISOString(),
+        directionsCallsPerMin: goog.directions_calls_per_min,
+        directionsFailuresPerMin: goog.directions_failures_last_60s,
+        breakerOn: goog.circuit_breaker?.open ? "yes" : "no",
+        breakerRemainingSec: goog.circuit_breaker?.cooldown_seconds ?? "",
+        lockContentionCount: redis.eta_lock_contention_count ?? "",
+      };
+
+      sendCsv(res, toCsvServer([row]), `ucm-metrics-google-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/ops/metrics/routes.csv", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getTopRoutes } = await import("./requestMetrics");
+      const routes = getTopRoutes(100);
+      const now = new Date().toISOString();
+
+      if (!routes || routes.length === 0) {
+        return sendCsv(res, "", `ucm-metrics-routes-${new Date().toISOString().slice(0, 10)}.csv`);
+      }
+
+      const rows = routes.map((r: any) => ({
+        generatedAt: now,
+        route: r.route,
+        count: r.request_count,
+        p95Ms: r.p95_ms,
+        errorCount: r.error_count,
+      }));
+
+      sendCsv(res, toCsvServer(rows, ["generatedAt", "route", "count", "p95Ms", "errorCount"]), `ucm-metrics-routes-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
 }

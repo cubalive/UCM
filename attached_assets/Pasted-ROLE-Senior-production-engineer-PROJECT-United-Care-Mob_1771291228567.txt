@@ -1,0 +1,104 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+TASK (PHASE 2 — AUTHENTICATED DOWNLOADS, Safari-proof)
+
+Problem:
+On iPhone Safari, clicking Download JSON/CSV sometimes saves a file containing {"message":"Unauthorized"} or hits 404, because <a href="/api/..."> navigations do NOT attach Authorization headers and sometimes change SPA routes.
+
+Goal:
+All protected downloads must be fetched with Authorization header and downloaded as a Blob (no direct <a href="/api/..."> to protected routes).
+
+Requirements:
+1) Implement a reusable helper:
+   - downloadWithAuth(url, filename, mimeType)
+   - Uses existing apiFetch/apiRequest (so Authorization header is included)
+   - Fetch as Blob (or ArrayBuffer), createObjectURL, trigger download via temporary <a download>
+   - Safari iOS safe: append to DOM, click(), then remove, revokeObjectURL with setTimeout
+2) Replace ALL download buttons/links in Ops/System Metrics pages:
+   - "Download JSON"
+   - "CSV: Summary", "CSV: Health", "CSV: Redis/Cache", "CSV: Realtime", "CSV: Google", "CSV: Routes"
+   - Ensure these handlers use downloadWithAuth and NEVER use window.location / <a href="/api/...">
+3) Backend headers for download routes:
+   For CSV endpoints:
+     Content-Type: text/csv; charset=utf-8
+     Content-Disposition: attachment; filename="<something>.csv"
+     Cache-Control: no-store
+   For JSON endpoints:
+     Content-Type: application/json; charset=utf-8
+     Content-Disposition: attachment; filename="<something>.json"
+     Cache-Control: no-store
+   NOTE: Keep endpoints protected and returning 401/403 as appropriate.
+4) Role gating:
+   - Only ops-allowed roles (SUPER_ADMIN / DISPATCH) see Ops download buttons.
+   - DRIVER and CLINIC_USER never see ops download UI.
+   - Backend already blocks /api/ops/* for DRIVER/CLINIC_USER; keep it.
+5) UX fallback:
+   - If apiFetch/apiRequest returns 401 -> toast "Session expired. Please login again." and DO NOT download
+   - If 403 -> toast "No access" and DO NOT download
+   - If non-OK -> toast with status code; DO NOT download
+6) Verify on iPhone Safari + Desktop:
+   - Logged-in Admin: JSON downloads valid (not Unauthorized payload)
+   - Logged-in Admin: CSV downloads valid and opens correctly
+   - Logged-out: click shows toast, no download
+   - Driver: cannot see buttons; cannot download ops routes
+
+Implementation details (do this exactly):
+A) Frontend helper (TypeScript) in a shared utils file used by Ops Metrics page:
+
+export async function downloadWithAuth(
+  url: string,
+  filename: string,
+  mimeType: string,
+  apiFetchLike: (url: string, init?: RequestInit) => Promise<Response>,
+  toast?: (msg: string) => void
+) {
+  const res = await apiFetchLike(url, { method: "GET" });
+
+  if (res.status === 401) { toast?.("Session expired. Please login again."); return; }
+  if (res.status === 403) { toast?.("No access."); return; }
+  if (!res.ok) { toast?.(`Download failed (${res.status})`); return; }
+
+  const blob = await res.blob();
+  const safeBlob = mimeType ? new Blob([blob], { type: mimeType }) : blob;
+
+  const objectUrl = URL.createObjectURL(safeBlob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+}
+
+Then in Ops metrics page button handlers:
+- Download JSON: downloadWithAuth("/api/ops/metrics", "ops-metrics.json", "application/json", apiFetch, toast)
+- CSV buttons: downloadWithAuth("/api/ops/metrics/health.csv" (or whatever routes exist), "ops-health.csv", "text/csv; charset=utf-8", apiFetch, toast)
+
+B) Backend headers:
+Where ops metrics endpoints return CSV/JSON, set:
+- res.setHeader("Content-Type", ...)
+- res.setHeader("Content-Disposition", `attachment; filename="..."`)
+- res.setHeader("Cache-Control", "no-store")
+Return body unchanged.
+
+C) Remove any remaining usage of:
+- <a href="/api/...">
+- window.location = "/api/..."
+- open("/api/...") for protected downloads
+
+Verification:
+- Provide exact list of files changed (frontend + backend).
+- Provide test results for iPhone Safari and desktop.
+- Verify no ops download buttons are rendered for driver host and driver role.

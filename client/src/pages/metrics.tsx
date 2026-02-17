@@ -9,7 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { toCsv, downloadFile, buildTimestamp } from "@/lib/export";
+import { downloadWithAuth, buildTimestamp } from "@/lib/export";
+import { rawAuthFetch } from "@/lib/api";
 import {
   Activity,
   Wifi,
@@ -310,150 +311,55 @@ export default function MetricsPage() {
 
   const { toast } = useToast();
 
-  const hasRoutes = !!(routesData?.routes && routesData.routes.length > 0);
+  const showToast = (msg: string) => toast({ title: msg, variant: "destructive" });
 
-  function exportJson() {
-    if (!metrics && !adminSummary) { toast({ title: "Metrics not loaded yet. Try again in a few seconds.", variant: "destructive" }); return; }
+  async function exportJson() {
     const ts = buildTimestamp();
-    const payload = {
-      generatedAt: new Date().toISOString(),
-      adminSummary: adminSummary ?? null,
-      adminCounts: adminCounts ?? null,
-      health: healthData ?? null,
-      metrics: metrics ?? null,
-      google: googleData ?? metrics?.google ?? null,
-      routes: routesData?.routes ?? null,
-    };
     const filename = `ucm-metrics-${ts}.json`;
-    downloadFile(JSON.stringify(payload, null, 2), filename, "application/json");
-    toast({ title: `Downloaded ${filename}` });
+    const ok = await downloadWithAuth("/api/ops/metrics/download.json", filename, "application/json", rawAuthFetch, showToast);
+    if (ok) toast({ title: `Downloaded ${filename}` });
   }
 
-  function exportSummaryCsv() {
-    if (!metrics) { toast({ title: "Metrics not loaded yet. Try again in a few seconds.", variant: "destructive" }); return; }
+  async function exportSummaryCsv() {
     const ts = buildTimestamp();
-    const goog = googleData || metrics.google;
-    const row: Record<string, unknown> = {
-      generatedAt: new Date().toISOString(),
-      healthStatus: healthData?.overall ?? "",
-      reqPerMin: metrics.request.total_requests_5min,
-      errorRatePct: metrics.request.error_rate_pct,
-      p95LatencyMs: metrics.request.p95_latency_ms,
-      redisOk: metrics.redis.redis_connected ? "yes" : "no",
-      cacheHitRatePct: metrics.redis.cache_hit_rate,
-      realtimeTokensIssuedPerMin: metrics.realtime.realtime_tokens_per_min,
-      realtimePublishesPerMin_location: metrics.realtime.realtime_broadcasts_by_type?.location ?? 0,
-      realtimePublishesPerMin_eta: metrics.realtime.realtime_broadcasts_by_type?.eta ?? 0,
-      realtimePublishesPerMin_status: metrics.realtime.realtime_broadcasts_by_type?.status_change ?? 0,
-      directionsCallsPerMin: goog?.directions_calls_per_min ?? 0,
-      directionsFailuresPerMin: goog?.directions_failures_last_60s ?? 0,
-      breakerOn: goog?.circuit_breaker?.open ? "yes" : "no",
-    };
     const filename = `ucm-metrics-summary-${ts}.csv`;
-    downloadFile(toCsv([row]), filename, "text/csv");
-    toast({ title: `Downloaded ${filename}` });
+    const ok = await downloadWithAuth("/api/ops/metrics/summary.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
+    if (ok) toast({ title: `Downloaded ${filename}` });
   }
 
-  function exportHealthCsv() {
-    if (!healthData) { toast({ title: "Health data not loaded yet. Try again in a few seconds.", variant: "destructive" }); return; }
+  async function exportHealthCsv() {
     const ts = buildTimestamp();
-    const row: Record<string, unknown> = {
-      generatedAt: new Date().toISOString(),
-      overall: healthData.overall?.toUpperCase() ?? "",
-      redis: healthData.redis ?? (metrics?.redis.redis_connected ? "ok" : "fail"),
-      redisLatencyMs: healthData.redis_latency_ms ?? "",
-      lastError: metrics?.redis.last_error ?? "",
-    };
     const filename = `ucm-metrics-health-${ts}.csv`;
-    downloadFile(toCsv([row]), filename, "text/csv");
-    toast({ title: `Downloaded ${filename}` });
+    const ok = await downloadWithAuth("/api/ops/metrics/health.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
+    if (ok) toast({ title: `Downloaded ${filename}` });
   }
 
-  function exportCacheCsv() {
-    if (!metrics) { toast({ title: "Metrics not loaded yet. Try again in a few seconds.", variant: "destructive" }); return; }
+  async function exportCacheCsv() {
     const ts = buildTimestamp();
-    const cacheByKey = metrics.redis.cache_by_key;
-    const rows: Record<string, unknown>[] = [];
-    if (cacheByKey && Object.keys(cacheByKey).length > 0) {
-      for (const [keyFamily, data] of Object.entries(cacheByKey)) {
-        const total = data.hits + data.misses;
-        rows.push({
-          generatedAt: new Date().toISOString(),
-          keyFamily,
-          hits: data.hits,
-          misses: data.misses,
-          hitRatePct: total > 0 ? Math.round((data.hits / total) * 100) : 0,
-        });
-      }
-    } else {
-      const total = metrics.redis.cache_hits + metrics.redis.cache_misses;
-      rows.push({
-        generatedAt: new Date().toISOString(),
-        keyFamily: "all",
-        hits: metrics.redis.cache_hits,
-        misses: metrics.redis.cache_misses,
-        hitRatePct: total > 0 ? Math.round((metrics.redis.cache_hits / total) * 100) : 0,
-      });
-    }
     const filename = `ucm-metrics-cache-${ts}.csv`;
-    downloadFile(toCsv(rows, ["generatedAt", "keyFamily", "hits", "misses", "hitRatePct"]), filename, "text/csv");
-    toast({ title: `Downloaded ${filename}` });
+    const ok = await downloadWithAuth("/api/ops/metrics/cache.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
+    if (ok) toast({ title: `Downloaded ${filename}` });
   }
 
-  function exportRealtimeCsv() {
-    if (!metrics) { toast({ title: "Metrics not loaded yet. Try again in a few seconds.", variant: "destructive" }); return; }
+  async function exportRealtimeCsv() {
     const ts = buildTimestamp();
-    const now = new Date().toISOString();
-    const rows: Record<string, unknown>[] = [];
-    const byType = metrics.realtime.realtime_broadcasts_by_type;
-    if (byType) {
-      for (const [eventType, count] of Object.entries(byType)) {
-        rows.push({ generatedAt: now, eventType, publishesPerMin: count });
-      }
-    }
-    rows.push({
-      generatedAt: now,
-      eventType: "__totals__",
-      publishesPerMin: metrics.realtime.realtime_broadcasts_per_min,
-      tokensIssuedPerMin: metrics.realtime.realtime_tokens_per_min,
-      wsConnections: metrics.realtime.ws_connections,
-    });
     const filename = `ucm-metrics-realtime-${ts}.csv`;
-    downloadFile(toCsv(rows, ["generatedAt", "eventType", "publishesPerMin", "tokensIssuedPerMin", "wsConnections"]), filename, "text/csv");
-    toast({ title: `Downloaded ${filename}` });
+    const ok = await downloadWithAuth("/api/ops/metrics/realtime.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
+    if (ok) toast({ title: `Downloaded ${filename}` });
   }
 
-  function exportGoogleCsv() {
-    const goog = googleData || metrics?.google;
-    if (!goog) { toast({ title: "Google metrics not loaded yet. Try again in a few seconds.", variant: "destructive" }); return; }
+  async function exportGoogleCsv() {
     const ts = buildTimestamp();
-    const row: Record<string, unknown> = {
-      generatedAt: new Date().toISOString(),
-      directionsCallsPerMin: goog.directions_calls_per_min,
-      directionsFailuresPerMin: goog.directions_failures_last_60s,
-      breakerOn: goog.circuit_breaker?.open ? "yes" : "no",
-      breakerRemainingSec: goog.circuit_breaker?.cooldown_seconds ?? "",
-      lockContentionCount: metrics?.redis.eta_lock_contention_count ?? "",
-    };
     const filename = `ucm-metrics-google-${ts}.csv`;
-    downloadFile(toCsv([row]), filename, "text/csv");
-    toast({ title: `Downloaded ${filename}` });
+    const ok = await downloadWithAuth("/api/ops/metrics/google.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
+    if (ok) toast({ title: `Downloaded ${filename}` });
   }
 
-  function exportRoutesCsv() {
-    if (!routesData?.routes?.length) { toast({ title: "Routes metrics not available.", variant: "destructive" }); return; }
+  async function exportRoutesCsv() {
     const ts = buildTimestamp();
-    const now = new Date().toISOString();
-    const rows = routesData.routes.map((r) => ({
-      generatedAt: now,
-      route: r.route,
-      count: r.request_count,
-      p95Ms: r.p95_ms,
-      errorCount: r.error_count,
-    }));
     const filename = `ucm-metrics-routes-${ts}.csv`;
-    downloadFile(toCsv(rows, ["generatedAt", "route", "count", "p95Ms", "errorCount"]), filename, "text/csv");
-    toast({ title: `Downloaded ${filename}` });
+    const ok = await downloadWithAuth("/api/ops/metrics/routes.csv", filename, "text/csv; charset=utf-8", rawAuthFetch, showToast);
+    if (ok) toast({ title: `Downloaded ${filename}` });
   }
 
   useEffect(() => {
@@ -552,43 +458,34 @@ export default function MetricsPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="outline" disabled={!metrics} onClick={exportJson} data-testid="button-download-json">
+        <Button size="sm" variant="outline" onClick={exportJson} data-testid="button-download-json">
           <Download className="mr-2 h-3 w-3" />
           Download JSON
         </Button>
-        <Button size="sm" variant="outline" disabled={!metrics} onClick={exportSummaryCsv} data-testid="button-csv-summary">
+        <Button size="sm" variant="outline" onClick={exportSummaryCsv} data-testid="button-csv-summary">
           <FileSpreadsheet className="mr-2 h-3 w-3" />
           CSV: Summary
         </Button>
-        <Button size="sm" variant="outline" disabled={!healthData} onClick={exportHealthCsv} data-testid="button-csv-health">
+        <Button size="sm" variant="outline" onClick={exportHealthCsv} data-testid="button-csv-health">
           <FileSpreadsheet className="mr-2 h-3 w-3" />
           CSV: Health
         </Button>
-        <Button size="sm" variant="outline" disabled={!metrics} onClick={exportCacheCsv} data-testid="button-csv-cache">
+        <Button size="sm" variant="outline" onClick={exportCacheCsv} data-testid="button-csv-cache">
           <FileSpreadsheet className="mr-2 h-3 w-3" />
           CSV: Redis/Cache
         </Button>
-        <Button size="sm" variant="outline" disabled={!metrics} onClick={exportRealtimeCsv} data-testid="button-csv-realtime">
+        <Button size="sm" variant="outline" onClick={exportRealtimeCsv} data-testid="button-csv-realtime">
           <FileSpreadsheet className="mr-2 h-3 w-3" />
           CSV: Realtime
         </Button>
-        <Button size="sm" variant="outline" disabled={!metrics && !googleData} onClick={exportGoogleCsv} data-testid="button-csv-google">
+        <Button size="sm" variant="outline" onClick={exportGoogleCsv} data-testid="button-csv-google">
           <FileSpreadsheet className="mr-2 h-3 w-3" />
           CSV: Google
         </Button>
-        <UiTooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <Button size="sm" variant="outline" disabled={!hasRoutes} onClick={exportRoutesCsv} data-testid="button-csv-routes">
-                <FileSpreadsheet className="mr-2 h-3 w-3" />
-                CSV: Routes
-              </Button>
-            </span>
-          </TooltipTrigger>
-          {!hasRoutes && (
-            <TooltipContent>Routes metrics not available</TooltipContent>
-          )}
-        </UiTooltip>
+        <Button size="sm" variant="outline" onClick={exportRoutesCsv} data-testid="button-csv-routes">
+          <FileSpreadsheet className="mr-2 h-3 w-3" />
+          CSV: Routes
+        </Button>
       </div>
 
       {/* Status Cards Row */}
