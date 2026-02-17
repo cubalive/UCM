@@ -5871,6 +5871,18 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
 
       const [enriched] = await enrichTripsWithRelations([trip]);
 
+      const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+
+      let mapSnapshotUrl = enriched.staticMapFullUrl || enriched.staticMapThumbUrl || null;
+      if (!mapSnapshotUrl && enriched.pickupLat && enriched.pickupLng && enriched.dropoffLat && enriched.dropoffLng) {
+        const gmKey = process.env.GOOGLE_MAPS_API_KEY;
+        if (gmKey) {
+          const pA = `${enriched.pickupLat},${enriched.pickupLng}`;
+          const pB = `${enriched.dropoffLat},${enriched.dropoffLng}`;
+          mapSnapshotUrl = `https://maps.googleapis.com/maps/api/staticmap?size=600x300&markers=color:green|label:A|${pA}&markers=color:red|label:B|${pB}&path=color:0x4285F4FF|weight:4|${pA}|${pB}&key=${gmKey}`;
+        }
+      }
+
       const clinicSafe = {
         id: enriched.id,
         publicId: enriched.publicId,
@@ -5886,9 +5898,15 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         dropoffLat: enriched.dropoffLat,
         dropoffLng: enriched.dropoffLng,
         distanceMiles: enriched.distanceMiles ? parseFloat(enriched.distanceMiles) : null,
+        durationMinutes: enriched.durationMinutes || null,
         status: enriched.status,
         tripType: enriched.tripType,
         direction: enriched.direction,
+        mobilityRequirement: enriched.mobilityRequirement || "STANDARD",
+        passengerCount: enriched.passengerCount || 1,
+        cityName: enriched.cityName || null,
+        wheelchairRequired: patient?.wheelchairRequired || false,
+        patientNotes: patient?.notes || null,
         approvalStatus: enriched.approvalStatus,
         approvedAt: enriched.approvedAt,
         assignedAt: enriched.assignedAt,
@@ -5910,8 +5928,8 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         vehicleMake: enriched.vehicleMake,
         vehicleModel: enriched.vehicleModel,
         routePolyline: enriched.routePolyline,
-        staticMapThumbUrl: enriched.staticMapThumbUrl,
-        staticMapFullUrl: enriched.staticMapFullUrl,
+        staticMapThumbUrl: mapSnapshotUrl,
+        staticMapFullUrl: mapSnapshotUrl,
         lastEtaMinutes: enriched.lastEtaMinutes,
         createdAt: enriched.createdAt,
       };
@@ -5937,31 +5955,44 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       const [enriched] = await enrichTripsWithRelations([trip]);
       const clinic = trip.clinicId ? await storage.getClinic(trip.clinicId) : null;
       const clinicName = clinic?.name || "Unknown Clinic";
+      const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+      const allCities = await storage.getCities();
+      const city = allCities.find(c => c.id === trip.cityId);
 
-      const formatPdfTime = (isoStr: string | Date | null | undefined): string => {
-        if (!isoStr) return "N/A";
+      const fmtTime = (isoStr: string | Date | null | undefined): string => {
+        if (!isoStr) return "\u2014";
         try {
-          const d = new Date(isoStr);
-          if (isNaN(d.getTime())) return "N/A";
+          const d = new Date(isoStr as string);
+          if (isNaN(d.getTime())) return "\u2014";
           return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-        } catch { return "N/A"; }
+        } catch { return "\u2014"; }
       };
 
-      const formatPdfDate = (dateStr: string | null | undefined): string => {
-        if (!dateStr) return "N/A";
+      const fmtDate = (dateStr: string | null | undefined): string => {
+        if (!dateStr) return "\u2014";
         try {
           const [y, m, d] = dateStr.split("-").map(Number);
           return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-        } catch { return dateStr || "N/A"; }
+        } catch { return dateStr || "\u2014"; }
+      };
+
+      const fmtPickup = (t: string | null | undefined): string => {
+        if (!t) return "\u2014";
+        try { const [h,m] = t.split(":").map(Number); const d = new Date(2000,0,1,h,m); return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true}); } catch { return t; }
       };
 
       let onsiteMinutes: number | null = null;
       if (trip.arrivedPickupAt && trip.completedAt) {
         onsiteMinutes = Math.round((new Date(trip.completedAt).getTime() - new Date(trip.arrivedPickupAt).getTime()) / 60000);
       }
+      let transportMinutes: number | null = null;
+      if (trip.pickedUpAt && trip.arrivedDropoffAt) {
+        transportMinutes = Math.round((new Date(trip.arrivedDropoffAt).getTime() - new Date(trip.pickedUpAt).getTime()) / 60000);
+      }
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="trip-${enriched.publicId || trip.id}.pdf"`);
+      res.setHeader("Cache-Control", "no-store");
 
       const doc = new PDFDocument({ margin: 50, size: "LETTER" });
       doc.pipe(res);
@@ -5969,17 +6000,24 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       doc.fontSize(18).text("TRIP REPORT", { align: "center" });
       doc.moveDown(0.3);
       doc.fontSize(9).fillColor("#666").text("United Care Mobility", { align: "center" });
+      if (clinicName) { doc.fontSize(10).fillColor("#444").text(clinicName, { align: "center" }); }
       doc.moveDown(1);
 
-      doc.fillColor("#000").fontSize(12).text(formatPdfDate(trip.scheduledDate), { align: "left" });
+      doc.fillColor("#000").fontSize(12).text(fmtDate(trip.scheduledDate), { align: "left" });
       doc.fontSize(10).text(`Trip ID: ${enriched.publicId || trip.id}`);
       doc.text(`Clinic: ${clinicName}`);
+      if (city?.name) doc.text(`City: ${city.name}`);
       if (enriched.patientName) doc.text(`Patient: ${enriched.patientName}`);
+      const serviceLabel = trip.mobilityRequirement === "WHEELCHAIR" ? "Wheelchair" : "Sedan";
+      doc.text(`Service Type: ${serviceLabel}`);
+      if (patient?.wheelchairRequired) doc.text("Special Needs: Wheelchair Required");
+      if (patient?.notes) doc.text(`Patient Notes: ${patient.notes}`);
+      if (trip.passengerCount && trip.passengerCount > 1) doc.text(`Passengers: ${trip.passengerCount}`);
 
       const outcomeLabel = trip.status === "COMPLETED" ? "Completed" : trip.status === "NO_SHOW" ? "No Show" : trip.status === "CANCELLED" ? "Cancelled" : trip.status;
-      doc.text(`Outcome: ${outcomeLabel}`);
-      if (trip.billingOutcome) doc.text(`Billing: ${trip.billingOutcome}`);
-      if (trip.billingReason) doc.text(`Reason: ${trip.billingReason}`);
+      doc.text(`Status: ${outcomeLabel}`);
+      if (trip.billingOutcome) doc.text(`Billing Outcome: ${trip.billingOutcome}`);
+      if (trip.billingReason) doc.text(`Billing Reason: ${trip.billingReason}`);
       doc.moveDown(1);
 
       doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ddd");
@@ -5988,14 +6026,23 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       doc.fontSize(12).fillColor("#000").text("Route");
       doc.moveDown(0.3);
       doc.fontSize(10);
-      doc.text(`Pickup (A): ${trip.pickupAddress || "N/A"}`);
-      doc.text(`Dropoff (B): ${trip.dropoffAddress || "N/A"}`);
+      doc.text(`Pickup (A): ${trip.pickupAddress || "\u2014"}`);
+      doc.text(`Dropoff (B): ${trip.dropoffAddress || "\u2014"}`);
       if (trip.distanceMiles) doc.text(`Distance: ${parseFloat(trip.distanceMiles as string).toFixed(1)} miles`);
+      if (trip.durationMinutes) doc.text(`Est. Duration: ${trip.durationMinutes} min`);
       doc.moveDown(0.8);
 
-      if (trip.staticMapFullUrl || trip.staticMapThumbUrl) {
+      let mapUrl = trip.staticMapFullUrl || trip.staticMapThumbUrl || null;
+      if (!mapUrl && trip.pickupLat && trip.pickupLng && trip.dropoffLat && trip.dropoffLng) {
+        const gmKey = process.env.GOOGLE_MAPS_API_KEY;
+        if (gmKey) {
+          const pA = `${trip.pickupLat},${trip.pickupLng}`;
+          const pB = `${trip.dropoffLat},${trip.dropoffLng}`;
+          mapUrl = `https://maps.googleapis.com/maps/api/staticmap?size=600x300&markers=color:green|label:A|${pA}&markers=color:red|label:B|${pB}&path=color:0x4285F4FF|weight:4|${pA}|${pB}&key=${gmKey}`;
+        }
+      }
+      if (mapUrl) {
         try {
-          const mapUrl = trip.staticMapFullUrl || trip.staticMapThumbUrl;
           const mapResponse = await fetch(mapUrl as string);
           if (mapResponse.ok) {
             const mapBuffer = Buffer.from(await mapResponse.arrayBuffer());
@@ -6012,37 +6059,35 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       doc.moveDown(0.3);
       doc.fontSize(10);
 
-      const pdfEvents: { label: string; time: string; reason?: string }[] = [];
-      if (trip.pickupTime) {
-        const formatPickupTime = (t: string) => {
-          try { const [h,m] = t.split(":").map(Number); const d = new Date(2000,0,1,h,m); return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true}); } catch { return t; }
-        };
-        pdfEvents.push({ label: "Scheduled Pickup", time: formatPickupTime(trip.pickupTime) });
+      const allSteps: { label: string; time: string; reason?: string }[] = [
+        { label: "Scheduled Pickup", time: fmtPickup(trip.pickupTime) },
+        { label: "Scheduled Dropoff (ETA)", time: fmtPickup(trip.estimatedArrivalTime) },
+        { label: "Created", time: fmtTime(trip.createdAt) },
+        { label: "Approved", time: fmtTime(trip.approvedAt) },
+        { label: "Assigned to Driver", time: fmtTime(trip.assignedAt) },
+        { label: "Driver Accepted", time: fmtTime(enriched.acceptedAt) },
+        { label: "En Route to Pickup", time: fmtTime(trip.startedAt) },
+        { label: "Arrived at Pickup", time: fmtTime(trip.arrivedPickupAt) },
+        { label: "Picked Up", time: fmtTime(trip.pickedUpAt) },
+        { label: "En Route to Dropoff", time: fmtTime(trip.enRouteDropoffAt) },
+        { label: "Arrived at Dropoff", time: fmtTime(trip.arrivedDropoffAt) },
+      ];
+      if (trip.status === "COMPLETED") {
+        allSteps.push({ label: "Completed", time: fmtTime(trip.completedAt) });
+      } else if (trip.status === "CANCELLED") {
+        allSteps.push({ label: "Cancelled", time: fmtTime(trip.cancelledAt), reason: trip.cancelledReason || undefined });
+      } else if (trip.status === "NO_SHOW") {
+        allSteps.push({ label: "No-Show", time: fmtTime(trip.cancelledAt), reason: trip.cancelledReason || undefined });
+      } else {
+        allSteps.push({ label: "Completed", time: "\u2014" });
       }
-      if (trip.createdAt) pdfEvents.push({ label: "Created", time: formatPdfTime(trip.createdAt) });
-      if (trip.approvedAt) pdfEvents.push({ label: "Approved", time: formatPdfTime(trip.approvedAt) });
-      if (trip.assignedAt) pdfEvents.push({ label: "Assigned to Driver", time: formatPdfTime(trip.assignedAt) });
-      if (enriched.acceptedAt) pdfEvents.push({ label: "Driver Accepted", time: formatPdfTime(enriched.acceptedAt) });
-      if (trip.startedAt) pdfEvents.push({ label: "En Route to Pickup", time: formatPdfTime(trip.startedAt) });
-      if (trip.arrivedPickupAt) pdfEvents.push({ label: "Arrived at Pickup", time: formatPdfTime(trip.arrivedPickupAt) });
-      if (trip.pickedUpAt) pdfEvents.push({ label: "Picked Up", time: formatPdfTime(trip.pickedUpAt) });
-      if (trip.enRouteDropoffAt) pdfEvents.push({ label: "En Route to Dropoff", time: formatPdfTime(trip.enRouteDropoffAt) });
-      if (trip.arrivedDropoffAt) pdfEvents.push({ label: "Arrived at Dropoff", time: formatPdfTime(trip.arrivedDropoffAt) });
-      if (trip.completedAt && trip.status !== "CANCELLED" && trip.status !== "NO_SHOW") pdfEvents.push({ label: "Completed", time: formatPdfTime(trip.completedAt) });
-      if (trip.cancelledAt && trip.status === "CANCELLED") pdfEvents.push({ label: "Cancelled", time: formatPdfTime(trip.cancelledAt), reason: trip.cancelledReason || undefined });
-      if (trip.cancelledAt && trip.status === "NO_SHOW") pdfEvents.push({ label: "No-Show", time: formatPdfTime(trip.cancelledAt), reason: trip.cancelledReason || undefined });
-      if (trip.billingOutcome === "company_error" && trip.billingSetAt) pdfEvents.push({ label: "Company Error", time: formatPdfTime(trip.billingSetAt), reason: trip.billingReason || undefined });
 
-      for (const evt of pdfEvents) {
-        doc.text(`${evt.label}: ${evt.time}`);
+      for (const evt of allSteps) {
+        doc.fillColor("#000").text(`${evt.label}: ${evt.time}`);
         if (evt.reason) doc.fillColor("#666").text(`  Reason: ${evt.reason}`).fillColor("#000");
       }
 
       if (onsiteMinutes != null) { doc.moveDown(0.3); doc.text(`On-Site Duration: ${onsiteMinutes} min`); }
-      let transportMinutes: number | null = null;
-      if (trip.pickedUpAt && trip.arrivedDropoffAt) {
-        transportMinutes = Math.round((new Date(trip.arrivedDropoffAt).getTime() - new Date(trip.pickedUpAt).getTime()) / 60000);
-      }
       if (transportMinutes != null) doc.text(`Transport Duration: ${transportMinutes} min`);
       doc.moveDown(0.8);
 
@@ -6054,7 +6099,9 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       doc.fontSize(10);
       doc.text(`Driver: ${enriched.driverName || "Unassigned"}`);
       if (enriched.vehicleLabel) doc.text(`Vehicle: ${enriched.vehicleLabel}`);
-      if (enriched.vehicleColor) doc.text(`Color: ${enriched.vehicleColor}`);
+      if (enriched.vehicleColor || enriched.vehicleMake || enriched.vehicleModel) {
+        doc.text(`Details: ${[enriched.vehicleColor, enriched.vehicleMake, enriched.vehicleModel].filter(Boolean).join(" ")}`);
+      }
       doc.moveDown(1);
 
       doc.fontSize(8).fillColor("#999").text(`Generated: ${new Date().toLocaleString("en-US")}`, { align: "center" });

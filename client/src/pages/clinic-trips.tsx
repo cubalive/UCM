@@ -1390,15 +1390,6 @@ function ArrivalsBoard({ activeTrips, onTrack }: { activeTrips: any[]; onTrack: 
           </TableBody>
         </Table>
       </Card>
-      {dialysisCheckTripId && (
-        <DialysisReturnDialog
-          tripId={dialysisCheckTripId}
-          onDismiss={() => {
-            setDismissedDialysis(prev => new Set(prev).add(dialysisCheckTripId));
-            setDialysisCheckTripId(null);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -2979,7 +2970,24 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
     try {
       const [y, m, d] = dateStr.split("-").map(Number);
       return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-    } catch { return dateStr; }
+    } catch { return dateStr || ""; }
+  };
+
+  const fmtTimestamp = (isoStr: string | Date | null | undefined): string => {
+    if (!isoStr) return "\u2014";
+    try {
+      const d = new Date(isoStr as string);
+      if (isNaN(d.getTime())) return "\u2014";
+      return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    } catch { return "\u2014"; }
+  };
+
+  const fmtPickupTime = (t: string | null | undefined): string => {
+    if (!t) return "\u2014";
+    try {
+      const [h, m] = t.split(":").map(Number);
+      return new Date(2000, 0, 1, h, m).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    } catch { return t; }
   };
 
   const handleDownloadPdf = async () => {
@@ -2989,19 +2997,48 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
     setPdfLoading(false);
   };
 
-  const outcomeColor = trip.status === "COMPLETED"
-    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
-    : trip.status === "NO_SHOW"
-    ? "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
-    : trip.status === "CANCELLED"
-    ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-    : "";
+  const outcomeColor = STATUS_COLORS[trip.status] || "";
+  const serviceLabel = trip.mobilityRequirement === "WHEELCHAIR" ? "Wheelchair" : "Sedan";
+
+  const FULL_TIMELINE: { label: string; value: string; reason?: string }[] = [
+    { label: "Scheduled Pickup", value: fmtPickupTime(trip.pickupTime) },
+    { label: "Scheduled Dropoff (ETA)", value: fmtPickupTime(trip.estimatedArrivalTime) },
+    { label: "Created", value: fmtTimestamp(trip.createdAt) },
+    { label: "Approved", value: fmtTimestamp(trip.approvedAt) },
+    { label: "Assigned to Driver", value: fmtTimestamp(trip.assignedAt) },
+    { label: "Driver Accepted", value: fmtTimestamp(trip.acceptedAt) },
+    { label: "En Route to Pickup", value: fmtTimestamp(trip.startedAt) },
+    { label: "Arrived at Pickup", value: fmtTimestamp(trip.arrivedPickupAt) },
+    { label: "Picked Up", value: fmtTimestamp(trip.pickedUpAt) },
+    { label: "En Route to Dropoff", value: fmtTimestamp(trip.enRouteDropoffAt) },
+    { label: "Arrived at Dropoff", value: fmtTimestamp(trip.arrivedDropoffAt) },
+  ];
+  if (trip.status === "COMPLETED") {
+    FULL_TIMELINE.push({ label: "Completed", value: fmtTimestamp(trip.completedAt) });
+  } else if (trip.status === "CANCELLED") {
+    FULL_TIMELINE.push({ label: "Cancelled", value: fmtTimestamp(trip.cancelledAt), reason: trip.cancelledReason || undefined });
+  } else if (trip.status === "NO_SHOW") {
+    FULL_TIMELINE.push({ label: "No-Show", value: fmtTimestamp(trip.cancelledAt), reason: trip.cancelledReason || undefined });
+  } else {
+    FULL_TIMELINE.push({ label: "Completed", value: "\u2014" });
+  }
 
   return (
     <div className="space-y-4" data-testid="clinic-trip-details">
+      {(trip.staticMapFullUrl || trip.staticMapThumbUrl) && (
+        <div className="rounded-md overflow-hidden border">
+          <img
+            src={trip.staticMapFullUrl || trip.staticMapThumbUrl}
+            alt="Route map"
+            className="w-full h-auto"
+            data-testid="img-route-map"
+          />
+        </div>
+      )}
+
       <div className="space-y-1">
         <p className="text-base font-semibold" data-testid="text-trip-date">
-          {formatDate(trip.scheduledDate)} — {trip.pickupTime || ""}
+          {formatDate(trip.scheduledDate)} {trip.pickupTime ? `\u2014 ${fmtPickupTime(trip.pickupTime)}` : ""}
         </p>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm text-muted-foreground" data-testid="text-trip-id">Trip ID: {trip.publicId}</span>
@@ -3009,13 +3046,55 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
             {STATUS_LABELS[trip.status] || trip.status}
           </Badge>
         </div>
-        {trip.patientName && (
-          <p className="text-sm text-muted-foreground flex items-center gap-1">
-            <User className="w-3.5 h-3.5" />
-            {trip.patientName}
-          </p>
-        )}
       </div>
+
+      <Card>
+        <CardContent className="py-3 px-4 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Trip Information</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+            {trip.patientName && (
+              <>
+                <span className="text-muted-foreground">Patient</span>
+                <span className="font-medium" data-testid="text-patient-name">{trip.patientName}</span>
+              </>
+            )}
+            {trip.clinicName && (
+              <>
+                <span className="text-muted-foreground">Clinic</span>
+                <span data-testid="text-clinic-name">{trip.clinicName}</span>
+              </>
+            )}
+            {trip.cityName && (
+              <>
+                <span className="text-muted-foreground">City</span>
+                <span data-testid="text-city-name">{trip.cityName}</span>
+              </>
+            )}
+            <span className="text-muted-foreground">Service Type</span>
+            <span data-testid="text-service-type">{serviceLabel}</span>
+            {trip.passengerCount > 1 && (
+              <>
+                <span className="text-muted-foreground">Passengers</span>
+                <span data-testid="text-passenger-count">{trip.passengerCount}</span>
+              </>
+            )}
+            {trip.wheelchairRequired && (
+              <>
+                <span className="text-muted-foreground">Special Needs</span>
+                <span className="flex items-center gap-1" data-testid="text-special-needs">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                  Wheelchair Required
+                </span>
+              </>
+            )}
+          </div>
+          {trip.patientNotes && (
+            <p className="text-xs text-muted-foreground mt-1" data-testid="text-patient-notes">
+              Patient Notes: {trip.patientNotes}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="py-3 px-4 space-y-2">
@@ -3027,7 +3106,7 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Pickup</p>
-                <p className="text-sm" data-testid="text-pickup-address">{trip.pickupAddress || "N/A"}</p>
+                <p className="text-sm" data-testid="text-pickup-address">{trip.pickupAddress || "\u2014"}</p>
               </div>
             </div>
             <div className="flex items-start gap-2">
@@ -3036,55 +3115,83 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Dropoff</p>
-                <p className="text-sm" data-testid="text-dropoff-address">{trip.dropoffAddress || "N/A"}</p>
+                <p className="text-sm" data-testid="text-dropoff-address">{trip.dropoffAddress || "\u2014"}</p>
               </div>
             </div>
           </div>
-
-          {(trip.staticMapFullUrl || trip.staticMapThumbUrl) && (
-            <div className="rounded-md overflow-hidden border mt-2">
-              <img
-                src={trip.staticMapFullUrl || trip.staticMapThumbUrl}
-                alt="Route map"
-                className="w-full h-auto"
-                data-testid="img-route-map"
-              />
-            </div>
-          )}
-
-          {trip.distanceMiles != null && (
-            <p className="text-sm flex items-center gap-1 mt-1" data-testid="text-distance">
+          <div className="flex items-center gap-4 flex-wrap text-sm mt-1">
+            <span className="flex items-center gap-1" data-testid="text-distance">
               <Navigation className="w-3.5 h-3.5 text-blue-500" />
-              {parseFloat(trip.distanceMiles).toFixed(1)} miles
-            </p>
-          )}
+              {trip.distanceMiles != null ? `${parseFloat(trip.distanceMiles).toFixed(1)} miles` : "\u2014"}
+            </span>
+            {trip.durationMinutes != null && (
+              <span className="flex items-center gap-1" data-testid="text-duration">
+                <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                {trip.durationMinutes} min est.
+              </span>
+            )}
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardContent className="py-3 px-4 space-y-2">
-          <TripProgressTimeline trip={trip} showHeader={false} showMetrics={true} />
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Full Timeline</p>
+          <div className="space-y-1">
+            {FULL_TIMELINE.map((evt, idx) => {
+              const isDash = evt.value === "\u2014";
+              const isNegative = evt.label === "Cancelled" || evt.label === "No-Show";
+              return (
+                <div key={idx} data-testid={`timeline-row-${idx}`}>
+                  <div className={`flex items-center justify-between gap-2 py-1 px-2 rounded text-sm ${
+                    isNegative ? "text-destructive" : isDash ? "text-muted-foreground" : ""
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {isDash ? (
+                        <div className="w-4 h-4 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
+                      ) : isNegative ? (
+                        <XCircle className="w-4 h-4 text-destructive flex-shrink-0" />
+                      ) : (
+                        <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                      )}
+                      <span>{evt.label}</span>
+                    </div>
+                    <span className={`text-xs tabular-nums flex-shrink-0 ${isDash ? "text-muted-foreground/50" : isNegative ? "text-destructive/70" : "text-muted-foreground"}`}>
+                      {evt.value}
+                    </span>
+                  </div>
+                  {evt.reason && (
+                    <p className="text-xs text-muted-foreground pl-8 mt-0.5">Reason: {evt.reason}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
 
-      {trip.driverName && (
-        <Card>
-          <CardContent className="py-3 px-4 space-y-1">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Driver & Vehicle</p>
-            <p className="text-sm font-medium flex items-center gap-1" data-testid="text-driver-name">
-              <User className="w-3.5 h-3.5" />
-              {trip.driverName}
-            </p>
-            {(trip.vehicleLabel || trip.vehicleColor) && (
-              <p className="text-sm text-muted-foreground flex items-center gap-1" data-testid="text-vehicle-info">
-                <Car className="w-3.5 h-3.5" />
-                {[trip.vehicleColor, trip.vehicleMake, trip.vehicleModel].filter(Boolean).join(" ") || ""}
-                {trip.vehicleLabel && ` (${trip.vehicleLabel})`}
+      <Card>
+        <CardContent className="py-3 px-4 space-y-1">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Driver & Vehicle</p>
+          {trip.driverName ? (
+            <>
+              <p className="text-sm font-medium flex items-center gap-1" data-testid="text-driver-name">
+                <User className="w-3.5 h-3.5" />
+                {trip.driverName}
               </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              {(trip.vehicleLabel || trip.vehicleColor) && (
+                <p className="text-sm text-muted-foreground flex items-center gap-1" data-testid="text-vehicle-info">
+                  <Car className="w-3.5 h-3.5" />
+                  {[trip.vehicleColor, trip.vehicleMake, trip.vehicleModel].filter(Boolean).join(" ") || ""}
+                  {trip.vehicleLabel && ` (${trip.vehicleLabel})`}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground" data-testid="text-driver-unassigned">Unassigned</p>
+          )}
+        </CardContent>
+      </Card>
 
       {trip.billingOutcome && (
         <Card>
