@@ -7147,7 +7147,7 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
     }
   });
 
-  app.get("/api/trips/:id/pdf", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
+  app.get("/api/trips/:id/pdf", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "DRIVER"), async (req: AuthRequest, res) => {
     try {
       const tripId = parseInt(req.params.id);
       if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
@@ -7164,6 +7164,11 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       }
       if (user.role === "COMPANY_ADMIN") {
         if (!user.companyId || !trip.companyId || trip.companyId !== user.companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      if (user.role === "DRIVER") {
+        if (!user.driverId || trip.driverId !== user.driverId) {
           return res.status(403).json({ message: "Access denied" });
         }
       }

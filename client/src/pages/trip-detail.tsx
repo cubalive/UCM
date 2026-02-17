@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
@@ -8,11 +8,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin, Download, Loader2 } from "lucide-react";
+import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { TripStaticMap } from "@/components/trip-static-map";
 import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
 import { queryClient } from "@/lib/queryClient";
+import { downloadWithAuth } from "@/lib/export";
+import { useToast } from "@/hooks/use-toast";
 
 const STATUS_DISPLAY_LABELS: Record<string, string> = {
   SCHEDULED: "Scheduled",
@@ -42,6 +44,8 @@ export default function TripDetailPage() {
   const tripId = parseInt(params.id || "0");
   const [, navigate] = useLocation();
   const { token, user } = useAuth();
+  const { toast } = useToast();
+  const [downloading, setDownloading] = useState(false);
   const debugEnabled = import.meta.env.VITE_UCM_DEBUG === 'true';
 
   const { data: trip, isLoading, error } = useQuery<any>({
@@ -138,6 +142,26 @@ export default function TripDetailPage() {
           <Badge variant={(STATUS_VARIANTS[trip.status] as any) || "secondary"} data-testid="badge-trip-status">
             {STATUS_DISPLAY_LABELS[trip.status] || trip.status.replace(/_/g, " ")}
           </Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={downloading}
+            onClick={async () => {
+              setDownloading(true);
+              await downloadWithAuth(
+                `/api/trips/${trip.id}/pdf`,
+                `trip-${trip.publicId || trip.id}.pdf`,
+                "application/pdf",
+                rawAuthFetch,
+                (msg: string) => toast({ title: msg, variant: "destructive" }),
+              );
+              setDownloading(false);
+            }}
+            data-testid="button-download-trip-pdf"
+          >
+            {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            <span className="ml-1.5">Download PDF</span>
+          </Button>
           {trip.approvalStatus && trip.approvalStatus !== "approved" && (
             <Badge variant={trip.approvalStatus === "pending" ? "secondary" : "destructive"} data-testid="badge-trip-approval">
               {trip.approvalStatus === "pending" ? "Pending Approval" : trip.approvalStatus === "cancel_requested" ? "Cancel Requested" : trip.approvalStatus}
