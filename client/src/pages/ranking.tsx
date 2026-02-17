@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { downloadWithAuth } from "@/lib/export";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -83,8 +84,14 @@ export default function RankingPage() {
 
   const entries = rankQuery.data?.entries || [];
 
-  const handleExportPdf = () => {
-    window.open(`/api/intelligence/ranking/export.pdf?quarter_key=${quarterKey}&scope=${scope}&metric_key=${metricKey}${scopeParams}`, "_blank");
+  const handleExportPdf = async () => {
+    await downloadWithAuth(
+      `/api/intelligence/ranking/export.pdf?quarter_key=${quarterKey}&scope=${scope}&metric_key=${metricKey}${scopeParams}`,
+      `UCM_Ranking_${quarterKey}_${scope}.pdf`,
+      "application/pdf",
+      rawAuthFetch,
+      (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
+    );
   };
 
   return (

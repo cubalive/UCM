@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { downloadWithAuth } from "@/lib/export";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import {
   Shield,
   Download,
@@ -37,6 +39,7 @@ function scoreBadgeVariant(score: number): "default" | "secondary" | "destructiv
 
 export default function AuditShieldPage() {
   const { token } = useAuth();
+  const { toast } = useToast();
   const defaults = getDefaultDates();
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
@@ -51,8 +54,14 @@ export default function AuditShieldPage() {
   const results = data?.results || [];
   const avgScore = data?.avgScore ?? 0;
 
-  const handleExportPdf = () => {
-    window.open(`/api/intelligence/audit/export.pdf?dateFrom=${dateFrom}&dateTo=${dateTo}`, "_blank");
+  const handleExportPdf = async () => {
+    await downloadWithAuth(
+      `/api/intelligence/audit/export.pdf?dateFrom=${dateFrom}&dateTo=${dateTo}`,
+      `UCM_AuditShield_${dateFrom}_${dateTo}.pdf`,
+      "application/pdf",
+      rawAuthFetch,
+      (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
+    );
   };
 
   const highRisk = results.filter((r: any) => r.score < 50);

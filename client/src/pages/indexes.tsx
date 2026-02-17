@@ -1,12 +1,14 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { downloadWithAuth } from "@/lib/export";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import {
   Select,
   SelectContent,
@@ -93,6 +95,7 @@ function IndexCard({ icon: Icon, title, value, subtitle, colorClass, testId }: I
 
 export default function IndexesPage() {
   const { token, cities: authCities } = useAuth();
+  const { toast } = useToast();
   const defaults = getDefaultDates();
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
@@ -134,18 +137,13 @@ export default function IndexesPage() {
   const handleExportPdf = async () => {
     setExporting(true);
     try {
-      const res = await fetch(`/api/intel/indexes/export.pdf?${queryParams}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("PDF export failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `UCM_Indexes_${scope}_${dateFrom}_${dateTo}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
+      await downloadWithAuth(
+        `/api/intel/indexes/export.pdf?${queryParams}`,
+        `UCM_Indexes_${scope}_${dateFrom}_${dateTo}.pdf`,
+        "application/pdf",
+        rawAuthFetch,
+        (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
+      );
     } finally {
       setExporting(false);
     }

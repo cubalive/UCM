@@ -96,6 +96,7 @@ export async function getCertificationPdfHandler(req: AuthRequest, res: Response
     const pdf = await generateCertificationPdf({ quarterKey, certifications: results });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_Certification_${quarterKey}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdf);
   } catch (err: any) {
     console.error("getCertificationPdf error:", err);
@@ -168,6 +169,7 @@ export async function getRankingPdfHandler(req: AuthRequest, res: Response) {
     const pdf = await generateRankingPdf({ quarterKey, scope, metricKey, entries });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_Ranking_${quarterKey}_${scope}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdf);
   } catch (err: any) {
     console.error("getRankingPdf error:", err);
@@ -231,6 +233,7 @@ export async function getAuditPdfHandler(req: AuthRequest, res: Response) {
     const pdf = await generateAuditPdf({ periodStart: dateFrom, periodEnd: dateTo, results });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_AuditShield_${dateFrom}_${dateTo}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdf);
   } catch (err: any) {
     console.error("getAuditPdf error:", err);
@@ -277,6 +280,7 @@ export async function getPredictionPdfHandler(req: AuthRequest, res: Response) {
     const pdf = await generatePredictionPdf({ dateFrom, dateTo, ...result });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_Prediction_${dateFrom}_${dateTo}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdf);
   } catch (err: any) {
     console.error("getPredictionPdf error:", err);
@@ -390,6 +394,7 @@ export async function getQuarterlyReportPdfHandler(req: AuthRequest, res: Respon
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_QuarterlyReport_${clinic.name}_${quarterKey}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdf);
   } catch (err: any) {
     console.error("getQuarterlyReportPdf error:", err);
@@ -465,6 +470,7 @@ export async function clinicCertificationPdfHandler(req: AuthRequest, res: Respo
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_Certification_${quarterKey}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdf);
   } catch (err: any) {
     console.error("clinicCertificationPdf error:", err);
@@ -575,6 +581,7 @@ export async function clinicRankingPdfHandler(req: AuthRequest, res: Response) {
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_Ranking_${quarterKey}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdf);
   } catch (err: any) {
     console.error("clinicRankingPdf error:", err);
@@ -633,6 +640,7 @@ export async function clinicAuditPdfHandler(req: AuthRequest, res: Response) {
     const pdf = await generateAuditPdf({ periodStart, periodEnd, results });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_AuditShield_${quarterKey}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdf);
   } catch (err: any) {
     console.error("clinicAuditPdf error:", err);
@@ -682,6 +690,7 @@ export async function clinicQuarterlyReportPdfHandler(req: AuthRequest, res: Res
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_QuarterlyReport_${quarterKey}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdf);
   } catch (err: any) {
     console.error("clinicQuarterlyReportPdf error:", err);

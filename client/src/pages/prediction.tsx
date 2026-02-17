@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { downloadWithAuth } from "@/lib/export";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import {
   TrendingUp,
   Download,
@@ -34,6 +36,7 @@ function riskBadgeVariant(risk: string): "default" | "secondary" | "destructive"
 
 export default function PredictionPage() {
   const { token } = useAuth();
+  const { toast } = useToast();
   const defaults = getDefaultDates();
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
@@ -48,8 +51,14 @@ export default function PredictionPage() {
   const lateRisk = data?.lateRisk;
   const staffingRisk = data?.staffingRisk;
 
-  const handleExportPdf = () => {
-    window.open(`/api/intelligence/prediction/export.pdf?dateFrom=${dateFrom}&dateTo=${dateTo}`, "_blank");
+  const handleExportPdf = async () => {
+    await downloadWithAuth(
+      `/api/intelligence/prediction/export.pdf?dateFrom=${dateFrom}&dateTo=${dateTo}`,
+      `UCM_Prediction_${dateFrom}_${dateTo}.pdf`,
+      "application/pdf",
+      rawAuthFetch,
+      (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
+    );
   };
 
   return (

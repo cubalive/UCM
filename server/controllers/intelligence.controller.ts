@@ -441,6 +441,7 @@ export async function getIndexesPdfHandler(req: AuthRequest, res: Response) {
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="UCM_Indexes_${resolvedScope}_${dateFrom}_${dateTo}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
     res.send(pdfBuffer);
   } catch (err: any) {
     console.error("getIndexesPdf error:", err);
