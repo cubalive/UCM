@@ -10,14 +10,14 @@ const router = Router();
 
 router.use(authMiddleware as any, requireRole("SUPER_ADMIN") as any);
 
-router.post("/api/admin/imports", createImportJob as any);
-router.post("/api/admin/imports/:id/upload", uploadMiddleware as any, uploadFile as any);
-router.post("/api/admin/imports/:id/validate", validateImport as any);
-router.post("/api/admin/imports/:id/run", runImport as any);
-router.post("/api/admin/imports/:id/rollback", rollbackImport as any);
-router.get("/api/admin/imports", listImportJobs as any);
-router.get("/api/admin/imports/:id", getImportJob as any);
+router.post("/", createImportJob as any);
+router.post("/:id/upload", uploadMiddleware as any, uploadFile as any);
+router.post("/:id/validate", validateImport as any);
+router.post("/:id/run", runImport as any);
+router.post("/:id/rollback", rollbackImport as any);
+router.get("/", listImportJobs as any);
+router.get("/:id", getImportJob as any);
 
 export function registerImportRoutes(app: Express) {
-  app.use(router);
+  app.use("/api/admin/imports", router);
 }

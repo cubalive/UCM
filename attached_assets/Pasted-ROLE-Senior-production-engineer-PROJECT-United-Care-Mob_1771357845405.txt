@@ -1,0 +1,78 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Fix production: `/` returns {"message":"Forbidden","code":"FORBIDDEN"} while `/api/healthz` returns 200 OK.
+Root cause is that auth/tenant middleware is mounted globally and intercepts non-API routes, so the SPA never loads.
+
+HARD RULES:
+- Do NOT touch database contents.
+- Do NOT change business logic.
+- Only fix middleware scoping + static serving order.
+- API must remain protected.
+
+WHAT TO DO (server/index.ts):
+1) Ensure static frontend is served BEFORE any auth/tenant middleware.
+2) Apply authMiddleware + tenantGuard ONLY to `/api/*` routes.
+3) Ensure SPA fallback serves `dist/index.html` for client-side routes (but never for `/api/*`).
+
+IMPLEMENTATION DETAILS:
+A) Open `server/index.ts` and locate where express app is created and where middleware is mounted.
+B) Add/ensure these imports exist at top:
+
+- `import path from "path";`
+- `import express from "express";`
+
+C) Define the dist path (adjust if this repo uses a different build output; default is `dist`):
+- `const DIST_DIR = path.join(process.cwd(), "dist");`
+
+D) Mount static FIRST (before auth middleware), and ensure index is served:
+- `app.use(express.static(DIST_DIR));`
+
+E) Mount API auth+tenant ONLY under `/api` (not globally):
+- Remove/stop using `app.use(authMiddleware)` globally
+- Remove/stop using `app.use(tenantGuard)` globally
+- Replace with:
+
+`app.use("/api", authMiddleware);`
+`app.use("/api", tenantGuard);`
+
+F) Ensure routes are mounted under `/api` after those:
+- If your existing router is already mounted like `app.use("/api", registerRoutes())` keep it,
+  but confirm auth/tenant is above it and scoped to `/api`.
+
+G) SPA fallback LAST (must be after all `/api` routes):
+Add this at the end (after API routes are registered):
+
+`app.get("*", (req, res) => {
+  if (req.path.startsWith("/api/")) return res.status(404).json({ message: "Not found" });
+  res.sendFile(path.join(DIST_DIR, "index.html"));
+});`
+
+VERIFICATION (MUST RUN AND REPORT OUTPUT):
+1) `npm run build`
+2) Start server (whatever the repo uses, e.g. `npm run dev` or `npm start`)
+3) Confirm with curl:
+   - `curl -i https://app.unitedcaremobility.com/`  -> must return HTML (Content-Type text/html), NOT JSON forbidden
+   - `curl -i https://app.unitedcaremobility.com/api/healthz` -> 200 OK JSON
+   - `curl -i https://app.unitedcaremobility.com/api/users` -> must remain protected (401/403 unless authed)
+
+EXIT CRITERIA:
+- Visiting `https://app.unitedcaremobility.com/` loads the SPA (no Forbidden JSON)
+- `/api/healthz` still works
+- Protected API routes remain protected
+- No DB changes
+
+DELIVERABLES:
+- List exact file edits with line ranges in `server/index.ts`
+- Paste terminal outputs for:
+  - `npm run build`
+  - the server start command
+  - the three curl checks above
