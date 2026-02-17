@@ -7,6 +7,7 @@ import { logSystemEvent } from "./systemEvents";
 
 export type JobType =
   | "pdf_trip_details"
+  | "pdf_batch_zip"
   | "invoice_generate"
   | "billing_rollup"
   | "email_send"

@@ -73,6 +73,19 @@ The application follows a client-server architecture.
     - **Auto Start/Stop**: Background tracking starts/stops automatically.
     - **Push Notifications**: Firebase Cloud Messaging for alerts.
 
+## Phase 4 — Enterprise Hardening
+- **Deep Health Endpoint**: `GET /api/admin/health/deep` (ADMIN-only) — returns `GREEN/YELLOW/RED` status with sub-checks:
+    - `db`: SELECT 1 + recent jobs count with latency
+    - `redis`: ping + set/get verification with TTL key
+    - `worker`: heartbeat check (Redis key updated every 10s by worker); stale >60s → RED
+    - `queue`: queued/working/failed counts in last 15min; failed spike or high lag → flags
+- **Metrics Summary**: `GET /api/admin/metrics/summary` (ADMIN-only) — requestCount, avgDbTimeMs, cacheHitRate, p50/p95, slowestRoutes (top 10), queue throughput/failures per minute; graceful `profilingDisabled:true` when UCM_PROFILE not set
+- **Worker Heartbeat**: Worker emits heartbeat to Redis every 10s via `setWorkerHeartbeat()`; 120s TTL; deep health checks staleness
+- **PDF Watermark**: `?watermark=1` query param on `GET /api/trips/:id/pdf/download` — admin-only; inserts `CompanyName • TripID • GeneratedAt` as PDF comment
+- **Batch PDF ZIP**: `POST /api/trips/pdf/batch` with `{tripIds:[]}` → 202 + jobId; `GET /api/trips/pdf/batch/:jobId/download` → application/zip; max 50 trips; company-scoped access control; ZIP stored in job result
+- **Headers**: All PDF/ZIP downloads include `Content-Disposition: attachment`, `Cache-Control: no-store`, correct `Content-Type`
+- **Files**: `server/lib/deepHealth.ts`, `server/lib/pdfWatermark.ts`, `server/lib/batchPdfProcessor.ts`
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **Replit DB**: Operational data storage.

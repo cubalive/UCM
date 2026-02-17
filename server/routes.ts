@@ -34,7 +34,7 @@ import { idempotencyMiddleware } from "./lib/idempotency";
 import { companyRpmLimiter, checkDriverQuota, checkActiveTripQuota } from "./lib/companyQuotas";
 import { tenantGuard, checkCrossCompanyAccess, tenantRedisKey } from "./lib/tenantGuard";
 import { logSystemEvent, getSystemEvents } from "./lib/systemEvents";
-import { tripPdfs } from "@shared/schema";
+import { tripPdfs, jobs } from "@shared/schema";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -7264,11 +7264,26 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       }
 
       const pdf = pdfRows[0];
-      const buffer = Buffer.from(pdf.bytes, "base64");
+      let buffer = Buffer.from(pdf.bytes, "base64");
+
+      const wantWatermark = req.query.watermark === "1";
+      if (wantWatermark) {
+        const user = await storage.getUser(req.user!.userId);
+        const isAdmin = user && ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"].includes(user.role || "");
+        if (isAdmin) {
+          try {
+            const { addWatermarkToPdf } = await import("./lib/pdfWatermark");
+            const companyName = "United Care Mobility";
+            const watermarkText = `${companyName} • ${trip.publicId || tripId} • ${new Date().toISOString().split("T")[0]}`;
+            buffer = await addWatermarkToPdf(buffer, watermarkText);
+          } catch {}
+        }
+      }
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="trip-${trip.publicId || tripId}.pdf"`);
       res.setHeader("Content-Length", buffer.length);
+      res.setHeader("Cache-Control", "no-store");
       res.send(buffer);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -9246,6 +9261,172 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         const entityType = req.query.entityType as string | undefined;
         const events = await getSystemEvents(null, { limit, eventType, entityType });
         res.json({ ok: true, events, count: events.length });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.get("/api/admin/health/deep",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const { runDeepHealth } = await import("./lib/deepHealth");
+        const result = await runDeepHealth();
+        res.json(result);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.get("/api/admin/metrics/summary",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const { getPerfSummary, isProfilingEnabled } = await import("./lib/requestTracing");
+        const profilingEnabled = isProfilingEnabled();
+        const windowMin = parseInt(req.query.window as string) || 5;
+        const perf = getPerfSummary(windowMin);
+
+        const { getQueueStats: queueStatsHelper } = await import("./lib/jobQueue");
+        const queueStats = await queueStatsHelper();
+
+        const fifteenAgo = new Date(Date.now() - 15 * 60 * 1000);
+        const recentJobs = await db
+          .select({
+            status: jobs.status,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(jobs)
+          .where(gte(jobs.createdAt, fifteenAgo))
+          .groupBy(jobs.status);
+
+        const jobCounts: Record<string, number> = {};
+        for (const r of recentJobs) jobCounts[r.status] = r.count;
+
+        const totalRecent = Object.values(jobCounts).reduce((a, b) => a + b, 0);
+        const throughputPerMin = Math.round(totalRecent / 15);
+        const failuresPerMin = Math.round((jobCounts["failed"] || 0) / 15 * 10) / 10;
+
+        res.json({
+          profilingEnabled,
+          profilingDisabled: !profilingEnabled,
+          requestCount: perf.total_requests,
+          avgDbTimeMs: perf.avg_db_ms,
+          cacheHitRate: perf.cache_hit_rate_pct,
+          p50Ms: perf.p50_ms,
+          p95Ms: perf.p95_ms,
+          rpm: perf.rpm,
+          slowestRoutes: perf.top_slow_routes.slice(0, 10),
+          queryBudgetViolations: perf.query_budget_violations,
+          queue: {
+            ...queueStats,
+            throughputPerMin,
+            failuresPerMin,
+          },
+        });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.post("/api/trips/pdf/batch",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"),
+    async (req: AuthRequest, res) => {
+      try {
+        const { tripIds } = req.body;
+        if (!Array.isArray(tripIds) || tripIds.length === 0) {
+          return res.status(400).json({ message: "tripIds array required" });
+        }
+        if (tripIds.length > 50) {
+          return res.status(400).json({ message: "Max 50 trips per batch" });
+        }
+
+        const user = await storage.getUser(req.user!.userId);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        const validTripIds: number[] = [];
+        for (const id of tripIds) {
+          const tid = parseInt(id);
+          if (isNaN(tid)) continue;
+          const trip = await storage.getTrip(tid);
+          if (!trip) continue;
+
+          if (user.role === "COMPANY_ADMIN") {
+            if (!user.companyId || !trip.companyId || trip.companyId !== user.companyId) continue;
+          }
+          if (user.role === "CLINIC_USER") {
+            if (!user.clinicId || trip.clinicId !== user.clinicId) continue;
+          }
+          validTripIds.push(tid);
+        }
+
+        if (validTripIds.length === 0) {
+          return res.status(400).json({ message: "No accessible trips found in tripIds" });
+        }
+
+        const companyId = getCompanyIdFromAuth(req);
+        const jobId = await enqueueJob("pdf_batch_zip", {
+          tripIds: validTripIds,
+          companyId,
+          userId: req.user!.userId,
+        }, {
+          companyId,
+        });
+
+        res.status(202).json({
+          message: "Batch PDF ZIP generation queued",
+          jobId,
+          tripCount: validTripIds.length,
+          statusUrl: `/api/jobs/${jobId}`,
+          downloadUrl: `/api/trips/pdf/batch/${jobId}/download`,
+        });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.get("/api/trips/pdf/batch/:jobId/download",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"),
+    async (req: AuthRequest, res) => {
+      try {
+        const { jobId } = req.params;
+        const { getJobStatus: getJobStatusHelper } = await import("./lib/jobQueue");
+        const job = await getJobStatusHelper(jobId);
+        if (!job) return res.status(404).json({ message: "Job not found" });
+
+        const companyId = getCompanyIdFromAuth(req);
+        if (job.companyId && companyId && job.companyId !== companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+
+        if (job.status !== "succeeded") {
+          return res.status(202).json({
+            message: `Job status: ${job.status}`,
+            status: job.status,
+            statusUrl: `/api/jobs/${jobId}`,
+          });
+        }
+
+        const result = job.result as Record<string, unknown> | null;
+        if (!result || !result.zipBase64) {
+          return res.status(404).json({ message: "ZIP not found in job result" });
+        }
+
+        const buffer = Buffer.from(result.zipBase64 as string, "base64");
+
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader("Content-Disposition", `attachment; filename="trips-batch-${jobId}.zip"`);
+        res.setHeader("Content-Length", buffer.length);
+        res.setHeader("Cache-Control", "no-store");
+        res.send(buffer);
       } catch (err: any) {
         res.status(500).json({ message: err.message });
       }

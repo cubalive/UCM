@@ -1,10 +1,13 @@
 import { dequeueJob, completeJob, failJob, releaseStaleJobs, cleanupOldJobs } from "./lib/jobQueue";
 import { processPdfJob } from "./lib/pdfJobProcessor";
+import { processBatchPdfJob } from "./lib/batchPdfProcessor";
 import { logSystemEvent } from "./lib/systemEvents";
+import { setWorkerHeartbeat } from "./lib/deepHealth";
 
 const POLL_INTERVAL = 2000;
 const STALE_CHECK_INTERVAL = 60000;
 const CLEANUP_INTERVAL = 3600000;
+const HEARTBEAT_INTERVAL = 10000;
 
 let running = true;
 
@@ -17,6 +20,9 @@ async function processJob(job: any): Promise<void> {
     switch (job.type) {
       case "pdf_trip_details":
         result = await processPdfJob(job);
+        break;
+      case "pdf_batch_zip":
+        result = await processBatchPdfJob(job);
         break;
       case "invoice_generate":
         result = { status: "completed", message: "Invoice generation not yet implemented in worker" };
@@ -47,9 +53,15 @@ async function workerLoop(): Promise<void> {
 
   let staleCheckAt = Date.now();
   let cleanupAt = Date.now();
+  let heartbeatAt = 0;
 
   while (running) {
     try {
+      if (Date.now() - heartbeatAt > HEARTBEAT_INTERVAL) {
+        await setWorkerHeartbeat().catch(() => {});
+        heartbeatAt = Date.now();
+      }
+
       if (Date.now() - staleCheckAt > STALE_CHECK_INTERVAL) {
         const released = await releaseStaleJobs();
         if (released > 0) {
