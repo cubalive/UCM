@@ -2,7 +2,8 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getUserCityIds, type AuthRequest } from "../auth";
 import { z } from "zod";
-import { runVehicleAutoAssignForCity, isAutoAssignSchedulerRunning, getLastRunTimestamp } from "./vehicleAutoAssign";
+import { runVehicleAutoAssignForCity, getLastRunTimestamp } from "./vehicleAutoAssign";
+import { isJobEngineRunning } from "./jobEngine";
 
 export function registerVehicleAssignRoutes(app: Express) {
 
@@ -441,7 +442,7 @@ export function registerVehicleAssignRoutes(app: Express) {
       const enabledCities = allSettings.filter(s => s.autoAssignEnabled).length;
       res.json({
         ok: true,
-        schedulerRunning: isAutoAssignSchedulerRunning(),
+        schedulerRunning: isJobEngineRunning(),
         lastRunAt: getLastRunTimestamp(),
         totalCities: cities.length,
         autoAssignEnabledCities: enabledCities,

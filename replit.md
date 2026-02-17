@@ -112,6 +112,27 @@ The application follows a client-server architecture.
 - **Env Vars**: UCM_PUNCTUALITY_GRACE_MIN (10), UCM_LATE_SPIKE_PCT (0.20), UCM_CANCEL_SPIKE_THRESHOLD (3), UCM_GPS_STALE_MIN (5), UCM_QUOTA_WARN_PCT (0.85), UCM_ANOMALY_RESOLVE_MISSES (2), UCM_OPS_ANOMALY_INTERVAL_MS (60000), UCM_SCORE_RECOMPUTE_INTERVAL_MS (900000), UCM_OPS_SCHEDULER (true|false)
 - **Files**: `server/lib/opsIntelligence.ts`, `server/lib/opsScheduler.ts`, `shared/schema.ts` (driverPerfScores, opsAnomalies), `client/src/pages/metrics.tsx`
 
+## Phase 4 — Distributed Job Engine + Locking
+- **Job Engine** (`server/lib/jobEngine.ts`): Replaces in-process `startEtaEngine()` and `startVehicleAutoAssignScheduler()` with a Redis-backed enqueue scheduler
+- **Distributed Locks**: `acquireLock(key, ttl)` using Redis setNx with TTL; key patterns:
+  - `eta:city:{cityId}` — per-city ETA cycle lock (180s TTL)
+  - `autoassign:city:{cityId}:date:{date}` — per-city/date auto-assign lock (600s TTL)
+  - `job:{jobId}` — per-job lock for generic use
+- **New Job Types**: `eta_cycle` and `autoassign_cycle` added to `JobType` in `jobQueue.ts`
+- **Worker Handlers** (`server/worker.ts`): ETA cycle and auto-assign cycle handlers acquire distributed locks before executing; skip gracefully if lock held by another instance
+- **Idempotency**: ETA cycles use `eta:{cycleKey}:city:{cityId}` keys; auto-assign uses `autoassign:city:{cityId}:date:{date}` keys to prevent duplicate enqueues
+- **Refactored Modules**:
+  - `etaEngine.ts`: Added `executeEtaCycleForCity(cityId)` for worker use; kept `startEtaEngine()` as fallback
+  - `vehicleAutoAssign.ts`: `runVehicleAutoAssignForCity()` remains the core work function called by worker
+- **Scheduler**: `startJobEngine()` runs in `server/index.ts` replacing direct scheduler starts
+  - ETA enqueue interval: 120s (configurable via `UCM_ETA_ENQUEUE_INTERVAL_MS`)
+  - Auto-assign enqueue interval: 60s (configurable via `UCM_AUTOASSIGN_ENQUEUE_INTERVAL_MS`)
+- **Observability**:
+  - `system_events` logged for job_started, job_succeeded, job_failed
+  - `GET /api/ops/jobs` — paginated job list with status/type filters (DISPATCH/ADMIN/SUPER_ADMIN)
+  - Job Dashboard card in metrics.tsx with stats, filters, and job table
+- **Files**: `server/lib/jobEngine.ts`, `server/worker.ts`, `server/lib/jobQueue.ts`, `server/lib/etaEngine.ts`, `server/index.ts`, `client/src/pages/metrics.tsx`
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **Replit DB**: Operational data storage.

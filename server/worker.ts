@@ -4,6 +4,10 @@ import { processBatchPdfJob } from "./lib/batchPdfProcessor";
 import { logSystemEvent } from "./lib/systemEvents";
 import { setWorkerHeartbeat } from "./lib/deepHealth";
 import { computeScoresForCompany, runAnomalySweep } from "./lib/opsIntelligence";
+import { acquireLock } from "./lib/jobEngine";
+import { executeEtaCycleForCity } from "./lib/etaEngine";
+import { runVehicleAutoAssignForCity } from "./lib/vehicleAutoAssign";
+import { storage } from "./storage";
 
 const POLL_INTERVAL = 2000;
 const STALE_CHECK_INTERVAL = 60000;
@@ -14,6 +18,14 @@ let running = true;
 
 async function processJob(job: any): Promise<void> {
   console.log(`[WORKER] Processing job ${job.id} type=${job.type} attempt=${job.attempts}`);
+
+  await logSystemEvent({
+    companyId: job.companyId,
+    eventType: "job_started",
+    entityType: "job",
+    entityId: job.id,
+    payload: { type: job.type, attempt: job.attempts },
+  }).catch(() => {});
 
   try {
     let result: Record<string, unknown>;
@@ -52,15 +64,89 @@ async function processJob(job: any): Promise<void> {
         result = { status: "completed", ...sweepResult, companyId: sweepCompanyId };
         break;
       }
+      case "eta_cycle": {
+        const cityId = (job.payload as any)?.cityId;
+        if (!cityId) throw new Error("eta_cycle requires cityId");
+
+        const lockKey = `eta:city:${cityId}`;
+        const lock = await acquireLock(lockKey, 180);
+
+        if (!lock.acquired) {
+          console.log(`[WORKER] ETA cycle for city ${cityId} skipped — lock held by another instance`);
+          result = { status: "skipped_locked", cityId };
+          break;
+        }
+
+        try {
+          const etaResult = await executeEtaCycleForCity(cityId);
+          result = { status: "completed", cityId, tripsProcessed: etaResult.tripsProcessed };
+        } finally {
+          await lock.release();
+        }
+        break;
+      }
+      case "autoassign_cycle": {
+        const aaCityId = (job.payload as any)?.cityId;
+        const aaDate = (job.payload as any)?.date;
+        if (!aaCityId) throw new Error("autoassign_cycle requires cityId");
+
+        const aaLockKey = `autoassign:city:${aaCityId}:date:${aaDate || "unknown"}`;
+        const aaLock = await acquireLock(aaLockKey, 600);
+
+        if (!aaLock.acquired) {
+          console.log(`[WORKER] Auto-assign for city ${aaCityId} date ${aaDate} skipped — lock held`);
+          result = { status: "skipped_locked", cityId: aaCityId, date: aaDate };
+          break;
+        }
+
+        try {
+          const city = await storage.getCity(aaCityId);
+          if (!city) throw new Error(`City ${aaCityId} not found`);
+          const allSettings = await storage.getAllCitySettings();
+          const settings = allSettings.find((s: any) => s.cityId === aaCityId);
+          if (!settings) throw new Error(`Settings not found for city ${aaCityId}`);
+
+          const aaResult = await runVehicleAutoAssignForCity(city, settings);
+          result = {
+            status: "completed",
+            cityId: aaCityId,
+            date: aaDate,
+            assigned: aaResult.assigned,
+            skipped: aaResult.skipped,
+            reused: aaResult.reused,
+            tripsAssigned: aaResult.tripsAssigned,
+            tripsIssues: aaResult.tripsIssues,
+          };
+        } finally {
+          await aaLock.release();
+        }
+        break;
+      }
       default:
         throw new Error(`Unknown job type: ${job.type}`);
     }
 
     await completeJob(job.id, result);
     console.log(`[WORKER] Job ${job.id} succeeded`);
+
+    await logSystemEvent({
+      companyId: job.companyId,
+      eventType: "job_succeeded",
+      entityType: "job",
+      entityId: job.id,
+      payload: { type: job.type, result },
+    }).catch(() => {});
   } catch (err: any) {
     console.error(`[WORKER] Job ${job.id} failed: ${err.message}`);
     await failJob(job.id, err.message);
+
+    await logSystemEvent({
+      companyId: job.companyId,
+      eventType: "job_failed",
+      entityType: "job",
+      entityId: job.id,
+      payload: { type: job.type, error: err.message, attempt: job.attempts },
+    }).catch(() => {});
   }
 }
 

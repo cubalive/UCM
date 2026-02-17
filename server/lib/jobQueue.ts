@@ -13,7 +13,9 @@ export type JobType =
   | "email_send"
   | "map_snapshot"
   | "score_recompute"
-  | "anomaly_sweep";
+  | "anomaly_sweep"
+  | "eta_cycle"
+  | "autoassign_cycle";
 
 export interface EnqueueOptions {
   companyId?: number | null;

@@ -1,0 +1,59 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+PHASE 4 — DISTRIBUTED JOB ENGINE + LOCKING (SCALE SAFE)
+
+Problem:
+We currently run critical schedulers inside the web server process:
+- startEtaEngine()
+- startVehicleAutoAssignScheduler()
+This will break at scale (duplicate work across instances, race conditions, inconsistent ETAs/assignments).
+
+Goal:
+Move all recurring/background work to a Redis-backed job queue with distributed locking.
+We already have tables: jobs, system_events, ai_engine_snapshots, company_settings.
+
+Requirements:
+1) Add a job runner subsystem:
+   - A queue abstraction backed by Redis (Upstash/Redis or existing Redis secret).
+   - Worker loop processes jobs from DB + Redis lock (DB = source of truth, Redis = lock + fast queue).
+2) Implement distributed locks:
+   - lock key pattern:
+     - job:{jobId}
+     - eta:city:{cityId}
+     - autoassign:city:{cityId}:date:{date}
+   - TTL and heartbeat renewal.
+   - Ensure idempotency: job handler must be safe to retry.
+3) Refactor:
+   - startEtaEngine() should only enqueue ETA recompute jobs.
+   - startVehicleAutoAssignScheduler() should only enqueue auto-assign jobs.
+   - Workers execute actual work.
+4) Add observability:
+   - Write system_events for job start/success/fail.
+   - Update jobs.status, attempts, lastError.
+   - Add /api/ops/jobs dashboard endpoint for dispatch+super_admin.
+5) Verify:
+   - With 2 server instances running, jobs do NOT duplicate due to locks.
+   - ETA recompute is stable.
+   - Auto-assign does not double-assign.
+
+Deliverables:
+- New lib: /server/lib/jobEngine.ts
+- New worker entry: /server/worker.ts (can be run as separate process)
+- Updated server/index.ts to remove in-process heavy loops and instead enqueue.
+- Minimal UI ops page to view recent jobs + failures.
+
+TEST CHECKLIST:
+- Create a job -> processed once, status succeeded
+- Force failure -> status failed, attempts increment, lastError stored
+- Run 2 instances -> only one processes a locked job
+- ETA + autoassign run without duplicates
+
+Do not change DB schema unless absolutely necessary; if needed, add only minimal indexes and explain why.

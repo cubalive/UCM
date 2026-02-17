@@ -9272,6 +9272,60 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
     }
   );
 
+  app.get("/api/ops/jobs",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+        const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+        const statusFilter = req.query.status as string | undefined;
+        const typeFilter = req.query.type as string | undefined;
+
+        let query = db.select().from(jobs).$dynamic();
+
+        const conditions: any[] = [];
+        if (statusFilter) conditions.push(eq(jobs.status, statusFilter));
+        if (typeFilter) conditions.push(eq(jobs.type, typeFilter));
+
+        if (conditions.length > 0) {
+          query = query.where(and(...conditions));
+        }
+
+        const rows = await query
+          .orderBy(desc(jobs.createdAt))
+          .limit(limit)
+          .offset(offset);
+
+        const stats = await getQueueStats();
+
+        res.json({
+          ok: true,
+          jobs: rows.map(j => ({
+            id: j.id,
+            type: j.type,
+            status: j.status,
+            attempts: j.attempts,
+            maxAttempts: j.maxAttempts,
+            priority: j.priority,
+            payload: j.payload,
+            result: j.result,
+            lastError: j.lastError,
+            createdAt: j.createdAt,
+            updatedAt: j.updatedAt,
+            companyId: j.companyId,
+          })),
+          stats,
+          total: rows.length,
+          limit,
+          offset,
+        });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
   app.get("/api/admin/health/deep",
     authMiddleware,
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),

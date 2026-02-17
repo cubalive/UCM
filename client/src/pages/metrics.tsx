@@ -37,6 +37,8 @@ import {
   Brain,
   TrendingUp,
   TrendingDown,
+  ListChecks,
+  XCircle,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -1013,6 +1015,7 @@ export default function MetricsPage() {
 
         <PerfProfileSection />
         <DriverIntelSection />
+        <JobDashboardSection />
       </div>
     </div>
   );
@@ -1269,6 +1272,155 @@ function DriverIntelSection() {
           <p className="text-xs text-muted-foreground text-center py-2" data-testid="text-no-intel-data">
             No driver intelligence data yet. Scores will compute automatically.
           </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function JobDashboardSection() {
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+
+  const queryParams = new URLSearchParams();
+  queryParams.set("limit", "30");
+  if (statusFilter !== "all") queryParams.set("status", statusFilter);
+  if (typeFilter !== "all") queryParams.set("type", typeFilter);
+
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/ops/jobs", statusFilter, typeFilter],
+    queryFn: async () => {
+      const token = localStorage.getItem("auth_token") || "";
+      const res = await fetch(`/api/ops/jobs?${queryParams.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch jobs");
+      return res.json();
+    },
+    refetchInterval: 15_000,
+    retry: 1,
+  });
+
+  const jobs = data?.jobs || [];
+  const stats = data?.stats || { queued: 0, working: 0, succeeded: 0, failed: 0 };
+
+  const statusColor = (s: string) => {
+    switch (s) {
+      case "succeeded": return "text-green-600 dark:text-green-400";
+      case "failed": return "text-destructive";
+      case "working": return "text-blue-600 dark:text-blue-400";
+      case "queued": return "text-muted-foreground";
+      default: return "text-muted-foreground";
+    }
+  };
+
+  return (
+    <Card className="lg:col-span-2" data-testid="card-job-dashboard">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center justify-between gap-2 flex-wrap">
+          <span className="flex items-center gap-2">
+            <ListChecks className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            Job Dashboard
+          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-28" data-testid="select-job-status-filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" data-testid="select-item-all-status">All</SelectItem>
+                <SelectItem value="queued" data-testid="select-item-queued">Queued</SelectItem>
+                <SelectItem value="working" data-testid="select-item-working">Working</SelectItem>
+                <SelectItem value="succeeded" data-testid="select-item-succeeded">Succeeded</SelectItem>
+                <SelectItem value="failed" data-testid="select-item-failed">Failed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-36" data-testid="select-job-type-filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" data-testid="select-item-all-type">All Types</SelectItem>
+                <SelectItem value="eta_cycle" data-testid="select-item-eta-cycle">ETA Cycle</SelectItem>
+                <SelectItem value="autoassign_cycle" data-testid="select-item-autoassign">Auto Assign</SelectItem>
+                <SelectItem value="pdf_trip_details" data-testid="select-item-pdf">PDF</SelectItem>
+                <SelectItem value="score_recompute" data-testid="select-item-score">Score</SelectItem>
+                <SelectItem value="anomaly_sweep" data-testid="select-item-anomaly">Anomaly</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="outline" onClick={() => refetch()} data-testid="button-refresh-jobs">
+              <RefreshCw className="mr-1 h-3 w-3" />
+              Refresh
+            </Button>
+          </div>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-3 space-y-3">
+        <div className="grid grid-cols-4 gap-3">
+          <div>
+            <p className="text-xs text-muted-foreground">Queued</p>
+            <p className="text-lg font-semibold tabular-nums" data-testid="text-jobs-queued">{stats.queued}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Working</p>
+            <p className="text-lg font-semibold tabular-nums text-blue-600 dark:text-blue-400" data-testid="text-jobs-working">{stats.working}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Succeeded</p>
+            <p className="text-lg font-semibold tabular-nums text-green-600 dark:text-green-400" data-testid="text-jobs-succeeded">{stats.succeeded}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Failed</p>
+            <p className="text-lg font-semibold tabular-nums text-destructive" data-testid="text-jobs-failed">{stats.failed}</p>
+          </div>
+        </div>
+
+        {isLoading && <Skeleton className="h-20 w-full" />}
+
+        {!isLoading && jobs.length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-2" data-testid="text-no-jobs">
+            No jobs found matching filters.
+          </p>
+        )}
+
+        {!isLoading && jobs.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs" data-testid="table-jobs">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="py-1 pr-2 font-medium">Type</th>
+                  <th className="py-1 pr-2 font-medium">Status</th>
+                  <th className="py-1 pr-2 font-medium">Attempts</th>
+                  <th className="py-1 pr-2 font-medium">Created</th>
+                  <th className="py-1 font-medium">Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((j: any) => (
+                  <tr key={j.id} className="border-b border-border/50" data-testid={`row-job-${j.id}`}>
+                    <td className="py-1.5 pr-2">
+                      <Badge variant="secondary" className="text-[10px]">{j.type}</Badge>
+                    </td>
+                    <td className={`py-1.5 pr-2 font-medium ${statusColor(j.status)}`}>
+                      {j.status}
+                    </td>
+                    <td className="py-1.5 pr-2 tabular-nums">{j.attempts}/{j.maxAttempts}</td>
+                    <td className="py-1.5 pr-2 text-muted-foreground whitespace-nowrap">
+                      {j.createdAt ? new Date(j.createdAt).toLocaleTimeString() : ""}
+                    </td>
+                    <td className="py-1.5 max-w-[200px] truncate text-destructive" title={j.lastError || ""}>
+                      {j.lastError ? (
+                        <span className="flex items-center gap-1">
+                          <XCircle className="h-3 w-3 flex-shrink-0" />
+                          {j.lastError}
+                        </span>
+                      ) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </CardContent>
     </Card>

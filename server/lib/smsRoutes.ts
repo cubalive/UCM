@@ -320,8 +320,8 @@ export function registerSmsRoutes(app: Express) {
 
   app.get("/api/eta/health", async (_req, res) => {
     try {
-      const { isEtaEngineRunning } = await import("./etaEngine");
-      res.json({ ok: true, scheduler: isEtaEngineRunning() });
+      const { isJobEngineRunning } = await import("./jobEngine");
+      res.json({ ok: true, scheduler: isJobEngineRunning() });
     } catch (err: any) {
       res.json({ ok: false, scheduler: false, error: err.message });
     }

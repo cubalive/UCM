@@ -214,11 +214,8 @@ app.use((req, res, next) => {
   const { registerAdminMetricsRoutes } = await import("./lib/adminMetricsRoutes");
   registerAdminMetricsRoutes(app);
 
-  const { startEtaEngine } = await import("./lib/etaEngine");
-  startEtaEngine();
-
-  const { startVehicleAutoAssignScheduler } = await import("./lib/vehicleAutoAssign");
-  startVehicleAutoAssignScheduler();
+  const { startJobEngine } = await import("./lib/jobEngine");
+  startJobEngine();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
