@@ -1,0 +1,197 @@
+ROLE: Staff distributed systems engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+GOAL: PHASE 6C — INVESTOR-GRADE ARCHITECTURE
+API MUST BE STATELESS + WORKERS SEPARATE PROCESS/DEPLOYMENT
+
+========================================================
+0) CURRENT CONSTRAINTS
+========================================================
+- Keep existing endpoints working
+- Add new endpoints only if needed
+- All long tasks must move off request thread
+- Must run with Redis (already present)
+- Must support multi-company isolation (company_id)
+
+========================================================
+1) DEPLOYMENT MODEL (CRITICAL)
+========================================================
+We will run TWO deployments/services:
+
+A) API Service (stateless)
+- Handles HTTP requests only
+- Enqueues jobs to Redis
+- NEVER generates PDFs/invoices in-request
+- Can scale horizontally without shared memory
+
+B) Worker Service (background)
+- Runs continuously
+- Pulls jobs from Redis
+- Generates PDFs / invoices / emails / billing rollups
+- Writes results to DB and/or object storage
+- Updates job status
+
+Implement both in same repo with two entrypoints:
+- api server:  src/server.ts (or existing)
+- worker runner: src/worker.ts
+
+Add scripts:
+- "start:api" -> start API server
+- "start:worker" -> run worker processor loop
+
+========================================================
+2) HARD MULTI-TENANT ENFORCEMENT
+========================================================
+Implement middleware:
+- Resolve user + role + company_id from JWT
+- company_id REQUIRED for all non-super-admin routes
+- Inject ctx.companyId
+- Add DB query guard helper that REQUIRES company_id filters for any tenant table:
+  trips, drivers, vehicles, clinics, invoices, schedule_change_requests, etc.
+
+Fail closed:
+- If company_id missing -> 401/403
+- If query attempts cross-company -> 403 + log system_event
+
+Redis keys MUST be tenant-prefixed:
+company:{companyId}:...
+
+========================================================
+3) JOB QUEUE (REDIS) + DLQ
+========================================================
+Implement Redis-backed queue with:
+- enqueue(type, payload, opts)
+- lease/lock with visibility timeout
+- retries with exponential backoff
+- max attempts
+- dead-letter queue (DLQ) recording last error
+
+Job types:
+- pdf_trip_details
+- invoice_generate
+- billing_rollup
+- email_send
+- map_snapshot
+
+DB table: jobs
+- id (uuid)
+- company_id
+- type
+- status: queued|working|succeeded|failed
+- attempts
+- priority
+- payload jsonb
+- result jsonb (url, metadata)
+- last_error text
+- created_at, updated_at
+
+API endpoints:
+- POST /api/jobs (internal helper if needed)
+- GET  /api/jobs/:id  (status + result)
+- GET  /api/trips/:id/pdf -> MUST enqueue pdf_trip_details and return 202 + jobId
+- GET  /api/trips/:id/pdf/download -> streams completed PDF only if job succeeded AND user authorized
+
+The worker must:
+- pick job
+- mark working
+- process
+- store result (preferred: store file + return URL; if no storage exists, store PDF bytes in DB as bytea temporarily, but cap size and plan migration to storage later)
+- mark succeeded/failed
+
+========================================================
+4) STORAGE STRATEGY (NO-BS)
+========================================================
+If you already have any storage (Supabase Storage, S3, etc):
+- store PDFs there
+- result must include a signed URL or protected download endpoint
+
+If no storage configured:
+- implement DB storage as TEMP:
+  trip_pdfs table:
+  - id
+  - company_id
+  - trip_id
+  - content_type
+  - bytes (bytea)
+  - created_at
+  Add retention cleanup job (delete after 30 days)
+
+========================================================
+5) IDEMPOTENCY KEYS (PAYMENTS + BILLING + TRIP CREATE)
+========================================================
+Require Idempotency-Key for:
+- POST create trip
+- billing generation
+- Stripe webhook processing (if present)
+
+Use Redis:
+idempo:{companyId}:{key} => store hash of request + created resource id (TTL 24h)
+Return same response on duplicates.
+
+========================================================
+6) COMPANY QUOTAS + THROTTLING
+========================================================
+Implement per-company rate limiting in Redis (token bucket or fixed window):
+- API RPM (general)
+- maps RPM
+- pdf RPM
+Return 429 with structured JSON.
+
+Add company_settings table or reuse existing:
+- company_id
+- max_drivers
+- max_active_trips
+- rpm_limit
+- pdf_rpm_limit
+- maps_rpm_limit
+
+========================================================
+7) SYSTEM EVENTS (AUDIT STREAM)
+========================================================
+Create system_events table:
+- id
+- company_id
+- actor_user_id
+- event_type
+- entity_type
+- entity_id
+- payload jsonb
+- created_at
+
+Log:
+- cross_company_denied
+- job_enqueued
+- job_failed
+- pdf_ready
+- invoice_generated
+- billing_rollup_done
+
+========================================================
+8) ACCEPTANCE TESTS (MUST RUN)
+========================================================
+Provide verification results in output:
+- Enqueue trip pdf job returns 202 + jobId
+- Worker processes it, job becomes succeeded
+- Download endpoint returns actual PDF (200, correct headers)
+- Unauth returns 401 (not a PDF)
+- Wrong company returns 403
+- Duplicate Idempotency-Key returns same resource id
+- Rate limit returns 429
+- Worker crash resumes safely (no job lost due to lease/visibility)
+
+========================================================
+9) DELIVERABLES
+========================================================
+- code changes for API stateless + worker
+- DB migrations
+- clear run instructions:
+  - API deployment command
+  - Worker deployment command
+- verification log summary

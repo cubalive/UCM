@@ -29,6 +29,12 @@ import { sendEmail } from "./lib/email";
 import { startRouteScheduler } from "./lib/routeEngine";
 import { startNoShowScheduler } from "./lib/noShowEngine";
 import { startRecurringScheduleScheduler, runRecurringScheduleGenerator } from "./lib/recurringScheduleEngine";
+import { enqueueJob, getJobStatus, getQueueStats } from "./lib/jobQueue";
+import { idempotencyMiddleware } from "./lib/idempotency";
+import { companyRpmLimiter, checkDriverQuota, checkActiveTripQuota } from "./lib/companyQuotas";
+import { tenantGuard, checkCrossCompanyAccess, tenantRedisKey } from "./lib/tenantGuard";
+import { logSystemEvent, getSystemEvents } from "./lib/systemEvents";
+import { tripPdfs } from "@shared/schema";
 
 async function checkCityAccess(req: AuthRequest, cityId: number | undefined): Promise<boolean> {
   if (!req.user) return false;
@@ -810,8 +816,19 @@ export async function registerRoutes(
           return res.status(400).json({ message: "License number may only contain letters, numbers, and hyphens" });
         }
       }
-      const publicId = await generatePublicId();
       const callerCompanyId = getCompanyIdFromAuth(req);
+      if (callerCompanyId) {
+        const quota = await checkDriverQuota(callerCompanyId);
+        if (!quota.allowed) {
+          return res.status(429).json({
+            message: "Driver quota exceeded",
+            code: "QUOTA_EXCEEDED",
+            current: quota.current,
+            max: quota.max,
+          });
+        }
+      }
+      const publicId = await generatePublicId();
       const driverData: any = { ...parsed.data, publicId, companyId: callerCompanyId };
       if (driverData.phone) {
         const { normalizePhone } = await import("./lib/twilioSms");
@@ -4421,7 +4438,7 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
     { message: "Recurring trips must have at least one day selected", path: ["recurringDays"] }
   );
 
-  app.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
+  app.post("/api/trips", authMiddleware, idempotencyMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
     try {
       const parsed = createTripSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -4505,6 +4522,17 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         approvalFields.approvedBy = req.user!.userId;
       }
       const callerCompanyId = getCompanyIdFromAuth(req);
+      if (callerCompanyId) {
+        const quota = await checkActiveTripQuota(callerCompanyId);
+        if (!quota.allowed) {
+          return res.status(429).json({
+            message: "Active trip quota exceeded",
+            code: "QUOTA_EXCEEDED",
+            current: quota.current,
+            max: quota.max,
+          });
+        }
+      }
       const autoRequestSource = isClinic ? "clinic" : "internal";
 
       const isPrivatePay = !parsed.data.clinicId;
@@ -7177,28 +7205,71 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         }
       }
 
-      const [enriched] = await enrichTripsWithRelations([trip]);
-      const clinic = trip.clinicId ? await storage.getClinic(trip.clinicId) : null;
-      const clinicName = clinic?.name || null;
-      const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
-      const allCities = await storage.getCities();
-      const city = allCities.find(c => c.id === trip.cityId);
-      const driverRecord = trip.driverId ? await storage.getDriver(trip.driverId) : null;
-      const vehicle = trip.vehicleId ? await storage.getVehicle(trip.vehicleId) : null;
+      const companyId = getCompanyIdFromAuth(req);
+      const jobId = await enqueueJob("pdf_trip_details", {
+        tripId,
+        companyId,
+        userId: req.user!.userId,
+      }, {
+        companyId,
+        idempotencyKey: `pdf:trip:${tripId}:${Date.now().toString(36)}`,
+      });
 
-      const drvName = driverRecord ? `${driverRecord.firstName} ${driverRecord.lastName}` : enriched.driverName || null;
-      const vehLabel = vehicle ? [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || vehicle.licensePlate || null : enriched.vehicleLabel || null;
-      const vehDetails = vehicle ? [vehicle.color, vehicle.make, vehicle.model].filter(Boolean).join(" ") || null : null;
-      const vehPlate = vehicle?.licensePlate || null;
+      res.status(202).json({
+        message: "PDF generation queued",
+        jobId,
+        statusUrl: `/api/jobs/${jobId}`,
+        downloadUrl: `/api/trips/${tripId}/pdf/download`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
-      await generateTripPdf({
-        trip, enriched, clinicName, patient,
-        cityName: city?.name || null,
-        driverName: drvName,
-        vehicleLabel: vehLabel,
-        vehicleDetails: vehDetails,
-        licensePlate: vehPlate,
-      }, res);
+  app.get("/api/trips/:id/pdf/download", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(tripId);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      if (user.role === "CLINIC_USER") {
+        if (!user.clinicId || trip.clinicId !== user.clinicId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      if (user.role === "COMPANY_ADMIN") {
+        if (!user.companyId || !trip.companyId || trip.companyId !== user.companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      if (user.role === "DRIVER") {
+        if (!user.driverId || trip.driverId !== user.driverId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const pdfRows = await db
+        .select()
+        .from(tripPdfs)
+        .where(eq(tripPdfs.tripId, tripId))
+        .orderBy(desc(tripPdfs.createdAt))
+        .limit(1);
+
+      if (pdfRows.length === 0) {
+        return res.status(404).json({ message: "PDF not yet generated. Please request generation first via GET /api/trips/:id/pdf" });
+      }
+
+      const pdf = pdfRows[0];
+      const buffer = Buffer.from(pdf.bytes, "base64");
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="trip-${trip.publicId || tripId}.pdf"`);
+      res.setHeader("Content-Length", buffer.length);
+      res.send(buffer);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -9122,6 +9193,62 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         jwtSecretPresent: !!(process.env.JWT_SECRET),
         driverTokenHeaderSeen: authHeader.startsWith("Bearer "),
       });
+    }
+  );
+
+  app.get("/api/jobs/:id", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const jobId = req.params.id;
+      const job = await getJobStatus(jobId);
+      if (!job) return res.status(404).json({ message: "Job not found" });
+
+      const companyId = getCompanyIdFromAuth(req);
+      if (companyId && job.companyId && job.companyId !== companyId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json({
+        id: job.id,
+        type: job.type,
+        status: job.status,
+        attempts: job.attempts,
+        maxAttempts: job.maxAttempts,
+        result: job.status === "succeeded" ? job.result : undefined,
+        lastError: job.status === "failed" ? job.lastError : undefined,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ops/queue-stats",
+    authMiddleware,
+    requireRole("SUPER_ADMIN", "ADMIN"),
+    async (_req: AuthRequest, res) => {
+      try {
+        const stats = await getQueueStats();
+        res.json({ ok: true, ...stats });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+  app.get("/api/ops/system-events",
+    authMiddleware,
+    requireRole("SUPER_ADMIN"),
+    async (req: AuthRequest, res) => {
+      try {
+        const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+        const eventType = req.query.eventType as string | undefined;
+        const entityType = req.query.entityType as string | undefined;
+        const events = await getSystemEvents(null, { limit, eventType, entityType });
+        res.json({ ok: true, events, count: events.length });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
     }
   );
 

@@ -1371,6 +1371,87 @@ export const invoiceSequences = pgTable("invoice_sequences", {
 
 export type InvoiceSequence = typeof invoiceSequences.$inferSelect;
 
+export const jobStatusEnum = pgEnum("job_status", [
+  "queued",
+  "working",
+  "succeeded",
+  "failed",
+]);
+
+export const jobs = pgTable("jobs", {
+  id: text("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id),
+  type: text("type").notNull(),
+  status: jobStatusEnum("status").notNull().default("queued"),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(3),
+  priority: integer("priority").notNull().default(0),
+  payload: jsonb("payload").notNull().default({}),
+  result: jsonb("result"),
+  lastError: text("last_error"),
+  lockedUntil: timestamp("locked_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("jobs_status_priority_idx").on(table.status, table.priority, table.createdAt),
+  index("jobs_company_type_idx").on(table.companyId, table.type),
+  index("jobs_type_status_idx").on(table.type, table.status),
+]);
+
+export const insertJobSchema = createInsertSchema(jobs).omit({ createdAt: true, updatedAt: true });
+export type Job = typeof jobs.$inferSelect;
+export type InsertJob = z.infer<typeof insertJobSchema>;
+
+export const systemEvents = pgTable("system_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").references(() => companies.id),
+  actorUserId: integer("actor_user_id").references(() => users.id),
+  eventType: text("event_type").notNull(),
+  entityType: text("entity_type"),
+  entityId: text("entity_id"),
+  payload: jsonb("payload").notNull().default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("sysevt_company_type_idx").on(table.companyId, table.eventType, table.createdAt),
+  index("sysevt_entity_idx").on(table.entityType, table.entityId),
+]);
+
+export const insertSystemEventSchema = createInsertSchema(systemEvents).omit({ id: true, createdAt: true });
+export type SystemEvent = typeof systemEvents.$inferSelect;
+export type InsertSystemEvent = z.infer<typeof insertSystemEventSchema>;
+
+export const companySettings = pgTable("company_settings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id).unique(),
+  maxDrivers: integer("max_drivers").notNull().default(100),
+  maxActiveTrips: integer("max_active_trips").notNull().default(500),
+  rpmLimit: integer("rpm_limit").notNull().default(300),
+  pdfRpmLimit: integer("pdf_rpm_limit").notNull().default(30),
+  mapsRpmLimit: integer("maps_rpm_limit").notNull().default(60),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertCompanySettingsSchema = createInsertSchema(companySettings).omit({ id: true, createdAt: true, updatedAt: true });
+export type CompanySettingsType = typeof companySettings.$inferSelect;
+export type InsertCompanySettings = z.infer<typeof insertCompanySettingsSchema>;
+
+export const tripPdfs = pgTable("trip_pdfs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").references(() => companies.id),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  jobId: text("job_id").references(() => jobs.id),
+  contentType: text("content_type").notNull().default("application/pdf"),
+  bytes: text("bytes").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("trip_pdfs_trip_idx").on(table.tripId),
+  index("trip_pdfs_company_idx").on(table.companyId),
+  index("trip_pdfs_created_idx").on(table.createdAt),
+]);
+
+export type TripPdf = typeof tripPdfs.$inferSelect;
+
 export function isVehicleCompatible(mobilityRequirement: string, vehicleCapability: string): boolean {
   if (mobilityRequirement === "WHEELCHAIR") {
     return vehicleCapability === "WHEELCHAIR";

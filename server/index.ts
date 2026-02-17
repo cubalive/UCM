@@ -7,6 +7,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { recordRequest as recordReqMetric } from "./lib/requestMetrics";
 import { tracingMiddleware } from "./lib/requestTracing";
+import { tenantGuard } from "./lib/tenantGuard";
 
 const app = express();
 const httpServer = createServer(app);
@@ -162,6 +163,7 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 });
 
 app.use(tracingMiddleware);
+app.use(tenantGuard);
 
 app.use((req, res, next) => {
   const start = Date.now();
