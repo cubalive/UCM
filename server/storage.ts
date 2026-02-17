@@ -25,6 +25,8 @@ import {
   clinicBillingSettings, type ClinicBillingSettingsType, type InsertClinicBillingSettings,
   billingCycleInvoices, type BillingCycleInvoice, type InsertBillingCycleInvoice,
   billingCycleInvoiceItems, type BillingCycleInvoiceItem, type InsertBillingCycleInvoiceItem,
+  invoicePayments, type InvoicePayment, type InsertInvoicePayment,
+  invoiceSequences,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -218,6 +220,13 @@ export interface IStorage {
 
   getEligibleTripsForBilling(clinicId: number, periodStart: string, periodEnd: string): Promise<Trip[]>;
   getTripIdsAlreadyBilled(clinicId: number): Promise<number[]>;
+
+  createInvoicePayment(data: InsertInvoicePayment): Promise<InvoicePayment>;
+  getInvoicePayments(invoiceId: number): Promise<InvoicePayment[]>;
+  findPaymentByReference(reference: string): Promise<InvoicePayment | undefined>;
+  findPaymentByStripePI(stripePaymentIntentId: string): Promise<InvoicePayment | undefined>;
+  nextInvoiceNumber(): Promise<string>;
+  getBillingCycleInvoicesByPaymentStatus(statuses: string[], clinicId?: number): Promise<BillingCycleInvoice[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1479,6 +1488,57 @@ export class DatabaseStorage implements IStorage {
         sql`${billingCycleInvoiceItems.tripId} IS NOT NULL`,
       ));
     return rows.map(r => r.tripId!).filter(Boolean);
+  }
+
+  async createInvoicePayment(data: InsertInvoicePayment): Promise<InvoicePayment> {
+    const [row] = await db.insert(invoicePayments).values(data).returning();
+    return row;
+  }
+
+  async getInvoicePayments(invoiceId: number): Promise<InvoicePayment[]> {
+    return db.select().from(invoicePayments)
+      .where(eq(invoicePayments.invoiceId, invoiceId))
+      .orderBy(desc(invoicePayments.paidAt));
+  }
+
+  async findPaymentByReference(reference: string): Promise<InvoicePayment | undefined> {
+    const [row] = await db.select().from(invoicePayments)
+      .where(eq(invoicePayments.reference, reference));
+    return row;
+  }
+
+  async findPaymentByStripePI(stripePaymentIntentId: string): Promise<InvoicePayment | undefined> {
+    const [row] = await db.select().from(invoicePayments)
+      .where(eq(invoicePayments.stripePaymentIntentId, stripePaymentIntentId));
+    return row;
+  }
+
+  async nextInvoiceNumber(): Promise<string> {
+    const result = await db.execute(sql`
+      UPDATE invoice_sequences 
+      SET last_number = last_number + 1, updated_at = now()
+      WHERE id = 1
+      RETURNING last_number, prefix
+    `);
+    const row = (result as any).rows?.[0] || (result as any)[0];
+    const num = row.last_number;
+    const prefix = row.prefix || "INV";
+    return `${prefix}-${String(num).padStart(6, "0")}`;
+  }
+
+  async getBillingCycleInvoicesByPaymentStatus(statuses: string[], clinicId?: number): Promise<BillingCycleInvoice[]> {
+    const conditions: any[] = [
+      eq(billingCycleInvoices.status, "finalized"),
+    ];
+    if (statuses.length > 0) {
+      conditions.push(sql`${billingCycleInvoices.paymentStatus} IN (${sql.join(statuses.map(s => sql`${s}`), sql`, `)})`);
+    }
+    if (clinicId) {
+      conditions.push(eq(billingCycleInvoices.clinicId, clinicId));
+    }
+    return db.select().from(billingCycleInvoices)
+      .where(and(...conditions))
+      .orderBy(desc(billingCycleInvoices.dueDate));
   }
 }
 

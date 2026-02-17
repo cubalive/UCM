@@ -1159,6 +1159,11 @@ function CycleInvoicesTab() {
   const [customPeriodStart, setCustomPeriodStart] = useState("");
   const [customPeriodEnd, setCustomPeriodEnd] = useState("");
   const [useCustomPeriod, setUseCustomPeriod] = useState(false);
+  const [manualPaymentOpen, setManualPaymentOpen] = useState(false);
+  const [manualAmount, setManualAmount] = useState("");
+  const [manualReference, setManualReference] = useState("");
+  const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
+  const [showPayments, setShowPayments] = useState(false);
 
   const clinicsQ = useQuery<any[]>({
     queryKey: ["/api/clinics"],
@@ -1207,25 +1212,55 @@ function CycleInvoicesTab() {
   });
 
   const finalizeMutation = useMutation({
-    mutationFn: (invoiceId: number) => apiFetch(`/api/cycle-invoices/${invoiceId}/finalize`, token, {
-      method: "POST",
-    }),
-    onSuccess: () => {
+    mutationFn: (invoiceId: number) => apiFetch(`/api/cycle-invoices/${invoiceId}/finalize`, token, { method: "POST" }),
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/clinics", selectedClinicId, "cycle-invoices"] });
-      setViewInvoice(null);
+      loadInvoice(data.id || viewInvoice?.invoice?.id);
       toast({ title: "Invoice finalized" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const voidMutation = useMutation({
-    mutationFn: (invoiceId: number) => apiFetch(`/api/cycle-invoices/${invoiceId}/void`, token, {
-      method: "POST",
-    }),
+    mutationFn: (invoiceId: number) => apiFetch(`/api/cycle-invoices/${invoiceId}/void`, token, { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clinics", selectedClinicId, "cycle-invoices"] });
       setViewInvoice(null);
       toast({ title: "Invoice voided" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const checkoutMutation = useMutation({
+    mutationFn: (invoiceId: number) => apiFetch(`/api/cycle-invoices/${invoiceId}/create-checkout`, token, { method: "POST" }),
+    onSuccess: (data: any) => {
+      if (data.url) {
+        navigator.clipboard.writeText(data.url).then(() => {
+          toast({ title: "Payment link copied to clipboard" });
+        }).catch(() => {
+          toast({ title: "Payment link created", description: data.url });
+        });
+      }
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const manualPaymentMutation = useMutation({
+    mutationFn: (data: { invoiceId: number; amountCents: number; reference: string }) =>
+      apiFetch(`/api/cycle-invoices/${data.invoiceId}/register-manual-payment`, token, {
+        method: "POST",
+        body: JSON.stringify({ amountCents: data.amountCents, reference: data.reference }),
+      }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics", selectedClinicId, "cycle-invoices"] });
+      setManualPaymentOpen(false);
+      setManualAmount("");
+      setManualReference("");
+      if (data.invoice) {
+        setViewInvoice({ ...viewInvoice, invoice: data.invoice });
+        if (showPayments) loadPayments(data.invoice.id);
+      }
+      toast({ title: "Payment recorded" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -1239,7 +1274,34 @@ function CycleInvoicesTab() {
     }
   };
 
+  const loadPayments = async (invoiceId: number) => {
+    try {
+      const data = await apiFetch(`/api/cycle-invoices/${invoiceId}/payments`, token);
+      setPaymentHistory(data);
+      setShowPayments(true);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleDownloadPdf = async (invoiceId: number, invoiceNumber: string) => {
+    await downloadWithAuth(
+      `/api/cycle-invoices/${invoiceId}/pdf`,
+      `invoice_${invoiceNumber || invoiceId}.pdf`,
+      "application/pdf",
+      (url: string, init?: RequestInit) => rawAuthFetch(url, token, init),
+      (msg: string) => toast({ title: msg, variant: "destructive" }),
+    );
+  };
+
   const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+  const fmtDate = (d: string | null) => {
+    if (!d) return "\u2014";
+    try {
+      return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    } catch { return d; }
+  };
 
   const statusBadge = (status: string) => {
     switch (status) {
@@ -1249,6 +1311,20 @@ function CycleInvoicesTab() {
       default: return <Badge variant="outline">{status}</Badge>;
     }
   };
+
+  const paymentStatusBadge = (status: string) => {
+    switch (status) {
+      case "unpaid": return <Badge variant="outline">Unpaid</Badge>;
+      case "partial": return <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">Partial</Badge>;
+      case "paid": return <Badge variant="outline" className="border-green-500 text-green-600 dark:text-green-400">Paid</Badge>;
+      case "overdue": return <Badge variant="destructive">Overdue</Badge>;
+      default: return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const inv = viewInvoice?.invoice;
+  const isFinalized = inv?.status === "finalized";
+  const hasBalance = (inv?.balanceDueCents || 0) > 0;
 
   return (
     <div className="space-y-4 mt-4">
@@ -1344,32 +1420,86 @@ function CycleInvoicesTab() {
         </Card>
       )}
 
-      {viewInvoice && (
+      {viewInvoice && inv && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-              Invoice #{viewInvoice.invoice?.id} {statusBadge(viewInvoice.invoice?.status)}
+              {inv.invoiceNumber || `Invoice #${inv.id}`} {statusBadge(inv.status)}
+              {isFinalized && paymentStatusBadge(inv.paymentStatus)}
               <span className="text-sm font-normal text-muted-foreground">
-                {viewInvoice.invoice?.periodStart} to {viewInvoice.invoice?.periodEnd}
+                {inv.periodStart} to {inv.periodEnd}
               </span>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3 mb-3 flex-wrap">
-              <span className="text-sm font-medium">Total: {formatCents(viewInvoice.invoice?.totalCents || 0)}</span>
-              {viewInvoice.invoice?.status === "draft" && (
-                <Button size="sm" onClick={() => finalizeMutation.mutate(viewInvoice.invoice.id)} disabled={finalizeMutation.isPending} data-testid="button-finalize-invoice">
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <div className="text-xs text-muted-foreground">Total</div>
+                <div className="text-sm font-semibold" data-testid="text-invoice-total">{formatCents(inv.totalCents || 0)}</div>
+              </div>
+              {isFinalized && (
+                <>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Paid</div>
+                    <div className="text-sm font-semibold text-green-600 dark:text-green-400" data-testid="text-invoice-paid">{formatCents(inv.amountPaidCents || 0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Balance Due</div>
+                    <div className={`text-sm font-semibold ${(inv.balanceDueCents || 0) > 0 ? "text-red-600 dark:text-red-400" : ""}`} data-testid="text-invoice-balance">{formatCents(inv.balanceDueCents || 0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Due Date</div>
+                    <div className="text-sm" data-testid="text-invoice-due-date">{fmtDate(inv.dueDate)}</div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {inv.status === "draft" && (
+                <Button size="sm" onClick={() => finalizeMutation.mutate(inv.id)} disabled={finalizeMutation.isPending} data-testid="button-finalize-invoice">
                   {finalizeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
                   <span className="ml-1.5">Finalize</span>
                 </Button>
               )}
-              {viewInvoice.invoice?.status !== "void" && (
-                <Button size="sm" variant="outline" onClick={() => voidMutation.mutate(viewInvoice.invoice.id)} disabled={voidMutation.isPending} data-testid="button-void-invoice">
+              {isFinalized && (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => handleDownloadPdf(inv.id, inv.invoiceNumber)} data-testid="button-download-pdf">
+                    <Download className="w-4 h-4" />
+                    <span className="ml-1.5">Download PDF</span>
+                  </Button>
+                  {hasBalance && (
+                    <>
+                      <Button size="sm" onClick={() => checkoutMutation.mutate(inv.id)} disabled={checkoutMutation.isPending} data-testid="button-create-payment-link">
+                        {checkoutMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+                        <span className="ml-1.5">Create Payment Link</span>
+                      </Button>
+                      {inv.stripeCheckoutUrl && (
+                        <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(inv.stripeCheckoutUrl); toast({ title: "Link copied" }); }} data-testid="button-copy-payment-link">
+                          <Receipt className="w-4 h-4" />
+                          <span className="ml-1.5">Copy Link</span>
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" onClick={() => setManualPaymentOpen(true)} data-testid="button-manual-payment">
+                        <Plus className="w-4 h-4" />
+                        <span className="ml-1.5">Record Payment</span>
+                      </Button>
+                    </>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => loadPayments(inv.id)} data-testid="button-view-payments">
+                    <Eye className="w-4 h-4" />
+                    <span className="ml-1.5">Payments</span>
+                  </Button>
+                </>
+              )}
+              {inv.status !== "void" && (
+                <Button size="sm" variant="outline" onClick={() => voidMutation.mutate(inv.id)} disabled={voidMutation.isPending} data-testid="button-void-invoice">
                   <XCircle className="w-4 h-4" />
                   <span className="ml-1.5">Void</span>
                 </Button>
               )}
             </div>
+
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1389,9 +1519,85 @@ function CycleInvoicesTab() {
                 )}
               </TableBody>
             </Table>
+
+            {showPayments && paymentHistory.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold mb-2">Payment History</h4>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Method</TableHead>
+                      <TableHead>Reference</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paymentHistory.map((p: any) => (
+                      <TableRow key={p.id} data-testid={`row-payment-${p.id}`}>
+                        <TableCell className="text-sm">{fmtDate(p.paidAt)}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-xs">{p.method.toUpperCase()}</Badge></TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-32 truncate">{p.reference || "\u2014"}</TableCell>
+                        <TableCell className="text-right text-sm font-medium">{formatCents(p.amountCents)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {showPayments && paymentHistory.length === 0 && (
+              <p className="text-sm text-muted-foreground">No payments recorded yet.</p>
+            )}
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={manualPaymentOpen} onOpenChange={setManualPaymentOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Record Manual Payment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Amount ($)</Label>
+              <Input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={manualAmount}
+                onChange={(e) => setManualAmount(e.target.value)}
+                placeholder="0.00"
+                data-testid="input-manual-amount"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Reference (check #, Zelle ID, etc.)</Label>
+              <Input
+                value={manualReference}
+                onChange={(e) => setManualReference(e.target.value)}
+                placeholder="Optional reference"
+                data-testid="input-manual-reference"
+              />
+            </div>
+            <Button
+              onClick={() => {
+                if (!inv?.id) return;
+                const cents = Math.round(parseFloat(manualAmount) * 100);
+                if (isNaN(cents) || cents <= 0) {
+                  toast({ title: "Enter a valid amount", variant: "destructive" });
+                  return;
+                }
+                manualPaymentMutation.mutate({ invoiceId: inv.id, amountCents: cents, reference: manualReference });
+              }}
+              disabled={manualPaymentMutation.isPending || !inv?.id}
+              data-testid="button-submit-manual-payment"
+            >
+              {manualPaymentMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span className="ml-1.5">Record Payment</span>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {selectedClinicId && !invoicesQ.isLoading && (invoicesQ.data || []).length > 0 && (
         <Card>
@@ -1402,22 +1608,28 @@ function CycleInvoicesTab() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
+                  <TableHead>Invoice #</TableHead>
                   <TableHead>Period</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Payment</TableHead>
+                  <TableHead>Due Date</TableHead>
                   <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Balance</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(invoicesQ.data || []).map((inv: any) => (
                   <TableRow key={inv.id} data-testid={`row-cycle-invoice-${inv.id}`}>
-                    <TableCell className="font-mono text-xs">#{inv.id}</TableCell>
-                    <TableCell>{inv.periodStart} - {inv.periodEnd}</TableCell>
+                    <TableCell className="font-mono text-xs">{inv.invoiceNumber || `#${inv.id}`}</TableCell>
+                    <TableCell className="text-sm">{inv.periodStart} - {inv.periodEnd}</TableCell>
                     <TableCell>{statusBadge(inv.status)}</TableCell>
-                    <TableCell className="text-right">{formatCents(inv.totalCents)}</TableCell>
+                    <TableCell>{inv.status === "finalized" ? paymentStatusBadge(inv.paymentStatus) : "\u2014"}</TableCell>
+                    <TableCell className="text-sm">{inv.dueDate ? fmtDate(inv.dueDate) : "\u2014"}</TableCell>
+                    <TableCell className="text-right text-sm">{formatCents(inv.totalCents)}</TableCell>
+                    <TableCell className="text-right text-sm">{inv.status === "finalized" ? formatCents(inv.balanceDueCents || 0) : "\u2014"}</TableCell>
                     <TableCell>
-                      <Button size="sm" variant="ghost" onClick={() => loadInvoice(inv.id)} data-testid={`button-view-invoice-${inv.id}`}>
+                      <Button size="icon" variant="ghost" onClick={() => loadInvoice(inv.id)} data-testid={`button-view-invoice-${inv.id}`}>
                         <Eye className="w-4 h-4" />
                       </Button>
                     </TableCell>

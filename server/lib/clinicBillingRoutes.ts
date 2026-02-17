@@ -1200,6 +1200,36 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
+  async function updateInvoicePaymentStatus(invoiceId: number) {
+    const invoice = await storage.getBillingCycleInvoice(invoiceId);
+    if (!invoice || invoice.status !== "finalized") return;
+
+    const payments = await storage.getInvoicePayments(invoiceId);
+    const sumPaid = payments.reduce((sum, p) => sum + p.amountCents, 0);
+    const balanceDue = Math.max(invoice.totalCents - sumPaid, 0);
+
+    let paymentStatus: "unpaid" | "partial" | "paid" | "overdue" = "unpaid";
+    if (balanceDue === 0 && sumPaid > 0) {
+      paymentStatus = "paid";
+    } else if (sumPaid > 0) {
+      paymentStatus = "partial";
+    }
+
+    if (paymentStatus !== "paid" && invoice.dueDate && new Date() > new Date(invoice.dueDate)) {
+      paymentStatus = "overdue";
+    }
+
+    const lastPaymentAt = payments.length > 0 ? payments[0].paidAt : null;
+
+    await storage.updateBillingCycleInvoice(invoiceId, {
+      amountPaidCents: sumPaid,
+      balanceDueCents: balanceDue,
+      paymentStatus,
+      lastPaymentAt,
+      updatedAt: new Date(),
+    } as any);
+  }
+
   app.post("/api/cycle-invoices/:invoiceId/finalize", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const invoiceId = parseInt(req.params.invoiceId);
@@ -1216,13 +1246,27 @@ export function registerClinicBillingRoutes(app: Express) {
 
       const items = await storage.getBillingCycleInvoiceItems(invoiceId);
       const recalcSubtotal = items.reduce((sum, item) => sum + item.amountCents, 0);
+      const totalCents = recalcSubtotal + (invoice.feesCents || 0) + (invoice.taxCents || 0);
+
+      const invoiceNumber = await storage.nextInvoiceNumber();
+
+      const settings = await storage.getClinicBillingSettings(invoice.clinicId);
+      const graceDays = settings?.graceDays || 0;
+      const periodEndDate = new Date(invoice.periodEnd);
+      const dueDate = new Date(periodEndDate.getTime() + graceDays * 24 * 60 * 60 * 1000);
 
       const updated = await storage.updateBillingCycleInvoice(invoiceId, {
         status: "finalized",
         finalizedAt: new Date(),
         subtotalCents: recalcSubtotal,
-        totalCents: recalcSubtotal + (invoice.feesCents || 0) + (invoice.taxCents || 0),
-      });
+        totalCents,
+        invoiceNumber,
+        paymentStatus: "unpaid",
+        amountPaidCents: 0,
+        balanceDueCents: totalCents,
+        dueDate,
+        updatedAt: new Date(),
+      } as any);
 
       res.json(updated);
     } catch (err: any) {
@@ -1283,6 +1327,299 @@ export function registerClinicBillingRoutes(app: Express) {
       const updated = await storage.updateBillingCycleInvoice(invoiceId, { status: "void" });
       res.json(updated);
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/cycle-invoices/:invoiceId/create-checkout", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.invoiceId);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getBillingCycleInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const access = await checkClinicAccess(req, invoice.clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      if (invoice.status !== "finalized") return res.status(400).json({ message: "Invoice must be finalized" });
+      if ((invoice.balanceDueCents || 0) <= 0) return res.status(400).json({ message: "No balance due" });
+
+      if (!process.env.STRIPE_SECRET_KEY) return res.status(500).json({ message: "Stripe not configured" });
+
+      const Stripe = (await import("stripe")).default;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+      const clinic = await storage.getClinic(invoice.clinicId);
+      const APP_URL = process.env.APP_PUBLIC_URL || process.env.PUBLIC_BASE_URL || "https://app.unitedcaremobility.com";
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Invoice ${invoice.invoiceNumber || `#${invoice.id}`}`,
+              description: `${clinic?.name || "Clinic"} - Period ${invoice.periodStart} to ${invoice.periodEnd}`,
+            },
+            unit_amount: invoice.balanceDueCents || invoice.totalCents,
+          },
+          quantity: 1,
+        }],
+        mode: "payment",
+        success_url: `${APP_URL}/billing?paid=1&invoice=${invoiceId}`,
+        cancel_url: `${APP_URL}/billing?canceled=1&invoice=${invoiceId}`,
+        metadata: {
+          invoice_id: String(invoiceId),
+          clinic_id: String(invoice.clinicId),
+          company_id: String(clinic?.companyId || ""),
+          invoice_number: invoice.invoiceNumber || "",
+          type: "cycle_invoice",
+        },
+      });
+
+      await storage.updateBillingCycleInvoice(invoiceId, {
+        stripeCheckoutSessionId: session.id,
+        stripeCheckoutUrl: session.url,
+        updatedAt: new Date(),
+      } as any);
+
+      res.json({ url: session.url, sessionId: session.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/cycle-invoices/:invoiceId/register-manual-payment", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.invoiceId);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getBillingCycleInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const access = await checkClinicAccess(req, invoice.clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      if (invoice.status !== "finalized") return res.status(400).json({ message: "Invoice must be finalized" });
+
+      const { amountCents, reference } = req.body;
+      if (!amountCents || amountCents <= 0) return res.status(400).json({ message: "Invalid amount" });
+
+      const payment = await storage.createInvoicePayment({
+        invoiceId,
+        amountCents,
+        method: "manual",
+        reference: reference || null,
+        paidAt: new Date(),
+      });
+
+      await updateInvoicePaymentStatus(invoiceId);
+      const updated = await storage.getBillingCycleInvoice(invoiceId);
+
+      res.json({ payment, invoice: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/cycle-invoices/:invoiceId/payments", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.invoiceId);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getBillingCycleInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const access = await checkClinicAccess(req, invoice.clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      const payments = await storage.getInvoicePayments(invoiceId);
+      res.json(payments);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/cycle-invoices/:invoiceId/pdf", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.invoiceId);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getBillingCycleInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const access = await checkClinicAccess(req, invoice.clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      if (invoice.status === "draft") return res.status(400).json({ message: "Cannot generate PDF for draft invoices" });
+
+      const items = await storage.getBillingCycleInvoiceItems(invoiceId);
+      const clinic = await storage.getClinic(invoice.clinicId);
+      const payments = await storage.getInvoicePayments(invoiceId);
+
+      const { generateInvoicePdf } = await import("./invoicePdfGenerator");
+      await generateInvoicePdf({ invoice, items, clinic, payments }, res);
+    } catch (err: any) {
+      console.error("[InvoicePDF] Error:", err.message);
+      if (!res.headersSent) res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/reports/aging", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const asOfStr = req.query.asOf as string | undefined;
+      const asOf = asOfStr ? new Date(asOfStr) : new Date();
+      const clinicIdFilter = req.query.clinicId ? parseInt(req.query.clinicId as string) : undefined;
+
+      const user = await storage.getUser(req.user!.userId);
+      let companyFilter: number | undefined;
+      if (user?.role === "COMPANY_ADMIN" && user.companyId) {
+        companyFilter = user.companyId;
+      }
+
+      const invoices = await storage.getBillingCycleInvoicesByPaymentStatus(["unpaid", "partial", "overdue"], clinicIdFilter);
+
+      const clinicBuckets: Record<number, { clinicId: number; clinicName: string; current: number; days1_30: number; days31_60: number; days61_90: number; days90plus: number; total: number }> = {};
+
+      for (const inv of invoices) {
+        if (!inv.dueDate) continue;
+        if (companyFilter) {
+          const clinic = await storage.getClinic(inv.clinicId);
+          if (!clinic || clinic.companyId !== companyFilter) continue;
+        }
+
+        const dueDate = new Date(inv.dueDate);
+        const daysDiff = Math.floor((asOf.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+        const balance = inv.balanceDueCents || 0;
+
+        if (!clinicBuckets[inv.clinicId]) {
+          const clinic = await storage.getClinic(inv.clinicId);
+          clinicBuckets[inv.clinicId] = {
+            clinicId: inv.clinicId,
+            clinicName: clinic?.name || `Clinic ${inv.clinicId}`,
+            current: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90plus: 0, total: 0,
+          };
+        }
+
+        const bucket = clinicBuckets[inv.clinicId];
+        if (daysDiff <= 0) bucket.current += balance;
+        else if (daysDiff <= 30) bucket.days1_30 += balance;
+        else if (daysDiff <= 60) bucket.days31_60 += balance;
+        else if (daysDiff <= 90) bucket.days61_90 += balance;
+        else bucket.days90plus += balance;
+        bucket.total += balance;
+      }
+
+      res.json({
+        asOf: asOf.toISOString(),
+        buckets: Object.values(clinicBuckets),
+        summary: {
+          current: Object.values(clinicBuckets).reduce((s, b) => s + b.current, 0),
+          days1_30: Object.values(clinicBuckets).reduce((s, b) => s + b.days1_30, 0),
+          days31_60: Object.values(clinicBuckets).reduce((s, b) => s + b.days31_60, 0),
+          days61_90: Object.values(clinicBuckets).reduce((s, b) => s + b.days61_90, 0),
+          days90plus: Object.values(clinicBuckets).reduce((s, b) => s + b.days90plus, 0),
+          total: Object.values(clinicBuckets).reduce((s, b) => s + b.total, 0),
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ops/recompute-overdue", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), async (_req: AuthRequest, res) => {
+    try {
+      const invoices = await storage.getBillingCycleInvoicesByPaymentStatus(["unpaid", "partial"]);
+      let updated = 0;
+      const now = new Date();
+
+      for (const inv of invoices) {
+        if (inv.dueDate && now > new Date(inv.dueDate)) {
+          await storage.updateBillingCycleInvoice(inv.id, {
+            paymentStatus: "overdue",
+            updatedAt: now,
+          } as any);
+          updated++;
+        }
+      }
+
+      res.json({ message: `Recomputed overdue status for ${updated} invoices`, updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/stripe/cycle-invoice-webhook", async (req, res) => {
+    try {
+      if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
+        return res.status(500).json({ message: "Stripe not configured" });
+      }
+
+      const Stripe = (await import("stripe")).default;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+      const sig = req.headers["stripe-signature"];
+      if (!sig) return res.status(400).json({ message: "Missing signature" });
+
+      let event;
+      try {
+        event = stripe.webhooks.constructEvent(
+          (req as any).rawBody || Buffer.from(JSON.stringify(req.body)),
+          sig as string,
+          process.env.STRIPE_WEBHOOK_SECRET
+        );
+      } catch (err: any) {
+        console.error("[StripeWebhook] Signature verification failed:", err.message);
+        return res.status(400).json({ message: "Invalid signature" });
+      }
+
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object as any;
+        const metadata = session.metadata || {};
+
+        if (metadata.type !== "cycle_invoice") {
+          return res.json({ received: true, skipped: "not cycle_invoice" });
+        }
+
+        const invoiceId = parseInt(metadata.invoice_id);
+        if (isNaN(invoiceId)) return res.json({ received: true, skipped: "no invoice_id" });
+
+        const existingByRef = await storage.findPaymentByReference(session.id);
+        if (existingByRef) return res.json({ received: true, skipped: "duplicate" });
+
+        if (session.payment_intent) {
+          const existingByPI = await storage.findPaymentByStripePI(session.payment_intent);
+          if (existingByPI) return res.json({ received: true, skipped: "duplicate_pi" });
+        }
+
+        const amountCents = session.amount_total || 0;
+
+        const paymentMethodTypes: string[] = session.payment_method_types || [];
+        const isAch = paymentMethodTypes.includes("us_bank_account");
+
+        await storage.createInvoicePayment({
+          invoiceId,
+          amountCents,
+          method: isAch ? "ach" : "stripe",
+          reference: session.id,
+          stripePaymentIntentId: session.payment_intent || null,
+          paidAt: new Date(),
+        });
+
+        await storage.updateBillingCycleInvoice(invoiceId, {
+          stripePaymentIntentId: session.payment_intent || null,
+          updatedAt: new Date(),
+        } as any);
+
+        await updateInvoicePaymentStatus(invoiceId);
+
+        console.log(`[StripeWebhook] Payment recorded for invoice ${invoiceId}: ${amountCents} cents`);
+      }
+
+      res.json({ received: true });
+    } catch (err: any) {
+      console.error("[StripeWebhook] Error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });
