@@ -1,0 +1,228 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+PHASE 3 — PAYMENTS & COLLECTION (Stripe Checkout + ACH-ready + Aging + Invoice PDF)
+
+GOAL
+Add a complete payments layer for invoices:
+- Stripe Checkout (card)
+- ACH-ready (Stripe US bank account / ACH via Checkout if enabled)
+- Manual payment registration (for Zelle/check/etc)
+- Invoice PDF (formal invoice)
+- Aging report (30/60/90)
+- Overdue logic using clinic grace_days + due_date
+
+CONSTRAINTS
+- Do NOT break existing billing generation/finalize flow.
+- Keep cents as integer.
+- Reuse existing Resend/Stripe patterns if present.
+- All endpoints must be role-gated and clinic/company isolated.
+
+------------------------------------------------------------
+PHASE 1 — DB EXTENSIONS (ADD ONLY)
+------------------------------------------------------------
+A) Extend invoices table (add columns if missing):
+- invoice_number TEXT UNIQUE NULL   -- generated at finalize (e.g., INV-000001)
+- payment_status TEXT CHECK IN ('unpaid','partial','paid','overdue') NOT NULL DEFAULT 'unpaid'
+- amount_paid_cents BIGINT NOT NULL DEFAULT 0
+- balance_due_cents BIGINT NOT NULL DEFAULT 0
+- due_date TIMESTAMPTZ NULL
+- stripe_checkout_session_id TEXT NULL
+- stripe_payment_intent_id TEXT NULL
+- stripe_checkout_url TEXT NULL
+- last_payment_at TIMESTAMPTZ NULL
+
+B) Create invoice_payments table:
+- id UUID PK default gen_random_uuid()
+- invoice_id UUID FK invoices.id NOT NULL ON DELETE CASCADE
+- amount_cents BIGINT NOT NULL
+- method TEXT CHECK IN ('stripe','ach','manual') NOT NULL
+- reference TEXT NULL
+- stripe_payment_intent_id TEXT NULL
+- stripe_charge_id TEXT NULL
+- paid_at TIMESTAMPTZ NOT NULL DEFAULT now()
+- created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+
+Indexes:
+- invoice_payments(invoice_id, paid_at desc)
+
+C) Optional: clinic_payment_settings (if not existing):
+- clinic_id PK/FK
+- stripe_customer_id TEXT NULL
+- default_payment_method TEXT NULL
+- ach_enabled BOOLEAN NOT NULL DEFAULT false
+(If you already have company/clinic stripe settings, reuse them.)
+
+------------------------------------------------------------
+PHASE 2 — SERVER LOGIC
+------------------------------------------------------------
+A) When invoice is FINALIZED:
+1) Generate invoice_number sequentially:
+   - Format: INV-000001
+   - Must be atomic; use a simple "invoice_sequences" table or DB sequence.
+2) Set due_date:
+   - due_date = period_end + grace_days (from clinic_billing_settings)
+   - If grace_days missing => 0
+3) Set:
+   - payment_status='unpaid'
+   - amount_paid_cents=0
+   - balance_due_cents=total_cents
+
+B) Payment status update function (single source of truth):
+updateInvoicePaymentStatus(invoiceId):
+- sumPayments = SUM(invoice_payments.amount_cents)
+- amount_paid_cents = sumPayments
+- balance_due_cents = max(total_cents - sumPayments, 0)
+- if balance_due_cents == 0 => payment_status='paid'
+- else if amount_paid_cents > 0 => payment_status='partial'
+- else payment_status='unpaid'
+- if now > due_date and payment_status != 'paid' => payment_status='overdue'
+- set last_payment_at = max(paid_at)
+
+This must run:
+- after any payment insert
+- when reading invoices list (apply overdue check lazily) OR via lightweight cron endpoint
+
+C) Stripe Checkout creation:
+- Create Stripe Checkout Session for the invoice balance due
+- Line items: "Invoice INV-000123" (amount = balance_due)
+- Metadata include: invoice_id, clinic_id, company_id, invoice_number
+- Success URL: `${APP_PUBLIC_URL}/billing?paid=1&invoice=${invoiceId}`
+- Cancel URL: `${APP_PUBLIC_URL}/billing?canceled=1&invoice=${invoiceId}`
+- Store: stripe_checkout_session_id + stripe_checkout_url on invoice row
+
+IMPORTANT:
+- Use existing STRIPE_SECRET_KEY env var
+- Ensure APP_PUBLIC_URL (or PUBLIC_BASE_URL) points to admin/app host.
+- Allow both app/admin/driver origins in CORS already handled.
+
+D) Stripe webhook (required):
+- Endpoint: POST /api/stripe/webhook (rawBody already available)
+- Validate Stripe signature header: Stripe-Signature using STRIPE_WEBHOOK_SECRET
+- Handle events:
+  - checkout.session.completed:
+    - obtain session, payment_intent
+    - determine paid amount (session.amount_total) or expand payment_intent
+    - insert invoice_payments row:
+      method='stripe' (or 'ach' if payment_method_types contains us_bank_account / bank_transfer)
+      reference=session.id
+      stripe_payment_intent_id
+      paid_at=now
+    - call updateInvoicePaymentStatus(invoiceId)
+- Must be idempotent:
+  - if a payment row already exists for stripe_payment_intent_id or session.id, do nothing.
+
+------------------------------------------------------------
+PHASE 3 — API ENDPOINTS (ROLE GATED)
+------------------------------------------------------------
+Roles allowed (default):
+SUPER_ADMIN, ADMIN, DISPATCH, COMPANY_ADMIN
+Clinic_user:
+- can view invoices for their clinic
+- can download invoice PDF
+- can create Stripe checkout link for their own invoice ONLY (optional; if unsure, restrict to dispatch/admin only)
+
+Endpoints:
+
+1) POST /api/invoices/:id/create-checkout
+- Auth required
+- Ensure invoice finalized and balance_due > 0
+- Returns { url }
+- Writes stripe_checkout_url to invoice
+
+2) POST /api/invoices/:id/register-manual-payment
+Body: { amountCents, method: 'manual', reference? }
+- Inserts invoice_payments row
+- Updates status
+
+3) GET /api/invoices/:id
+- Include payments summary: amount_paid, balance_due, payment_status, due_date
+
+4) GET /api/invoices/:id/payments
+- List payments rows
+
+5) GET /api/invoices/:id/pdf
+- Formal invoice PDF (NOT trip details PDF):
+  Include:
+  - UCM header + clinic name
+  - invoice_number, issued date, due date
+  - billing period
+  - items table (trip lines + adjustments)
+  - subtotal/fees/tax/total
+  - amount paid + balance due
+  - payment status
+  - footer with support email/phone
+- Headers:
+  - Content-Type: application/pdf
+  - Content-Disposition: attachment; filename="invoice_<INV-000123>.pdf"
+  - Cache-Control: no-store
+
+6) GET /api/reports/aging?asOf=...
+- Returns buckets per clinic:
+  - current (not due)
+  - 1-30 overdue
+  - 31-60
+  - 61-90
+  - 90+
+- Use due_date and balance_due
+- Role gate: SUPER_ADMIN/ADMIN/DISPATCH/COMPANY_ADMIN
+
+7) POST /api/ops/recompute-overdue (optional utility)
+- Walk invoices unpaid/partial and mark overdue if now>due_date
+- Only SUPER_ADMIN/DISPATCH
+(If you already have scheduler infrastructure, hook it; if not, keep as manual ops endpoint.)
+
+------------------------------------------------------------
+PHASE 4 — FRONTEND (ADMIN/DISPATCH + CLINIC VIEW)
+------------------------------------------------------------
+A) Invoice list page enhancements:
+- Show payment_status badge
+- Show due_date
+- Show balance_due
+
+B) Invoice details page:
+- Buttons:
+  - Download Invoice PDF (must use downloadWithAuth helper for iOS Safari)
+  - Create Stripe Payment Link (if balance_due > 0)
+  - Copy Payment Link
+  - Register Manual Payment (modal)
+- Display:
+  - payments table
+  - totals + balance
+
+C) Downloads:
+- Reuse existing Safari-safe authenticated download helper (fetch + blob).
+- Ensure NO direct <a href="/api/..."> protected download links.
+
+------------------------------------------------------------
+PHASE 5 — CONFIG / SECRETS
+------------------------------------------------------------
+Ensure env vars documented and used:
+- STRIPE_SECRET_KEY
+- STRIPE_WEBHOOK_SECRET
+- APP_PUBLIC_URL (or PUBLIC_BASE_URL) => set to https://app.unitedcaremobility.com (or admin host)
+- SUPPORT_EMAIL (optional)
+- COMPANY_NAME = "United Care Mobility LLC"
+
+------------------------------------------------------------
+PHASE 6 — TEST CHECKLIST (MUST PASS)
+------------------------------------------------------------
+1) Finalize invoice => invoice_number created, due_date set, balance_due set.
+2) Create checkout => returns URL, opens Stripe checkout, pay with card => webhook records payment => invoice status paid.
+3) Partial manual payment => status partial + correct balance.
+4) Overdue logic => if due_date in past and unpaid/partial => overdue.
+5) Download Invoice PDF works on iPhone Safari and desktop.
+6) Clinic_user can only access their clinic invoices (403 on others).
+
+DELIVERABLES
+- Migrations
+- Backend routes + webhook
+- Frontend UI changes
+- Verified examples (curl + screenshots/logs)
+- No TODOs left unimplemented
