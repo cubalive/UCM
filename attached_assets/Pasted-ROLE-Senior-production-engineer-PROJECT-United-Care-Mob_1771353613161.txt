@@ -1,0 +1,187 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Extend ARCHIVE system + implement SUPER_ADMIN "HARD DELETE with typed confirmation".
+Requirements:
+A) Clinics (CLINIC_USER) can ARCHIVE/UNARCHIVE ONLY their OWN patients.
+B) Company roles (DISPATCH / COMPANY_ADMIN if exists) can ARCHIVE/UNARCHIVE clinics, drivers, patients within their tenant & allowed cities.
+C) ONLY SUPER_ADMIN can HARD DELETE any entity (company/tenant, city, clinic, driver, patient, trip, invoices, etc).
+D) HARD DELETE requires typed confirmation: request must include confirmWord="delete" (exact, lowercase). Without it: 400.
+E) Keep non-breaking. No DB reset. Keep runtime behavior. Enforce server-side RBAC + scoping.
+
+========================================================
+PHASE 0 — AUTHZ + ACTOR CONTEXT (HARD REQUIREMENT)
+========================================================
+1) Confirm/implement:
+- requireAuth middleware
+- requireRole(...roles)
+- getActorContext(req) -> { userId, role, companyId, clinicId, currentCityId, allowedCityIds[] }
+
+2) Scoping rules:
+- SUPER_ADMIN bypasses tenant/city scoping.
+- DISPATCH/COMPANY_ADMIN: enforce companyId match AND (if city-scoped) entity.cityId in allowedCityIds.
+- CLINIC_USER: for patient archive/unarchive ONLY:
+  force patient.clinicId = actor.clinicId (ignore any provided clinicId/cityId).
+
+========================================================
+PHASE 1 — ARCHIVE / UNARCHIVE (SOFT DELETE)
+========================================================
+Definition:
+- Archive: active=false AND deletedAt=now()
+- Unarchive: active=true AND deletedAt=NULL
+
+Entities and who can do what:
+1) clinics:
+- SUPER_ADMIN: archive/unarchive any
+- DISPATCH/COMPANY_ADMIN: archive/unarchive within tenant & allowed city
+- CLINIC_USER/DRIVER: no
+
+2) drivers:
+- SUPER_ADMIN: any
+- DISPATCH/COMPANY_ADMIN: within tenant & allowed city
+- CLINIC_USER/DRIVER: no
+
+3) patients:
+- SUPER_ADMIN: any
+- DISPATCH/COMPANY_ADMIN: within tenant & allowed city
+- CLINIC_USER: archive/unarchive ONLY patients in their clinic (patient.clinicId must equal actor.clinicId)
+- DRIVER: no
+
+Active-trip guard (must block archive):
+- For clinic: if any trips with clinicId and status in ('SCHEDULED','ASSIGNED','IN_PROGRESS') and deletedAt IS NULL -> 409
+- For driver: same by driverId -> 409
+- For patient: same by patientId -> 409
+
+Audit:
+- Create auditLog entry for every archive/unarchive:
+  eventType: archive_* / unarchive_*
+  entityType: clinic/driver/patient
+  entityId
+  actorUserId, actorRole, companyId, cityId
+  metadata JSON before/after { active, deletedAt }
+
+========================================================
+PHASE 2 — HARD DELETE (SUPER_ADMIN ONLY, CONFIRM WORD)
+========================================================
+
+A) Create a single generic endpoint (preferred):
+POST /api/admin/hard-delete
+Body:
+{
+  "entity": "company" | "city" | "clinic" | "driver" | "patient" | "trip" | "invoice" | "billingCycleInvoice" | "vehicle" | ...
+  "id": number,
+  "confirmWord": "delete"
+}
+
+Rules:
+1) requireAuth + requireRole("SUPER_ADMIN") ONLY
+2) If confirmWord !== "delete": return 400 { error: "Confirmation required. Type 'delete'." }
+3) Before delete, run safety checks and show clear errors:
+   - If entity has active trips -> 409 (unless deleting trip itself)
+   - If entity has dependencies, delete in safe order or refuse with instructions.
+
+B) Delete order (MUST be safe, no orphan breaks):
+- For patient delete:
+  delete related: tripSmsLog, tripShareTokens, tripEvents, tripSignatures, tripBilling, invoice lines/items tied to patient trips, then trips, then patient
+- For driver delete:
+  close assignment history, delete offers/alerts/tokens, unassign from trips if needed (or block if active trips), then delete driver
+- For clinic delete:
+  block if active trips; otherwise delete invoices/billing profiles/items, tariffs, clinic users (or detach), patients (only if admin confirms per-entity) OR implement cascade delete path with clear logging.
+- For company delete:
+  highest risk. MUST implement preflight summary first OR block unless "force=true" + confirmWord. (Implement preflight v1 in this task.)
+
+C) Add PREVIEW endpoint (must exist before actual destructive deletes for company/city):
+GET /api/admin/hard-delete/preview?entity=company&id=...
+Returns counts of dependent rows (clinics, drivers, patients, trips, invoices, etc).
+Only SUPER_ADMIN.
+
+D) Audit hard deletes:
+- eventType: hard_delete
+- metadata includes entity, id, dependentCounts (from preview), confirmWordUsed, deletedBy
+
+E) UI:
+- In SUPER_ADMIN settings add "Danger Zone" modal:
+  - Input box requiring typing: delete
+  - Show preview counts
+  - Only enable confirm if exact match.
+
+========================================================
+PHASE 3 — ROUTES TO ADD
+========================================================
+
+Archive endpoints:
+- POST /api/admin/clinics/:id/archive
+- POST /api/admin/clinics/:id/unarchive
+- POST /api/admin/drivers/:id/archive
+- POST /api/admin/drivers/:id/unarchive
+- POST /api/admin/patients/:id/archive
+- POST /api/admin/patients/:id/unarchive
+Clinic-user patient-only endpoints (optional, can reuse same patient endpoints with role logic):
+- POST /api/clinic/patients/:id/archive
+- POST /api/clinic/patients/:id/unarchive
+
+Hard delete endpoints:
+- GET  /api/admin/hard-delete/preview?entity=...&id=...
+- POST /api/admin/hard-delete  (requires confirmWord="delete")
+
+========================================================
+PHASE 4 — STORAGE INTERFACE CHANGES
+========================================================
+Add methods:
+- archiveClinic/unarchiveClinic
+- archiveDriver/unarchiveDriver
+- archivePatient/unarchivePatient (must accept actor context and enforce clinic scoping)
+- hardDeletePreview(entity, id): returns dependentCounts
+- hardDelete(entity, id): performs delete after preview + safety checks
+
+NOTE:
+If existing delete* methods exist, DO NOT expose them to non-admin.
+Refactor them to be called ONLY from hardDelete() and keep them internal/private.
+
+========================================================
+PHASE 5 — VERIFICATION (MUST DO)
+========================================================
+Commands:
+1) npm run check
+2) npm run build
+3) npm run dev (server starts)
+
+RBAC tests:
+- CLINIC_USER:
+  - can archive/unarchive their patient -> 200
+  - cannot archive a patient from another clinic -> 404/403
+  - cannot archive drivers/clinics -> 403
+  - cannot hard delete -> 403
+- DISPATCH:
+  - can archive within allowed city + company
+  - cannot archive outside allowed cities -> 403/404
+- SUPER_ADMIN:
+  - can archive/unarchive everything
+  - hard delete with confirmWord="delete" works
+  - hard delete without confirmWord or wrong case -> 400
+
+Hard delete safety:
+- Attempt to hard delete clinic/driver/patient with active trips -> 409
+- Run preview for company -> returns counts (no deletes)
+- Ensure auditLog entries exist for archive and hard delete.
+
+DELIVERABLES (MANDATORY):
+1) Exact files changed + line ranges
+2) Endpoint list + RBAC matrix summary
+3) curl examples:
+   - clinic user archive patient
+   - dispatch archive driver
+   - preview hard delete company
+   - hard delete patient (with confirmWord)
+4) Verification output summary for check/build/dev
+
+END.
