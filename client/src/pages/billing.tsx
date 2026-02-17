@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { downloadWithAuth } from "@/lib/export";
 import {
   FileText,
   Download,
@@ -129,21 +130,9 @@ export default function BillingPage() {
   });
 
   const handleDownloadPdf = async (invoiceId: number) => {
-    try {
-      const res = await fetch(`/api/billing/weekly/${invoiceId}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Download failed");
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `invoice-${invoiceId}-weekly.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
+    await downloadWithAuth(`/api/billing/weekly/${invoiceId}/pdf`, `invoice-${invoiceId}-weekly.pdf`, token, {
+      onError: (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
+    });
   };
 
   const clinics = clinicsQuery.data || [];

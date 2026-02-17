@@ -5790,8 +5790,8 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       });
 
       const csv = csvHeader + csvRows.join("\n");
-      res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", `attachment; filename=trips_${startDate}_to_${endDate}.csv`);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="trips_${startDate}_to_${endDate}.csv"`);
       res.send(csv);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

@@ -15,6 +15,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { FileText, Download, Receipt, MapPin } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { downloadWithAuth } from "@/lib/export";
 
 function InvoiceMapThumb({ tripId, token }: { tripId: number | null; token: string | null }) {
   const [failed, setFailed] = useState(false);
@@ -155,17 +157,7 @@ export default function ClinicInvoicesPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         {inv.pdfUrl ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            asChild
-                            data-testid={`button-download-invoice-${inv.id}`}
-                          >
-                            <a href={inv.pdfUrl} target="_blank" rel="noopener noreferrer">
-                              <Download className="w-4 h-4 mr-1" />
-                              PDF
-                            </a>
-                          </Button>
+                          <DownloadPdfButton invoiceId={inv.id} pdfUrl={inv.pdfUrl} token={token} />
                         ) : (
                           <span className="text-xs text-muted-foreground">N/A</span>
                         )}
@@ -179,5 +171,29 @@ export default function ClinicInvoicesPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function DownloadPdfButton({ invoiceId, pdfUrl, token }: { invoiceId: number; pdfUrl: string; token: string | null }) {
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+  const handleClick = async () => {
+    setLoading(true);
+    await downloadWithAuth(pdfUrl, `invoice-${invoiceId}.pdf`, token, {
+      onError: (msg) => toast({ title: "Download failed", description: msg, variant: "destructive" }),
+    });
+    setLoading(false);
+  };
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      onClick={handleClick}
+      disabled={loading}
+      data-testid={`button-download-invoice-${invoiceId}`}
+    >
+      <Download className="w-4 h-4 mr-1" />
+      {loading ? "..." : "PDF"}
+    </Button>
   );
 }

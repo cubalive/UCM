@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { downloadWithAuth } from "@/lib/export";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -1033,24 +1034,11 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
     const inv = invoiceQuery.data?.invoice;
     if (!inv) return;
     setPdfLoading(true);
-    try {
-      const res = await fetch(`/api/invoices/${inv.id}/pdf`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("PDF generation failed");
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `invoice-${inv.id}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setPdfLoading(false);
-    }
+    await downloadWithAuth(`/api/invoices/${inv.id}/pdf`, `invoice-${inv.id}.pdf`, token, {
+      method: "POST",
+      onError: (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
+    });
+    setPdfLoading(false);
   };
 
   const handleSendEmail = async () => {

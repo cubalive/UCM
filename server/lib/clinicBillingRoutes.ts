@@ -778,7 +778,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
       const csv = header + rows.join("\n") + `\n\nTotal,,,,,,,,,,$${parseFloat(invoice.totalAmount).toFixed(2)}`;
 
-      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="clinic-billing-${clinic?.name || id}-${invoice.weekStart}.csv"`);
       res.send(csv);
     } catch (err: any) {

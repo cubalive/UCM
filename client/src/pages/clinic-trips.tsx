@@ -42,6 +42,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
+import { downloadWithAuth } from "@/lib/export";
 import { useTranslation } from "react-i18next";
 import {
   Clock,
@@ -1601,29 +1602,14 @@ function PerformanceSection() {
 
   const handleWeeklyExport = async () => {
     setExporting(true);
-    try {
-      const response = await fetch(`/api/clinic/trips/export?startDate=${startDate}&endDate=${endDate}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || "Export failed");
-      }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `performance_${startDate}_to_${endDate}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      toast({ title: "Export downloaded" });
-    } catch (err: any) {
-      toast({ title: "Export failed", description: err.message, variant: "destructive" });
-    } finally {
-      setExporting(false);
-    }
+    const ok = await downloadWithAuth(
+      `/api/clinic/trips/export?startDate=${startDate}&endDate=${endDate}`,
+      `performance_${startDate}_to_${endDate}.csv`,
+      token,
+      { onError: (msg) => toast({ title: "Export failed", description: msg, variant: "destructive" }) },
+    );
+    if (ok) toast({ title: "Export downloaded" });
+    setExporting(false);
   };
 
   const maxDailyTotal = Math.max(1, ...dailyData.map((d: any) => d.total || 0));
@@ -1917,58 +1903,28 @@ function ReportsSection() {
       return;
     }
     setExporting(true);
-    try {
-      const response = await fetch(`/api/clinic/trips/export?startDate=${startDate}&endDate=${endDate}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || "Export failed");
-      }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `trips_${startDate}_to_${endDate}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      toast({ title: "Export downloaded" });
-    } catch (err: any) {
-      toast({ title: "Export failed", description: err.message, variant: "destructive" });
-    } finally {
-      setExporting(false);
-    }
+    const ok = await downloadWithAuth(
+      `/api/clinic/trips/export?startDate=${startDate}&endDate=${endDate}`,
+      `trips_${startDate}_to_${endDate}.csv`,
+      token,
+      { onError: (msg) => toast({ title: "Export failed", description: msg, variant: "destructive" }) },
+    );
+    if (ok) toast({ title: "Export downloaded" });
+    setExporting(false);
   };
 
   const handleWeeklySummaryExport = async () => {
     setExporting(true);
-    try {
-      const sd = sevenDaysAgoStr();
-      const ed = todayStr();
-      const response = await fetch(`/api/clinic/trips/export?startDate=${sd}&endDate=${ed}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || "Export failed");
-      }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `weekly_summary_${sd}_to_${ed}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      toast({ title: "Weekly summary downloaded" });
-    } catch (err: any) {
-      toast({ title: "Export failed", description: err.message, variant: "destructive" });
-    } finally {
-      setExporting(false);
-    }
+    const sd = sevenDaysAgoStr();
+    const ed = todayStr();
+    const ok = await downloadWithAuth(
+      `/api/clinic/trips/export?startDate=${sd}&endDate=${ed}`,
+      `weekly_summary_${sd}_to_${ed}.csv`,
+      token,
+      { onError: (msg) => toast({ title: "Export failed", description: msg, variant: "destructive" }) },
+    );
+    if (ok) toast({ title: "Weekly summary downloaded" });
+    setExporting(false);
   };
 
   return (
@@ -2927,24 +2883,11 @@ function InvoicePanel({ tripId, tripStatus }: { tripId: number; tripStatus: stri
     const inv = invoiceQuery.data?.invoice;
     if (!inv) return;
     setPdfLoading(true);
-    try {
-      const res = await fetch(`/api/invoices/${inv.id}/pdf`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("PDF generation failed");
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `invoice-${inv.id}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setPdfLoading(false);
-    }
+    await downloadWithAuth(`/api/invoices/${inv.id}/pdf`, `invoice-${inv.id}.pdf`, token, {
+      method: "POST",
+      onError: (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
+    });
+    setPdfLoading(false);
   };
 
   if (!isTerminal) return null;
@@ -3042,25 +2985,10 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
   const handleDownloadPdf = async () => {
     if (!token || !trip.id) return;
     setPdfLoading(true);
-    try {
-      const res = await fetch(`/api/clinic/trips/${trip.id}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("PDF generation failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `trip-${trip.publicId || trip.id}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Failed to download PDF", variant: "destructive" });
-    } finally {
-      setPdfLoading(false);
-    }
+    await downloadWithAuth(`/api/clinic/trips/${trip.id}/pdf`, `trip-${trip.publicId || trip.id}.pdf`, token, {
+      onError: (msg) => toast({ title: "Error", description: msg || "Failed to download PDF", variant: "destructive" }),
+    });
+    setPdfLoading(false);
   };
 
   const outcomeColor = trip.status === "COMPLETED"

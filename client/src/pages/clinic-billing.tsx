@@ -37,6 +37,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { downloadWithAuth } from "@/lib/export";
 import {
   DollarSign,
   FileText,
@@ -620,21 +621,9 @@ function InvoicesTab() {
   });
 
   const handleDownloadCsv = async (invId: number) => {
-    try {
-      const res = await fetch(`/api/clinic-billing/invoices/${invId}/csv`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Download failed");
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `clinic-billing-${invId}.csv`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
+    await downloadWithAuth(`/api/clinic-billing/invoices/${invId}/csv`, `clinic-billing-${invId}.csv`, token, {
+      onError: (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
+    });
   };
 
   const handleGenerate = () => {
