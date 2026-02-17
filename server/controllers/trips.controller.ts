@@ -225,7 +225,17 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
       action: "OFFER_SENT",
       entity: "trip",
       entityId: id,
-      details: `Sent assignment offer to driver ${driver.firstName} ${driver.lastName} (${driver.publicId}) for trip ${trip.publicId}. Expires in ${OFFER_TTL_SECONDS}s.`,
+      details: JSON.stringify({
+        driverId,
+        driverPublicId: driver.publicId,
+        driverName: `${driver.firstName} ${driver.lastName}`,
+        vehicleId: vehicleId || null,
+        tripPublicId: trip.publicId,
+        offerId: offer.id,
+        expiresInSec: OFFER_TTL_SECONDS,
+        requestId: (req as any)._requestId || req.headers["x-request-id"] || null,
+        role: req.user!.role,
+      }),
       cityId: trip.cityId,
     });
 
@@ -864,6 +874,10 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       return res.status(400).json({ message: `Invalid transition from ${trip.status} to ${parsed.data.status}` });
     }
 
+    if (parsed.data.status === "COMPLETED" && !trip.pickedUpAt) {
+      return res.status(400).json({ message: "Cannot complete trip: no pickup timestamp recorded. Trip must be picked up first." });
+    }
+
     const timestampField = STATUS_TIMESTAMP_MAP[parsed.data.status];
     const updateData: any = { status: parsed.data.status };
     if (timestampField) {
@@ -930,7 +944,15 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       action: "UPDATE_STATUS",
       entity: "trip",
       entityId: updatedTrip.id,
-      details: `Trip status changed to ${parsed.data.status}`,
+      details: JSON.stringify({
+        oldStatus: trip.status,
+        newStatus: parsed.data.status,
+        role: req.user!.role,
+        requestId: (req as any)._requestId || req.headers["x-request-id"] || null,
+        driverId: trip.driverId,
+        patientId: trip.patientId,
+        clinicId: trip.clinicId,
+      }),
       cityId: updatedTrip.cityId,
     });
     res.json(updatedTrip);
