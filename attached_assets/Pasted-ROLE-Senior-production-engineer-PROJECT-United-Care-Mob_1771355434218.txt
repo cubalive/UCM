@@ -1,0 +1,77 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Run a full, concrete verification pass to confirm the /metrics fix is correct and the system is stable (no blank pages, correct role gating, correct endpoints, no hidden 401/404 downloads).
+
+Hard Requirements:
+1) Do NOT change database data.
+2) Do NOT change schema/migrations.
+3) No refactors. Only verification + reporting.
+4) If ANY issue is found, stop and report it with exact evidence (route, status code, stack trace).
+
+What to verify (must do in this order):
+
+PHASE 1 — BUILD + TYPECHECK
+1) Run:
+   - npm run check
+   - npm run build
+Record results. If either fails, stop and report the first error.
+
+PHASE 2 — SERVER ROUTE HEALTH (NO UI YET)
+2) Start server (npm run dev) and confirm base health endpoints:
+   - GET /api/health (or existing health route) returns 200
+   - Confirm logs show server started cleanly (no crash loops)
+
+3) Verify metrics endpoints return JSON 200 as SUPER_ADMIN:
+   - GET /api/ops/metrics
+   - GET /api/ops/metrics/google
+   - GET /api/ops/metrics/routes
+   - GET /api/admin/metrics/summary
+   - GET /api/admin/metrics/counts
+Confirm each returns application/json and not HTML.
+
+PHASE 3 — ROLE GATING (CRITICAL)
+4) Confirm /metrics is SUPER_ADMIN only:
+   - As SUPER_ADMIN: /metrics renders (not blank)
+   - As DISPATCH: /metrics must not render; redirect to /unauthorized or show 403 UI
+   - As CLINIC_USER: same (blocked)
+   - As DRIVER: same (blocked)
+If you don’t have test users, create TEMP users only if the system already has an admin “create user” flow; otherwise simulate by forcing role in session only in local dev (no DB writes). Prefer no DB writes.
+
+PHASE 4 — FRONTEND NETWORK VALIDATION (PROVE NO 401/404)
+5) Open /metrics and capture network calls:
+   - Confirm client calls ONLY the real endpoints:
+     /api/ops/metrics
+     /api/ops/metrics/google
+     /api/ops/metrics/routes
+     /api/admin/metrics/summary
+     /api/admin/metrics/counts
+   - Confirm no calls to:
+     /api/metrics/system
+     /api/metrics/google
+     /api/metrics/routes
+     /api/admin/summary
+If any of these still fire, stop and report file + line where it’s coming from.
+
+PHASE 5 — SAFARI DOWNLOAD FAILURE GUARD (QUICK CHECK)
+6) Verify that any existing download buttons (CSV/JSON) do NOT download Unauthorized/404 payloads:
+   - Ensure client download code checks response.ok before saving blob
+   - Ensure server sets correct headers for downloads (Content-Type, Content-Disposition) if used
+If downloads are not present on /metrics, state “Not applicable” and stop.
+
+Deliverables (must paste in final response):
+1) Command results:
+   - npm run check: PASS/FAIL + first error if fail
+   - npm run build: PASS/FAIL + first error if fail
+2) Endpoint verification table (route → status → content-type)
+3) Role gating results (SUPER_ADMIN ok / others blocked)
+4) Network verification notes (confirm no deprecated endpoints requested)
+Stop after reporting. Do not implement new features in this task.

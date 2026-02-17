@@ -1,0 +1,85 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Fix the blank /metrics page for SUPER_ADMIN by aligning frontend API calls with existing backend routes, and verify that /metrics renders reliably.
+
+Context (repo reality check):
+- Backend metrics endpoints exist under:
+  - GET /api/ops/metrics
+  - GET /api/ops/metrics/routes
+  - GET /api/ops/metrics/google
+  These are SUPER_ADMIN only and are defined in server/lib/opsRoutes.ts.
+- Admin summary endpoints exist under:
+  - GET /api/admin/metrics/summary
+  - GET /api/admin/metrics/counts
+  These are defined in server/lib/adminMetricsRoutes.ts.
+- Frontend currently calls non-existent endpoints:
+  - /api/metrics/system
+  - /api/metrics/google
+  - /api/metrics/routes
+  - /api/admin/summary  (also appears missing)
+This mismatch causes 404/Unauthorized payloads and the /metrics UI becomes blank or unusable.
+
+Hard Requirements:
+1) Do NOT touch database data.
+2) Do NOT remove tables/columns.
+3) Keep role gating: ONLY SUPER_ADMIN can access system metrics.
+4) Must be non-breaking, minimal surface change.
+5) Verify with actual requests and UI render.
+
+Plan:
+A) Reproduce and confirm:
+- Open client route /metrics as SUPER_ADMIN.
+- In devtools/server logs confirm failing calls (404s) to /api/metrics/* and /api/admin/summary.
+- Confirm existing backend endpoints respond 200:
+  - /api/ops/metrics
+  - /api/ops/metrics/google
+  - /api/ops/metrics/routes
+  - /api/admin/metrics/summary
+  - /api/admin/metrics/counts
+
+B) Implement the fix (prefer frontend alignment, minimal):
+1) Update client/src/pages/metrics.tsx query keys to use the real endpoints:
+   - system metrics: "/api/ops/metrics"
+   - google metrics: "/api/ops/metrics/google"
+   - routes metrics: "/api/ops/metrics/routes"
+   - admin summary: use "/api/admin/metrics/summary" (already used in file) and REMOVE the extra query to "/api/admin/summary" OR replace it with the same "/api/admin/metrics/summary" response (no duplicate endpoint).
+2) Ensure the metrics page does NOT depend on the removed "/api/admin/summary" shape. Use metricsSummary + counts only.
+3) Ensure error states show an Alert (not blank screen) if any endpoint fails.
+
+Optional (only if you want backward compatibility):
+- Add tiny server aliases in server/lib/opsRoutes.ts:
+  - GET /api/metrics/system -> proxy to same handler as /api/ops/metrics
+  - GET /api/metrics/google  -> proxy to /api/ops/metrics/google
+  - GET /api/metrics/routes  -> proxy to /api/ops/metrics/routes
+But prefer the frontend fix first.
+
+C) Verification (must do and report):
+1) Run:
+   - npm run check
+   - npm run build
+2) Start dev server and verify /metrics renders as SUPER_ADMIN:
+   - Cards show request/redis/realtime/google/backpressure metrics (system metrics)
+   - Google section is populated from /api/ops/metrics/google
+   - Routes table populated from /api/ops/metrics/routes
+   - Admin metrics summary and counts render from /api/admin/metrics/*
+3) Verify role gating:
+   - As DISPATCH/CLINIC/DRIVER, /metrics should redirect to /unauthorized (no blank page).
+
+Deliverables:
+1) Exact files changed + line ranges:
+   - client/src/pages/metrics.tsx (API paths + removal/replacement of /api/admin/summary)
+   - (optional) server/lib/opsRoutes.ts (aliases if implemented)
+2) Output results of:
+   - npm run check
+   - npm run build
+3) Short manual verification notes: which endpoints return 200 and that /metrics renders.
+Stop after this task is complete. Do not start any other phase.
