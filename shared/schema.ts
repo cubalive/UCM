@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric, uniqueIndex, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric, uniqueIndex, index, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -311,7 +311,7 @@ export const trips = pgTable("trips", {
   arrivedDropoffAt: timestamp("arrived_dropoff_at"),
   completedAt: timestamp("completed_at"),
   companyId: integer("company_id").references(() => companies.id),
-  invoiceId: integer("invoice_id").references(() => invoices.id),
+  invoiceId: integer("invoice_id").references((): AnyPgColumn => invoices.id),
   deletedAt: timestamp("deleted_at"),
   requestSource: text("request_source").notNull().default("internal"),
   notes: text("notes"),
@@ -358,7 +358,7 @@ export const tripMessages = pgTable("trip_messages", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertTripMessageSchema = createInsertSchema(tripMessages).omit({ id: true, createdAt: true });
+export const insertTripMessageSchema = createInsertSchema(tripMessages).omit({ createdAt: true });
 export type InsertTripMessage = z.infer<typeof insertTripMessageSchema>;
 export type TripMessage = typeof tripMessages.$inferSelect;
 
@@ -539,25 +539,25 @@ export const driverBonusRules = pgTable("driver_bonus_rules", {
   updatedBy: integer("updated_by").references(() => users.id),
 });
 
-export const insertTripEventSchema = createInsertSchema(tripEvents).omit({ id: true, createdAt: true });
-export const insertDriverBonusRuleSchema = createInsertSchema(driverBonusRules).omit({ id: true });
+export const insertTripEventSchema = createInsertSchema(tripEvents).omit({ createdAt: true });
+export const insertDriverBonusRuleSchema = createInsertSchema(driverBonusRules);
 
-export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true });
-export const insertCitySchema = createInsertSchema(cities).omit({ id: true, createdAt: true });
-export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
-export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true, createdAt: true });
-export const insertDriverSchema = createInsertSchema(drivers).omit({ id: true, createdAt: true });
-export const insertClinicSchema = createInsertSchema(clinics).omit({ id: true, createdAt: true });
-export const insertPatientSchema = createInsertSchema(patients).omit({ id: true, createdAt: true });
-export const insertTripSchema = createInsertSchema(trips).omit({ id: true, createdAt: true, approvalStatus: true, approvedAt: true, approvedBy: true, cancelledBy: true, cancelledReason: true, cancelType: true, cancelledAt: true, deletedAt: true });
-export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true });
+export const insertCompanySchema = createInsertSchema(companies).omit({ createdAt: true });
+export const insertCitySchema = createInsertSchema(cities).omit({ createdAt: true });
+export const insertUserSchema = createInsertSchema(users).omit({ createdAt: true });
+export const insertVehicleSchema = createInsertSchema(vehicles).omit({ createdAt: true });
+export const insertDriverSchema = createInsertSchema(drivers).omit({ createdAt: true });
+export const insertClinicSchema = createInsertSchema(clinics).omit({ createdAt: true });
+export const insertPatientSchema = createInsertSchema(patients).omit({ createdAt: true });
+export const insertTripSchema = createInsertSchema(trips).omit({ createdAt: true, approvalStatus: true, approvedAt: true, approvedBy: true, cancelledBy: true, cancelledReason: true, cancelType: true, cancelledAt: true, deletedAt: true });
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({ createdAt: true });
 export const insertCitySettingsSchema = createInsertSchema(citySettings);
-export const insertDriverVehicleAssignmentSchema = createInsertSchema(driverVehicleAssignments).omit({ id: true, createdAt: true });
-export const insertVehicleAssignmentHistorySchema = createInsertSchema(vehicleAssignmentHistory).omit({ id: true });
-export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ id: true, createdAt: true });
-export const insertTripSeriesSchema = createInsertSchema(tripSeries).omit({ id: true, createdAt: true });
-export const insertTripShareTokenSchema = createInsertSchema(tripShareTokens).omit({ id: true, createdAt: true });
-export const insertTripSmsLogSchema = createInsertSchema(tripSmsLog).omit({ id: true, sentAt: true });
+export const insertDriverVehicleAssignmentSchema = createInsertSchema(driverVehicleAssignments).omit({ createdAt: true });
+export const insertVehicleAssignmentHistorySchema = createInsertSchema(vehicleAssignmentHistory);
+export const insertAuditLogSchema = createInsertSchema(auditLog).omit({ createdAt: true });
+export const insertTripSeriesSchema = createInsertSchema(tripSeries).omit({ createdAt: true });
+export const insertTripShareTokenSchema = createInsertSchema(tripShareTokens).omit({ createdAt: true });
+export const insertTripSmsLogSchema = createInsertSchema(tripSmsLog).omit({ sentAt: true });
 
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type InsertCity = z.infer<typeof insertCitySchema>;
@@ -636,7 +636,7 @@ export const scheduleChangeRequests = pgTable("schedule_change_requests", {
   index("idx_scr_company_status").on(table.companyId, table.status),
 ]);
 
-export const insertScheduleChangeRequestSchema = createInsertSchema(scheduleChangeRequests).omit({ id: true, createdAt: true, updatedAt: true, dispatcherUserId: true, decidedAt: true, status: true, decisionNote: true });
+export const insertScheduleChangeRequestSchema = createInsertSchema(scheduleChangeRequests).omit({ createdAt: true, updatedAt: true, dispatcherUserId: true, decidedAt: true, status: true, decisionNote: true });
 export type ScheduleChangeRequest = typeof scheduleChangeRequests.$inferSelect;
 export type InsertScheduleChangeRequest = z.infer<typeof insertScheduleChangeRequestSchema>;
 
@@ -669,11 +669,9 @@ export const driverShiftSwapRequests = pgTable("driver_shift_swap_requests", {
   index("idx_swap_shift_date").on(table.shiftDate),
 ]);
 
-export const insertDriverShiftSwapSchema = createInsertSchema(driverShiftSwapRequests).omit({
-  id: true, createdAt: true, updatedAt: true, status: true,
+export const insertDriverShiftSwapSchema = createInsertSchema(driverShiftSwapRequests).omit({ createdAt: true, updatedAt: true, status: true,
   targetDecisionNote: true, dispatchUserId: true, dispatchDecisionNote: true,
-  targetDecidedAt: true, dispatchDecidedAt: true,
-});
+  targetDecidedAt: true, dispatchDecidedAt: true, });
 export type DriverShiftSwapRequest = typeof driverShiftSwapRequests.$inferSelect;
 export type InsertDriverShiftSwapRequest = z.infer<typeof insertDriverShiftSwapSchema>;
 
@@ -735,9 +733,9 @@ export const clinicHelpRequests = pgTable("clinic_help_requests", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertOpsAlertLogSchema = createInsertSchema(opsAlertLog).omit({ id: true, sentAt: true });
-export const insertClinicAlertLogSchema = createInsertSchema(clinicAlertLog).omit({ id: true, sentAt: true });
-export const insertClinicHelpRequestSchema = createInsertSchema(clinicHelpRequests).omit({ id: true, createdAt: true, resolved: true, resolvedBy: true, resolvedAt: true });
+export const insertOpsAlertLogSchema = createInsertSchema(opsAlertLog).omit({ sentAt: true });
+export const insertClinicAlertLogSchema = createInsertSchema(clinicAlertLog).omit({ sentAt: true });
+export const insertClinicHelpRequestSchema = createInsertSchema(clinicHelpRequests).omit({ createdAt: true, resolved: true, resolvedBy: true, resolvedAt: true });
 
 export type OpsAlertLog = typeof opsAlertLog.$inferSelect;
 export type InsertOpsAlertLog = z.infer<typeof insertOpsAlertLogSchema>;
@@ -803,19 +801,19 @@ export const driverSupportEvents = pgTable("driver_support_events", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertDriverSupportEventSchema = createInsertSchema(driverSupportEvents).omit({ id: true, createdAt: true, resolved: true, resolvedBy: true, resolvedAt: true });
+export const insertDriverSupportEventSchema = createInsertSchema(driverSupportEvents).omit({ createdAt: true, resolved: true, resolvedBy: true, resolvedAt: true });
 export type DriverSupportEvent = typeof driverSupportEvents.$inferSelect;
 export type InsertDriverSupportEvent = z.infer<typeof insertDriverSupportEventSchema>;
 
-export const insertRouteBatchSchema = createInsertSchema(routeBatches).omit({ id: true, createdAt: true });
-export const insertDriverScoreSchema = createInsertSchema(driverScores).omit({ id: true, createdAt: true });
+export const insertRouteBatchSchema = createInsertSchema(routeBatches).omit({ createdAt: true });
+export const insertDriverScoreSchema = createInsertSchema(driverScores).omit({ createdAt: true });
 
 export type RouteBatch = typeof routeBatches.$inferSelect;
 export type InsertRouteBatch = z.infer<typeof insertRouteBatchSchema>;
 export type DriverScore = typeof driverScores.$inferSelect;
 export type InsertDriverScore = z.infer<typeof insertDriverScoreSchema>;
 
-export const insertAssignmentBatchSchema = createInsertSchema(assignmentBatches).omit({ id: true, createdAt: true });
+export const insertAssignmentBatchSchema = createInsertSchema(assignmentBatches).omit({ createdAt: true });
 export type AssignmentBatch = typeof assignmentBatches.$inferSelect;
 export type InsertAssignmentBatch = z.infer<typeof insertAssignmentBatchSchema>;
 
@@ -831,7 +829,7 @@ export const recurringSchedules = pgTable("recurring_schedules", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertRecurringScheduleSchema = createInsertSchema(recurringSchedules).omit({ id: true, createdAt: true });
+export const insertRecurringScheduleSchema = createInsertSchema(recurringSchedules).omit({ createdAt: true });
 export type RecurringSchedule = typeof recurringSchedules.$inferSelect;
 export type InsertRecurringSchedule = z.infer<typeof insertRecurringScheduleSchema>;
 
@@ -849,7 +847,7 @@ export const driverTripAlerts = pgTable("driver_trip_alerts", {
   acknowledgedAt: timestamp("acknowledged_at"),
 });
 
-export const insertDriverTripAlertSchema = createInsertSchema(driverTripAlerts).omit({ id: true });
+export const insertDriverTripAlertSchema = createInsertSchema(driverTripAlerts);
 export type DriverTripAlert = typeof driverTripAlerts.$inferSelect;
 export type InsertDriverTripAlert = z.infer<typeof insertDriverTripAlertSchema>;
 
@@ -871,7 +869,7 @@ export const driverOffers = pgTable("driver_offers", {
   createdBy: integer("created_by").references(() => users.id),
 });
 
-export const insertDriverOfferSchema = createInsertSchema(driverOffers).omit({ id: true });
+export const insertDriverOfferSchema = createInsertSchema(driverOffers);
 export type DriverOffer = typeof driverOffers.$inferSelect;
 export type InsertDriverOffer = z.infer<typeof insertDriverOfferSchema>;
 
@@ -936,19 +934,19 @@ export const driverReplacements = pgTable("driver_replacements", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const insertDriverWeeklyScheduleSchema = createInsertSchema(driverWeeklySchedules).omit({ id: true });
+export const insertDriverWeeklyScheduleSchema = createInsertSchema(driverWeeklySchedules);
 export type DriverWeeklySchedule = typeof driverWeeklySchedules.$inferSelect;
 export type InsertDriverWeeklySchedule = z.infer<typeof insertDriverWeeklyScheduleSchema>;
 
-export const insertSundayRosterSchema = createInsertSchema(sundayRosters).omit({ id: true });
+export const insertSundayRosterSchema = createInsertSchema(sundayRosters);
 export type SundayRoster = typeof sundayRosters.$inferSelect;
 export type InsertSundayRoster = z.infer<typeof insertSundayRosterSchema>;
 
-export const insertSubstitutePoolSchema = createInsertSchema(substitutePool).omit({ id: true });
+export const insertSubstitutePoolSchema = createInsertSchema(substitutePool);
 export type SubstitutePoolEntry = typeof substitutePool.$inferSelect;
 export type InsertSubstitutePool = z.infer<typeof insertSubstitutePoolSchema>;
 
-export const insertDriverReplacementSchema = createInsertSchema(driverReplacements).omit({ id: true });
+export const insertDriverReplacementSchema = createInsertSchema(driverReplacements);
 export type DriverReplacement = typeof driverReplacements.$inferSelect;
 export type InsertDriverReplacement = z.infer<typeof insertDriverReplacementSchema>;
 
@@ -988,11 +986,11 @@ export const pricingAuditLog = pgTable("pricing_audit_log", {
   note: text("note"),
 });
 
-export const insertPricingProfileSchema = createInsertSchema(pricingProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPricingProfileSchema = createInsertSchema(pricingProfiles).omit({ createdAt: true, updatedAt: true });
 export type PricingProfile = typeof pricingProfiles.$inferSelect;
 export type InsertPricingProfile = z.infer<typeof insertPricingProfileSchema>;
 
-export const insertPricingRuleSchema = createInsertSchema(pricingRules).omit({ id: true, updatedAt: true });
+export const insertPricingRuleSchema = createInsertSchema(pricingRules).omit({ updatedAt: true });
 export type PricingRule = typeof pricingRules.$inferSelect;
 export type InsertPricingRule = z.infer<typeof insertPricingRuleSchema>;
 
@@ -1084,19 +1082,19 @@ export const clinicBillingInvoiceLines = pgTable("clinic_billing_invoice_lines",
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertClinicBillingProfileSchema = createInsertSchema(clinicBillingProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertClinicBillingProfileSchema = createInsertSchema(clinicBillingProfiles).omit({ createdAt: true, updatedAt: true });
 export type ClinicBillingProfile = typeof clinicBillingProfiles.$inferSelect;
 export type InsertClinicBillingProfile = z.infer<typeof insertClinicBillingProfileSchema>;
 
-export const insertClinicBillingRuleSchema = createInsertSchema(clinicBillingRules).omit({ id: true, updatedAt: true });
+export const insertClinicBillingRuleSchema = createInsertSchema(clinicBillingRules).omit({ updatedAt: true });
 export type ClinicBillingRule = typeof clinicBillingRules.$inferSelect;
 export type InsertClinicBillingRule = z.infer<typeof insertClinicBillingRuleSchema>;
 
-export const insertClinicBillingInvoiceSchema = createInsertSchema(clinicBillingInvoices).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertClinicBillingInvoiceSchema = createInsertSchema(clinicBillingInvoices).omit({ createdAt: true, updatedAt: true });
 export type ClinicBillingInvoice = typeof clinicBillingInvoices.$inferSelect;
 export type InsertClinicBillingInvoice = z.infer<typeof insertClinicBillingInvoiceSchema>;
 
-export const insertClinicBillingInvoiceLineSchema = createInsertSchema(clinicBillingInvoiceLines).omit({ id: true, createdAt: true });
+export const insertClinicBillingInvoiceLineSchema = createInsertSchema(clinicBillingInvoiceLines).omit({ createdAt: true });
 export type ClinicBillingInvoiceLine = typeof clinicBillingInvoiceLines.$inferSelect;
 export type InsertClinicBillingInvoiceLine = z.infer<typeof insertClinicBillingInvoiceLineSchema>;
 
@@ -1122,11 +1120,11 @@ export const sessionRevocations = pgTable("session_revocations", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertDriverDeviceSchema = createInsertSchema(driverDevices).omit({ id: true, createdAt: true });
+export const insertDriverDeviceSchema = createInsertSchema(driverDevices).omit({ createdAt: true });
 export type DriverDevice = typeof driverDevices.$inferSelect;
 export type InsertDriverDevice = z.infer<typeof insertDriverDeviceSchema>;
 
-export const insertSessionRevocationSchema = createInsertSchema(sessionRevocations).omit({ id: true, createdAt: true });
+export const insertSessionRevocationSchema = createInsertSchema(sessionRevocations).omit({ createdAt: true });
 export type SessionRevocation = typeof sessionRevocations.$inferSelect;
 export type InsertSessionRevocation = z.infer<typeof insertSessionRevocationSchema>;
 
@@ -1144,7 +1142,7 @@ export const driverPushTokens = pgTable("driver_push_tokens", {
   uniqueIndex("idx_push_tokens_unique").on(table.driverId, table.token),
 ]);
 
-export const insertDriverPushTokenSchema = createInsertSchema(driverPushTokens).omit({ id: true, createdAt: true });
+export const insertDriverPushTokenSchema = createInsertSchema(driverPushTokens).omit({ createdAt: true });
 export type DriverPushToken = typeof driverPushTokens.$inferSelect;
 export type InsertDriverPushToken = z.infer<typeof insertDriverPushTokenSchema>;
 
@@ -1201,19 +1199,19 @@ export const clinicInvoiceItems = pgTable("clinic_invoice_items", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertClinicTariffSchema = createInsertSchema(clinicTariffs).omit({ id: true, createdAt: true });
+export const insertClinicTariffSchema = createInsertSchema(clinicTariffs).omit({ createdAt: true });
 export type ClinicTariff = typeof clinicTariffs.$inferSelect;
 export type InsertClinicTariff = z.infer<typeof insertClinicTariffSchema>;
 
-export const insertTripBillingSchema = createInsertSchema(tripBilling).omit({ id: true, createdAt: true });
+export const insertTripBillingSchema = createInsertSchema(tripBilling).omit({ createdAt: true });
 export type TripBilling = typeof tripBilling.$inferSelect;
 export type InsertTripBilling = z.infer<typeof insertTripBillingSchema>;
 
-export const insertClinicInvoiceMonthlySchema = createInsertSchema(clinicInvoicesMonthly).omit({ id: true, generatedAt: true });
+export const insertClinicInvoiceMonthlySchema = createInsertSchema(clinicInvoicesMonthly).omit({ generatedAt: true });
 export type ClinicInvoiceMonthly = typeof clinicInvoicesMonthly.$inferSelect;
 export type InsertClinicInvoiceMonthly = z.infer<typeof insertClinicInvoiceMonthlySchema>;
 
-export const insertClinicInvoiceItemSchema = createInsertSchema(clinicInvoiceItems).omit({ id: true, createdAt: true });
+export const insertClinicInvoiceItemSchema = createInsertSchema(clinicInvoiceItems).omit({ createdAt: true });
 export type ClinicInvoiceItem = typeof clinicInvoiceItems.$inferSelect;
 export type InsertClinicInvoiceItem = z.infer<typeof insertClinicInvoiceItemSchema>;
 
@@ -1229,7 +1227,7 @@ export const accountDeletionRequests = pgTable("account_deletion_requests", {
   notes: text("notes"),
 });
 
-export const insertAccountDeletionRequestSchema = createInsertSchema(accountDeletionRequests).omit({ id: true, createdAt: true, reviewedBy: true, reviewedAt: true, notes: true });
+export const insertAccountDeletionRequestSchema = createInsertSchema(accountDeletionRequests).omit({ createdAt: true, reviewedBy: true, reviewedAt: true, notes: true });
 export type AccountDeletionRequest = typeof accountDeletionRequests.$inferSelect;
 export type InsertAccountDeletionRequest = z.infer<typeof insertAccountDeletionRequestSchema>;
 
@@ -1324,7 +1322,7 @@ export const billingCycleInvoices = pgTable("billing_cycle_invoices", {
   index("bci_payment_status_idx").on(table.paymentStatus, table.dueDate),
 ]);
 
-export const insertBillingCycleInvoiceSchema = createInsertSchema(billingCycleInvoices).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBillingCycleInvoiceSchema = createInsertSchema(billingCycleInvoices).omit({ createdAt: true, updatedAt: true });
 export type BillingCycleInvoice = typeof billingCycleInvoices.$inferSelect;
 export type InsertBillingCycleInvoice = z.infer<typeof insertBillingCycleInvoiceSchema>;
 
@@ -1341,7 +1339,7 @@ export const billingCycleInvoiceItems = pgTable("billing_cycle_invoice_items", {
   index("bcii_trip_idx").on(table.tripId),
 ]);
 
-export const insertBillingCycleInvoiceItemSchema = createInsertSchema(billingCycleInvoiceItems).omit({ id: true, createdAt: true });
+export const insertBillingCycleInvoiceItemSchema = createInsertSchema(billingCycleInvoiceItems).omit({ createdAt: true });
 export type BillingCycleInvoiceItem = typeof billingCycleInvoiceItems.$inferSelect;
 export type InsertBillingCycleInvoiceItem = z.infer<typeof insertBillingCycleInvoiceItemSchema>;
 
@@ -1359,7 +1357,7 @@ export const invoicePayments = pgTable("invoice_payments", {
   index("ip_invoice_paid_idx").on(table.invoiceId, table.paidAt),
 ]);
 
-export const insertInvoicePaymentSchema = createInsertSchema(invoicePayments).omit({ id: true, createdAt: true });
+export const insertInvoicePaymentSchema = createInsertSchema(invoicePayments).omit({ createdAt: true });
 export type InvoicePayment = typeof invoicePayments.$inferSelect;
 export type InsertInvoicePayment = z.infer<typeof insertInvoicePaymentSchema>;
 
@@ -1417,7 +1415,7 @@ export const systemEvents = pgTable("system_events", {
   index("sysevt_entity_idx").on(table.entityType, table.entityId),
 ]);
 
-export const insertSystemEventSchema = createInsertSchema(systemEvents).omit({ id: true, createdAt: true });
+export const insertSystemEventSchema = createInsertSchema(systemEvents).omit({ createdAt: true });
 export type SystemEvent = typeof systemEvents.$inferSelect;
 export type InsertSystemEvent = z.infer<typeof insertSystemEventSchema>;
 
@@ -1433,7 +1431,7 @@ export const companySettings = pgTable("company_settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const insertCompanySettingsSchema = createInsertSchema(companySettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCompanySettingsSchema = createInsertSchema(companySettings).omit({ createdAt: true, updatedAt: true });
 export type CompanySettingsType = typeof companySettings.$inferSelect;
 export type InsertCompanySettings = z.infer<typeof insertCompanySettingsSchema>;
 
@@ -1484,7 +1482,7 @@ export const driverPerfScores = pgTable("driver_perf_scores", {
   uniqueIndex("dps_company_driver_window_uniq").on(table.companyId, table.driverId, table.window),
 ]);
 
-export const insertDriverPerfScoreSchema = createInsertSchema(driverPerfScores).omit({ id: true });
+export const insertDriverPerfScoreSchema = createInsertSchema(driverPerfScores);
 export type DriverPerfScore = typeof driverPerfScores.$inferSelect;
 export type InsertDriverPerfScore = z.infer<typeof insertDriverPerfScoreSchema>;
 
@@ -1506,7 +1504,7 @@ export const opsAnomalies = pgTable("ops_anomalies", {
   index("opsanom_entity_idx").on(table.entityType, table.entityId),
 ]);
 
-export const insertOpsAnomalySchema = createInsertSchema(opsAnomalies).omit({ id: true });
+export const insertOpsAnomalySchema = createInsertSchema(opsAnomalies);
 export type OpsAnomaly = typeof opsAnomalies.$inferSelect;
 export type InsertOpsAnomaly = z.infer<typeof insertOpsAnomalySchema>;
 

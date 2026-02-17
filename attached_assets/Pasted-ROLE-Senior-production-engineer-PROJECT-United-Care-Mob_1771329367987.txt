@@ -1,0 +1,47 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Fix the TypeScript schema errors (TS2322: Type 'boolean' is not assignable to type 'never') in shared/schema.ts caused by Drizzle boolean defaults, WITHOUT changing runtime behavior and WITHOUT touching the database data.
+
+Context:
+- The app currently builds and runs, but `npx tsc --noEmit` fails with ~40 TS2322 errors in shared/schema.ts, mostly on `.default(false)` / `.default(true)` on Drizzle column definitions.
+- We must make schema typings compatible with current Drizzle versions, keep Drizzle push-based workflow intact.
+
+Hard requirements:
+1) Do NOT change database contents.
+2) Do NOT remove columns or tables.
+3) Do NOT downgrade features; only fix typing.
+4) Keep runtime behavior identical (defaults still false/true at DB schema level if they already exist).
+
+Implementation guidance (choose safest approach):
+- Replace boolean defaults that cause TS inference issues with explicit SQL literals, e.g.:
+  - `.default(sql<boolean>\`false\`)` or `.default(sql\`false\`)` depending on Drizzle typing
+  - similarly for true
+- If some columns use `.default(false)` and that triggers TS2322, update only those lines.
+- Avoid changing the database schema right now; only fix TS types so `npm run check` passes.
+
+Steps:
+A) Run `npm run check` (or `npx tsc --noEmit`) to confirm current failures and list main files.
+B) Patch shared/schema.ts boolean defaults to eliminate TS2322.
+C) Re-run:
+   - `npm run build`
+   - `npm run check` (tsc)
+   - `npm run dev` quick smoke (server starts)
+
+Exit criteria (must show results):
+- `npm run check` PASSES (0 TS errors)
+- `npm run build` still OK
+- Server starts
+
+Deliverables:
+1) Brief list of exact changes (file + line ranges)
+2) Confirmation of the three commands above with outcomes
+3) If ANY errors remain, list them and stop (do not start other work)
