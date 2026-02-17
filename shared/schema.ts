@@ -393,8 +393,40 @@ export const invoices = pgTable("invoices", {
   emailError: text("email_error"),
   stripePaymentLink: text("stripe_payment_link"),
   stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  stripeChargeId: text("stripe_charge_id"),
+  receiptUrl: text("receipt_url"),
+  paidAt: timestamp("paid_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const companyStripeAccounts = pgTable("company_stripe_accounts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().unique().references(() => companies.id),
+  stripeAccountId: text("stripe_account_id").notNull(),
+  chargesEnabled: boolean("charges_enabled").notNull().default(false),
+  payoutsEnabled: boolean("payouts_enabled").notNull().default(false),
+  detailsSubmitted: boolean("details_submitted").notNull().default(false),
+  onboardingStatus: text("onboarding_status").notNull().default("PENDING"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertCompanyStripeAccountSchema = createInsertSchema(companyStripeAccounts).omit({ id: true, createdAt: true, updatedAt: true });
+export type CompanyStripeAccount = typeof companyStripeAccounts.$inferSelect;
+export type InsertCompanyStripeAccount = z.infer<typeof insertCompanyStripeAccountSchema>;
+
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  stripeEventId: text("stripe_event_id").notNull().unique(),
+  type: text("type").notNull(),
+  status: text("status").notNull().default("RECEIVED"),
+  error: text("error"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
 
 export const assignedByEnum = pgEnum("assigned_by", [
   "system",

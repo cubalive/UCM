@@ -28,6 +28,7 @@ import { registerPricingRoutes } from "../lib/pricingRoutes";
 import { registerAssignmentRoutes } from "../lib/assignmentRoutes";
 import { registerPublicApiRoutes } from "../lib/publicApiRoutes";
 import { registerClinicBillingRoutes } from "../lib/clinicBillingRoutes";
+import { registerStripeConnectRoutes } from "../lib/stripeConnectRoutes";
 import { registerIntelligenceRoutes } from "./intelligence.routes";
 import { registerImportRoutes } from "./imports.routes";
 import { startRouteScheduler } from "../lib/routeEngine";
@@ -59,6 +60,7 @@ export async function registerRoutes(
   registerAssignmentRoutes(app, authMiddleware);
   registerPublicApiRoutes(app);
   registerClinicBillingRoutes(app);
+  registerStripeConnectRoutes(app);
 
   registerAuthRoutes(app);
   registerCityRoutes(app);

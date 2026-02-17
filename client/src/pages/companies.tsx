@@ -25,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Building2, Plus, UserPlus, Crosshair, X } from "lucide-react";
+import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import type { Company } from "@shared/schema";
 
 const TIMEZONES = [
@@ -280,6 +280,128 @@ function CreateAdminDialog({ company, onCreated }: { company: Company; onCreated
   );
 }
 
+function StripeConnectBadge({ company }: { company: Company }) {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+
+  const { data: stripeStatus, isLoading: statusLoading, refetch } = useQuery<{
+    connected: boolean;
+    stripeAccountId?: string;
+    chargesEnabled?: boolean;
+    payoutsEnabled?: boolean;
+    detailsSubmitted?: boolean;
+    onboardingStatus?: string;
+  }>({
+    queryKey: ["/api/admin/companies", company.id, "stripe-status"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/companies/${company.id}/stripe/connect/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: !!token,
+  });
+
+  const handleCreate = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/companies/${company.id}/stripe/connect/create`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Error", description: data.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Stripe account created" });
+      refetch();
+      handleOnboard();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOnboard = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/companies/${company.id}/stripe/connect/onboarding-link`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Error", description: data.message, variant: "destructive" });
+        return;
+      }
+      if (data.url) {
+        window.open(data.url, "_blank");
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (statusLoading) {
+    return <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />;
+  }
+
+  if (!stripeStatus?.connected) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={handleCreate}
+        disabled={loading}
+        data-testid={`button-stripe-setup-${company.id}`}
+      >
+        <CreditCard className="w-4 h-4 mr-1" />
+        {loading ? "..." : "Setup Stripe"}
+      </Button>
+    );
+  }
+
+  if (stripeStatus.onboardingStatus === "ACTIVE" && stripeStatus.chargesEnabled) {
+    return (
+      <Badge variant="default" data-testid={`badge-stripe-active-${company.id}`}>
+        <CheckCircle2 className="w-3 h-3 mr-1" />
+        Stripe Active
+      </Badge>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      <Badge variant="secondary" data-testid={`badge-stripe-restricted-${company.id}`}>
+        <AlertCircle className="w-3 h-3 mr-1" />
+        Stripe Restricted
+      </Badge>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={handleOnboard}
+        disabled={loading}
+        data-testid={`button-stripe-onboard-${company.id}`}
+      >
+        <ExternalLink className="w-3 h-3 mr-1" />
+        {loading ? "..." : "Complete"}
+      </Button>
+    </div>
+  );
+}
+
 export default function CompaniesPage() {
   const { isSuperAdmin } = useAuth();
   const { toast } = useToast();
@@ -372,6 +494,7 @@ export default function CompaniesPage() {
                 <TableRow>
                   <TableHead>ID</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Stripe</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -389,6 +512,9 @@ export default function CompaniesPage() {
                           <Badge variant="default" className="text-[10px]">SCOPED</Badge>
                         )}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <StripeConnectBadge company={company} />
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {company.createdAt ? new Date(company.createdAt).toLocaleDateString() : "-"}

@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { FileText, Download, Receipt, MapPin } from "lucide-react";
+import { FileText, Download, Receipt, MapPin, CreditCard, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { downloadWithAuth } from "@/lib/export";
 import { rawAuthFetch } from "@/lib/api";
@@ -133,7 +133,7 @@ export default function ClinicInvoicesPage() {
                     <TableHead>Patient</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Download</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -157,11 +157,27 @@ export default function ClinicInvoicesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        {inv.pdfUrl ? (
-                          <DownloadPdfButton invoiceId={inv.id} pdfUrl={inv.pdfUrl} />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">N/A</span>
-                        )}
+                        <div className="flex items-center justify-end gap-1 flex-wrap">
+                          {inv.status !== "paid" && (
+                            <PayInvoiceButton invoiceId={inv.id} token={token} />
+                          )}
+                          {inv.status === "paid" && (inv as any).receiptUrl && (
+                            <a
+                              href={(inv as any).receiptUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              data-testid={`link-receipt-${inv.id}`}
+                            >
+                              <Button size="sm" variant="ghost">
+                                <ExternalLink className="w-4 h-4 mr-1" />
+                                Receipt
+                              </Button>
+                            </a>
+                          )}
+                          {inv.pdfUrl ? (
+                            <DownloadPdfButton invoiceId={inv.id} pdfUrl={inv.pdfUrl} />
+                          ) : null}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -172,6 +188,62 @@ export default function ClinicInvoicesPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function PayInvoiceButton({ invoiceId, token }: { invoiceId: number; token: string | null }) {
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+
+  const handlePay = async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/clinic/invoices/${invoiceId}/pay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({
+          title: "Payment unavailable",
+          description: data.message || "Could not initiate payment",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (data.alreadyPaid) {
+        toast({ title: "Already paid", description: "This invoice has already been paid." });
+        return;
+      }
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to start payment",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      variant="default"
+      onClick={handlePay}
+      disabled={loading}
+      data-testid={`button-pay-invoice-${invoiceId}`}
+    >
+      <CreditCard className="w-4 h-4 mr-1" />
+      {loading ? "..." : "Pay"}
+    </Button>
   );
 }
 

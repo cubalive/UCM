@@ -28,6 +28,8 @@ import {
   invoicePayments, type InvoicePayment, type InsertInvoicePayment,
   invoiceSequences,
   aiEngineSnapshots, type AiEngineSnapshot, type InsertAiEngineSnapshot,
+  companyStripeAccounts, type CompanyStripeAccount, type InsertCompanyStripeAccount,
+  stripeWebhookEvents, type StripeWebhookEvent,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -233,6 +235,12 @@ export interface IStorage {
   getLatestAiEngineSnapshot(): Promise<AiEngineSnapshot | undefined>;
   getRecentTripsUpdatedSince(since: Date): Promise<Trip[]>;
   getRecentDriversUpdatedSince(since: Date): Promise<Driver[]>;
+
+  getCompanyStripeAccount(companyId: number): Promise<CompanyStripeAccount | undefined>;
+  upsertCompanyStripeAccount(data: InsertCompanyStripeAccount): Promise<CompanyStripeAccount>;
+  updateCompanyStripeAccount(companyId: number, data: Partial<CompanyStripeAccount>): Promise<CompanyStripeAccount>;
+  insertStripeWebhookEvent(stripeEventId: string, type: string): Promise<{ inserted: boolean }>;
+  updateStripeWebhookEvent(stripeEventId: string, status: string, error?: string | null): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1574,6 +1582,48 @@ export class DatabaseStorage implements IStorage {
         gte(drivers.lastActiveAt, since),
       )
     );
+  }
+
+  async getCompanyStripeAccount(companyId: number): Promise<CompanyStripeAccount | undefined> {
+    const [row] = await db.select().from(companyStripeAccounts).where(eq(companyStripeAccounts.companyId, companyId));
+    return row;
+  }
+
+  async upsertCompanyStripeAccount(data: InsertCompanyStripeAccount): Promise<CompanyStripeAccount> {
+    const existing = await this.getCompanyStripeAccount(data.companyId);
+    if (existing) {
+      const [updated] = await db.update(companyStripeAccounts)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(companyStripeAccounts.companyId, data.companyId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(companyStripeAccounts).values(data).returning();
+    return created;
+  }
+
+  async updateCompanyStripeAccount(companyId: number, data: Partial<CompanyStripeAccount>): Promise<CompanyStripeAccount> {
+    const [updated] = await db.update(companyStripeAccounts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(companyStripeAccounts.companyId, companyId))
+      .returning();
+    return updated;
+  }
+
+  async insertStripeWebhookEvent(stripeEventId: string, type: string): Promise<{ inserted: boolean }> {
+    try {
+      await db.insert(stripeWebhookEvents).values({ stripeEventId, type });
+      return { inserted: true };
+    } catch (err: any) {
+      if (err.code === "23505") return { inserted: false };
+      throw err;
+    }
+  }
+
+  async updateStripeWebhookEvent(stripeEventId: string, status: string, error?: string | null): Promise<void> {
+    await db.update(stripeWebhookEvents)
+      .set({ status, error: error || null, processedAt: status === "PROCESSED" ? new Date() : undefined })
+      .where(eq(stripeWebhookEvents.stripeEventId, stripeEventId));
   }
 }
 
