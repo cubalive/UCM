@@ -1642,3 +1642,129 @@ export const ucmCertifications = pgTable("ucm_certifications", {
 export const insertUcmCertificationSchema = createInsertSchema(ucmCertifications).omit({ createdAt: true });
 export type UcmCertification = typeof ucmCertifications.$inferSelect;
 export type InsertUcmCertification = z.infer<typeof insertUcmCertificationSchema>;
+
+export const intelligencePublications = pgTable("intelligence_publications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  module: text("module").notNull(),
+  quarterKey: text("quarter_key"),
+  scope: text("scope"),
+  state: text("state"),
+  city: text("city"),
+  metricKey: text("metric_key"),
+  configJson: jsonb("config_json").notNull().default({}),
+  published: boolean("published").notNull().default(false),
+  publishedAt: timestamp("published_at"),
+  publishedBy: integer("published_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const intelligencePublicationTargets = pgTable("intelligence_publication_targets", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicationId: integer("publication_id").notNull().references(() => intelligencePublications.id),
+  targetType: text("target_type").notNull(),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  enabled: boolean("enabled").notNull().default(true),
+}, (table) => [
+  uniqueIndex("pub_target_unique_idx").on(table.publicationId, table.targetType, table.clinicId),
+]);
+
+export const insertIntelligencePublicationSchema = createInsertSchema(intelligencePublications).omit({ createdAt: true });
+export type IntelligencePublication = typeof intelligencePublications.$inferSelect;
+export type InsertIntelligencePublication = z.infer<typeof insertIntelligencePublicationSchema>;
+
+export const insertIntelligencePublicationTargetSchema = createInsertSchema(intelligencePublicationTargets);
+export type IntelligencePublicationTarget = typeof intelligencePublicationTargets.$inferSelect;
+export type InsertIntelligencePublicationTarget = z.infer<typeof insertIntelligencePublicationTargetSchema>;
+
+export const certLevelEnum = pgEnum("cert_level", ["PLATINUM", "GOLD", "SILVER", "AT_RISK"]);
+
+export const clinicCertifications = pgTable("clinic_certifications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  quarterKey: text("quarter_key").notNull(),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  certLevel: text("cert_level").notNull(),
+  score: numeric("score").notNull(),
+  breakdownJson: jsonb("breakdown_json").notNull().default({}),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+  computedBy: integer("computed_by").references(() => users.id),
+  pdfUrl: text("pdf_url"),
+}, (table) => [
+  uniqueIndex("clinic_cert_quarter_idx").on(table.clinicId, table.quarterKey),
+]);
+
+export const insertClinicCertificationSchema = createInsertSchema(clinicCertifications).omit({ computedAt: true });
+export type ClinicCertification = typeof clinicCertifications.$inferSelect;
+export type InsertClinicCertification = z.infer<typeof insertClinicCertificationSchema>;
+
+export const quarterlyRankings = pgTable("quarterly_rankings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  quarterKey: text("quarter_key").notNull(),
+  scope: text("scope").notNull(),
+  state: text("state"),
+  city: text("city"),
+  metricKey: text("metric_key").notNull().default("tri"),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("qr_scope_idx").on(table.quarterKey, table.scope, table.state, table.city, table.metricKey),
+]);
+
+export const quarterlyRankingEntries = pgTable("quarterly_ranking_entries", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  rankingId: integer("ranking_id").notNull().references(() => quarterlyRankings.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  rank: integer("rank").notNull(),
+  score: numeric("score").notNull(),
+  percentile: numeric("percentile").notNull(),
+  payloadJson: jsonb("payload_json").notNull().default({}),
+}, (table) => [
+  uniqueIndex("qre_unique_idx").on(table.rankingId, table.clinicId),
+]);
+
+export const insertQuarterlyRankingSchema = createInsertSchema(quarterlyRankings).omit({ computedAt: true });
+export type QuarterlyRanking = typeof quarterlyRankings.$inferSelect;
+export type InsertQuarterlyRanking = z.infer<typeof insertQuarterlyRankingSchema>;
+
+export const insertQuarterlyRankingEntrySchema = createInsertSchema(quarterlyRankingEntries);
+export type QuarterlyRankingEntry = typeof quarterlyRankingEntries.$inferSelect;
+export type InsertQuarterlyRankingEntry = z.infer<typeof insertQuarterlyRankingEntrySchema>;
+
+export const auditReadinessSnapshots = pgTable("audit_readiness_snapshots", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  snapshotDate: text("snapshot_date").notNull(),
+  score: numeric("score").notNull(),
+  missingBreakdownJson: jsonb("missing_breakdown_json").notNull().default({}),
+  totalTrips: integer("total_trips").notNull().default(0),
+  completeTrips: integer("complete_trips").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("audit_snap_idx").on(table.clinicId, table.snapshotDate),
+]);
+
+export const insertAuditReadinessSnapshotSchema = createInsertSchema(auditReadinessSnapshots).omit({ createdAt: true });
+export type AuditReadinessSnapshot = typeof auditReadinessSnapshots.$inferSelect;
+export type InsertAuditReadinessSnapshot = z.infer<typeof insertAuditReadinessSnapshotSchema>;
+
+export const clinicQuarterlyReports = pgTable("clinic_quarterly_reports", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  quarterKey: text("quarter_key").notNull(),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+  pdfUrl: text("pdf_url"),
+}, (table) => [
+  uniqueIndex("cqr_unique_idx").on(table.clinicId, table.quarterKey),
+]);
+
+export const clinicQuarterlyReportMetrics = pgTable("clinic_quarterly_report_metrics", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  reportId: integer("report_id").notNull().references(() => clinicQuarterlyReports.id),
+  metricKey: text("metric_key").notNull(),
+  metricValue: numeric("metric_value"),
+  payloadJson: jsonb("payload_json").notNull().default({}),
+}, (table) => [
+  uniqueIndex("cqrm_unique_idx").on(table.reportId, table.metricKey),
+]);

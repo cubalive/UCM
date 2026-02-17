@@ -1,0 +1,373 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+MASTER FEATURE: UCM NATIONAL MEASUREMENT SYSTEM™
+MODULES:
+1) Indexes (10 core indexes)
+2) Certification (quarterly levels)
+3) Ranking (city/state/national)
+4) Audit Shield (audit readiness + evidence completeness)
+5) Prediction (late risk + staffing risk)
+
+SECURITY MODEL (HARD):
+- SUPER_ADMIN has access to EVERYTHING always.
+- Clinics see NOTHING unless SUPER_ADMIN explicitly publishes it.
+- Clinics only see what is published, how it is published (configurable visibility).
+- All enforcement MUST be server-side. No UI-only gating.
+
+OUTPUT:
+- Every module must support PDF export (SUPER_ADMIN always; Clinics only if published).
+- PDFs are server-generated, professional, 1–4 pages max.
+
+DO NOT break scheduler, trips, invoices, dispatch.
+No external APIs required.
+
+============================================================
+PHASE 0 — AUTHZ FOUNDATION (NON-NEGOTIABLE)
+============================================================
+1) Ensure backend auth context exists:
+getActorContext() -> { userId, role, clinicId, cityId, state }
+
+2) Implement middleware:
+requireRole('super_admin')
+
+3) Default deny:
+All /api/intelligence/* endpoints require super_admin.
+
+4) Clinic endpoints require BOTH:
+- clinic_user role AND clinic_id match
+- publication gate is enabled for that clinic
+
+Return 404 when not published (avoid info leakage).
+
+============================================================
+PHASE 1 — PUBLISH CENTER (THE ONLY WAY CLINICS SEE ANYTHING)
+============================================================
+Create SUPER_ADMIN-only UI:
+SUPER_ADMIN → Intelligence → Publish Center
+
+Create tables:
+
+intelligence_publications
+- id uuid pk
+- module text  -- 'indexes'|'certification'|'ranking'|'audit'|'prediction'
+- quarter_key text nullable
+- scope text nullable  -- 'general'|'state'|'city'|'clinic'
+- state text nullable
+- city text nullable
+- metric_key text nullable   -- for ranking/index focus
+- config_json jsonb          -- controls what clinic can see (see below)
+- published bool default false
+- published_at timestamp null
+- published_by uuid
+- created_at timestamp
+
+intelligence_publication_targets
+- id uuid pk
+- publication_id uuid fk intelligence_publications.id
+- target_type text -- 'clinic'|'all_clinics'
+- clinic_id uuid null
+- enabled bool default true
+UNIQUE(publication_id, target_type, clinic_id)
+
+DEFAULT:
+No publications exist => clinics see NOTHING.
+
+Publish Center features:
+- Create publication (choose module, quarter, scope, targets)
+- Preview (SUPER_ADMIN only)
+- Publish / Unpublish (revokes instantly)
+- Audit log of publish actions (who/when)
+
+CONFIG JSON (controls “how I publish”):
+config_json supports:
+- show_full_ranking_list: boolean (default false)
+- show_peer_names: boolean (default false; anonymize others)
+- show_counts: boolean (default true)
+- show_thresholds: boolean (default true)
+- show_trends: boolean (default true)
+- allow_pdf_download: boolean (default true)
+- visible_metrics: array of metric_keys (optional whitelist)
+- notes: text (optional message shown to clinic)
+
+============================================================
+PHASE 2 — INDEXES MODULE (SUPER_ADMIN ONLY BY DEFAULT)
+============================================================
+Route:
+SUPER_ADMIN → Intelligence → Indexes
+/admin/intelligence/indexes
+
+Implement 10 indexes (filterable by general/state/city and date range):
+1 TRI Nevada™ (0–100)
+2 Clinic Trust Score (0–100)
+3 Driver Stability (0–100)
+4 Driver Utilization (%)
+5 Dispatch Efficiency (%)
+6 Revenue Leakage ($)  [SUPER_ADMIN only; never publish unless explicit]
+7 Clinic Load (ratio + level)
+8 Weekly Profit ($ + margin) [SUPER_ADMIN only; never publish unless explicit]
+9 Replacement Pressure (risk)
+10 Late Risk Predictor (risk + top trips)
+
+API (SUPER_ADMIN only):
+GET /api/intelligence/indexes?dateFrom&dateTo&scope&state&city
+GET /api/intelligence/indexes/export.pdf?dateFrom&dateTo&scope&state&city
+
+PDF includes:
+- scope (General/State/City)
+- date range
+- 10 index summary cards
+- breakdown table (state/city/clinic)
+- late risk highlights
+- definitions footer
+
+============================================================
+PHASE 3 — CERTIFICATION MODULE (QUARTERLY)
+============================================================
+Purpose:
+Issue clinic certification each quarter based on reliability + audit readiness.
+
+Cert levels:
+PLATINUM / GOLD / SILVER / AT_RISK
+
+Inputs (weights configurable):
+- TRI Nevada™
+- Treatment Continuity (if available)
+- Return Reliability (if available)
+- Audit Readiness Index (from Audit module)
+
+Tables:
+clinic_certifications
+- id uuid pk
+- clinic_id uuid
+- quarter_key text
+- period_start date
+- period_end date
+- cert_level text
+- score numeric
+- breakdown_json jsonb
+- computed_at timestamp
+- computed_by uuid
+- pdf_url text nullable
+UNIQUE(clinic_id, quarter_key)
+
+Super Admin UI:
+SUPER_ADMIN → Intelligence → Certification
+- view by quarter/state/city
+- drill down to clinic
+- export certification PDF (badge + details)
+
+Clinic visibility:
+Only if published via Publish Center for that clinic+quarter.
+
+Clinic PDF endpoint (gated):
+GET /api/clinic/certification/:quarter_key/pdf
+
+============================================================
+PHASE 4 — RANKING MODULE (QUARTERLY)
+============================================================
+Rank clinics by:
+Primary: TRI Nevada™
+Secondary: Clinic Trust Score
+
+Scopes:
+- City
+- State
+- National
+
+Tables:
+quarterly_rankings
+- id uuid pk
+- quarter_key text
+- scope text ('city'|'state'|'national')
+- state text nullable
+- city text nullable
+- metric_key text default 'tri'
+- computed_at timestamp
+UNIQUE(quarter_key, scope, state, city, metric_key)
+
+quarterly_ranking_entries
+- id uuid pk
+- ranking_id uuid
+- clinic_id uuid
+- rank int
+- score numeric
+- percentile numeric
+- payload_json jsonb
+UNIQUE(ranking_id, clinic_id)
+
+Super Admin UI:
+SUPER_ADMIN → Intelligence → Ranking
+- choose quarter/scope
+- show full list + exports
+
+Clinic visibility rules (controlled by config_json):
+Default clinic sees:
+- only their rank + percentile + their own scores
+Optional (if config_json allows):
+- show top 10 list
+- anonymize peers unless show_peer_names=true
+
+Clinic endpoints (gated):
+GET /api/clinic/ranking?quarter_key&scope&state&city
+GET /api/clinic/ranking/:quarter_key/pdf
+
+============================================================
+PHASE 5 — AUDIT SHIELD MODULE (EVIDENCE + READINESS)
+============================================================
+Goal:
+Produce “Audit Readiness Index” and missing-proof diagnostics.
+
+Audit Readiness Index (%):
+EvidenceCompleteTrips / CompletedTrips
+
+Evidence checklist (use what exists; no external APIs):
+- required timestamps present (scheduled, arrived_pickup, picked_up if used, arrived_dropoff, completed)
+- GPS proof present (if tracked)
+- proof photo present for completed (if configured)
+- outcome + reason present for non-completed
+
+Tables (optional snapshot):
+audit_readiness_snapshots
+- clinic_id
+- date
+- score
+- missing_breakdown_json
+
+Super Admin UI:
+SUPER_ADMIN → Intelligence → Audit Shield
+- by clinic/state/city
+- show missing evidence categories
+- export audit report PDF
+
+Clinic visibility:
+Only if published. Clinic sees only their audit readiness + missing checklist (no system internals).
+
+Clinic endpoint (gated):
+GET /api/clinic/audit?quarter_key (or date range)
+GET /api/clinic/audit/:quarter_key/pdf
+
+============================================================
+PHASE 6 — PREDICTION MODULE (LATE + STAFFING)
+============================================================
+No external APIs. Use lightweight heuristics.
+
+A) Late Risk Predictor (trip-level)
+Outputs:
+- risk_score 0–100
+- label green/yellow/red
+- reasons list (explainable)
+
+B) Staffing Risk Predictor (day-level)
+Outputs:
+- replacement pressure forecast
+- high load forecast
+
+Super Admin UI:
+SUPER_ADMIN → Intelligence → Prediction
+- at-risk trips list
+- forecast panels
+- export PDF (weekly forecast)
+
+Dispatch visibility:
+Optional read-only operational risk (NO rankings, NO money).
+If enabled, create separate DISPATCH route with strict limitation:
+DISPATCH → Ops Risk (no exports, no clinic comparisons).
+
+Clinic visibility:
+Only if published, and only as a quarterly summary (not live trip risk list), unless explicitly allowed in config_json.
+
+============================================================
+PHASE 7 — QUARTERLY REPORT GENERATION (SNAPSHOT + CONSISTENCY)
+============================================================
+Compute quarterly snapshots so numbers never change after publish.
+
+Tables:
+clinic_quarterly_reports
+- id uuid
+- clinic_id
+- quarter_key
+- period_start, period_end
+- computed_at
+- pdf_url
+UNIQUE(clinic_id, quarter_key)
+
+clinic_quarterly_report_metrics
+- report_id
+- metric_key
+- metric_value
+- payload_json
+UNIQUE(report_id, metric_key)
+
+Quarterly report includes:
+- Index summary (clinic-safe subset)
+- Certification level
+- Ranking (their rank/percentile)
+- Audit readiness summary
+- Prediction summary (counts + major drivers)
+
+Clinic can view ONLY if published.
+
+============================================================
+PHASE 8 — PDF EXPORT STANDARD (ALL MODULES)
+============================================================
+All PDFs are server-generated.
+Endpoints (SUPER_ADMIN always allowed):
+/api/intelligence/indexes/export.pdf
+/api/intelligence/certification/export.pdf
+/api/intelligence/ranking/export.pdf
+/api/intelligence/audit/export.pdf
+/api/intelligence/prediction/export.pdf
+/api/intelligence/quarterly/export.pdf
+
+Clinic PDFs exist only when published and config_json.allow_pdf_download=true:
+- /api/clinic/quarterly/:quarter_key/pdf
+- /api/clinic/certification/:quarter_key/pdf
+- /api/clinic/ranking/:quarter_key/pdf
+- /api/clinic/audit/:quarter_key/pdf
+
+PDF style:
+- UCM branding header
+- scope + dates
+- tables + charts (simple)
+- definitions footer
+- generated timestamp
+
+============================================================
+PHASE 9 — VERIFY (MUST DO)
+============================================================
+1) SUPER_ADMIN:
+- can access all modules + exports
+- can create publications, target clinics, publish/unpublish, preview
+
+2) CLINIC_USER before publish:
+- sees nothing (menus hidden)
+- direct endpoints return 404
+
+3) CLINIC_USER after publish:
+- sees only what config_json allows
+- cannot see other clinics data
+- PDF download works only if allowed
+
+4) DISPATCH/DRIVER:
+- cannot access intelligence modules
+- any direct access -> 403/404
+
+5) No DB reset, no scheduler/trips/invoices breakage.
+
+DO NOT
+- Do NOT auto-publish
+- Do NOT expose internal profit/leakage unless explicitly published
+- Do NOT allow clinics to view peers by default
+
+SUCCESS CRITERIA
+A secure, SUPER_ADMIN-controlled national measurement system with:
+Indexes + Certification + Ranking + Audit Shield + Prediction,
+PDF exports for every module, and clinic visibility controlled only by SUPER_ADMIN publication settings.
