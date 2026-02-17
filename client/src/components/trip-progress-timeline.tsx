@@ -4,7 +4,16 @@ import {
   Route,
   Calendar,
   Truck,
+  XCircle,
+  AlertTriangle,
 } from "lucide-react";
+
+interface ProgressEvent {
+  key: string;
+  label: string;
+  at: string;
+  meta?: { reason?: string };
+}
 
 const CANONICAL_STEPS = [
   { key: "scheduled", label: "Scheduled Pickup", field: "pickupTime", isTimeOnly: true },
@@ -100,6 +109,31 @@ function computeDurationMinutes(startStr: string | null | undefined, endStr: str
   }
 }
 
+function buildEventsFromTrip(trip: any): Array<{key: string; label: string; timestamp: string; reason?: string; isTimeOnly?: boolean}> {
+  return CANONICAL_STEPS
+    .filter((step) => {
+      if (step.key === "no_show" && trip.status !== "NO_SHOW") return false;
+      if (step.key === "cancelled" && trip.status !== "CANCELLED") return false;
+      if (step.key === "completed" && (trip.status === "CANCELLED" || trip.status === "NO_SHOW")) return false;
+      if (step.key === "company_error") {
+        return trip.billingOutcome === "company_error" && trip.billingSetAt;
+      }
+      if (step.key === "scheduled") {
+        return !!trip.pickupTime;
+      }
+      const ts = trip[step.field];
+      if (!ts) return false;
+      return true;
+    })
+    .map((step) => ({
+      key: step.key,
+      label: step.label,
+      timestamp: trip[step.field],
+      reason: step.reasonField ? trip[step.reasonField] : undefined,
+      isTimeOnly: step.isTimeOnly,
+    }));
+}
+
 interface TripProgressTimelineProps {
   trip: any;
   compact?: boolean;
@@ -174,27 +208,17 @@ export function TripMetricsCard({ trip }: { trip: any }) {
 }
 
 export function TripProgressTimeline({ trip, compact = false, showHeader = true, showMetrics = true }: TripProgressTimelineProps) {
-  const events = CANONICAL_STEPS
-    .filter((step) => {
-      if (step.key === "no_show" && trip.status !== "NO_SHOW") return false;
-      if (step.key === "cancelled" && trip.status !== "CANCELLED") return false;
-      if (step.key === "completed" && (trip.status === "CANCELLED" || trip.status === "NO_SHOW")) return false;
-      if (step.key === "company_error") {
-        return trip.billingOutcome === "company_error" && trip.billingSetAt;
-      }
-      if (step.key === "scheduled") {
-        return !!trip.pickupTime;
-      }
+  const backendEvents: ProgressEvent[] | undefined = trip.progressEvents;
 
-      const ts = trip[step.field];
-      if (!ts) return false;
-      return true;
-    })
-    .map((step) => ({
-      ...step,
-      timestamp: trip[step.field],
-      reason: step.reasonField ? trip[step.reasonField] : undefined,
-    }));
+  const events = backendEvents && backendEvents.length > 0
+    ? backendEvents.map((ev) => ({
+        key: ev.key,
+        label: ev.label,
+        timestamp: ev.at,
+        reason: ev.meta?.reason,
+        isTimeOnly: ev.key === "scheduled",
+      }))
+    : buildEventsFromTrip(trip);
 
   const currentStatus = trip.status;
   const isTerminal = ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(currentStatus);
@@ -230,11 +254,15 @@ export function TripProgressTimeline({ trip, compact = false, showHeader = true,
                   <div className="flex items-center gap-2">
                     {isLast && !isTerminal ? (
                       <div className="w-4 h-4 rounded-full border-2 border-primary bg-primary/20 flex-shrink-0" />
+                    ) : isNegative ? (
+                      event.key === "company_error" ? (
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 text-destructive" />
+                      ) : (
+                        <XCircle className="w-4 h-4 flex-shrink-0 text-destructive" />
+                      )
                     ) : (
                       <CheckCircle
-                        className={`w-4 h-4 flex-shrink-0 ${
-                          isNegative ? "text-destructive" : "text-emerald-500"
-                        }`}
+                        className="w-4 h-4 flex-shrink-0 text-emerald-500"
                       />
                     )}
                     <span>{event.label}</span>

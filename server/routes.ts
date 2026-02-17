@@ -3832,6 +3832,61 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
     }
   });
 
+  function buildProgressEvents(tripData: any): Array<{key: string; label: string; at: string; meta?: {reason?: string}}> {
+    const CANONICAL_ORDER = [
+      { key: "scheduled", label: "Scheduled Pickup", field: "pickupTime", isTimeOnly: true, dateField: "scheduledDate" },
+      { key: "created", label: "Created", field: "createdAt" },
+      { key: "approved", label: "Approved", field: "approvedAt" },
+      { key: "assigned", label: "Assigned to Driver", field: "assignedAt" },
+      { key: "accepted", label: "Driver Accepted", field: "acceptedAt" },
+      { key: "en_route_pickup", label: "En Route to Pickup", field: "startedAt" },
+      { key: "arrived_pickup", label: "Arrived at Pickup", field: "arrivedPickupAt" },
+      { key: "picked_up", label: "Picked Up", field: "pickedUpAt" },
+      { key: "en_route_dropoff", label: "En Route to Dropoff", field: "enRouteDropoffAt" },
+      { key: "arrived_dropoff", label: "Arrived at Dropoff", field: "arrivedDropoffAt" },
+      { key: "completed", label: "Completed", field: "completedAt" },
+      { key: "cancelled", label: "Cancelled", field: "cancelledAt", reasonField: "cancelledReason" },
+      { key: "no_show", label: "No-Show", field: "cancelledAt", reasonField: "cancelledReason" },
+      { key: "company_error", label: "Company Error", field: "billingSetAt", reasonField: "billingReason" },
+    ];
+
+    const events: Array<{key: string; label: string; at: string; meta?: {reason?: string}}> = [];
+
+    for (const step of CANONICAL_ORDER) {
+      if (step.key === "no_show" && tripData.status !== "NO_SHOW") continue;
+      if (step.key === "cancelled" && tripData.status !== "CANCELLED") continue;
+      if (step.key === "completed" && (tripData.status === "CANCELLED" || tripData.status === "NO_SHOW")) continue;
+      if (step.key === "company_error") {
+        if (tripData.billingOutcome !== "company_error" || !tripData.billingSetAt) continue;
+      }
+
+      const val = tripData[step.field];
+      if (!val) continue;
+
+      let atStr: string;
+      if (step.isTimeOnly && step.dateField) {
+        const dateStr = tripData[step.dateField];
+        if (dateStr && typeof val === "string" && val.includes(":") && val.length <= 5) {
+          const [h, m] = val.split(":").map(Number);
+          const dt = new Date(`${dateStr}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+          atStr = isNaN(dt.getTime()) ? val : dt.toISOString();
+        } else {
+          atStr = typeof val === "string" ? val : new Date(val).toISOString();
+        }
+      } else {
+        atStr = val instanceof Date ? val.toISOString() : String(val);
+      }
+
+      const event: any = { key: step.key, label: step.label, at: atStr };
+      if (step.reasonField && tripData[step.reasonField]) {
+        event.meta = { reason: tripData[step.reasonField] };
+      }
+      events.push(event);
+    }
+
+    return events;
+  }
+
   app.get("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
     try {
       const tripId = parseInt(req.params.id);
@@ -3853,7 +3908,9 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         }
       }
 
-      res.json(trip);
+      const [enriched] = await enrichTripsWithRelations([trip]);
+      const progressEvents = buildProgressEvents(enriched);
+      res.json({ ...enriched, progressEvents });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -4202,6 +4259,8 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
     EN_ROUTE_TO_DROPOFF: "enRouteDropoffAt",
     ARRIVED_DROPOFF: "arrivedDropoffAt",
     COMPLETED: "completedAt",
+    CANCELLED: "cancelledAt",
+    NO_SHOW: "cancelledAt",
   };
 
   app.patch("/api/trips/:id/status", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER"), async (req: AuthRequest, res) => {
@@ -6425,6 +6484,7 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         staticMapFullUrl: mapSnapshotUrl,
         lastEtaMinutes: enriched.lastEtaMinutes,
         createdAt: enriched.createdAt,
+        progressEvents: buildProgressEvents(enriched),
       };
 
       res.json(clinicSafe);
