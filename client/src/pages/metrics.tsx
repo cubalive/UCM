@@ -1092,66 +1092,21 @@ function formatUptime(sec: number): string {
 }
 
 function SystemLoadSection() {
-  const [data, setData] = useState<SystemLoadData | null>(null);
-  const [error, setError] = useState<{ status: number; message: string } | null>(null);
-  const [lastGood, setLastGood] = useState<SystemLoadData | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const lastGoodRef = useRef<SystemLoadData | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const { data, error, isLoading } = useQuery<SystemLoadData>({
+    queryKey: ["/api/admin/metrics/system"],
+    refetchInterval: 5000,
+    retry: 1,
+    staleTime: 4000,
+  });
 
-    async function fetchSystemLoad() {
-      if (abortRef.current) abortRef.current.abort();
-      const ctrl = new AbortController();
-      abortRef.current = ctrl;
+  if (data) {
+    lastGoodRef.current = data;
+  }
 
-      try {
-        const token = localStorage.getItem("auth_token") || "";
-        const res = await fetch("/api/admin/metrics/system", {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: ctrl.signal,
-        });
-
-        if (!mounted) return;
-
-        const text = await res.text();
-        if (!res.ok) {
-          let msg = text;
-          try { msg = JSON.parse(text)?.error || JSON.parse(text)?.message || text; } catch {}
-          setError({ status: res.status, message: msg.slice(0, 300) });
-          return;
-        }
-
-        let parsed: SystemLoadData;
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          setError({ status: res.status, message: `JSON parse error: ${text.slice(0, 200)}` });
-          return;
-        }
-
-        setData(parsed);
-        setLastGood(parsed);
-        setError(null);
-      } catch (err: any) {
-        if (err.name === "AbortError") return;
-        if (mounted) {
-          setError({ status: 0, message: err.message || "Network error" });
-        }
-      }
-    }
-
-    fetchSystemLoad();
-    const interval = setInterval(fetchSystemLoad, 5000);
-
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-      if (abortRef.current) abortRef.current.abort();
-    };
-  }, []);
-
-  const display = data || lastGood;
+  const fetchError = error ? { status: 0, message: (error as any)?.message || "Network error" } : null;
+  const display = data || lastGoodRef.current;
 
   return (
     <Card className="lg:col-span-2" data-testid="card-system-load">
@@ -1167,19 +1122,19 @@ function SystemLoadSection() {
         </CardTitle>
       </CardHeader>
       <CardContent className="p-3 space-y-3">
-        {error && (
+        {fetchError && (
           <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-sm space-y-1" data-testid="system-load-error">
             <p className="font-medium text-destructive">
-              Failed to load system metrics {error.status > 0 ? `(HTTP ${error.status})` : ""}
+              Failed to load system metrics
             </p>
-            <p className="text-xs text-destructive/80 break-all">{error.message}</p>
-            {lastGood && (
+            <p className="text-xs text-destructive/80 break-all">{fetchError.message}</p>
+            {lastGoodRef.current && (
               <p className="text-xs text-muted-foreground">Showing last successful snapshot below.</p>
             )}
           </div>
         )}
 
-        {!display && !error && (
+        {!display && !fetchError && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="h-14 w-full" />

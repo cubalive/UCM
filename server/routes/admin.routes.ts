@@ -21,7 +21,6 @@ import {
   restoreVehicleHandler,
   permanentDeleteVehicleHandler,
   deepHealthHandler,
-  metricsSummaryHandler,
   aiEngineSnapshotHandler,
   aiEngineStatusHandler,
   opsIntelScoresHandler,
@@ -78,7 +77,6 @@ router.get("/api/admin/hard-delete/preview", authMiddleware, requireRole("SUPER_
 router.post("/api/admin/hard-delete", authMiddleware, requireRole("SUPER_ADMIN"), hardDeleteHandler as any);
 
 router.get("/api/admin/health/deep", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), deepHealthHandler as any);
-router.get("/api/admin/metrics/summary", authMiddleware, requireRole("SUPER_ADMIN"), metricsSummaryHandler as any);
 router.get("/api/admin/ai-engine/snapshot", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), aiEngineSnapshotHandler as any);
 router.get("/api/admin/ai-engine/status", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), aiEngineStatusHandler as any);
 router.get("/api/admin/ops-intel/scores", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), opsIntelScoresHandler as any);

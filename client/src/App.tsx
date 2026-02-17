@@ -355,11 +355,11 @@ function DriverHostUnauthorized() {
 
 const showDebugDetails = UCM_DEBUG || (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug"));
 
-class DriverErrorBoundary extends React.Component<
-  { children: React.ReactNode },
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode; label?: string },
   { hasError: boolean; error: Error | null; errorInfo: React.ErrorInfo | null; detailsOpen: boolean }
 > {
-  constructor(props: { children: React.ReactNode }) {
+  constructor(props: { children: React.ReactNode; label?: string }) {
     super(props);
     this.state = { hasError: false, error: null, errorInfo: null, detailsOpen: false };
   }
@@ -367,16 +367,18 @@ class DriverErrorBoundary extends React.Component<
     return { hasError: true, error };
   }
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("[UCM] DriverErrorBoundary caught:", error.message);
-    console.error("[UCM] Component stack:", errorInfo.componentStack);
-    console.error("[UCM] Stack trace:", error.stack);
+    const label = this.props.label || "App";
+    console.error(`[UCM] ${label}ErrorBoundary caught:`, error.message);
+    console.error(`[UCM] Component stack:`, errorInfo.componentStack);
+    console.error(`[UCM] Stack trace:`, error.stack);
     this.setState({ errorInfo });
   }
   render() {
     if (this.state.hasError) {
       const canShowDetails = showDebugDetails || isDriverHost;
+      const label = this.props.label || "Application";
       return (
-        <div className="flex items-center justify-center min-h-screen" data-testid="driver-error-boundary">
+        <div className="flex items-center justify-center min-h-screen" data-testid="app-error-boundary">
           <Card className="w-full max-w-md mx-4">
             <CardHeader className="flex flex-row items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0" />
@@ -384,7 +386,9 @@ class DriverErrorBoundary extends React.Component<
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                The driver app encountered an unexpected error. Please reload the page.
+                {label === "Driver" 
+                  ? "The driver app encountered an unexpected error. Please reload the page."
+                  : "An unexpected error occurred. Please reload the page to continue."}
               </p>
               {canShowDetails && this.state.error && (
                 <div>
@@ -456,12 +460,12 @@ function AuthenticatedApp() {
       return <DriverHostUnauthorized />;
     }
     return (
-      <DriverErrorBoundary>
+      <AppErrorBoundary label="Driver">
         <main className="h-screen w-full overflow-auto">
           <DriverSubdomainRouter />
           <AuthDebugPanel />
         </main>
-      </DriverErrorBoundary>
+      </AppErrorBoundary>
     );
   }
 
@@ -475,18 +479,20 @@ function AuthenticatedApp() {
   };
 
   return (
-    <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
-        <AppSidebar />
-        <div className="flex flex-col flex-1 min-w-0">
-          <DashboardHeader />
-          <main className="flex-1 overflow-auto">
-            <Router />
-          </main>
+    <AppErrorBoundary label="Admin">
+      <SidebarProvider style={style as React.CSSProperties}>
+        <div className="flex h-screen w-full">
+          <AppSidebar />
+          <div className="flex flex-col flex-1 min-w-0">
+            <DashboardHeader />
+            <main className="flex-1 overflow-auto">
+              <Router />
+            </main>
+          </div>
         </div>
-      </div>
-      <AuthDebugPanel />
-    </SidebarProvider>
+        <AuthDebugPanel />
+      </SidebarProvider>
+    </AppErrorBoundary>
   );
 }
 
