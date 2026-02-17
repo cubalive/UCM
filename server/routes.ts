@@ -7155,6 +7155,177 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
     }
   });
 
+  app.get("/api/trips/:id/pdf", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER"), async (req: AuthRequest, res) => {
+    try {
+      const tripId = parseInt(req.params.id);
+      if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+      const trip = await storage.getTrip(tripId);
+      if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+      const user = await storage.getUser(req.user!.userId);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      if (user.role === "CLINIC_USER") {
+        if (!user.clinicId || trip.clinicId !== user.clinicId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      if (user.role === "COMPANY_ADMIN") {
+        if (!user.companyId || !trip.companyId || trip.companyId !== user.companyId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const [enriched] = await enrichTripsWithRelations([trip]);
+      const clinic = trip.clinicId ? await storage.getClinic(trip.clinicId) : null;
+      const clinicName = clinic?.name || null;
+      const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+      const allCities = await storage.getCities();
+      const city = allCities.find(c => c.id === trip.cityId);
+      const driverRecord = trip.driverId ? await storage.getDriver(trip.driverId) : null;
+      const vehicle = trip.vehicleId ? await storage.getVehicle(trip.vehicleId) : null;
+
+      const fmtTime = (isoStr: string | Date | null | undefined): string => {
+        if (!isoStr) return "\u2014";
+        try {
+          const d = new Date(isoStr as string);
+          if (isNaN(d.getTime())) return "\u2014";
+          return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+        } catch { return "\u2014"; }
+      };
+
+      const fmtDate = (dateStr: string | null | undefined): string => {
+        if (!dateStr) return "\u2014";
+        try {
+          const [y, m, d] = dateStr.split("-").map(Number);
+          return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+        } catch { return dateStr || "\u2014"; }
+      };
+
+      const fmtPickup = (t: string | null | undefined): string => {
+        if (!t) return "\u2014";
+        try { const [h,m] = t.split(":").map(Number); const d = new Date(2000,0,1,h,m); return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true}); } catch { return t; }
+      };
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="trip-${enriched.publicId || trip.id}.pdf"`);
+      res.setHeader("Cache-Control", "no-store");
+
+      const doc = new PDFDocument({ margin: 50, size: "LETTER" });
+      doc.pipe(res);
+
+      doc.fontSize(18).text("TRIP REPORT", { align: "center" });
+      doc.moveDown(0.3);
+      doc.fontSize(9).fillColor("#666").text("United Care Mobility", { align: "center" });
+      if (clinicName) { doc.fontSize(10).fillColor("#444").text(clinicName, { align: "center" }); }
+      doc.moveDown(1);
+
+      doc.fillColor("#000").fontSize(12).text(fmtDate(trip.scheduledDate), { align: "left" });
+      doc.fontSize(10).text(`Trip ID: ${enriched.publicId || trip.id}`);
+      if (clinicName) doc.text(`Clinic: ${clinicName}`);
+      if (city?.name) doc.text(`City: ${city.name}`);
+      if (enriched.patientName) doc.text(`Patient: ${enriched.patientName}`);
+      const serviceLabel = trip.mobilityRequirement === "WHEELCHAIR" ? "Wheelchair" : trip.mobilityRequirement === "STRETCHER" ? "Stretcher" : trip.mobilityRequirement === "BARIATRIC" ? "Bariatric" : "Sedan";
+      doc.text(`Service Type: ${serviceLabel}`);
+      if (trip.passengerCount && trip.passengerCount > 1) doc.text(`Passengers: ${trip.passengerCount}`);
+      const outcomeLabel = trip.status === "COMPLETED" ? "Completed" : trip.status === "NO_SHOW" ? "No Show" : trip.status === "CANCELLED" ? "Cancelled" : trip.status;
+      doc.text(`Status: ${outcomeLabel}`);
+      doc.moveDown(1);
+
+      doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ddd");
+      doc.moveDown(0.5);
+
+      doc.fontSize(12).fillColor("#000").text("Route");
+      doc.moveDown(0.3);
+      doc.fontSize(10);
+      doc.text(`Pickup: ${trip.pickupAddress || "\u2014"}`);
+      doc.text(`Dropoff: ${trip.dropoffAddress || "\u2014"}`);
+      if (trip.distanceMiles) doc.text(`Distance: ${parseFloat(trip.distanceMiles as string).toFixed(1)} miles`);
+      if (trip.durationMinutes) doc.text(`Est. Duration: ${trip.durationMinutes} min`);
+      doc.moveDown(0.8);
+
+      let mapUrl = trip.staticMapFullUrl || trip.staticMapThumbUrl || null;
+      if (!mapUrl && trip.pickupLat && trip.pickupLng && trip.dropoffLat && trip.dropoffLng) {
+        const gmKey = process.env.GOOGLE_MAPS_API_KEY;
+        if (gmKey) {
+          const pA = `${trip.pickupLat},${trip.pickupLng}`;
+          const pB = `${trip.dropoffLat},${trip.dropoffLng}`;
+          mapUrl = `https://maps.googleapis.com/maps/api/staticmap?size=600x300&markers=color:green|label:A|${pA}&markers=color:red|label:B|${pB}&path=color:0x4285F4FF|weight:4|${pA}|${pB}&key=${gmKey}`;
+        }
+      }
+      if (mapUrl) {
+        try {
+          const mapResponse = await fetch(mapUrl as string);
+          if (mapResponse.ok) {
+            const mapBuffer = Buffer.from(await mapResponse.arrayBuffer());
+            doc.image(mapBuffer, { width: 400, align: "center" });
+            doc.moveDown(0.5);
+          }
+        } catch {}
+      }
+
+      doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ddd");
+      doc.moveDown(0.5);
+
+      doc.fontSize(12).fillColor("#000").text("Timeline");
+      doc.moveDown(0.3);
+      doc.fontSize(10);
+
+      const allSteps: { label: string; time: string; reason?: string }[] = [
+        { label: "Scheduled Pickup", time: fmtPickup(trip.pickupTime) },
+        { label: "Scheduled Dropoff (ETA)", time: fmtPickup(trip.estimatedArrivalTime) },
+        { label: "Created", time: fmtTime(trip.createdAt) },
+        { label: "Approved", time: fmtTime(trip.approvedAt) },
+        { label: "Assigned to Driver", time: fmtTime(trip.assignedAt) },
+        { label: "Driver Accepted", time: fmtTime(enriched.acceptedAt) },
+        { label: "En Route to Pickup", time: fmtTime(trip.startedAt) },
+        { label: "Arrived at Pickup", time: fmtTime(trip.arrivedPickupAt) },
+        { label: "Picked Up", time: fmtTime(trip.pickedUpAt) },
+        { label: "En Route to Dropoff", time: fmtTime(trip.enRouteDropoffAt) },
+        { label: "Arrived at Dropoff", time: fmtTime(trip.arrivedDropoffAt) },
+      ];
+      if (trip.status === "COMPLETED") {
+        allSteps.push({ label: "Completed", time: fmtTime(trip.completedAt) });
+      } else if (trip.status === "CANCELLED") {
+        allSteps.push({ label: "Cancelled", time: fmtTime(trip.cancelledAt), reason: trip.cancelledReason || undefined });
+      } else if (trip.status === "NO_SHOW") {
+        allSteps.push({ label: "No-Show", time: fmtTime(trip.cancelledAt), reason: trip.cancelledReason || undefined });
+      } else {
+        allSteps.push({ label: "Completed", time: "\u2014" });
+      }
+
+      for (const evt of allSteps) {
+        doc.fillColor("#000").text(`${evt.label}: ${evt.time}`);
+        if (evt.reason) doc.fillColor("#666").text(`  Reason: ${evt.reason}`).fillColor("#000");
+      }
+      doc.moveDown(0.8);
+
+      doc.moveTo(50, doc.y).lineTo(560, doc.y).stroke("#ddd");
+      doc.moveDown(0.5);
+
+      doc.fontSize(12).fillColor("#000").text("Driver & Vehicle");
+      doc.moveDown(0.3);
+      doc.fontSize(10);
+      const driverName = driverRecord ? `${driverRecord.firstName} ${driverRecord.lastName}` : enriched.driverName || "Unassigned";
+      doc.text(`Driver: ${driverName}`);
+      if (vehicle) {
+        const vehicleLabel = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || vehicle.licensePlate || "Unknown";
+        doc.text(`Vehicle: ${vehicleLabel}`);
+        if (vehicle.licensePlate) doc.text(`License Plate: ${vehicle.licensePlate}`);
+        if (vehicle.color) doc.text(`Color: ${vehicle.color}`);
+      } else if (enriched.vehicleLabel) {
+        doc.text(`Vehicle: ${enriched.vehicleLabel}`);
+      }
+      doc.moveDown(1);
+
+      doc.fontSize(8).fillColor("#999").text(`Generated: ${new Date().toLocaleString("en-US")}`, { align: "center" });
+
+      doc.end();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/clinic/trips/:id/tracking", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const user = await storage.getUser(req.user!.userId);

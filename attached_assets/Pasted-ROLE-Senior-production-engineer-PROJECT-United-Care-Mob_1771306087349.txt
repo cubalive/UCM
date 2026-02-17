@@ -1,0 +1,50 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+TASK: Add "Download Trip Details" (PDF) button + Safari iOS safe authenticated download.
+
+A) UI
+1) In Trip Details view (Clinic portal + Dispatch portal), add a button:
+   - Label: "Download PDF"
+   - Placement: top-right of Trip Details header (or near Trip ID)
+2) Button must call an authenticated download helper (fetch + bearer + blob).
+
+B) FRONTEND download helper (Safari-safe)
+- Implement downloadWithAuth(url, filename):
+  1) GET fetch(url) with Authorization: Bearer <token>
+  2) If !response.ok: parse JSON/text, show toast/error, DO NOT download
+  3) If ok: blob = await response.blob()
+  4) If blob.size < 200 bytes and content looks like "Unauthorized/Not found": treat as error
+  5) Create objectURL, temporary <a download>, click(), revokeObjectURL
+
+C) BACKEND endpoint
+1) Add endpoint: GET /api/trips/:tripId/pdf
+2) Must enforce auth + role gating:
+   - super_admin/dispatch: allowed
+   - clinic_user: allowed only if trip belongs to their clinic/company
+   - driver: optional (only for assigned trip) if needed, otherwise deny
+3) Generate a clean PDF with:
+   - Trip ID, date
+   - Pickup address, Dropoff address
+   - Scheduled pickup time + estimated arrival (if available)
+   - Actual timestamps: arrived, picked_up, dropped_off, completed (if available)
+   - Status timeline (trip progress)
+   - Driver name + vehicle (if available)
+   - No patient phone, no internal notes, no message threads, no private links
+4) Response headers:
+   - Content-Type: application/pdf
+   - Content-Disposition: attachment; filename="trip_<tripId>.pdf"
+   - Cache-Control: no-store
+
+D) VERIFY
+- From desktop + iPhone Safari:
+  1) Logged in -> downloads correct PDF
+  2) Logged out/invalid token -> shows error and no file saved
+- Provide the exact URL used, and confirm roles tested.

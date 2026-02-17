@@ -27,7 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { downloadWithAuth } from "@/lib/export";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw, Download } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { useTranslation } from "react-i18next";
@@ -1364,6 +1364,7 @@ function TripDetailDialog({
   const [smsOpen, setSmsOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [trackingUrl, setTrackingUrl] = useState<string | null>(null);
+  const [tripPdfLoading, setTripPdfLoading] = useState(false);
 
   const [editTripType, setEditTripType] = useState<TripType>(trip.tripType || "one_time");
   const [editMobilityRequirement, setEditMobilityRequirement] = useState(trip.mobilityRequirement || "STANDARD");
@@ -1372,6 +1373,19 @@ function TripDetailDialog({
   const [editPickupTime, setEditPickupTime] = useState(trip.pickupTime || "");
   const [editEstArrival, setEditEstArrival] = useState(trip.estimatedArrivalTime || "");
   const [editNotes, setEditNotes] = useState(trip.notes || "");
+
+  const handleDownloadTripPdf = async () => {
+    if (!token || !trip.id) return;
+    setTripPdfLoading(true);
+    await downloadWithAuth(
+      `/api/trips/${trip.id}/pdf`,
+      `trip-${trip.publicId || trip.id}.pdf`,
+      "application/pdf",
+      rawAuthFetch,
+      (msg) => toast({ title: "Error", description: msg || "Failed to download PDF", variant: "destructive" }),
+    );
+    setTripPdfLoading(false);
+  };
 
   const TERMINAL_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"];
   const isTripLocked = TERMINAL_STATUSES.includes(trip.status);
@@ -1475,6 +1489,17 @@ function TripDetailDialog({
             {trip.mobilityRequirement && trip.mobilityRequirement !== "STANDARD" && (
               <Badge variant="outline" data-testid="badge-detail-mobility">{trip.mobilityRequirement}</Badge>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 ml-auto"
+              onClick={handleDownloadTripPdf}
+              disabled={tripPdfLoading}
+              data-testid="button-download-trip-pdf"
+            >
+              <Download className="w-3 h-3" />
+              {tripPdfLoading ? "Generating..." : "Download PDF"}
+            </Button>
           </DialogTitle>
         </DialogHeader>
 
