@@ -1,0 +1,233 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate existing tables
+- Extend existing system only
+- Verify before exit
+
+TASK: Implement configurable clinic billing cycles (weekly / biweekly / monthly) with invoice generation + audit-safe totals.
+
+GOAL
+Add a production-ready billing system where each clinic can be configured to bill:
+- weekly
+- biweekly
+- monthly
+…and UCM can generate invoices for a date range or for the clinic’s current cycle window, based on an anchor day/date.
+
+SCOPE (MUST)
+1) Database changes (migrations)
+2) Backend endpoints (secure, role-gated)
+3) Minimal UI in Admin/Dispatch to set billing settings + generate invoice preview and finalize
+4) Verification steps + seed example
+
+------------------------------------------------------------
+PHASE 0 — ASSUMPTIONS (DO NOT ASK USER, IMPLEMENT SAFELY)
+------------------------------------------------------------
+- There is an existing auth/JWT middleware and roles. Use existing patterns.
+- Trips already exist and have: clinic_id (or company_id), status, scheduled pickup/dropoff, pricing fields (or can compute).
+- Billing should NOT include cancelled/no-show unless explicitly flagged billable (default: exclude).
+- Do not change trip schema unless required; prefer a separate ledger/items table.
+
+------------------------------------------------------------
+PHASE 1 — DATABASE (EXTEND ONLY)
+------------------------------------------------------------
+Create/extend these tables safely:
+
+A) clinic_billing_settings
+- clinic_id (PK, FK clinics.id, unique)
+- billing_cycle TEXT CHECK IN ('weekly','biweekly','monthly') NOT NULL DEFAULT 'weekly'
+- anchor_dow INT NULL           -- 1=Mon..7=Sun (used for weekly)
+- anchor_dom INT NULL           -- 1..28/31 (used for monthly), allow 1..28 to avoid month edge issues
+- biweekly_mode TEXT CHECK IN ('1_15','anchor_14') NOT NULL DEFAULT '1_15'
+- anchor_date DATE NULL         -- used when biweekly_mode='anchor_14'
+- timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles'
+- auto_generate BOOLEAN NOT NULL DEFAULT false
+- grace_days INT NOT NULL DEFAULT 0
+- late_fee_pct NUMERIC(5,2) NOT NULL DEFAULT 0
+- updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+- created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+
+B) invoices
+- id UUID PK default gen_random_uuid()
+- clinic_id UUID FK clinics.id NOT NULL
+- period_start TIMESTAMPTZ NOT NULL
+- period_end   TIMESTAMPTZ NOT NULL
+- status TEXT CHECK IN ('draft','finalized','void') NOT NULL DEFAULT 'draft'
+- currency TEXT NOT NULL DEFAULT 'USD'
+- subtotal_cents BIGINT NOT NULL DEFAULT 0
+- tax_cents BIGINT NOT NULL DEFAULT 0
+- fees_cents BIGINT NOT NULL DEFAULT 0
+- total_cents BIGINT NOT NULL DEFAULT 0
+- notes TEXT NULL
+- created_by UUID NULL (FK users.id if exists)
+- finalized_at TIMESTAMPTZ NULL
+- created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+- updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+
+C) invoice_items
+- id UUID PK default gen_random_uuid()
+- invoice_id UUID FK invoices.id NOT NULL ON DELETE CASCADE
+- trip_id UUID NULL FK trips.id (nullable for adjustments)
+- description TEXT NOT NULL
+- amount_cents BIGINT NOT NULL
+- metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+- created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+
+Constraints:
+- unique(invoice_id, trip_id) where trip_id is not null to prevent double-billing
+- index invoices(clinic_id, period_start, period_end, status)
+- index invoice_items(trip_id)
+
+IMPORTANT:
+- Use cents as integer everywhere to avoid floating errors.
+- Migration must be additive and non-breaking.
+
+------------------------------------------------------------
+PHASE 2 — BILLING WINDOW CALCULATION (SERVER)
+------------------------------------------------------------
+Implement a single utility that returns {start,end} for a clinic based on settings + "asOf" timestamp.
+
+Rules:
+1) weekly:
+- start = most recent anchor_dow at 00:00 in clinic timezone
+- end = start + 7 days
+
+2) biweekly:
+- if biweekly_mode='1_15':
+  - window A: day 1 00:00 -> day 16 00:00
+  - window B: day 16 00:00 -> next month day 1 00:00
+- if biweekly_mode='anchor_14':
+  - start = most recent anchor_date rolling every 14 days at 00:00
+  - end = start + 14 days
+
+3) monthly:
+- start = day anchor_dom at 00:00 in clinic timezone (if anchor_dom missing default 1)
+- if current date is before anchor_dom, start is previous month anchor_dom
+- end = start + 1 month
+
+Edge handling:
+- If anchor_dom > 28, clamp to 28.
+- Always compute using timezone-aware library (luxon/dayjs-tz or date-fns-tz) consistent with existing stack.
+
+------------------------------------------------------------
+PHASE 3 — TRIP ELIGIBILITY (BILLABLE FILTER)
+------------------------------------------------------------
+Define billable trips:
+- Must belong to the clinic (clinic_id matches)
+- Must have status in ('completed') by default
+- Must have completed_at within [period_start, period_end)
+- Must not already be billed in any non-void invoice_items
+- Amount: prefer trips.total_price_cents if exists, else compute from stored fare breakdown if existing; if none, set 0 and flag in metadata.requires_review=true.
+
+Do NOT include:
+- cancelled
+- no_show
+- pending
+Unless a future flag trips.billable_override=true exists (do not add now unless already present).
+
+------------------------------------------------------------
+PHASE 4 — BACKEND ENDPOINTS (AUTH + ROLE GATING)
+------------------------------------------------------------
+Implement endpoints under /api with existing router style:
+
+A) GET /api/clinics/:clinicId/billing-settings
+Roles allowed: SUPER_ADMIN, ADMIN, DISPATCH, COMPANY_ADMIN
+Clinic users: only if clinic_id matches
+
+B) PUT /api/clinics/:clinicId/billing-settings
+Roles allowed: SUPER_ADMIN, ADMIN, DISPATCH, COMPANY_ADMIN
+Validate fields; update updated_at.
+
+C) POST /api/clinics/:clinicId/invoices/preview
+Body: { periodStart?, periodEnd?, asOf? }
+- If periodStart/periodEnd provided: use them (validate)
+- Else: compute by settings + asOf (default now)
+Return:
+{
+  clinicId,
+  periodStart,
+  periodEnd,
+  eligibleTrips: [{tripId, date, riderName?, pickup, dropoff, amountCents, status}],
+  subtotalCents,
+  feesCents,
+  totalCents,
+  warnings:[...]
+}
+
+D) POST /api/clinics/:clinicId/invoices
+Creates a DRAFT invoice + items (idempotent)
+Body: { periodStart?, periodEnd?, asOf?, notes? }
+- Must prevent duplicate draft/final for same period (unique constraint or check)
+- If invoice exists for same period with status draft/finalized, return existing + items.
+
+E) POST /api/invoices/:invoiceId/finalize
+Roles: SUPER_ADMIN, ADMIN, DISPATCH, COMPANY_ADMIN
+- Recalculate totals server-side again before finalize
+- Lock invoice (status=finalized, finalized_at=now)
+- Ensure no item duplicates; ensure not void.
+
+F) GET /api/invoices/:invoiceId
+Roles: same as above + clinic_user if belongs
+Return invoice + items.
+
+G) GET /api/clinics/:clinicId/invoices?status=&from=&to=
+List invoices.
+
+Security requirements:
+- Strict tenant checks: clinic_user must only access their clinic.
+- COMPANY_ADMIN must only access clinics under their company (deny if either side null).
+- Return 401/403/404 with JSON messages; never leak other clinic ids.
+
+------------------------------------------------------------
+PHASE 5 — MINIMAL UI (ADMIN/DISPATCH)
+------------------------------------------------------------
+Add in Admin/Dispatch portal:
+Settings → Clinics → (select clinic) → Billing tab
+
+Billing tab shows:
+- Billing cycle (dropdown)
+- Weekly anchor day (Mon..Sun) when weekly
+- Biweekly mode (1/15 or anchor_14)
+- Monthly anchor day-of-month (1..28)
+- Timezone (default America/Los_Angeles)
+- Auto-generate toggle (display only; no cron required in this task)
+- Save button
+
+Invoice actions:
+- “Preview current cycle”
+- “Create Draft”
+- If draft exists: show “Open Draft”
+- In invoice view: “Finalize invoice” (confirm modal)
+
+Display:
+- invoice totals
+- list of items/trips
+
+No fancy styling; keep consistent component system.
+
+------------------------------------------------------------
+PHASE 6 — VERIFICATION (MUST DO)
+------------------------------------------------------------
+1) Create/ensure a clinic has billing settings default weekly.
+2) Hit preview endpoint with asOf=now → returns valid window + trips.
+3) Create draft invoice for that window → returns invoiceId + items.
+4) Call finalize → status finalized.
+5) Call preview again → trips previously billed should be excluded.
+6) Permissions:
+- clinic_user can GET their billing settings + invoice, but cannot PUT settings (unless your policy allows; default deny PUT for clinic_user).
+- unauthenticated returns 401.
+
+Add a short “How to test” section in README or internal notes.
+
+------------------------------------------------------------
+OUTPUT REQUIRED
+- Provide the migration SQL files/changes
+- Provide the backend code diffs (routes + service + utils)
+- Provide the frontend code diffs (new Billing tab + invoice actions)
+- Provide verification evidence (example requests/responses or logs)
+- Do not leave any TODOs unimplemented
+
+START NOW. IMPLEMENT SEQUENTIALLY. VERIFY BEFORE EXIT.

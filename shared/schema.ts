@@ -1244,6 +1244,83 @@ export const driverEmergencyEvents = pgTable("driver_emergency_events", {
 
 export type DriverEmergencyEvent = typeof driverEmergencyEvents.$inferSelect;
 
+export const billingCycleEnum = pgEnum("billing_cycle_type", [
+  "weekly",
+  "biweekly",
+  "monthly",
+]);
+
+export const biweeklyModeEnum = pgEnum("biweekly_mode_type", [
+  "1_15",
+  "anchor_14",
+]);
+
+export const cycleInvoiceStatusEnum = pgEnum("cycle_invoice_status", [
+  "draft",
+  "finalized",
+  "void",
+]);
+
+export const clinicBillingSettings = pgTable("clinic_billing_settings", {
+  clinicId: integer("clinic_id").primaryKey().references(() => clinics.id),
+  billingCycle: billingCycleEnum("billing_cycle").notNull().default("weekly"),
+  anchorDow: integer("anchor_dow"),
+  anchorDom: integer("anchor_dom"),
+  biweeklyMode: biweeklyModeEnum("biweekly_mode").notNull().default("1_15"),
+  anchorDate: text("anchor_date"),
+  timezone: text("timezone").notNull().default("America/Los_Angeles"),
+  autoGenerate: boolean("auto_generate").notNull().default(false),
+  graceDays: integer("grace_days").notNull().default(0),
+  lateFeePct: numeric("late_fee_pct", { precision: 5, scale: 2 }).notNull().default("0"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertClinicBillingSettingsSchema = createInsertSchema(clinicBillingSettings);
+export type ClinicBillingSettingsType = typeof clinicBillingSettings.$inferSelect;
+export type InsertClinicBillingSettings = z.infer<typeof insertClinicBillingSettingsSchema>;
+
+export const billingCycleInvoices = pgTable("billing_cycle_invoices", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  status: cycleInvoiceStatusEnum("status").notNull().default("draft"),
+  currency: text("currency").notNull().default("USD"),
+  subtotalCents: integer("subtotal_cents").notNull().default(0),
+  taxCents: integer("tax_cents").notNull().default(0),
+  feesCents: integer("fees_cents").notNull().default(0),
+  totalCents: integer("total_cents").notNull().default(0),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  finalizedAt: timestamp("finalized_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("bci_clinic_period_idx").on(table.clinicId, table.periodStart, table.periodEnd, table.status),
+]);
+
+export const insertBillingCycleInvoiceSchema = createInsertSchema(billingCycleInvoices).omit({ id: true, createdAt: true, updatedAt: true });
+export type BillingCycleInvoice = typeof billingCycleInvoices.$inferSelect;
+export type InsertBillingCycleInvoice = z.infer<typeof insertBillingCycleInvoiceSchema>;
+
+export const billingCycleInvoiceItems = pgTable("billing_cycle_invoice_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  invoiceId: integer("invoice_id").notNull().references(() => billingCycleInvoices.id, { onDelete: "cascade" }),
+  tripId: integer("trip_id").references(() => trips.id),
+  description: text("description").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  metadata: jsonb("metadata").notNull().default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("bcii_invoice_trip_idx").on(table.invoiceId, table.tripId),
+  index("bcii_trip_idx").on(table.tripId),
+]);
+
+export const insertBillingCycleInvoiceItemSchema = createInsertSchema(billingCycleInvoiceItems).omit({ id: true, createdAt: true });
+export type BillingCycleInvoiceItem = typeof billingCycleInvoiceItems.$inferSelect;
+export type InsertBillingCycleInvoiceItem = z.infer<typeof insertBillingCycleInvoiceItemSchema>;
+
 export function isVehicleCompatible(mobilityRequirement: string, vehicleCapability: string): boolean {
   if (mobilityRequirement === "WHEELCHAIR") {
     return vehicleCapability === "WHEELCHAIR";
