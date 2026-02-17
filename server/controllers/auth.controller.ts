@@ -17,16 +17,19 @@ export async function loginHandler(req: Request, res: Response) {
     const user = await storage.getUserByEmail(normalizedEmail);
     if (!user) {
       console.log(`[AUTH] Login failed: no user found for email=${normalizedEmail}`);
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", details: `Unknown email: ${normalizedEmail}`, cityId: null, userId: null }).catch(() => {});
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const valid = await comparePassword(parsed.data.password, user.password);
     if (!valid) {
       console.log(`[AUTH] Login failed: password mismatch for email=${normalizedEmail}`);
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Password mismatch for ${normalizedEmail}`, cityId: null, userId: user.id }).catch(() => {});
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     if (!user.active) {
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Disabled account: ${normalizedEmail}`, cityId: null, userId: user.id }).catch(() => {});
       return res.status(403).json({ message: "Account disabled" });
     }
 

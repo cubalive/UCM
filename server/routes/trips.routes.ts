@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { requireCompanyScope, requireCityAccess } from "../middleware";
 import { idempotencyMiddleware } from "../lib/idempotency";
 import {
   getRecurringSchedulesHandler,
@@ -45,10 +46,10 @@ router.patch("/api/trips/:id/assign", authMiddleware, requireRole("ADMIN", "DISP
 router.get("/api/trips/:id/messages", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER", "SUPER_ADMIN"), getTripMessagesHandler as any);
 router.post("/api/trips/:id/messages", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER", "SUPER_ADMIN"), createTripMessageHandler as any);
 
-router.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN"), getTripsHandler as any);
-router.get("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), getTripByIdHandler as any);
-router.post("/api/trips", authMiddleware, idempotencyMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER"), createTripHandler as any);
-router.patch("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), updateTripHandler as any);
+router.get("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN"), requireCompanyScope, requireCityAccess, getTripsHandler as any);
+router.get("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), requireCompanyScope, getTripByIdHandler as any);
+router.post("/api/trips", authMiddleware, idempotencyMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER"), requireCompanyScope, createTripHandler as any);
+router.patch("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER"), requireCompanyScope, updateTripHandler as any);
 
 router.patch("/api/trips/:id/status", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER"), updateTripStatusHandler as any);
 

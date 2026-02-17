@@ -1,11 +1,24 @@
-import express, { type Express } from "express";
+import express, { type Request, Response, NextFunction, type Express } from "express";
 import { authMiddleware, type AuthRequest } from "../auth";
+import { checkRateLimit } from "../lib/rateLimiter";
 import { loginHandler, loginJwtHandler, devSessionHandler, authMeHandler, meHandler } from "../controllers/auth.controller";
+
+function loginRateLimit(req: Request, res: Response, next: NextFunction) {
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const { allowed, retryAfterMs } = checkRateLimit(`login:${ip}`, 10, 300);
+  if (!allowed) {
+    return res.status(429).json({
+      message: "Too many login attempts. Please try again later.",
+      retryAfterMs,
+    });
+  }
+  next();
+}
 
 const router = express.Router();
 
-router.post("/api/auth/login", loginHandler);
-router.post("/api/auth/login-jwt", loginJwtHandler);
+router.post("/api/auth/login", loginRateLimit, loginHandler);
+router.post("/api/auth/login-jwt", loginRateLimit, loginJwtHandler);
 
 if (process.env.NODE_ENV === "development") {
   router.get("/api/auth/dev-session", devSessionHandler);

@@ -1305,7 +1305,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteRecurringSchedule(id: number): Promise<void> {
-    await db.delete(recurringSchedules).where(eq(recurringSchedules.id, id));
+    await db.update(recurringSchedules).set({ active: false }).where(eq(recurringSchedules.id, id));
   }
 
   async getClinicTariffs(clinicId: number): Promise<ClinicTariff[]> {
