@@ -51,6 +51,10 @@ import {
   Loader2,
   Settings,
   Receipt,
+  Calendar,
+  CheckCircle,
+  Clock,
+  XCircle,
 } from "lucide-react";
 
 function getToday(): string {
@@ -917,6 +921,519 @@ function InvoicesTab() {
   );
 }
 
+const DOW_LABELS: Record<number, string> = { 1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday" };
+const CYCLE_LABELS: Record<string, string> = { weekly: "Weekly", biweekly: "Biweekly", monthly: "Monthly" };
+
+function BillingCycleSettingsTab() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [selectedClinicId, setSelectedClinicId] = useState<string>("");
+
+  const clinicsQ = useQuery<any[]>({
+    queryKey: ["/api/clinics"],
+    queryFn: () => apiFetch("/api/clinics", token),
+    enabled: !!token,
+  });
+
+  const settingsQ = useQuery<any>({
+    queryKey: ["/api/clinics", selectedClinicId, "billing-settings"],
+    queryFn: () => apiFetch(`/api/clinics/${selectedClinicId}/billing-settings`, token),
+    enabled: !!token && !!selectedClinicId,
+  });
+
+  const [cycle, setCycle] = useState("weekly");
+  const [anchorDow, setAnchorDow] = useState("1");
+  const [anchorDom, setAnchorDom] = useState("1");
+  const [biweeklyMode, setBiweeklyMode] = useState("1_15");
+  const [anchorDate, setAnchorDate] = useState("");
+  const [tz, setTz] = useState("America/Los_Angeles");
+  const [autoGen, setAutoGen] = useState(false);
+  const [graceDays, setGraceDays] = useState("0");
+  const [lateFeePct, setLateFeePct] = useState("0");
+
+  useEffect(() => {
+    if (settingsQ.data) {
+      const s = settingsQ.data;
+      setCycle(s.billingCycle || "weekly");
+      setAnchorDow(String(s.anchorDow ?? 1));
+      setAnchorDom(String(s.anchorDom ?? 1));
+      setBiweeklyMode(s.biweeklyMode || "1_15");
+      setAnchorDate(s.anchorDate || "");
+      setTz(s.timezone || "America/Los_Angeles");
+      setAutoGen(s.autoGenerate || false);
+      setGraceDays(String(s.graceDays ?? 0));
+      setLateFeePct(String(s.lateFeePct ?? 0));
+    }
+  }, [settingsQ.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: (data: any) => apiFetch(`/api/clinics/${selectedClinicId}/billing-settings`, token, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics", selectedClinicId, "billing-settings"] });
+      toast({ title: "Billing settings saved" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const handleSave = () => {
+    saveMutation.mutate({
+      billingCycle: cycle,
+      anchorDow: cycle === "weekly" ? parseInt(anchorDow) : null,
+      anchorDom: cycle === "monthly" ? parseInt(anchorDom) : null,
+      biweeklyMode: cycle === "biweekly" ? biweeklyMode : "1_15",
+      anchorDate: cycle === "biweekly" && biweeklyMode === "anchor_14" ? anchorDate : null,
+      timezone: tz,
+      autoGenerate: autoGen,
+      graceDays: parseInt(graceDays) || 0,
+      lateFeePct: lateFeePct,
+    });
+  };
+
+  return (
+    <div className="space-y-4 mt-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Label>Clinic</Label>
+        <Select value={selectedClinicId} onValueChange={setSelectedClinicId}>
+          <SelectTrigger className="w-64" data-testid="select-billing-settings-clinic">
+            <SelectValue placeholder="Select clinic" />
+          </SelectTrigger>
+          <SelectContent>
+            {(clinicsQ.data || []).map((c: any) => (
+              <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {selectedClinicId && settingsQ.isLoading && <Skeleton className="h-48" />}
+
+      {selectedClinicId && !settingsQ.isLoading && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Billing Cycle Settings</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label>Billing Cycle</Label>
+                <Select value={cycle} onValueChange={setCycle}>
+                  <SelectTrigger data-testid="select-billing-cycle">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="biweekly">Biweekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {cycle === "weekly" && (
+                <div className="space-y-1">
+                  <Label>Anchor Day (start of week)</Label>
+                  <Select value={anchorDow} onValueChange={setAnchorDow}>
+                    <SelectTrigger data-testid="select-anchor-dow">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[1,2,3,4,5,6,7].map(d => (
+                        <SelectItem key={d} value={String(d)}>{DOW_LABELS[d]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {cycle === "biweekly" && (
+                <div className="space-y-1">
+                  <Label>Biweekly Mode</Label>
+                  <Select value={biweeklyMode} onValueChange={setBiweeklyMode}>
+                    <SelectTrigger data-testid="select-biweekly-mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1_15">1st & 15th</SelectItem>
+                      <SelectItem value="anchor_14">14-day rolling</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {cycle === "biweekly" && biweeklyMode === "anchor_14" && (
+                <div className="space-y-1">
+                  <Label>Anchor Date</Label>
+                  <Input
+                    type="date"
+                    value={anchorDate}
+                    onChange={(e) => setAnchorDate(e.target.value)}
+                    data-testid="input-anchor-date"
+                  />
+                </div>
+              )}
+
+              {cycle === "monthly" && (
+                <div className="space-y-1">
+                  <Label>Anchor Day of Month (1-28)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={28}
+                    value={anchorDom}
+                    onChange={(e) => setAnchorDom(e.target.value)}
+                    data-testid="input-anchor-dom"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <Label>Timezone</Label>
+                <Select value={tz} onValueChange={setTz}>
+                  <SelectTrigger data-testid="select-timezone">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="America/Los_Angeles">Pacific</SelectItem>
+                    <SelectItem value="America/Denver">Mountain</SelectItem>
+                    <SelectItem value="America/Chicago">Central</SelectItem>
+                    <SelectItem value="America/New_York">Eastern</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Grace Days</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={graceDays}
+                  onChange={(e) => setGraceDays(e.target.value)}
+                  data-testid="input-grace-days"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label>Late Fee %</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={lateFeePct}
+                  onChange={(e) => setLateFeePct(e.target.value)}
+                  data-testid="input-late-fee-pct"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                type="checkbox"
+                checked={autoGen}
+                onChange={(e) => setAutoGen(e.target.checked)}
+                id="auto-generate"
+                data-testid="checkbox-auto-generate"
+                className="rounded"
+              />
+              <Label htmlFor="auto-generate" className="cursor-pointer">Auto-generate invoices (display only)</Label>
+            </div>
+
+            <Button onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-billing-settings">
+              {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span className="ml-1.5">Save Settings</span>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function CycleInvoicesTab() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [selectedClinicId, setSelectedClinicId] = useState<string>("");
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [viewInvoice, setViewInvoice] = useState<any>(null);
+  const [customPeriodStart, setCustomPeriodStart] = useState("");
+  const [customPeriodEnd, setCustomPeriodEnd] = useState("");
+  const [useCustomPeriod, setUseCustomPeriod] = useState(false);
+
+  const clinicsQ = useQuery<any[]>({
+    queryKey: ["/api/clinics"],
+    queryFn: () => apiFetch("/api/clinics", token),
+    enabled: !!token,
+  });
+
+  const invoicesQ = useQuery<any[]>({
+    queryKey: ["/api/clinics", selectedClinicId, "cycle-invoices"],
+    queryFn: () => apiFetch(`/api/clinics/${selectedClinicId}/cycle-invoices`, token),
+    enabled: !!token && !!selectedClinicId,
+  });
+
+  const getPeriodBody = () => {
+    if (useCustomPeriod && customPeriodStart && customPeriodEnd) {
+      return { periodStart: customPeriodStart, periodEnd: customPeriodEnd };
+    }
+    return {};
+  };
+
+  const previewMutation = useMutation({
+    mutationFn: () => apiFetch(`/api/clinics/${selectedClinicId}/cycle-invoices/preview`, token, {
+      method: "POST",
+      body: JSON.stringify(getPeriodBody()),
+    }),
+    onSuccess: (data: any) => setPreviewData(data),
+    onError: (err: any) => toast({ title: "Preview error", description: err.message, variant: "destructive" }),
+  });
+
+  const createDraftMutation = useMutation({
+    mutationFn: () => apiFetch(`/api/clinics/${selectedClinicId}/cycle-invoices`, token, {
+      method: "POST",
+      body: JSON.stringify(getPeriodBody()),
+    }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics", selectedClinicId, "cycle-invoices"] });
+      setPreviewData(null);
+      if (data.existing) {
+        toast({ title: "Draft already exists for this period" });
+      } else {
+        toast({ title: "Draft invoice created" });
+      }
+      setViewInvoice(data);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const finalizeMutation = useMutation({
+    mutationFn: (invoiceId: number) => apiFetch(`/api/cycle-invoices/${invoiceId}/finalize`, token, {
+      method: "POST",
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics", selectedClinicId, "cycle-invoices"] });
+      setViewInvoice(null);
+      toast({ title: "Invoice finalized" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const voidMutation = useMutation({
+    mutationFn: (invoiceId: number) => apiFetch(`/api/cycle-invoices/${invoiceId}/void`, token, {
+      method: "POST",
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics", selectedClinicId, "cycle-invoices"] });
+      setViewInvoice(null);
+      toast({ title: "Invoice voided" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const loadInvoice = async (invoiceId: number) => {
+    try {
+      const data = await apiFetch(`/api/cycle-invoices/${invoiceId}`, token);
+      setViewInvoice(data);
+    } catch (err: any) {
+      toast({ title: "Error loading invoice", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+  const statusBadge = (status: string) => {
+    switch (status) {
+      case "draft": return <Badge variant="outline"><Clock className="w-3 h-3 mr-1" />Draft</Badge>;
+      case "finalized": return <Badge variant="default"><CheckCircle className="w-3 h-3 mr-1" />Finalized</Badge>;
+      case "void": return <Badge variant="secondary"><XCircle className="w-3 h-3 mr-1" />Void</Badge>;
+      default: return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  return (
+    <div className="space-y-4 mt-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Label>Clinic</Label>
+        <Select value={selectedClinicId} onValueChange={(v) => { setSelectedClinicId(v); setPreviewData(null); setViewInvoice(null); }}>
+          <SelectTrigger className="w-64" data-testid="select-cycle-invoice-clinic">
+            <SelectValue placeholder="Select clinic" />
+          </SelectTrigger>
+          <SelectContent>
+            {(clinicsQ.data || []).map((c: any) => (
+              <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {selectedClinicId && (
+          <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                type="checkbox"
+                checked={useCustomPeriod}
+                onChange={(e) => setUseCustomPeriod(e.target.checked)}
+                id="use-custom-period"
+                data-testid="checkbox-custom-period"
+                className="rounded"
+              />
+              <Label htmlFor="use-custom-period" className="cursor-pointer text-sm">Custom period</Label>
+              {useCustomPeriod && (
+                <>
+                  <Input type="date" className="w-40" value={customPeriodStart} onChange={(e) => setCustomPeriodStart(e.target.value)} data-testid="input-period-start" />
+                  <span className="text-muted-foreground text-sm">to</span>
+                  <Input type="date" className="w-40" value={customPeriodEnd} onChange={(e) => setCustomPeriodEnd(e.target.value)} data-testid="input-period-end" />
+                </>
+              )}
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending} data-testid="button-preview-cycle">
+                {previewMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                <span className="ml-1.5">{useCustomPeriod ? "Preview Custom Period" : "Preview Current Cycle"}</span>
+              </Button>
+              <Button variant="outline" onClick={() => createDraftMutation.mutate()} disabled={createDraftMutation.isPending} data-testid="button-create-draft">
+                {createDraftMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                <span className="ml-1.5">Create Draft</span>
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {previewData && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Preview: {previewData.periodStart} to {previewData.periodEnd}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-sm text-muted-foreground mb-3">
+              {previewData.eligibleTrips?.length || 0} eligible trips &middot; Total: {formatCents(previewData.totalCents || 0)}
+            </div>
+            {previewData.warnings?.length > 0 && (
+              <div className="mb-3 p-2 bg-amber-50 dark:bg-amber-950 rounded text-sm text-amber-700 dark:text-amber-300">
+                {previewData.warnings.map((w: string, i: number) => <div key={i}>{w}</div>)}
+              </div>
+            )}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Trip</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Rider</TableHead>
+                  <TableHead>Pickup</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(previewData.eligibleTrips || []).map((t: any) => (
+                  <TableRow key={t.tripId} data-testid={`row-preview-trip-${t.tripId}`}>
+                    <TableCell className="font-mono text-xs">{t.tripPublicId}</TableCell>
+                    <TableCell>{t.date}</TableCell>
+                    <TableCell>{t.riderName || "-"}</TableCell>
+                    <TableCell className="max-w-48 truncate">{t.pickup}</TableCell>
+                    <TableCell className="text-right">{formatCents(t.amountCents)}{t.requiresReview && <span className="text-amber-500 ml-1">*</span>}</TableCell>
+                  </TableRow>
+                ))}
+                {(previewData.eligibleTrips || []).length === 0 && (
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No eligible trips in this period</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {viewInvoice && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+              Invoice #{viewInvoice.invoice?.id} {statusBadge(viewInvoice.invoice?.status)}
+              <span className="text-sm font-normal text-muted-foreground">
+                {viewInvoice.invoice?.periodStart} to {viewInvoice.invoice?.periodEnd}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
+              <span className="text-sm font-medium">Total: {formatCents(viewInvoice.invoice?.totalCents || 0)}</span>
+              {viewInvoice.invoice?.status === "draft" && (
+                <Button size="sm" onClick={() => finalizeMutation.mutate(viewInvoice.invoice.id)} disabled={finalizeMutation.isPending} data-testid="button-finalize-invoice">
+                  {finalizeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                  <span className="ml-1.5">Finalize</span>
+                </Button>
+              )}
+              {viewInvoice.invoice?.status !== "void" && (
+                <Button size="sm" variant="outline" onClick={() => voidMutation.mutate(viewInvoice.invoice.id)} disabled={voidMutation.isPending} data-testid="button-void-invoice">
+                  <XCircle className="w-4 h-4" />
+                  <span className="ml-1.5">Void</span>
+                </Button>
+              )}
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(viewInvoice.items || []).map((item: any) => (
+                  <TableRow key={item.id} data-testid={`row-invoice-item-${item.id}`}>
+                    <TableCell className="text-sm">{item.description}</TableCell>
+                    <TableCell className="text-right">{formatCents(item.amountCents)}</TableCell>
+                  </TableRow>
+                ))}
+                {(viewInvoice.items || []).length === 0 && (
+                  <TableRow><TableCell colSpan={2} className="text-center text-muted-foreground">No line items</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedClinicId && !invoicesQ.isLoading && (invoicesQ.data || []).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Invoice History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Period</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(invoicesQ.data || []).map((inv: any) => (
+                  <TableRow key={inv.id} data-testid={`row-cycle-invoice-${inv.id}`}>
+                    <TableCell className="font-mono text-xs">#{inv.id}</TableCell>
+                    <TableCell>{inv.periodStart} - {inv.periodEnd}</TableCell>
+                    <TableCell>{statusBadge(inv.status)}</TableCell>
+                    <TableCell className="text-right">{formatCents(inv.totalCents)}</TableCell>
+                    <TableCell>
+                      <Button size="sm" variant="ghost" onClick={() => loadInvoice(inv.id)} data-testid={`button-view-invoice-${inv.id}`}>
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedClinicId && invoicesQ.isLoading && <Skeleton className="h-32" />}
+    </div>
+  );
+}
+
 export default function ClinicBillingPage() {
   return (
     <div className="p-4 space-y-4 max-w-7xl mx-auto">
@@ -939,6 +1456,14 @@ export default function ClinicBillingPage() {
             <FileText className="w-4 h-4" />
             Invoices
           </TabsTrigger>
+          <TabsTrigger value="billing-settings" data-testid="tab-billing-settings" className="gap-1.5">
+            <Settings className="w-4 h-4" />
+            Billing Cycles
+          </TabsTrigger>
+          <TabsTrigger value="cycle-invoices" data-testid="tab-cycle-invoices" className="gap-1.5">
+            <Calendar className="w-4 h-4" />
+            Cycle Invoices
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="prices">
@@ -949,6 +1474,12 @@ export default function ClinicBillingPage() {
         </TabsContent>
         <TabsContent value="invoices">
           <InvoicesTab />
+        </TabsContent>
+        <TabsContent value="billing-settings">
+          <BillingCycleSettingsTab />
+        </TabsContent>
+        <TabsContent value="cycle-invoices">
+          <CycleInvoicesTab />
         </TabsContent>
       </Tabs>
     </div>

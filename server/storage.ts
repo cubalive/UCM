@@ -22,6 +22,9 @@ import {
   clinicInvoicesMonthly, type ClinicInvoiceMonthly, type InsertClinicInvoiceMonthly,
   clinicInvoiceItems, type ClinicInvoiceItem, type InsertClinicInvoiceItem,
   tripSignatures, type TripSignature, type InsertTripSignature,
+  clinicBillingSettings, type ClinicBillingSettingsType, type InsertClinicBillingSettings,
+  billingCycleInvoices, type BillingCycleInvoice, type InsertBillingCycleInvoice,
+  billingCycleInvoiceItems, type BillingCycleInvoiceItem, type InsertBillingCycleInvoiceItem,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -200,6 +203,21 @@ export interface IStorage {
 
   getTripSignature(tripId: number): Promise<TripSignature | undefined>;
   upsertTripSignature(tripId: number, data: Partial<InsertTripSignature>): Promise<TripSignature>;
+
+  getClinicBillingSettings(clinicId: number): Promise<ClinicBillingSettingsType | undefined>;
+  upsertClinicBillingSettings(data: InsertClinicBillingSettings): Promise<ClinicBillingSettingsType>;
+
+  getBillingCycleInvoice(id: number): Promise<BillingCycleInvoice | undefined>;
+  getBillingCycleInvoices(clinicId: number, status?: string, from?: string, to?: string): Promise<BillingCycleInvoice[]>;
+  findBillingCycleInvoice(clinicId: number, periodStart: string, periodEnd: string): Promise<BillingCycleInvoice | undefined>;
+  createBillingCycleInvoice(data: InsertBillingCycleInvoice): Promise<BillingCycleInvoice>;
+  updateBillingCycleInvoice(id: number, data: Partial<BillingCycleInvoice>): Promise<BillingCycleInvoice | undefined>;
+
+  getBillingCycleInvoiceItems(invoiceId: number): Promise<BillingCycleInvoiceItem[]>;
+  createBillingCycleInvoiceItem(data: InsertBillingCycleInvoiceItem): Promise<BillingCycleInvoiceItem>;
+
+  getEligibleTripsForBilling(clinicId: number, periodStart: string, periodEnd: string): Promise<Trip[]>;
+  getTripIdsAlreadyBilled(clinicId: number): Promise<number[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1365,6 +1383,102 @@ export class DatabaseStorage implements IStorage {
     }
     const [row] = await db.insert(tripSignatures).values({ tripId, ...data }).returning();
     return row;
+  }
+
+  async getClinicBillingSettings(clinicId: number): Promise<ClinicBillingSettingsType | undefined> {
+    const [row] = await db.select().from(clinicBillingSettings).where(eq(clinicBillingSettings.clinicId, clinicId));
+    return row;
+  }
+
+  async upsertClinicBillingSettings(data: InsertClinicBillingSettings): Promise<ClinicBillingSettingsType> {
+    const existing = await this.getClinicBillingSettings(data.clinicId);
+    if (existing) {
+      const { clinicId, createdAt, ...updateData } = data as any;
+      const [row] = await db.update(clinicBillingSettings)
+        .set({ ...updateData, updatedAt: new Date() })
+        .where(eq(clinicBillingSettings.clinicId, data.clinicId))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(clinicBillingSettings).values(data).returning();
+    return row;
+  }
+
+  async getBillingCycleInvoice(id: number): Promise<BillingCycleInvoice | undefined> {
+    const [row] = await db.select().from(billingCycleInvoices).where(eq(billingCycleInvoices.id, id));
+    return row;
+  }
+
+  async getBillingCycleInvoices(clinicId: number, status?: string, from?: string, to?: string): Promise<BillingCycleInvoice[]> {
+    const conditions: any[] = [eq(billingCycleInvoices.clinicId, clinicId)];
+    if (status) conditions.push(eq(billingCycleInvoices.status, status as any));
+    if (from) conditions.push(sql`${billingCycleInvoices.periodStart} >= ${from}`);
+    if (to) conditions.push(sql`${billingCycleInvoices.periodEnd} <= ${to}`);
+    return db.select().from(billingCycleInvoices)
+      .where(and(...conditions))
+      .orderBy(desc(billingCycleInvoices.createdAt));
+  }
+
+  async findBillingCycleInvoice(clinicId: number, periodStart: string, periodEnd: string): Promise<BillingCycleInvoice | undefined> {
+    const [row] = await db.select().from(billingCycleInvoices)
+      .where(and(
+        eq(billingCycleInvoices.clinicId, clinicId),
+        eq(billingCycleInvoices.periodStart, periodStart),
+        eq(billingCycleInvoices.periodEnd, periodEnd),
+        ne(billingCycleInvoices.status, "void"),
+      ));
+    return row;
+  }
+
+  async createBillingCycleInvoice(data: InsertBillingCycleInvoice): Promise<BillingCycleInvoice> {
+    const [row] = await db.insert(billingCycleInvoices).values(data).returning();
+    return row;
+  }
+
+  async updateBillingCycleInvoice(id: number, data: Partial<BillingCycleInvoice>): Promise<BillingCycleInvoice | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    const [row] = await db.update(billingCycleInvoices)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(billingCycleInvoices.id, id))
+      .returning();
+    return row;
+  }
+
+  async getBillingCycleInvoiceItems(invoiceId: number): Promise<BillingCycleInvoiceItem[]> {
+    return db.select().from(billingCycleInvoiceItems)
+      .where(eq(billingCycleInvoiceItems.invoiceId, invoiceId));
+  }
+
+  async createBillingCycleInvoiceItem(data: InsertBillingCycleInvoiceItem): Promise<BillingCycleInvoiceItem> {
+    const [row] = await db.insert(billingCycleInvoiceItems).values(data).returning();
+    return row;
+  }
+
+  async getEligibleTripsForBilling(clinicId: number, periodStart: string, periodEnd: string): Promise<Trip[]> {
+    const alreadyBilledIds = await this.getTripIdsAlreadyBilled(clinicId);
+    const conditions: any[] = [
+      eq(trips.clinicId, clinicId),
+      eq(trips.status, "COMPLETED"),
+      sql`${trips.completedAt} >= ${periodStart}::timestamptz`,
+      sql`${trips.completedAt} < ${periodEnd}::timestamptz`,
+    ];
+    if (alreadyBilledIds.length > 0) {
+      conditions.push(sql`${trips.id} NOT IN (${sql.join(alreadyBilledIds.map(id => sql`${id}`), sql`, `)})`);
+    }
+    return db.select().from(trips).where(and(...conditions));
+  }
+
+  async getTripIdsAlreadyBilled(clinicId: number): Promise<number[]> {
+    const rows = await db
+      .select({ tripId: billingCycleInvoiceItems.tripId })
+      .from(billingCycleInvoiceItems)
+      .innerJoin(billingCycleInvoices, eq(billingCycleInvoiceItems.invoiceId, billingCycleInvoices.id))
+      .where(and(
+        eq(billingCycleInvoices.clinicId, clinicId),
+        ne(billingCycleInvoices.status, "void"),
+        sql`${billingCycleInvoiceItems.tripId} IS NOT NULL`,
+      ));
+    return rows.map(r => r.tripId!).filter(Boolean);
   }
 }
 

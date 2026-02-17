@@ -20,6 +20,7 @@ import {
 } from "@shared/schema";
 import { eq, and, sql, gte, lte, isNull, inArray, desc } from "drizzle-orm";
 import { z } from "zod";
+import { computeBillingWindow } from "./billingCycleUtils";
 
 const OUTCOMES = ["completed", "no_show", "cancelled", "company_error"] as const;
 const LEG_TYPES = ["outbound", "return"] as const;
@@ -939,6 +940,347 @@ export function registerClinicBillingRoutes(app: Express) {
       if (status === "paid") updateData.paidAt = new Date();
       const updated = await storage.updateClinicInvoiceMonthly(id, updateData);
       if (!updated) return res.status(404).json({ message: "Invoice not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  async function checkClinicAccess(req: AuthRequest, clinicId: number): Promise<{ allowed: boolean; reason?: string }> {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return { allowed: false, reason: "User not found" };
+    const role = user.role;
+    if (role === "SUPER_ADMIN" || role === "ADMIN" || role === "DISPATCH") {
+      return { allowed: true };
+    }
+    if (role === "COMPANY_ADMIN") {
+      if (!user.companyId) return { allowed: false, reason: "Access denied" };
+      const clinic = await storage.getClinic(clinicId);
+      if (!clinic || clinic.companyId !== user.companyId) return { allowed: false, reason: "Access denied" };
+      return { allowed: true };
+    }
+    if (role === "CLINIC_USER") {
+      if (user.clinicId !== clinicId) return { allowed: false, reason: "Access denied" };
+      return { allowed: true };
+    }
+    return { allowed: false, reason: "Access denied" };
+  }
+
+  app.get("/api/clinics/:clinicId/billing-settings", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.params.clinicId);
+      if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+      const access = await checkClinicAccess(req, clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+      const settings = await storage.getClinicBillingSettings(clinicId);
+      res.json(settings || {
+        clinicId,
+        billingCycle: "weekly",
+        anchorDow: 1,
+        anchorDom: 1,
+        biweeklyMode: "1_15",
+        anchorDate: null,
+        timezone: "America/Los_Angeles",
+        autoGenerate: false,
+        graceDays: 0,
+        lateFeePct: "0",
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/clinics/:clinicId/billing-settings", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.params.clinicId);
+      if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+      const access = await checkClinicAccess(req, clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      const { billingCycle, anchorDow, anchorDom, biweeklyMode, anchorDate, timezone, autoGenerate, graceDays, lateFeePct } = req.body;
+      if (billingCycle && !["weekly", "biweekly", "monthly"].includes(billingCycle)) {
+        return res.status(400).json({ message: "Invalid billing cycle" });
+      }
+      if (anchorDow !== undefined && anchorDow !== null && (anchorDow < 1 || anchorDow > 7)) {
+        return res.status(400).json({ message: "anchorDow must be 1-7" });
+      }
+      if (anchorDom !== undefined && anchorDom !== null && (anchorDom < 1 || anchorDom > 28)) {
+        return res.status(400).json({ message: "anchorDom must be 1-28" });
+      }
+
+      const result = await storage.upsertClinicBillingSettings({
+        clinicId,
+        billingCycle: billingCycle || "weekly",
+        anchorDow: anchorDow ?? null,
+        anchorDom: anchorDom ?? null,
+        biweeklyMode: biweeklyMode || "1_15",
+        anchorDate: anchorDate || null,
+        timezone: timezone || "America/Los_Angeles",
+        autoGenerate: autoGenerate ?? false,
+        graceDays: graceDays ?? 0,
+        lateFeePct: String(lateFeePct ?? "0"),
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/clinics/:clinicId/cycle-invoices/preview", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.params.clinicId);
+      if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+      const access = await checkClinicAccess(req, clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      let periodStart: string;
+      let periodEnd: string;
+      const { periodStart: ps, periodEnd: pe, asOf } = req.body;
+
+      if (ps && pe) {
+        periodStart = ps;
+        periodEnd = pe;
+      } else {
+        const settings = await storage.getClinicBillingSettings(clinicId);
+        const defaultSettings = settings || {
+          clinicId,
+          billingCycle: "weekly" as const,
+          anchorDow: 1,
+          anchorDom: 1,
+          biweeklyMode: "1_15" as const,
+          anchorDate: null,
+          timezone: "America/Los_Angeles",
+          autoGenerate: false,
+          graceDays: 0,
+          lateFeePct: "0",
+          updatedAt: new Date(),
+          createdAt: new Date(),
+        };
+        const window = computeBillingWindow(defaultSettings, asOf ? new Date(asOf) : undefined);
+        periodStart = window.periodStart;
+        periodEnd = window.periodEnd;
+      }
+
+      const eligibleTrips = await storage.getEligibleTripsForBilling(clinicId, periodStart, periodEnd);
+      const warnings: string[] = [];
+
+      const tripItems = await Promise.all(eligibleTrips.map(async (trip) => {
+        let amountCents = trip.priceTotalCents || 0;
+        const requiresReview = amountCents === 0;
+        if (requiresReview) {
+          const billing = await storage.getTripBilling(trip.id);
+          if (billing) {
+            amountCents = billing.totalCents;
+          } else {
+            warnings.push(`Trip ${trip.publicId} has no price. Requires review.`);
+          }
+        }
+        const patient = await storage.getPatient(trip.patientId);
+        return {
+          tripId: trip.id,
+          tripPublicId: trip.publicId,
+          date: trip.scheduledDate,
+          riderName: patient ? `${patient.firstName} ${patient.lastName}` : null,
+          pickup: trip.pickupAddress,
+          dropoff: trip.dropoffAddress,
+          amountCents,
+          status: trip.status,
+          requiresReview,
+        };
+      }));
+
+      const subtotalCents = tripItems.reduce((sum, t) => sum + t.amountCents, 0);
+
+      res.json({
+        clinicId,
+        periodStart,
+        periodEnd,
+        eligibleTrips: tripItems,
+        subtotalCents,
+        feesCents: 0,
+        totalCents: subtotalCents,
+        warnings,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/clinics/:clinicId/cycle-invoices", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.params.clinicId);
+      if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+      const access = await checkClinicAccess(req, clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      let periodStart: string;
+      let periodEnd: string;
+      const { periodStart: ps, periodEnd: pe, asOf, notes } = req.body;
+
+      if (ps && pe) {
+        periodStart = ps;
+        periodEnd = pe;
+      } else {
+        const settings = await storage.getClinicBillingSettings(clinicId);
+        const defaultSettings = settings || {
+          clinicId,
+          billingCycle: "weekly" as const,
+          anchorDow: 1,
+          anchorDom: 1,
+          biweeklyMode: "1_15" as const,
+          anchorDate: null,
+          timezone: "America/Los_Angeles",
+          autoGenerate: false,
+          graceDays: 0,
+          lateFeePct: "0",
+          updatedAt: new Date(),
+          createdAt: new Date(),
+        };
+        const window = computeBillingWindow(defaultSettings, asOf ? new Date(asOf) : undefined);
+        periodStart = window.periodStart;
+        periodEnd = window.periodEnd;
+      }
+
+      const existing = await storage.findBillingCycleInvoice(clinicId, periodStart, periodEnd);
+      if (existing) {
+        const items = await storage.getBillingCycleInvoiceItems(existing.id);
+        return res.json({ invoice: existing, items, existing: true });
+      }
+
+      const eligibleTrips = await storage.getEligibleTripsForBilling(clinicId, periodStart, periodEnd);
+
+      let subtotalCents = 0;
+      const items: any[] = [];
+      for (const trip of eligibleTrips) {
+        let amountCents = trip.priceTotalCents || 0;
+        if (amountCents === 0) {
+          const billing = await storage.getTripBilling(trip.id);
+          if (billing) amountCents = billing.totalCents;
+        }
+        const patient = await storage.getPatient(trip.patientId);
+        const riderName = patient ? `${patient.firstName} ${patient.lastName}` : "Unknown";
+        items.push({
+          tripId: trip.id,
+          description: `Trip ${trip.publicId} - ${riderName} - ${trip.scheduledDate}`,
+          amountCents,
+          metadata: { tripPublicId: trip.publicId, riderName, date: trip.scheduledDate, requiresReview: amountCents === 0 },
+        });
+        subtotalCents += amountCents;
+      }
+
+      const invoice = await storage.createBillingCycleInvoice({
+        clinicId,
+        periodStart,
+        periodEnd,
+        status: "draft",
+        currency: "USD",
+        subtotalCents,
+        taxCents: 0,
+        feesCents: 0,
+        totalCents: subtotalCents,
+        notes: notes || null,
+        createdBy: req.user!.userId,
+      });
+
+      const createdItems = [];
+      for (const item of items) {
+        const created = await storage.createBillingCycleInvoiceItem({
+          invoiceId: invoice.id,
+          tripId: item.tripId,
+          description: item.description,
+          amountCents: item.amountCents,
+          metadata: item.metadata,
+        });
+        createdItems.push(created);
+      }
+
+      res.json({ invoice, items: createdItems });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/cycle-invoices/:invoiceId/finalize", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.invoiceId);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getBillingCycleInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const access = await checkClinicAccess(req, invoice.clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      if (invoice.status === "void") return res.status(400).json({ message: "Cannot finalize a voided invoice" });
+      if (invoice.status === "finalized") return res.json(invoice);
+
+      const items = await storage.getBillingCycleInvoiceItems(invoiceId);
+      const recalcSubtotal = items.reduce((sum, item) => sum + item.amountCents, 0);
+
+      const updated = await storage.updateBillingCycleInvoice(invoiceId, {
+        status: "finalized",
+        finalizedAt: new Date(),
+        subtotalCents: recalcSubtotal,
+        totalCents: recalcSubtotal + (invoice.feesCents || 0) + (invoice.taxCents || 0),
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/cycle-invoices/:invoiceId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.invoiceId);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getBillingCycleInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const access = await checkClinicAccess(req, invoice.clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      const items = await storage.getBillingCycleInvoiceItems(invoiceId);
+      res.json({ invoice, items });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/clinics/:clinicId/cycle-invoices", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const clinicId = parseInt(req.params.clinicId);
+      if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+
+      const access = await checkClinicAccess(req, clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      const { status, from, to } = req.query;
+      const invoices = await storage.getBillingCycleInvoices(
+        clinicId,
+        status as string | undefined,
+        from as string | undefined,
+        to as string | undefined
+      );
+      res.json(invoices);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/cycle-invoices/:invoiceId/void", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(req.params.invoiceId);
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getBillingCycleInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const access = await checkClinicAccess(req, invoice.clinicId);
+      if (!access.allowed) return res.status(403).json({ message: access.reason });
+
+      const updated = await storage.updateBillingCycleInvoice(invoiceId, { status: "void" });
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
