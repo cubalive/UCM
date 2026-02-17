@@ -37,6 +37,12 @@ export function buildTimestamp(): string {
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
 }
 
+function parseDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const match = header.match(/filename[*]?=(?:UTF-8''|"?)([^";]+)"?/i);
+  return match ? decodeURIComponent(match[1].trim()) : null;
+}
+
 export async function downloadWithAuth(
   url: string,
   filename: string,
@@ -72,12 +78,35 @@ export async function downloadWithAuth(
   }
 
   const blob = await res.blob();
+
+  if (blob.size < 200 && !res.headers.get("content-disposition")) {
+    const ct = res.headers.get("content-type") || "";
+    if (ct.includes("text/plain") || ct.includes("text/html")) {
+      const text = await blob.text();
+      toast?.(`Download failed — ${text.slice(0, 120)}`);
+      return false;
+    }
+    if (ct.includes("application/json")) {
+      const text = await blob.text();
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed.message || parsed.error) {
+          toast?.(parsed.message || parsed.error);
+          return false;
+        }
+      } catch {}
+    }
+  }
+
+  const dispositionName = parseDispositionFilename(res.headers.get("content-disposition"));
+  const resolvedFilename = dispositionName || filename;
+
   const safeBlob = mimeType ? new Blob([blob], { type: mimeType }) : blob;
 
   const objectUrl = URL.createObjectURL(safeBlob);
   const a = document.createElement("a");
   a.href = objectUrl;
-  a.download = filename;
+  a.download = resolvedFilename;
   a.rel = "noopener";
   a.style.display = "none";
   document.body.appendChild(a);

@@ -780,6 +780,7 @@ export function registerClinicBillingRoutes(app: Express) {
 
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="clinic-billing-${clinic?.name || id}-${invoice.weekStart}.csv"`);
+      res.setHeader("Cache-Control", "no-store");
       res.send(csv);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

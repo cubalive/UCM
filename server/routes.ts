@@ -6833,6 +6833,7 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       const csv = csvHeader + csvRows.join("\n");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="trips_${startDate}_to_${endDate}.csv"`);
+      res.setHeader("Cache-Control", "no-store");
       res.send(csv);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -7523,6 +7524,7 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="invoice-${invoice.id}.pdf"`);
+      res.setHeader("Cache-Control", "no-store");
 
       const doc = new PDFDocument({ margin: 50, size: "LETTER" });
       doc.pipe(res);
@@ -7793,6 +7795,7 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="invoice-${invoice.id}-weekly.pdf"`);
+      res.setHeader("Cache-Control", "no-store");
 
       const doc = new PDFDocument({ margin: 50, size: "LETTER" });
       doc.pipe(res);
