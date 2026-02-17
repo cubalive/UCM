@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTripRealtime } from "@/hooks/use-trip-realtime";
@@ -314,6 +315,7 @@ function DialysisReturnDialog({ tripId, onDismiss }: { tripId: number; onDismiss
 
 function OpsDashboard() {
   const { token } = useAuth();
+  const [, navigate] = useLocation();
   const [opsTab, setOpsTab] = useState("live");
   const [trackingTripId, setTrackingTripId] = useState<number | null>(null);
   const [selectedOpsTrip, setSelectedOpsTrip] = useState<any>(null);
@@ -567,8 +569,8 @@ function OpsDashboard() {
                   className="cursor-pointer hover-elevate active-elevate-2"
                   role="button"
                   tabIndex={0}
-                  onClick={() => setSelectedCompletedTripId(trip.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedCompletedTripId(trip.id); } }}
+                  onClick={() => navigate(`/clinic-trip/${trip.id}`)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clinic-trip/${trip.id}`); } }}
                   data-testid={`card-completed-trip-${trip.id}`}
                 >
                   <CardContent className="py-3 px-4 min-h-[44px]">
@@ -1399,6 +1401,7 @@ function ArrivalsBoard({ activeTrips, onTrack }: { activeTrips: any[]; onTrack: 
 function TripsSection() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const [, navigateTrips] = useLocation();
   const [tripTab, setTripTab] = useState("live");
   const [tripTypeFilter, setTripTypeFilter] = useState("all");
   const [selectedTripId, setSelectedTripId] = useState<number | null>(null);
@@ -1514,7 +1517,14 @@ function TripsSection() {
               key={trip.id}
               trip={trip}
               isCompleted={tripTab === "completed"}
-              onSelect={() => setSelectedTripId(trip.id)}
+              onSelect={() => {
+                const isTerminal = ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status);
+                if (isTerminal) {
+                  navigateTrips(`/clinic-trip/${trip.id}`);
+                } else {
+                  setSelectedTripId(trip.id);
+                }
+              }}
               onTrack={ACTIVE_TRIP_STATUSES.includes(trip.status) ? () => setTrackingTripId(trip.id) : undefined}
             />
           ))}
