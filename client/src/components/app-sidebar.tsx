@@ -60,6 +60,7 @@ import {
   Shield,
   TrendingUp,
   Send,
+  Upload,
 } from "lucide-react";
 
 interface NavItem {
@@ -107,6 +108,7 @@ const adminItems: NavItem[] = [
   { titleKey: "nav.auditShield", url: "/audit-shield", icon: Shield, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.prediction", url: "/prediction", icon: TrendingUp, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.publishCenter", url: "/publish-center", icon: Send, resource: "audit", superAdminOnly: true },
+  { titleKey: "nav.dataImport", url: "/admin/imports", icon: Upload, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.metrics", url: "/metrics", icon: BarChart, resource: "audit", superAdminOnly: true },
 ];
 

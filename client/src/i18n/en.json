@@ -71,7 +71,8 @@
     "ranking": "Ranking",
     "auditShield": "Audit Shield",
     "prediction": "Prediction",
-    "publishCenter": "Publish Center"
+    "publishCenter": "Publish Center",
+    "dataImport": "Data Import"
   },
   "dashboard": {
     "title": "Dashboard",

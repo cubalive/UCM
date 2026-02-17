@@ -71,7 +71,8 @@
     "ranking": "Clasificación",
     "auditShield": "Escudo de Auditoría",
     "prediction": "Predicción",
-    "publishCenter": "Centro de Publicación"
+    "publishCenter": "Centro de Publicación",
+    "dataImport": "Importar Datos"
   },
   "dashboard": {
     "title": "Panel Principal",

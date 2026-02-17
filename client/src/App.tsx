@@ -57,6 +57,7 @@ import RankingPage from "@/pages/ranking";
 import AuditShieldPage from "@/pages/audit-shield";
 import PredictionPage from "@/pages/prediction";
 import PublishCenterPage from "@/pages/publish-center";
+import DataImportPage from "@/pages/data-import";
 import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
@@ -293,6 +294,7 @@ function Router() {
       <Route path="/audit-shield">{() => <SuperAdminRoute component={AuditShieldPage} />}</Route>
       <Route path="/prediction">{() => <SuperAdminRoute component={PredictionPage} />}</Route>
       <Route path="/publish-center">{() => <SuperAdminRoute component={PublishCenterPage} />}</Route>
+      <Route path="/admin/imports">{() => <SuperAdminRoute component={DataImportPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

@@ -1,0 +1,214 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement UCM Universal Import v2 for TRIPS + BILLING mapping so onboarding becomes “operational + billable” immediately after import. This must plug into the existing Import v1 framework (import_jobs, import_job_files, external_id_map, import_job_events). SUPER_ADMIN only.
+
+HARD REQUIREMENTS:
+1) Do NOT change database contents except through controlled import run.
+2) Do NOT remove any existing tables/columns.
+3) Keep runtime behavior identical for existing flows.
+4) Strict RBAC: SUPER_ADMIN only for all import endpoints + UI.
+5) Imports must be idempotent (re-run does not duplicate trips/invoices/billing).
+6) Must NOT require expensive external APIs (no route APIs). Distance/time can be imported or left null safely.
+
+==================================================
+PHASE A — DATA MODEL (NON-DESTRUCTIVE EXTENSIONS)
+==================================================
+
+A1) Ensure trips has the scheduling fields needed for reliable rollups (add if missing, nullable where safe):
+- scheduled_pickup_at timestamptz (required for imported trips; allow null in DB if legacy)
+- scheduled_dropoff_at timestamptz null
+- actual_arrived_pickup_at timestamptz null
+- actual_pickup_at timestamptz null
+- actual_dropoff_at timestamptz null
+- completed_at timestamptz null
+- finalized_at timestamptz null
+- status text not null default 'SCHEDULED'
+- mobility_requirement text not null default 'STANDARD'
+- distance_miles numeric null
+- duration_minutes int null
+- gps_verified boolean not null default false
+- no_show boolean not null default false
+- cancelled boolean not null default false
+- cancel_reason text null
+- no_show_reason text null
+- price_cents int null
+- currency text not null default 'USD'
+- pricing_required boolean not null default true
+
+A2) If you already have billing tables (trip_billing / clinic_tariffs / invoices / billingCycleInvoices etc), DO NOT replace them.
+Instead add ONE helper table to guarantee idempotency across sources:
+
+import_trip_idempotency
+- id uuid pk default gen_random_uuid()
+- company_id int not null
+- source_system text not null
+- external_trip_id text not null
+- trip_id int not null
+- created_at timestamptz default now()
+Unique(company_id, source_system, external_trip_id)
+
+==================================================
+PHASE B — CANONICAL SCHEMAS (ZOD)
+==================================================
+
+Implement canonical schemas for:
+TripCanonical:
+- external_trip_id (string, required for idempotency if provided)
+- clinic_external_id OR clinic_name (required)
+- patient_external_id OR patient natural key (required)
+- driver_external_id optional
+- vehicle_external_id optional
+- city_name OR city_id required
+- pickup_address required
+- dropoff_address required
+- scheduled_pickup_at required (ISO or local; normalize to ISO)
+- scheduled_dropoff_at optional
+- leg_type: OUTBOUND|RETURN optional (default OUTBOUND)
+- status: SCHEDULED|ASSIGNED|IN_PROGRESS|COMPLETED|CANCELLED|NO_SHOW (normalize)
+- mobility_requirement STANDARD|WHEELCHAIR|STRETCHER|OTHER (normalize)
+- distance_miles optional
+- duration_minutes optional
+- notes optional
+- pricing_required optional
+- price_cents optional
+- currency optional
+
+BillingCanonical (trip-level):
+- external_trip_id (required)
+- bill_to: CLINIC|PRIVATE|OTHER
+- unit_rate_cents optional
+- wait_minutes optional
+- base_fee_cents optional
+- mileage_cents optional
+- wheelchair_cents optional
+- total_cents optional
+- outcome: completed|cancelled|no_show|company_error (normalize)
+- cancel_window optional (string)
+- invoice_grouping: weekly|monthly|cycle optional
+
+Also implement mapping presets:
+- excel_generic_trips
+- supabase_export_trips
+- uber_health_like_trips (best effort)
+
+Normalization utilities:
+- parseDateTimeWithTZ (assume city timezone fallback)
+- normalizeAddress (trim)
+- normalizeStatus mapping table
+- normalizeMoney to cents (accept "$12.34", "12.34", "1234")
+
+==================================================
+PHASE C — ENDPOINTS (EXTEND IMPORT V1)
+==================================================
+
+Add entity "trips" and "billing" support using existing endpoints:
+- upload?entity=trips (CSV/XLSX/JSON)
+- upload?entity=billing (optional; can be included in same file or separate)
+
+Add/extend:
+POST /api/admin/imports/:id/validate
+- Parse trips + billing files
+- Map to canonical
+- Validate:
+  - clinic resolvable (via external_id_map OR name match)
+  - patient resolvable (via external_id_map OR strong natural match)
+  - scheduled_pickup_at present
+  - addresses present
+- Dedupe in-file by external_trip_id OR (patient+pickup_at+pickup_address)
+- Build preview and error report
+
+POST /api/admin/imports/:id/run
+- Execute import in order (already v1 did clinics/patients/drivers/vehicles):
+  e) trips
+  f) billing (trip_billing/invoices linkage)
+- Trip upsert / idempotency:
+  1) If external_trip_id present and exists in import_trip_idempotency -> update that trip safely
+  2) Else attempt match:
+     - same patient + scheduled_pickup_at (+/- 10 min) + pickup_address normalized
+  3) If match -> update and create idempotency row if external_trip_id exists
+  4) If no match -> insert trip and create idempotency row
+
+- Billing application rules (NO external APIs):
+  - If BillingCanonical.total_cents provided -> store in trip_billing.totalCents and/or trips.price_cents (depending existing design; do NOT break)
+  - Else if distance_miles present and clinic_tariffs exists:
+      compute price estimate using active tariff (base + per-mile + wheelchair extra + wait)
+      store in trip_billing and trips.price_cents (if current flow expects it)
+  - Else leave pricing_missing and pricing_required true (safe), log warning
+
+- Invoice handling (minimal, safe v2):
+  - Do NOT auto-finalize invoices.
+  - If your system supports invoice grouping tables, create draft invoices only when:
+      a) clinic_id present AND
+      b) trip status is COMPLETED or marked billable AND
+      c) enough pricing data exists
+  - Otherwise, skip invoice creation and log “invoices_missing_count” relevance for intelligence.
+
+- Record import_job_events per trip:
+  - created/updated/skipped + reasons
+
+POST /api/admin/imports/:id/rollback
+- Roll back only trips created by this job:
+  - Track created trip IDs in import_job_events payload
+  - Delete ONLY those trips if they have no downstream locks (e.g., signatures or payments). If locked, mark cancelled and log.
+- Roll back created trip_billing rows for those trips if they were created by this job.
+
+==================================================
+PHASE D — UI (MINIMAL EXTENSION)
+==================================================
+
+On /admin/imports page:
+- Add “Trips” upload card
+- Add “Billing” upload card (optional)
+- Validate preview shows: patient, clinic, pickup time, status, pricing state
+- Run import shows: created/updated/skipped counts
+- Download error report (CSV) using authenticated download method (Safari-safe fetch->blob)
+
+==================================================
+PHASE E — VERIFICATION (MUST DO)
+==================================================
+
+1) Create job (SUPER_ADMIN)
+2) Upload trips CSV (10 rows) including:
+   - 2 duplicates by external_trip_id
+   - 1 missing clinic
+   - 1 missing pickup time
+3) Validate:
+   - Must show errors for missing required
+   - Must not write to trips table
+4) Run:
+   - Inserts only valid rows
+   - Creates idempotency mapping
+5) Re-run same import:
+   - 0 new trips created; only updates if changed
+6) Billing:
+   - For 3 trips provide totals; verify trip_billing populated
+   - For 3 trips provide distance and tariff exists; verify computed
+   - For missing pricing verify logged and no crash
+7) Build + typecheck + server start
+
+EXIT CRITERIA:
+- Import trips + billing works end-to-end
+- Idempotent re-run confirmed
+- No broken existing trip lifecycle
+- Provide curl examples and file/line change list
+
+DELIVERABLES:
+1) Exact files changed + line ranges
+2) Migration summary
+3) curl examples:
+   - create job
+   - upload trips
+   - validate
+   - run
+   - rollback
+4) Verification outputs
+END.

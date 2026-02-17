@@ -1768,3 +1768,63 @@ export const clinicQuarterlyReportMetrics = pgTable("clinic_quarterly_report_met
 }, (table) => [
   uniqueIndex("cqrm_unique_idx").on(table.reportId, table.metricKey),
 ]);
+
+export const importJobs = pgTable("import_jobs", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id"),
+  sourceSystem: text("source_system").notNull(),
+  status: text("status").notNull().default("draft"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  consentConfirmed: boolean("consent_confirmed").notNull().default(true),
+  summaryJson: jsonb("summary_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertImportJobSchema = createInsertSchema(importJobs).omit({ createdAt: true, updatedAt: true });
+export type ImportJob = typeof importJobs.$inferSelect;
+export type InsertImportJob = z.infer<typeof insertImportJobSchema>;
+
+export const importJobFiles = pgTable("import_job_files", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  importJobId: varchar("import_job_id", { length: 36 }).notNull().references(() => importJobs.id),
+  entity: text("entity").notNull(),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  storageJson: jsonb("storage_json").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertImportJobFileSchema = createInsertSchema(importJobFiles).omit({ createdAt: true });
+export type ImportJobFile = typeof importJobFiles.$inferSelect;
+export type InsertImportJobFile = z.infer<typeof insertImportJobFileSchema>;
+
+export const externalIdMap = pgTable("external_id_map", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  companyId: integer("company_id").notNull(),
+  entity: text("entity").notNull(),
+  sourceSystem: text("source_system").notNull(),
+  externalId: text("external_id").notNull(),
+  ucmId: integer("ucm_id").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("ext_id_map_unique_idx").on(table.companyId, table.entity, table.sourceSystem, table.externalId),
+]);
+
+export const insertExternalIdMapSchema = createInsertSchema(externalIdMap).omit({ createdAt: true });
+export type ExternalIdMap = typeof externalIdMap.$inferSelect;
+export type InsertExternalIdMap = z.infer<typeof insertExternalIdMapSchema>;
+
+export const importJobEvents = pgTable("import_job_events", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  importJobId: varchar("import_job_id", { length: 36 }).notNull().references(() => importJobs.id),
+  level: text("level").notNull(),
+  message: text("message").notNull(),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertImportJobEventSchema = createInsertSchema(importJobEvents).omit({ createdAt: true });
+export type ImportJobEvent = typeof importJobEvents.$inferSelect;
+export type InsertImportJobEvent = z.infer<typeof insertImportJobEventSchema>;
