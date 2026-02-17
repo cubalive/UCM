@@ -4283,7 +4283,12 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
       if (cityId === -1) return res.status(403).json({ message: "Access denied" });
 
       const tab = (req.query.tab as string) || "all";
-      const limitParam = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const DEFAULT_TRIPS_PAGE = 50;
+      const MAX_TRIPS_PAGE = 200;
+      const limitParam = Math.min(
+        req.query.limit ? parseInt(req.query.limit as string) : DEFAULT_TRIPS_PAGE,
+        MAX_TRIPS_PAGE
+      );
       const companyId = getCompanyIdFromAuth(req);
       const source = req.query.source as string | undefined;
 
@@ -4313,8 +4318,7 @@ ${data.lat && data.lng ? `<p><strong>Location:</strong> <a href="https://maps.go
         conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
       }
 
-      let query = db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt));
-      if (limitParam) query = query.limit(limitParam) as any;
+      let query = db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt)).limit(limitParam);
       const result = await query;
       res.json(result);
     } catch (err: any) {

@@ -6,6 +6,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { recordRequest as recordReqMetric } from "./lib/requestMetrics";
+import { tracingMiddleware } from "./lib/requestTracing";
 
 const app = express();
 const httpServer = createServer(app);
@@ -159,6 +160,8 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   req.requestId = (req.headers["x-request-id"] as string) || crypto.randomUUID().slice(0, 12);
   next();
 });
+
+app.use(tracingMiddleware);
 
 app.use((req, res, next) => {
   const start = Date.now();

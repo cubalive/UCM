@@ -127,6 +127,7 @@ export default function TripsPage() {
   if (selectedCity?.id) tripQueryParams.set("cityId", String(selectedCity.id));
   if (tripTab !== "all") tripQueryParams.set("tab", tripTab);
   if (sourceFilter !== "all") tripQueryParams.set("source", sourceFilter);
+  tripQueryParams.set("limit", "200");
   const tripQueryString = tripQueryParams.toString() ? `?${tripQueryParams.toString()}` : "";
 
   const { data: trips, isLoading } = useQuery<any[]>({

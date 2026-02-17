@@ -53,6 +53,14 @@ The application follows a client-server architecture.
     - **Driver Location Ingest**: Rate-limited (Redis + in-memory) and validated endpoint for single/batch location updates with cache-first storage and dual-broadcasting.
     - **ETA Throttle**: Recomputes ETA based on movement or time, with Redis-backed caching and distributed lock.
     - **Polling Reduction**: Optimized polling intervals and preference for real-time connections.
+- **Phase 5 Performance Optimization**:
+    - **Request Tracing**: `requestTracing.ts` with per-request breakdown (dbMs, cacheHit, externalApiMs); `GET /api/ops/perf/summary` for profiling data; `UCM_PROFILE=true` env var enables full tracing.
+    - **Load Test Harness**: `tools/load/` with autocannon scripts for 4 scenarios (trips-list, driver-location, tracking, pdf-download).
+    - **DB Indexes**: 7 composite indexes on trips (clinic+date, driver+status, city+date, status+date, company+status), audit_log (entity+created), drivers (city+status); all partial indexes with `WHERE deleted_at IS NULL`.
+    - **Pagination Enforcement**: GET /api/trips capped at 200 results max.
+    - **Redis Geocode Cache**: Write-through geocode caching to Upstash Redis with 30-day TTL; memory-only fallback.
+    - **Degrade Status API**: `GET /api/ops/degrade-status` returns tier/color/p95/circuit-breaker for admin banner.
+    - **Perf Profiling UI**: Performance Profiling card on Metrics page showing traced count, avg DB time, cache hit rate, slowest routes (p95), N+1 warnings.
 - **Production Scale Hardening (50k+ Drivers)**:
     - **Structured JSON Logging**: Request ID middleware (`x-request-id` header or auto-generated UUID); all API logs emit `{requestId, method, route, status, ms, userId, role, companyId}` — no secrets or response bodies.
     - **3-Tier Adaptive Backpressure**: Tier 0 (5s normal), Tier 1 (10s at p95>1500ms or contention≥8), Tier 2 (15s at p95>3000ms or contention≥20); immediate escalation, 60s recovery before de-escalation; ETA publishing disabled at Tier 2; status changes always immediate.

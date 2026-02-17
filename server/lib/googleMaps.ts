@@ -231,10 +231,30 @@ async function googleFetch(url: string, timeoutMs?: number): Promise<any> {
   }
 }
 
+async function redisGeoGet(key: string): Promise<GeocodeResult | null> {
+  try {
+    const { getJson } = await import("./redis");
+    return await getJson<GeocodeResult>(`maps:${key}`);
+  } catch { return null; }
+}
+
+async function redisGeoSet(key: string, val: GeocodeResult): Promise<void> {
+  try {
+    const { setJson } = await import("./redis");
+    await setJson(`maps:${key}`, val, 30 * 24 * 3600);
+  } catch {}
+}
+
 export async function geocodeAddress(address: string): Promise<GeocodeResult> {
   const key = cacheKey("geo", address);
   const cached = geocodeCache.get(key);
   if (cached) return cached;
+
+  const redisCached = await redisGeoGet(key);
+  if (redisCached) {
+    geocodeCache.set(key, redisCached);
+    return redisCached;
+  }
 
   const url = `${GOOGLE_API_BASE}/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_MAPS_KEY}`;
   const data = await googleFetch(url);
@@ -251,6 +271,7 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
   };
 
   geocodeCache.set(key, result);
+  redisGeoSet(key, result);
   return result;
 }
 

@@ -1256,6 +1256,58 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/ops/degrade-status", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getBackpressureMetrics, getDegradeTier } = await import("./backpressure");
+      const { isCircuitBreakerOpen, getDirectionsCallsLast60s } = await import("./googleMaps");
+      const bp = getBackpressureMetrics();
+      const tier = getDegradeTier();
+      res.json({
+        ok: true,
+        degrade_tier: tier,
+        degrade_on: bp.degrade_mode_on,
+        degrade_reason: bp.degrade_mode_reason,
+        degrade_since: bp.degrade_mode_since ? new Date(bp.degrade_mode_since).toISOString() : null,
+        publish_interval_ms: bp.publish_interval_ms,
+        p95_latency_ms: bp.p95_latency_ms,
+        circuit_breaker_open: isCircuitBreakerOpen(),
+        directions_calls_60s: getDirectionsCallsLast60s(),
+        color: tier === 0 ? "green" : tier === 1 ? "yellow" : "red",
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/ops/perf/summary", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { getPerfSummary, isProfilingEnabled } = await import("./requestTracing");
+      const minutes = req.query.minutes ? parseInt(req.query.minutes as string) : 5;
+      const summary = getPerfSummary(Math.min(Math.max(1, minutes), 60));
+      res.json({
+        ok: true,
+        profiling_enabled: isProfilingEnabled(),
+        traced_count: summary.total_requests,
+        avg_db_ms: summary.avg_db_ms,
+        cache_hit_rate: summary.cache_hit_rate_pct / 100,
+        routes: summary.top_slow_routes.map(r => ({
+          route: r.route,
+          p95_ms: r.p95_ms,
+          count: r.count,
+          db_p95_ms: r.db_p95_ms,
+          cache_hit_rate: r.cache_hit_rate_pct,
+        })),
+        n1_warnings: summary.top_slow_routes
+          .filter(r => r.query_budget_warnings > 0)
+          .map(r => ({ route: r.route, query_count: r.query_budget_warnings })),
+        query_budget_violations: summary.query_budget_violations,
+        ...summary,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   app.get("/api/ops/metrics/routes.csv", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const { getTopRoutes } = await import("./requestMetrics");

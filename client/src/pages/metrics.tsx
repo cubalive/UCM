@@ -1005,7 +1005,80 @@ export default function MetricsPage() {
             </CardContent>
           </Card>
         )}
+
+        <PerfProfileSection />
       </div>
     </div>
+  );
+}
+
+function PerfProfileSection() {
+  const { data: perf } = useQuery<any>({
+    queryKey: ["/api/ops/perf/summary"],
+    refetchInterval: 30000,
+  });
+
+  if (!perf?.ok) return null;
+
+  const topRoutes = perf.routes || [];
+
+  return (
+    <Card className="lg:col-span-2" data-testid="card-perf-profile">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <Cog className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          Performance Profiling
+          {perf.profiling_enabled && (
+            <Badge variant="secondary" className="text-[10px]">PROFILING ON</Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-3 space-y-3">
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <p className="text-xs text-muted-foreground">Traced Requests</p>
+            <p className="text-lg font-semibold tabular-nums" data-testid="text-traced-count">{perf.traced_count ?? 0}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Avg DB Time</p>
+            <p className="text-lg font-semibold tabular-nums" data-testid="text-avg-db-ms">{perf.avg_db_ms ?? 0}ms</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Cache Hit Rate</p>
+            <p className="text-lg font-semibold tabular-nums" data-testid="text-cache-hit-rate">
+              {perf.cache_hit_rate ? `${Math.round(perf.cache_hit_rate * 100)}%` : "N/A"}
+            </p>
+          </div>
+        </div>
+
+        {topRoutes.length > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Slowest Routes (p95)</p>
+            <div className="space-y-1">
+              {topRoutes.slice(0, 5).map((r: any, i: number) => (
+                <div key={i} className="flex items-center justify-between text-xs gap-2" data-testid={`perf-route-${i}`}>
+                  <span className="font-mono truncate text-foreground flex-1">{r.route}</span>
+                  <span className="tabular-nums text-muted-foreground whitespace-nowrap">{r.p95_ms}ms p95</span>
+                  <span className="tabular-nums text-muted-foreground whitespace-nowrap">{r.count} calls</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {perf.n1_warnings && perf.n1_warnings.length > 0 && (
+          <div>
+            <p className="text-xs text-destructive mb-1">N+1 Query Warnings</p>
+            <div className="space-y-1">
+              {perf.n1_warnings.slice(0, 3).map((w: any, i: number) => (
+                <div key={i} className="text-xs text-destructive/80" data-testid={`perf-n1-${i}`}>
+                  {w.route}: {w.query_count} queries
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

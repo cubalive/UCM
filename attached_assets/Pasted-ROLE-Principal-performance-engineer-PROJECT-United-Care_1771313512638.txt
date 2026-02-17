@@ -1,0 +1,165 @@
+ROLE: Principal performance engineer
+PROJECT: United Care Mobility (UCM) — Replit
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+TASK: PHASE 5 — PERFORMANCE AUDIT + NEXT-LEVEL SCALE (measure → fix → verify)
+
+GOAL
+We already implemented basic hardening (Redis, CORS, auth, downloads).
+Now we must:
+A) Audit the current system to find real bottlenecks (API, DB, realtime, maps).
+B) Implement high-impact improvements that reduce cost and increase stability under load.
+C) Prove it with load tests + SLO dashboards.
+
+CONSTRAINTS
+- Do NOT change shared/permissions.ts
+- Do NOT reset DB
+- No breaking API changes
+- All improvements must be incremental and safe
+
+========================================================
+PHASE 5.1 — INVENTORY & BASELINE (MUST BE DONE FIRST)
+========================================================
+1) Add a "System Baseline" doc (markdown) in repo:
+- top 20 API routes by requests/min (from requestMetrics)
+- top 20 routes by p95 latency
+- top DB-heavy endpoints (those with most queries or slowest)
+- realtime: ws client count, messages/sec, avg payload size
+- maps: calls/min to Directions/Geocode/Places/StaticMaps
+
+2) Add a "Profiling mode" env flag:
+- UCM_PROFILE=true logs extra timing fields but keeps PII out.
+
+Deliver: baseline summary + top 5 bottlenecks list.
+
+========================================================
+PHASE 5.2 — REAL OBSERVABILITY (not vanity metrics)
+========================================================
+Implement structured tracing per request:
+- requestId (already), userId, role, companyId, route, status, ms
+Add:
+- dbMs (sum)
+- cacheHit (true/false)
+- wsBroadcastMs
+- externalApiMs (google/stripe/resend/twilio)
+
+Create endpoint (SUPER_ADMIN):
+GET /api/ops/perf/summary
+Returns last N minutes:
+- RPM, p50/p95, error rate
+- top slow routes
+- db time share %
+- cache hit rate %
+- google api time share %
+
+========================================================
+PHASE 5.3 — LOAD TEST HARNESS (prove it)
+========================================================
+Add a /tools/load/ folder:
+- k6 OR autocannon scripts (choose one)
+Scenarios:
+A) Clinic user browsing trips list + open 1 trip tracking
+B) Driver active-trip + location updates + ws connected
+C) Dispatch map view (many drivers)
+D) PDF download (trip + invoice)
+
+Rules:
+- Use test users seeded or existing demo users
+- Allow running locally and in Replit shell
+
+Outputs:
+- sustained RPS achievable
+- p95 latency
+- error rate
+- server CPU/memory snapshot (basic)
+
+========================================================
+PHASE 5.4 — DB PERFORMANCE (indexes + pagination + query shape)
+========================================================
+Audit queries for:
+- trips list endpoints
+- active trips endpoints
+- tracking endpoints
+- invoices list
+
+Implement:
+1) Mandatory pagination on list endpoints if not present:
+- limit default 50, max 200
+- cursor or offset (prefer cursor by createdAt/id)
+
+2) Add missing indexes (ONLY ADD):
+- trips(clinic_id, scheduled_pickup_at desc)
+- trips(driver_id, status, scheduled_pickup_at desc)
+- trips(company_id, city_id, scheduled_pickup_at desc)
+- driver_locations(driver_id, updated_at desc)
+- invoices(clinic_id, period_end desc)
+(Confirm actual column names in schema before adding)
+
+3) Add "query budget":
+- If a request triggers > X queries, log warning (N+1 detection)
+
+========================================================
+PHASE 5.5 — GOOGLE MAPS COST + STABILITY CONTROL (big money saver)
+========================================================
+Implement a centralized Google API client wrapper with:
+- per-route caching (Redis) for Directions/ETA:
+  - key: origin+dest+mode+timeBucket(2min)
+  - TTL: 60–120s
+- circuit breaker:
+  - if google errors spike, fallback to haversine ETA (already exists) and mark "estimated"
+- rate limiting per company:
+  - prevent one clinic from burning quota
+
+Deliver:
+- googleCallsSaved estimate (cache hit rate)
+- no functional regression in ETA display
+
+========================================================
+PHASE 5.6 — REALTIME FANOUT (stop polling wars)
+========================================================
+Goal: eliminate unnecessary polling when ws is active and reduce broadcast load.
+
+1) Create topic-based subscriptions:
+- clinic:{clinicId}
+- driver:{driverId}
+- dispatch:{cityId} or dispatch:{companyId}
+
+2) Only broadcast deltas relevant to that topic.
+3) Add message coalescing:
+- driver location updates: send max 1 update per driver per 2s per subscriber (throttle)
+4) Add Redis PubSub bridge (ONLY if ws is multi-instance later):
+- If single instance now, implement code in a way that can be enabled with env flag later.
+
+========================================================
+PHASE 5.7 — SELF-DEFENSE (circuit breakers + bulkheads)
+========================================================
+Implement:
+- timeouts for external calls (google/stripe/resend/twilio)
+- per-feature bulkhead:
+  - if Resend down => app still works, email queue stores retry
+  - if Maps down => fallback ETA
+- degrade mode banner for admin/dispatch:
+  - "Maps degraded, ETA estimated"
+
+========================================================
+PHASE 5.8 — ACCEPTANCE CRITERIA (non-negotiable)
+========================================================
+1) Baseline doc exists and identifies top 5 bottlenecks.
+2) Load tests run and produce metrics output.
+3) p95 latency improves OR throughput improves by measurable margin on at least 2 scenarios.
+4) Google API cache hit rate > 50% on repeated requests.
+5) Polling reduces when ws connected (verify via metrics).
+6) No breaking changes; auth/cors/downloads still work.
+
+DELIVERABLES
+- Baseline markdown + perf summary endpoint
+- Load test scripts + instructions
+- Index migrations (add-only)
+- Google wrapper + caching + breaker
+- Realtime topic subscriptions + throttling
+- Verification results (numbers, not opinions)
