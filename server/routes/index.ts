@@ -32,6 +32,7 @@ import { registerStripeConnectRoutes } from "../lib/stripeConnectRoutes";
 import { registerPayrollRoutes, startPayrollScheduler } from "../lib/payrollRoutes";
 import { registerIntelligenceRoutes } from "./intelligence.routes";
 import { registerImportRoutes } from "./imports.routes";
+import { registerTimePayRoutes } from "./timepay.routes";
 import { startRouteScheduler } from "../lib/routeEngine";
 import { startNoShowScheduler } from "../lib/noShowEngine";
 import { startRecurringScheduleScheduler } from "../lib/recurringScheduleEngine";
@@ -78,6 +79,7 @@ export async function registerRoutes(
   registerAdminRoutes(app);
   registerIntelligenceRoutes(app);
   registerImportRoutes(app);
+  registerTimePayRoutes(app);
 
   startOpsAlertScheduler();
   startRouteScheduler();

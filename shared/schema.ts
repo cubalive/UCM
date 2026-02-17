@@ -1970,3 +1970,90 @@ export const payrollPayrunItems = pgTable("payroll_payrun_items", {
 export const insertPayrollPayrunItemSchema = createInsertSchema(payrollPayrunItems).omit({ id: true });
 export type PayrollPayrunItem = typeof payrollPayrunItems.$inferSelect;
 export type InsertPayrollPayrunItem = z.infer<typeof insertPayrollPayrunItemSchema>;
+
+export const timeEntryStatusEnum = pgEnum("time_entry_status", ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "PAID"]);
+export const timeEntrySourceEnum = pgEnum("time_entry_source", ["MANUAL", "CSV"]);
+export const timeImportStatusEnum = pgEnum("time_import_status", ["DRAFT", "PROCESSED", "FAILED"]);
+export const tpPayrollRunStatusEnum = pgEnum("tp_payroll_run_status", ["DRAFT", "FINALIZED", "PAID"]);
+export const tpPayrollItemStatusEnum = pgEnum("tp_payroll_item_status", ["DRAFT", "PAID"]);
+
+export const timeEntries = pgTable("time_entries", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  workDate: text("work_date").notNull(),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  breakMinutes: integer("break_minutes").notNull().default(0),
+  hoursNumeric: numeric("hours_numeric").notNull().default("0"),
+  payType: text("pay_type").notNull().default("HOURLY"),
+  hourlyRateCents: integer("hourly_rate_cents"),
+  notes: text("notes").notNull().default(""),
+  sourceType: timeEntrySourceEnum("source_type").notNull(),
+  sourceRef: text("source_ref").notNull().default(""),
+  status: timeEntryStatusEnum("status").notNull().default("DRAFT"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("te_company_driver_date_src_ref_idx").on(table.companyId, table.driverId, table.workDate, table.sourceType, table.sourceRef),
+  index("te_company_status_idx").on(table.companyId, table.status),
+  index("te_driver_date_idx").on(table.driverId, table.workDate),
+]);
+
+export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true, updatedAt: true });
+export type TimeEntry = typeof timeEntries.$inferSelect;
+export type InsertTimeEntry = z.infer<typeof insertTimeEntrySchema>;
+
+export const timeImportBatches = pgTable("time_import_batches", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  uploadedBy: integer("uploaded_by").notNull().references(() => users.id),
+  filename: text("filename").notNull(),
+  rowCount: integer("row_count").notNull().default(0),
+  createdCount: integer("created_count").notNull().default(0),
+  skippedCount: integer("skipped_count").notNull().default(0),
+  status: timeImportStatusEnum("status").notNull().default("DRAFT"),
+  errorSummary: text("error_summary").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("tib_company_idx").on(table.companyId),
+]);
+
+export const insertTimeImportBatchSchema = createInsertSchema(timeImportBatches).omit({ id: true, createdAt: true });
+export type TimeImportBatch = typeof timeImportBatches.$inferSelect;
+export type InsertTimeImportBatch = z.infer<typeof insertTimeImportBatchSchema>;
+
+export const tpPayrollRuns = pgTable("tp_payroll_runs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  status: tpPayrollRunStatusEnum("status").notNull().default("DRAFT"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("tpr_company_status_idx").on(table.companyId, table.status),
+]);
+
+export const insertTpPayrollRunSchema = createInsertSchema(tpPayrollRuns).omit({ id: true, createdAt: true });
+export type TpPayrollRun = typeof tpPayrollRuns.$inferSelect;
+export type InsertTpPayrollRun = z.infer<typeof insertTpPayrollRunSchema>;
+
+export const tpPayrollItems = pgTable("tp_payroll_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  runId: integer("run_id").notNull().references(() => tpPayrollRuns.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  totalHours: numeric("total_hours").notNull().default("0"),
+  totalCents: integer("total_cents").notNull().default(0),
+  currency: text("currency").notNull().default("USD"),
+  status: tpPayrollItemStatusEnum("status").notNull().default("DRAFT"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("tpi_run_driver_idx").on(table.runId, table.driverId),
+  index("tpi_company_idx").on(table.companyId),
+]);

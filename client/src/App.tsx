@@ -59,6 +59,8 @@ import PredictionPage from "@/pages/prediction";
 import PublishCenterPage from "@/pages/publish-center";
 import DataImportPage from "@/pages/data-import";
 import CompaniesPage from "@/pages/companies";
+import TimecardsPage from "@/pages/timecards";
+import TpPayrollPage from "@/pages/tp-payroll";
 import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
@@ -297,6 +299,8 @@ function Router() {
       <Route path="/publish-center">{() => <SuperAdminRoute component={PublishCenterPage} />}</Route>
       <Route path="/admin/imports">{() => <SuperAdminRoute component={DataImportPage} />}</Route>
       <Route path="/companies">{() => <SuperAdminRoute component={CompaniesPage} />}</Route>
+      <Route path="/timecards">{() => <ProtectedRoute resource="time_entries" component={TimecardsPage} />}</Route>
+      <Route path="/tp-payroll">{() => <ProtectedRoute resource="payroll" component={TpPayrollPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

@@ -11,7 +11,9 @@ export type Resource =
   | "invoices"
   | "cities"
   | "users"
-  | "audit";
+  | "audit"
+  | "time_entries"
+  | "payroll";
 
 export type Permission = "read" | "write" | "self";
 
@@ -28,6 +30,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     cities: ["read", "write"],
     users: ["read", "write"],
     audit: ["read"],
+    time_entries: ["read", "write"],
+    payroll: ["read", "write"],
   },
   ADMIN: {
     dashboard: ["read"],
@@ -41,6 +45,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     cities: ["read", "write"],
     users: ["read", "write"],
     audit: ["read"],
+    time_entries: ["read", "write"],
+    payroll: ["read", "write"],
   },
   COMPANY_ADMIN: {
     dashboard: ["read"],
@@ -54,6 +60,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     cities: ["read"],
     users: ["read", "write"],
     audit: ["read"],
+    time_entries: ["read", "write"],
+    payroll: ["read", "write"],
   },
   DISPATCH: {
     dashboard: ["read"],
@@ -67,6 +75,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     cities: [],
     users: [],
     audit: [],
+    time_entries: ["read", "write"],
+    payroll: ["read"],
   },
   DRIVER: {
     dashboard: [],
@@ -80,6 +90,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     cities: [],
     users: [],
     audit: [],
+    time_entries: ["self"],
+    payroll: [],
   },
   VIEWER: {
     dashboard: [],
@@ -93,6 +105,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     cities: [],
     users: [],
     audit: [],
+    time_entries: [],
+    payroll: [],
   },
 };
 

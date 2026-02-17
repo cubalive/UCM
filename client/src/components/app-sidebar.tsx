@@ -28,6 +28,7 @@ import {
   MapPin,
   Users,
   Truck,
+  Clock,
   UserCheck,
   Building2,
   HeartPulse,
@@ -92,6 +93,8 @@ const navItems: NavItem[] = [
   { titleKey: "nav.autoAssign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
   { titleKey: "nav.schedule", url: "/schedule", icon: Calendar, resource: "dispatch" },
   { titleKey: "nav.shiftSwaps", url: "/dispatch-swaps", icon: ArrowLeftRight, resource: "dispatch" },
+  { titleKey: "nav.timecards", url: "/timecards", icon: Clock, resource: "time_entries" },
+  { titleKey: "nav.tpPayroll", url: "/tp-payroll", icon: Banknote, resource: "payroll" },
 ];
 
 const adminItems: NavItem[] = [

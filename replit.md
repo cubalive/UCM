@@ -62,6 +62,15 @@ The application follows a client-server architecture.
     - **Role Gating**: SUPER_ADMIN (all companies), COMPANY_ADMIN (own company), DRIVER (own earnings/payruns only).
     - **Tables**: `company_payroll_settings`, `driver_stripe_accounts`, `driver_earnings_ledger`, `payroll_payruns`, `payroll_payrun_items`.
     - **Routes**: `server/lib/payrollRoutes.ts`.
+- **Time & Pay v1 (Hourly Timesheets)**:
+    - **Time Entries**: Manual creation and CSV import with DRAFT→SUBMITTED→APPROVED→REJECTED→PAID workflow.
+    - **CSV Import**: Bulk import with duplicate detection via unique index on (company_id, driver_id, work_date, source_type, source_ref).
+    - **Payroll Generation**: Creates payroll runs from APPROVED time entries with hourly rate computation.
+    - **Tenant Isolation**: All endpoints enforce company scope via requireTenantScope middleware and requireCompanyOrFail helper.
+    - **Driver Self-Service**: Drivers can view their own time entries via /api/driver/time endpoint.
+    - **Tables**: `time_entries`, `time_import_batches`, `tp_payroll_runs`, `tp_payroll_items`.
+    - **Routes**: `server/routes/timepay.routes.ts`, controller: `server/controllers/timepay.controller.ts`.
+    - **Frontend**: `/timecards` (time entry management) and `/tp-payroll` (payroll runs).
 - **Driver App Experience**:
     - **Today Dashboard**: Card-based home view.
     - **Status Confirmations**: Requires confirmation for trip status changes.
