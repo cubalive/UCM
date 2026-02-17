@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import crypto from "crypto";
+import path from "path";
 import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -38,6 +39,15 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+app.use(
+  "/.well-known",
+  express.static(path.join(process.cwd(), "server/public/.well-known"), {
+    setHeaders: (res) => {
+      res.setHeader("Content-Type", "application/json");
+    },
+  }),
+);
 
 function readOriginList(prefix: string): Set<string> {
   const origins = new Set<string>();
