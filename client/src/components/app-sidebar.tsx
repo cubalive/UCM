@@ -53,6 +53,7 @@ import {
   ShieldCheck,
   Banknote,
   BarChart,
+  ArrowLeftRight,
 } from "lucide-react";
 
 interface NavItem {
@@ -82,6 +83,7 @@ const navItems: NavItem[] = [
   { titleKey: "nav.opsChecks", url: "/ops-checks", icon: ShieldCheck, resource: "dispatch" },
   { titleKey: "nav.autoAssign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
   { titleKey: "nav.schedule", url: "/schedule", icon: Calendar, resource: "dispatch" },
+  { titleKey: "nav.shiftSwaps", url: "/dispatch-swaps", icon: ArrowLeftRight, resource: "dispatch" },
 ];
 
 const adminItems: NavItem[] = [

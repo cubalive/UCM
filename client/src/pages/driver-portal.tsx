@@ -9,6 +9,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import {
@@ -50,6 +57,9 @@ import {
   Hash,
   FileText,
   Loader2,
+  ArrowLeftRight,
+  Inbox,
+  Check,
 } from "lucide-react";
 
 type TabId = "home" | "trips" | "performance" | "bonuses" | "earnings" | "schedule" | "settings";
@@ -1482,6 +1492,281 @@ function EarningsPage({ token }: { token: string | null }) {
 }
 
 function SchedulePage({ token }: { token: string | null }) {
+  const [scheduleView, setScheduleView] = useState<"changes" | "swaps">("changes");
+  return (
+    <div className="p-4 space-y-4" data-testid="page-schedule">
+      <div className="flex gap-2 bg-muted/50 rounded-md p-1" data-testid="schedule-view-tabs">
+        <button
+          onClick={() => setScheduleView("changes")}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors min-h-[44px] ${
+            scheduleView === "changes" ? "bg-background shadow-sm" : "text-muted-foreground"
+          }`}
+          data-testid="tab-schedule-changes"
+        >
+          <FileText className="w-4 h-4" /> Changes
+        </button>
+        <button
+          onClick={() => setScheduleView("swaps")}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-colors min-h-[44px] ${
+            scheduleView === "swaps" ? "bg-background shadow-sm" : "text-muted-foreground"
+          }`}
+          data-testid="tab-shift-swaps"
+        >
+          <ArrowLeftRight className="w-4 h-4" /> Swaps
+        </button>
+      </div>
+      {scheduleView === "changes" ? <ScheduleChangesSection token={token} /> : <ShiftSwapsSection token={token} />}
+    </div>
+  );
+}
+
+function ShiftSwapsSection({ token }: { token: string | null }) {
+  const { toast } = useToast();
+  const [swapTab, setSwapTab] = useState<"create" | "requests" | "inbox">("create");
+  const [shiftDate, setShiftDate] = useState("");
+  const [targetDriverId, setTargetDriverId] = useState<number | null>(null);
+  const [shiftStart, setShiftStart] = useState("");
+  const [shiftEnd, setShiftEnd] = useState("");
+  const [reason, setReason] = useState("");
+
+  const eligibleQuery = useQuery<any[]>({
+    queryKey: ["/api/driver/swaps/eligible"],
+    queryFn: () => apiFetch("/api/driver/swaps/eligible", token),
+    enabled: !!token,
+  });
+
+  const myRequestsQuery = useQuery<any[]>({
+    queryKey: ["/api/driver/swaps"],
+    queryFn: () => apiFetch("/api/driver/swaps?status=all", token),
+    enabled: !!token,
+  });
+
+  const inboxQuery = useQuery<any[]>({
+    queryKey: ["/api/driver/swaps/inbox"],
+    queryFn: () => apiFetch("/api/driver/swaps/inbox?status=all", token),
+    enabled: !!token,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) =>
+      apiFetch("/api/driver/swaps", token, { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      toast({ title: "Swap request sent" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/swaps"] });
+      setShiftDate(""); setTargetDriverId(null); setShiftStart(""); setShiftEnd(""); setReason("");
+      setSwapTab("requests");
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/driver/swaps/${id}/cancel`, token, { method: "POST" }),
+    onSuccess: () => {
+      toast({ title: "Swap cancelled" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/swaps"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const decideMutation = useMutation({
+    mutationFn: (data: { id: number; decision: "ACCEPT" | "DECLINE"; note?: string }) =>
+      apiFetch(`/api/driver/swaps/${data.id}/decide`, token, {
+        method: "POST",
+        body: JSON.stringify({ decision: data.decision, note: data.note }),
+      }),
+    onSuccess: (_, vars) => {
+      toast({ title: vars.decision === "ACCEPT" ? "Swap accepted" : "Swap declined" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/swaps/inbox"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/swaps"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const eligible = eligibleQuery.data || [];
+  const myRequests = myRequestsQuery.data || [];
+  const inboxItems = inboxQuery.data || [];
+  const pendingInboxCount = inboxItems.filter((r: any) => r.status === "PENDING_TARGET").length;
+
+  const cancellableStatuses = ["PENDING_TARGET", "ACCEPTED_TARGET", "PENDING_DISPATCH"];
+
+  const statusBadgeClass: Record<string, string> = {
+    PENDING_TARGET: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    DECLINED_TARGET: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+    ACCEPTED_TARGET: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    PENDING_DISPATCH: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+    APPROVED_DISPATCH: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    REJECTED_DISPATCH: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+    CANCELLED: "bg-muted text-muted-foreground",
+  };
+
+  const statusLabels: Record<string, string> = {
+    PENDING_TARGET: "Pending Driver",
+    DECLINED_TARGET: "Declined",
+    ACCEPTED_TARGET: "Accepted",
+    PENDING_DISPATCH: "Pending Dispatch",
+    APPROVED_DISPATCH: "Approved",
+    REJECTED_DISPATCH: "Rejected",
+    CANCELLED: "Cancelled",
+  };
+
+  return (
+    <div className="space-y-4" data-testid="section-shift-swaps">
+      <div className="flex gap-2" data-testid="swap-tabs">
+        {([
+          { id: "create" as const, label: "Create Swap", icon: <ArrowLeftRight className="w-4 h-4" /> },
+          { id: "requests" as const, label: "My Requests", icon: <Send className="w-4 h-4" /> },
+          { id: "inbox" as const, label: `Inbox${pendingInboxCount > 0 ? ` (${pendingInboxCount})` : ""}`, icon: <Inbox className="w-4 h-4" /> },
+        ]).map((tab) => (
+          <Button
+            key={tab.id}
+            variant={swapTab === tab.id ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSwapTab(tab.id)}
+            data-testid={`swap-tab-${tab.id}`}
+          >
+            {tab.icon}
+            <span className="ml-1">{tab.label}</span>
+          </Button>
+        ))}
+      </div>
+
+      {swapTab === "create" && (
+        <Card data-testid="card-create-swap">
+          <CardContent className="py-4 space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="swap-date">Shift Date *</Label>
+              <Input id="swap-date" type="date" value={shiftDate} onChange={(e) => setShiftDate(e.target.value)} data-testid="input-swap-date" />
+            </div>
+            <div className="space-y-2">
+              <Label>Target Driver *</Label>
+              {eligibleQuery.isLoading ? (
+                <Skeleton className="h-11 w-full" />
+              ) : eligible.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No eligible drivers found in your area</p>
+              ) : (
+                <Select value={targetDriverId ? String(targetDriverId) : ""} onValueChange={(v) => setTargetDriverId(Number(v))}>
+                  <SelectTrigger data-testid="select-target-driver">
+                    <SelectValue placeholder="Select a driver" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {eligible.map((d: any) => (
+                      <SelectItem key={d.id} value={String(d.id)} data-testid={`driver-option-${d.id}`}>
+                        {d.firstName} {d.lastName} ({d.publicId})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label htmlFor="swap-start">Shift Start</Label>
+                <Input id="swap-start" type="time" value={shiftStart} onChange={(e) => setShiftStart(e.target.value)} data-testid="input-swap-start" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="swap-end">Shift End</Label>
+                <Input id="swap-end" type="time" value={shiftEnd} onChange={(e) => setShiftEnd(e.target.value)} data-testid="input-swap-end" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="swap-reason">Reason *</Label>
+              <Textarea id="swap-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why do you need this swap?" className="text-base" data-testid="input-swap-reason" />
+            </div>
+            <Button
+              className="w-full"
+              disabled={!shiftDate || !targetDriverId || !reason || reason.length < 3 || createMutation.isPending}
+              onClick={() => createMutation.mutate({
+                targetDriverId,
+                shiftDate,
+                shiftStart: shiftStart || undefined,
+                shiftEnd: shiftEnd || undefined,
+                reason,
+              })}
+              data-testid="button-submit-swap"
+            >
+              {createMutation.isPending ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Send className="w-5 h-5 mr-2" />}
+              Send Swap Request
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {swapTab === "requests" && (
+        <div className="space-y-2">
+          {myRequestsQuery.isLoading ? (
+            <><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></>
+          ) : myRequests.length === 0 ? (
+            <Card><CardContent className="py-6 text-center"><p className="text-sm text-muted-foreground" data-testid="text-no-swap-requests">No swap requests yet</p></CardContent></Card>
+          ) : (
+            myRequests.map((req: any) => (
+              <Card key={req.id} data-testid={`swap-request-${req.id}`}>
+                <CardContent className="py-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium" data-testid={`text-swap-target-${req.id}`}>Swap with {req.targetDriverName}</p>
+                      <p className="text-xs text-muted-foreground">{req.shiftDate}{req.shiftStart ? ` ${req.shiftStart}` : ""}{req.shiftEnd ? `-${req.shiftEnd}` : ""}</p>
+                    </div>
+                    <Badge className={statusBadgeClass[req.status] || ""} data-testid={`badge-swap-status-${req.id}`}>
+                      {statusLabels[req.status] || req.status}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{req.reason}</p>
+                  {req.targetDecisionNote && <p className="text-xs bg-muted/50 rounded-md px-2 py-1">Driver note: {req.targetDecisionNote}</p>}
+                  {req.dispatchDecisionNote && <p className="text-xs bg-muted/50 rounded-md px-2 py-1">Dispatch note: {req.dispatchDecisionNote}</p>}
+                  {cancellableStatuses.includes(req.status) && (
+                    <Button variant="outline" size="sm" onClick={() => cancelMutation.mutate(req.id)} disabled={cancelMutation.isPending} data-testid={`button-cancel-swap-${req.id}`}>
+                      <X className="w-4 h-4 mr-1" /> Cancel
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+
+      {swapTab === "inbox" && (
+        <div className="space-y-2">
+          {inboxQuery.isLoading ? (
+            <><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></>
+          ) : inboxItems.length === 0 ? (
+            <Card><CardContent className="py-6 text-center"><p className="text-sm text-muted-foreground" data-testid="text-no-inbox">No swap requests in your inbox</p></CardContent></Card>
+          ) : (
+            inboxItems.map((req: any) => (
+              <Card key={req.id} data-testid={`swap-inbox-${req.id}`}>
+                <CardContent className="py-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium" data-testid={`text-swap-requester-${req.id}`}>From {req.requesterDriverName}</p>
+                      <p className="text-xs text-muted-foreground">{req.shiftDate}{req.shiftStart ? ` ${req.shiftStart}` : ""}{req.shiftEnd ? `-${req.shiftEnd}` : ""}</p>
+                    </div>
+                    <Badge className={statusBadgeClass[req.status] || ""} data-testid={`badge-inbox-status-${req.id}`}>
+                      {statusLabels[req.status] || req.status}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{req.reason}</p>
+                  {req.status === "PENDING_TARGET" && (
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => decideMutation.mutate({ id: req.id, decision: "ACCEPT" })} disabled={decideMutation.isPending} data-testid={`button-accept-swap-${req.id}`}>
+                        <Check className="w-4 h-4 mr-1" /> Accept
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => decideMutation.mutate({ id: req.id, decision: "DECLINE" })} disabled={decideMutation.isPending} data-testid={`button-decline-swap-${req.id}`}>
+                        <X className="w-4 h-4 mr-1" /> Decline
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScheduleChangesSection({ token }: { token: string | null }) {
   const { toast } = useToast();
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [reqType, setReqType] = useState<string>("DAY_CHANGE");
@@ -1577,7 +1862,7 @@ function SchedulePage({ token }: { token: string | null }) {
   ];
 
   return (
-    <div className="p-4 space-y-4" data-testid="page-schedule">
+    <div className="space-y-4" data-testid="section-schedule-changes">
       <Card data-testid="card-week-view">
         <CardContent className="py-4">
           <div className="grid grid-cols-7 gap-1 text-center">

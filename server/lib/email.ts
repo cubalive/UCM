@@ -156,6 +156,62 @@ export function buildScheduleDecisionEmail({
   };
 }
 
+export function buildSwapNotificationEmail({
+  recipientName,
+  otherDriverName,
+  shiftDate,
+  shiftStart,
+  shiftEnd,
+  reason,
+  stage,
+  decisionNote,
+}: {
+  recipientName: string;
+  otherDriverName: string;
+  shiftDate: string;
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
+  reason: string;
+  stage: "CREATED" | "ACCEPTED" | "DECLINED" | "APPROVED_DISPATCH" | "REJECTED_DISPATCH" | "CANCELLED";
+  decisionNote?: string | null;
+}): { subject: string; html: string } {
+  const stageConfig: Record<string, { subject: string; headline: string; color: string }> = {
+    CREATED: { subject: "UCM \u2014 Shift Swap Request", headline: `${otherDriverName} is requesting a shift swap with you.`, color: "#2563eb" },
+    ACCEPTED: { subject: "UCM \u2014 Swap Accepted by Driver", headline: `${otherDriverName} accepted your shift swap request. Awaiting dispatch approval.`, color: "#16a34a" },
+    DECLINED: { subject: "UCM \u2014 Swap Declined", headline: `${otherDriverName} declined your shift swap request.`, color: "#dc2626" },
+    APPROVED_DISPATCH: { subject: "UCM \u2014 Swap Approved", headline: "Your shift swap has been approved by dispatch.", color: "#16a34a" },
+    REJECTED_DISPATCH: { subject: "UCM \u2014 Swap Rejected", headline: "Your shift swap has been rejected by dispatch.", color: "#dc2626" },
+    CANCELLED: { subject: "UCM \u2014 Swap Cancelled", headline: `${otherDriverName} cancelled the shift swap request.`, color: "#666" },
+  };
+  const cfg = stageConfig[stage] || stageConfig.CREATED;
+  const shiftRow = shiftStart ? `<tr><td style="padding:6px 12px;color:#666;">Shift</td><td style="padding:6px 12px;">${shiftStart}${shiftEnd ? ` \u2013 ${shiftEnd}` : ""}</td></tr>` : "";
+  return {
+    subject: cfg.subject,
+    html: `<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
+  <div style="text-align:center;margin-bottom:24px;">
+    <h2 style="color:#1a1a2e;margin:0;">United Care Mobility</h2>
+    <p style="color:#666;font-size:14px;">Medical Transportation Management</p>
+  </div>
+  <div style="background:#f8f9fa;border-radius:8px;padding:24px;margin-bottom:24px;">
+    <p>Hello ${recipientName},</p>
+    <p style="color:${cfg.color};font-weight:600;">${cfg.headline}</p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+      <tr><td style="padding:6px 12px;color:#666;">Date</td><td style="padding:6px 12px;font-weight:600;">${shiftDate}</td></tr>
+      ${shiftRow}
+      <tr><td style="padding:6px 12px;color:#666;">Reason</td><td style="padding:6px 12px;">${reason}</td></tr>
+    </table>
+    ${decisionNote ? `<div style="background:#fff;border-left:3px solid ${cfg.color};padding:12px 16px;margin:16px 0;border-radius:4px;"><strong>Note:</strong><br/>${decisionNote}</div>` : ""}
+    <div style="text-align:center;margin:24px 0;">
+      <a href="https://driver.unitedcaremobility.com/schedule" style="display:inline-block;background:#1a1a2e;color:#fff;text-decoration:none;padding:12px 32px;border-radius:6px;font-weight:600;">Open Driver Portal</a>
+    </div>
+  </div>
+  <p style="font-size:12px;color:#999;text-align:center;">United Care Mobility &bull; This is an automated notification.</p>
+</body></html>`,
+  };
+}
+
 export function getEmailHealth() {
   return {
     hasResendKey: !!process.env.RESEND_API_KEY,

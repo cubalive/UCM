@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { authMiddleware, requireRole, opsRouteGuard, signToken, hashPassword, comparePassword, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, invalidateRevocationCache, setAuthCookie, clearAuthCookie, type AuthRequest } from "./auth";
 import { generatePublicId } from "./public-id";
-import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, tripBilling } from "@shared/schema";
+import { loginSchema, insertCitySchema, insertVehicleSchema, insertDriverSchema, insertClinicSchema, insertPatientSchema, insertTripSchema, insertCompanySchema, users, drivers, vehicles, cities, clinics, patients, vehicleMakes, vehicleModels, trips, tripMessages, recurringSchedules, companies, tripEvents, clinicAlertLog, citySettings, driverTripAlerts, driverOffers, invoices, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, tripBilling, driverShiftSwapRequests } from "@shared/schema";
 import { registerPushToken, unregisterPushToken, sendPushToDriver, isPushEnabled } from "./lib/push";
 import { z } from "zod";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
@@ -2539,6 +2539,380 @@ export async function registerRoutes(
       }
 
       res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // SHIFT SWAP ENDPOINTS
+  // ═══════════════════════════════════════════════════════════════
+  const swapRateLimit = new Map<number, number[]>();
+  const SWAP_RATE_LIMIT = 10;
+  const SWAP_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+  async function getDriverWithUser(driverId: number) {
+    const [row] = await db.select({ driver: drivers, user: { email: users.email } })
+      .from(drivers)
+      .leftJoin(users, eq(users.driverId, drivers.id))
+      .where(eq(drivers.id, driverId));
+    return row;
+  }
+
+  async function sendSwapEmail(driverId: number, recipientName: string, otherDriverName: string, swap: any, stage: any) {
+    const row = await getDriverWithUser(driverId);
+    if (!row?.user?.email) return;
+    const { buildSwapNotificationEmail } = await import("./lib/email");
+    const content = buildSwapNotificationEmail({
+      recipientName,
+      otherDriverName,
+      shiftDate: swap.shiftDate,
+      shiftStart: swap.shiftStart,
+      shiftEnd: swap.shiftEnd,
+      reason: swap.reason,
+      stage,
+      decisionNote: stage === "DECLINED" ? swap.targetDecisionNote : stage.includes("DISPATCH") ? swap.dispatchDecisionNote : null,
+    });
+    const result = await sendEmail({ to: row.user.email, ...content });
+    if (!result.success) console.error(`[SWAP] Email to driver ${driverId} failed: ${result.error}`);
+  }
+
+  // 1) Driver creates a swap request
+  app.post("/api/driver/swaps", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+      const now = Date.now();
+      const driverHits = swapRateLimit.get(user.driverId) || [];
+      const recent = driverHits.filter(t => now - t < SWAP_RATE_WINDOW_MS);
+      if (recent.length >= SWAP_RATE_LIMIT) {
+        return res.status(429).json({ message: "Too many swap requests. Max 10 per day." });
+      }
+
+      const schema = z.object({
+        targetDriverId: z.number().int().positive(),
+        shiftDate: z.string().min(1),
+        shiftStart: z.string().optional(),
+        shiftEnd: z.string().optional(),
+        reason: z.string().min(3),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Validation failed", errors: parsed.error.flatten() });
+      const { targetDriverId, shiftDate, shiftStart, shiftEnd, reason } = parsed.data;
+
+      if (targetDriverId === user.driverId) return res.status(400).json({ message: "Cannot swap with yourself" });
+
+      const requesterDriver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
+      if (!requesterDriver) return res.status(404).json({ message: "Requester driver not found" });
+
+      const targetDriver = await db.select().from(drivers).where(eq(drivers.id, targetDriverId)).then(r => r[0]);
+      if (!targetDriver) return res.status(404).json({ message: "Target driver not found" });
+
+      if (requesterDriver.companyId !== targetDriver.companyId) {
+        return res.status(403).json({ message: "Target driver must be in the same company" });
+      }
+
+      const [swap] = await db.insert(driverShiftSwapRequests).values({
+        companyId: requesterDriver.companyId,
+        cityId: requesterDriver.cityId,
+        requesterDriverId: user.driverId,
+        targetDriverId,
+        shiftDate,
+        shiftStart: shiftStart || null,
+        shiftEnd: shiftEnd || null,
+        reason,
+      }).returning();
+
+      recent.push(now);
+      swapRateLimit.set(user.driverId, recent);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "DRIVER_SWAP_REQUEST_CREATED",
+        entity: "driver_shift_swap",
+        entityId: swap.id,
+        details: `Driver ${requesterDriver.firstName} ${requesterDriver.lastName} requested swap with driver ${targetDriver.firstName} ${targetDriver.lastName} for ${shiftDate}`,
+        cityId: requesterDriver.cityId,
+      });
+
+      sendSwapEmail(targetDriverId, `${targetDriver.firstName}`, `${requesterDriver.firstName} ${requesterDriver.lastName}`, swap, "CREATED").catch(() => {});
+
+      res.status(201).json(swap);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // 2) Driver lists their swap requests (as requester)
+  app.get("/api/driver/swaps", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const statusFilter = req.query.status as string | undefined;
+      const conditions: any[] = [eq(driverShiftSwapRequests.requesterDriverId, user.driverId)];
+      if (statusFilter && statusFilter !== "all") {
+        conditions.push(eq(driverShiftSwapRequests.status, statusFilter as any));
+      }
+      const results = await db.select({
+        swap: driverShiftSwapRequests,
+        target: { firstName: drivers.firstName, lastName: drivers.lastName, publicId: drivers.publicId },
+      }).from(driverShiftSwapRequests)
+        .innerJoin(drivers, eq(driverShiftSwapRequests.targetDriverId, drivers.id))
+        .where(and(...conditions))
+        .orderBy(desc(driverShiftSwapRequests.createdAt))
+        .limit(50);
+      const enriched = results.map(r => ({
+        ...r.swap,
+        targetDriverName: `${r.target.firstName} ${r.target.lastName}`,
+        targetDriverPublicId: r.target.publicId,
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // 3) Driver inbox (as target driver)
+  app.get("/api/driver/swaps/inbox", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const statusFilter = req.query.status as string | undefined;
+      const conditions: any[] = [eq(driverShiftSwapRequests.targetDriverId, user.driverId)];
+      if (statusFilter && statusFilter !== "all") {
+        if (statusFilter === "pending") {
+          conditions.push(eq(driverShiftSwapRequests.status, "PENDING_TARGET" as any));
+        } else {
+          conditions.push(eq(driverShiftSwapRequests.status, statusFilter as any));
+        }
+      }
+      const results = await db.select({
+        swap: driverShiftSwapRequests,
+        requester: { firstName: drivers.firstName, lastName: drivers.lastName, publicId: drivers.publicId },
+      }).from(driverShiftSwapRequests)
+        .innerJoin(drivers, eq(driverShiftSwapRequests.requesterDriverId, drivers.id))
+        .where(and(...conditions))
+        .orderBy(desc(driverShiftSwapRequests.createdAt))
+        .limit(50);
+      const enriched = results.map(r => ({
+        ...r.swap,
+        requesterDriverName: `${r.requester.firstName} ${r.requester.lastName}`,
+        requesterDriverPublicId: r.requester.publicId,
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // 4) Driver cancels own swap request
+  app.post("/api/driver/swaps/:id/cancel", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(driverShiftSwapRequests).where(
+        and(eq(driverShiftSwapRequests.id, id), eq(driverShiftSwapRequests.requesterDriverId, user.driverId))
+      );
+      if (!existing) return res.status(404).json({ message: "Swap request not found" });
+      const cancellableStatuses = ["PENDING_TARGET", "ACCEPTED_TARGET", "PENDING_DISPATCH"];
+      if (!cancellableStatuses.includes(existing.status)) {
+        return res.status(400).json({ message: `Cannot cancel swap in status ${existing.status}` });
+      }
+      const [updated] = await db.update(driverShiftSwapRequests).set({
+        status: "CANCELLED",
+        updatedAt: new Date(),
+      }).where(eq(driverShiftSwapRequests.id, id)).returning();
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "DRIVER_SWAP_REQUEST_CANCELLED",
+        entity: "driver_shift_swap",
+        entityId: id,
+        details: `Driver cancelled swap request #${id}`,
+        cityId: existing.cityId,
+      });
+
+      const requesterDriver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
+      sendSwapEmail(existing.targetDriverId, "", `${requesterDriver?.firstName || "A driver"} ${requesterDriver?.lastName || ""}`, updated, "CANCELLED").catch(() => {});
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // 5) Target driver decides on swap
+  app.post("/api/driver/swaps/:id/decide", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const id = parseInt(req.params.id);
+      const schema = z.object({
+        decision: z.enum(["ACCEPT", "DECLINE"]),
+        note: z.string().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Validation failed", errors: parsed.error.flatten() });
+
+      const [existing] = await db.select().from(driverShiftSwapRequests).where(
+        and(eq(driverShiftSwapRequests.id, id), eq(driverShiftSwapRequests.targetDriverId, user.driverId))
+      );
+      if (!existing) return res.status(404).json({ message: "Swap request not found or you are not the target" });
+      if (existing.status !== "PENDING_TARGET") {
+        return res.status(400).json({ message: `Cannot decide on swap in status ${existing.status}` });
+      }
+
+      const newStatus = parsed.data.decision === "ACCEPT" ? "PENDING_DISPATCH" : "DECLINED_TARGET";
+      const [updated] = await db.update(driverShiftSwapRequests).set({
+        status: newStatus as any,
+        targetDecisionNote: parsed.data.note || null,
+        targetDecidedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(driverShiftSwapRequests.id, id)).returning();
+
+      const auditAction = parsed.data.decision === "ACCEPT" ? "DRIVER_SWAP_ACCEPTED" : "DRIVER_SWAP_DECLINED";
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: auditAction,
+        entity: "driver_shift_swap",
+        entityId: id,
+        details: `Target driver ${parsed.data.decision.toLowerCase()}ed swap request #${id}`,
+        cityId: existing.cityId,
+      });
+
+      const targetDriver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
+      const stage = parsed.data.decision === "ACCEPT" ? "ACCEPTED" : "DECLINED";
+      sendSwapEmail(existing.requesterDriverId, "", `${targetDriver?.firstName || ""} ${targetDriver?.lastName || ""}`, updated, stage).catch(() => {});
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // 6) Dispatch: list swap requests
+  app.get("/api/dispatch/swaps", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const statusFilter = req.query.status as string | undefined;
+      const cityIdFilter = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
+      const companyId = getCompanyIdFromAuth(req);
+      const conditions: any[] = [];
+      if (statusFilter && statusFilter !== "all") {
+        if (statusFilter === "pending") {
+          conditions.push(eq(driverShiftSwapRequests.status, "PENDING_DISPATCH" as any));
+        } else {
+          conditions.push(eq(driverShiftSwapRequests.status, statusFilter as any));
+        }
+      }
+      if (cityIdFilter) conditions.push(eq(driverShiftSwapRequests.cityId, cityIdFilter));
+      if (companyId) conditions.push(eq(driverShiftSwapRequests.companyId, companyId));
+
+      const requesterAlias = db.select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName, publicId: drivers.publicId }).from(drivers).as("requester_d");
+      const targetAlias = db.select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName, publicId: drivers.publicId }).from(drivers).as("target_d");
+
+      const results = await db.select()
+        .from(driverShiftSwapRequests)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(driverShiftSwapRequests.createdAt))
+        .limit(100);
+
+      const driverIds = [...new Set(results.flatMap(r => [r.requesterDriverId, r.targetDriverId]))];
+      const driverList = driverIds.length > 0 ? await db.select().from(drivers).where(inArray(drivers.id, driverIds)) : [];
+      const driverMap = new Map(driverList.map(d => [d.id, d]));
+
+      const enriched = results.map(r => ({
+        ...r,
+        requesterDriverName: (() => { const d = driverMap.get(r.requesterDriverId); return d ? `${d.firstName} ${d.lastName}` : `Driver #${r.requesterDriverId}`; })(),
+        targetDriverName: (() => { const d = driverMap.get(r.targetDriverId); return d ? `${d.firstName} ${d.lastName}` : `Driver #${r.targetDriverId}`; })(),
+      }));
+
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // 7) Dispatch decides on swap
+  app.post("/api/dispatch/swaps/:id/decide", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const schema = z.object({
+        decision: z.enum(["APPROVE", "REJECT"]),
+        note: z.string().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Validation failed", errors: parsed.error.flatten() });
+
+      if (parsed.data.decision === "REJECT" && !parsed.data.note?.trim()) {
+        return res.status(400).json({ message: "A note is required when rejecting a swap request" });
+      }
+
+      const [existing] = await db.select().from(driverShiftSwapRequests).where(eq(driverShiftSwapRequests.id, id));
+      if (!existing) return res.status(404).json({ message: "Swap request not found" });
+      if (existing.status !== "PENDING_DISPATCH") {
+        return res.status(400).json({ message: `Cannot decide on swap in status ${existing.status}` });
+      }
+
+      const companyId = getCompanyIdFromAuth(req);
+      if (companyId && existing.companyId !== companyId) {
+        return res.status(403).json({ message: "Access denied - different company" });
+      }
+
+      const newStatus = parsed.data.decision === "APPROVE" ? "APPROVED_DISPATCH" : "REJECTED_DISPATCH";
+      const [updated] = await db.update(driverShiftSwapRequests).set({
+        status: newStatus as any,
+        dispatchUserId: req.user!.userId,
+        dispatchDecisionNote: parsed.data.note?.trim() || null,
+        dispatchDecidedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(driverShiftSwapRequests.id, id)).returning();
+
+      const auditAction = parsed.data.decision === "APPROVE" ? "DISPATCH_SWAP_APPROVED" : "DISPATCH_SWAP_REJECTED";
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: auditAction,
+        entity: "driver_shift_swap",
+        entityId: id,
+        details: `Dispatch ${parsed.data.decision.toLowerCase()}d swap request #${id}${parsed.data.note ? `: ${parsed.data.note}` : ""}`,
+        cityId: existing.cityId,
+      });
+
+      const requesterDriver = await db.select().from(drivers).where(eq(drivers.id, existing.requesterDriverId)).then(r => r[0]);
+      const targetDriver = await db.select().from(drivers).where(eq(drivers.id, existing.targetDriverId)).then(r => r[0]);
+      const stage = parsed.data.decision === "APPROVE" ? "APPROVED_DISPATCH" : "REJECTED_DISPATCH";
+      if (requesterDriver) sendSwapEmail(existing.requesterDriverId, requesterDriver.firstName, targetDriver?.firstName || "another driver", updated, stage).catch(() => {});
+      if (targetDriver) sendSwapEmail(existing.targetDriverId, targetDriver.firstName, requesterDriver?.firstName || "another driver", updated, stage).catch(() => {});
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // 8) Eligible drivers for swap (same company/city)
+  app.get("/api/driver/swaps/eligible", authMiddleware, requireRole("DRIVER"), async (req: AuthRequest, res) => {
+    try {
+      const user = await storage.getUser(req.user!.userId);
+      if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+      const requesterDriver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
+      if (!requesterDriver) return res.status(404).json({ message: "Driver not found" });
+
+      const conditions: any[] = [
+        ne(drivers.id, user.driverId),
+        eq(drivers.status, "active"),
+      ];
+      if (requesterDriver.companyId) conditions.push(eq(drivers.companyId, requesterDriver.companyId));
+      if (requesterDriver.cityId) conditions.push(eq(drivers.cityId, requesterDriver.cityId));
+
+      const eligible = await db.select({
+        id: drivers.id,
+        firstName: drivers.firstName,
+        lastName: drivers.lastName,
+        publicId: drivers.publicId,
+      }).from(drivers).where(and(...conditions)).orderBy(drivers.firstName);
+      res.json(eligible);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
