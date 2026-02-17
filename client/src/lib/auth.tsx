@@ -39,7 +39,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const IS_DEV = import.meta.env.DEV;
 
-const CITY_REQUIRING_ROLES = ["SUPER_ADMIN", "super_admin", "ADMIN", "admin", "DISPATCH", "dispatch"];
+const CITY_REQUIRING_ROLES = ["SUPER_ADMIN", "super_admin", "ADMIN", "admin", "COMPANY_ADMIN", "company_admin", "DISPATCH", "dispatch"];
 
 function getStoredCityId(): number | null {
   try {
@@ -86,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (cityId: number) => {
       if (!user) return false;
       if (user.role === "SUPER_ADMIN" || (user.role as string) === "super_admin") return true;
+      if (user.role === "COMPANY_ADMIN" && user.cityAccess.length === 0) return true;
       return user.cityAccess.includes(cityId);
     },
     [user]

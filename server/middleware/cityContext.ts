@@ -18,6 +18,7 @@ export async function getAllowedCityId(req: AuthRequest): Promise<number | undef
   if (!cityId) return undefined;
   if (req.user!.role === "SUPER_ADMIN") return cityId;
   const allowed = await getUserCityIds(req.user!.userId, req.user!.role);
+  if (allowed.length === 0 && req.user!.role === "COMPANY_ADMIN") return cityId;
   if (!allowed.includes(cityId)) return -1;
   return cityId;
 }
@@ -43,5 +44,6 @@ export async function checkCityAccess(req: AuthRequest, cityId: number | undefin
   if (req.user.role === "SUPER_ADMIN") return true;
   if (!cityId) return true;
   const allowed = await getUserCityIds(req.user.userId, req.user.role);
+  if (allowed.length === 0 && req.user.role === "COMPANY_ADMIN") return true;
   return allowed.includes(cityId);
 }

@@ -148,7 +148,7 @@ export function AppSidebar() {
     ? []
     : adminItems.filter((item) => {
         if (item.superAdminOnly && upperRole !== "SUPER_ADMIN") return false;
-        if (item.url === "/archive" && ["DISPATCH", "ADMIN", "SUPER_ADMIN"].includes(upperRole)) return true;
+        if (item.url === "/archive" && ["DISPATCH", "ADMIN", "COMPANY_ADMIN", "SUPER_ADMIN"].includes(upperRole)) return true;
         return can(role, item.resource);
       });
 

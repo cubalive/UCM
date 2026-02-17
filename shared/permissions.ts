@@ -1,4 +1,4 @@
-export type AppRole = "SUPER_ADMIN" | "ADMIN" | "DISPATCH" | "DRIVER" | "VIEWER";
+export type AppRole = "SUPER_ADMIN" | "ADMIN" | "COMPANY_ADMIN" | "DISPATCH" | "DRIVER" | "VIEWER";
 
 export type Resource =
   | "dashboard"
@@ -39,6 +39,19 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     clinics: ["read", "write"],
     invoices: ["read", "write"],
     cities: ["read", "write"],
+    users: ["read", "write"],
+    audit: ["read"],
+  },
+  COMPANY_ADMIN: {
+    dashboard: ["read"],
+    dispatch: ["read", "write"],
+    trips: ["read", "write"],
+    patients: ["read", "write"],
+    drivers: ["read", "write"],
+    vehicles: ["read", "write"],
+    clinics: ["read", "write"],
+    invoices: ["read", "write"],
+    cities: ["read"],
     users: ["read", "write"],
     audit: ["read"],
   },

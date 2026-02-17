@@ -61,6 +61,8 @@ export async function loginHandler(req: Request, res: Response) {
 
     const accessibleCities = user.role === "SUPER_ADMIN"
       ? allCities
+      : user.role === "COMPANY_ADMIN" && cityAccess.length === 0
+      ? allCities
       : allCities.filter((c) => cityAccess.includes(c.id));
 
     const { password, ...safeUser } = user;
@@ -199,6 +201,8 @@ export async function authMeHandler(req: AuthRequest, res: Response) {
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
     const accessibleCities = user.role === "SUPER_ADMIN"
+      ? allCities
+      : user.role === "COMPANY_ADMIN" && cityAccess.length === 0
       ? allCities
       : allCities.filter((c) => cityAccess.includes(c.id));
 
