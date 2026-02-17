@@ -1,15 +1,44 @@
 import type { Response } from "express";
 import { storage } from "../storage";
-import { type AuthRequest, hashPassword, getCompanyIdFromAuth, checkCompanyOwnership } from "../auth";
+import { type AuthRequest, hashPassword, getCompanyIdFromAuth, checkCompanyOwnership, getActorContext } from "../auth";
 import { db } from "../db";
-import { eq, and, desc, gte, sql } from "drizzle-orm";
-import { users, jobs } from "@shared/schema";
+import { eq, and, desc, gte, sql, count, inArray } from "drizzle-orm";
+import {
+  users, jobs, clinics, drivers, patients, trips, vehicles, cities, companies,
+  invoices, tripSmsLog, tripShareTokens, tripEvents, tripSignatures, tripBilling,
+  auditLog, userCityAccess, clinicBillingProfiles, clinicBillingRules, clinicBillingInvoices,
+  clinicBillingInvoiceItems, billingCycleInvoices, billingCycleInvoiceItems, invoicePayments,
+  tripSeries, driverOffers, driverPushTokens, scheduleChangeRequests, driverShiftSwapRequests,
+  driverWeeklySchedules, sundayRosterDrivers, driverScores, opsAnomalies,
+  dailyMetricsRollup, weeklyScoreSnapshots, triScores, costLeakAlerts, ucmCertifications,
+  clinicCertifications, quarterlyRankings, quarterlyRankingEntries,
+} from "@shared/schema";
 import { z } from "zod";
 import { getSupabaseServer } from "../../lib/supabaseClient";
 import { getJobStatus, getQueueStats, enqueueJob } from "../lib/jobQueue";
 import { getSystemEvents } from "../lib/systemEvents";
 import { getCachedSnapshot, getEngineStatus } from "../lib/aiEngine";
 import { getScoresForCompany, getAnomaliesForCompany, computeScoresForCompany } from "../lib/opsIntelligence";
+
+async function enforceArchiveScoping(
+  req: AuthRequest,
+  entity: { companyId?: number | null; cityId?: number | null },
+  entityType: string,
+): Promise<{ allowed: boolean; reason?: string }> {
+  const actor = await getActorContext(req);
+  if (!actor) return { allowed: false, reason: "Unauthorized" };
+  if (actor.role === "SUPER_ADMIN") return { allowed: true };
+  if (actor.role === "DISPATCH" || actor.role === "COMPANY_ADMIN" || actor.role === "ADMIN") {
+    if (actor.companyId && entity.companyId && entity.companyId !== actor.companyId) {
+      return { allowed: false, reason: `Cannot manage ${entityType} from another company` };
+    }
+    if (entity.cityId && actor.allowedCityIds.length > 0 && !actor.allowedCityIds.includes(entity.cityId)) {
+      return { allowed: false, reason: `Cannot manage ${entityType} outside allowed cities` };
+    }
+    return { allowed: true };
+  }
+  return { allowed: false, reason: "Insufficient permissions" };
+}
 
 export async function getCityMismatchHandler(req: AuthRequest, res: Response) {
   try {
@@ -68,6 +97,9 @@ export async function archiveClinicHandler(req: AuthRequest, res: Response) {
     const clinic = await storage.getClinic(id);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
+    const scope = await enforceArchiveScoping(req, clinic, "clinic");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
+
     const hasActive = await storage.hasActiveTripsForClinic(id);
     if (hasActive) return res.status(409).json({ message: "Cannot archive clinic with active trips" });
 
@@ -95,6 +127,9 @@ export async function restoreClinicHandler(req: AuthRequest, res: Response) {
 
     const clinic = await storage.getClinic(id);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+    const scope = await enforceArchiveScoping(req, clinic, "clinic");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
 
     const updated = await storage.updateClinic(id, { active: true, deletedAt: null } as any);
 
@@ -151,6 +186,9 @@ export async function archiveDriverHandler(req: AuthRequest, res: Response) {
     const driver = await storage.getDriver(id);
     if (!driver) return res.status(404).json({ message: "Driver not found" });
 
+    const scope = await enforceArchiveScoping(req, driver, "driver");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
+
     const hasActive = await storage.hasActiveTripsForDriver(id);
     if (hasActive) return res.status(409).json({ message: "Cannot archive driver with active trips" });
 
@@ -179,6 +217,9 @@ export async function restoreDriverHandler(req: AuthRequest, res: Response) {
 
     const driver = await storage.getDriver(id);
     if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+    const scope = await enforceArchiveScoping(req, driver, "driver");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
 
     const updated = await storage.updateDriver(id, { active: true, deletedAt: null, deletedBy: null, deleteReason: null } as any);
 
@@ -235,6 +276,9 @@ export async function archivePatientHandler(req: AuthRequest, res: Response) {
     const patient = await storage.getPatient(id);
     if (!patient) return res.status(404).json({ message: "Patient not found" });
 
+    const scope = await enforceArchiveScoping(req, patient, "patient");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
+
     const hasActive = await storage.hasActiveTripsForPatient(id);
     if (hasActive) return res.status(409).json({ message: "Cannot archive patient with active trips" });
 
@@ -262,6 +306,9 @@ export async function restorePatientHandler(req: AuthRequest, res: Response) {
 
     const patient = await storage.getPatient(id);
     if (!patient) return res.status(404).json({ message: "Patient not found" });
+
+    const scope = await enforceArchiveScoping(req, patient, "patient");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
 
     const updated = await storage.updatePatient(id, { active: true, deletedAt: null } as any);
 
@@ -617,6 +664,8 @@ export async function archiveVehicleHandler(req: AuthRequest, res: Response) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const vehicle = await storage.getVehicle(id);
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
+    const scope = await enforceArchiveScoping(req, vehicle, "vehicle");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
     const hasActive = await storage.hasActiveTripsForVehicle(id);
     if (hasActive) return res.status(409).json({ message: "Cannot archive vehicle with active trips" });
     const reason = req.body?.reason || null;
@@ -641,6 +690,8 @@ export async function restoreVehicleHandler(req: AuthRequest, res: Response) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const vehicle = await storage.getVehicle(id);
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
+    const scope = await enforceArchiveScoping(req, vehicle, "vehicle");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
     const updated = await storage.updateVehicle(id, { active: true, deletedAt: null, deletedBy: null, deleteReason: null } as any);
     await storage.createAuditLog({
       userId: req.user!.userId,
@@ -1144,4 +1195,333 @@ export async function healthEmailHandler(_req: AuthRequest, res: Response) {
     canSend,
     canGenerateLinks,
   });
+}
+
+export async function clinicPatientArchiveHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const actor = await getActorContext(req);
+    if (!actor || !actor.clinicId) return res.status(403).json({ message: "Clinic user must be linked to a clinic" });
+
+    const patient = await storage.getPatient(id);
+    if (!patient) return res.status(404).json({ message: "Patient not found" });
+
+    if (patient.clinicId !== actor.clinicId) return res.status(403).json({ message: "Can only archive patients from your own clinic" });
+
+    const hasActive = await storage.hasActiveTripsForPatient(id);
+    if (hasActive) return res.status(409).json({ message: "Cannot archive patient with active trips" });
+
+    const updated = await storage.updatePatient(id, { active: false, deletedAt: new Date() });
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "ARCHIVE",
+      entity: "patient",
+      entityId: id,
+      details: JSON.stringify({ action: "clinic_user_archive", clinicId: actor.clinicId, before: { active: patient.active, deletedAt: patient.deletedAt }, after: { active: false, deletedAt: new Date().toISOString() } }),
+      cityId: patient.cityId,
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function clinicPatientUnarchiveHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const actor = await getActorContext(req);
+    if (!actor || !actor.clinicId) return res.status(403).json({ message: "Clinic user must be linked to a clinic" });
+
+    const patient = await storage.getPatient(id);
+    if (!patient) return res.status(404).json({ message: "Patient not found" });
+
+    if (patient.clinicId !== actor.clinicId) return res.status(403).json({ message: "Can only unarchive patients from your own clinic" });
+
+    const updated = await storage.updatePatient(id, { active: true, deletedAt: null } as any);
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "UNARCHIVE",
+      entity: "patient",
+      entityId: id,
+      details: JSON.stringify({ action: "clinic_user_unarchive", clinicId: actor.clinicId, before: { active: patient.active, deletedAt: patient.deletedAt }, after: { active: true, deletedAt: null } }),
+      cityId: patient.cityId,
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+const HARD_DELETE_ENTITIES = ["company", "city", "clinic", "driver", "patient", "trip", "invoice", "billingCycleInvoice", "vehicle", "user"] as const;
+type HardDeleteEntity = typeof HARD_DELETE_ENTITIES[number];
+
+async function getDependentCounts(entity: HardDeleteEntity, id: number): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  const c = async (table: any, field: any, label: string) => {
+    const [row] = await db.select({ cnt: count() }).from(table).where(eq(field, id));
+    counts[label] = row?.cnt ?? 0;
+  };
+
+  switch (entity) {
+    case "company":
+      await c(clinics, clinics.companyId, "clinics");
+      await c(drivers, drivers.companyId, "drivers");
+      await c(patients, patients.companyId, "patients");
+      await c(trips, trips.companyId, "trips");
+      await c(vehicles, vehicles.companyId, "vehicles");
+      await c(users, users.companyId, "users");
+      await c(invoices, invoices.companyId, "invoices");
+      break;
+    case "city":
+      await c(clinics, clinics.cityId, "clinics");
+      await c(drivers, drivers.cityId, "drivers");
+      await c(patients, patients.cityId, "patients");
+      await c(trips, trips.cityId, "trips");
+      await c(vehicles, vehicles.cityId, "vehicles");
+      break;
+    case "clinic":
+      await c(patients, patients.clinicId, "patients");
+      await c(trips, trips.clinicId, "trips");
+      await c(users, users.clinicId, "users");
+      await c(clinicBillingProfiles, clinicBillingProfiles.clinicId, "billingProfiles");
+      await c(billingCycleInvoices, billingCycleInvoices.clinicId, "cycleInvoices");
+      break;
+    case "driver":
+      await c(trips, trips.driverId, "trips");
+      await c(driverOffers, driverOffers.driverId, "offers");
+      await c(driverScores, driverScores.driverId, "performanceScores");
+      break;
+    case "patient":
+      await c(trips, trips.patientId, "trips");
+      break;
+    case "trip":
+      await c(tripSmsLog, tripSmsLog.tripId, "smsLogs");
+      await c(tripShareTokens, tripShareTokens.tripId, "shareTokens");
+      await c(tripEvents, tripEvents.tripId, "events");
+      await c(tripSignatures, tripSignatures.tripId, "signatures");
+      break;
+    case "vehicle":
+      await c(trips, trips.vehicleId, "trips");
+      break;
+    case "invoice":
+      break;
+    case "billingCycleInvoice":
+      await c(billingCycleInvoiceItems, billingCycleInvoiceItems.invoiceId, "lineItems");
+      await c(invoicePayments, invoicePayments.invoiceId, "payments");
+      break;
+    case "user":
+      await c(userCityAccess, userCityAccess.userId, "cityAccess");
+      break;
+  }
+  return counts;
+}
+
+export async function hardDeletePreviewHandler(req: AuthRequest, res: Response) {
+  try {
+    const entity = req.query.entity as string;
+    const id = parseInt(String(req.query.id));
+    if (!entity || isNaN(id)) return res.status(400).json({ message: "entity and id are required" });
+    if (!HARD_DELETE_ENTITIES.includes(entity as HardDeleteEntity)) {
+      return res.status(400).json({ message: `Invalid entity. Must be one of: ${HARD_DELETE_ENTITIES.join(", ")}` });
+    }
+
+    const counts = await getDependentCounts(entity as HardDeleteEntity, id);
+    const totalDependents = Object.values(counts).reduce((s, v) => s + v, 0);
+
+    res.json({
+      entity,
+      id,
+      dependentCounts: counts,
+      totalDependents,
+      warningLevel: totalDependents > 100 ? "HIGH" : totalDependents > 10 ? "MEDIUM" : "LOW",
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+async function safeDeleteTrip(tripId: number) {
+  await db.delete(tripSmsLog).where(eq(tripSmsLog.tripId, tripId));
+  await db.delete(tripShareTokens).where(eq(tripShareTokens.tripId, tripId));
+  await db.delete(tripEvents).where(eq(tripEvents.tripId, tripId));
+  await db.delete(tripSignatures).where(eq(tripSignatures.tripId, tripId));
+  await db.delete(tripBilling).where(eq(tripBilling.tripId, tripId));
+  await db.delete(trips).where(eq(trips.id, tripId));
+}
+
+export async function hardDeleteHandler(req: AuthRequest, res: Response) {
+  try {
+    const { entity, id, confirmWord } = req.body || {};
+    if (!entity || !id) return res.status(400).json({ message: "entity and id are required" });
+    if (confirmWord !== "delete") {
+      return res.status(400).json({ error: "Confirmation required. Type 'delete'." });
+    }
+    if (!HARD_DELETE_ENTITIES.includes(entity as HardDeleteEntity)) {
+      return res.status(400).json({ message: `Invalid entity. Must be one of: ${HARD_DELETE_ENTITIES.join(", ")}` });
+    }
+
+    const entityId = parseInt(String(id));
+    if (isNaN(entityId)) return res.status(400).json({ message: "Invalid ID" });
+
+    const preview = await getDependentCounts(entity as HardDeleteEntity, entityId);
+    let deletedCounts: Record<string, number> = {};
+
+    switch (entity as HardDeleteEntity) {
+      case "patient": {
+        const patient = await storage.getPatient(entityId);
+        if (!patient) return res.status(404).json({ message: "Patient not found" });
+        const hasActive = await storage.hasActiveTripsForPatient(entityId);
+        if (hasActive) return res.status(409).json({ message: "Cannot delete patient with active trips" });
+        const patientTrips = await db.select({ id: trips.id }).from(trips).where(eq(trips.patientId, entityId));
+        for (const t of patientTrips) {
+          await safeDeleteTrip(t.id);
+        }
+        deletedCounts.trips = patientTrips.length;
+        await db.delete(patients).where(eq(patients.id, entityId));
+        deletedCounts.patient = 1;
+        break;
+      }
+      case "driver": {
+        const driver = await storage.getDriver(entityId);
+        if (!driver) return res.status(404).json({ message: "Driver not found" });
+        const hasActive = await storage.hasActiveTripsForDriver(entityId);
+        if (hasActive) return res.status(409).json({ message: "Cannot delete driver with active trips. Unassign first." });
+        await db.update(trips).set({ driverId: null } as any).where(eq(trips.driverId, entityId));
+        await db.delete(driverOffers).where(eq(driverOffers.driverId, entityId));
+        await db.delete(driverPushTokens).where(eq(driverPushTokens.driverId, entityId));
+        await db.delete(driverScores).where(eq(driverScores.driverId, entityId));
+        await db.delete(scheduleChangeRequests).where(eq(scheduleChangeRequests.driverId, entityId));
+        await db.delete(drivers).where(eq(drivers.id, entityId));
+        deletedCounts.driver = 1;
+        break;
+      }
+      case "clinic": {
+        const clinic = await storage.getClinic(entityId);
+        if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+        const hasActive = await storage.hasActiveTripsForClinic(entityId);
+        if (hasActive) return res.status(409).json({ message: "Cannot delete clinic with active trips" });
+        const clinicTrips = await db.select({ id: trips.id }).from(trips).where(eq(trips.clinicId, entityId));
+        for (const t of clinicTrips) {
+          await safeDeleteTrip(t.id);
+        }
+        deletedCounts.trips = clinicTrips.length;
+        const clinicPatients = await db.select({ id: patients.id }).from(patients).where(eq(patients.clinicId, entityId));
+        for (const p of clinicPatients) {
+          await db.delete(patients).where(eq(patients.id, p.id));
+        }
+        deletedCounts.patients = clinicPatients.length;
+        const cbpRows = await db.select({ id: clinicBillingProfiles.id }).from(clinicBillingProfiles).where(eq(clinicBillingProfiles.clinicId, entityId));
+        for (const cbp of cbpRows) {
+          await db.delete(clinicBillingRules).where(eq(clinicBillingRules.profileId, cbp.id));
+        }
+        await db.delete(clinicBillingProfiles).where(eq(clinicBillingProfiles.clinicId, entityId));
+        const bciRows = await db.select({ id: billingCycleInvoices.id }).from(billingCycleInvoices).where(eq(billingCycleInvoices.clinicId, entityId));
+        for (const bci of bciRows) {
+          await db.delete(billingCycleInvoiceItems).where(eq(billingCycleInvoiceItems.invoiceId, bci.id));
+          await db.delete(invoicePayments).where(eq(invoicePayments.invoiceId, bci.id));
+        }
+        await db.delete(billingCycleInvoices).where(eq(billingCycleInvoices.clinicId, entityId));
+        await db.delete(clinicBillingInvoices).where(eq(clinicBillingInvoices.clinicId, entityId));
+        await db.update(users).set({ clinicId: null } as any).where(eq(users.clinicId, entityId));
+        await db.delete(clinicCertifications).where(eq(clinicCertifications.clinicId, entityId));
+        await db.delete(clinics).where(eq(clinics.id, entityId));
+        deletedCounts.clinic = 1;
+        break;
+      }
+      case "trip": {
+        const trip = await storage.getTrip(entityId);
+        if (!trip) return res.status(404).json({ message: "Trip not found" });
+        await safeDeleteTrip(entityId);
+        deletedCounts.trip = 1;
+        break;
+      }
+      case "vehicle": {
+        const vehicle = await storage.getVehicle(entityId);
+        if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
+        const hasActive = await storage.hasActiveTripsForVehicle(entityId);
+        if (hasActive) return res.status(409).json({ message: "Cannot delete vehicle with active trips" });
+        await db.update(trips).set({ vehicleId: null } as any).where(eq(trips.vehicleId, entityId));
+        await db.delete(vehicles).where(eq(vehicles.id, entityId));
+        deletedCounts.vehicle = 1;
+        break;
+      }
+      case "invoice": {
+        await db.delete(invoices).where(eq(invoices.id, entityId));
+        deletedCounts.invoice = 1;
+        break;
+      }
+      case "billingCycleInvoice": {
+        await db.delete(billingCycleInvoiceItems).where(eq(billingCycleInvoiceItems.invoiceId, entityId));
+        await db.delete(invoicePayments).where(eq(invoicePayments.invoiceId, entityId));
+        await db.delete(billingCycleInvoices).where(eq(billingCycleInvoices.id, entityId));
+        deletedCounts.billingCycleInvoice = 1;
+        break;
+      }
+      case "user": {
+        const user = await storage.getUser(entityId);
+        if (!user) return res.status(404).json({ message: "User not found" });
+        if (user.role === "SUPER_ADMIN") return res.status(400).json({ message: "Cannot hard delete a SUPER_ADMIN user" });
+        await db.delete(userCityAccess).where(eq(userCityAccess.userId, entityId));
+        await db.delete(users).where(eq(users.id, entityId));
+        deletedCounts.user = 1;
+        break;
+      }
+      case "company": {
+        const [company] = await db.select().from(companies).where(eq(companies.id, entityId));
+        if (!company) return res.status(404).json({ message: "Company not found" });
+        const totalDep = Object.values(preview).reduce((s, v) => s + v, 0);
+        if (totalDep > 0) {
+          return res.status(409).json({
+            message: "Company has dependents. Delete all dependents first or use preview to see counts.",
+            dependentCounts: preview,
+          });
+        }
+        await db.delete(companies).where(eq(companies.id, entityId));
+        deletedCounts.company = 1;
+        break;
+      }
+      case "city": {
+        const [city] = await db.select().from(cities).where(eq(cities.id, entityId));
+        if (!city) return res.status(404).json({ message: "City not found" });
+        const totalDep = Object.values(preview).reduce((s, v) => s + v, 0);
+        if (totalDep > 0) {
+          return res.status(409).json({
+            message: "City has dependents. Delete all dependents first or use preview to see counts.",
+            dependentCounts: preview,
+          });
+        }
+        await db.delete(cities).where(eq(cities.id, entityId));
+        deletedCounts.city = 1;
+        break;
+      }
+    }
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "HARD_DELETE",
+      entity,
+      entityId,
+      details: JSON.stringify({
+        confirmWordUsed: true,
+        deletedBy: req.user!.userId,
+        actorRole: req.user!.role,
+        dependentCountsAtDelete: preview,
+        deletedCounts,
+      }),
+      cityId: null,
+    });
+
+    res.json({ success: true, entity, id: entityId, deletedCounts, previewAtDelete: preview });
+  } catch (err: any) {
+    console.error("[HARD_DELETE] Error:", err);
+    res.status(500).json({ message: err.message });
+  }
 }

@@ -1,0 +1,81 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Fix "System Metrics" page showing blank and enforce STRICT access: ONLY SUPER_ADMIN can view system metrics.
+
+CONTEXT:
+- The System Metrics page loads blank (no data / empty UI).
+- Requirement: ONLY SUPER_ADMIN has rights to system metrics. Everyone else must see a clear "Unauthorized" UI state (NOT a blank page).
+- Do NOT change database contents. No destructive migrations.
+
+GOALS:
+1) Identify why the metrics page is blank (most likely one of):
+   - frontend fetch gets 401/403 and UI doesn't handle it (renders empty)
+   - wrong endpoint path or server route not registered
+   - auth middleware not attaching actor context correctly
+   - role mismatch (e.g., "SUPER_ADMIN" vs "ADMIN", casing, or token payload missing role)
+   - server returns HTML/404/Unauthorized payload but UI expects JSON and crashes silently
+
+2) Enforce role gating server-side:
+   - All "system metrics" endpoints must requireRole("SUPER_ADMIN") only.
+   - Return JSON errors with correct HTTP status:
+     - 401 if not authenticated
+     - 403 if authenticated but not SUPER_ADMIN
+
+3) Enforce safe UI behavior:
+   - If 401/403, show a proper message and CTA (e.g., "No access. Contact SUPER ADMIN") instead of blank.
+   - Add visible error text if fetch fails (network/500).
+   - Ensure metrics page never renders empty silently.
+
+4) Verification: Ensure metrics loads for SUPER_ADMIN and blocks for everyone else.
+
+IMPLEMENTATION STEPS (DO IN ORDER):
+A) Locate the metrics page component and its data fetch:
+   - Find route/page for system metrics (e.g., /admin/metrics, /metrics, /system/metrics).
+   - Identify the API call it makes (endpoint URL).
+   - Add logging (temporary) to confirm status code and response type.
+
+B) Locate/confirm server endpoint(s) serving metrics:
+   - Ensure the route exists and is registered in server/index (or server/router).
+   - Ensure it returns JSON (not HTML fallback) and sets content-type application/json.
+
+C) Implement/confirm auth helpers:
+   - ensure getActorContext() exists and returns { userId, role, clinicId, cityId, companyId? }
+   - implement requireRole(...roles) and use it on metrics endpoints with ONLY "SUPER_ADMIN"
+
+D) Fix UI:
+   - Wrap fetch with a safe helper:
+     - if response.status===401 or 403: show Unauthorized UI
+     - if !response.ok: show error text with status
+     - only parse JSON when response headers indicate JSON
+   - Prevent silent failure.
+
+E) Remove any temporary debug logs before final.
+
+NON-NEGOTIABLES:
+- Do NOT reset DB.
+- Do NOT remove tables/columns.
+- Do NOT weaken permissions.
+- Keep runtime stable.
+
+ACCEPTANCE TESTS (MUST RUN):
+1) npm run check (or npx tsc --noEmit)
+2) npm run build
+3) npm run dev (server starts)
+4) Manual verification:
+   - Login as SUPER_ADMIN -> metrics page shows populated data or at least valid placeholders with counts (not blank)
+   - Login as ADMIN/DISPATCH/CLINIC_USER/DRIVER -> metrics page shows "Unauthorized" (NOT blank)
+   - Network tab confirms 403 for non-superadmin and 200 for superadmin
+
+DELIVERABLES:
+1) List exact files changed + brief description (what/why)
+2) Confirm results of commands (check/build/dev)
+3) Mention the final endpoint(s) and the exact role gating used

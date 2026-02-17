@@ -43,29 +43,40 @@ import {
   opsJobsHandler,
   debugEmailHealthHandler,
   healthEmailHandler,
+  clinicPatientArchiveHandler,
+  clinicPatientUnarchiveHandler,
+  hardDeletePreviewHandler,
+  hardDeleteHandler,
 } from "../controllers/admin.controller";
 
 const router = express.Router();
 
 router.get("/api/admin/clinics/city-mismatch", authMiddleware, requireRole("SUPER_ADMIN"), getCityMismatchHandler as any);
-router.patch("/api/admin/clinics/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), archiveClinicHandler as any);
-router.patch("/api/admin/clinics/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), restoreClinicHandler as any);
+router.patch("/api/admin/clinics/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), archiveClinicHandler as any);
+router.patch("/api/admin/clinics/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), restoreClinicHandler as any);
 router.delete("/api/admin/clinics/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteClinicHandler as any);
-router.patch("/api/admin/drivers/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), archiveDriverHandler as any);
-router.patch("/api/admin/drivers/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), restoreDriverHandler as any);
+router.patch("/api/admin/drivers/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), archiveDriverHandler as any);
+router.patch("/api/admin/drivers/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), restoreDriverHandler as any);
 router.delete("/api/admin/drivers/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteDriverHandler as any);
-router.patch("/api/admin/patients/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), archivePatientHandler as any);
-router.patch("/api/admin/patients/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), restorePatientHandler as any);
-router.delete("/api/admin/patients/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), permanentDeletePatientHandler as any);
+router.patch("/api/admin/patients/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), archivePatientHandler as any);
+router.patch("/api/admin/patients/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), restorePatientHandler as any);
+router.delete("/api/admin/patients/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeletePatientHandler as any);
 router.patch("/api/admin/users/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), archiveUserHandler as any);
 router.patch("/api/admin/users/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), restoreUserHandler as any);
 router.delete("/api/admin/users/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteUserHandler as any);
 router.post("/api/admin/users/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), resetUserPasswordHandler as any);
 router.post("/api/admin/clinics/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), resetClinicPasswordHandler as any);
 router.post("/api/admin/drivers/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), resetDriverPasswordHandler as any);
-router.patch("/api/admin/vehicles/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), archiveVehicleHandler as any);
-router.patch("/api/admin/vehicles/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), restoreVehicleHandler as any);
+router.patch("/api/admin/vehicles/:id/archive", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), archiveVehicleHandler as any);
+router.patch("/api/admin/vehicles/:id/restore", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), restoreVehicleHandler as any);
 router.delete("/api/admin/vehicles/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteVehicleHandler as any);
+
+router.patch("/api/clinic/patients/:id/archive", authMiddleware, requireRole("CLINIC_USER"), clinicPatientArchiveHandler as any);
+router.patch("/api/clinic/patients/:id/unarchive", authMiddleware, requireRole("CLINIC_USER"), clinicPatientUnarchiveHandler as any);
+
+router.get("/api/admin/hard-delete/preview", authMiddleware, requireRole("SUPER_ADMIN"), hardDeletePreviewHandler as any);
+router.post("/api/admin/hard-delete", authMiddleware, requireRole("SUPER_ADMIN"), hardDeleteHandler as any);
+
 router.get("/api/admin/health/deep", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), deepHealthHandler as any);
 router.get("/api/admin/metrics/summary", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), metricsSummaryHandler as any);
 router.get("/api/admin/ai-engine/snapshot", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), aiEngineSnapshotHandler as any);
