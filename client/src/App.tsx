@@ -52,6 +52,11 @@ import PricingPage from "@/pages/pricing";
 import MetricsPage from "@/pages/metrics";
 import IntelligencePage from "@/pages/intelligence";
 import IndexesPage from "@/pages/indexes";
+import CertificationPage from "@/pages/certification";
+import RankingPage from "@/pages/ranking";
+import AuditShieldPage from "@/pages/audit-shield";
+import PredictionPage from "@/pages/prediction";
+import PublishCenterPage from "@/pages/publish-center";
 import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
@@ -283,6 +288,11 @@ function Router() {
       <Route path="/indexes">{() => <SuperAdminRoute component={IndexesPage} />}</Route>
       <Route path="/metrics">{() => <SuperAdminRoute component={MetricsPage} />}</Route>
       <Route path="/intelligence">{() => <ProtectedRoute resource="audit" component={IntelligencePage} />}</Route>
+      <Route path="/certification">{() => <SuperAdminRoute component={CertificationPage} />}</Route>
+      <Route path="/ranking">{() => <SuperAdminRoute component={RankingPage} />}</Route>
+      <Route path="/audit-shield">{() => <SuperAdminRoute component={AuditShieldPage} />}</Route>
+      <Route path="/prediction">{() => <SuperAdminRoute component={PredictionPage} />}</Route>
+      <Route path="/publish-center">{() => <SuperAdminRoute component={PublishCenterPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

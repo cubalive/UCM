@@ -55,6 +55,11 @@ import {
   BarChart,
   ArrowLeftRight,
   Brain,
+  Award,
+  Trophy,
+  Shield,
+  TrendingUp,
+  Send,
 } from "lucide-react";
 
 interface NavItem {
@@ -97,6 +102,11 @@ const adminItems: NavItem[] = [
   { titleKey: "nav.archive", url: "/archive", icon: Archive, resource: "audit" },
   { titleKey: "nav.intelligence", url: "/intelligence", icon: Brain, resource: "audit" },
   { titleKey: "nav.indexes", url: "/indexes", icon: Activity, resource: "audit", superAdminOnly: true },
+  { titleKey: "nav.certification", url: "/certification", icon: Award, resource: "audit", superAdminOnly: true },
+  { titleKey: "nav.ranking", url: "/ranking", icon: Trophy, resource: "audit", superAdminOnly: true },
+  { titleKey: "nav.auditShield", url: "/audit-shield", icon: Shield, resource: "audit", superAdminOnly: true },
+  { titleKey: "nav.prediction", url: "/prediction", icon: TrendingUp, resource: "audit", superAdminOnly: true },
+  { titleKey: "nav.publishCenter", url: "/publish-center", icon: Send, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.metrics", url: "/metrics", icon: BarChart, resource: "audit", superAdminOnly: true },
 ];
 
