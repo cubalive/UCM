@@ -194,30 +194,16 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  {
-    const connStr = (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || "").trim();
-    const dbSource = process.env.SUPABASE_DB_URL ? "SUPABASE_DB_URL" : "DATABASE_URL";
-    let dbHost = "unknown", dbPort = 0;
-    try {
-      const u = new URL(connStr);
-      dbHost = u.hostname;
-      dbPort = parseInt(u.port || "5432", 10);
-    } catch {}
-    const isSupabaseHost = dbHost.includes("supabase");
-    const poolerDetected = dbPort === 6543;
+  const { dbReady, getDbSource } = await import("./db");
+  await dbReady;
 
-    console.log(JSON.stringify({
-      event: "boot_config",
-      nodeEnv: process.env.NODE_ENV || "undefined",
-      appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
-      dbSource,
-      dbHost: dbHost.replace(/^(.{6}).*(.{6})$/, "$1***$2"),
-      dbPort,
-      isSupabaseHost,
-      poolerDetected,
-      sessionCookie: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax", domain: ".unitedcaremobility.com (auto)", path: "/" },
-    }));
-  }
+  console.log(JSON.stringify({
+    event: "boot_config",
+    nodeEnv: process.env.NODE_ENV || "undefined",
+    appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
+    dbSource: getDbSource(),
+    sessionCookie: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax", domain: ".unitedcaremobility.com (auto)", path: "/" },
+  }));
 
   try {
     const { seedSuperAdmin, seedData, seedVehicleMakesModels } = await import("./seed");
