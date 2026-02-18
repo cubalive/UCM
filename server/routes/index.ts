@@ -35,6 +35,7 @@ import { registerImportRoutes } from "./imports.routes";
 import { registerTimePayRoutes } from "./timepay.routes";
 import { registerBillingV2Routes } from "./billingV2.routes";
 import { registerPlatformFeeRoutes } from "./platformFee.routes";
+import { registerInfraOpsRoutes } from "./ops.routes";
 import { startRouteScheduler } from "../lib/routeEngine";
 import { startNoShowScheduler } from "../lib/noShowEngine";
 import { startRecurringScheduleScheduler } from "../lib/recurringScheduleEngine";
@@ -84,6 +85,7 @@ export async function registerRoutes(
   registerTimePayRoutes(app);
   registerBillingV2Routes(app);
   registerPlatformFeeRoutes(app);
+  registerInfraOpsRoutes(app);
 
   startOpsAlertScheduler();
   startRouteScheduler();

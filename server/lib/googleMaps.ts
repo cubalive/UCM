@@ -1,7 +1,67 @@
 import { GOOGLE_MAPS_SERVER_KEY } from "../../lib/mapsConfig";
+import crypto from "crypto";
+import { db } from "../db";
+import { routeCache as routeCacheTable } from "@shared/schema";
+import { eq, lt } from "drizzle-orm";
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 
 const GOOGLE_API_BASE = "https://maps.googleapis.com/maps/api";
+const ROUTE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function hashKey(key: string): string {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
+
+async function dbRouteGet(keyHash: string): Promise<RouteResult | null> {
+  try {
+    const rows = await db.select().from(routeCacheTable)
+      .where(eq(routeCacheTable.keyHash, keyHash))
+      .limit(1);
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    if (row.expiresAt < new Date()) {
+      db.delete(routeCacheTable).where(eq(routeCacheTable.keyHash, keyHash)).catch(() => {});
+      return null;
+    }
+    return row.responseJson as RouteResult;
+  } catch { return null; }
+}
+
+async function dbRoutePut(keyHash: string, origin: string, dest: string, result: RouteResult): Promise<void> {
+  try {
+    const expiresAt = new Date(Date.now() + ROUTE_CACHE_TTL_MS);
+    await db.insert(routeCacheTable).values({
+      keyHash,
+      origin,
+      destination: dest,
+      mode: "driving",
+      distanceMiles: result.totalMiles,
+      durationMinutes: result.totalMinutes,
+      responseJson: result as any,
+      expiresAt,
+    }).onConflictDoUpdate({
+      target: routeCacheTable.keyHash,
+      set: {
+        distanceMiles: result.totalMiles,
+        durationMinutes: result.totalMinutes,
+        responseJson: result as any,
+        expiresAt,
+        createdAt: new Date(),
+      },
+    });
+  } catch (err: any) {
+    console.warn(`[ROUTE-CACHE] DB write failed: ${err.message}`);
+  }
+}
+
+export async function purgeExpiredRouteCache(): Promise<number> {
+  try {
+    const deleted = await db.delete(routeCacheTable)
+      .where(lt(routeCacheTable.expiresAt, new Date()))
+      .returning();
+    return deleted.length;
+  } catch { return 0; }
+}
 
 const directionsMetrics = {
   startedAt: Date.now(),
@@ -425,6 +485,14 @@ export async function buildRoute(
     return cached;
   }
 
+  const keyH = hashKey(key);
+  const dbCached = await dbRouteGet(keyH);
+  if (dbCached) {
+    directionsMetrics.buildRouteCacheHits++;
+    routeCache.set(key, dbCached);
+    return dbCached;
+  }
+
   if (isCircuitBreakerOpen()) {
     throw new Error("Directions API circuit breaker is open — too many calls per minute. Retry in 2 minutes.");
   }
@@ -477,6 +545,7 @@ export async function buildRoute(
   };
 
   routeCache.set(key, result);
+  dbRoutePut(keyH, originStr, destStr, result).catch(() => {});
   return result;
 }
 

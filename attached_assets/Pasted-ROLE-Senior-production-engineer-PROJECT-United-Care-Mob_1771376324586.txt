@@ -1,0 +1,120 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Infra Hardening v1 + 5-min Aggressive Load Test (Evidence-based) for UCM.
+Goal: Confirm and enforce the six “must-haves” (DB pooler 6543, map cache, queues for emails/PDF, backend autoscale readiness, real logs, controlled websocket) with minimal cost, no external paid services required, and deliver a 5-minute aggressive test + report.
+
+HARD REQUIREMENTS:
+1) Do NOT reset DB, do NOT delete tables/columns.
+2) Do NOT introduce paid external infra (no Redis/Upstash required). If needed, use DB-backed queues/caches.
+3) Keep runtime behavior stable; add safeguards + observability.
+4) Output MUST include: exact file changes, commands run, and a final report with metrics.
+
+========================================================
+PHASE 1 — VERIFY CURRENT STATE (MUST SHOW EVIDENCE)
+========================================================
+A) DB Pooler:
+- Confirm DATABASE_URL points to Supabase pooler port 6543 (PgBouncer) in Replit Secrets.
+- Confirm ORM/driver uses reasonable pooling settings (or relies on PgBouncer) and does NOT open too many connections.
+- Add a /api/ops/db-info endpoint (SUPER_ADMIN only) returning:
+  { usingPooler:boolean, host:string, port:number, ssl:boolean, note:string }
+  Do NOT expose passwords.
+
+B) Map cache (no paid cache):
+- Identify where quote/route computations happen (or where distanceMiles/durationMinutes live).
+- If any expensive route computation exists, add a DB cache table:
+  route_cache(company_id, city_id, key_hash, origin, destination, miles, minutes, created_at, expires_at)
+  with TTL (default 7 days), and reuse it before recomputing.
+- If no route compute exists, implement a minimal “billing/ops” cache for repeated dashboard queries:
+  metrics_cache(key, json, expires_at).
+
+C) Queues for emails/PDF:
+- Implement DB-backed job queue (no Redis):
+  job_queue(id, type, payload jsonb, status, run_after, attempts, last_error, created_at, updated_at)
+  + indexes on (status, run_after).
+- Add a single worker loop inside server startup (guarded) OR a separate script:
+  node server/workers/jobWorker.ts
+- Convert any “generate PDF / send email” flow to enqueue jobs instead of doing heavy work inline.
+- Add /api/ops/jobs (SUPER_ADMIN) to inspect queue stats.
+
+D) Autoscaling readiness:
+- Ensure server is stateless (no in-memory session reliance). Sessions must be cookie/JWT only.
+- Add request timeouts and graceful shutdown hooks.
+- Ensure health endpoints exist:
+  /api/healthz (already)
+  /api/readyz (checks DB ping + critical deps).
+
+E) Real logs:
+- Add structured request logging middleware:
+  request_id, user_id, role, company_id, path, method, status, duration_ms.
+- Add “AccessDenied log” when permission fails:
+  include role + endpoint + actor companyId + requested companyId/clinicId if present.
+- Log to stdout + (optional) DB table audit_events if it exists; if not, add non-destructive table:
+  audit_events(id, created_at, level, event, actor_user_id, actor_role, company_id, meta jsonb).
+
+F) WebSocket controlled:
+- If websockets exist: enforce per-connection rate limits and heartbeat interval.
+- Add server-side guard: max messages/minute; drop/close abusive connections.
+- Ensure websocket auth uses same token/middleware and is company-scoped.
+
+========================================================
+PHASE 2 — IMPLEMENT MISSING PIECES (MINIMAL + SAFE)
+========================================================
+- Implement only what PHASE 1 shows as missing or weak.
+- No breaking route changes.
+- All new endpoints must be SUPER_ADMIN-only under /api/ops/*.
+
+========================================================
+PHASE 3 — 5-MIN AGGRESSIVE TEST (LOW COST)
+========================================================
+A) Data:
+- Use the existing seed script if available (do NOT reset). If no seed, generate additive seed:
+  4 companies, 10 cities, 100 drivers, 100 vehicles, 2,000 patients, 10,000 trips (not 50k) for speed.
+  Keep it idempotent.
+
+B) Load test tool:
+- Add a local load script using autocannon (Node) or k6 (if available).
+- Run for 5 minutes max against PREVIEW url.
+- Include these flows:
+  1) Login (token fetch) for SUPER_ADMIN, COMPANY_ADMIN, CLINIC_USER, DRIVER (if applicable).
+  2) Dashboard reads (clinic ops, dispatch ops, metrics).
+  3) Trips list + trip detail reads.
+  4) Billing reads (invoice list + invoice detail) if present.
+  5) A small % writes: create trip, update status, assign driver (keep low to avoid DB bloat).
+
+C) Concurrency profile:
+- Start: 50 concurrent for 60s
+- Ramp: 200 concurrent for 120s
+- Peak: 500 concurrent for 60s
+- Cooldown: 100 concurrent for 60s
+(Adjust down if Replit resources throttle, but keep the test within 5 minutes.)
+
+D) Report:
+At end, output a report with:
+- Total requests, success %, p50/p95 latency, error breakdown (401/403/404/5xx/timeouts)
+- DB latency from /api/healthz
+- Top 5 slow endpoints
+- Websocket stability notes (if used)
+- Any memory/CPU observations if system metrics endpoint exists.
+
+========================================================
+PHASE 4 — EXIT CRITERIA (MUST SHOW)
+========================================================
+1) Provide a checklist table: Requirement -> Status (OK/Missing/Improved) -> Evidence link/command output.
+2) Provide exact files changed + brief line ranges.
+3) Provide commands run + outcomes:
+   - npm run check (or npx tsc --noEmit)
+   - npm run build
+   - start server + confirm /api/healthz + /api/readyz
+4) Provide the 5-minute load test report.
+
+STOP after completing this single task.
+END

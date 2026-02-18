@@ -172,6 +172,24 @@ export function isDriverUser(user: UserProfile): boolean {
   return user.role === "DRIVER" && user.driverId != null;
 }
 
+function logAccessDenied(req: AuthRequest, reason: string, extra?: Record<string, unknown>) {
+  const entry: Record<string, unknown> = {
+    level: "warn",
+    event: "access_denied",
+    requestId: req.requestId,
+    method: req.method,
+    path: req.path,
+    reason,
+  };
+  if (req.user) {
+    entry.userId = req.user.userId;
+    entry.role = req.user.role;
+    entry.companyId = req.user.companyId ?? null;
+  }
+  if (extra) Object.assign(entry, extra);
+  console.log(JSON.stringify(entry));
+}
+
 export function requireRole(...roles: string[]) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
@@ -184,6 +202,7 @@ export function requireRole(...roles: string[]) {
     if (roles.includes(req.user.role) || roles.includes(effective)) {
       return next();
     }
+    logAccessDenied(req, "role_mismatch", { requiredRoles: roles, actualRole: req.user.role });
     return res.status(403).json({ message: "Forbidden", code: "FORBIDDEN" });
   };
 }
@@ -197,6 +216,7 @@ export function requirePermission(resource: Resource, permission: Permission = "
     if (can(effective, resource, permission)) {
       return next();
     }
+    logAccessDenied(req, "permission_denied", { resource, permission, actualRole: req.user.role });
     return res.status(403).json({ message: "Forbidden", code: "FORBIDDEN" });
   };
 }
@@ -207,6 +227,7 @@ export function opsRouteGuard(req: AuthRequest, res: Response, next: NextFunctio
     return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED" });
   }
   if (OPS_DENIED_ROLES.includes(req.user.role)) {
+    logAccessDenied(req, "ops_route_denied", { actualRole: req.user.role });
     return res.status(403).json({ message: "Forbidden", code: "FORBIDDEN" });
   }
   next();

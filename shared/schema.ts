@@ -2186,3 +2186,19 @@ export const recurringPricingOverrides = pgTable("recurring_pricing_overrides", 
 export const insertRecurringPricingOverrideSchema = createInsertSchema(recurringPricingOverrides).omit({ id: true, createdAt: true });
 export type RecurringPricingOverride = typeof recurringPricingOverrides.$inferSelect;
 export type InsertRecurringPricingOverride = z.infer<typeof insertRecurringPricingOverrideSchema>;
+
+export const routeCache = pgTable("route_cache", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  keyHash: text("key_hash").notNull(),
+  origin: text("origin").notNull(),
+  destination: text("destination").notNull(),
+  mode: text("mode").notNull().default("driving"),
+  distanceMiles: doublePrecision("distance_miles"),
+  durationMinutes: doublePrecision("duration_minutes"),
+  responseJson: jsonb("response_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => [
+  uniqueIndex("rc_key_hash_idx").on(table.keyHash),
+  index("rc_expires_idx").on(table.expiresAt),
+]);

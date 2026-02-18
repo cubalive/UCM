@@ -245,6 +245,11 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
+
+  httpServer.requestTimeout = 30_000;
+  httpServer.headersTimeout = 15_000;
+  httpServer.keepAliveTimeout = 65_000;
+
   httpServer.listen(
     {
       port,
@@ -255,4 +260,32 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  let shuttingDown = false;
+  async function gracefulShutdown(signal: string) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log(`${signal} received — graceful shutdown starting`);
+
+    const { stopJobEngine } = await import("./lib/jobEngine");
+    stopJobEngine();
+
+    httpServer.close(() => {
+      log("HTTP server closed");
+    });
+
+    try {
+      const { pool: dbPool } = await import("./db");
+      await dbPool.end();
+      log("DB pool closed");
+    } catch {}
+
+    setTimeout(() => {
+      log("Forced exit after timeout");
+      process.exit(1);
+    }, 10_000).unref();
+  }
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 })();

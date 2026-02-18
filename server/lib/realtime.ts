@@ -12,6 +12,12 @@ const tripSubscriptions = new Map<number, Set<WebSocket>>();
 
 let wss: WebSocketServer | null = null;
 
+const WS_MAX_MESSAGES_PER_MIN = 60;
+const WS_HEARTBEAT_INTERVAL_MS = 30_000;
+const WS_HEARTBEAT_TIMEOUT_MS = 10_000;
+
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
 function verifyJwt(token: string): { userId: number; role: string; companyId?: number | null } | null {
   try {
     const { verifyToken } = require("../auth");
@@ -19,6 +25,19 @@ function verifyJwt(token: string): { userId: number; role: string; companyId?: n
   } catch {
     return null;
   }
+}
+
+function checkRateLimit(ws: WebSocket): boolean {
+  const meta = ws as any;
+  const now = Date.now();
+  if (!meta._msgTimestamps) meta._msgTimestamps = [];
+  const cutoff = now - 60_000;
+  meta._msgTimestamps = (meta._msgTimestamps as number[]).filter((t: number) => t > cutoff);
+  if (meta._msgTimestamps.length >= WS_MAX_MESSAGES_PER_MIN) {
+    return false;
+  }
+  meta._msgTimestamps.push(now);
+  return true;
 }
 
 export function initWebSocket(httpServer: Server): WebSocketServer {
@@ -39,10 +58,22 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
       return;
     }
 
-    (ws as any)._user = user;
-    (ws as any)._subscribedTrips = new Set<number>();
+    const meta = ws as any;
+    meta._user = user;
+    meta._subscribedTrips = new Set<number>();
+    meta._alive = true;
+    meta._msgTimestamps = [];
+
+    ws.on("pong", () => {
+      meta._alive = true;
+    });
 
     ws.on("message", (raw) => {
+      if (!checkRateLimit(ws)) {
+        ws.send(JSON.stringify({ type: "error", message: "rate_limited" }));
+        ws.close(4429, "Rate limited");
+        return;
+      }
       try {
         const msg = JSON.parse(raw.toString());
         handleMessage(ws, msg);
@@ -50,7 +81,7 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
     });
 
     ws.on("close", () => {
-      const subscribed = (ws as any)._subscribedTrips as Set<number> | undefined;
+      const subscribed = meta._subscribedTrips as Set<number> | undefined;
       if (subscribed) {
         for (const tripId of subscribed) {
           unsubscribeFromTrip(ws, tripId);
@@ -61,7 +92,20 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
     ws.send(JSON.stringify({ type: "connected", ts: Date.now() }));
   });
 
-  console.log("[WS] WebSocket server initialized on /ws");
+  heartbeatTimer = setInterval(() => {
+    if (!wss) return;
+    wss.clients.forEach((ws) => {
+      const meta = ws as any;
+      if (meta._alive === false) {
+        ws.terminate();
+        return;
+      }
+      meta._alive = false;
+      ws.ping();
+    });
+  }, WS_HEARTBEAT_INTERVAL_MS);
+
+  console.log("[WS] WebSocket server initialized on /ws (rate-limit: 60 msg/min, heartbeat: 30s)");
   return wss;
 }
 
