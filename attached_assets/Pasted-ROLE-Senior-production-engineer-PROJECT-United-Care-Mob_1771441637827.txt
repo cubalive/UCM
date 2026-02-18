@@ -1,0 +1,191 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK: Fix pricing/tariffs switch + add monthly membership + optional discount system (clinic/company-level)
+
+CONTEXT
+“Platform Tariffs” switch currently toggles visually but does NOT activate pricing logic server-side. We must make pricing mode a backend source of truth, persisted, and enforced in quote + booking flows. Additionally, support monthly membership billing per clinic/company and percentage discounts when needed.
+
+GOALS
+1) Platform Tariffs switch works in production and changes quote totals deterministically.
+2) Add Membership Plans for clinics/companies (monthly subscription via Stripe) with entitlements.
+3) Add Discount system (percentage) applicable per clinic/company and optionally per trip/quote.
+4) Clinics only see final prices we publish; only SUPER_ADMIN can manage tariffs, memberships, and discounts.
+
+NON-NEGOTIABLES
+- Pricing MUST be computed server-side only.
+- Never expose private tariff tables/values to clinics.
+- Strict RBAC: SUPER_ADMIN only for settings/tariffs/memberships/discounts.
+- Do NOT reset DB; only add minimal tables/columns if missing.
+
+------------------------------------------------------------
+PHASE 1 — SINGLE SOURCE OF TRUTH (Pricing Mode)
+------------------------------------------------------------
+A) Persist platform pricing mode in DB (preferred) or existing settings store.
+Create/extend a settings table if missing:
+
+Table: app_settings
+- key (text, PK)
+- value_json (jsonb)
+- updated_at (timestamptz)
+
+Seed:
+key="pricing"
+value_json={
+  "platform_tariffs_enabled": false,
+  "default_discount_percent": 0
+}
+
+B) Add Admin endpoints (SUPER_ADMIN only)
+- GET  /api/admin/settings/pricing
+  returns: { platform_tariffs_enabled, default_discount_percent }
+- POST /api/admin/settings/pricing
+  body: { platform_tariffs_enabled?: boolean, default_discount_percent?: number }
+  validates: discount percent 0..100
+  persists immediately
+
+C) Add backend logging (no sensitive values)
+On quote compute:
+- "Pricing mode: platform_tariffs_enabled=true/false"
+- "Discount applied: X% (clinic or default)"
+Do NOT log tariff numbers.
+
+------------------------------------------------------------
+PHASE 2 — MEMBERSHIP (Monthly Subscription per Clinic/Company)
+------------------------------------------------------------
+A) Data model (minimal)
+Table: clinic_memberships
+- id (uuid, PK)
+- clinic_id (uuid, FK clinics.id, unique)
+- status (text) enum: "inactive"|"trialing"|"active"|"past_due"|"canceled"
+- plan_code (text) enum: "basic"|"pro"|"enterprise" (or your names)
+- stripe_customer_id (text, nullable)
+- stripe_subscription_id (text, nullable)
+- current_period_end (timestamptz, nullable)
+- included_discount_percent (numeric, default 0)  // default discount from membership plan
+- monthly_fee_cents (int, default 0)             // for reporting
+- created_at, updated_at
+
+B) Admin UI (SUPER_ADMIN)
+Settings → Billing → Membership Plans
+- Define plan tiers (code, monthly_fee, included_discount_percent, features)
+- Button: “Create/Update Stripe Price IDs” (store in env or DB settings)
+
+C) Clinic billing flow (Stripe)
+Implement:
+- POST /api/admin/clinics/:clinicId/membership/checkout
+  Creates Stripe Checkout Session for subscription (uses Stripe price ID)
+- Webhooks:
+  - customer.subscription.created/updated/deleted
+  - invoice.payment_succeeded / invoice.payment_failed
+Update clinic_memberships.status and period_end.
+
+D) Enforcement (optional but recommended)
+If membership is required to place bookings:
+- On request creation endpoint: reject if status not active (unless super_admin override)
+If membership not required:
+- Still record status and apply membership discount when active.
+
+------------------------------------------------------------
+PHASE 3 — DISCOUNTS (Percent) at Clinic + Optional Per Trip
+------------------------------------------------------------
+A) Clinic-level discount override
+Add column to clinics table (if not already):
+- discount_percent numeric default null  // null means use membership discount or default
+
+B) Per-quote/per-trip discount (optional)
+Allow SUPER_ADMIN to pass discount in quote request for special cases:
+- quote endpoint accepts optional: discount_percent (0..100) BUT only if requester is SUPER_ADMIN
+Clinics cannot set this.
+
+C) Discount precedence order (use first available)
+1) explicit discount_percent passed by SUPER_ADMIN (per-quote)  [highest priority]
+2) clinics.discount_percent (if not null)
+3) active membership included_discount_percent
+4) app_settings.pricing.default_discount_percent
+5) 0
+
+D) Apply discount correctly
+Compute:
+discount_amount = subtotal * (discount_percent/100)
+total = subtotal - discount_amount + fees/taxes (if you have)
+Include in response:
+{
+  subtotal,
+  discount_percent,
+  discount_amount,
+  total,
+  pricing_mode: { platform_tariffs_enabled }
+}
+
+------------------------------------------------------------
+PHASE 4 — MAKE “PLATFORM TARIFFS” SWITCH ACTUALLY WORK
+------------------------------------------------------------
+A) Ensure quote computation reads the DB setting every time (or cached with TTL <= 60s)
+Pseudo:
+const pricingSettings = await getPricingSettings()
+const usePlatformTariffs = pricingSettings.platform_tariffs_enabled === true
+
+B) Pricing engine behavior
+If usePlatformTariffs=true:
+- Use PRIVATE tariff table (internal) for breakdown.
+If false:
+- Use PUBLIC/default pricing (or clinic contract pricing if exists).
+
+C) Persist pricing mode used for auditability
+On any saved quote/trip_request/trip:
+- store platform_tariffs_enabled_used (boolean)
+- store discount_percent_used (numeric)
+- store discount_amount_used (numeric)
+So reports are consistent even if settings change later.
+
+------------------------------------------------------------
+PHASE 5 — RBAC + VISIBILITY RULES (CRITICAL)
+------------------------------------------------------------
+- Only SUPER_ADMIN can:
+  - toggle platform tariffs
+  - view/edit private tariffs
+  - manage membership plans
+  - apply manual discounts
+- Clinics can:
+  - request quote (receives final numbers only)
+  - create booking if allowed by membership rules
+- Drivers/patients: no access
+
+------------------------------------------------------------
+PHASE 6 — VERIFICATION CHECKLIST (MUST PASS)
+------------------------------------------------------------
+1) Toggle ON in Settings → Pricing
+   - Refresh page: state persists
+   - Quote total changes vs OFF
+2) Toggle OFF
+   - Quote reverts correctly
+3) Discount tests
+   - Set default_discount_percent=10 → quote includes discount
+   - Set clinic discount_percent=15 → overrides default
+   - Activate membership with 5% → applies if clinic discount null
+   - SUPER_ADMIN per-quote discount=25 → overrides all
+4) Membership tests
+   - Create checkout session works
+   - Webhook updates membership status to active
+   - If enforcement enabled: clinic cannot book unless active
+5) Security
+   - Clinic user cannot call admin endpoints (403)
+   - No private tariff values appear in any clinic response or logs
+
+DELIVERABLES
+- List of modified files
+- New/extended DB schema (only additions)
+- Proof via logs and sample quote JSON showing:
+  platform_tariffs_enabled, discount_percent, discount_amount, total
+- Confirm production deploy uses same behavior (republish + validate)
+
+Proceed sequentially, implement fully, verify, then stop.

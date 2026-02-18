@@ -1,5 +1,6 @@
 import { etaMinutes } from "./googleMaps";
 import { getActivePricingProfile, DEFAULT_RATES, type PricingRates } from "./pricingResolver";
+import { getPricingSettings, resolveDiscountPercent, type DiscountResolution } from "./pricingSettings";
 
 export interface PricingInput {
   pickupAddress: string;
@@ -10,6 +11,8 @@ export interface PricingInput {
   roundTrip: boolean;
   passengers?: number;
   cityName?: string;
+  clinicId?: number | null;
+  superAdminDiscountOverride?: number;
 }
 
 export interface PricingResult {
@@ -27,6 +30,11 @@ export interface PricingResult {
   ratesUsed: Record<string, number>;
   profileName: string;
   profileSource: string;
+  platformTariffsEnabled: boolean;
+  discountPercent: number;
+  discountSource: string;
+  discountAmountCents: number;
+  preDiscountTotalCents: number;
 }
 
 function isPeakHour(timeStr: string, rates: PricingRates): boolean {
@@ -48,14 +56,23 @@ export async function calculatePrivateQuote(input: PricingInput): Promise<Pricin
   let profileName = "Hardcoded Fallback";
   let profileSource = "hardcoded";
 
-  try {
-    const resolved = await getActivePricingProfile(cityName, "private");
-    rates = resolved.rates;
-    profileName = resolved.profileName;
-    profileSource = resolved.source;
-  } catch (err: any) {
-    console.warn(`[Pricing] Failed to resolve DB tariffs for city=${cityName}, using hardcoded defaults:`, err.message);
+  const pricingSettings = await getPricingSettings();
+  const platformTariffsEnabled = pricingSettings.platform_tariffs_enabled;
+
+  if (platformTariffsEnabled) {
+    try {
+      const resolved = await getActivePricingProfile(cityName, "private");
+      rates = resolved.rates;
+      profileName = resolved.profileName;
+      profileSource = resolved.source;
+    } catch (err: any) {
+      console.warn(`[Pricing] Failed to resolve DB tariffs for city=${cityName}, using hardcoded defaults:`, err.message);
+      rates = { ...DEFAULT_RATES };
+    }
+  } else {
     rates = { ...DEFAULT_RATES };
+    profileName = "Default Rates (tariffs disabled)";
+    profileSource = "hardcoded";
   }
 
   const eta = await etaMinutes(input.pickupAddress, input.dropoffAddress);
@@ -76,8 +93,21 @@ export async function calculatePrivateQuote(input: PricingInput): Promise<Pricin
   const roundTripMultiplier = input.roundTrip ? rates.roundTripMultiplier : 1;
   subtotalCents = Math.round(subtotalCents * roundTripMultiplier);
 
-  let totalCents = roundToNearest50(subtotalCents);
-  totalCents = Math.max(rates.minimumFareCents, Math.min(rates.maxFareCents, totalCents));
+  let preDiscountTotalCents = roundToNearest50(subtotalCents);
+  preDiscountTotalCents = Math.max(rates.minimumFareCents, Math.min(rates.maxFareCents, preDiscountTotalCents));
+
+  const discount: DiscountResolution = await resolveDiscountPercent(
+    input.clinicId ?? null,
+    input.superAdminDiscountOverride,
+  );
+
+  let discountAmountCents = 0;
+  let totalCents = preDiscountTotalCents;
+  if (discount.discountPercent > 0) {
+    discountAmountCents = Math.round(preDiscountTotalCents * (discount.discountPercent / 100));
+    totalCents = preDiscountTotalCents - discountAmountCents;
+    totalCents = Math.max(0, totalCents);
+  }
 
   const breakdown: string[] = [];
   if (rates.baseFareCents > 0) {
@@ -93,6 +123,9 @@ export async function calculatePrivateQuote(input: PricingInput): Promise<Pricin
   }
   if (input.roundTrip) {
     breakdown.push(`×${roundTripMultiplier} round-trip multiplier`);
+  }
+  if (discount.discountPercent > 0) {
+    breakdown.push(`-${discount.discountPercent}% discount (${discount.source}) = -$${(discountAmountCents / 100).toFixed(2)}`);
   }
   breakdown.push(`Total: $${(totalCents / 100).toFixed(2)} (min $${(rates.minimumFareCents / 100).toFixed(2)}, max $${(rates.maxFareCents / 100).toFixed(2)})`);
 
@@ -122,5 +155,10 @@ export async function calculatePrivateQuote(input: PricingInput): Promise<Pricin
     ratesUsed,
     profileName,
     profileSource,
+    platformTariffsEnabled,
+    discountPercent: discount.discountPercent,
+    discountSource: discount.source,
+    discountAmountCents,
+    preDiscountTotalCents,
   };
 }

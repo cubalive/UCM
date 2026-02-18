@@ -25,6 +25,7 @@ import { registerOpsRoutes, startOpsAlertScheduler } from "../lib/opsRoutes";
 import { registerAutomationRoutes } from "../lib/automationRoutes";
 import { registerScheduleRoutes } from "../lib/scheduleRoutes";
 import { registerPricingRoutes } from "../lib/pricingRoutes";
+import { registerAdminPricingRoutes } from "../lib/adminPricingRoutes";
 import { registerAssignmentRoutes } from "../lib/assignmentRoutes";
 import { registerPublicApiRoutes } from "../lib/publicApiRoutes";
 import { registerClinicBillingRoutes } from "../lib/clinicBillingRoutes";
@@ -62,6 +63,7 @@ export async function registerRoutes(
   registerAutomationRoutes(app);
   registerScheduleRoutes(app);
   registerPricingRoutes(app);
+  registerAdminPricingRoutes(app);
   registerAssignmentRoutes(app, authMiddleware);
   registerPublicApiRoutes(app);
   registerClinicBillingRoutes(app);

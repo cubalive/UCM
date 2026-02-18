@@ -603,6 +603,7 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
           isWheelchair: (parsed.data as any).serviceType === "wheelchair",
           roundTrip: (parsed.data as any).roundTrip === true,
           cityName: city?.name || "ALL",
+          clinicId: (parsed.data as any).clinicId || null,
         });
         pricingFields.priceTotalCents = quote.totalCents;
         pricingFields.pricingSnapshot = {
@@ -610,10 +611,15 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
           baseMiles: quote.baseMiles,
           baseMinutes: quote.baseMinutes,
           totalCents: quote.totalCents,
+          preDiscountTotalCents: quote.preDiscountTotalCents,
           breakdown: quote.breakdown,
           ratesUsed: quote.ratesUsed,
           profileName: quote.profileName,
           profileSource: quote.profileSource,
+          platformTariffsEnabled: quote.platformTariffsEnabled,
+          discountPercent: quote.discountPercent,
+          discountSource: quote.discountSource,
+          discountAmountCents: quote.discountAmountCents,
         };
       } catch (err: any) {
         console.warn(`[Pricing] Failed to compute quote for new trip, continuing without:`, err.message);

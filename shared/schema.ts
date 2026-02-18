@@ -214,6 +214,7 @@ export const clinics = pgTable("clinics", {
   facilityType: facilityTypeEnum("facility_type").notNull().default("clinic"),
   companyId: integer("company_id").references(() => companies.id),
   active: boolean("active").notNull().default(true),
+  discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -2186,6 +2187,41 @@ export const recurringPricingOverrides = pgTable("recurring_pricing_overrides", 
 export const insertRecurringPricingOverrideSchema = createInsertSchema(recurringPricingOverrides).omit({ id: true, createdAt: true });
 export type RecurringPricingOverride = typeof recurringPricingOverrides.$inferSelect;
 export type InsertRecurringPricingOverride = z.infer<typeof insertRecurringPricingOverrideSchema>;
+
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  valueJson: jsonb("value_json").notNull().default({}),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type AppSetting = typeof appSettings.$inferSelect;
+
+export const clinicMembershipStatusEnum = pgEnum("clinic_membership_status", [
+  "inactive", "trialing", "active", "past_due", "canceled",
+]);
+
+export const clinicMembershipPlanEnum = pgEnum("clinic_membership_plan", [
+  "basic", "pro", "enterprise",
+]);
+
+export const clinicMemberships = pgTable("clinic_memberships", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id).unique(),
+  companyId: integer("company_id").references(() => companies.id),
+  status: clinicMembershipStatusEnum("status").notNull().default("inactive"),
+  planCode: clinicMembershipPlanEnum("plan_code").notNull().default("basic"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  currentPeriodEnd: timestamp("current_period_end"),
+  includedDiscountPercent: numeric("included_discount_percent", { precision: 5, scale: 2 }).notNull().default("0"),
+  monthlyFeeCents: integer("monthly_fee_cents").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertClinicMembershipSchema = createInsertSchema(clinicMemberships).omit({ id: true, createdAt: true, updatedAt: true });
+export type ClinicMembership = typeof clinicMemberships.$inferSelect;
+export type InsertClinicMembership = z.infer<typeof insertClinicMembershipSchema>;
 
 export const routeCache = pgTable("route_cache", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
