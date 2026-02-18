@@ -48,12 +48,13 @@ async function main() {
     : dbHost;
   console.log(`  Host: ${redacted}  Port: ${dbPort}  DB: ${dbName}`);
 
+  const isSupabaseHost = dbHost.includes("supabase");
   if (dbPort === 6543) {
     pass("Pooler port 6543 detected");
-  } else if (process.env.NODE_ENV === "production") {
-    fail("Pooler port", `Expected 6543, got ${dbPort}`);
+  } else if (process.env.NODE_ENV === "production" && isSupabaseHost) {
+    fail("Pooler port", `Supabase host requires port 6543, got ${dbPort}`);
   } else {
-    warn("Pooler port", `Using port ${dbPort} (not pooler). OK for dev.`);
+    warn("Pooler port", `Using port ${dbPort} (not pooler). OK for non-Supabase or dev.`);
   }
 
   try {

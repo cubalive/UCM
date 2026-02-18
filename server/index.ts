@@ -206,6 +206,7 @@ app.use((req, res, next) => {
       dbHost = u.hostname;
       dbPort = parseInt(u.port || "5432", 10);
     } catch {}
+    const isSupabaseHost = dbHost.includes("supabase");
     const poolerDetected = dbPort === 6543;
 
     console.log(JSON.stringify({
@@ -214,16 +215,17 @@ app.use((req, res, next) => {
       appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
       dbHost: dbHost.replace(/^(.{6}).*(.{6})$/, "$1***$2"),
       dbPort,
+      isSupabaseHost,
       poolerDetected,
       sessionCookie: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax", domain: ".unitedcaremobility.com (auto)", path: "/" },
     }));
 
-    if (IS_PROD && !poolerDetected) {
-      console.error("[FATAL] Production must use Supabase pooler (port 6543). Current port: " + dbPort);
+    if (IS_PROD && isSupabaseHost && !poolerDetected) {
+      console.error("[FATAL] Production Supabase DB must use pooler (port 6543). Current port: " + dbPort);
       process.exit(1);
     }
-    if (!IS_PROD && !poolerDetected) {
-      console.warn("[WARN] Dev environment not using pooler (port 6543). Current port: " + dbPort);
+    if (!poolerDetected && isSupabaseHost) {
+      console.warn("[WARN] Not using Supabase pooler (port 6543). Current port: " + dbPort);
     }
   }
 
