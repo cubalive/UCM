@@ -195,7 +195,7 @@ app.use((req, res, next) => {
 
 (async () => {
   {
-    const connStr = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || "";
+    const connStr = (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || "").trim();
     const dbSource = process.env.SUPABASE_DB_URL ? "SUPABASE_DB_URL" : "DATABASE_URL";
     let dbHost = "unknown", dbPort = 0;
     try {
