@@ -6,7 +6,7 @@ import pgConnStringParse from "pg-connection-string";
 const IS_PROD = process.env.NODE_ENV === "production";
 
 const rawConnStr = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || "";
-const connStr = rawConnStr.trim();
+let connStr = rawConnStr.trim();
 
 if (!connStr) {
   throw new Error("Database connection string must be set (SUPABASE_DB_URL or DATABASE_URL)");
@@ -24,6 +24,32 @@ try {
   parsedUrl = new URL(connStr);
 } catch {
   throw new Error("Database connection string is not valid (failed URL parse)");
+}
+
+const isPoolerPort = parsedUrl.port === "6543";
+const currentUser = decodeURIComponent(parsedUrl.username);
+if (isPoolerPort && currentUser === "postgres" && !currentUser.includes(".")) {
+  let projectRef = "";
+  const supabaseUrl = process.env.SUPABASE_URL || "";
+  if (supabaseUrl) {
+    try {
+      projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+    } catch {}
+  }
+  if (projectRef && projectRef.length > 5) {
+    const correctedUser = `postgres.${projectRef}`;
+    parsedUrl.username = encodeURIComponent(correctedUser);
+    connStr = parsedUrl.toString();
+    console.warn(
+      `[BOOT-WARN] Pooler port 6543 requires username "postgres.PROJECT_REF" but found "postgres". ` +
+      `Auto-corrected to "postgres.${projectRef.substring(0, 6)}..." using SUPABASE_URL project ref.`
+    );
+  } else if (isPoolerPort) {
+    console.error(
+      `[BOOT-WARN] Pooler port 6543 requires username "postgres.PROJECT_REF" but found "postgres". ` +
+      `SUPABASE_URL not available to extract project ref — connection may fail with "Tenant or user not found".`
+    );
+  }
 }
 
 const pgParsed = pgConnStringParse.parse(connStr);
