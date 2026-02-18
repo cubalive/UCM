@@ -183,7 +183,7 @@ function LiveMapRoute() {
   const { user } = useAuth();
   if (!user) return <Redirect to="/unauthorized" />;
   const role = user.role.toUpperCase();
-  if (user.clinicId && role === "VIEWER") return <Redirect to="/unauthorized" />;
+  if (user.clinicId && (role === "VIEWER" || role === "CLINIC_USER")) return <Redirect to="/unauthorized" />;
   const hasAccess = can(user.role, "dispatch") || ["VIEWER", "DRIVER"].includes(role);
   if (!hasAccess) return <Redirect to="/unauthorized" />;
   return <LiveMapPage />;
@@ -213,6 +213,16 @@ function ClinicRoute({ component: Component }: { component: React.ComponentType 
   return <Component />;
 }
 
+function ClinicOrPermissionRoute({ resource, component: Component }: { resource: Resource; component: React.ComponentType }) {
+  const { user } = useAuth();
+  if (!user) return <Redirect to="/unauthorized" />;
+  const isClinicUser = user.clinicId && (user.role.toUpperCase() === "CLINIC_USER" || user.role.toUpperCase() === "VIEWER");
+  if (isClinicUser || can(user.role, resource)) {
+    return <Component />;
+  }
+  return <Redirect to="/unauthorized" />;
+}
+
 function SuperAdminRoute({ component: Component }: { component: React.ComponentType }) {
   const { user } = useAuth();
   if (!user) return <Redirect to="/unauthorized" />;
@@ -227,7 +237,7 @@ function HomeRedirect() {
   if (role === "DRIVER") {
     return <Redirect to="/driver" />;
   }
-  if (user.clinicId && role === "VIEWER") {
+  if (user.clinicId && (role === "VIEWER" || role === "CLINIC_USER")) {
     return <Redirect to="/clinic-trips" />;
   }
   if (can(user.role, "dashboard")) {
@@ -289,7 +299,7 @@ function Router() {
       <Route path="/clinic-trips">{() => <ClinicRoute component={ClinicTripsPage} />}</Route>
       <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
-      <Route path="/invoices">{() => <ProtectedRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>
+      <Route path="/invoices">{() => <ClinicOrPermissionRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>
       <Route path="/billing">{() => <ProtectedRoute resource="invoices" component={BillingPage} />}</Route>
       <Route path="/clinic-billing">{() => <ProtectedRoute resource="invoices" component={ClinicBillingPage} />}</Route>
       <Route path="/pricing">{() => <ProtectedRoute resource="audit" component={PricingPage} />}</Route>
@@ -307,8 +317,8 @@ function Router() {
       <Route path="/tp-payroll">{() => <ProtectedRoute resource="payroll" component={TpPayrollPage} />}</Route>
       <Route path="/billing-config">{() => <ProtectedRoute resource="billing" component={BillingTariffsPage} />}</Route>
       <Route path="/platform-fees">{() => <ProtectedRoute resource="billing" component={PlatformFeesPage} />}</Route>
-      <Route path="/clinic-billing-v2">{() => <ProtectedRoute resource="billing" component={ClinicBillingV2Page} />}</Route>
-      <Route path="/support-chat">{() => <ProtectedRoute resource="support" component={SupportChatPage} />}</Route>
+      <Route path="/clinic-billing-v2">{() => <ClinicOrPermissionRoute resource="billing" component={ClinicBillingV2Page} />}</Route>
+      <Route path="/support-chat">{() => <ClinicOrPermissionRoute resource="support" component={SupportChatPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

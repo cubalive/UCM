@@ -143,11 +143,13 @@ export function AppSidebar() {
   const clinicNavItems: NavItem[] = [
     { titleKey: "nav.clinicPortal", url: "/clinic-trips", icon: Stethoscope, resource: "trips" },
     { titleKey: "nav.invoices", url: "/invoices", icon: FileText, resource: "invoices" },
+    { titleKey: "nav.clinicBillingV2", url: "/clinic-billing-v2", icon: Receipt, resource: "billing" },
+    { titleKey: "nav.supportChat", url: "/support-chat", icon: MessageSquare, resource: "support" },
   ];
 
   const visibleNav = isDriver
     ? driverNavItems
-    : isClinic && upperRole === "VIEWER"
+    : isClinic && (upperRole === "VIEWER" || upperRole === "CLINIC_USER")
     ? clinicNavItems
     : navItems.filter((item) => {
         if (item.url === "/live-map" && ["VIEWER", "DRIVER"].includes(upperRole)) return true;
