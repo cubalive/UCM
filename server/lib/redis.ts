@@ -36,17 +36,46 @@ function classifyKey(key: string): string | null {
   return null;
 }
 
+const redisConfig = {
+  hasRestUrl: !!UPSTASH_URL,
+  hasRestToken: !!UPSTASH_TOKEN,
+  clientType: "upstash-rest" as const,
+  envVarsExpected: ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"],
+};
+
 if (UPSTASH_URL && UPSTASH_TOKEN) {
   try {
     redis = new Redis({ url: UPSTASH_URL, token: UPSTASH_TOKEN });
     connected = true;
-    console.log("[REDIS] Upstash Redis client initialized (REST mode)");
+    console.log(JSON.stringify({
+      event: "redis_init",
+      status: "connected",
+      ...redisConfig,
+    }));
   } catch (err: any) {
     lastError = err.message;
-    console.warn(`[REDIS] Failed to initialize: ${err.message}. Falling back to in-memory cache.`);
+    console.warn(JSON.stringify({
+      event: "redis_init",
+      status: "init_error",
+      error: err.message,
+      ...redisConfig,
+    }));
   }
 } else {
-  console.warn("[REDIS] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN not set. Using in-memory cache fallback.");
+  console.warn(JSON.stringify({
+    event: "redis_init",
+    status: "not_configured",
+    fallback: "in-memory",
+    ...redisConfig,
+  }));
+}
+
+export function getRedisConfig() {
+  return {
+    ...redisConfig,
+    connected,
+    lastError,
+  };
 }
 
 export async function getJson<T>(key: string): Promise<T | null> {

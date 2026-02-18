@@ -1003,6 +1003,32 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/redis/ping", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res) => {
+    try {
+      const { pingRedis, getRedisConfig } = await import("./redis");
+      const config = getRedisConfig();
+      if (!config.connected) {
+        return res.json({
+          ok: false,
+          latencyMs: 0,
+          error: !config.hasRestUrl || !config.hasRestToken
+            ? "Missing env vars: " + config.envVarsExpected.filter((k, i) => i === 0 ? !config.hasRestUrl : !config.hasRestToken).join(", ")
+            : config.lastError || "Redis client not initialized",
+          config: { hasRestUrl: config.hasRestUrl, hasRestToken: config.hasRestToken, clientType: config.clientType },
+        });
+      }
+      const ping = await pingRedis();
+      return res.json({
+        ok: ping.ok,
+        latencyMs: ping.latencyMs,
+        error: ping.error || null,
+        config: { hasRestUrl: config.hasRestUrl, hasRestToken: config.hasRestToken, clientType: config.clientType },
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, latencyMs: 0, error: err.message?.substring(0, 200) });
+    }
+  });
+
   function csvEscape(val: unknown): string {
     if (val === null || val === undefined) return "";
     const s = typeof val === "object" ? JSON.stringify(val) : String(val);
