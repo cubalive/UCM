@@ -1,0 +1,199 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK:
+Seed realistic TEST ecosystem using existing schema.
+
+We must create:
+- 5 companies
+- 5 clinics (1 per company)
+- 20 drivers
+- 10 vehicles
+- 50 patients
+- 40 trips
+
+ALL records must be prefixed:
+"TEST - UCM"
+
+Must be idempotent.
+Must not modify real data.
+Must use UPSERT by stable unique fields.
+
+-------------------------------------------------------
+PHASE 1 — VERIFY TABLES EXIST
+-------------------------------------------------------
+Confirm existence of:
+companies
+clinics
+users
+drivers
+vehicles
+driver_vehicle_assignments
+patients
+trips
+
+Log confirmation before proceeding.
+
+-------------------------------------------------------
+PHASE 2 — CREATE 5 TEST COMPANIES
+-------------------------------------------------------
+Insert into companies:
+
+Name:
+TEST - UCM Las Vegas
+TEST - UCM Henderson
+TEST - UCM Summerlin
+TEST - UCM North LV
+TEST - UCM Boulder
+
+Slug:
+test-ucm-lasvegas
+test-ucm-henderson
+etc.
+
+Use UPSERT by slug.
+
+-------------------------------------------------------
+PHASE 3 — CREATE CLINIC PER COMPANY
+-------------------------------------------------------
+For each company create 1 clinic in table `clinics`:
+
+Name:
+TEST - UCM Clinic <City>
+
+Link clinic.company_id properly.
+
+-------------------------------------------------------
+PHASE 4 — CREATE USERS (RBAC TEST)
+-------------------------------------------------------
+Create in users table:
+
+For each company:
+1 clinic_user
+1 dispatch
+4 drivers
+
+Email format:
+clinic.lasvegas@ucmtest.local
+dispatch.lasvegas@ucmtest.local
+driver01.lasvegas@ucmtest.local
+
+Role values must match existing enum in users table.
+
+Temporary password:
+UCMTest123!
+
+If Supabase Auth required:
+Use admin auth API to create accounts.
+If not, insert directly in users.
+
+-------------------------------------------------------
+PHASE 5 — CREATE DRIVERS
+-------------------------------------------------------
+Insert 4 drivers per company in `drivers`.
+
+Link:
+drivers.user_id
+drivers.company_id
+
+Set:
+status = 'available' for 3
+status = 'on_hold' for 1
+
+-------------------------------------------------------
+PHASE 6 — CREATE VEHICLES
+-------------------------------------------------------
+Per company create:
+
+1 sedan
+1 wheelchair
+
+Insert in `vehicles`:
+- company_id
+- vehicle_type ('sedan' or 'wheelchair')
+- color (white, black, red, blue)
+- plate_number unique
+
+Then insert in:
+driver_vehicle_assignments
+Link at least 2 drivers per company to vehicles.
+
+-------------------------------------------------------
+PHASE 7 — CREATE PATIENTS
+-------------------------------------------------------
+Insert 10 patients per clinic in `patients`.
+
+Name:
+TEST - Patient 01 LV
+
+Include:
+clinic_id
+mobility_type (sedan or wheelchair)
+phone dummy
+
+-------------------------------------------------------
+PHASE 8 — CREATE TRIPS
+-------------------------------------------------------
+Create 8 trips per clinic (40 total)
+
+Rules:
+- pickup_time NOT NULL
+- dropoff_time optional but realistic
+- status = 'scheduled'
+- some driver_id NULL
+- some assigned
+- wheelchair trips only if vehicle_type = wheelchair
+- schedule within next 7 days
+
+Include:
+clinic_id
+company_id
+patient_id
+pickup_address (real LV addresses)
+dropoff_address
+required_vehicle_type
+estimated_duration placeholder if needed
+
+-------------------------------------------------------
+PHASE 9 — VALIDATION
+-------------------------------------------------------
+After seed, log:
+
+COUNT companies where name LIKE 'TEST - UCM%'
+COUNT drivers linked to those companies
+COUNT vehicles linked
+COUNT patients
+COUNT trips
+
+Validate:
+- No trip has NULL pickup_time
+- At least 10 trips unassigned
+- At least 5 wheelchair trips exist
+
+If any constraint fails:
+Stop and log exact constraint.
+
+-------------------------------------------------------
+PHASE 10 — SAFETY
+-------------------------------------------------------
+Never touch:
+billing tables
+payroll tables
+invoices
+stripe tables
+tri_scores
+quarterly_rankings
+
+Only seed core operational tables.
+
+Proceed sequentially.
+Verify each phase.
+Do not exit until counts match expected totals.
