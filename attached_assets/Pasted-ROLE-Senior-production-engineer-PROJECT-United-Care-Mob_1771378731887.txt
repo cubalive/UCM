@@ -1,0 +1,146 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT modify business logic
+- Do NOT reset database
+- Audit only + enforce validation
+- Verify before exit
+
+TASK:
+Perform a COMPLETE Production Secrets Audit.
+
+GOAL:
+1) Detect ALL required environment variables.
+2) Detect missing, empty, or malformed values.
+3) Print structured report.
+4) Fail fast in production if any critical secret is missing.
+5) Do NOT expose secret values in logs (only show masked).
+
+========================================================
+PHASE 1 — DEFINE REQUIRED SECRETS
+========================================================
+
+CRITICAL (App must NOT start in production without these):
+
+DATABASE_URL
+SESSION_SECRET
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+STRIPE_CONNECT_CLIENT_ID (if using Connect)
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+GOOGLE_MAPS_API_KEY
+
+IMPORTANT (warn but allow start):
+
+NODE_ENV
+APP_DOMAIN
+FRONTEND_URL
+REDIS_URL (if exists)
+SMTP_HOST
+SMTP_USER
+SMTP_PASS
+
+========================================================
+PHASE 2 — IMPLEMENT SECRET VALIDATOR
+========================================================
+
+Create file:
+server/utils/validateEnv.ts
+
+Behavior:
+
+- Check presence
+- Check not empty string
+- Check obvious invalid placeholders like:
+  "YOUR_PASSWORD"
+  "changeme"
+  "test"
+  undefined
+  null
+
+- DATABASE_URL must:
+   - include "postgresql://"
+   - include "@"
+   - include port 6543 (production requirement)
+   - if port != 6543 in production → throw error
+
+- STRIPE_SECRET_KEY must start with:
+   - sk_test_ OR sk_live_
+
+- STRIPE_WEBHOOK_SECRET must start with:
+   - whsec_
+
+- GOOGLE_MAPS_API_KEY length >= 20
+
+- SESSION_SECRET length >= 32
+
+========================================================
+PHASE 3 — PRODUCTION FAIL FAST
+========================================================
+
+In server startup (before app.listen):
+
+Call validateEnv()
+
+If NODE_ENV === "production":
+   - Throw error and STOP server if any CRITICAL missing
+Else:
+   - Log warnings only
+
+========================================================
+PHASE 4 — STRUCTURED MASKED REPORT
+========================================================
+
+On startup print:
+
+=== ENVIRONMENT AUDIT ===
+DATABASE_URL: OK (masked)
+STRIPE_SECRET_KEY: OK
+STRIPE_WEBHOOK_SECRET: OK
+SUPABASE_SERVICE_ROLE_KEY: MISSING
+GOOGLE_MAPS_API_KEY: OK
+--------------------------------
+Critical missing: 1
+Warnings: 0
+==========================
+
+Mask values like:
+postgresql://*****@*****:6543/***
+
+Never log raw secret values.
+
+========================================================
+PHASE 5 — OPS ENDPOINT (SUPER_ADMIN ONLY)
+========================================================
+
+Add endpoint:
+
+GET /api/ops/env-check
+
+Returns:
+
+{
+  criticalMissing: [],
+  warnings: [],
+  environment: "production",
+  poolerDetected: true
+}
+
+Must be SUPER_ADMIN gated.
+
+========================================================
+PHASE 6 — VERIFY
+========================================================
+
+- npm run check
+- npm run build
+- Confirm server fails if DATABASE_URL missing
+- Confirm server starts if all present
+- Confirm masked logging works
+
+END
