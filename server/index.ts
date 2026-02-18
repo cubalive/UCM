@@ -195,7 +195,8 @@ app.use((req, res, next) => {
 
 (async () => {
   {
-    const connStr = process.env.DATABASE_URL || "";
+    const connStr = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || "";
+    const dbSource = process.env.SUPABASE_DB_URL ? "SUPABASE_DB_URL" : "DATABASE_URL";
     let dbHost = "unknown", dbPort = 0;
     try {
       const u = new URL(connStr);
@@ -209,6 +210,7 @@ app.use((req, res, next) => {
       event: "boot_config",
       nodeEnv: process.env.NODE_ENV || "undefined",
       appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
+      dbSource,
       dbHost: dbHost.replace(/^(.{6}).*(.{6})$/, "$1***$2"),
       dbPort,
       isSupabaseHost,
