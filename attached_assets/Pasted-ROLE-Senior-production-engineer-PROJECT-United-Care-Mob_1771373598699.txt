@@ -1,0 +1,128 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Clinic Billing UI is missing for clinic users. Diagnose end-to-end (nav → routes → permissions → API → data) and restore it so clinics can see invoices + pay (Stripe Connect already implemented).
+
+CONTEXT:
+- Clinic users are VIEWER-only for operations, but must have Billing access:
+  - See invoice list + invoice detail
+  - Pay invoice (Stripe Checkout)
+  - Download CSV/JSON exports (Safari-safe auth fetch)
+- Company roles and superadmin can manage billing settings, but clinic sees ONLY their own clinic.
+
+SYMPTOM:
+- “Billing” (or “Invoices”) section does not appear in clinic portal OR loads blank/404.
+- The backend billing work exists, but clinic UI surface is missing/not wired/blocked by permissions/route gating.
+
+HARD REQUIREMENTS:
+1) No DB reset, no destructive migrations.
+2) Must enforce strict scoping:
+   - CLINIC_USER: clinic_id = actor.clinicId, company derived from that clinic
+   - Non-superadmin company roles: company_id = actor.companyId
+3) Must use requirePermission() (or explicit CLINIC_USER-only middleware if CLINIC_USER isn’t in the matrix).
+4) Keep runtime behavior stable; only add missing wiring.
+5) Verify with real seeded clinic credentials.
+
+------------------------------------------------------------
+STEP 1 — FIND THE EXPECTED SURFACE
+------------------------------------------------------------
+A) Locate the clinic portal layout + navigation:
+- Search for routes/pages containing: "billing", "invoice", "invoices", "payments", "stripe"
+- Confirm whether there is a clinic-specific sidebar/menu and how it decides which items show.
+
+B) Identify the intended clinic billing route(s), e.g.:
+- /clinic/billing
+- /clinic/invoices
+- /billing
+- /invoices
+Document what exists and what is missing.
+
+------------------------------------------------------------
+STEP 2 — CONFIRM API ENDPOINTS EXIST AND ARE REACHABLE
+------------------------------------------------------------
+A) Locate backend endpoints for clinic invoices:
+- Search server for: "/api/clinic", "clinic/billing", "invoices/:id/pay", "checkout", "receipt_url"
+B) Confirm these routes are registered (server/index or route registry).
+C) Confirm clinic auth context resolves correctly:
+- getActorContext() must return clinicId for CLINIC_USER
+D) Ensure clinic endpoints do NOT require company-only permissions by mistake.
+
+If endpoints are missing, implement minimally:
+GET  /api/clinic/billing/invoices
+GET  /api/clinic/billing/invoices/:id
+POST /api/clinic/billing/invoices/:id/pay   (if already exists, keep)
+(Exports optional if already planned)
+
+------------------------------------------------------------
+STEP 3 — FIX PERMISSION / ROLE GATING (MOST LIKELY ROOT CAUSE)
+------------------------------------------------------------
+Common failure modes:
+1) CLINIC_USER not in ROLE_PERMISSIONS matrix so requirePermission blocks them
+2) Nav hides billing because it checks isDispatchLevel() or staff-only roles
+3) Route protection uses requireRole(SUPER_ADMIN|DISPATCH) accidentally
+
+Fix:
+- Create/ensure a clinic-safe middleware:
+  requireClinicUser() OR requireAnyRole("CLINIC_USER","SUPER_ADMIN")
+- For clinic billing endpoints, allow: CLINIC_USER + SUPER_ADMIN
+- Force clinic_id from actor context, ignore query params.
+
+------------------------------------------------------------
+STEP 4 — FIX FRONTEND ROUTE + NAV + PAGE DATA FLOW
+------------------------------------------------------------
+A) Add a clinic menu item:
+Label: “Billing” or “Invoices”
+Route: whatever is consistent (prefer /clinic/billing)
+
+B) Build/repair the page:
+- Invoice list table (unpaid/paid, period, amount, due date)
+- “Pay” button for unpaid → calls pay endpoint → redirects to checkout URL
+- Receipt link for paid (if receipt_url stored)
+
+C) Ensure clinic UI calls the correct endpoints:
+- /api/clinic/billing/invoices (NOT company endpoints)
+
+D) If you find the page exists but blank:
+- Open browser console errors from preview build and fix the crash.
+- Most common: undefined data shape, fetch failing 401, or route mismatch.
+
+------------------------------------------------------------
+STEP 5 — DATA VALIDATION (WHY IT SHOWS NOTHING)
+------------------------------------------------------------
+A) Confirm there ARE invoices for the clinic:
+- If seed created invoices, ensure clinicId matches.
+- If not, create a minimal invoice for one clinic (non-destructive seed add ok).
+
+B) Ensure invoices query is scoped:
+WHERE clinic_id = actor.clinicId
+and (optionally) company_id = derivedCompanyId
+
+------------------------------------------------------------
+STEP 6 — VERIFICATION (MUST SHOW RESULTS)
+------------------------------------------------------------
+1) Login as a seeded clinic user (print the email used).
+2) Confirm Billing appears in clinic menu.
+3) Confirm invoice list loads (200).
+4) Click Pay and confirm checkout session URL returned (don’t need to complete payment).
+5) Confirm SUPER_ADMIN can still see company-level billing pages (no regression).
+
+COMMANDS:
+- npm run check
+- npm run build
+- start server (or npm run dev) and confirm no runtime error on /clinic/billing
+
+DELIVERABLES:
+1) Root cause found (one paragraph, exact reason)
+2) Files changed + line ranges
+3) Screenshots or logs proving clinic billing loads
+4) Confirmation of the 3 commands above
+
+END
