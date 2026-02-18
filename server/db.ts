@@ -5,6 +5,16 @@ import pgConnStringParse from "pg-connection-string";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
+const databaseUrlRaw = process.env.DATABASE_URL || "";
+if (databaseUrlRaw) {
+  const lcHost = databaseUrlRaw.toLowerCase();
+  if (lcHost.includes("neon.tech") || lcHost.includes("helium") || lcHost.includes("replit")) {
+    console.warn("[DB] DATABASE_URL ignored (Supabase-only mode) — pointed to non-Supabase host.");
+  } else {
+    console.warn("[DB] DATABASE_URL ignored (Supabase-only mode). Only SUPABASE_DB_URL is used.");
+  }
+}
+
 const supabaseRaw = process.env.SUPABASE_DB_URL || "";
 
 if (!supabaseRaw) {
