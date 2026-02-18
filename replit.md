@@ -18,7 +18,7 @@ The application follows a client-server architecture.
 **Technical Implementations & Feature Specifications:**
 - **Authentication**: JWT-based with `bcryptjs` and Magic Link Login, supporting dual-auth (Bearer token + httpOnly session cookie).
 - **Authorization**: Centralized Permission-Based Access Control using `shared/permissions.ts` ROLE_PERMISSIONS matrix as single source of truth. `requirePermission(resource, permission)` middleware in `server/auth.ts` replaces hardcoded role lists. SUPER_ADMIN-only operations and routes involving DRIVER/CLINIC_USER (not in permissions matrix) still use `requireRole()`. `isDispatchLevel()` includes COMPANY_ADMIN.
-- **Data Management**: PostgreSQL with Drizzle ORM, multi-city data segregation, and a public ID system.
+- **Data Management**: PostgreSQL (Supabase pooler via `SUPABASE_DB_URL`) with Drizzle ORM, multi-city data segregation, and a public ID system. Production enforces Supabase pooler (port 6543) with SSL.
 - **Dispatch Engine**: Automated driver-vehicle and trip assignment, real-time tracking, ETA, and safety rule enforcement.
 - **Communication**: SMS notifications and branded email services.
 - **Location Services**: Google Maps integration for geocoding, autocomplete, ETA, route optimization, and live maps with server-side caching.
@@ -117,8 +117,7 @@ The application follows a client-server architecture.
     - **CORS**: Allowlist-based (no wildcard in production). Built-in origins: unitedcaremobility.com, app.*, driver.*, admin.* subdomains. Replit dev origins auto-allowed.
 
 ## External Dependencies
-- **PostgreSQL**: Primary relational database.
-- **Replit DB**: Operational data storage.
+- **PostgreSQL**: Supabase pooler (`aws-0-us-west-2.pooler.supabase.com:6543`) as primary relational database. Connection via `SUPABASE_DB_URL` env var (falls back to `DATABASE_URL`). Production enforces Supabase host + port 6543 + SSL.
 - **Supabase**: User authentication profiles, city management, Row-Level Security (RLS), and private requests storage.
 - **Google Maps Platform**: Maps JavaScript API, Directions API, Geocoding API, Places API.
 - **Twilio**: SMS messaging.
