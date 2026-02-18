@@ -1359,7 +1359,24 @@ export function registerClinicBillingRoutes(app: Express) {
       const clinic = await storage.getClinic(invoice.clinicId);
       const APP_URL = process.env.APP_PUBLIC_URL || process.env.PUBLIC_BASE_URL || "https://app.unitedcaremobility.com";
 
-      const session = await stripe.checkout.sessions.create({
+      const companyId = clinic?.companyId;
+      let applicationFeeAmount = 0;
+      let effectiveFee: { enabled: boolean; type: string; percent: number; cents: number } | null = null;
+      let stripeAccount: any = null;
+
+      if (companyId) {
+        const { getEffectivePlatformFee, computeApplicationFee } = await import("../services/platformFee");
+        effectiveFee = await getEffectivePlatformFee(companyId);
+        if (effectiveFee.enabled) {
+          applicationFeeAmount = computeApplicationFee(invoice.balanceDueCents || invoice.totalCents, effectiveFee);
+        }
+        stripeAccount = await storage.getCompanyStripeAccount(companyId);
+      }
+
+      const useConnect = stripeAccount && stripeAccount.onboardingStatus === "ACTIVE";
+      const amountCents = invoice.balanceDueCents || invoice.totalCents;
+
+      const sessionParams: any = {
         payment_method_types: ["card"],
         line_items: [{
           price_data: {
@@ -1368,7 +1385,7 @@ export function registerClinicBillingRoutes(app: Express) {
               name: `Invoice ${invoice.invoiceNumber || `#${invoice.id}`}`,
               description: `${clinic?.name || "Clinic"} - Period ${invoice.periodStart} to ${invoice.periodEnd}`,
             },
-            unit_amount: invoice.balanceDueCents || invoice.totalCents,
+            unit_amount: amountCents,
           },
           quantity: 1,
         }],
@@ -1378,11 +1395,40 @@ export function registerClinicBillingRoutes(app: Express) {
         metadata: {
           invoice_id: String(invoiceId),
           clinic_id: String(invoice.clinicId),
-          company_id: String(clinic?.companyId || ""),
+          company_id: String(companyId || ""),
           invoice_number: invoice.invoiceNumber || "",
           type: "cycle_invoice",
         },
-      });
+      };
+
+      if (useConnect) {
+        const paymentMetadata: Record<string, string> = {
+          invoice_id: String(invoiceId),
+          company_id: String(companyId),
+          type: "cycle_invoice",
+        };
+        if (effectiveFee?.enabled && applicationFeeAmount > 0) {
+          paymentMetadata.platform_fee_cents = String(applicationFeeAmount);
+        }
+        sessionParams.payment_intent_data = {
+          transfer_data: {
+            destination: stripeAccount.stripeAccountId,
+          },
+          application_fee_amount: applicationFeeAmount,
+          metadata: paymentMetadata,
+        };
+      }
+
+      const session = await stripe.checkout.sessions.create(sessionParams);
+
+      if (companyId && effectiveFee?.enabled && applicationFeeAmount > 0) {
+        await storage.updateBillingCycleInvoice(invoiceId, {
+          platformFeeCents: applicationFeeAmount,
+          platformFeeType: effectiveFee.type,
+          platformFeeRate: effectiveFee.type === "PERCENT" ? String(effectiveFee.percent) : String(effectiveFee.cents),
+          netToCompanyCents: amountCents - applicationFeeAmount,
+        } as any);
+      }
 
       await storage.updateBillingCycleInvoice(invoiceId, {
         stripeCheckoutSessionId: session.id,

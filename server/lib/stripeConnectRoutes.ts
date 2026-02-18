@@ -222,6 +222,23 @@ export function registerStripeConnectRoutes(app: Express) {
 
         const user = await storage.getUser(actor.userId);
 
+        const { getEffectivePlatformFee, computeApplicationFee } = await import("../services/platformFee");
+        const effectiveFee = await getEffectivePlatformFee(companyId);
+        const applicationFeeAmount = effectiveFee.enabled ? computeApplicationFee(amountCents, effectiveFee) : 0;
+
+        const paymentMetadata: Record<string, string> = {
+          invoice_id: String(invoice.id),
+          company_id: String(companyId),
+          clinic_id: String(invoice.clinicId),
+          type: "clinic_invoice",
+        };
+
+        if (effectiveFee.enabled && applicationFeeAmount > 0) {
+          paymentMetadata.platform_fee_cents = String(applicationFeeAmount);
+          paymentMetadata.platform_fee_type = effectiveFee.type;
+          paymentMetadata.platform_fee_rate = effectiveFee.type === "PERCENT" ? String(effectiveFee.percent) : String(effectiveFee.cents);
+        }
+
         const session = await stripe.checkout.sessions.create({
           payment_method_types: ["card"],
           line_items: [
@@ -245,13 +262,8 @@ export function registerStripeConnectRoutes(app: Express) {
             transfer_data: {
               destination: stripeAccount.stripeAccountId,
             },
-            application_fee_amount: 0,
-            metadata: {
-              invoice_id: String(invoice.id),
-              company_id: String(companyId),
-              clinic_id: String(invoice.clinicId),
-              type: "clinic_invoice",
-            },
+            application_fee_amount: applicationFeeAmount,
+            metadata: paymentMetadata,
           },
           metadata: {
             invoice_id: String(invoice.id),

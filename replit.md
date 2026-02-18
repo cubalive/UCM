@@ -88,6 +88,14 @@ The application follows a client-server architecture.
 - **Distributed Job Engine + Locking**: Replaces in-process schedulers with a Redis-backed enqueue scheduler using distributed locks for ETA cycles and auto-assignment.
 - **UCM Intelligence Core**: Integrates `daily_metrics_rollup`, `weekly_score_snapshots`, `tri_scores`, `cost_leak_alerts`, and `ucm_certifications` tables. Provides API endpoints for rollups, snapshots, rankings, performance, TRI scores, cost leak alerts management, and certifications. Frontend includes a dashboard with KPI cards, trends, and alerts.
 - **Driver Intelligence Engine**: Implements driver performance scoring based on punctuality, completion, cancellations, GPS quality, and acceptance. Includes anomaly detection for stale GPS, late spikes, clinic cancel spikes, ETA degradation, and quota limits. Uses background jobs for score recomputation and anomaly sweeps.
+- **Platform Billing Fees**: Collects application fees on clinic invoice payments via Stripe Connect.
+    - **Global Settings**: Single-row `platform_billing_settings` table with enabled toggle, PERCENT or FIXED fee type, default rate.
+    - **Company Overrides**: Per-company `company_platform_fees` table overrides global defaults.
+    - **Fee Resolution**: Global → company override cascade via `getEffectivePlatformFee()` in `server/services/platformFee.ts`.
+    - **Stripe Integration**: `application_fee_amount` injected into checkout sessions (both clinic invoices and billing cycle invoices) only when enabled.
+    - **Invoice Tracking**: `platform_fee_cents`, `platform_fee_type`, `platform_fee_rate`, `net_to_company_cents` columns on `billing_cycle_invoices`.
+    - **Admin UI**: `/platform-fees` page (SUPER_ADMIN only) for managing global settings and company overrides.
+    - **Routes**: `server/routes/platformFee.routes.ts` (SUPER_ADMIN gated).
 
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.

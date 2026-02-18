@@ -62,6 +62,7 @@ import CompaniesPage from "@/pages/companies";
 import TimecardsPage from "@/pages/timecards";
 import TpPayrollPage from "@/pages/tp-payroll";
 import BillingTariffsPage from "@/pages/billing-tariffs";
+import PlatformFeesPage from "@/pages/platform-fees";
 import ClinicBillingV2Page from "@/pages/clinic-billing-v2";
 import SupportChatPage from "@/pages/support-chat";
 import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
@@ -305,6 +306,7 @@ function Router() {
       <Route path="/timecards">{() => <ProtectedRoute resource="time_entries" component={TimecardsPage} />}</Route>
       <Route path="/tp-payroll">{() => <ProtectedRoute resource="payroll" component={TpPayrollPage} />}</Route>
       <Route path="/billing-config">{() => <ProtectedRoute resource="billing" component={BillingTariffsPage} />}</Route>
+      <Route path="/platform-fees">{() => <ProtectedRoute resource="billing" component={PlatformFeesPage} />}</Route>
       <Route path="/clinic-billing-v2">{() => <ProtectedRoute resource="billing" component={ClinicBillingV2Page} />}</Route>
       <Route path="/support-chat">{() => <ProtectedRoute resource="support" component={SupportChatPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />

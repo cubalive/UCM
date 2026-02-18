@@ -1392,6 +1392,10 @@ export const billingCycleInvoices = pgTable("billing_cycle_invoices", {
   lastPaymentAt: timestamp("last_payment_at"),
   locked: boolean("locked").notNull().default(false),
   receiptUrl: text("receipt_url"),
+  platformFeeCents: integer("platform_fee_cents").notNull().default(0),
+  platformFeeType: text("platform_fee_type"),
+  platformFeeRate: numeric("platform_fee_rate"),
+  netToCompanyCents: integer("net_to_company_cents"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
@@ -1448,6 +1452,30 @@ export const invoiceSequences = pgTable("invoice_sequences", {
 });
 
 export type InvoiceSequence = typeof invoiceSequences.$inferSelect;
+
+export const platformFeeTypeEnum = pgEnum("platform_fee_type", ["PERCENT", "FIXED"]);
+
+export const platformBillingSettings = pgTable("platform_billing_settings", {
+  id: integer("id").primaryKey().default(1),
+  enabled: boolean("enabled").notNull().default(false),
+  defaultFeeType: platformFeeTypeEnum("default_fee_type").notNull().default("PERCENT"),
+  defaultFeePercent: numeric("default_fee_percent").notNull().default("0"),
+  defaultFeeCents: integer("default_fee_cents").notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type PlatformBillingSettings = typeof platformBillingSettings.$inferSelect;
+
+export const companyPlatformFees = pgTable("company_platform_fees", {
+  companyId: integer("company_id").primaryKey().references(() => companies.id),
+  enabled: boolean("enabled"),
+  feeType: platformFeeTypeEnum("fee_type"),
+  feePercent: numeric("fee_percent"),
+  feeCents: integer("fee_cents"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type CompanyPlatformFee = typeof companyPlatformFees.$inferSelect;
 
 export const jobStatusEnum = pgEnum("job_status", [
   "queued",
