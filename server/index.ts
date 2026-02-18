@@ -196,10 +196,6 @@ app.use((req, res, next) => {
 (async () => {
   {
     const connStr = process.env.DATABASE_URL || "";
-    if (IS_PROD && !connStr) {
-      console.error("[FATAL] DATABASE_URL is not set in production. Cannot start.");
-      process.exit(1);
-    }
     let dbHost = "unknown", dbPort = 0;
     try {
       const u = new URL(connStr);
@@ -219,14 +215,6 @@ app.use((req, res, next) => {
       poolerDetected,
       sessionCookie: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax", domain: ".unitedcaremobility.com (auto)", path: "/" },
     }));
-
-    if (IS_PROD && isSupabaseHost && !poolerDetected) {
-      console.error("[FATAL] Production Supabase DB must use pooler (port 6543). Current port: " + dbPort);
-      process.exit(1);
-    }
-    if (!poolerDetected && isSupabaseHost) {
-      console.warn("[WARN] Not using Supabase pooler (port 6543). Current port: " + dbPort);
-    }
   }
 
   try {
