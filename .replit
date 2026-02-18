@@ -46,8 +46,6 @@ waitForPort = 5000
 PUBLIC_BASE_URL = "https://app.unitedcaremobility.com"
 ALLOWED_ORIGIN_1 = "https://unitedcaremobility.lovable.app"
 VITE_UCM_DEBUG = "true"
-SUPABASE_DB_URL = "postgresql://postgres.tvyzaakrcvjzpskatclc:LvpuPB2p0DpvSOyC@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require"
-NODE_ENV = "production"
 
 [userenv.development]
 
