@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { AuthRequest } from "../auth";
-import { db } from "../db";
+import { db, getDbSource } from "../db";
 import { sql } from "drizzle-orm";
 
 const APP_VERSION = "2.0.0";
@@ -24,6 +24,7 @@ export async function healthz(_req: Request, res: Response) {
     uptime: process.uptime(),
     db: {
       status: dbOk ? "connected" : "disconnected",
+      source: getDbSource(),
       latencyMs: dbLatencyMs,
     },
     timestamp: new Date().toISOString(),

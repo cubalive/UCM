@@ -197,13 +197,27 @@ app.use((req, res, next) => {
   const { dbReady, getDbSource } = await import("./db");
   await dbReady;
 
-  console.log(JSON.stringify({
+  const bootConfig = {
     event: "boot_config",
     nodeEnv: process.env.NODE_ENV || "undefined",
     appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
     dbSource: getDbSource(),
     sessionCookie: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax", domain: ".unitedcaremobility.com (auto)", path: "/" },
-  }));
+  };
+  console.log(JSON.stringify(bootConfig));
+
+  app.get("/api/boot", (_req, res) => {
+    res.json({
+      nodeEnv: process.env.NODE_ENV || "undefined",
+      appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
+      dbSource: getDbSource(),
+      allowedAppOrigins: Array.from(allowedAppOrigins).map(o => o.replace(/https?:\/\//, "***")),
+      allowedPublicOrigins: Array.from(allowedPublicOrigins).map(o => o.replace(/https?:\/\//, "***")),
+      cookieMode: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax" },
+      trustProxy: IS_PROD,
+      timestamp: new Date().toISOString(),
+    });
+  });
 
   try {
     const { seedSuperAdmin, seedData, seedVehicleMakesModels } = await import("./seed");

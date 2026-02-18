@@ -148,6 +148,30 @@ export default function BillingTariffsPage() {
   const tariffs = tariffsQuery.data || [];
   const invoices = invoicesQuery.data || [];
 
+  const hasError = tariffsQuery.isError || clinicsQuery.isError || invoicesQuery.isError;
+  const errorMsg = (tariffsQuery.error as any)?.message || (clinicsQuery.error as any)?.message || (invoicesQuery.error as any)?.message || "Unknown error";
+
+  if (hasError) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="billing-error">
+        <AlertTriangle className="w-10 h-10 text-destructive" />
+        <h2 className="text-lg font-semibold">Failed to load billing data</h2>
+        <p className="text-sm text-muted-foreground text-center max-w-md">{errorMsg}</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            tariffsQuery.refetch();
+            clinicsQuery.refetch();
+            invoicesQuery.refetch();
+          }}
+          data-testid="button-retry-billing"
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 space-y-6 max-w-7xl mx-auto" data-testid="billing-tariffs-page">
       <div className="flex items-center justify-between gap-2 flex-wrap">
