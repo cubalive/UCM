@@ -1,0 +1,130 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Make Production the source of truth and ensure ALL features + data seeding run against the PRODUCTION database used by https://app.unitedcaremobility.com (not Preview). Then publish safely.
+
+GOAL:
+1) Production deployment uses the correct DATABASE_URL (Supabase pooler :6543) and same auth/session config.
+2) Health endpoints confirm Production DB identity.
+3) Seed data runs against Production DB (idempotent) and persists for field testing.
+4) No destructive actions. No drops. No truncates.
+5) Provide a one-command “PROD readiness check” and a one-command “PROD seed”.
+
+HARD RULES:
+- Do NOT delete any real data.
+- Do NOT change domain routing.
+- Do NOT weaken security.
+- Any fix must be backward-compatible.
+
+========================================================
+STEP 0 — IDENTIFY CURRENT PROD CONFIG (NO CHANGES YET)
+========================================================
+A) Print and log at server boot (once) these SAFE items (no secrets):
+- NODE_ENV
+- APP_BASE_URL (or equivalent)
+- DB host + port (redact password)
+- Whether DB is using Supabase pooler (port 6543) or not
+- Session cookie config: secure, sameSite, domain, path
+
+B) Add/confirm an endpoint (SUPER_ADMIN only) that returns:
+GET /api/ops/db-info
+Response MUST include:
+- dbHost (redacted)
+- dbPort
+- dbName
+- current_user
+- server_version
+- poolerDetected (boolean)
+- dbFingerprint (stable) = sha256(dbHost+dbPort+dbName+server_version) OR a safe computed fingerprint
+- timestamp
+
+C) Confirm /api/healthz returns 200 with db.status=connected in production.
+
+========================================================
+STEP 1 — ENSURE PROD AND PREVIEW POINT TO SAME DB (OR EXPLICITLY NOT)
+========================================================
+A) In code, ensure DB URL is read from process.env.DATABASE_URL ONLY (single source of truth).
+B) Fail fast in production if DATABASE_URL is missing or does not include ":6543" (pooler):
+- If NODE_ENV=production and DATABASE_URL does not contain ":6543", throw startup error with clear message.
+C) Add console warning (not crash) if NODE_ENV!=production and port !=6543.
+
+========================================================
+STEP 2 — PRODUCTION BUILD + START MUST MATCH DEPLOYMENT
+========================================================
+A) Verify package scripts:
+- build: builds client + server
+- start: starts server in production mode using built assets
+B) Ensure Vite/React client base path matches domain and API base is relative (no preview hardcoding).
+C) Confirm CORS allows app.unitedcaremobility.com (and driver subdomain if used) and does NOT allow wildcard in production.
+
+========================================================
+STEP 3 — SEED MUST TARGET PRODUCTION DB AND PERSIST
+========================================================
+A) Confirm seed script exists: server/scripts/seed-ucm.ts
+B) Make it explicitly safe + idempotent:
+- Uses upserts
+- Marks seeded rows with is_test_data=true (add column where necessary, non-destructive)
+- Never touches rows where is_test_data=false
+C) Add a SUPER_ADMIN protected endpoint to run seed from the app (optional but recommended):
+POST /api/ops/seed/run
+Body: { "preset": "FIELD_TEST_V1" }
+This must enqueue a job (or run inline if no job queue) and return progress.
+If you already have a job engine/queue, use it. Otherwise inline is acceptable for now.
+
+D) Add a “seed summary” endpoint:
+GET /api/ops/seed/status
+Returns last run timestamp + counts per entity.
+
+========================================================
+STEP 4 — ONE-COMMAND PROD READINESS CHECK
+========================================================
+Create a script: server/scripts/prod-check.ts that:
+1) Calls DB and prints db-info (host redacted, port, fingerprint)
+2) Runs minimal permission checks:
+   - Confirm SUPER_ADMIN can hit /api/ops/db-info
+   - Confirm COMPANY_ADMIN cannot access other company data (sample query)
+3) Prints PASS/FAIL with exit codes.
+
+Commands:
+- PROD CHECK:
+  NODE_ENV=production npx tsx server/scripts/prod-check.ts
+- PROD SEED:
+  NODE_ENV=production npx tsx server/scripts/seed-ucm.ts
+
+========================================================
+STEP 5 — PUBLISH SAFELY
+========================================================
+A) Ensure latest code is on main branch.
+B) Run:
+- npm run check (or equivalent)
+- npm run build
+- smoke test endpoints locally:
+  - /api/healthz
+  - /api/ops/db-info (SUPER_ADMIN)
+C) Publish / Republish.
+
+========================================================
+STEP 6 — VERIFICATION (MUST SHOW RESULTS)
+========================================================
+After publish, provide exact URLs + expected outputs:
+1) https://app.unitedcaremobility.com/api/healthz  -> 200, db.connected
+2) https://app.unitedcaremobility.com/api/ops/db-info -> 200, shows port 6543 and dbFingerprint
+3) Run PROD SEED and show counts increased (seed status endpoint or logs)
+4) Confirm one seeded login works (SUPER_ADMIN + one COMPANY_ADMIN + one CLINIC_USER)
+   - Provide the actual seeded emails/usernames in the seed summary output (safe to share since test accounts).
+
+DELIVERABLES:
+- Files changed (paths)
+- Commands to run (copy/paste)
+- Post-publish verification checklist with PASS/FAIL
+
+END.

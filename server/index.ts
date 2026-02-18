@@ -194,6 +194,39 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  {
+    const connStr = process.env.DATABASE_URL || "";
+    if (IS_PROD && !connStr) {
+      console.error("[FATAL] DATABASE_URL is not set in production. Cannot start.");
+      process.exit(1);
+    }
+    let dbHost = "unknown", dbPort = 0;
+    try {
+      const u = new URL(connStr);
+      dbHost = u.hostname;
+      dbPort = parseInt(u.port || "5432", 10);
+    } catch {}
+    const poolerDetected = dbPort === 6543;
+
+    console.log(JSON.stringify({
+      event: "boot_config",
+      nodeEnv: process.env.NODE_ENV || "undefined",
+      appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
+      dbHost: dbHost.replace(/^(.{6}).*(.{6})$/, "$1***$2"),
+      dbPort,
+      poolerDetected,
+      sessionCookie: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax", domain: ".unitedcaremobility.com (auto)", path: "/" },
+    }));
+
+    if (IS_PROD && !poolerDetected) {
+      console.error("[FATAL] Production must use Supabase pooler (port 6543). Current port: " + dbPort);
+      process.exit(1);
+    }
+    if (!IS_PROD && !poolerDetected) {
+      console.warn("[WARN] Dev environment not using pooler (port 6543). Current port: " + dbPort);
+    }
+  }
+
   try {
     const { seedSuperAdmin, seedData, seedVehicleMakesModels } = await import("./seed");
     await seedSuperAdmin();

@@ -97,6 +97,25 @@ The application follows a client-server architecture.
     - **Admin UI**: `/platform-fees` page (SUPER_ADMIN only) for managing global settings and company overrides.
     - **Routes**: `server/routes/platformFee.routes.ts` (SUPER_ADMIN gated).
 
+- **Production Ops & Observability**:
+    - **Boot Config Logging**: At startup, logs NODE_ENV, DB host (redacted), port, pooler detection, and session cookie config as structured JSON.
+    - **Pooler Enforcement**: In production (NODE_ENV=production), fails fast if DATABASE_URL does not use Supabase pooler port 6543. Warns in dev.
+    - **Ops Endpoints** (SUPER_ADMIN only, under `/api/ops/*`):
+        - `GET /api/ops/db-info` — DB host (redacted), port, dbName, current_user, serverVersion, dbFingerprint (sha256), pooler detection, pool stats.
+        - `GET /api/ops/readyz` — Health checks for database, job engine, job queue, WebSocket.
+        - `POST /api/ops/route-cache/purge` — Manual route cache cleanup.
+        - `POST /api/ops/seed/run` — Runs idempotent seed script (body: `{ "preset": "FIELD_TEST_V1" }`).
+        - `GET /api/ops/seed/status` — Last seed run status + current entity counts.
+    - **Graceful Shutdown**: SIGTERM/SIGINT handlers close HTTP server, stop job engine, close DB pool, force exit after 10s.
+    - **HTTP Timeouts**: requestTimeout: 30s, headersTimeout: 15s, keepAliveTimeout: 65s.
+    - **Access-Denied Logging**: Structured JSON warnings in auth guards with reason codes.
+    - **WebSocket Hardening**: Rate limiting (60 msg/min), heartbeat enforcement (30s ping/pong).
+    - **Route Cache**: DB-backed persistent cache for Google Maps routes with 7-day TTL.
+    - **Load Test**: `scripts/load-test.mjs` using autocannon.
+    - **Prod Check Script**: `npx tsx server/scripts/prod-check.ts` — One-command readiness verification.
+    - **Prod Seed Command**: `npx tsx server/scripts/seed-ucm.ts` — Idempotent seed against current DATABASE_URL.
+    - **CORS**: Allowlist-based (no wildcard in production). Built-in origins: unitedcaremobility.com, app.*, driver.*, admin.* subdomains. Replit dev origins auto-allowed.
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **Replit DB**: Operational data storage.
