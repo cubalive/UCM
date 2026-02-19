@@ -41,6 +41,12 @@ The application follows a client-server architecture.
 - **Platform Billing Fees**: Application fees collected on clinic invoice payments via Stripe Connect, with global and company-specific overrides.
 - **Production Ops & Observability**: Boot config logging, pooler enforcement, Redis startup diagnostic, SUPER_ADMIN-only ops endpoints (`/api/ops/*`), graceful shutdown, HTTP timeouts, access-denied logging, WebSocket hardening, and DB-backed route cache.
 
+## Running the Project
+- **Development**: `npm run dev` (uses tsx for hot reload)
+- **Production build**: `npm run build` (outputs to `dist/`)
+- **Production run**: `node ./dist/index.cjs` (correct production command)
+- Always run `npm run build` before using the production command to ensure latest changes are compiled.
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database, specifically Supabase pooler.
 - **Supabase**: User authentication profiles, city management, Row-Level Security (RLS), and private requests storage.
