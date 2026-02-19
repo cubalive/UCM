@@ -102,9 +102,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSelectedCityRaw(city);
     storeWorkingCityId(city?.id ?? null);
     setCityChosen(true);
-  }, []);
+    const t = token || localStorage.getItem(getTokenKey());
+    if (t) {
+      fetch("/api/auth/working-city", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
+        credentials: getCredentials(),
+        body: JSON.stringify({ cityId: city?.id ?? null, scope: city ? "CITY" : "ALL" }),
+      }).catch(() => {});
+    }
+  }, [token]);
 
-  const restoreCity = useCallback((availableCities: City[], userRole: string) => {
+  const restoreCity = useCallback((availableCities: City[], userRole: string, serverCityId?: number | null, serverScope?: string | null) => {
+    if (serverCityId != null) {
+      const found = availableCities.find(c => c.id === serverCityId);
+      if (found) {
+        setSelectedCityRaw(found);
+        storeWorkingCityId(found.id);
+        setCityChosen(true);
+        return;
+      }
+    }
+    if (serverScope === "ALL" || (serverCityId === null && serverScope)) {
+      setSelectedCityRaw(null);
+      storeWorkingCityId(null);
+      setCityChosen(true);
+      return;
+    }
     const storedId = getStoredCityId();
     if (storedId !== null) {
       const found = availableCities.find(c => c.id === storedId);
@@ -214,7 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setMustChangePassword(true);
       }
 
-      restoreCity(data.cities || [], data.user?.role || "");
+      restoreCity(data.cities || [], data.user?.role || "", data.workingCityId, data.workingCityScope);
 
       try {
         const meRes = await fetch("/api/me", {

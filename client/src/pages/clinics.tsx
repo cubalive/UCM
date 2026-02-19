@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -17,11 +17,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key, Archive, RotateCcw, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key, Archive, RotateCcw, Trash2, Link2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { ClinicHealthBanner } from "@/components/clinic-health-banner";
+import type { Company } from "@shared/schema";
 
 const facilityTypeLabels: Record<string, string> = {
   clinic: "Clinic",
@@ -303,19 +305,21 @@ export default function ClinicsPage() {
                     </div>
                   </div>
                 </div>
-                {canManageAuth && c.email && !c.deletedAt && c.active && (
+                {!c.deletedAt && c.active && (
                   <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => inviteMutation.mutate(c.id)}
-                      disabled={inviteMutation.isPending}
-                      data-testid={`button-send-clinic-invite-${c.id}`}
-                    >
-                      <Mail className="w-3 h-3 mr-2" />
-                      Send Login Link
-                    </Button>
-                    {user?.role === "SUPER_ADMIN" && (
+                    {canManageAuth && c.email && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => inviteMutation.mutate(c.id)}
+                        disabled={inviteMutation.isPending}
+                        data-testid={`button-send-clinic-invite-${c.id}`}
+                      >
+                        <Mail className="w-3 h-3 mr-2" />
+                        Send Login Link
+                      </Button>
+                    )}
+                    {user?.role === "SUPER_ADMIN" && c.email && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -327,6 +331,7 @@ export default function ClinicsPage() {
                         Reset Password
                       </Button>
                     )}
+                    <ClinicCompaniesDialog clinic={c} />
                   </div>
                 )}
               </CardContent>
@@ -391,6 +396,134 @@ export default function ClinicsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function ClinicCompaniesDialog({ clinic }: { clinic: any }) {
+  const [open, setOpen] = useState(false);
+  const { token, isSuperAdmin } = useAuth();
+  const { toast } = useToast();
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<number[]>([]);
+  const [initialized, setInitialized] = useState(false);
+
+  const { data: allCompanies = [] } = useQuery<Company[]>({
+    queryKey: ["/api/companies"],
+    enabled: isSuperAdmin,
+  });
+
+  const { data: clinicCompanyData, isLoading: loadingCurrent } = useQuery<{ companyIds: number[] }>({
+    queryKey: ["/api/admin/clinics", clinic.id, "companies"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/clinics/${clinic.id}/companies`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  useEffect(() => {
+    if (clinicCompanyData && open && !initialized) {
+      setSelectedCompanyIds(clinicCompanyData.companyIds || []);
+      setInitialized(true);
+    }
+  }, [clinicCompanyData, open, initialized]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/admin/clinics/${clinic.id}/companies`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ companyIds: selectedCompanyIds }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Failed to save");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Companies updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/clinics", clinic.id, "companies"] });
+      setOpen(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update companies", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleOpen = (val: boolean) => {
+    setOpen(val);
+    if (!val) setInitialized(false);
+  };
+
+  const toggleCompany = (companyId: number) => {
+    setSelectedCompanyIds(prev =>
+      prev.includes(companyId) ? prev.filter(id => id !== companyId) : [...prev, companyId]
+    );
+  };
+
+  const activeCompanies = allCompanies.filter((c: any) => !c.deletedAt);
+
+  if (!isSuperAdmin) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid={`button-manage-clinic-companies-${clinic.id}`}>
+          <Link2 className="w-3 h-3 mr-1" />
+          Companies
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Link Companies to {clinic.name}</DialogTitle>
+        </DialogHeader>
+        {loadingCurrent ? (
+          <div className="space-y-2 py-4">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+          </div>
+        ) : (
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Select transport companies that serve this clinic.
+            </p>
+            {activeCompanies.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No companies available.</p>
+            ) : (
+              activeCompanies.map((company: any) => (
+                <label
+                  key={company.id}
+                  className="flex items-center gap-2 cursor-pointer hover:bg-muted rounded px-2 py-1"
+                  data-testid={`checkbox-company-${company.id}`}
+                >
+                  <Checkbox
+                    checked={selectedCompanyIds.includes(company.id)}
+                    onCheckedChange={() => toggleCompany(company.id)}
+                  />
+                  <span className="text-sm">{company.name}</span>
+                </label>
+              ))
+            )}
+            <div className="flex gap-2 pt-2">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                className="flex-1"
+                data-testid="button-save-clinic-companies"
+              >
+                {saveMutation.isPending ? "Saving..." : "Save Companies"}
+              </Button>
+              <Button variant="outline" onClick={() => setOpen(false)} data-testid="button-cancel-clinic-companies">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

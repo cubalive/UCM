@@ -200,14 +200,40 @@ export async function authMeHandler(req: AuthRequest, res: Response) {
 
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
-    const accessibleCities = user.role === "SUPER_ADMIN"
-      ? allCities
-      : user.role === "COMPANY_ADMIN" && cityAccess.length === 0
-      ? allCities
-      : allCities.filter((c) => cityAccess.includes(c.id));
+
+    let accessibleCities: typeof allCities;
+    if (user.role === "SUPER_ADMIN") {
+      accessibleCities = allCities;
+    } else if (user.companyId) {
+      const companyCityIds = await storage.getCompanyCities(user.companyId);
+      if (companyCityIds.length > 0) {
+        accessibleCities = allCities.filter(c => companyCityIds.includes(c.id));
+      } else if (cityAccess.length > 0) {
+        accessibleCities = allCities.filter(c => cityAccess.includes(c.id));
+      } else {
+        accessibleCities = allCities;
+      }
+    } else if (cityAccess.length > 0) {
+      accessibleCities = allCities.filter(c => cityAccess.includes(c.id));
+    } else {
+      accessibleCities = allCities;
+    }
+
+    const seen = new Set<string>();
+    const dedupedCities = accessibleCities.filter(c => {
+      const key = `${c.state}|${c.name.toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
     const { password, ...safeUser } = user;
-    res.json({ user: { ...safeUser, cityAccess }, cities: accessibleCities });
+    res.json({
+      user: { ...safeUser, cityAccess },
+      cities: dedupedCities,
+      workingCityId: user.workingCityId ?? null,
+      workingCityScope: user.workingCityScope ?? "CITY",
+    });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -276,6 +302,44 @@ export async function meHandler(req: Request, res: Response) {
     });
   } catch {
     return res.status(401).json({ message: "Invalid or expired token" });
+  }
+}
+
+export async function setWorkingCityHandler(req: Request, res: Response) {
+  try {
+    const authReq = req as AuthRequest;
+    const userId = authReq.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const { cityId, scope } = req.body;
+
+    if (cityId !== null && cityId !== undefined) {
+      const city = await storage.getCity(cityId);
+      if (!city) {
+        return res.status(404).json({ message: "City not found" });
+      }
+    }
+
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const isSuperAdmin = user.role === "SUPER_ADMIN";
+    const effectiveScope = cityId === null && isSuperAdmin ? "ALL" : (scope || "CITY");
+
+    if (cityId === null && !isSuperAdmin) {
+      return res.status(403).json({ message: "Only administrators can select All Cities" });
+    }
+
+    await storage.setUserWorkingCity(userId, cityId ?? null, effectiveScope);
+
+    return res.json({ success: true, workingCityId: cityId, workingCityScope: effectiveScope });
+  } catch (err: any) {
+    console.error("[setWorkingCity] Error:", err.message);
+    return res.status(500).json({ message: "Failed to set working city" });
   }
 }
 

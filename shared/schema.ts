@@ -130,6 +130,8 @@ export const users = pgTable("users", {
   clinicId: integer("clinic_id"),
   patientId: integer("patient_id"),
   companyId: integer("company_id").references(() => companies.id),
+  workingCityId: integer("working_city_id").references(() => cities.id),
+  workingCityScope: text("working_city_scope").default("CITY"),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
@@ -603,6 +605,29 @@ export const driverBonusRules = pgTable("driver_bonus_rules", {
   updatedBy: integer("updated_by").references(() => users.id),
 });
 
+export const companyCities = pgTable("company_cities", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("company_cities_unique_idx").on(table.companyId, table.cityId),
+]);
+
+export const clinicCompanies = pgTable("clinic_companies", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("clinic_companies_unique_idx").on(table.clinicId, table.companyId),
+]);
+
+export const insertCompanyCitySchema = createInsertSchema(companyCities).omit({ createdAt: true });
+export const insertClinicCompanySchema = createInsertSchema(clinicCompanies).omit({ createdAt: true });
+
 export const insertTripEventSchema = createInsertSchema(tripEvents).omit({ createdAt: true });
 export const insertDriverBonusRuleSchema = createInsertSchema(driverBonusRules);
 
@@ -638,6 +663,10 @@ export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 
 export type Company = typeof companies.$inferSelect;
 export type City = typeof cities.$inferSelect;
+export type CompanyCity = typeof companyCities.$inferSelect;
+export type ClinicCompany = typeof clinicCompanies.$inferSelect;
+export type InsertCompanyCity = z.infer<typeof insertCompanyCitySchema>;
+export type InsertClinicCompany = z.infer<typeof insertClinicCompanySchema>;
 export type UsState = typeof usStates.$inferSelect;
 export type UsCity = typeof usCities.$inferSelect;
 export type InsertUsState = z.infer<typeof insertUsStateSchema>;

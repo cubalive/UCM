@@ -217,6 +217,46 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS delete_reason TEXT`);
     await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS deleted_by INTEGER`);
     await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS delete_reason TEXT`);
+
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS working_city_id INTEGER REFERENCES cities(id)`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS working_city_scope TEXT DEFAULT 'CITY'`);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS company_cities (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        city_id INTEGER NOT NULL REFERENCES cities(id),
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`
+      CREATE UNIQUE INDEX IF NOT EXISTS company_cities_unique_idx ON company_cities(company_id, city_id)
+    `);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS clinic_companies (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        clinic_id INTEGER NOT NULL REFERENCES clinics(id),
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`
+      CREATE UNIQUE INDEX IF NOT EXISTS clinic_companies_unique_idx ON clinic_companies(clinic_id, company_id)
+    `);
+
+    try {
+      await bootDb.execute(bootSql`
+        CREATE UNIQUE INDEX IF NOT EXISTS cities_state_name_unique_idx ON cities(state, lower(name))
+      `);
+    } catch (idxErr: any) {
+      if (!idxErr.message?.includes("already exists")) {
+        console.warn("[BOOT] cities unique index skipped:", idxErr.message);
+      }
+    }
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);

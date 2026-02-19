@@ -11,7 +11,7 @@ import {
   tripSeries, driverOffers, driverPushTokens, scheduleChangeRequests, driverShiftSwapRequests,
   driverWeeklySchedules, sundayRosterDrivers, driverScores, opsAnomalies,
   dailyMetricsRollup, weeklyScoreSnapshots, triScores, costLeakAlerts, ucmCertifications,
-  clinicCertifications, quarterlyRankings, quarterlyRankingEntries,
+  clinicCertifications, quarterlyRankings, quarterlyRankingEntries, companyCities, clinicCompanies,
 } from "@shared/schema";
 import { z } from "zod";
 import { getSupabaseServer } from "../../lib/supabaseClient";
@@ -1661,6 +1661,90 @@ export async function hardDeleteHandler(req: AuthRequest, res: Response) {
     res.json({ success: true, entity, id: entityId, deletedCounts, previewAtDelete: preview });
   } catch (err: any) {
     console.error("[HARD_DELETE] Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getCompanyCitiesHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = parseInt(req.params.companyId);
+    if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
+    const cityIds = await storage.getCompanyCities(companyId);
+    const citiesList = await storage.getCitiesForCompany(companyId);
+    res.json({ companyId, cityIds, cities: citiesList });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function setCompanyCitiesHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = parseInt(req.params.companyId);
+    if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
+    const { cityIds } = req.body;
+    if (!Array.isArray(cityIds)) return res.status(400).json({ message: "cityIds must be an array" });
+    await storage.setCompanyCities(companyId, cityIds);
+    await storage.createAuditLog({
+      action: "COMPANY_CITIES_UPDATED",
+      entity: "company",
+      entityId: companyId,
+      details: `Cities set to: ${cityIds.join(", ")}`,
+      cityId: null,
+      userId: req.user!.userId,
+    });
+    res.json({ success: true, companyId, cityIds });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getClinicCompaniesHandler(req: AuthRequest, res: Response) {
+  try {
+    const clinicId = parseInt(req.params.clinicId);
+    if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+    const companyIds = await storage.getClinicCompanies(clinicId);
+    const companiesList = await storage.getCompaniesForClinic(clinicId);
+    res.json({ clinicId, companyIds, companies: companiesList });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function setClinicCompaniesHandler(req: AuthRequest, res: Response) {
+  try {
+    const clinicId = parseInt(req.params.clinicId);
+    if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+    const { companyIds } = req.body;
+    if (!Array.isArray(companyIds)) return res.status(400).json({ message: "companyIds must be an array" });
+    await storage.setClinicCompanies(clinicId, companyIds);
+    await storage.createAuditLog({
+      action: "CLINIC_COMPANIES_UPDATED",
+      entity: "clinic",
+      entityId: clinicId,
+      details: `Companies set to: ${companyIds.join(", ")}`,
+      cityId: null,
+      userId: req.user!.userId,
+    });
+    res.json({ success: true, clinicId, companyIds });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getAllCompanyCitiesHandler(req: AuthRequest, res: Response) {
+  try {
+    const rows = await db.select().from(companyCities);
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getAllClinicCompaniesHandler(req: AuthRequest, res: Response) {
+  try {
+    const rows = await db.select().from(clinicCompanies);
+    res.json(rows);
+  } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
 }

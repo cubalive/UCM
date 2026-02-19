@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -35,9 +35,10 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
-import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2, Search, Archive, RotateCcw, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2, Search, Archive, RotateCcw, Trash2, MapPin } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import type { Company, UsState, UsCity } from "@shared/schema";
+import type { Company, UsState, UsCity, City } from "@shared/schema";
 
 const TIMEZONES = [
   "America/New_York",
@@ -352,6 +353,142 @@ function CreateAdminDialog({ company, onCreated }: { company: Company; onCreated
   );
 }
 
+function CompanyCitiesDialog({ company }: { company: Company; }) {
+  const [open, setOpen] = useState(false);
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [selectedCityIds, setSelectedCityIds] = useState<number[]>([]);
+  const [initialized, setInitialized] = useState(false);
+
+  const { data: allCities = [] } = useQuery<City[]>({
+    queryKey: ["/api/cities"],
+  });
+
+  const { data: companyCityData, isLoading: loadingCurrent } = useQuery<{ cityIds: number[] }>({
+    queryKey: ["/api/admin/companies", company.id, "cities"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/companies/${company.id}/cities`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const activeCities = allCities.filter(c => c.active !== false);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/admin/companies/${company.id}/cities`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ cityIds: selectedCityIds }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Failed to save");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cities updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies", company.id, "cities"] });
+      setOpen(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update cities", description: err.message, variant: "destructive" });
+    },
+  });
+
+  useEffect(() => {
+    if (companyCityData && open && !initialized) {
+      setSelectedCityIds(companyCityData.cityIds || []);
+      setInitialized(true);
+    }
+  }, [companyCityData, open, initialized]);
+
+  const handleOpen = (val: boolean) => {
+    setOpen(val);
+    if (!val) setInitialized(false);
+  };
+
+  const toggleCity = (cityId: number) => {
+    setSelectedCityIds(prev =>
+      prev.includes(cityId) ? prev.filter(id => id !== cityId) : [...prev, cityId]
+    );
+  };
+
+  const citiesByState = activeCities.reduce<Record<string, City[]>>((acc, city) => {
+    const st = city.state || "Other";
+    if (!acc[st]) acc[st] = [];
+    acc[st].push(city);
+    return acc;
+  }, {});
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid={`button-manage-cities-${company.id}`}>
+          <MapPin className="w-4 h-4 mr-1" />
+          Cities
+          {companyCityData?.cityIds?.length ? ` (${companyCityData.cityIds.length})` : ""}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Assign Cities to {company.name}</DialogTitle>
+        </DialogHeader>
+        {loadingCurrent ? (
+          <div className="space-y-2 py-4">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+          </div>
+        ) : (
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              Select cities where this company operates. Users scoped to this company will only see these cities.
+            </p>
+            {Object.entries(citiesByState)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([state, stateCities]) => (
+                <div key={state} className="space-y-2">
+                  <p className="text-sm font-medium text-muted-foreground">{state}</p>
+                  {stateCities.map(city => (
+                    <label
+                      key={city.id}
+                      className="flex items-center gap-2 cursor-pointer hover:bg-muted rounded px-2 py-1"
+                      data-testid={`checkbox-city-${city.id}`}
+                    >
+                      <Checkbox
+                        checked={selectedCityIds.includes(city.id)}
+                        onCheckedChange={() => toggleCity(city.id)}
+                      />
+                      <span className="text-sm">{city.name}, {city.state}</span>
+                    </label>
+                  ))}
+                </div>
+              ))}
+            <div className="flex gap-2 pt-2">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                className="flex-1"
+                data-testid="button-save-company-cities"
+              >
+                {saveMutation.isPending ? "Saving..." : "Save Cities"}
+              </Button>
+              <Button variant="outline" onClick={() => setOpen(false)} data-testid="button-cancel-company-cities">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function StripeConnectBadge({ company }: { company: Company }) {
   const { token } = useAuth();
   const { toast } = useToast();
@@ -659,6 +796,7 @@ export default function CompaniesPage() {
                                 Set Scope
                               </Button>
                             )}
+                            <CompanyCitiesDialog company={company} />
                             <CreateAdminDialog company={company} onCreated={refreshList} />
                             <Button
                               size="icon"

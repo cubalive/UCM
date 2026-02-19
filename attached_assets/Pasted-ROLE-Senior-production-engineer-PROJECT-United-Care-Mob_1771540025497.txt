@@ -1,0 +1,165 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- No breaking changes to production flows
+- Add migrations safely (nullable -> backfill -> not null)
+- Add tests + verification checklist
+GOAL: Make city/company scoping work like a clock, remove duplicate cities, and enforce correct relationships across Admin/Company/Clinic.
+
+USER REQUIREMENTS (DO NOT IGNORE):
+1) “Replit guarde una sola ciudad siempre…”
+2) “en admin se vean todo Estados Unidos todos los estados todas las ciudades”
+3) “en las compañías q se vean sus ciudades”
+4) “que las clínicas tenga para seleccionar con que compañía trabajan”
+5) “en la creación del paciente asociar el paciente a la compañía q lo transporta”
+6) “los carros… cuando se crean su ciudad y la compañía a la que pertenecen y poder eliminarlos o editarlos según corresponda”
+
+CURRENT BUG TO FIX:
+- City selector shows duplicates (e.g., “Las Vegas, NV” repeated) and odd grouping.
+- City choice is not reliably persisted (refresh/login loses it or behaves inconsistently).
+- Data appears “blank” in some views because filtering is inconsistent or missing company/city joins.
+
+SCOPE / DELIVERABLES
+A) CITY DIRECTORY (US-wide) + DEDUP
+1. Create/normalize a City directory table (or use existing) with UNIQUE constraint to prevent duplicates.
+   - Unique key should prevent “Las Vegas, NV” duplicates (example: (state_code, city_name) or slug).
+   - Store: id (uuid), city_name, state_code, state_name, country_code='US', is_active, created_at.
+2. Seed/ensure US states + major cities exist without duplicates.
+   - If you already have a cities table: write a dedup migration that merges duplicates and re-points foreign keys.
+3. Update the “Select Your Working City” UI:
+   - Admin sees: “All Cities” + all states + all cities.
+   - Non-admin sees: only cities allowed for their company (see section C).
+   - Add search box (typeahead) and group by State (NV, TX etc).
+   - Absolutely no duplicates displayed.
+
+B) PERSIST “ONE WORKING CITY PER USER”
+1. Add user preference storage:
+   - Add fields to users/profile (or new table user_preferences):
+     - working_city_id (uuid, nullable)
+     - working_city_scope ('ALL'|'CITY') ONLY for SUPER_ADMIN (admins can use ALL).
+2. On city selection:
+   - Save immediately.
+   - On refresh/login: reload working_city from DB and apply filters.
+3. Rules:
+   - SUPER_ADMIN: can pick All Cities or any single city.
+   - COMPANY_ADMIN / DISPATCH / DRIVER / CLINIC_USER: must have a single working city selected (no “All Cities”), but allow a sensible default (first allowed city) if none is set.
+
+C) COMPANY ↔ CITY VISIBILITY (COMPANY CITIES)
+1. Add company_cities join table (if not existing):
+   - company_cities: id, company_id, city_id, is_active, created_at
+   - Unique(company_id, city_id)
+2. Company sees ONLY:
+   - its own cities (company_cities) in settings/listing.
+   - data filtered by company_id AND (working_city_id if set).
+3. SUPER_ADMIN sees all companies and can assign cities to a company.
+
+D) CLINIC ↔ COMPANY RELATIONSHIP (CLINIC SELECTS WHO THEY WORK WITH)
+1. Add clinic_companies join table:
+   - clinic_companies: id, clinic_id, company_id, is_active, created_at
+   - Unique(clinic_id, company_id)
+2. Clinic UI:
+   - In clinic settings (or admin-managed): allow selecting companies they work with (from available companies in that city/state; but SUPER_ADMIN can assign without city restriction).
+   - Clinic users only see companies linked in clinic_companies.
+
+E) PATIENT CREATION MUST ASSOCIATE:
+- clinic_id (the clinic who owns/created or is responsible)
+- transport_company_id (the company transporting)
+- city_id (explicit, required)
+1. Update patients schema:
+   - Add transport_company_id (uuid FK companies)
+   - Ensure clinic_id already exists; if not, add it.
+   - Add city_id (uuid FK cities)
+2. Patient creation flow:
+   - If role is CLINIC_USER:
+     - clinic_id auto = their clinic
+     - transport_company dropdown limited to clinic_companies for that clinic
+     - city is either:
+       a) auto from working_city_id OR
+       b) selectable but limited to clinic’s allowed cities (if you support multi-city clinics)
+   - If SUPER_ADMIN:
+     - can select clinic + transport_company + city (any)
+   - If COMPANY_ADMIN/DISPATCH:
+     - can create patient for their company; clinic_id optional only if your workflow allows; otherwise require clinic_id.
+3. All patient lists:
+   - Clinic view: show only patients where clinic_id = their clinic AND (optionally filtered by working city)
+   - Company view: show only patients where transport_company_id = their company AND city filters
+
+F) VEHICLES (“CARROS”) MUST HAVE COMPANY + CITY + CRUD/ARCHIVE
+1. Update vehicles schema:
+   - Add company_id (required FK)
+   - Add city_id (required FK)
+   - Add archived_at (nullable) + archived_by (nullable)
+2. Permissions:
+   - SUPER_ADMIN: can edit, archive, and hard delete vehicles.
+   - COMPANY_ADMIN: can edit and archive vehicles for their own company; NO hard delete (unless already allowed).
+   - Others: read-only as appropriate.
+3. Vehicle create/edit UI:
+   - Require company + city.
+   - City dropdown limited to company’s cities for company roles; admin can choose any.
+4. Vehicle listing:
+   - Filter by company_id and working_city_id (unless admin “All Cities”).
+   - Show company name + city/state.
+5. Audit logs:
+   - On create/archive/delete: log vehicle_id, company_id, city_id, actor user_id, action.
+
+G) APPLY FILTERING CONSISTENTLY ACROSS THE APP (FIX “BLANK DATA”)
+1. Identify all list endpoints/pages affected: companies, clinics, patients, vehicles, trips.
+2. Enforce consistent scoping:
+   - SUPER_ADMIN: no company scope; optional city scope (All vs one city)
+   - COMPANY roles: always company_id = user.company_id; plus city if working_city_id is set
+   - CLINIC roles: always clinic_id = user.clinic_id; plus city if working_city_id is set
+3. Ensure trips in clinics are filtered by clinic_id (and city) AND not accidentally filtered by transport_company unless intended.
+
+H) ACCEPTANCE TESTS / VERIFICATION CHECKLIST (MUST DELIVER)
+Create a verification checklist that I can follow manually plus automated tests where possible.
+
+Manual checklist:
+1. City dropdown:
+   - No duplicates (Las Vegas appears once).
+   - Grouped by state.
+   - Admin sees All Cities + everything.
+2. Persistence:
+   - Select city -> refresh -> remains.
+   - Logout/login -> remains.
+3. Company cities:
+   - Assign 2 cities to Company A, 1 city to Company B.
+   - Company A user only sees their assigned cities.
+4. Clinic-company:
+   - Clinic X linked to Company A only.
+   - Clinic user creating patient sees only Company A in dropdown.
+5. Patient creation:
+   - Created patient shows clinic_id + transport_company_id + city_id correctly.
+   - Appears in clinic list and company list correctly.
+6. Vehicles:
+   - Create vehicle with company + city required.
+   - Company admin can edit + archive.
+   - Super admin can hard delete.
+7. “Blank company screen” regression:
+   - Import/seeded records appear in the correct company and city scope.
+
+Automated tests (at least):
+- City uniqueness / dedup logic
+- Authorization scoping for clinic/company/admin on list endpoints
+- Persistence of working_city_id
+
+IMPLEMENTATION NOTES (IMPORTANT)
+- Do this safely: add columns nullable -> backfill -> add NOT NULL + FK constraints.
+- For existing records missing company_id/city_id:
+  - If derivable (e.g., from related trip/company): backfill.
+  - Otherwise assign to a safe default and flag for review (log warning).
+- Do NOT break production login or dispatch flows.
+
+OUTPUT REQUIRED
+- A summary of what changed (schema + UI + API + filters)
+- A checklist (manual + automated)
+- Any migration notes and rollback plan (no DB reset)
+
+Start by:
+1) Inspect current schema for cities, companies, clinics, patients, vehicles, user profile fields.
+2) Identify why cities duplicate and where they are sourced.
+3) Implement in the order: Cities dedup -> preferences persistence -> scoping filters -> clinic-company -> patient company association -> vehicles CRUD/archive.

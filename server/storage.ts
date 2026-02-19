@@ -6,6 +6,7 @@ import {
   citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog, tripSeries,
   tripEvents, driverBonusRules, opsAlertLog, clinicAlertLog, clinicHelpRequests,
   routeBatches, driverScores,
+  companyCities, clinicCompanies,
   type InsertCity, type InsertUser, type InsertVehicle, type InsertDriver,
   type InsertClinic, type InsertPatient, type InsertTrip, type InsertAuditLog, type InsertInvoice,
   type InsertCitySettings, type InsertDriverVehicleAssignment, type InsertVehicleAssignmentHistory,
@@ -161,6 +162,19 @@ export interface IStorage {
 
   // Update user (for admin password reset)
   updateUser(id: number, data: Partial<User>): Promise<Omit<User, "password"> | undefined>;
+
+  // Company-City relationships
+  getCompanyCities(companyId: number): Promise<number[]>;
+  setCompanyCities(companyId: number, cityIds: number[]): Promise<void>;
+  getCitiesForCompany(companyId: number): Promise<City[]>;
+
+  // Clinic-Company relationships
+  getClinicCompanies(clinicId: number): Promise<number[]>;
+  setClinicCompanies(clinicId: number, companyIds: number[]): Promise<void>;
+  getCompaniesForClinic(clinicId: number): Promise<Company[]>;
+
+  // Working city persistence
+  setUserWorkingCity(userId: number, cityId: number | null, scope?: string): Promise<void>;
 
   // Trip events
   getTripEvents(tripId: number): Promise<TripEvent[]>;
@@ -1662,6 +1676,63 @@ export class DatabaseStorage implements IStorage {
     await db.update(stripeWebhookEvents)
       .set({ status, error: error || null, processedAt: status === "PROCESSED" ? new Date() : undefined })
       .where(eq(stripeWebhookEvents.stripeEventId, stripeEventId));
+  }
+
+  async getCompanyCities(companyId: number): Promise<number[]> {
+    const rows = await db.select({ cityId: companyCities.cityId })
+      .from(companyCities)
+      .where(and(eq(companyCities.companyId, companyId), eq(companyCities.isActive, true)));
+    return rows.map(r => r.cityId);
+  }
+
+  async setCompanyCities(companyId: number, cityIds: number[]): Promise<void> {
+    await db.delete(companyCities).where(eq(companyCities.companyId, companyId));
+    if (cityIds.length > 0) {
+      await db.insert(companyCities)
+        .values(cityIds.map(cityId => ({ companyId, cityId })))
+        .onConflictDoNothing();
+    }
+  }
+
+  async getCitiesForCompany(companyId: number): Promise<City[]> {
+    const rows = await db.select({ city: cities })
+      .from(companyCities)
+      .innerJoin(cities, eq(companyCities.cityId, cities.id))
+      .where(and(eq(companyCities.companyId, companyId), eq(companyCities.isActive, true)));
+    return rows.map(r => r.city);
+  }
+
+  async getClinicCompanies(clinicId: number): Promise<number[]> {
+    const rows = await db.select({ companyId: clinicCompanies.companyId })
+      .from(clinicCompanies)
+      .where(and(eq(clinicCompanies.clinicId, clinicId), eq(clinicCompanies.isActive, true)));
+    return rows.map(r => r.companyId);
+  }
+
+  async setClinicCompanies(clinicId: number, companyIds: number[]): Promise<void> {
+    await db.delete(clinicCompanies).where(eq(clinicCompanies.clinicId, clinicId));
+    if (companyIds.length > 0) {
+      await db.insert(clinicCompanies)
+        .values(companyIds.map(companyId => ({ clinicId, companyId })))
+        .onConflictDoNothing();
+    }
+  }
+
+  async getCompaniesForClinic(clinicId: number): Promise<Company[]> {
+    const rows = await db.select({ company: companies })
+      .from(clinicCompanies)
+      .innerJoin(companies, eq(clinicCompanies.companyId, companies.id))
+      .where(and(eq(clinicCompanies.clinicId, clinicId), eq(clinicCompanies.isActive, true)));
+    return rows.map(r => r.company);
+  }
+
+  async setUserWorkingCity(userId: number, cityId: number | null, scope?: string): Promise<void> {
+    await db.update(users)
+      .set({
+        workingCityId: cityId,
+        workingCityScope: scope || (cityId === null ? "ALL" : "CITY"),
+      })
+      .where(eq(users.id, userId));
   }
 }
 
