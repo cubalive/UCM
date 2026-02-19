@@ -123,6 +123,7 @@ const adminItems: NavItem[] = [
   { titleKey: "nav.dataImport", url: "/admin/imports", icon: Upload, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.companies", url: "/companies", icon: Building, resource: "audit", superAdminOnly: true },
   { titleKey: "nav.metrics", url: "/metrics", icon: BarChart, resource: "audit", superAdminOnly: true },
+  { titleKey: "nav.systemStatus", url: "/system-status", icon: Gauge, resource: "audit", superAdminOnly: true },
 ];
 
 export function AppSidebar() {

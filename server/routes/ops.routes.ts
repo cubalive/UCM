@@ -211,6 +211,19 @@ router.get("/api/ops/seed/status", authMiddleware, requireRole("SUPER_ADMIN"), a
   }
 });
 
+import {
+  getSystemMap, getSystemStatus, runSmokeTest, getSmokeRuns,
+  getCompanyDataOverview, getImportRuns, getImportRunEvents,
+} from "../controllers/systemStatus.controller";
+
+router.get("/api/ops/system-map", authMiddleware, requireRole("SUPER_ADMIN"), getSystemMap);
+router.get("/api/ops/system-status", authMiddleware, requireRole("SUPER_ADMIN"), getSystemStatus);
+router.post("/api/ops/smoke-run", authMiddleware, requireRole("SUPER_ADMIN"), runSmokeTest);
+router.get("/api/ops/smoke-runs", authMiddleware, requireRole("SUPER_ADMIN"), getSmokeRuns);
+router.get("/api/ops/company/:id/overview", authMiddleware, requireRole("SUPER_ADMIN"), getCompanyDataOverview);
+router.get("/api/ops/import-runs", authMiddleware, requireRole("SUPER_ADMIN"), getImportRuns);
+router.get("/api/ops/import-runs/:id/events", authMiddleware, requireRole("SUPER_ADMIN"), getImportRunEvents);
+
 export function registerInfraOpsRoutes(app: Express) {
   app.use(router);
 }

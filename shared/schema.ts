@@ -2246,6 +2246,16 @@ export const insertClinicMembershipSchema = createInsertSchema(clinicMemberships
 export type ClinicMembership = typeof clinicMemberships.$inferSelect;
 export type InsertClinicMembership = z.infer<typeof insertClinicMembershipSchema>;
 
+export const opsSmokeRuns = pgTable("ops_smoke_runs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  environment: text("environment").notNull().default("development"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  status: text("status").notNull().default("running"),
+  resultsJson: jsonb("results_json"),
+  triggeredBy: integer("triggered_by").references(() => users.id),
+});
+
 export const routeCache = pgTable("route_cache", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   keyHash: text("key_hash").notNull(),

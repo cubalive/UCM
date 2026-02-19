@@ -194,8 +194,25 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const { dbReady, getDbSource } = await import("./db");
+  const { dbReady, getDbSource, db: bootDb } = await import("./db");
   await dbReady;
+
+  try {
+    const { sql: bootSql } = await import("drizzle-orm");
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS ops_smoke_runs (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        environment TEXT NOT NULL DEFAULT 'development',
+        started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        finished_at TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'running',
+        results_json JSONB,
+        triggered_by INTEGER REFERENCES users(id)
+      )
+    `);
+  } catch (migErr: any) {
+    console.warn("[BOOT] ops_smoke_runs auto-create skipped:", migErr.message);
+  }
 
   const bootConfig = {
     event: "boot_config",

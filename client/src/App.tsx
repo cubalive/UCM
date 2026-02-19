@@ -68,6 +68,7 @@ import SupportChatPage from "@/pages/support-chat";
 import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
+import SystemStatusPage from "@/pages/system-status";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState as useStateHook } from "react";
@@ -313,6 +314,7 @@ function Router() {
       <Route path="/publish-center">{() => <SuperAdminRoute component={PublishCenterPage} />}</Route>
       <Route path="/admin/imports">{() => <SuperAdminRoute component={DataImportPage} />}</Route>
       <Route path="/companies">{() => <SuperAdminRoute component={CompaniesPage} />}</Route>
+      <Route path="/system-status">{() => <SuperAdminRoute component={SystemStatusPage} />}</Route>
       <Route path="/timecards">{() => <ProtectedRoute resource="time_entries" component={TimecardsPage} />}</Route>
       <Route path="/tp-payroll">{() => <ProtectedRoute resource="payroll" component={TpPayrollPage} />}</Route>
       <Route path="/billing-config">{() => <ProtectedRoute resource="billing" component={BillingTariffsPage} />}</Route>

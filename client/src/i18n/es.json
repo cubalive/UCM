@@ -79,7 +79,8 @@
     "billingConfig": "Config. Facturación",
     "platformFees": "Tarifas Plataforma",
     "clinicBillingV2": "Facturas Clínica",
-    "supportChat": "Chat de Soporte"
+    "supportChat": "Chat de Soporte",
+    "systemStatus": "Estado del Sistema"
   },
   "dashboard": {
     "title": "Panel Principal",

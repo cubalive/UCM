@@ -79,7 +79,8 @@
     "billingConfig": "Billing Config",
     "platformFees": "Platform Fees",
     "clinicBillingV2": "Clinic Invoices",
-    "supportChat": "Support Chat"
+    "supportChat": "Support Chat",
+    "systemStatus": "System Status"
   },
   "dashboard": {
     "title": "Dashboard",
