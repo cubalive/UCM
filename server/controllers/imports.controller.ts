@@ -8,9 +8,11 @@ import {
 import { type AuthRequest } from "../auth";
 import { generatePublicId } from "../public-id";
 import {
-  parseFileToRows, getMapping, applyMapping, dedupeRows,
+  parseFileToRows, applyHeaderMapping, dedupeRows,
   getCanonicalSchema, normalizePhone, normalizeDate, normalizeState,
-  normalizeBool, IMPORT_ENTITIES, type ImportEntity,
+  normalizeBool, normalizeRowValues, applyDefaults, dryRunEntity,
+  generateTemplateCsv, TEMPLATE_HEADERS,
+  IMPORT_ENTITIES, type ImportEntity, type EntityDefaults,
 } from "../lib/importEngine";
 import multer from "multer";
 
@@ -95,6 +97,71 @@ export async function uploadFile(req: AuthRequest, res: Response) {
   }
 }
 
+export async function dryRunImport(req: AuthRequest, res: Response) {
+  try {
+    const jobId = req.params.id;
+    const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
+    if (!job) return res.status(404).json({ error: "Import job not found" });
+
+    const files = await db.select().from(importJobFiles).where(eq(importJobFiles.importJobId, jobId));
+    if (!files.length) return res.status(400).json({ error: "No files uploaded yet" });
+
+    const defaultCity = await getDefaultCityName(job.cityId);
+    const defaults: EntityDefaults = { defaultCity };
+    const results: Record<string, any> = {};
+
+    for (const file of files) {
+      const entity = file.entity as ImportEntity;
+      const storage = file.storageJson as any;
+      const buffer = Buffer.from(storage.base64, "base64");
+
+      let rows: Record<string, any>[];
+      try {
+        rows = parseFileToRows(buffer, file.filename, file.mimeType);
+      } catch (parseErr: any) {
+        results[entity] = {
+          entity,
+          headerInfo: { detected: [], mapped: {}, unmapped: [] },
+          totalRows: 0, validRows: 0, errorRows: 1, duplicateRows: 0,
+          missingRequiredFields: [],
+          rowErrors: [{ row: 0, field: "file", message: `Parse error: ${parseErr.message}` }],
+          preview: [],
+        };
+        continue;
+      }
+
+      results[entity] = dryRunEntity(entity, rows, defaults);
+    }
+
+    await db.insert(importJobEvents).values({
+      importJobId: jobId,
+      level: "info",
+      message: `Dry run completed`,
+      payload: { entities: Object.keys(results) },
+    });
+
+    return res.json({ status: "dry_run", results });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+}
+
+export async function downloadTemplate(req: AuthRequest, res: Response) {
+  try {
+    const entity = req.params.entity as string;
+    if (!IMPORT_ENTITIES.includes(entity as ImportEntity)) {
+      return res.status(400).json({ error: `entity must be one of: ${IMPORT_ENTITIES.join(", ")}` });
+    }
+
+    const csv = generateTemplateCsv(entity as ImportEntity);
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${entity}_template.csv"`);
+    return res.send(csv);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+}
+
 export async function validateImport(req: AuthRequest, res: Response) {
   try {
     const jobId = req.params.id;
@@ -107,6 +174,8 @@ export async function validateImport(req: AuthRequest, res: Response) {
     const files = await db.select().from(importJobFiles).where(eq(importJobFiles.importJobId, jobId));
     if (!files.length) return res.status(400).json({ error: "No files uploaded yet" });
 
+    const defaultCity = await getDefaultCityName(job.cityId);
+    const defaults: EntityDefaults = { defaultCity };
     const counts: Record<string, { ok: number; error: number; skipped: number }> = {};
     const preview: Record<string, any[]> = {};
     const allErrors: { entity: string; row: number; errors: string[] }[] = [];
@@ -129,8 +198,7 @@ export async function validateImport(req: AuthRequest, res: Response) {
         continue;
       }
 
-      const mapping = getMapping(job.sourceSystem, entity, rows[0] || {});
-      const mapped = rows.map(r => applyMapping(r, mapping));
+      const { mapped, headerInfo } = applyHeaderMapping(rows, entity);
       const { unique, duplicates } = dedupeRows(mapped, entity);
 
       const schema = getCanonicalSchema(entity);
@@ -138,19 +206,20 @@ export async function validateImport(req: AuthRequest, res: Response) {
       const validRows: any[] = [];
 
       for (let i = 0; i < unique.length; i++) {
-        const row = normalizeRow(unique[i], entity);
+        const withDefaults = applyDefaults(unique[i], entity, i, defaults);
+        const row = normalizeRowValues(withDefaults, entity);
         const result = schema.safeParse(row);
         if (result.success) {
           ok++;
           validRows.push(row);
         } else {
           errorCount++;
-          const errs = result.error.issues.map(iss => `${iss.path.join(".")}: ${iss.message}`);
+          const errs = result.error.issues.map(iss => `${entity} row ${i + 1}: ${iss.path.join(".")} ${iss.message}`);
           allErrors.push({ entity, row: i + 1, errors: errs });
           await db.insert(importJobEvents).values({
             importJobId: jobId, level: "warn",
-            message: `Row ${i + 1} in ${entity}: ${errs.join("; ")}`,
-            payload: { row: i + 1, errors: errs },
+            message: errs[0] || `Row ${i + 1} in ${entity} has validation errors`,
+            payload: { row: i + 1, errors: errs, unmappedHeaders: headerInfo.unmapped },
           });
         }
       }
@@ -178,20 +247,6 @@ export async function validateImport(req: AuthRequest, res: Response) {
   }
 }
 
-function normalizeRow(row: Record<string, any>, entity: ImportEntity): Record<string, any> {
-  const r = { ...row };
-  if (r.phone) r.phone = normalizePhone(r.phone);
-  if (r.date_of_birth) r.date_of_birth = normalizeDate(r.date_of_birth);
-  if (r.address_state) r.address_state = normalizeState(r.address_state);
-  if (entity === "vehicles" && r.license_plate) r.license_plate = r.license_plate.toUpperCase().trim();
-  if (r.wheelchair_required !== undefined) r.wheelchair_required = normalizeBool(r.wheelchair_required);
-  if (r.wheelchair_accessible !== undefined) r.wheelchair_accessible = normalizeBool(r.wheelchair_accessible);
-  if (r.year && typeof r.year === "string") r.year = parseInt(r.year, 10) || undefined;
-  if (r.capacity && typeof r.capacity === "string") r.capacity = parseInt(r.capacity, 10) || 4;
-  if (r.email === "") delete r.email;
-  return r;
-}
-
 export async function runImport(req: AuthRequest, res: Response) {
   try {
     const jobId = req.params.id;
@@ -209,6 +264,8 @@ export async function runImport(req: AuthRequest, res: Response) {
     const insertedIds: { entity: string; id: number }[] = [];
 
     const cityId = job.cityId || (await getDefaultCityId());
+    const defaultCity = await getDefaultCityName(job.cityId);
+    const defaults: EntityDefaults = { defaultCity };
 
     try {
       for (const entity of entityOrder) {
@@ -218,17 +275,26 @@ export async function runImport(req: AuthRequest, res: Response) {
         const storage = file.storageJson as any;
         const buffer = Buffer.from(storage.base64, "base64");
         const rows = parseFileToRows(buffer, file.filename, file.mimeType);
-        const mapping = getMapping(job.sourceSystem, entity, rows[0] || {});
-        const mapped = rows.map(r => applyMapping(r, mapping));
+        const { mapped } = applyHeaderMapping(rows, entity);
         const { unique } = dedupeRows(mapped, entity);
 
         let inserted = 0, updated = 0, errors = 0;
 
         for (let i = 0; i < unique.length; i++) {
-          const row = normalizeRow(unique[i], entity);
+          const withDefaults = applyDefaults(unique[i], entity, i, defaults);
+          const row = normalizeRowValues(withDefaults, entity);
           const schema = getCanonicalSchema(entity);
           const validation = schema.safeParse(row);
-          if (!validation.success) { errors++; continue; }
+          if (!validation.success) {
+            errors++;
+            const errs = validation.error.issues.map(iss => `${iss.path.join(".")}: ${iss.message}`);
+            await db.insert(importJobEvents).values({
+              importJobId: jobId, level: "error",
+              message: `${entity} row ${i + 1}: ${errs.join("; ")}`,
+              payload: { row: i + 1, errors: errs },
+            });
+            continue;
+          }
 
           try {
             const result = await upsertRow(entity, row, job.companyId, job.sourceSystem, cityId, insertedIds);
@@ -238,7 +304,7 @@ export async function runImport(req: AuthRequest, res: Response) {
             errors++;
             await db.insert(importJobEvents).values({
               importJobId: jobId, level: "error",
-              message: `Row ${i + 1} in ${entity} failed: ${rowErr.message}`,
+              message: `${entity} row ${i + 1}: ${rowErr.message}`,
               payload: { row: i + 1, data: row },
             });
           }
@@ -274,6 +340,14 @@ export async function runImport(req: AuthRequest, res: Response) {
 async function getDefaultCityId(): Promise<number> {
   const [city] = await db.select().from(cities).limit(1);
   return city?.id || 1;
+}
+
+async function getDefaultCityName(cityId: number | null): Promise<string> {
+  if (cityId) {
+    const [city] = await db.select().from(cities).where(eq(cities.id, cityId));
+    if (city) return city.name;
+  }
+  return "Las Vegas";
 }
 
 async function upsertRow(
@@ -423,6 +497,7 @@ async function updateEntity(entity: ImportEntity, id: number, row: Record<string
       if (row.capacity) data.capacity = typeof row.capacity === "number" ? row.capacity : parseInt(row.capacity);
       if (row.wheelchair_accessible !== undefined) data.wheelchairAccessible = row.wheelchair_accessible;
       if (row.capability) data.capability = row.capability;
+      if (row.color) data.colorHex = row.color;
       if (Object.keys(data).length) await db.update(vehicles).set(data).where(eq(vehicles.id, id));
       break;
     }
@@ -485,6 +560,7 @@ async function insertEntity(entity: ImportEntity, row: Record<string, any>, comp
         publicId, cityId, companyId,
         name: row.name,
         licensePlate: row.license_plate,
+        colorHex: row.color || "#3B82F6",
         make: row.make || null,
         model: row.model || null,
         makeText: row.make || null,
