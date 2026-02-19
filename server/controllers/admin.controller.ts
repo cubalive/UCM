@@ -103,14 +103,15 @@ export async function archiveClinicHandler(req: AuthRequest, res: Response) {
     const hasActive = await storage.hasActiveTripsForClinic(id);
     if (hasActive) return res.status(409).json({ message: "Cannot archive clinic with active trips" });
 
-    const updated = await storage.updateClinic(id, { active: false, deletedAt: new Date() });
+    const reason = req.body?.reason || null;
+    const updated = await storage.updateClinic(id, { active: false, deletedAt: new Date(), deletedBy: req.user!.userId, deleteReason: reason } as any);
 
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "ARCHIVE",
       entity: "clinic",
       entityId: id,
-      details: `Archived clinic ${clinic.name}`,
+      details: `Archived clinic ${clinic.name}${reason ? ` (reason: ${reason})` : ""}`,
       cityId: clinic.cityId,
     });
 
@@ -131,7 +132,7 @@ export async function restoreClinicHandler(req: AuthRequest, res: Response) {
     const scope = await enforceArchiveScoping(req, clinic, "clinic");
     if (!scope.allowed) return res.status(403).json({ message: scope.reason });
 
-    const updated = await storage.updateClinic(id, { active: true, deletedAt: null } as any);
+    const updated = await storage.updateClinic(id, { active: true, deletedAt: null, deletedBy: null, deleteReason: null } as any);
 
     await storage.createAuditLog({
       userId: req.user!.userId,
@@ -724,6 +725,144 @@ export async function permanentDeleteVehicleHandler(req: AuthRequest, res: Respo
       entityId: id,
       details: `Permanently deleted vehicle ${vehicle.name}`,
       cityId: vehicle.cityId,
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function archiveCompanyHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const company = await storage.getCompany(id);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    const hasActive = await storage.hasActiveTripsForCompany(id);
+    if (hasActive) return res.status(409).json({ message: "Cannot archive company with active trips" });
+    const reason = req.body?.reason || null;
+    const updated = await storage.updateCompany(id, { deletedAt: new Date(), deletedBy: req.user!.userId, deleteReason: reason } as any);
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "ARCHIVE",
+      entity: "company",
+      entityId: id,
+      details: `Archived company ${company.name}${reason ? ` (reason: ${reason})` : ""}`,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function restoreCompanyHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const company = await storage.getCompany(id);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    const updated = await storage.updateCompany(id, { deletedAt: null, deletedBy: null, deleteReason: null } as any);
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "RESTORE",
+      entity: "company",
+      entityId: id,
+      details: `Restored company ${company.name}`,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function permanentDeleteCompanyHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const company = await storage.getCompany(id);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    if (!company.deletedAt) return res.status(400).json({ message: "Must archive before permanent delete" });
+    const hasActive = await storage.hasActiveTripsForCompany(id);
+    if (hasActive) return res.status(409).json({ message: "Cannot delete company with active trips" });
+    await storage.deleteCompany(id);
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "PERMANENT_DELETE",
+      entity: "company",
+      entityId: id,
+      details: `Permanently deleted company ${company.name}`,
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function archiveTripHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const trip = await storage.getTrip(id);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+    const scope = await enforceArchiveScoping(req, trip, "trip");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
+    if (["EN_ROUTE_PICKUP", "AT_PICKUP", "EN_ROUTE_DROPOFF", "AT_DROPOFF"].includes(trip.status)) {
+      return res.status(409).json({ message: "Cannot archive an active/in-progress trip" });
+    }
+    const reason = req.body?.reason || null;
+    const updated = await storage.updateTrip(id, { deletedAt: new Date(), deletedBy: req.user!.userId, deleteReason: reason } as any);
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "ARCHIVE",
+      entity: "trip",
+      entityId: id,
+      details: `Archived trip #${trip.id}${reason ? ` (reason: ${reason})` : ""}`,
+      cityId: trip.cityId,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function restoreTripHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const trip = await storage.getTrip(id);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+    const scope = await enforceArchiveScoping(req, trip, "trip");
+    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
+    const updated = await storage.updateTrip(id, { deletedAt: null, deletedBy: null, deleteReason: null } as any);
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "RESTORE",
+      entity: "trip",
+      entityId: id,
+      details: `Restored trip #${trip.id}`,
+      cityId: trip.cityId,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function permanentDeleteTripHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const trip = await storage.getTrip(id);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+    if (!trip.deletedAt) return res.status(400).json({ message: "Must archive before permanent delete" });
+    await storage.deleteTrip(id);
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "PERMANENT_DELETE",
+      entity: "trip",
+      entityId: id,
+      details: `Permanently deleted trip #${trip.id}`,
+      cityId: trip.cityId,
     });
     res.json({ success: true });
   } catch (err: any) {

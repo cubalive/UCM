@@ -17,7 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key } from "lucide-react";
+import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key, Archive, RotateCcw, Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { ClinicHealthBanner } from "@/components/clinic-health-banner";
@@ -36,6 +37,7 @@ export default function ClinicsPage() {
   const [open, setOpen] = useState(false);
   const [editClinic, setEditClinic] = useState<any>(null);
   const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -112,12 +114,46 @@ export default function ClinicsPage() {
     },
   });
 
-  const filtered = clinics?.filter(
-    (c: any) =>
-      c.name?.toLowerCase().includes(search.toLowerCase()) ||
-      c.publicId?.toLowerCase().includes(search.toLowerCase()) ||
-      c.email?.toLowerCase().includes(search.toLowerCase())
-  );
+  const archiveMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/clinics/${id}/archive`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Clinic archived" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/clinics/${id}/restore`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Clinic restored" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/clinics/${id}/permanent`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Clinic permanently deleted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const filtered = clinics?.filter((c: any) => {
+    const isArchived = !!c.deletedAt || !c.active;
+    if (!showArchived && isArchived) return false;
+    if (showArchived && !isArchived) return false;
+    const q = search.toLowerCase();
+    return !q || c.name?.toLowerCase().includes(q) || c.publicId?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q);
+  });
 
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
@@ -141,9 +177,21 @@ export default function ClinicsPage() {
         </Dialog>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Search clinics..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-clinics" />
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search clinics..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-clinics" />
+        </div>
+        {user?.role === "SUPER_ADMIN" && (
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={showArchived}
+              onCheckedChange={setShowArchived}
+              data-testid="switch-show-archived-clinics"
+            />
+            <Label className="text-sm text-muted-foreground">Show Archived</Label>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -197,17 +245,65 @@ export default function ClinicsPage() {
                         <ShieldAlert className="w-3 h-3 mr-1" />No auth
                       </Badge>
                     ) : null}
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setEditClinic(c)}
-                      data-testid={`button-edit-clinic-${c.id}`}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
+                    <div className="flex gap-1">
+                      {!c.deletedAt && c.active && (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setEditClinic(c)}
+                            data-testid={`button-edit-clinic-${c.id}`}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          {user?.role === "SUPER_ADMIN" && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                if (window.confirm(`Archive clinic ${c.name}?`)) {
+                                  archiveMutation.mutate(c.id);
+                                }
+                              }}
+                              disabled={archiveMutation.isPending}
+                              data-testid={`button-archive-clinic-${c.id}`}
+                            >
+                              <Archive className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </>
+                      )}
+                      {(c.deletedAt || !c.active) && user?.role === "SUPER_ADMIN" && (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => restoreMutation.mutate(c.id)}
+                            disabled={restoreMutation.isPending}
+                            data-testid={`button-restore-clinic-${c.id}`}
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive"
+                            onClick={() => {
+                              if (window.confirm(`PERMANENTLY delete clinic ${c.name}? This cannot be undone.`)) {
+                                permanentDeleteMutation.mutate(c.id);
+                              }
+                            }}
+                            disabled={permanentDeleteMutation.isPending}
+                            data-testid={`button-permanent-delete-clinic-${c.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-                {canManageAuth && c.email && (
+                {canManageAuth && c.email && !c.deletedAt && c.active && (
                   <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
                     <Button
                       variant="outline"

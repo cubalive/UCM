@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { eq, and, or, desc, sql, inArray, count, ne, isNull, gte } from "drizzle-orm";
 import {
+  companies, type Company,
   cities, users, userCityAccess, vehicles, drivers, clinics, patients, trips, auditLog, smsOptOut, invoices,
   citySettings, driverVehicleAssignments, vehicleAssignmentHistory, tripShareTokens, tripSmsLog, tripSeries,
   tripEvents, driverBonusRules, opsAlertLog, clinicAlertLog, clinicHelpRequests,
@@ -33,6 +34,12 @@ import {
 } from "@shared/schema";
 
 export interface IStorage {
+  getCompanies(): Promise<Company[]>;
+  getCompany(id: number): Promise<Company | undefined>;
+  updateCompany(id: number, data: Partial<Company>): Promise<Company | undefined>;
+  deleteCompany(id: number): Promise<void>;
+  hasActiveTripsForCompany(companyId: number): Promise<boolean>;
+
   getCities(): Promise<City[]>;
   getCity(id: number): Promise<City | undefined>;
   createCity(data: InsertCity): Promise<City>;
@@ -244,6 +251,37 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  async getCompanies(): Promise<Company[]> {
+    return db.select().from(companies).orderBy(companies.name);
+  }
+
+  async getCompany(id: number): Promise<Company | undefined> {
+    const [company] = await db.select().from(companies).where(eq(companies.id, id));
+    return company;
+  }
+
+  async updateCompany(id: number, data: Partial<Company>): Promise<Company | undefined> {
+    const { id: _id, ...updateData } = data as any;
+    const [company] = await db.update(companies).set(updateData).where(eq(companies.id, id)).returning();
+    return company;
+  }
+
+  async deleteCompany(id: number): Promise<void> {
+    await db.delete(companies).where(eq(companies.id, id));
+  }
+
+  async hasActiveTripsForCompany(companyId: number): Promise<boolean> {
+    const activeStatuses = ["SCHEDULED", "ASSIGNED", "EN_ROUTE_PICKUP", "AT_PICKUP", "EN_ROUTE_DROPOFF", "AT_DROPOFF"];
+    const [result] = await db.select({ count: count() }).from(trips).where(
+      and(
+        eq(trips.companyId, companyId),
+        inArray(trips.status, activeStatuses as any),
+        isNull(trips.deletedAt),
+      )
+    );
+    return (result?.count ?? 0) > 0;
+  }
+
   async getCities(): Promise<City[]> {
     return db.select().from(cities).orderBy(cities.name);
   }

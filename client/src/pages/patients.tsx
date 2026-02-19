@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, Trash2, Clock, Repeat, Building2, UserCheck, Globe, ChevronDown, ChevronRight, Users } from "lucide-react";
+import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, RotateCcw, Trash2, Clock, Repeat, Building2, UserCheck, Globe, ChevronDown, ChevronRight, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { can } from "@shared/permissions";
@@ -34,6 +34,7 @@ export default function PatientsPage() {
   const [editPatient, setEditPatient] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [sourceTab, setSourceTab] = useState<SourceTab>("all");
+  const [showArchived, setShowArchived] = useState(false);
 
   const canEdit = user?.role ? can(user.role, "patients", "write") : false;
   const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH" || user?.role === "COMPANY_ADMIN";
@@ -159,6 +160,30 @@ export default function PatientsPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const restoreMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/patients/${id}/restore`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/patients/clinic-groups"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Patient restored" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/patients/${id}/permanent`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/patients/clinic-groups"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Patient permanently deleted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const clinicDeleteMutation = useMutation({
     mutationFn: (id: number) =>
       apiFetch(`/api/clinic/patients/${id}`, token, { method: "DELETE" }),
@@ -171,11 +196,13 @@ export default function PatientsPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const filtered = patients?.filter(
-    (p: any) =>
-      `${p.firstName} ${p.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
-      p.publicId?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = patients?.filter((p: any) => {
+    const isArchived = !!p.deletedAt || !p.active;
+    if (!showArchived && isArchived) return false;
+    if (showArchived && !isArchived) return false;
+    return `${p.firstName} ${p.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
+      p.publicId?.toLowerCase().includes(search.toLowerCase());
+  });
 
   const renderPatientCard = (p: any) => (
     <Card key={p.id}>
@@ -209,40 +236,71 @@ export default function PatientsPage() {
           </div>
           <div className="flex flex-col items-end gap-1 flex-shrink-0">
             <div className="flex gap-1">
-              {canEdit && (
-                <Button size="icon" variant="ghost" onClick={() => setEditPatient(p)} data-testid={`button-edit-patient-${p.id}`}>
-                  <Pencil className="w-4 h-4" />
-                </Button>
+              {!p.deletedAt && p.active && (
+                <>
+                  {canEdit && (
+                    <Button size="icon" variant="ghost" onClick={() => setEditPatient(p)} data-testid={`button-edit-patient-${p.id}`}>
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  )}
+                  {isDispatchOrAdmin && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => {
+                        if (window.confirm(`Archive patient ${p.firstName} ${p.lastName}? This will move them to the archive.`)) {
+                          archiveMutation.mutate(p.id);
+                        }
+                      }}
+                      disabled={archiveMutation.isPending}
+                      data-testid={`button-archive-patient-${p.id}`}
+                    >
+                      <Archive className="w-4 h-4" />
+                    </Button>
+                  )}
+                  {isClinicUser && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => {
+                        if (window.confirm(`Delete patient ${p.firstName} ${p.lastName}? This action cannot be undone.`)) {
+                          clinicDeleteMutation.mutate(p.id);
+                        }
+                      }}
+                      disabled={clinicDeleteMutation.isPending}
+                      data-testid={`button-clinic-delete-patient-${p.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
+                </>
               )}
-              {isDispatchOrAdmin && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => {
-                    if (window.confirm(`Archive patient ${p.firstName} ${p.lastName}? This will move them to the archive.`)) {
-                      archiveMutation.mutate(p.id);
-                    }
-                  }}
-                  disabled={archiveMutation.isPending}
-                  data-testid={`button-archive-patient-${p.id}`}
-                >
-                  <Archive className="w-4 h-4" />
-                </Button>
-              )}
-              {isClinicUser && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => {
-                    if (window.confirm(`Delete patient ${p.firstName} ${p.lastName}? This action cannot be undone.`)) {
-                      clinicDeleteMutation.mutate(p.id);
-                    }
-                  }}
-                  disabled={clinicDeleteMutation.isPending}
-                  data-testid={`button-clinic-delete-patient-${p.id}`}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+              {(!!p.deletedAt || !p.active) && user?.role === "SUPER_ADMIN" && (
+                <>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => restoreMutation.mutate(p.id)}
+                    disabled={restoreMutation.isPending}
+                    data-testid={`button-restore-patient-${p.id}`}
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => {
+                      if (window.confirm(`PERMANENTLY delete patient ${p.firstName} ${p.lastName}? This cannot be undone.`)) {
+                        permanentDeleteMutation.mutate(p.id);
+                      }
+                    }}
+                    disabled={permanentDeleteMutation.isPending}
+                    data-testid={`button-permanent-delete-patient-${p.id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </>
               )}
             </div>
             <Badge variant={p.active ? "secondary" : "destructive"}>
@@ -348,9 +406,21 @@ export default function PatientsPage() {
         </Tabs>
       )}
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Search patients..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-patients" />
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search patients..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-patients" />
+        </div>
+        {user?.role === "SUPER_ADMIN" && (
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={showArchived}
+              onCheckedChange={setShowArchived}
+              data-testid="switch-show-archived-patients"
+            />
+            <Label className="text-sm text-muted-foreground">Show Archived</Label>
+          </div>
+        )}
       </div>
 
       {sourceTab === "clinic" && !isClinicUser ? renderClinicGrouped() : renderPatientList()}

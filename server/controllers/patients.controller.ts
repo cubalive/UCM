@@ -101,6 +101,14 @@ export async function createPatientHandler(req: AuthRequest, res: Response) {
     }
     const publicId = await generatePublicId();
     const callerCompanyId = getCompanyIdFromAuth(req);
+    if (parsed.data.clinicId) {
+      const clinic = await storage.getClinic(parsed.data.clinicId);
+      if (!clinic) return res.status(400).json({ message: "Selected clinic not found" });
+      if (clinic.deletedAt || !clinic.active) return res.status(400).json({ message: "Cannot assign patient to an archived clinic" });
+      if (callerCompanyId && clinic.companyId && clinic.companyId !== callerCompanyId) {
+        return res.status(403).json({ message: "Clinic does not belong to your company" });
+      }
+    }
     const autoSource = (user?.role === "CLINIC_USER" || user?.role === "VIEWER") && user.clinicId ? "clinic" : "internal";
     const patientData = { ...parsed.data, publicId, companyId: callerCompanyId, source: parsed.data.source || autoSource };
     const effectiveSource = patientData.source;

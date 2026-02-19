@@ -27,7 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { downloadWithAuth } from "@/lib/export";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw, Download } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw, Download, RotateCcw } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { useTranslation } from "react-i18next";
@@ -247,6 +247,27 @@ export default function TripsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
       toast({ title: "Trip archived" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const restoreTripMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/trips/${id}/restore`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      toast({ title: "Trip restored" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const permanentDeleteTripMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/trips/${id}/permanent`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Trip permanently deleted" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -537,7 +558,7 @@ export default function TripsPage() {
                           </SelectContent>
                         </Select>
                         )}
-                        {user?.role === "SUPER_ADMIN" && (
+                        {user?.role === "SUPER_ADMIN" && !trip.deletedAt && (
                           <Button
                             size="icon"
                             variant="ghost"
@@ -552,6 +573,37 @@ export default function TripsPage() {
                           >
                             <Archive className="w-4 h-4" />
                           </Button>
+                        )}
+                        {user?.role === "SUPER_ADMIN" && trip.deletedAt && (
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                restoreTripMutation.mutate(trip.id);
+                              }}
+                              disabled={restoreTripMutation.isPending}
+                              data-testid={`button-restore-trip-${trip.id}`}
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm("PERMANENTLY delete this trip? This cannot be undone.")) {
+                                  permanentDeleteTripMutation.mutate(trip.id);
+                                }
+                              }}
+                              disabled={permanentDeleteTripMutation.isPending}
+                              data-testid={`button-permanent-delete-trip-${trip.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
                       </>
                     )}

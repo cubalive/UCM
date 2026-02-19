@@ -19,6 +19,9 @@ export const companies = pgTable("companies", {
   dispatchPhone: text("dispatch_phone"),
   dispatchChatEnabled: boolean("dispatch_chat_enabled").notNull().default(true),
   dispatchCallEnabled: boolean("dispatch_call_enabled").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by"),
+  deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -233,6 +236,8 @@ export const clinics = pgTable("clinics", {
   active: boolean("active").notNull().default(true),
   discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }),
   deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by"),
+  deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -334,6 +339,8 @@ export const trips = pgTable("trips", {
   companyId: integer("company_id").references(() => companies.id),
   invoiceId: integer("invoice_id").references((): AnyPgColumn => invoices.id),
   deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by"),
+  deleteReason: text("delete_reason"),
   requestSource: text("request_source").notNull().default("internal"),
   notes: text("notes"),
   billable: boolean("billable").notNull().default(true),

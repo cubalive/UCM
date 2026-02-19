@@ -18,7 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive, LogOut } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive, LogOut, RotateCcw, Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 import { can } from "@shared/permissions";
@@ -41,6 +42,7 @@ export default function DriversPage() {
   const [unassignDriver, setUnassignDriver] = useState<any>(null);
   const [historyDriver, setHistoryDriver] = useState<any>(null);
   const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
   const [vehicleConflict, setVehicleConflict] = useState<{
     driverId: number;
@@ -181,6 +183,28 @@ export default function DriversPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const restoreMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/drivers/${id}/restore`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Driver restored" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/drivers/${id}/permanent`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Driver permanently deleted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
   const forceLogoutMutation = useMutation({
     mutationFn: (id: number) =>
       apiFetch(`/api/dispatch/drivers/${id}/revoke-sessions`, token, { method: "POST", body: JSON.stringify({}) }),
@@ -206,11 +230,13 @@ export default function DriversPage() {
     onError: (err: any) => toast({ title: "Backfill failed", description: err.message, variant: "destructive" }),
   });
 
-  const filtered = drivers?.filter(
-    (d: any) =>
-      `${d.firstName} ${d.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
-      d.publicId?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = drivers?.filter((d: any) => {
+    const isArchived = !!d.deletedAt || !d.active;
+    if (!showArchived && isArchived) return false;
+    if (showArchived && !isArchived) return false;
+    const q = search.toLowerCase();
+    return !q || `${d.firstName} ${d.lastName}`.toLowerCase().includes(q) || d.publicId?.toLowerCase().includes(q);
+  });
 
   const driversWithoutAuth = drivers?.filter((d: any) => d.email && !d.authUserId) || [];
 
@@ -259,9 +285,21 @@ export default function DriversPage() {
         </div>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder={t("drivers.search")} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-drivers" />
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder={t("drivers.search")} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-drivers" />
+        </div>
+        {user?.role === "SUPER_ADMIN" && (
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={showArchived}
+              onCheckedChange={setShowArchived}
+              data-testid="switch-show-archived-drivers"
+            />
+            <Label className="text-sm text-muted-foreground">Show Archived</Label>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -323,35 +361,66 @@ export default function DriversPage() {
                     ) : null}
                     {canEdit && (
                       <div className="flex gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => setHistoryDriver(d)}
-                          data-testid={`button-vehicle-history-${d.id}`}
-                        >
-                          <History className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => setEditDriver(d)}
-                          data-testid={`button-edit-driver-${d.id}`}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => {
-                            if (window.confirm(`Archive driver ${d.firstName} ${d.lastName}? This will move them to the archive.`)) {
-                              archiveMutation.mutate(d.id);
-                            }
-                          }}
-                          disabled={archiveMutation.isPending}
-                          data-testid={`button-archive-driver-${d.id}`}
-                        >
-                          <Archive className="w-4 h-4" />
-                        </Button>
+                        {!d.deletedAt && d.active !== false && (
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => setHistoryDriver(d)}
+                              data-testid={`button-vehicle-history-${d.id}`}
+                            >
+                              <History className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => setEditDriver(d)}
+                              data-testid={`button-edit-driver-${d.id}`}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                if (window.confirm(`Archive driver ${d.firstName} ${d.lastName}? This will move them to the archive.`)) {
+                                  archiveMutation.mutate(d.id);
+                                }
+                              }}
+                              disabled={archiveMutation.isPending}
+                              data-testid={`button-archive-driver-${d.id}`}
+                            >
+                              <Archive className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
+                        {(d.deletedAt || !d.active) && user?.role === "SUPER_ADMIN" && (
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => restoreMutation.mutate(d.id)}
+                              disabled={restoreMutation.isPending}
+                              data-testid={`button-restore-driver-${d.id}`}
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="text-destructive"
+                              onClick={() => {
+                                if (window.confirm(`PERMANENTLY delete driver ${d.firstName} ${d.lastName}? This cannot be undone.`)) {
+                                  permanentDeleteMutation.mutate(d.id);
+                                }
+                              }}
+                              disabled={permanentDeleteMutation.isPending}
+                              data-testid={`button-permanent-delete-driver-${d.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

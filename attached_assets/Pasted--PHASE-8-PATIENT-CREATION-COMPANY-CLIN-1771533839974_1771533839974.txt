@@ -1,0 +1,99 @@
+========================================================
+PHASE 8 — PATIENT CREATION: COMPANY + CLINIC OWNERSHIP (MANDATORY FIX)
+========================================================
+
+OBJECTIVE
+Every Patient must explicitly belong to:
+1) A Transport Company (company_id)
+2) A Clinic (clinic_id)
+And this relationship must be enforced at DB + API + UI level.
+
+RULES
+
+1) Database
+- patients.company_id MUST exist and be NOT NULL.
+- patients.clinic_id MUST exist and be NOT NULL.
+- Add foreign keys:
+patients.company_id → companies.id
+patients.clinic_id → clinics.id
+- Ensure clinic.company_id = patient.company_id (server validation required).
+
+2) Backend Validation
+On patient create:
+- SUPER_ADMIN: must select company and clinic.
+- Company Admin / Dispatch:
+- company_id auto-set to their company.
+- must select clinic (filtered by company).
+- Clinic user:
+- company_id auto-set to their company.
+- clinic_id auto-set to their clinic.
+- cannot override either field.
+
+If mismatch between clinic.company_id and patient.company_id:
+→ reject with 400 + audit log entry.
+
+3) UI Form Changes
+Patient Creation Form must include:
+
+For SUPER_ADMIN:
+- Dropdown: Company
+- Dropdown: Clinic (filtered dynamically by selected company)
+
+For Company roles:
+- Show Company (read-only label)
+- Dropdown: Clinic (filtered by their company)
+
+For Clinic user:
+- Show Company (read-only)
+- Show Clinic (read-only)
+
+4) Filtering Everywhere
+- Patient list must always filter by company scope.
+- Clinic user sees ONLY patients of their clinic.
+- Company admin sees ONLY patients of their company.
+- SUPER_ADMIN can filter by company.
+
+5) Company & Clinic Detail Pages
+Company Detail:
+- Must show total Patients count (filtered by company_id).
+Clinic Detail:
+- Must show total Patients count (filtered by clinic_id).
+
+6) Audit Logging
+On patient creation:
+Log:
+- company_id
+- clinic_id
+- actor_user_id
+- actor_role
+- patient_id
+
+7) Migration Safety
+If existing patients lack company_id:
+- Backfill from clinic.company_id
+- If clinic missing → flag and log error (do not silently fail)
+
+========================================================
+VERIFICATION REQUIRED BEFORE EXIT
+========================================================
+
+A) Create patient as:
+- SUPER_ADMIN (choose company + clinic)
+- Company Admin (auto company, choose clinic)
+- Clinic user (auto both)
+
+B) Confirm:
+- Patient appears ONLY in correct company.
+- Patient appears ONLY in correct clinic.
+- No cross-company visibility.
+- Audit log entry exists with correct company_id.
+
+C) Try creating patient with mismatched clinic/company via API:
+- Must fail.
+
+Output final summary:
+- DB schema changes
+- Validation added
+- UI adjustments
+- Scope verification results
+- Any inconsistent legacy records found

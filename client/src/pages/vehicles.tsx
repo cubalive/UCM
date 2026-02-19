@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Truck, Search, Accessibility, Pencil, Wrench, Archive } from "lucide-react";
+import { Plus, Truck, Search, Accessibility, Pencil, Wrench, Archive, RotateCcw, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export default function VehiclesPage() {
@@ -28,6 +28,8 @@ export default function VehiclesPage() {
   const [open, setOpen] = useState(false);
   const [editVehicle, setEditVehicle] = useState<any>(null);
   const [search, setSearch] = useState("");
+  const [companyFilter, setCompanyFilter] = useState<string>("all");
+  const [showArchived, setShowArchived] = useState(false);
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
   const { data: vehicles, isLoading } = useQuery<any[]>({
@@ -40,6 +42,12 @@ export default function VehiclesPage() {
     queryKey: ["/api/cities"],
     queryFn: () => apiFetch("/api/cities", token),
     enabled: !!token,
+  });
+
+  const { data: companiesList } = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch("/api/companies", token),
+    enabled: !!token && user?.role === "SUPER_ADMIN",
   });
 
   const createMutation = useMutation({
@@ -83,12 +91,38 @@ export default function VehiclesPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const filtered = vehicles?.filter(
-    (v: any) =>
-      v.name?.toLowerCase().includes(search.toLowerCase()) ||
-      v.licensePlate?.toLowerCase().includes(search.toLowerCase()) ||
-      v.publicId?.toLowerCase().includes(search.toLowerCase())
-  );
+  const restoreMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/vehicles/${id}/restore`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Vehicle restored" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/vehicles/${id}/permanent`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Vehicle permanently deleted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const companyMap = new Map((companiesList || []).map((c: any) => [c.id, c.name]));
+
+  const filtered = vehicles?.filter((v: any) => {
+    const isArchived = !!v.deletedAt || !v.active;
+    if (!showArchived && isArchived) return false;
+    if (showArchived && !isArchived) return false;
+    if (companyFilter !== "all" && String(v.companyId) !== companyFilter) return false;
+    const q = search.toLowerCase();
+    return !q || v.name?.toLowerCase().includes(q) || v.licensePlate?.toLowerCase().includes(q) || v.publicId?.toLowerCase().includes(q);
+  });
 
   const statusColors: Record<string, string> = { ACTIVE: "secondary", MAINTENANCE: "default", OUT_OF_SERVICE: "destructive" };
 
@@ -115,9 +149,34 @@ export default function VehiclesPage() {
         </Dialog>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Search vehicles..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-vehicles" />
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search vehicles..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-vehicles" />
+        </div>
+        {user?.role === "SUPER_ADMIN" && companiesList && (
+          <Select value={companyFilter} onValueChange={setCompanyFilter}>
+            <SelectTrigger className="w-[180px]" data-testid="select-company-filter">
+              <SelectValue placeholder="All Companies" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Companies</SelectItem>
+              {companiesList.map((c: any) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {user?.role === "SUPER_ADMIN" && (
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={showArchived}
+              onCheckedChange={setShowArchived}
+              data-testid="switch-show-archived"
+            />
+            <Label className="text-sm text-muted-foreground">Show Archived</Label>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -152,6 +211,9 @@ export default function VehiclesPage() {
                     <p className="text-sm text-muted-foreground">{v.licensePlate}</p>
                     {v.make && <p className="text-sm text-muted-foreground">{v.year} {v.make} {v.model}</p>}
                     <p className="text-xs text-muted-foreground">Capacity: {v.capacity}</p>
+                    {v.companyId && companyMap.has(v.companyId) && (
+                      <p className="text-xs text-muted-foreground" data-testid={`text-vehicle-company-${v.id}`}>{companyMap.get(v.companyId)}</p>
+                    )}
                     {v.lastServiceDate && (
                       <p className="text-xs text-muted-foreground" data-testid={`text-vehicle-service-date-${v.id}`}>
                         Last service: {new Date(v.lastServiceDate).toLocaleDateString()}
@@ -172,28 +234,59 @@ export default function VehiclesPage() {
                       <Badge variant="outline" data-testid={`badge-capability-${v.id}`}>{v.capability}</Badge>
                     )}
                     <div className="flex gap-1">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => setEditVehicle(v)}
-                        data-testid={`button-edit-vehicle-${v.id}`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      {user?.role === "SUPER_ADMIN" && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => {
-                            if (window.confirm(`Archive vehicle ${v.name} (${v.licensePlate})? This will move it to the archive.`)) {
-                              archiveMutation.mutate(v.id);
-                            }
-                          }}
-                          disabled={archiveMutation.isPending}
-                          data-testid={`button-archive-vehicle-${v.id}`}
-                        >
-                          <Archive className="w-4 h-4" />
-                        </Button>
+                      {!v.deletedAt && v.active && (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setEditVehicle(v)}
+                            data-testid={`button-edit-vehicle-${v.id}`}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          {user?.role === "SUPER_ADMIN" && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                if (window.confirm(`Archive vehicle ${v.name} (${v.licensePlate})?`)) {
+                                  archiveMutation.mutate(v.id);
+                                }
+                              }}
+                              disabled={archiveMutation.isPending}
+                              data-testid={`button-archive-vehicle-${v.id}`}
+                            >
+                              <Archive className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </>
+                      )}
+                      {(v.deletedAt || !v.active) && user?.role === "SUPER_ADMIN" && (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => restoreMutation.mutate(v.id)}
+                            disabled={restoreMutation.isPending}
+                            data-testid={`button-restore-vehicle-${v.id}`}
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive"
+                            onClick={() => {
+                              if (window.confirm(`PERMANENTLY delete vehicle ${v.name}? This cannot be undone.`)) {
+                                permanentDeleteMutation.mutate(v.id);
+                              }
+                            }}
+                            disabled={permanentDeleteMutation.isPending}
+                            data-testid={`button-permanent-delete-vehicle-${v.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>

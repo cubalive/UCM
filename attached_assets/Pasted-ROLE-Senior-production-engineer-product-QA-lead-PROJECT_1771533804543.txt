@@ -1,0 +1,195 @@
+ROLE: Senior production engineer + product QA lead
+PROJECT: United Care Mobility (UCM) — Replit
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks / no sub-agents
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- No breaking changes
+- Verify before exit with UI proof + logs
+- Never print secrets
+
+OBJECTIVE
+Make the app operate “like clockwork” by auditing EVERY end-to-end process and fixing all broken/missing actions.
+Specifically:
+1) Every entity must support correct lifecycle actions (Edit / Archive / Delete) based on role.
+2) SUPER_ADMIN must be able to Archive and Delete across the system.
+3) Company/Clinic scoping must be correct everywhere: lists, counts, details, exports, imports, and logs.
+4) Vehicles (cars) must: be filterable by company, show company + state in UI and audit logs, support archive + admin delete, and always appear under the correct company.
+5) Clinics must see patients and trips filtered correctly by the clinic’s company (no cross-company leakage).
+6) Auto-scheduler + auto-assign of trips must be reviewed and verified end-to-end.
+
+DEFINITION OF DONE (HARD ACCEPTANCE)
+A) For every page with a list (companies/clinics/patients/drivers/vehicles/trips/users):
+- Filters work (company, clinic, status=active/archived)
+- Each row has actions that “justify existence”:
+- Edit (if editable)
+- Archive (soft remove)
+- Delete (hard remove) ONLY when allowed
+- Every click produces correct DB change + audit log entry + visible UI update.
+B) For SUPER_ADMIN:
+- Can archive/unarchive and delete any record (with confirmation modal).
+- Cannot accidentally delete core system data without a second confirmation phrase.
+C) For Company Admin / Dispatch:
+- Can edit allowed fields; can archive some items (as configured); cannot hard delete restricted objects.
+D) For Clinic user:
+- Sees ONLY their company’s clinics/patients/trips; never sees other companies’ data.
+E) Vehicles:
+- Must include company_id; must show “Company: X” and “State: NV” (or whatever is stored) in list and details.
+- Creation audit log must record company_id + company name + state + actor.
+- Archive button available where appropriate; SUPER_ADMIN can delete.
+F) Auto schedule + auto assignment:
+- Must create trips from recurring schedules correctly.
+- Must assign drivers according to the intended rules.
+- Must never assign cross-company drivers/vehicles.
+- Must be verifiably working via an Ops test run + UI evidence.
+
+========================================================
+PHASE 0 — INVENTORY (NO FUNCTIONAL CHANGES YET)
+========================================================
+1) Enumerate all entities + routes + pages:
+- Companies, Clinics, Patients, Drivers, Vehicles, Trips, Schedules/Recurring, Users/RBAC, Imports, Audit Logs.
+2) Identify role model & scoping:
+- How company_id and clinic_id are determined for each request.
+3) Identify current “delete/archive” behavior:
+- Which tables have deleted_at / archived_at / status flags.
+- Which endpoints currently hard delete vs soft delete.
+
+Output in console: a short matrix of entity → UI pages → API routes → DB tables.
+
+========================================================
+PHASE 1 — STANDARDIZE LIFECYCLE: ARCHIVE vs DELETE
+========================================================
+Implement consistent rules:
+- ARCHIVE = soft delete (recommended: archived_at timestamp + archived_by user_id OR status='archived')
+- DELETE = hard delete (only SUPER_ADMIN) and must be blocked if referenced OR must cascade safely where correct.
+
+For each entity:
+Companies: archive only by SUPER_ADMIN; hard delete restricted unless no dependencies OR explicitly safe.
+Clinics: archive by SUPER_ADMIN + company admin (if allowed); delete SUPER_ADMIN only.
+Patients: archive by clinic/company roles (if allowed); delete SUPER_ADMIN only.
+Drivers: archive by company roles; delete SUPER_ADMIN only.
+Vehicles: archive by company roles; delete SUPER_ADMIN only.
+Trips: cancellation/archive rules as appropriate; delete SUPER_ADMIN only (usually restrict).
+Schedules/Recurring: archive by company roles; delete SUPER_ADMIN only.
+
+Add:
+- Confirmation modal for archive/unarchive/delete.
+- For DELETE: second confirmation (“type DELETE”) for SUPER_ADMIN.
+
+Backend:
+- Add endpoints if missing:
+POST /api/{entity}/{id}/archive
+POST /api/{entity}/{id}/unarchive
+DELETE /api/{entity}/{id} (super_admin only)
+- Ensure ALL endpoints enforce RBAC server-side.
+
+========================================================
+PHASE 2 — AUDIT LOG MUST CAPTURE COMPANY + STATE + ACTOR
+========================================================
+Every create/update/archive/unarchive/delete must write an audit event.
+Minimum fields:
+- id, created_at
+- actor_user_id, actor_role
+- action (CREATE/UPDATE/ARCHIVE/UNARCHIVE/DELETE)
+- entity_type, entity_id
+- company_id (when applicable)
+- clinic_id (when applicable)
+- metadata JSON (must include company_name snapshot; include vehicle state on vehicle create/update)
+
+Vehicles specifically:
+- On create: log company_id, company_name, vehicle_state, plate or unit id.
+- On update: log changes diff.
+
+UI:
+- “Audit Log” page (SUPER_ADMIN only) with filters:
+company, entity_type, action, date range.
+- In Vehicles list: show company + state columns.
+
+========================================================
+PHASE 3 — COMPANY + CLINIC SCOPING FIX (NO LEAKS)
+========================================================
+Rules:
+- SUPER_ADMIN: can select any company (global).
+- Company Admin/Dispatch: forced company_id = their own company; cannot query other companies.
+- Clinic user: forced company_id = their company AND clinic_id limited to permitted clinic(s).
+
+Implementation:
+1) Centralize scope in middleware:
+- resolveScope(req.user) returns { companyId, clinicIds[], role }
+2) Apply scope to ALL list endpoints and detail endpoints.
+3) Add server-side assertions:
+- If a request tries to access entity with different company_id → 403 + audit RBAC denial.
+
+Clinic views required:
+- Patients page: only patients belonging to clinic user’s company/clinics.
+- Trips page: only trips belonging to clinic user’s company/clinics.
+- Ensure filters default properly.
+
+========================================================
+PHASE 4 — VEHICLES: FILTERING + CORRECT COMPANY OWNERSHIP + ACTIONS
+========================================================
+Fix/ensure:
+- vehicles table has company_id NOT NULL (or guaranteed).
+- vehicle creation form requires company selection for SUPER_ADMIN; auto-set for company roles.
+- vehicle list always filtered by selected/forced company.
+- add “Archived” toggle filter.
+- add row actions:
+- Edit
+- Archive/Unarchive
+- Delete (SUPER_ADMIN only)
+- Vehicle details must show:
+Company, State, Assigned driver (if any), status, created_at.
+
+Also verify:
+- Vehicles appear in the correct Company detail page.
+- Company detail includes “Vehicles count” and list link.
+
+========================================================
+PHASE 5 — AUTO SCHEDULER + AUTO ASSIGN REVIEW + FIX
+========================================================
+1) Identify where recurring schedules are stored and how trips are generated.
+2) Validate schedule generation:
+- uses correct timezone
+- creates trips within company scope
+- prevents duplicates (idempotent run key)
+3) Validate auto-assignment logic:
+- selects drivers/vehicles ONLY within same company
+- respects availability rules (if present)
+- respects clinic constraints (if present)
+4) Add an Ops run endpoint:
+POST /api/ops/autoassign-test (SUPER_ADMIN only, DEV only)
+- create a controlled set of test data
+- run scheduler
+- run autoassign
+- return a report with PASS/FAIL and reasons
+
+UI proof:
+- In DEV, run the ops test and show:
+- generated trips appear under the right company
+- assigned driver shown
+- clinic view shows only its own trips
+
+========================================================
+PHASE 6 — “BUTTON JUSTIFICATION” QA PASS (UI + API)
+========================================================
+For EVERY list page:
+- If edit is missing but entity is editable → add Edit button.
+- If archive should exist → add Archive/Unarchive button.
+- If delete should exist for SUPER_ADMIN → add Delete button.
+- If a button exists but does nothing/bugs → fix it.
+
+Must implement a visible success/failure feedback:
+- toast notifications
+- optimistic UI updates or refetch with loading state
+
+========================================================
+PHASE 7 — FINAL VERIFICATION (MANDATORY)
+========================================================
+You MUST produce:
+1) A QA checklist table (PASS/FAIL) for each module and each action:
+- Companies: list/filter/detail/edit/archive/unarchive/delete
+- Clinics: list/filter/detail/edit/archive/unarchive/delete
+- Patients: list/filter/detail/edit/archive/unarchive/delete
+- Drivers

@@ -34,7 +34,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2, Search } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2, Search, Archive, RotateCcw, Trash2 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 import type { Company, UsState, UsCity } from "@shared/schema";
 
 const TIMEZONES = [
@@ -473,13 +475,50 @@ function StripeConnectBadge({ company }: { company: Company }) {
 }
 
 export default function CompaniesPage() {
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, token, user } = useAuth();
   const { toast } = useToast();
   const [currentScope, setCurrentScope] = useState<string | null>(() => getStoredCompanyScopeId());
+  const [showArchived, setShowArchived] = useState(false);
 
   const { data: companies = [], isLoading } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
     enabled: isSuperAdmin,
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/companies/${id}/archive`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: "Company archived" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/companies/${id}/restore`, token, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: "Company restored" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/companies/${id}/permanent`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: "Company permanently deleted" });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const filteredCompanies = companies.filter((c: any) => {
+    const isArchived = !!c.deletedAt;
+    if (showArchived) return isArchived;
+    return !isArchived;
   });
 
   const handleSetScope = (company: Company) => {
@@ -531,6 +570,17 @@ export default function CompaniesPage() {
         </div>
       </div>
 
+      {user?.role === "SUPER_ADMIN" && (
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={showArchived}
+            onCheckedChange={setShowArchived}
+            data-testid="switch-show-archived-companies"
+          />
+          <Label className="text-sm text-muted-foreground">Show Archived</Label>
+        </div>
+      )}
+
       {currentScope && (
         <Card>
           <CardContent className="py-3 flex items-center gap-2 flex-wrap">
@@ -547,7 +597,7 @@ export default function CompaniesPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
           <CardTitle className="text-lg">All Companies</CardTitle>
-          <Badge variant="secondary" data-testid="badge-company-count">{companies.length}</Badge>
+          <Badge variant="secondary" data-testid="badge-company-count">{filteredCompanies.length}</Badge>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -556,8 +606,8 @@ export default function CompaniesPage() {
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
-          ) : companies.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">No companies yet. Create one to get started.</p>
+          ) : filteredCompanies.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">{showArchived ? "No archived companies." : "No companies yet. Create one to get started."}</p>
           ) : (
             <Table>
               <TableHeader>
@@ -570,7 +620,9 @@ export default function CompaniesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {companies.map((company) => (
+                {filteredCompanies.map((company: any) => {
+                  const isArchived = !!company.deletedAt;
+                  return (
                   <TableRow key={company.id} data-testid={`row-company-${company.id}`}>
                     <TableCell className="font-mono text-sm" data-testid={`text-company-id-${company.id}`}>
                       {company.id}
@@ -580,6 +632,9 @@ export default function CompaniesPage() {
                         <span className="font-medium" data-testid={`text-company-name-${company.id}`}>{company.name}</span>
                         {String(company.id) === currentScope && (
                           <Badge variant="default" className="text-[10px]">SCOPED</Badge>
+                        )}
+                        {isArchived && (
+                          <Badge variant="secondary" className="text-[10px]">ARCHIVED</Badge>
                         )}
                       </div>
                     </TableCell>
@@ -591,22 +646,63 @@ export default function CompaniesPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2 justify-end flex-wrap">
-                        {String(company.id) === currentScope ? (
-                          <Button size="sm" variant="outline" onClick={handleClearScope} data-testid={`button-unscope-${company.id}`}>
-                            <X className="w-4 h-4 mr-1" />
-                            Unscope
-                          </Button>
-                        ) : (
-                          <Button size="sm" variant="outline" onClick={() => handleSetScope(company)} data-testid={`button-scope-${company.id}`}>
-                            <Crosshair className="w-4 h-4 mr-1" />
-                            Set Scope
-                          </Button>
+                        {!isArchived && (
+                          <>
+                            {String(company.id) === currentScope ? (
+                              <Button size="sm" variant="outline" onClick={handleClearScope} data-testid={`button-unscope-${company.id}`}>
+                                <X className="w-4 h-4 mr-1" />
+                                Unscope
+                              </Button>
+                            ) : (
+                              <Button size="sm" variant="outline" onClick={() => handleSetScope(company)} data-testid={`button-scope-${company.id}`}>
+                                <Crosshair className="w-4 h-4 mr-1" />
+                                Set Scope
+                              </Button>
+                            )}
+                            <CreateAdminDialog company={company} onCreated={refreshList} />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => archiveMutation.mutate(company.id)}
+                              disabled={archiveMutation.isPending}
+                              data-testid={`button-archive-company-${company.id}`}
+                            >
+                              <Archive className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
-                        <CreateAdminDialog company={company} onCreated={refreshList} />
+                        {isArchived && user?.role === "SUPER_ADMIN" && (
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => restoreMutation.mutate(company.id)}
+                              disabled={restoreMutation.isPending}
+                              data-testid={`button-restore-company-${company.id}`}
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="text-destructive"
+                              onClick={() => {
+                                if (window.confirm(`PERMANENTLY delete company ${company.name}? This cannot be undone.`)) {
+                                  permanentDeleteMutation.mutate(company.id);
+                                }
+                              }}
+                              disabled={permanentDeleteMutation.isPending}
+                              data-testid={`button-permanent-delete-company-${company.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}

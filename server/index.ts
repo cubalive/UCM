@@ -210,8 +210,16 @@ app.use((req, res, next) => {
         triggered_by INTEGER REFERENCES users(id)
       )
     `);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS deleted_by INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS delete_reason TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS deleted_by INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS delete_reason TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS deleted_by INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS delete_reason TEXT`);
+    console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
-    console.warn("[BOOT] ops_smoke_runs auto-create skipped:", migErr.message);
+    console.warn("[BOOT] Schema migration warning:", migErr.message);
   }
 
   const bootConfig = {

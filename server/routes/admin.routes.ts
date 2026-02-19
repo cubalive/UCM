@@ -20,6 +20,12 @@ import {
   archiveVehicleHandler,
   restoreVehicleHandler,
   permanentDeleteVehicleHandler,
+  archiveCompanyHandler,
+  restoreCompanyHandler,
+  permanentDeleteCompanyHandler,
+  archiveTripHandler,
+  restoreTripHandler,
+  permanentDeleteTripHandler,
   deepHealthHandler,
   aiEngineSnapshotHandler,
   aiEngineStatusHandler,
@@ -69,6 +75,14 @@ router.post("/api/admin/drivers/:id/reset-password", authMiddleware, requireRole
 router.patch("/api/admin/vehicles/:id/archive", authMiddleware, requirePermission("vehicles", "write"), archiveVehicleHandler as any);
 router.patch("/api/admin/vehicles/:id/restore", authMiddleware, requirePermission("vehicles", "write"), restoreVehicleHandler as any);
 router.delete("/api/admin/vehicles/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteVehicleHandler as any);
+
+router.patch("/api/admin/companies/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), archiveCompanyHandler as any);
+router.patch("/api/admin/companies/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), restoreCompanyHandler as any);
+router.delete("/api/admin/companies/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteCompanyHandler as any);
+
+router.patch("/api/admin/trips/:id/archive", authMiddleware, requirePermission("trips", "write"), archiveTripHandler as any);
+router.patch("/api/admin/trips/:id/restore", authMiddleware, requirePermission("trips", "write"), restoreTripHandler as any);
+router.delete("/api/admin/trips/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteTripHandler as any);
 
 router.patch("/api/clinic/patients/:id/archive", authMiddleware, requireRole("CLINIC_USER"), clinicPatientArchiveHandler as any);
 router.patch("/api/clinic/patients/:id/unarchive", authMiddleware, requireRole("CLINIC_USER"), clinicPatientUnarchiveHandler as any);
