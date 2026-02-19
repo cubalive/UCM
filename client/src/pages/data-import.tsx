@@ -362,8 +362,9 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Import completed" });
+      toast({ title: "Import completed successfully" });
       onRefresh();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/imports/company", job.companyId, "health"] });
     },
     onError: (e: any) => toast({ title: "Import failed", description: e.message, variant: "destructive" }),
   });
@@ -387,8 +388,51 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
   const summary = job.summaryJson as any;
   const hasFiles = job.files?.length > 0;
 
+  const healthQuery = useQuery({
+    queryKey: ["/api/admin/imports/company", job.companyId, "health"],
+    queryFn: async () => {
+      const res = await rawAuthFetch(`/api/admin/imports/company/${job.companyId}/health`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!job.companyId,
+    staleTime: 10000,
+  });
+
   return (
     <div className="space-y-4">
+      {job.status === "validated" && (
+        <Card className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20" data-testid="card-validated-banner">
+          <CardContent className="p-3 flex items-start gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                Validated — No data inserted yet
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                This job has been validated successfully. Click "Run Import" below to commit the data to the database.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {job.status === "completed" && (
+        <Card className="border-green-500/50 bg-green-50 dark:bg-green-950/20" data-testid="card-completed-banner">
+          <CardContent className="p-3 flex items-start gap-2">
+            <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-green-800 dark:text-green-300">
+                Import completed — Data has been inserted
+              </p>
+              <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">
+                All validated records have been committed to the database for Company #{job.companyId}.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
           <CardTitle className="text-lg">
@@ -455,6 +499,25 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
           </div>
         </CardContent>
       </Card>
+
+      {healthQuery.data && (
+        <Card data-testid="card-import-health">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-base">Company Data Health</CardTitle>
+            <Badge variant="outline">{healthQuery.data.companyName}</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-4 gap-3">
+              {Object.entries(healthQuery.data.counts).map(([entity, count]: [string, any]) => (
+                <div key={entity} className="text-center p-2 bg-muted rounded-md" data-testid={`health-count-${entity}`}>
+                  <div className="text-lg font-bold">{count}</div>
+                  <div className="text-xs text-muted-foreground capitalize">{entity}</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {ENTITIES.map(ent => (

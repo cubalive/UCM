@@ -1,0 +1,118 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+PROBLEM
+Import job shows status "validated" with correct counts (5/280/2500/300) but Company #6 shows blank.
+This strongly indicates we are only doing validation (dry-run) and NOT committing inserts to DB.
+We must fix the import workflow so "validated" can be committed and becomes "completed",
+and we must verify that Company #6 actually has rows in DB after commit.
+
+GOAL
+1) Add/restore a commit step for excel_generic jobs.
+2) Ensure rows are inserted into DB with company_id = company #6.
+3) Ensure UI dashboard for Company #6 loads and shows the inserted rows.
+4) Provide hard verification via DB counts for Company #6.
+
+-------------------------------------------------------
+STEP 1 — CONFIRM THE CURRENT BUG (VALIDATION ONLY)
+-------------------------------------------------------
+Locate the excel_generic job logic and confirm it has two modes:
+- validate/dry_run (no DB writes)
+- commit/execute (DB writes)
+
+Find the job status enum or fields:
+expected statuses: created -> validated -> completed
+Currently we are stuck at validated.
+
+Search code for:
+"validated"
+"completed"
+"dry_run"
+"validateOnly"
+"commit"
+"executeImport"
+"applyImport"
+"runImport"
+
+-------------------------------------------------------
+STEP 2 — IMPLEMENT COMMIT/EXECUTE ENDPOINT
+-------------------------------------------------------
+Add an endpoint to execute a validated job:
+
+POST /api/import-jobs/:jobId/execute
+- requires super_admin
+- loads job + files + company_id
+- re-runs validation quickly (or trusts stored validation snapshot)
+- performs DB inserts in a single transaction per entity
+- sets company_id on every row
+- writes import summary counts
+- updates status to "completed"
+- returns summary to UI
+
+IMPORTANT:
+- If any entity insert fails, rollback transaction and set status "failed" with error details.
+
+-------------------------------------------------------
+STEP 3 — FIX THE UI: ADD "RUN IMPORT" BUTTON
+-------------------------------------------------------
+In the import job detail page:
+- If status is "validated", show a primary button:
+  "Run Import" (or "Execute Import")
+- On click, call POST /api/import-jobs/:jobId/execute
+- Then refresh job status and show "completed" and inserted counts.
+
+Also show a banner clearly:
+"Validated = no data inserted yet. Click Run Import to apply."
+
+-------------------------------------------------------
+STEP 4 — ENSURE DATA IS LINKED TO COMPANY
+-------------------------------------------------------
+On commit, force:
+company_id = job.company_id
+
+Do NOT rely on CSV having company columns.
+
+If some entities require clinic_id relationships:
+- Insert clinics first for that company
+- Build a map by clinic email/name to id
+- Attach clinic_id to patients if needed (if your schema uses clinic_id)
+But minimum: ensure each table row has company_id.
+
+-------------------------------------------------------
+STEP 5 — HARD VERIFICATION FOR COMPANY #6
+-------------------------------------------------------
+Identify company #6 internal UUID (companyId6).
+Then run DB counts after execution:
+
+SELECT COUNT(*) FROM clinics WHERE company_id = companyId6;
+SELECT COUNT(*) FROM drivers WHERE company_id = companyId6;
+SELECT COUNT(*) FROM vehicles WHERE company_id = companyId6;
+SELECT COUNT(*) FROM patients WHERE company_id = companyId6;
+
+Expose this via an admin endpoint:
+GET /api/admin/company/:companyId/import-health
+Return counts + last import job id + status.
+
+In UI, show this panel in Company page for super_admin.
+
+-------------------------------------------------------
+STEP 6 — VERIFY END-TO-END
+-------------------------------------------------------
+Using the validated job for Company #6:
+1) Click Run Import
+2) Job must become "completed"
+3) Company #6 page must display the imported lists
+4) /import-health must return non-zero counts:
+   clinics=5, drivers=280, vehicles=300, patients=2500
+
+DO NOT EXIT UNTIL:
+- The validated job actually commits
+- Company #6 is not blank
+- DB counts confirm inserts

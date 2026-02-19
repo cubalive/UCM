@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { db } from "../db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import {
   importJobs, importJobFiles, importJobEvents, externalIdMap,
   clinics, patients, drivers, vehicles, companies, cities,
@@ -631,6 +631,47 @@ export async function rollbackImport(req: AuthRequest, res: Response) {
     });
 
     return res.json({ status: "rolled_back", removed });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+}
+
+export async function getCompanyImportHealth(req: AuthRequest, res: Response) {
+  try {
+    const companyId = parseInt(String(req.params.companyId));
+    if (isNaN(companyId)) return res.status(400).json({ error: "Invalid company ID" });
+
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
+    if (!company) return res.status(404).json({ error: "Company not found" });
+
+    const clinicCount = await db.select({ count: sql<number>`count(*)` }).from(clinics).where(eq(clinics.companyId, companyId));
+    const driverCount = await db.select({ count: sql<number>`count(*)` }).from(drivers).where(eq(drivers.companyId, companyId));
+    const vehicleCount = await db.select({ count: sql<number>`count(*)` }).from(vehicles).where(eq(vehicles.companyId, companyId));
+    const patientCount = await db.select({ count: sql<number>`count(*)` }).from(patients).where(eq(patients.companyId, companyId));
+
+    const recentJobs = await db.select({
+      id: importJobs.id,
+      status: importJobs.status,
+      sourceSystem: importJobs.sourceSystem,
+      summaryJson: importJobs.summaryJson,
+      createdAt: importJobs.createdAt,
+      updatedAt: importJobs.updatedAt,
+    }).from(importJobs)
+      .where(eq(importJobs.companyId, companyId))
+      .orderBy(desc(importJobs.createdAt))
+      .limit(5);
+
+    return res.json({
+      companyId,
+      companyName: company.name,
+      counts: {
+        clinics: Number(clinicCount[0]?.count || 0),
+        drivers: Number(driverCount[0]?.count || 0),
+        vehicles: Number(vehicleCount[0]?.count || 0),
+        patients: Number(patientCount[0]?.count || 0),
+      },
+      recentImportJobs: recentJobs,
+    });
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }
