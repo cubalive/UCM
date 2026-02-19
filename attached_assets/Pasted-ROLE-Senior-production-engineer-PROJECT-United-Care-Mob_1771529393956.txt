@@ -1,0 +1,172 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM) — Replit
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks / no sub-agents
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- No breaking changes
+- Verify before exit (must show proof in UI + logs)
+
+GOAL
+Run a full end-to-end audit of UCM, identify what is broken, fix it safely, and make the UI prove everything works (health checks, test flows, visible pass/fail, import verification, and logs).
+
+NON-NEGOTIABLES
+1) Never wipe or reset production or dev DB.
+2) If you need data, seed ONLY in DEV using idempotent upserts and a dedicated “Test Company”.
+3) All fixes must include:
+   - backend validation
+   - UI confirmation (I can see it working)
+   - a short verification checklist executed and recorded in logs
+
+========================================================
+PHASE 0 — BASELINE / INVENTORY (NO CHANGES)
+========================================================
+A) Print a system map in the console:
+- routes/endpoints (API list)
+- background jobs/cron
+- auth + RBAC middleware
+- import pipeline
+- DB tables involved per module
+- external services (Supabase, Redis, Stripe, Twilio, Maps)
+
+B) Add a read-only “Ops → System Status” page (SUPER_ADMIN only) that shows:
+- Build/version, commit hash if available
+- Environment (dev/prod), base URL
+- DB connectivity (simple SELECT 1)
+- Redis ping
+- Migrations status (Drizzle)
+- Queue/job status (if any)
+- External keys presence (only boolean, never print secrets)
+- Last 50 errors from server log store (if exists)
+
+Deliverable: I must be able to open “Ops → System Status” and see GREEN/RED indicators.
+
+========================================================
+PHASE 1 — AUTOMATED HEALTHCHECKS + SMOKE TEST HARNESS
+========================================================
+Implement a single endpoint:
+GET /api/ops/health (SUPER_ADMIN only)
+Return JSON with checks:
+- api: ok
+- db: ok + latency_ms
+- redis: ok + latency_ms (if used)
+- auth: ok (can create session token)
+- rbac: ok (role guard works)
+- storage: ok (if file storage exists)
+- maps: ok (if used server-side)
+- stripe: ok (if used server-side)
+- twilio: ok (if used server-side)
+
+Also implement:
+POST /api/ops/smoke-run (SUPER_ADMIN only)
+This runs a safe smoke suite in DEV ONLY:
+- create/ensure a “Test Company (Ops)” exists (idempotent)
+- create/ensure a “Test Clinic (Ops)” exists
+- create/ensure a “Test Patient (Ops)” exists
+- create/ensure a “Test Driver (Ops)” exists
+- create/ensure a “Test Vehicle (Ops)” exists
+- create/ensure a “Test Trip (Ops)” exists
+- verify list pages show the created records
+- verify key filters work (company_id, clinic_id, city/state)
+
+Store results in a table ops_smoke_runs:
+- started_at, finished_at
+- results JSON (per step pass/fail + error)
+- environment
+Show the latest run in the “Ops → System Status” page with PASS/FAIL per step.
+
+========================================================
+PHASE 2 — MODULE-BY-MODULE VERIFICATION + FIXES
+========================================================
+For each module below:
+1) Identify current UI + API + DB path
+2) Add server-side validation + defensive checks
+3) Fix bugs
+4) Add one smoke-step assertion
+5) Provide UI proof (I can see record counts and drill into details)
+
+Modules:
+A) Auth / Sessions / Password reset (if exists)
+B) RBAC enforcement on all write/delete endpoints
+C) Companies (create/edit/list/details) — MUST show related data counts
+D) Clinics (create/edit/list/details) — must be linked to company
+E) Patients (create/edit/list/details) — must be linked to clinic + company
+F) Drivers (create/edit/list/details) — must be linked to company
+G) Vehicles (create/edit/list/details) — must be linked to company + (optional driver)
+H) Trips / Scheduling (create/list/details) — must show patient name, pickup time, statuses
+I) City/State selector (no duplicates; searchable by state; state displayed next to city)
+J) Import system (CSV import)
+   - Show progress bar from 0%→100%
+   - On completion: hide progress + show “Transferencia exitosa”
+   - Must verify imported rows appear in Company #6 (or the selected company)
+   - Must show import summary: created/updated/skipped/failed + downloadable error CSV
+   - Must be idempotent: re-import doesn’t duplicate
+
+========================================================
+PHASE 3 — DATA INTEGRITY GUARDS (PREVENT “BLANK COMPANY”)
+========================================================
+Fix the root cause of: “import looks successful but company shows blank”.
+
+Actions:
+1) Add strict foreign-key checks in code:
+- Every imported row must carry company_id or map via company_external_id
+- Clinic must map to company
+- Patient must map to clinic + company
+- Driver/Vehicle must map to company
+If mapping fails → mark as FAILED with a clear reason.
+
+2) Add server-side transaction boundaries:
+- each row import in a transaction
+- or batch import with rollback on critical failures
+- always record results
+
+3) Add UI “Company → Data Overview” widget:
+- Clinics count
+- Patients count
+- Drivers count
+- Vehicles count
+- Trips count
+Each count links to filtered list.
+
+If any count is zero after import, show an alert:
+“Import terminó pero no se detectaron datos relacionados. Revisa el resumen.”
+
+========================================================
+PHASE 4 — OBSERVABILITY (SO YOU SEE WHAT’S HAPPENING)
+========================================================
+Implement structured logging for:
+- imports (job_id, company_id, file_name, row_number, entity, action, status, error)
+- auth failures
+- rbac denials
+- db query errors
+
+Add an “Ops → Import Runs” page (SUPER_ADMIN only):
+- list import runs
+- click to see summary + failed rows + download error CSV
+
+========================================================
+PHASE 5 — FINAL PROOF IN THE UI (MANDATORY)
+========================================================
+Before finishing, you must do this and show evidence:
+1) Open Ops → System Status: all GREEN in current env
+2) Run Smoke Run (DEV): all PASS
+3) Import a sample CSV in DEV into the Test Company:
+   - progress bar reaches 100%
+   - success toast appears
+   - Company → Data Overview shows non-zero counts
+4) Navigate to Company detail and confirm tables are populated (not blank)
+
+========================================================
+WORK RULES
+- Make changes in small commits/steps.
+- After each fix: run /api/ops/health + smoke-run.
+- If a step fails, stop and fix immediately.
+- Do not “refactor for style”; fix functionality and add guardrails only.
+
+OUTPUT REQUIRED
+At the end, print:
+1) A checklist with PASS/FAIL for each module
+2) Links/paths in the UI where I can verify
+3) Any remaining known issues (if any) with exact reproduction steps

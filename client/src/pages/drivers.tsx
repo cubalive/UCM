@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive, LogOut } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useTranslation } from "react-i18next";
+import { can } from "@shared/permissions";
 
 const UNASSIGN_REASONS = [
   { value: "vehicle_maintenance", label: "Vehicle in maintenance" },
@@ -51,7 +52,7 @@ export default function DriversPage() {
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
   const canManageAuth = user?.role === "SUPER_ADMIN" || user?.role === "DISPATCH";
-  const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "DISPATCH" || user?.role === "ADMIN";
+  const canEdit = user?.role ? can(user.role, "drivers", "write") : false;
 
   const { data: drivers, isLoading } = useQuery<any[]>({
     queryKey: ["/api/drivers", selectedCity?.id],

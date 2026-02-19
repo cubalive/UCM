@@ -299,7 +299,7 @@ export default function MetricsPage() {
 
   const { data: healthData, isLoading: healthLoading } = useQuery<HealthData>({
     queryKey: ["/api/ops/health", selectedCity?.id],
-    enabled: !isDriverHost && !!user && !!selectedCity?.id && ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role),
+    enabled: !isDriverHost && !!user && !!selectedCity?.id && ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"].includes(user.role),
     refetchInterval: 15_000,
     retry: 2,
     queryFn: () => apiFetch(`/api/ops/health?city_id=${selectedCity?.id || 1}`, token),

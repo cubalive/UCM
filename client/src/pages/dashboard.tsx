@@ -85,7 +85,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {user && ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role) && (
+      {user && ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"].includes(user.role) && (
         <DriverPresencePanel />
       )}
 

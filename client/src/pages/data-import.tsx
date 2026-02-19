@@ -342,7 +342,10 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
     const poll = async () => {
       try {
         const res = await rawAuthFetch(`/api/admin/imports/${jobId}/status`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (res.status === 403 || res.status === 401) { stopPolling(); }
+          return;
+        }
         const data = await res.json();
         setProgress(data.progress);
         if (data.status === "completed") {

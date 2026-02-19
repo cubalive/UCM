@@ -23,6 +23,7 @@ import {
 import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, Trash2, Clock, Repeat, Building2, UserCheck, Globe, ChevronDown, ChevronRight, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
+import { can } from "@shared/permissions";
 
 type SourceTab = "all" | "clinic" | "internal" | "private";
 
@@ -34,8 +35,8 @@ export default function PatientsPage() {
   const [search, setSearch] = useState("");
   const [sourceTab, setSourceTab] = useState<SourceTab>("all");
 
-  const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH" || user?.role === "VIEWER";
-  const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
+  const canEdit = user?.role ? can(user.role, "patients", "write") : false;
+  const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH" || user?.role === "COMPANY_ADMIN";
   const isClinicUser = user?.role === "VIEWER" && !!(user as any)?.clinicId;
 
   const patientQueryParams = new URLSearchParams();

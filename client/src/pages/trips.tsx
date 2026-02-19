@@ -121,7 +121,7 @@ export default function TripsPage() {
   const canSendSms = hasSmsPerm && smsHealth?.twilioConfigured === true;
 
   const isClinicUser = user?.role === "VIEWER" && !!user?.clinicId;
-  const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
+  const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH" || user?.role === "COMPANY_ADMIN";
 
   const tripQueryParams = new URLSearchParams();
   if (selectedCity?.id) tripQueryParams.set("cityId", String(selectedCity.id));
@@ -997,7 +997,7 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
   const TERMINAL_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW"];
   const isTerminal = TERMINAL_STATUSES.includes(tripStatus);
   const isBillable = tripStatus === "COMPLETED";
-  const canEdit = userRole && ["SUPER_ADMIN", "DISPATCH"].includes(userRole);
+  const canEdit = userRole && ["SUPER_ADMIN", "DISPATCH", "ADMIN", "COMPANY_ADMIN"].includes(userRole);
 
   const invoiceQuery = useQuery<any>({
     queryKey: ["/api/trips", tripId, "invoice"],
