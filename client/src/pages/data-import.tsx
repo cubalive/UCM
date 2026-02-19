@@ -509,6 +509,29 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
         </Card>
       )}
 
+      {(job.status === "failed" || job.status === "rolled_back") && !isRunning && (
+        <Card className="border-red-500/50 bg-red-50 dark:bg-red-950/20" data-testid="card-failed-banner">
+          <CardContent className="p-3 flex items-start gap-2">
+            <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-red-800 dark:text-red-300">
+                {job.status === "failed" ? "Import failed" : "Import was rolled back"}
+              </p>
+              <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">
+                {job.status === "failed"
+                  ? "The import encountered an error. Check the event log below for details. You can fix the issue and re-upload/re-validate."
+                  : "This import was rolled back. All inserted records have been removed. You can create a new import job to try again."}
+              </p>
+              {summary?.error && (
+                <p className="text-xs text-red-600 dark:text-red-300 mt-1 font-mono bg-red-100 dark:bg-red-900/30 p-1 rounded">
+                  {summary.error}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
           <CardTitle className="text-lg">

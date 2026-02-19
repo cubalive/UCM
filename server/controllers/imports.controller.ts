@@ -280,12 +280,14 @@ export async function runImport(req: AuthRequest, res: Response) {
 }
 
 async function executeImportAsync(jobId: string, companyId: number, jobCityId: number | null, sourceSystem: string) {
+  console.log(`[IMPORT] === Starting async execution job=${jobId} company=${companyId} cityId=${jobCityId} source=${sourceSystem} ===`);
   const files = await db.select().from(importJobFiles).where(eq(importJobFiles.importJobId, jobId));
   const entityOrder: ImportEntity[] = ["clinics", "patients", "drivers", "vehicles"];
   const results: Record<string, { inserted: number; updated: number; errors: number }> = {};
   const insertedIds: { entity: string; id: number }[] = [];
 
-  const cityId = jobCityId || (await getDefaultCityId());
+  const cityId = jobCityId || (await getDefaultCityId(companyId));
+  console.log(`[IMPORT] job=${jobId} resolved cityId=${cityId}`);
   const defaultCity = await getDefaultCityName(jobCityId);
   const defaults: EntityDefaults = { defaultCity };
 
@@ -303,6 +305,7 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
     const { unique } = dedupeRows(mapped, entity);
     fileParsed.push({ entity, unique });
     totalRows += unique.length;
+    console.log(`[IMPORT] job=${jobId} entity=${entity} parsed=${rows.length} unique=${unique.length}`);
   }
 
   importProgress.set(jobId, { phase: "processing", entity: "", current: 0, total: totalRows, results: {} });
@@ -310,6 +313,7 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
   try {
     for (const { entity, unique } of fileParsed) {
       let inserted = 0, updated = 0, errors = 0;
+      console.log(`[IMPORT] job=${jobId} processing entity=${entity} rows=${unique.length}`);
 
       importProgress.set(jobId, { phase: "processing", entity, current: processedRows, total: totalRows, results: { ...results } });
 
@@ -321,10 +325,11 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
         if (!validation.success) {
           errors++;
           const errs = validation.error.issues.map(iss => `${iss.path.join(".")}: ${iss.message}`);
+          console.warn(`[IMPORT] job=${jobId} entity=${entity} row=${i + 1} VALIDATION_ERROR: ${errs.join("; ")}`);
           await db.insert(importJobEvents).values({
             importJobId: jobId, level: "error",
             message: `${entity} row ${i + 1}: ${errs.join("; ")}`,
-            payload: { row: i + 1, errors: errs },
+            payload: { row: i + 1, errors: errs, phase: "validation" },
           });
           processedRows++;
           continue;
@@ -336,24 +341,30 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
           else if (result === "updated") updated++;
         } catch (rowErr: any) {
           errors++;
+          const dbCode = rowErr.code || "";
+          const constraint = rowErr.constraint || "";
+          const detail = rowErr.detail || "";
+          console.error(`[IMPORT] job=${jobId} entity=${entity} row=${i + 1} DB_ERROR code=${dbCode} constraint=${constraint} detail=${detail} msg=${rowErr.message}`);
           await db.insert(importJobEvents).values({
             importJobId: jobId, level: "error",
             message: `${entity} row ${i + 1}: ${rowErr.message}`,
-            payload: { row: i + 1 },
+            payload: { row: i + 1, phase: "insert", sqlCode: dbCode, constraint, detail, rowData: row },
           });
         }
         processedRows++;
 
-        if (processedRows % 50 === 0) {
+        if (processedRows % 25 === 0 || processedRows === totalRows) {
           await db.update(importJobs).set({ updatedAt: new Date() }).where(eq(importJobs.id, jobId));
           importProgress.set(jobId, { phase: "processing", entity, current: processedRows, total: totalRows, results: { ...results, [entity]: { inserted, updated, errors } } });
         }
       }
 
       results[entity] = { inserted, updated, errors };
+      console.log(`[IMPORT] job=${jobId} entity=${entity} DONE inserted=${inserted} updated=${updated} errors=${errors}`);
       await db.insert(importJobEvents).values({
         importJobId: jobId, level: "info",
         message: `${entity}: ${inserted} inserted, ${updated} updated, ${errors} errors`,
+        payload: { entity, inserted, updated, errors },
       });
     }
 
@@ -364,16 +375,23 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
     }).where(eq(importJobs.id, jobId));
 
     importProgress.set(jobId, { phase: "completed", entity: "", current: totalRows, total: totalRows, results });
-    console.log(`[IMPORT] Job ${jobId} completed:`, JSON.stringify(results));
+    console.log(`[IMPORT] === Job ${jobId} COMPLETED ===`, JSON.stringify(results));
 
     setTimeout(() => importProgress.delete(jobId), 120000);
   } catch (e: any) {
-    console.error(`[IMPORT] Job ${jobId} failed:`, e);
-    await db.update(importJobs).set({ status: "failed", updatedAt: new Date() }).where(eq(importJobs.id, jobId));
-    await db.insert(importJobEvents).values({
-      importJobId: jobId, level: "error",
-      message: `Import failed: ${e.message}`,
-    });
+    const dbCode = (e as any).code || "";
+    const constraint = (e as any).constraint || "";
+    console.error(`[IMPORT] === Job ${jobId} FAILED === code=${dbCode} constraint=${constraint}`, e.message, e.stack?.slice(0, 500));
+    try {
+      await db.update(importJobs).set({ status: "failed", summaryJson: { results, insertedIds, error: e.message }, updatedAt: new Date() }).where(eq(importJobs.id, jobId));
+      await db.insert(importJobEvents).values({
+        importJobId: jobId, level: "error",
+        message: `Import failed: ${e.message}`,
+        payload: { sqlCode: dbCode, constraint, results },
+      });
+    } catch (updateErr: any) {
+      console.error(`[IMPORT] job=${jobId} Could not update job status after failure:`, updateErr.message);
+    }
     importProgress.set(jobId, { phase: "failed", entity: "", current: processedRows, total: totalRows, results });
     setTimeout(() => importProgress.delete(jobId), 120000);
   }
@@ -408,7 +426,15 @@ export async function getImportStatus(req: AuthRequest, res: Response) {
   }
 }
 
-async function getDefaultCityId(): Promise<number> {
+async function getDefaultCityId(companyId?: number): Promise<number> {
+  if (companyId) {
+    const existing = await db.select({ cityId: clinics.cityId }).from(clinics).where(eq(clinics.companyId, companyId)).limit(1);
+    if (existing.length && existing[0].cityId) return existing[0].cityId;
+    const existingDrv = await db.select({ cityId: drivers.cityId }).from(drivers).where(eq(drivers.companyId, companyId)).limit(1);
+    if (existingDrv.length && existingDrv[0].cityId) return existingDrv[0].cityId;
+  }
+  const lv = await db.select().from(cities).where(eq(cities.name, "Las Vegas")).limit(1);
+  if (lv.length) return lv[0].id;
   const [city] = await db.select().from(cities).limit(1);
   return city?.id || 1;
 }

@@ -1,0 +1,120 @@
+ROLE: Senior production engineer + QA lead
+PROJECT: United Care Mobility (UCM) — Imports pipeline
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only (no sub-agents)
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Do NOT change production secrets unless explicitly requested
+- Verify before exit with proof (API calls + DB queries + UI checks)
+
+GOAL (CRITICAL):
+Fix the Data Import flow end-to-end so that after importing (clinics/patients/drivers/vehicles) the selected company shows correct counts (non-zero) and records are actually inserted/updated in the database. Must work on mobile Safari and desktop.
+
+CURRENT SYMPTOMS (from screenshots):
+- Import jobs frequently show "rolled_back"
+- UI shows "Validated — No data inserted yet" even after attempts
+- "Run Import" sometimes fails with "offline"
+- Import progress can run (processing patients) but company dashboard shows 0 clinics/drivers/vehicles/patients
+- Previously saw DB errors; now app opens, but import results are not visible in company view
+
+NON-NEGOTIABLE OUTCOMES:
+1) A single import job that:
+   - Validates successfully
+   - Runs import (commit) successfully
+   - Updates company counts and makes records visible immediately
+2) Provide a repeatable automated test that proves it:
+   - Create job -> upload -> validate -> run import -> verify counts via DB + API
+3) Provide a short “root cause” explanation and the exact verification evidence.
+
+SCOPE — WHAT YOU MUST CHECK (DO NOT SKIP ANY):
+A) UI FLOW
+- /admin/imports page state machine: created -> uploaded -> validated -> running -> completed OR rolled_back
+- Ensure the top company selector is the same company the job is targeting (no mismatch like Company #6 selected but job runs for Company #8).
+- Ensure UI refresh/polling updates counts after completion.
+
+B) API ENDPOINTS
+Identify and verify endpoints used by UI:
+- POST /api/imports/jobs (create job, should include companyId)
+- POST /api/imports/:id/upload (or equivalent)
+- POST /api/imports/:id/validate
+- POST /api/imports/:id/run (COMMIT step)
+- GET  /api/imports/:id/status (progress)
+- GET  /api/company/:id/health (counts)
+For each, confirm:
+- Auth required and token/cookies are sent from mobile Safari
+- Proper CORS / allowed origins for app.unitedcaremobility.com
+- No request timeouts; long work must be background job + polling.
+
+C) DATABASE / TRANSACTIONS
+- Find why jobs become "rolled_back": capture the exact error thrown (DB constraint, FK, RLS, null required field, unique conflict, companyId mismatch, etc.)
+- Ensure import uses server-side DB credentials with permission to insert/update (service role / server DB user), not a limited anon context.
+- Ensure rows are inserted with correct company/tenant scoping (company_id) so they appear when viewing that company.
+- Ensure external_id mapping works:
+  - external_id from CSV is stored
+  - internal UUID is generated/used
+  - Upserts correctly match by (company_id, external_id) — not global collisions
+
+D) “OFFLINE” ISSUE (Mobile)
+- "offline" toast likely comes from fetch failing (401/403/CORS/network/timeout).
+- Instrument the client so we log the real status code + response body in dev.
+- Confirm Safari: cookies/samesite/secure settings are correct if using cookie sessions.
+- If using JWT, confirm Authorization header is set on validate/run calls.
+
+E) WORKER / JOB ENGINE
+- If import runs async: confirm worker is alive in production and uses correct DB URL.
+- Confirm progress writes are committed and visible to polling endpoint.
+- Ensure job updates (running/completed/rolled_back) are committed.
+
+IMPLEMENTATION REQUIREMENTS:
+1) Add structured logging around the import pipeline:
+   - job_id, company_id, phase (validate/run), counts inserted/updated per table
+   - on failure: log SQL error code + table + constraint
+2) Make import “run” idempotent and safe:
+   - retries should not duplicate rows
+   - use upsert with deterministic keys
+3) Add a “smoke test script” in repo:
+   - server/scripts/import-smoke-test.ts
+   - It should:
+     a) create or pick a test company (NON-DESTRUCTIVE)
+     b) load a small fixture CSV set committed in repo under server/fixtures/import/
+     c) call internal functions or hit HTTP endpoints
+     d) run validate + run import
+     e) query DB to confirm counts > 0 and company health matches
+   - Add npm script: "test:import": "tsx server/scripts/import-smoke-test.ts"
+
+FIX STRATEGY (DO THIS IN ORDER):
+Step 1 — Reproduce in dev:
+- Use the same UI flow: create job -> validate -> run import.
+- If UI files aren’t available, use fixture CSVs you create that match current importer schema.
+- Capture logs and the rolled_back error cause.
+
+Step 2 — Identify root cause:
+Common causes to explicitly confirm or rule out:
+- job companyId not being applied to inserted rows
+- importer writes to wrong company
+- required columns missing (phone/email/address), null constraint
+- FK constraints (clinic_id, vehicle_id) ordering wrong
+- RLS / permission (writes succeed nowhere or are blocked)
+- transaction too large and timing out; needs batching
+- "offline" caused by 401/CSRF/CORS; request never reaches server
+
+Step 3 — Fix:
+- Ensure job always stores company_id and importer always uses it
+- Ensure ordering: clinics -> patients -> drivers -> vehicles (or whatever your schema requires)
+- Ensure commit step truly commits (no silent rollback)
+- Ensure company health uses same DB and filters by company_id
+
+Step 4 — Verify with proof:
+Provide the following evidence in your final message:
+- Output of import-smoke-test (counts per entity)
+- DB query results showing rows with company_id and external_id
+- API response from company health showing non-zero counts
+- UI confirmation steps: what to click and what you should see
+
+DELIVERABLES:
+- Code changes + files list
+- Root cause summary
+- Verification evidence (copy/paste logs + counts)
+- “How to run the test” instructions
