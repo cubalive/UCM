@@ -1,7 +1,7 @@
 import express, { type Request, Response, NextFunction, type Express } from "express";
 import { authMiddleware, type AuthRequest } from "../auth";
 import { checkRateLimit } from "../lib/rateLimiter";
-import { loginHandler, loginJwtHandler, devSessionHandler, authMeHandler, meHandler } from "../controllers/auth.controller";
+import { loginHandler, loginJwtHandler, devSessionHandler, authMeHandler, meHandler, changePasswordHandler } from "../controllers/auth.controller";
 
 function loginRateLimit(req: Request, res: Response, next: NextFunction) {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -26,6 +26,7 @@ if (process.env.NODE_ENV === "development") {
 
 router.get("/api/auth/me", authMiddleware, authMeHandler as any);
 router.get("/api/me", meHandler);
+router.post("/api/auth/change-password", authMiddleware, changePasswordHandler as any);
 
 export function registerAuthRoutes(app: Express) {
   app.use(router);

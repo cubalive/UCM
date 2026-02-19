@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
-import { signToken, comparePassword, getUserCityIds, setAuthCookie, type AuthRequest, verifyToken } from "../auth";
-import { loginSchema, driverDevices } from "@shared/schema";
+import { signToken, comparePassword, hashPassword, getUserCityIds, setAuthCookie, type AuthRequest, verifyToken } from "../auth";
+import { loginSchema, driverDevices, users } from "@shared/schema";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { getSupabaseServer } from "../../lib/supabaseClient";
@@ -276,5 +276,69 @@ export async function meHandler(req: Request, res: Response) {
     });
   } catch {
     return res.status(401).json({ message: "Invalid or expired token" });
+  }
+}
+
+export async function changePasswordHandler(req: Request, res: Response) {
+  try {
+    const authReq = req as AuthRequest;
+    const userId = authReq.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current password and new password are required" });
+    }
+    if (typeof newPassword !== "string" || newPassword.length < 8) {
+      return res.status(400).json({ message: "New password must be at least 8 characters" });
+    }
+
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const valid = await comparePassword(currentPassword, user.password);
+    if (!valid) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    const hashed = await hashPassword(newPassword);
+    await db.update(users).set({
+      password: hashed,
+      mustChangePassword: false,
+    }).where(eq(users.id, userId));
+
+    try {
+      const supabase = getSupabaseServer();
+      if (supabase) {
+        const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+        const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === user.email.toLowerCase());
+        if (sbUser) {
+          await supabase.auth.admin.updateUserById(sbUser.id, {
+            password: newPassword,
+            user_metadata: { must_change_password: false },
+          });
+        }
+      }
+    } catch (sbErr: any) {
+      console.error("[changePassword] Supabase sync failed (non-fatal):", sbErr.message);
+    }
+
+    storage.createAuditLog({
+      action: "PASSWORD_CHANGED",
+      entity: "user",
+      entityId: userId,
+      details: `User ${user.email} changed their password`,
+      cityId: null,
+      userId,
+    }).catch(() => {});
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("[changePassword] Error:", err.message);
+    return res.status(500).json({ message: "Failed to change password" });
   }
 }
