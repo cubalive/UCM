@@ -4,7 +4,6 @@ import bcrypt from "bcryptjs";
 import * as s from "@shared/schema";
 
 const SEED_TAG = "SEED_UCM";
-
 let pidCounter = 0;
 
 async function initPidCounter(): Promise<void> {
@@ -58,462 +57,511 @@ function pastTimestamp(daysAgo: number): Date {
   return d;
 }
 
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
+const LV_CENTER = { lat: 36.1699, lng: -115.1398 };
+function lvCoord(latOff: number, lngOff: number) {
+  return { lat: LV_CENTER.lat + latOff, lng: LV_CENTER.lng + lngOff };
+}
+
+const COMPANY_DEFS = [
+  { name: "United Care Mobility", dispatchPhone: "702-555-0100" },
+  { name: "Metro Health Transport", dispatchPhone: "702-555-0200" },
+  { name: "Valley Care Transit", dispatchPhone: "702-555-0300" },
+  { name: "Desert Star Medical Transport", dispatchPhone: "702-555-0400" },
+  { name: "Silver State NEMT", dispatchPhone: "702-555-0500" },
+];
+
+const CLINIC_DEFS = [
+  { name: "Sunrise Hospital & Medical Center", address: "3186 S Maryland Pkwy, Las Vegas, NV 89109", facilityType: "hospital" as const, phone: "702-961-5000", contact: "Dr. Angela Torres", ...lvCoord(0.012, 0.016) },
+  { name: "Valley Health Dialysis Center", address: "1800 W Charleston Blvd, Las Vegas, NV 89102", facilityType: "clinic" as const, phone: "702-388-4000", contact: "Patricia Nguyen", ...lvCoord(-0.002, -0.032) },
+  { name: "Southern Hills Hospital", address: "9300 W Sunset Rd, Las Vegas, NV 89148", facilityType: "hospital" as const, phone: "702-880-2100", contact: "Dr. Robert Chen", ...lvCoord(-0.068, -0.074) },
+  { name: "Desert Springs Behavioral Health", address: "2075 E Flamingo Rd, Las Vegas, NV 89119", facilityType: "mental" as const, phone: "702-369-7600", contact: "Dr. Maria Santos", ...lvCoord(-0.018, 0.023) },
+  { name: "Mountain View Hospital", address: "3100 N Tenaya Way, Las Vegas, NV 89128", facilityType: "hospital" as const, phone: "702-255-5065", contact: "Dr. James Park", ...lvCoord(0.042, -0.065) },
+];
+
+const FIRST_NAMES = [
+  "James","Mary","Robert","Patricia","John","Jennifer","Michael","Linda","David","Elizabeth",
+  "William","Barbara","Richard","Susan","Joseph","Jessica","Thomas","Sarah","Charles","Karen",
+  "Christopher","Lisa","Daniel","Nancy","Matthew","Betty","Anthony","Margaret","Mark","Sandra",
+  "Donald","Ashley","Steven","Kimberly","Paul","Emily","Andrew","Donna","Joshua","Michelle",
+  "Kenneth","Carol","Kevin","Amanda","Brian","Dorothy","George","Melissa","Timothy","Deborah",
+  "Ronald","Stephanie","Edward","Rebecca","Jason","Sharon","Jeffrey","Laura","Ryan","Cynthia",
+  "Jacob","Kathleen","Gary","Amy","Nicholas","Angela","Eric","Shirley","Jonathan","Anna",
+  "Stephen","Brenda","Larry","Pamela","Justin","Emma","Scott","Nicole","Brandon","Helen",
+  "Benjamin","Samantha","Samuel","Katherine","Raymond","Christine","Gregory","Debra","Frank","Rachel",
+  "Alexander","Carolyn","Patrick","Janet","Jack","Catherine","Dennis","Maria","Jerry","Heather",
+  "Tyler","Diane","Aaron","Ruth","Jose","Julie","Adam","Olivia","Nathan","Joyce",
+  "Henry","Virginia","Peter","Victoria","Zachary","Kelly","Douglas","Lauren","Harold","Christina",
+  "Carl","Joan","Arthur","Evelyn","Gerald","Judith","Roger","Megan","Keith","Andrea",
+  "Lawrence","Cheryl","Albert","Hannah","Wayne","Jacqueline","Roy","Martha","Eugene","Gloria",
+  "Russell","Teresa","Bobby","Ann","Mason","Sara","Philip","Madison","Louis","Frances",
+];
+
+const LAST_NAMES = [
+  "Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis","Rodriguez","Martinez",
+  "Hernandez","Lopez","Gonzalez","Wilson","Anderson","Thomas","Taylor","Moore","Jackson","Martin",
+  "Lee","Perez","Thompson","White","Harris","Sanchez","Clark","Ramirez","Lewis","Robinson",
+  "Walker","Young","Allen","King","Wright","Scott","Torres","Nguyen","Hill","Flores",
+  "Green","Adams","Nelson","Baker","Hall","Rivera","Campbell","Mitchell","Carter","Roberts",
+  "Gomez","Phillips","Evans","Turner","Diaz","Parker","Cruz","Edwards","Collins","Reyes",
+  "Stewart","Morris","Morales","Murphy","Cook","Rogers","Gutierrez","Ortiz","Morgan","Cooper",
+  "Peterson","Bailey","Reed","Kelly","Howard","Ramos","Kim","Cox","Ward","Richardson",
+];
+
+const LV_STREETS = [
+  "Las Vegas Blvd S","E Flamingo Rd","W Sahara Ave","S Decatur Blvd","E Tropicana Ave",
+  "N Rancho Dr","W Charleston Blvd","S Eastern Ave","E Desert Inn Rd","N Lamb Blvd",
+  "W Lake Mead Blvd","S Pecos Rd","E Bonanza Rd","N Martin L King Blvd","W Spring Mountain Rd",
+  "S Maryland Pkwy","E Harmon Ave","N Nellis Blvd","W Flamingo Rd","S Jones Blvd",
+  "E Sunset Rd","N Las Vegas Blvd","W Craig Rd","S Rainbow Blvd","E Sahara Ave",
+  "N Civic Center Dr","W Owens Ave","S Durango Dr","E Stewart Ave","N Bruce St",
+];
+
+const LV_ZIPS = ["89101","89102","89103","89104","89106","89107","89108","89109","89110","89113",
+  "89117","89119","89120","89121","89122","89128","89129","89130","89131","89134","89138","89139","89141","89142","89143","89144","89146","89147","89148","89149"];
+
+const VEHICLE_MAKES = ["Toyota","Ford","Chevrolet","Honda","Dodge","Chrysler","Kia","Hyundai"];
+const SEDAN_MODELS: Record<string, string[]> = {
+  Toyota: ["Camry","RAV4","Corolla"], Ford: ["Fusion","Escape","Explorer"],
+  Chevrolet: ["Equinox","Malibu","Traverse"], Honda: ["Accord","CR-V","Civic"],
+  Dodge: ["Durango","Charger"], Chrysler: ["Pacifica","300"],
+  Kia: ["Forte","Sorento"], Hyundai: ["Sonata","Tucson"],
+};
+const WHEELCHAIR_MODELS: Record<string, string[]> = {
+  Toyota: ["Sienna"], Ford: ["Transit","Transit Connect"], Chevrolet: ["Express"],
+  Honda: ["Odyssey"], Dodge: ["Grand Caravan"], Chrysler: ["Pacifica"],
+  Kia: ["Sedona (Carnival)"], Hyundai: ["Staria"],
+};
+
+const COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#EC4899","#14B8A6","#F97316","#84CC16"];
+
+function randItem<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
+function randInt(min: number, max: number): number { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+function genLvAddress(idx: number) {
+  const num = 1000 + (idx * 37) % 9000;
+  const street = LV_STREETS[idx % LV_STREETS.length];
+  const zip = LV_ZIPS[idx % LV_ZIPS.length];
+  return {
+    full: `${num} ${street}, Las Vegas, NV ${zip}`,
+    street: `${num} ${street}`,
+    city: "Las Vegas",
+    state: "NV",
+    zip,
+    ...lvCoord(
+      -0.08 + (idx % 30) * 0.006,
+      -0.08 + Math.floor(idx / 30) * 0.02 + (idx % 7) * 0.008
+    ),
+  };
+}
+
 async function seedCompanies() {
   log("Seeding companies...");
   const existing = await db.select().from(s.companies);
-  if (existing.length >= 3) return existing;
-
-  const toInsert = [
-    { name: "United Care Mobility" },
-    { name: "Metro Health Transport" },
-    { name: "Valley Care Transit" },
-  ];
-
   const results: any[] = [];
-  for (const c of toInsert) {
-    const ex = existing.find(e => e.name === c.name);
-    if (ex) { results.push(ex); continue; }
-    const [row] = await db.insert(s.companies).values(c).returning();
-    results.push(row);
+  for (const def of COMPANY_DEFS) {
+    let co = existing.find(e => e.name === def.name);
+    if (!co) {
+      [co] = await db.insert(s.companies).values({ name: def.name, dispatchPhone: def.dispatchPhone }).returning();
+    }
+    results.push(co);
   }
   log(`  Companies: ${results.length}`);
   return results;
 }
 
-async function seedCities() {
-  log("Seeding cities...");
+async function seedCity() {
+  log("Seeding Las Vegas city...");
   const existing = await db.select().from(s.cities);
-  if (existing.length >= 8) return existing;
-
-  const cityData = [
-    { name: "Los Angeles", state: "CA", timezone: "America/Los_Angeles" },
-    { name: "San Diego", state: "CA", timezone: "America/Los_Angeles" },
-    { name: "Dallas", state: "TX", timezone: "America/Chicago" },
-    { name: "Houston", state: "TX", timezone: "America/Chicago" },
-    { name: "Phoenix", state: "AZ", timezone: "America/Phoenix" },
-    { name: "Denver", state: "CO", timezone: "America/Denver" },
-    { name: "Atlanta", state: "GA", timezone: "America/New_York" },
-    { name: "Chicago", state: "IL", timezone: "America/Chicago" },
-  ];
-
-  const results: any[] = [...existing];
-  for (const c of cityData) {
-    if (results.find(e => e.name === c.name)) continue;
-    const [row] = await db.insert(s.cities).values(c).returning();
-    results.push(row);
+  let lv = existing.find(c => c.name === "Las Vegas" && c.state === "NV");
+  if (!lv) {
+    [lv] = await db.insert(s.cities).values({ name: "Las Vegas", state: "NV", timezone: "America/Los_Angeles", active: true }).returning();
   }
-  log(`  Cities: ${results.length}`);
-  return results;
-}
-
-async function seedUsers(companies: any[], cities: any[]) {
-  log("Seeding users...");
-  const existing = await db.select().from(s.users);
-  if (existing.length >= 20) return existing;
-
-  const hashedPw = await hashPw("SeedPass123!");
-
-  const userData = [
-    { email: "seed.superadmin@ucm.test", firstName: "Sarah", lastName: "Admin", role: "SUPER_ADMIN" as const, companyId: companies[0].id, phone: "555-100-0001" },
-    { email: "seed.admin.la@ucm.test", firstName: "Marcus", lastName: "Rodriguez", role: "ADMIN" as const, companyId: companies[0].id, phone: "555-100-0002" },
-    { email: "seed.dispatch.la@ucm.test", firstName: "Jennifer", lastName: "Chen", role: "DISPATCH" as const, companyId: companies[0].id, phone: "555-100-0003" },
-    { email: "seed.dispatch2.la@ucm.test", firstName: "David", lastName: "Kim", role: "DISPATCH" as const, companyId: companies[0].id, phone: "555-100-0004" },
-    { email: "seed.viewer.la@ucm.test", firstName: "Amy", lastName: "Patel", role: "VIEWER" as const, companyId: companies[0].id, phone: "555-100-0005" },
-    { email: "seed.companyadmin.metro@ucm.test", firstName: "Robert", lastName: "Martinez", role: "COMPANY_ADMIN" as const, companyId: companies[1].id, phone: "555-200-0001" },
-    { email: "seed.dispatch.metro@ucm.test", firstName: "Lisa", lastName: "Thompson", role: "DISPATCH" as const, companyId: companies[1].id, phone: "555-200-0002" },
-    { email: "seed.admin.metro@ucm.test", firstName: "James", lastName: "Wilson", role: "ADMIN" as const, companyId: companies[1].id, phone: "555-200-0003" },
-    { email: "seed.companyadmin.valley@ucm.test", firstName: "Patricia", lastName: "Brown", role: "COMPANY_ADMIN" as const, companyId: companies[2].id, phone: "555-300-0001" },
-    { email: "seed.dispatch.valley@ucm.test", firstName: "Michael", lastName: "Davis", role: "DISPATCH" as const, companyId: companies[2].id, phone: "555-300-0002" },
-    { email: "seed.viewer.valley@ucm.test", firstName: "Karen", lastName: "Taylor", role: "VIEWER" as const, companyId: companies[2].id, phone: "555-300-0003" },
-  ];
-
-  const results: any[] = [...existing];
-  for (const u of userData) {
-    if (results.find(e => e.email === u.email)) continue;
-    const pid = nextPid();
-    const [row] = await db.insert(s.users).values({
-      publicId: pid,
-      email: u.email,
-      password: hashedPw,
-      firstName: u.firstName,
-      lastName: u.lastName,
-      role: u.role,
-      companyId: u.companyId,
-      phone: u.phone,
-      active: true,
-      mustChangePassword: false,
-    }).returning();
-    results.push(row);
-  }
-
-  log(`  Users: ${results.length}`);
-  return results;
-}
-
-async function seedUserCityAccess(users: any[], cities: any[]) {
-  log("Seeding user city access...");
-  const existing = await db.select().from(s.userCityAccess);
-
-  const cityMap: Record<string, number[]> = {
-    "seed.superadmin@ucm.test": cities.map(c => c.id),
-    "seed.admin.la@ucm.test": cities.filter(c => c.state === "CA").map(c => c.id),
-    "seed.dispatch.la@ucm.test": cities.filter(c => c.name === "Los Angeles").map(c => c.id),
-    "seed.dispatch2.la@ucm.test": cities.filter(c => c.name === "Los Angeles" || c.name === "San Diego").map(c => c.id),
-    "seed.viewer.la@ucm.test": cities.filter(c => c.state === "CA").map(c => c.id),
-    "seed.companyadmin.metro@ucm.test": cities.filter(c => c.state === "TX").map(c => c.id),
-    "seed.dispatch.metro@ucm.test": cities.filter(c => c.name === "Dallas").map(c => c.id),
-    "seed.admin.metro@ucm.test": cities.filter(c => c.state === "TX").map(c => c.id),
-    "seed.companyadmin.valley@ucm.test": cities.filter(c => c.state === "AZ" || c.state === "CO").map(c => c.id),
-    "seed.dispatch.valley@ucm.test": cities.filter(c => c.name === "Phoenix").map(c => c.id),
-    "seed.viewer.valley@ucm.test": cities.filter(c => c.name === "Phoenix" || c.name === "Denver").map(c => c.id),
-  };
-
-  let count = 0;
-  for (const [email, cityIds] of Object.entries(cityMap)) {
-    const user = users.find(u => u.email === email);
-    if (!user) continue;
-    for (const cityId of cityIds) {
-      const ex = existing.find(e => e.userId === user.id && e.cityId === cityId);
-      if (ex) continue;
-      await db.insert(s.userCityAccess).values({ userId: user.id, cityId });
-      count++;
-    }
-  }
-  log(`  City access entries added: ${count}`);
+  log(`  City: Las Vegas (id=${lv!.id})`);
+  return lv!;
 }
 
 async function seedVehicleMakesModels() {
   log("Seeding vehicle makes/models...");
   const existing = await db.select().from(s.vehicleMakes);
-  if (existing.length >= 5) return existing;
-
-  const makes = ["Toyota", "Ford", "Chevrolet", "Honda", "Dodge"];
-  const modelMap: Record<string, string[]> = {
-    "Toyota": ["Sienna", "Camry", "RAV4"],
-    "Ford": ["Transit", "Explorer", "Escape"],
-    "Chevrolet": ["Express", "Equinox", "Suburban"],
-    "Honda": ["Odyssey", "CR-V", "Pilot"],
-    "Dodge": ["Grand Caravan", "Durango", "Ram ProMaster"],
-  };
-
-  const results: any[] = [];
-  for (const name of makes) {
-    let make = existing.find(e => e.name === name);
+  for (const makeName of VEHICLE_MAKES) {
+    let make = existing.find(e => e.name === makeName);
     if (!make) {
-      [make] = await db.insert(s.vehicleMakes).values({ name }).returning();
+      [make] = await db.insert(s.vehicleMakes).values({ name: makeName }).onConflictDoNothing().returning();
+      if (!make) continue;
     }
-    results.push(make);
-    for (const modelName of modelMap[name]) {
-      const existingModels = await db.select().from(s.vehicleModels).where(eq(s.vehicleModels.makeId, make!.id));
+    const allModels = [...(SEDAN_MODELS[makeName] || []), ...(WHEELCHAIR_MODELS[makeName] || [])];
+    const existingModels = await db.select().from(s.vehicleModels).where(eq(s.vehicleModels.makeId, make.id));
+    for (const modelName of allModels) {
       if (!existingModels.find(m => m.name === modelName)) {
-        await db.insert(s.vehicleModels).values({ makeId: make!.id, name: modelName });
+        await db.insert(s.vehicleModels).values({ makeId: make.id, name: modelName }).onConflictDoNothing();
       }
     }
   }
-  log(`  Makes: ${results.length}`);
-  return results;
+  log("  Vehicle makes/models done");
 }
 
-async function seedVehicles(companies: any[], cities: any[]) {
-  log("Seeding vehicles...");
+async function seedVehicles(companies: any[], city: any) {
+  log("Seeding vehicles (150)...");
   const existing = await db.select().from(s.vehicles);
-  if (existing.length >= 16) return existing;
+  const results: any[] = [];
+  const PER_COMPANY = 30;
 
-  const colors = ["#6366F1", "#10B981", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6"];
-  const vData = [
-    { name: "V-LA-001", licensePlate: "UCM-LA01", cityIdx: 0, companyIdx: 0, cap: "SEDAN", wheelchair: false, year: 2022, make: "Toyota", model: "Camry" },
-    { name: "V-LA-002", licensePlate: "UCM-LA02", cityIdx: 0, companyIdx: 0, cap: "WHEELCHAIR", wheelchair: true, year: 2023, make: "Toyota", model: "Sienna" },
-    { name: "V-LA-003", licensePlate: "UCM-LA03", cityIdx: 0, companyIdx: 0, cap: "SEDAN", wheelchair: false, year: 2021, make: "Honda", model: "Odyssey" },
-    { name: "V-LA-004", licensePlate: "UCM-LA04", cityIdx: 0, companyIdx: 0, cap: "SEDAN", wheelchair: false, year: 2023, make: "Ford", model: "Transit" },
-    { name: "V-SD-001", licensePlate: "UCM-SD01", cityIdx: 1, companyIdx: 0, cap: "SEDAN", wheelchair: false, year: 2022, make: "Chevrolet", model: "Equinox" },
-    { name: "V-SD-002", licensePlate: "UCM-SD02", cityIdx: 1, companyIdx: 0, cap: "WHEELCHAIR", wheelchair: true, year: 2023, make: "Dodge", model: "Grand Caravan" },
-    { name: "V-DAL-001", licensePlate: "MHT-D01", cityIdx: 2, companyIdx: 1, cap: "SEDAN", wheelchair: false, year: 2022, make: "Ford", model: "Explorer" },
-    { name: "V-DAL-002", licensePlate: "MHT-D02", cityIdx: 2, companyIdx: 1, cap: "WHEELCHAIR", wheelchair: true, year: 2023, make: "Ford", model: "Transit" },
-    { name: "V-DAL-003", licensePlate: "MHT-D03", cityIdx: 2, companyIdx: 1, cap: "SEDAN", wheelchair: false, year: 2021, make: "Toyota", model: "RAV4" },
-    { name: "V-HOU-001", licensePlate: "MHT-H01", cityIdx: 3, companyIdx: 1, cap: "SEDAN", wheelchair: false, year: 2022, make: "Honda", model: "Pilot" },
-    { name: "V-HOU-002", licensePlate: "MHT-H02", cityIdx: 3, companyIdx: 1, cap: "WHEELCHAIR", wheelchair: true, year: 2023, make: "Chevrolet", model: "Express" },
-    { name: "V-PHX-001", licensePlate: "VCT-P01", cityIdx: 4, companyIdx: 2, cap: "SEDAN", wheelchair: false, year: 2022, make: "Toyota", model: "Sienna" },
-    { name: "V-PHX-002", licensePlate: "VCT-P02", cityIdx: 4, companyIdx: 2, cap: "WHEELCHAIR", wheelchair: true, year: 2023, make: "Dodge", model: "Grand Caravan" },
-    { name: "V-PHX-003", licensePlate: "VCT-P03", cityIdx: 4, companyIdx: 2, cap: "SEDAN", wheelchair: false, year: 2021, make: "Honda", model: "CR-V" },
-    { name: "V-DEN-001", licensePlate: "VCT-DN01", cityIdx: 5, companyIdx: 2, cap: "SEDAN", wheelchair: false, year: 2022, make: "Ford", model: "Escape" },
-    { name: "V-DEN-002", licensePlate: "VCT-DN02", cityIdx: 5, companyIdx: 2, cap: "WHEELCHAIR", wheelchair: true, year: 2023, make: "Chevrolet", model: "Suburban" },
-  ];
+  for (let ci = 0; ci < companies.length; ci++) {
+    const co = companies[ci];
+    const prefix = ["UCM","MHT","VCT","DSM","SSN"][ci];
+    for (let vi = 0; vi < PER_COMPANY; vi++) {
+      const lp = `${prefix}-LV${String(vi + 1).padStart(2, "0")}`;
+      const ex = existing.find(e => e.licensePlate === lp);
+      if (ex) { results.push(ex); continue; }
 
-  const results: any[] = [...existing];
-  for (let i = 0; i < vData.length; i++) {
-    const v = vData[i];
-    if (results.find(e => e.licensePlate === v.licensePlate)) continue;
-    const city = cities[v.cityIdx];
-    const company = companies[v.companyIdx];
-    if (!city || !company) continue;
-    const pid = nextPid();
-    const [row] = await db.insert(s.vehicles).values({
-      publicId: pid,
-      cityId: city.id,
-      name: v.name,
-      licensePlate: v.licensePlate,
-      colorHex: colors[i % colors.length],
-      makeText: v.make,
-      modelText: v.model,
-      year: v.year,
-      capacity: v.wheelchair ? 2 : 4,
-      wheelchairAccessible: v.wheelchair,
-      capability: v.cap,
-      status: "ACTIVE",
-      companyId: company.id,
-      active: true,
-    }).returning();
-    results.push(row);
+      const isWheelchair = vi % 4 === 3;
+      const make = VEHICLE_MAKES[(ci * PER_COMPANY + vi) % VEHICLE_MAKES.length];
+      const modelPool = isWheelchair ? (WHEELCHAIR_MODELS[make] || ["Transit"]) : (SEDAN_MODELS[make] || ["Camry"]);
+      const model = modelPool[vi % modelPool.length];
+
+      const pid = nextPid();
+      try {
+        const [row] = await db.insert(s.vehicles).values({
+          publicId: pid,
+          cityId: city.id,
+          name: `V-LV-${prefix}-${String(vi + 1).padStart(2, "0")}`,
+          licensePlate: lp,
+          colorHex: COLORS[(ci * PER_COMPANY + vi) % COLORS.length],
+          makeText: make,
+          modelText: model,
+          year: 2021 + (vi % 4),
+          capacity: isWheelchair ? 2 : 4,
+          wheelchairAccessible: isWheelchair,
+          capability: isWheelchair ? "WHEELCHAIR" : "SEDAN",
+          status: vi < 28 ? "ACTIVE" : (vi === 28 ? "MAINTENANCE" : "OUT_OF_SERVICE"),
+          companyId: co.id,
+          active: vi < 29,
+        }).returning();
+        results.push(row);
+      } catch (e: any) {
+        if (!e.message?.includes("duplicate")) throw e;
+      }
+    }
   }
   log(`  Vehicles: ${results.length}`);
   return results;
 }
 
-async function seedDrivers(companies: any[], cities: any[], vehicles: any[], users: any[]) {
-  log("Seeding drivers...");
-  const existing = await db.select().from(s.drivers);
-  if (existing.length >= 12) return existing;
-
-  const hashedPw = await hashPw("DriverPass123!");
-
-  const dData = [
-    { firstName: "Carlos", lastName: "Garcia", email: "seed.driver.carlos@ucm.test", phone: "555-110-0001", cityIdx: 0, companyIdx: 0, vehicleLp: "UCM-LA01", license: "DL-CA-001" },
-    { firstName: "Aisha", lastName: "Johnson", email: "seed.driver.aisha@ucm.test", phone: "555-110-0002", cityIdx: 0, companyIdx: 0, vehicleLp: "UCM-LA02", license: "DL-CA-002" },
-    { firstName: "Tommy", lastName: "Nguyen", email: "seed.driver.tommy@ucm.test", phone: "555-110-0003", cityIdx: 0, companyIdx: 0, vehicleLp: "UCM-LA03", license: "DL-CA-003" },
-    { firstName: "Maria", lastName: "Santos", email: "seed.driver.maria@ucm.test", phone: "555-110-0004", cityIdx: 1, companyIdx: 0, vehicleLp: "UCM-SD01", license: "DL-CA-004" },
-    { firstName: "Derek", lastName: "Washington", email: "seed.driver.derek@ucm.test", phone: "555-210-0001", cityIdx: 2, companyIdx: 1, vehicleLp: "MHT-D01", license: "DL-TX-001" },
-    { firstName: "Priya", lastName: "Sharma", email: "seed.driver.priya@ucm.test", phone: "555-210-0002", cityIdx: 2, companyIdx: 1, vehicleLp: "MHT-D02", license: "DL-TX-002" },
-    { firstName: "Kevin", lastName: "Lee", email: "seed.driver.kevin@ucm.test", phone: "555-210-0003", cityIdx: 3, companyIdx: 1, vehicleLp: "MHT-H01", license: "DL-TX-003" },
-    { firstName: "Sandra", lastName: "Jackson", email: "seed.driver.sandra@ucm.test", phone: "555-210-0004", cityIdx: 3, companyIdx: 1, vehicleLp: "MHT-H02", license: "DL-TX-004" },
-    { firstName: "Andre", lastName: "Clark", email: "seed.driver.andre@ucm.test", phone: "555-310-0001", cityIdx: 4, companyIdx: 2, vehicleLp: "VCT-P01", license: "DL-AZ-001" },
-    { firstName: "Linda", lastName: "White", email: "seed.driver.linda@ucm.test", phone: "555-310-0002", cityIdx: 4, companyIdx: 2, vehicleLp: "VCT-P02", license: "DL-AZ-002" },
-    { firstName: "Oscar", lastName: "Ramirez", email: "seed.driver.oscar@ucm.test", phone: "555-310-0003", cityIdx: 5, companyIdx: 2, vehicleLp: "VCT-DN01", license: "DL-CO-001" },
-    { firstName: "Helen", lastName: "Moore", email: "seed.driver.helen@ucm.test", phone: "555-310-0004", cityIdx: 5, companyIdx: 2, vehicleLp: "VCT-DN02", license: "DL-CO-002" },
-  ];
-
-  const results: any[] = [...existing];
-  for (const d of dData) {
-    if (results.find(e => e.email === d.email)) continue;
-    const city = cities[d.cityIdx];
-    const company = companies[d.companyIdx];
-    const vehicle = vehicles.find(v => v.licensePlate === d.vehicleLp);
-    if (!city || !company) continue;
-
-    const driverPid = nextPid();
-    const userPid = nextPid();
-
-    const [driverUser] = await db.insert(s.users).values({
-      publicId: userPid,
-      email: d.email,
-      password: hashedPw,
-      firstName: d.firstName,
-      lastName: d.lastName,
-      role: "DRIVER",
-      companyId: company.id,
-      phone: d.phone,
-      active: true,
-      mustChangePassword: false,
-    }).returning();
-
-    const [driver] = await db.insert(s.drivers).values({
-      publicId: driverPid,
-      cityId: city.id,
-      userId: driverUser.id,
-      vehicleId: vehicle?.id ?? null,
-      email: d.email,
-      firstName: d.firstName,
-      lastName: d.lastName,
-      phone: d.phone,
-      licenseNumber: d.license,
-      status: "ACTIVE",
-      dispatchStatus: "available",
-      companyId: company.id,
-      active: true,
-    }).returning();
-
-    await db.update(s.users).set({ driverId: driver.id }).where(eq(s.users.id, driverUser.id));
-
-    await db.insert(s.userCityAccess).values({ userId: driverUser.id, cityId: city.id });
-
-    results.push(driver);
-  }
-  log(`  Drivers: ${results.length}`);
-  return results;
-}
-
-async function seedClinics(companies: any[], cities: any[], users: any[]) {
-  log("Seeding clinics...");
+async function seedClinics(companies: any[], city: any) {
+  log("Seeding clinics (5)...");
   const existing = await db.select().from(s.clinics);
-  if (existing.length >= 12) return existing;
-
+  const results: any[] = [];
   const hashedPw = await hashPw("ClinicPass123!");
 
-  const cData = [
-    { name: "Sunrise Medical Center", address: "1234 Sunset Blvd, Los Angeles, CA 90028", cityIdx: 0, companyIdx: 0, facilityType: "hospital" as const, phone: "555-120-0001", contact: "Dr. Emily Park", lat: 34.0987, lng: -118.3267 },
-    { name: "Pacific Dialysis Clinic", address: "5678 Ocean Ave, Los Angeles, CA 90401", cityIdx: 0, companyIdx: 0, facilityType: "clinic" as const, phone: "555-120-0002", contact: "Nancy Reed", lat: 34.0195, lng: -118.4912 },
-    { name: "Harbor Mental Health", address: "910 Harbor Dr, Los Angeles, CA 90710", cityIdx: 0, companyIdx: 0, facilityType: "mental" as const, phone: "555-120-0003", contact: "Dr. Steven Grant", lat: 33.7783, lng: -118.2646 },
-    { name: "Coastal Care Clinic", address: "321 Coast Hwy, San Diego, CA 92101", cityIdx: 1, companyIdx: 0, facilityType: "clinic" as const, phone: "555-120-0004", contact: "Maria Lopez", lat: 32.7157, lng: -117.1611 },
-    { name: "Dallas General Hospital", address: "4000 Medical District Dr, Dallas, TX 75235", cityIdx: 2, companyIdx: 1, facilityType: "hospital" as const, phone: "555-220-0001", contact: "Dr. John Miller", lat: 32.8120, lng: -96.8403 },
-    { name: "Lone Star Dialysis", address: "2500 Ross Ave, Dallas, TX 75201", cityIdx: 2, companyIdx: 1, facilityType: "clinic" as const, phone: "555-220-0002", contact: "Brenda Scott", lat: 32.7876, lng: -96.7969 },
-    { name: "Houston Care Center", address: "6100 Fannin St, Houston, TX 77030", cityIdx: 3, companyIdx: 1, facilityType: "hospital" as const, phone: "555-220-0003", contact: "Dr. Rachel Adams", lat: 29.7072, lng: -95.3971 },
-    { name: "Bayou Mental Health", address: "3200 Montrose Blvd, Houston, TX 77006", cityIdx: 3, companyIdx: 1, facilityType: "mental" as const, phone: "555-220-0004", contact: "Thomas Hill", lat: 29.7420, lng: -95.3925 },
-    { name: "Desert Springs Hospital", address: "1400 N Central Ave, Phoenix, AZ 85004", cityIdx: 4, companyIdx: 2, facilityType: "hospital" as const, phone: "555-320-0001", contact: "Dr. Susan Lee", lat: 33.4606, lng: -112.0740 },
-    { name: "Cactus Dialysis Center", address: "2800 E Camelback Rd, Phoenix, AZ 85016", cityIdx: 4, companyIdx: 2, facilityType: "clinic" as const, phone: "555-320-0002", contact: "Frank Rivera", lat: 33.5092, lng: -111.9994 },
-    { name: "Mile High Clinic", address: "1600 Champa St, Denver, CO 80202", cityIdx: 5, companyIdx: 2, facilityType: "clinic" as const, phone: "555-320-0003", contact: "Dr. Angela Wright", lat: 39.7473, lng: -104.9934 },
-    { name: "Rocky Mountain Health", address: "4500 E 9th Ave, Denver, CO 80220", cityIdx: 5, companyIdx: 2, facilityType: "hospital" as const, phone: "555-320-0004", contact: "Chris Morgan", lat: 39.7319, lng: -104.9381 },
-  ];
-
-  const results: any[] = [...existing];
-  for (const c of cData) {
-    if (results.find(e => e.name === c.name)) continue;
-    const city = cities[c.cityIdx];
-    const company = companies[c.companyIdx];
-    if (!city || !company) continue;
+  for (let ci = 0; ci < CLINIC_DEFS.length; ci++) {
+    const def = CLINIC_DEFS[ci];
+    const co = companies[ci];
+    let clinic = existing.find(e => e.name === def.name);
+    if (clinic) { results.push(clinic); continue; }
 
     const clinicPid = nextPid();
-    const clinicEmail = `seed.clinic.${c.name.toLowerCase().replace(/\s+/g, ".")}@ucm.test`;
+    const clinicEmail = `seed.clinic.lv${ci + 1}@ucm.test`;
 
-    const [clinic] = await db.insert(s.clinics).values({
-      publicId: clinicPid,
-      cityId: city.id,
-      name: c.name,
-      address: c.address,
-      email: clinicEmail,
-      phone: c.phone,
-      contactName: c.contact,
-      facilityType: c.facilityType,
-      companyId: company.id,
-      lat: c.lat,
-      lng: c.lng,
-      active: true,
-    }).returning();
+    try {
+      [clinic] = await db.insert(s.clinics).values({
+        publicId: clinicPid,
+        cityId: city.id,
+        name: def.name,
+        address: def.address,
+        addressStreet: def.address.split(",")[0],
+        addressCity: "Las Vegas",
+        addressState: "NV",
+        addressZip: def.address.match(/\d{5}/)?.[0] || "89109",
+        email: clinicEmail,
+        phone: def.phone,
+        contactName: def.contact,
+        facilityType: def.facilityType,
+        companyId: co.id,
+        lat: def.lat,
+        lng: def.lng,
+        active: true,
+      }).returning();
 
-    const userPid = nextPid();
-    const [clinicUser] = await db.insert(s.users).values({
-      publicId: userPid,
-      email: clinicEmail,
-      password: hashedPw,
-      firstName: c.contact.split(" ").slice(-1)[0],
-      lastName: c.name.split(" ")[0],
-      role: "CLINIC_USER",
-      companyId: company.id,
-      phone: c.phone,
-      clinicId: clinic.id,
-      active: true,
-      mustChangePassword: false,
-    }).returning();
+      const userPid = nextPid();
+      const nameParts = def.contact.replace("Dr. ", "").split(" ");
+      await db.insert(s.users).values({
+        publicId: userPid,
+        email: clinicEmail,
+        password: hashedPw,
+        firstName: nameParts[0],
+        lastName: nameParts.slice(1).join(" ") || "Admin",
+        role: "CLINIC_USER",
+        companyId: co.id,
+        clinicId: clinic!.id,
+        phone: def.phone,
+        active: true,
+        mustChangePassword: false,
+      });
 
-    await db.insert(s.userCityAccess).values({ userId: clinicUser.id, cityId: city.id });
+      const clinicUser = await db.select().from(s.users).where(eq(s.users.email, clinicEmail)).then(r => r[0]);
+      if (clinicUser) {
+        await db.insert(s.userCityAccess).values({ userId: clinicUser.id, cityId: city.id }).onConflictDoNothing();
+      }
 
-    results.push(clinic);
+      results.push(clinic);
+    } catch (e: any) {
+      if (!e.message?.includes("duplicate")) throw e;
+      const fallback = existing.find(e2 => e2.name === def.name);
+      if (fallback) results.push(fallback);
+    }
   }
   log(`  Clinics: ${results.length}`);
   return results;
 }
 
-async function seedPatients(companies: any[], cities: any[], clinics: any[]) {
-  log("Seeding patients...");
-  const existing = await db.select().from(s.patients);
-  if (existing.length >= 20) return existing;
+async function seedDispatchUsers(companies: any[], city: any) {
+  log("Seeding dispatch/admin users...");
+  const hashedPw = await hashPw("SeedPass123!");
+  const existingUsers = await db.select().from(s.users);
 
-  const pData = [
-    { firstName: "John", lastName: "Smith", phone: "555-400-0001", dob: "1955-03-15", insurance: "INS-001-UCM", wheelchair: false, cityIdx: 0, companyIdx: 0, clinicName: "Sunrise Medical Center", address: "456 Elm St, Los Angeles, CA 90012", lat: 34.0622, lng: -118.2437 },
-    { firstName: "Dorothy", lastName: "Williams", phone: "555-400-0002", dob: "1948-07-22", insurance: "INS-002-UCM", wheelchair: true, cityIdx: 0, companyIdx: 0, clinicName: "Pacific Dialysis Clinic", address: "789 Oak Dr, Los Angeles, CA 90015", lat: 34.0398, lng: -118.2657 },
-    { firstName: "Robert", lastName: "Jones", phone: "555-400-0003", dob: "1960-11-08", insurance: "INS-003-UCM", wheelchair: false, cityIdx: 0, companyIdx: 0, clinicName: "Harbor Mental Health", address: "321 Pine Ave, Los Angeles, CA 90710", lat: 33.7897, lng: -118.2751 },
-    { firstName: "Margaret", lastName: "Brown", phone: "555-400-0004", dob: "1952-01-30", insurance: "INS-004-UCM", wheelchair: false, cityIdx: 0, companyIdx: 0, clinicName: "Sunrise Medical Center", address: "654 Maple Ct, Los Angeles, CA 90036", lat: 34.0695, lng: -118.3515 },
-    { firstName: "William", lastName: "Davis", phone: "555-400-0005", dob: "1965-09-12", insurance: "INS-005-UCM", wheelchair: false, cityIdx: 1, companyIdx: 0, clinicName: "Coastal Care Clinic", address: "123 Bay St, San Diego, CA 92109", lat: 32.7927, lng: -117.2427 },
-    { firstName: "Betty", lastName: "Miller", phone: "555-400-0006", dob: "1970-04-18", insurance: "INS-006-UCM", wheelchair: true, cityIdx: 1, companyIdx: 0, clinicName: "Coastal Care Clinic", address: "456 Palm Dr, San Diego, CA 92101", lat: 32.7157, lng: -117.1611 },
-    { firstName: "James", lastName: "Wilson", phone: "555-400-0007", dob: "1958-12-03", insurance: "INS-007-MHT", wheelchair: false, cityIdx: 2, companyIdx: 1, clinicName: "Dallas General Hospital", address: "789 Oak Ridge Rd, Dallas, TX 75201", lat: 32.7876, lng: -96.7969 },
-    { firstName: "Patricia", lastName: "Anderson", phone: "555-400-0008", dob: "1945-06-25", insurance: "INS-008-MHT", wheelchair: true, cityIdx: 2, companyIdx: 1, clinicName: "Lone Star Dialysis", address: "321 Elm Ct, Dallas, TX 75204", lat: 32.7990, lng: -96.7873 },
-    { firstName: "Richard", lastName: "Thomas", phone: "555-400-0009", dob: "1962-08-14", insurance: "INS-009-MHT", wheelchair: false, cityIdx: 2, companyIdx: 1, clinicName: "Dallas General Hospital", address: "654 Cedar Ln, Dallas, TX 75226", lat: 32.7763, lng: -96.7668 },
-    { firstName: "Susan", lastName: "Jackson", phone: "555-400-0010", dob: "1950-02-28", insurance: "INS-010-MHT", wheelchair: false, cityIdx: 3, companyIdx: 1, clinicName: "Houston Care Center", address: "123 Magnolia St, Houston, TX 77030", lat: 29.7072, lng: -95.3971 },
-    { firstName: "Charles", lastName: "White", phone: "555-400-0011", dob: "1968-10-07", insurance: "INS-011-MHT", wheelchair: false, cityIdx: 3, companyIdx: 1, clinicName: "Bayou Mental Health", address: "456 Willow Ave, Houston, TX 77006", lat: 29.7420, lng: -95.3925 },
-    { firstName: "Barbara", lastName: "Harris", phone: "555-400-0012", dob: "1953-05-19", insurance: "INS-012-MHT", wheelchair: true, cityIdx: 3, companyIdx: 1, clinicName: "Houston Care Center", address: "789 Pecan Dr, Houston, TX 77054", lat: 29.6865, lng: -95.4022 },
-    { firstName: "Joseph", lastName: "Martin", phone: "555-400-0013", dob: "1957-03-11", insurance: "INS-013-VCT", wheelchair: false, cityIdx: 4, companyIdx: 2, clinicName: "Desert Springs Hospital", address: "123 Saguaro Blvd, Phoenix, AZ 85004", lat: 33.4606, lng: -112.0740 },
-    { firstName: "Nancy", lastName: "Thompson", phone: "555-400-0014", dob: "1947-11-29", insurance: "INS-014-VCT", wheelchair: true, cityIdx: 4, companyIdx: 2, clinicName: "Cactus Dialysis Center", address: "456 Palo Verde Dr, Phoenix, AZ 85016", lat: 33.5092, lng: -111.9994 },
-    { firstName: "Daniel", lastName: "Garcia", phone: "555-400-0015", dob: "1963-07-04", insurance: "INS-015-VCT", wheelchair: false, cityIdx: 4, companyIdx: 2, clinicName: "Desert Springs Hospital", address: "789 Mesquite Ave, Phoenix, AZ 85006", lat: 33.4502, lng: -112.0482 },
-    { firstName: "Lisa", lastName: "Martinez", phone: "555-400-0016", dob: "1971-09-16", insurance: "INS-016-VCT", wheelchair: false, cityIdx: 5, companyIdx: 2, clinicName: "Mile High Clinic", address: "123 Aspen St, Denver, CO 80202", lat: 39.7473, lng: -104.9934 },
-    { firstName: "Mark", lastName: "Robinson", phone: "555-400-0017", dob: "1955-01-22", insurance: "INS-017-VCT", wheelchair: false, cityIdx: 5, companyIdx: 2, clinicName: "Rocky Mountain Health", address: "456 Spruce Dr, Denver, CO 80220", lat: 39.7319, lng: -104.9381 },
-    { firstName: "Sandra", lastName: "Clark", phone: "555-400-0018", dob: "1949-08-05", insurance: "INS-018-VCT", wheelchair: true, cityIdx: 5, companyIdx: 2, clinicName: "Mile High Clinic", address: "789 Pine Rd, Denver, CO 80203", lat: 39.7284, lng: -104.9811 },
-    { firstName: "Paul", lastName: "Lewis", phone: "555-400-0019", dob: "1966-04-10", insurance: "INS-019-VCT", wheelchair: false, cityIdx: 4, companyIdx: 2, clinicName: "Cactus Dialysis Center", address: "321 Ironwood Ln, Phoenix, AZ 85018", lat: 33.4942, lng: -111.9583 },
-    { firstName: "Elizabeth", lastName: "Walker", phone: "555-400-0020", dob: "1942-12-01", insurance: "INS-020-VCT", wheelchair: true, cityIdx: 5, companyIdx: 2, clinicName: "Rocky Mountain Health", address: "654 Birch Way, Denver, CO 80218", lat: 39.7372, lng: -104.9673 },
-  ];
-
-  const results: any[] = [...existing];
-  for (const p of pData) {
-    if (results.find(e => e.firstName === p.firstName && e.lastName === p.lastName && e.phone === p.phone)) continue;
-    const city = cities[p.cityIdx];
-    const company = companies[p.companyIdx];
-    const clinic = clinics.find(c => c.name === p.clinicName);
-    if (!city || !company) continue;
-
+  const superEmail = "superadmin@ucm.test";
+  if (!existingUsers.find(u => u.email === superEmail)) {
     const pid = nextPid();
-    const [row] = await db.insert(s.patients).values({
-      publicId: pid,
-      cityId: city.id,
-      clinicId: clinic?.id ?? null,
-      firstName: p.firstName,
-      lastName: p.lastName,
-      phone: p.phone,
-      address: p.address,
-      dateOfBirth: p.dob,
-      insuranceId: p.insurance,
-      wheelchairRequired: p.wheelchair,
-      lat: p.lat,
-      lng: p.lng,
-      companyId: company.id,
-      active: true,
-      source: "internal",
-    }).returning();
-    results.push(row);
+    await db.insert(s.users).values({
+      publicId: pid, email: superEmail, password: hashedPw,
+      firstName: "Super", lastName: "Admin", role: "SUPER_ADMIN",
+      companyId: companies[0].id, active: true, mustChangePassword: false,
+    });
+  }
+
+  for (let ci = 0; ci < companies.length; ci++) {
+    const co = companies[ci];
+    const slug = slugify(co.name);
+
+    const roles = [
+      { suffix: "admin", role: "COMPANY_ADMIN" as const, first: "Admin", last: co.name.split(" ")[0] },
+      { suffix: "dispatch1", role: "DISPATCH" as const, first: "Dispatch", last: `${co.name.split(" ")[0]}-1` },
+      { suffix: "dispatch2", role: "DISPATCH" as const, first: "Dispatch", last: `${co.name.split(" ")[0]}-2` },
+      { suffix: "dispatch3", role: "DISPATCH" as const, first: "Dispatch", last: `${co.name.split(" ")[0]}-3` },
+    ];
+
+    for (const r of roles) {
+      const email = `${slug}.${r.suffix}@ucm.test`;
+      if (existingUsers.find(u => u.email === email)) continue;
+      const pid = nextPid();
+      try {
+        const [u] = await db.insert(s.users).values({
+          publicId: pid, email, password: hashedPw,
+          firstName: r.first, lastName: r.last, role: r.role,
+          companyId: co.id, active: true, mustChangePassword: false,
+        }).returning();
+        await db.insert(s.userCityAccess).values({ userId: u.id, cityId: city.id }).onConflictDoNothing();
+      } catch (e: any) {
+        if (!e.message?.includes("duplicate")) throw e;
+      }
+    }
+  }
+
+  const superUser = await db.select().from(s.users).where(eq(s.users.email, superEmail)).then(r => r[0]);
+  if (superUser) {
+    const allCities = await db.select().from(s.cities);
+    for (const c of allCities) {
+      await db.insert(s.userCityAccess).values({ userId: superUser.id, cityId: c.id }).onConflictDoNothing();
+    }
+  }
+
+  log("  Dispatch/admin users done");
+}
+
+async function seedDrivers(companies: any[], city: any, vehicles: any[]) {
+  log("Seeding drivers (150)...");
+  const existingDrivers = await db.select().from(s.drivers);
+  const existingUsers = await db.select().from(s.users);
+  const hashedPw = await hashPw("DriverPass123!");
+  const results: any[] = [];
+  const PER_COMPANY = 30;
+  let globalIdx = 0;
+
+  for (let ci = 0; ci < companies.length; ci++) {
+    const co = companies[ci];
+    const coVehicles = vehicles.filter(v => v.companyId === co.id);
+
+    for (let di = 0; di < PER_COMPANY; di++) {
+      const fnIdx = (ci * PER_COMPANY + di) % FIRST_NAMES.length;
+      const lnIdx = (ci * PER_COMPANY + di + ci * 7) % LAST_NAMES.length;
+      const firstName = FIRST_NAMES[fnIdx];
+      const lastName = LAST_NAMES[lnIdx];
+      const email = `seed.driver.${slugify(firstName)}.${slugify(lastName)}.c${ci + 1}@ucm.test`;
+      const phone = `702-${String(600 + ci).padStart(3, "0")}-${String(1000 + di).padStart(4, "0")}`;
+
+      const exDriver = existingDrivers.find(d => d.email === email);
+      if (exDriver) { results.push(exDriver); globalIdx++; continue; }
+
+      const vehicle = coVehicles[di] || null;
+      const driverPid = nextPid();
+      const userPid = nextPid();
+
+      const statuses: Array<typeof s.driverStatusEnum.enumValues[number]> = ["ACTIVE","ACTIVE","ACTIVE","ACTIVE","ACTIVE","INACTIVE","ON_LEAVE"];
+      const dispatchStatuses: Array<typeof s.dispatchStatusEnum.enumValues[number]> = ["available","available","available","enroute","off"];
+      const driverStatus = statuses[di % statuses.length];
+      const dispatchStatus = driverStatus === "ACTIVE" ? dispatchStatuses[di % dispatchStatuses.length] : "off";
+
+      const addr = genLvAddress(globalIdx);
+
+      try {
+        const [driverUser] = await db.insert(s.users).values({
+          publicId: userPid, email, password: hashedPw,
+          firstName, lastName, role: "DRIVER",
+          companyId: co.id, phone, active: driverStatus !== "INACTIVE",
+          mustChangePassword: false,
+        }).returning();
+
+        const [driver] = await db.insert(s.drivers).values({
+          publicId: driverPid,
+          cityId: city.id,
+          userId: driverUser.id,
+          vehicleId: vehicle?.id ?? null,
+          email,
+          firstName,
+          lastName,
+          phone,
+          licenseNumber: `NV-DL-${String(ci + 1)}${String(di + 1).padStart(4, "0")}`,
+          lastLat: addr.lat,
+          lastLng: addr.lng,
+          lastSeenAt: driverStatus === "ACTIVE" ? new Date() : null,
+          status: driverStatus,
+          dispatchStatus,
+          companyId: co.id,
+          active: driverStatus !== "INACTIVE",
+        }).returning();
+
+        await db.update(s.users).set({ driverId: driver.id }).where(eq(s.users.id, driverUser.id));
+        await db.insert(s.userCityAccess).values({ userId: driverUser.id, cityId: city.id }).onConflictDoNothing();
+
+        results.push(driver);
+      } catch (e: any) {
+        if (!e.message?.includes("duplicate")) throw e;
+      }
+      globalIdx++;
+    }
+  }
+  log(`  Drivers: ${results.length}`);
+  return results;
+}
+
+async function seedPatients(companies: any[], city: any, clinics: any[]) {
+  log("Seeding patients (300)...");
+  const existing = await db.select().from(s.patients);
+  const results: any[] = [];
+  const PER_COMPANY = 60;
+  let globalIdx = 0;
+
+  const DOBS_BASE = ["1940","1945","1948","1950","1952","1955","1958","1960","1962","1965","1968","1970","1972","1975"];
+
+  for (let ci = 0; ci < companies.length; ci++) {
+    const co = companies[ci];
+    const clinic = clinics[ci];
+
+    for (let pi = 0; pi < PER_COMPANY; pi++) {
+      const fnIdx = (pi + ci * PER_COMPANY + 50) % FIRST_NAMES.length;
+      const lnIdx = (pi + ci * PER_COMPANY + 20) % LAST_NAMES.length;
+      const firstName = FIRST_NAMES[fnIdx];
+      const lastName = LAST_NAMES[lnIdx];
+      const phone = `702-${String(700 + ci).padStart(3, "0")}-${String(1000 + pi).padStart(4, "0")}`;
+
+      const exPatient = existing.find(p =>
+        p.firstName === firstName && p.lastName === lastName && p.phone === phone
+      );
+      if (exPatient) { results.push(exPatient); globalIdx++; continue; }
+
+      const addr = genLvAddress(globalIdx + 200);
+      const isWheelchair = pi % 5 === 4;
+      const dobYear = DOBS_BASE[pi % DOBS_BASE.length];
+      const dobMonth = String(1 + (pi % 12)).padStart(2, "0");
+      const dobDay = String(1 + (pi % 28)).padStart(2, "0");
+
+      const pid = nextPid();
+      try {
+        const [row] = await db.insert(s.patients).values({
+          publicId: pid,
+          cityId: city.id,
+          clinicId: clinic?.id ?? null,
+          firstName,
+          lastName,
+          phone,
+          address: addr.full,
+          addressStreet: addr.street,
+          addressCity: addr.city,
+          addressState: addr.state,
+          addressZip: addr.zip,
+          lat: addr.lat,
+          lng: addr.lng,
+          dateOfBirth: `${dobYear}-${dobMonth}-${dobDay}`,
+          insuranceId: `INS-LV-${String(globalIdx + 1).padStart(4, "0")}`,
+          wheelchairRequired: isWheelchair,
+          email: `patient.${slugify(firstName)}.${slugify(lastName)}.${ci + 1}@ucm-test.local`,
+          companyId: co.id,
+          active: true,
+          source: "internal",
+        }).returning();
+        results.push(row);
+      } catch (e: any) {
+        if (!e.message?.includes("duplicate")) throw e;
+      }
+      globalIdx++;
+    }
   }
   log(`  Patients: ${results.length}`);
   return results;
 }
 
-async function seedTrips(companies: any[], cities: any[], drivers: any[], vehicles: any[], patients: any[], clinics: any[]) {
-  log("Seeding trips...");
+async function seedTrips(companies: any[], city: any, drivers: any[], vehicles: any[], patients: any[], clinics: any[]) {
+  log("Seeding trips (varied statuses)...");
   const existing = await db.select().from(s.trips);
-  if (existing.length >= 50) return existing;
+  if (existing.length >= 400) { log("  Trips already seeded"); return existing; }
 
-  const statuses: Array<typeof s.tripStatusEnum.enumValues[number]> = [
-    "COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED",
-    "COMPLETED", "COMPLETED", "SCHEDULED", "SCHEDULED", "ASSIGNED",
-    "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "CANCELLED", "NO_SHOW",
+  const STATUS_DIST: Array<typeof s.tripStatusEnum.enumValues[number]> = [
+    "COMPLETED","COMPLETED","COMPLETED","COMPLETED","COMPLETED","COMPLETED","COMPLETED",
+    "SCHEDULED","SCHEDULED","SCHEDULED",
+    "ASSIGNED","ASSIGNED",
+    "EN_ROUTE_TO_PICKUP","ARRIVED_PICKUP","PICKED_UP","EN_ROUTE_TO_DROPOFF",
+    "CANCELLED","NO_SHOW",
+    "COMPLETED","COMPLETED",
   ];
 
   const results: any[] = [...existing];
-  let tripIndex = 0;
+  let tripIdx = 0;
 
   for (const patient of patients) {
-    const city = cities.find(c => c.id === patient.cityId);
-    if (!city) continue;
-    const clinic = clinics.find(c => c.id === patient.clinicId);
+    const co = companies.find((c: any) => c.id === patient.companyId);
+    if (!co) continue;
+    const clinic = clinics.find((c: any) => c.id === patient.clinicId);
     if (!clinic) continue;
-    const companyDrivers = drivers.filter(d => d.companyId === patient.companyId && d.cityId === patient.cityId);
-    const companyVehicles = vehicles.filter(v => v.companyId === patient.companyId && v.cityId === patient.cityId);
-    if (companyDrivers.length === 0) continue;
+    const coDrivers = drivers.filter((d: any) => d.companyId === co.id && d.status === "ACTIVE");
+    const coVehicles = vehicles.filter((v: any) => v.companyId === co.id && v.status === "ACTIVE");
+    if (coDrivers.length === 0) continue;
 
-    const tripsPerPatient = patient.wheelchairRequired ? 3 : 2;
+    const tripsForPatient = patient.wheelchairRequired ? 3 : 2;
 
-    for (let t = 0; t < tripsPerPatient; t++) {
-      const status = statuses[tripIndex % statuses.length];
-      const daysOffset = status === "SCHEDULED" ? (t + 1) : -(tripIndex + 1);
-      const date = status === "SCHEDULED" ? futureDate(t + 1) : pastDate(tripIndex + 1);
-      const driver = companyDrivers[tripIndex % companyDrivers.length];
-      const vehicle = companyVehicles[tripIndex % companyVehicles.length] ?? null;
-      const hour = 8 + (tripIndex % 10);
-      const minutes = tripIndex % 2 === 0 ? "00" : "30";
-      const pickupTime = `${String(hour).padStart(2, "0")}:${minutes}`;
-      const arrivalTime = `${String(hour + 1).padStart(2, "0")}:${minutes}`;
+    for (let t = 0; t < tripsForPatient; t++) {
+      const status = STATUS_DIST[tripIdx % STATUS_DIST.length];
+      const isPast = ["COMPLETED","CANCELLED","NO_SHOW"].includes(status);
+      const isFuture = ["SCHEDULED"].includes(status);
+      const daysOffset = isPast ? (1 + (tripIdx % 14)) : isFuture ? (1 + (t % 5)) : 0;
+      const date = isPast ? pastDate(daysOffset) : isFuture ? futureDate(daysOffset) : futureDate(0);
 
-      const isAssigned = status !== "SCHEDULED";
+      const driver = coDrivers[tripIdx % coDrivers.length];
+      const vehicle = coVehicles[tripIdx % coVehicles.length] || null;
+      const hour = 6 + (tripIdx % 12);
+      const mins = (tripIdx % 4) * 15;
+      const pickupTime = `${String(hour).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+      const arrivalTime = `${String(hour + 1).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+
+      const isAssigned = !["SCHEDULED"].includes(status);
       const isCompleted = status === "COMPLETED";
       const isCancelled = status === "CANCELLED";
       const isNoShow = status === "NO_SHOW";
 
       const pid = nextPid();
-      const now = new Date();
       const scheduledTimestamp = new Date(date + "T" + pickupTime + ":00");
 
       const tripValues: any = {
@@ -521,10 +569,18 @@ async function seedTrips(companies: any[], cities: any[], drivers: any[], vehicl
         cityId: city.id,
         patientId: patient.id,
         clinicId: clinic.id,
-        pickupAddress: patient.address || "123 Main St",
+        pickupAddress: patient.address || "123 Las Vegas Blvd S, Las Vegas, NV 89101",
+        pickupStreet: patient.addressStreet,
+        pickupCity: "Las Vegas",
+        pickupState: "NV",
+        pickupZip: patient.addressZip || "89101",
         pickupLat: patient.lat,
         pickupLng: patient.lng,
         dropoffAddress: clinic.address,
+        dropoffStreet: clinic.address?.split(",")[0],
+        dropoffCity: "Las Vegas",
+        dropoffState: "NV",
+        dropoffZip: clinic.address?.match(/\d{5}/)?.[0] || "89109",
         dropoffLat: clinic.lat,
         dropoffLng: clinic.lng,
         scheduledDate: date,
@@ -532,20 +588,20 @@ async function seedTrips(companies: any[], cities: any[], drivers: any[], vehicl
         estimatedArrivalTime: arrivalTime,
         tripType: patient.wheelchairRequired ? "dialysis" : "one_time",
         status,
-        companyId: patient.companyId,
+        companyId: co.id,
         mobilityRequirement: patient.wheelchairRequired ? "WHEELCHAIR" : "STANDARD",
         passengerCount: 1,
         billable: true,
         requestSource: "internal",
-        distanceMiles: String(5 + (tripIndex % 20)),
-        durationMinutes: 15 + (tripIndex % 30),
+        distanceMiles: String(3 + (tripIdx % 18)),
+        durationMinutes: 10 + (tripIdx % 35),
       };
 
-      if (isAssigned || isCompleted || isCancelled || isNoShow) {
+      if (isAssigned) {
         tripValues.driverId = driver.id;
         tripValues.vehicleId = vehicle?.id ?? null;
-        tripValues.assignedAt = pastTimestamp(Math.abs(daysOffset) + 1);
-        tripValues.assignmentSource = "system";
+        tripValues.assignedAt = isPast ? pastTimestamp(daysOffset + 1) : new Date();
+        tripValues.assignmentSource = tripIdx % 3 === 0 ? "dispatch" : "system";
       }
 
       if (isCompleted) {
@@ -556,18 +612,24 @@ async function seedTrips(companies: any[], cities: any[], drivers: any[], vehicl
         tripValues.arrivedDropoffAt = new Date(scheduledTimestamp.getTime() + 25 * 60000);
         tripValues.completedAt = new Date(scheduledTimestamp.getTime() + 30 * 60000);
         tripValues.billingOutcome = "completed";
+        tripValues.priceTotalCents = 2500 + randInt(0, 5000);
       }
 
       if (isCancelled) {
-        tripValues.cancelledAt = pastTimestamp(Math.abs(daysOffset));
-        tripValues.cancelledReason = "Patient requested cancellation";
-        tripValues.cancelType = "soft";
+        tripValues.cancelledAt = pastTimestamp(daysOffset);
+        tripValues.cancelledReason = ["Patient requested cancellation","No driver available","Weather conditions","Appointment rescheduled"][tripIdx % 4];
+        tripValues.cancelType = tripIdx % 2 === 0 ? "soft" : "hard";
         tripValues.billingOutcome = "cancelled";
-        tripValues.cancelWindow = "advance";
+        tripValues.cancelWindow = tripIdx % 3 === 0 ? "late" : "advance";
+        tripValues.faultParty = tripIdx % 3 === 0 ? "patient" : tripIdx % 3 === 1 ? "company" : null;
       }
 
       if (isNoShow) {
         tripValues.billingOutcome = "no_show";
+        tripValues.noShowRisk = true;
+        tripValues.driverId = driver.id;
+        tripValues.vehicleId = vehicle?.id ?? null;
+        tripValues.assignedAt = pastTimestamp(daysOffset + 1);
       }
 
       try {
@@ -576,7 +638,7 @@ async function seedTrips(companies: any[], cities: any[], drivers: any[], vehicl
       } catch (e: any) {
         if (!e.message?.includes("duplicate")) throw e;
       }
-      tripIndex++;
+      tripIdx++;
     }
   }
   log(`  Trips: ${results.length}`);
@@ -586,19 +648,19 @@ async function seedTrips(companies: any[], cities: any[], drivers: any[], vehicl
 async function seedInvoices(clinics: any[], trips: any[], patients: any[]) {
   log("Seeding invoices...");
   const existing = await db.select().from(s.invoices);
-  if (existing.length >= 20) return existing;
+  if (existing.length >= 50) { log("  Invoices already seeded"); return existing; }
 
-  const completedTrips = trips.filter(t => t.status === "COMPLETED");
+  const completedTrips = trips.filter((t: any) => t.status === "COMPLETED");
   const results: any[] = [...existing];
 
-  for (const trip of completedTrips.slice(0, 20)) {
-    const clinic = clinics.find(c => c.id === trip.clinicId);
+  for (const trip of completedTrips.slice(0, 80)) {
+    const clinic = clinics.find((c: any) => c.id === trip.clinicId);
     if (!clinic) continue;
-    const patient = patients.find(p => p.id === trip.patientId);
+    const patient = patients.find((p: any) => p.id === trip.patientId);
     if (!patient) continue;
-    if (results.find(e => e.tripId === trip.id)) continue;
+    if (results.find((e: any) => e.tripId === trip.id)) continue;
 
-    const statuses: Array<typeof s.invoiceStatusEnum.enumValues[number]> = ["pending", "approved", "paid"];
+    const statuses: Array<typeof s.invoiceStatusEnum.enumValues[number]> = ["pending","approved","paid"];
     const st = statuses[results.length % statuses.length];
 
     try {
@@ -607,7 +669,7 @@ async function seedInvoices(clinics: any[], trips: any[], patients: any[]) {
         tripId: trip.id,
         patientName: `${patient.firstName} ${patient.lastName}`,
         serviceDate: trip.scheduledDate,
-        amount: String(45 + (results.length % 50) * 5),
+        amount: String(35 + (results.length % 60) * 5),
         status: st,
         notes: `Service for trip ${trip.publicId}`,
         emailStatus: st === "paid" ? "sent" : "not_sent",
@@ -621,38 +683,36 @@ async function seedInvoices(clinics: any[], trips: any[], patients: any[]) {
   return results;
 }
 
-async function seedCitySettings(cities: any[]) {
+async function seedCitySettings(city: any) {
   log("Seeding city settings...");
-  for (const city of cities) {
-    const existing = await db.select().from(s.citySettings).where(eq(s.citySettings.cityId, city.id));
-    if (existing.length > 0) continue;
-    try {
-      await db.insert(s.citySettings).values({
-        cityId: city.id,
-        shiftStartTime: "06:00",
-        autoAssignEnabled: true,
-        autoAssignMinutesBefore: 60,
-        driverGoTimeMinutes: 20,
-        driverGoTimeRepeatMinutes: 5,
-        offerTtlSeconds: 90,
-      });
-    } catch (e: any) {
-      if (!e.message?.includes("duplicate")) throw e;
-    }
+  const existing = await db.select().from(s.citySettings).where(eq(s.citySettings.cityId, city.id));
+  if (existing.length > 0) { log("  Already exists"); return; }
+  try {
+    await db.insert(s.citySettings).values({
+      cityId: city.id,
+      shiftStartTime: "06:00",
+      autoAssignEnabled: true,
+      autoAssignMinutesBefore: 60,
+      driverGoTimeMinutes: 20,
+      driverGoTimeRepeatMinutes: 5,
+      offerTtlSeconds: 90,
+    });
+  } catch (e: any) {
+    if (!e.message?.includes("duplicate")) throw e;
   }
   log("  City settings done");
 }
 
 async function seedCompanySettings(companies: any[]) {
   log("Seeding company settings...");
-  for (const company of companies) {
-    const existing = await db.select().from(s.companySettings).where(eq(s.companySettings.companyId, company.id));
+  for (const co of companies) {
+    const existing = await db.select().from(s.companySettings).where(eq(s.companySettings.companyId, co.id));
     if (existing.length > 0) continue;
     try {
       await db.insert(s.companySettings).values({
-        companyId: company.id,
+        companyId: co.id,
         maxDrivers: 50,
-        maxActiveTrips: 200,
+        maxActiveTrips: 300,
         rpmLimit: 300,
         pdfRpmLimit: 30,
         mapsRpmLimit: 60,
@@ -664,30 +724,58 @@ async function seedCompanySettings(companies: any[]) {
   log("  Company settings done");
 }
 
-async function seedDriverScores(drivers: any[], cities: any[]) {
+async function seedDriverWeeklySchedules(drivers: any[]) {
+  log("Seeding driver weekly schedules...");
+  const existing = await db.select().from(s.driverWeeklySchedules);
+  const existingIds = new Set(existing.map(e => e.driverId));
+
+  for (let i = 0; i < drivers.length; i++) {
+    const d = drivers[i];
+    if (existingIds.has(d.id)) continue;
+    const pattern = i % 4;
+    try {
+      await db.insert(s.driverWeeklySchedules).values({
+        driverId: d.id,
+        cityId: d.cityId,
+        monEnabled: pattern !== 3,
+        monStart: "06:00", monEnd: pattern === 1 ? "14:00" : "18:00",
+        tueEnabled: pattern !== 2,
+        tueStart: pattern === 1 ? "10:00" : "06:00", tueEnd: "18:00",
+        wedEnabled: true,
+        wedStart: "06:00", wedEnd: "18:00",
+        thuEnabled: pattern !== 3,
+        thuStart: "06:00", thuEnd: pattern === 2 ? "14:00" : "18:00",
+        friEnabled: true,
+        friStart: "06:00", friEnd: "18:00",
+        satEnabled: pattern === 0 || pattern === 2,
+        satStart: "08:00", satEnd: "14:00",
+      });
+    } catch (e: any) {
+      if (!e.message?.includes("duplicate")) throw e;
+    }
+  }
+  log("  Driver schedules done");
+}
+
+async function seedDriverScores(drivers: any[], city: any) {
   log("Seeding driver scores...");
   const existing = await db.select().from(s.driverScores);
-  if (existing.length >= 10) return;
+  if (existing.length >= drivers.length) { log("  Already seeded"); return; }
 
-  for (const driver of drivers) {
-    const city = cities.find(c => c.id === driver.cityId);
-    if (!city) continue;
-    const weekStart = pastDate(7);
-    const weekEnd = pastDate(1);
-
+  for (const d of drivers) {
     try {
       await db.insert(s.driverScores).values({
-        driverId: driver.id,
+        driverId: d.id,
         cityId: city.id,
-        weekStart,
-        weekEnd,
-        onTimeRate: 0.85 + Math.random() * 0.15,
-        completedTrips: 10 + Math.floor(Math.random() * 20),
-        totalTrips: 15 + Math.floor(Math.random() * 20),
-        noShowAvoided: Math.floor(Math.random() * 3),
-        cancellations: Math.floor(Math.random() * 2),
-        lateCount: Math.floor(Math.random() * 3),
-        score: 70 + Math.floor(Math.random() * 30),
+        weekStart: pastDate(7),
+        weekEnd: pastDate(1),
+        onTimeRate: +(0.75 + Math.random() * 0.25).toFixed(2),
+        completedTrips: randInt(8, 30),
+        totalTrips: randInt(12, 35),
+        noShowAvoided: randInt(0, 4),
+        cancellations: randInt(0, 3),
+        lateCount: randInt(0, 5),
+        score: randInt(60, 100),
       });
     } catch (e: any) {
       if (!e.message?.includes("duplicate")) throw e;
@@ -696,20 +784,47 @@ async function seedDriverScores(drivers: any[], cities: any[]) {
   log("  Driver scores done");
 }
 
+async function seedDriverPerfScores(companies: any[], drivers: any[]) {
+  log("Seeding driver perf scores...");
+  const existing = await db.select().from(s.driverPerfScores);
+  if (existing.length >= drivers.length) { log("  Already seeded"); return; }
+
+  for (const d of drivers) {
+    const co = companies.find((c: any) => c.id === d.companyId);
+    if (!co) continue;
+    try {
+      await db.insert(s.driverPerfScores).values({
+        companyId: co.id,
+        driverId: d.id,
+        window: "7d",
+        score: randInt(55, 100),
+        components: {
+          punctuality: +(0.7 + Math.random() * 0.3).toFixed(2),
+          completion: +(0.8 + Math.random() * 0.2).toFixed(2),
+          cancellations: +(Math.random() * 0.15).toFixed(2),
+          gpsQuality: +(0.85 + Math.random() * 0.15).toFixed(2),
+          acceptance: +(0.7 + Math.random() * 0.3).toFixed(2),
+        },
+      });
+    } catch (e: any) {
+      if (!e.message?.includes("duplicate")) throw e;
+    }
+  }
+  log("  Driver perf scores done");
+}
+
 async function seedClinicTariffs(clinics: any[]) {
   log("Seeding clinic tariffs...");
   const existing = await db.select().from(s.clinicTariffs);
-  if (existing.length >= 6) return;
-
   for (const clinic of clinics) {
-    if (existing.find(e => e.clinicId === clinic.id)) continue;
+    if (existing.find((e: any) => e.clinicId === clinic.id)) continue;
     try {
       await db.insert(s.clinicTariffs).values({
         clinicId: clinic.id,
         cityId: clinic.cityId,
-        baseFeeCents: 2500 + Math.floor(Math.random() * 1500),
-        perMileCents: 150 + Math.floor(Math.random() * 100),
-        waitMinuteCents: 50 + Math.floor(Math.random() * 30),
+        baseFeeCents: 2500 + randInt(0, 1500),
+        perMileCents: 150 + randInt(0, 100),
+        waitMinuteCents: 50 + randInt(0, 30),
         wheelchairExtraCents: clinic.facilityType === "hospital" ? 500 : 300,
         active: true,
       });
@@ -720,14 +835,11 @@ async function seedClinicTariffs(clinics: any[]) {
   log("  Clinic tariffs done");
 }
 
-async function seedClinicBillingProfiles(clinics: any[], users: any[]) {
+async function seedClinicBillingProfiles(clinics: any[]) {
   log("Seeding clinic billing profiles...");
   const existing = await db.select().from(s.clinicBillingProfiles);
-  if (existing.length >= 6) return;
-
   for (const clinic of clinics) {
-    if (existing.find(e => e.clinicId === clinic.id && e.cityId === clinic.cityId)) continue;
-    const admin = users.find(u => u.companyId === clinic.companyId && (u.role === "ADMIN" || u.role === "SUPER_ADMIN" || u.role === "COMPANY_ADMIN"));
+    if (existing.find((e: any) => e.clinicId === clinic.id && e.cityId === clinic.cityId)) continue;
     try {
       const [profile] = await db.insert(s.clinicBillingProfiles).values({
         clinicId: clinic.id,
@@ -736,11 +848,9 @@ async function seedClinicBillingProfiles(clinics: any[], users: any[]) {
         isActive: true,
         cancelAdvanceHours: 24,
         cancelLateMinutes: 0,
-        createdBy: admin?.id ?? null,
       }).returning();
 
-      const outcomes = ["completed", "no_show", "cancelled"];
-      for (const outcome of outcomes) {
+      for (const outcome of ["completed","no_show","cancelled"]) {
         try {
           await db.insert(s.clinicBillingRules).values({
             profileId: profile.id,
@@ -748,7 +858,7 @@ async function seedClinicBillingProfiles(clinics: any[], users: any[]) {
             passengerCount: 1,
             legType: "outbound",
             cancelWindow: outcome === "cancelled" ? "advance" : null,
-            unitRate: outcome === "completed" ? "45.00" : outcome === "no_show" ? "25.00" : "15.00",
+            unitRate: outcome === "completed" ? "55.00" : outcome === "no_show" ? "30.00" : "20.00",
             enabled: true,
           });
         } catch (e: any) {
@@ -760,161 +870,6 @@ async function seedClinicBillingProfiles(clinics: any[], users: any[]) {
     }
   }
   log("  Clinic billing profiles done");
-}
-
-async function seedPricingProfiles(cities: any[], users: any[]) {
-  log("Seeding pricing profiles...");
-  const existing = await db.select().from(s.pricingProfiles);
-  if (existing.length >= 4) return;
-
-  const profiles = [
-    { name: "Standard Rate - CA", city: "Los Angeles", appliesTo: "private" },
-    { name: "Standard Rate - TX", city: "Dallas", appliesTo: "private" },
-    { name: "Standard Rate - AZ", city: "Phoenix", appliesTo: "private" },
-    { name: "Standard Rate - CO", city: "Denver", appliesTo: "private" },
-  ];
-
-  const admin = users.find(u => u.role === "SUPER_ADMIN");
-
-  for (const p of profiles) {
-    if (existing.find(e => e.name === p.name)) continue;
-    try {
-      const [profile] = await db.insert(s.pricingProfiles).values({
-        name: p.name,
-        city: p.city,
-        isActive: true,
-        appliesTo: p.appliesTo,
-        createdBy: admin?.id ?? null,
-      }).returning();
-
-      const rules = [
-        { key: "base_rate", valueNumeric: "25.0000" },
-        { key: "per_mile_rate", valueNumeric: "2.5000" },
-        { key: "wait_time_per_minute", valueNumeric: "0.7500" },
-        { key: "wheelchair_surcharge", valueNumeric: "5.0000" },
-      ];
-      for (const rule of rules) {
-        try {
-          await db.insert(s.pricingRules).values({
-            profileId: profile.id,
-            key: rule.key,
-            valueNumeric: rule.valueNumeric,
-            enabled: true,
-          });
-        } catch (e: any) {
-          if (!e.message?.includes("duplicate")) throw e;
-        }
-      }
-    } catch (e: any) {
-      if (!e.message?.includes("duplicate")) throw e;
-    }
-  }
-  log("  Pricing profiles done");
-}
-
-async function seedDriverWeeklySchedules(drivers: any[]) {
-  log("Seeding driver weekly schedules...");
-  const existing = await db.select().from(s.driverWeeklySchedules);
-  if (existing.length >= 6) return;
-
-  for (const driver of drivers) {
-    if (existing.find(e => e.driverId === driver.id)) continue;
-    try {
-      await db.insert(s.driverWeeklySchedules).values({
-        driverId: driver.id,
-        cityId: driver.cityId,
-        monEnabled: true, monStart: "06:00", monEnd: "18:00",
-        tueEnabled: true, tueStart: "06:00", tueEnd: "18:00",
-        wedEnabled: true, wedStart: "06:00", wedEnd: "18:00",
-        thuEnabled: true, thuStart: "06:00", thuEnd: "18:00",
-        friEnabled: true, friStart: "06:00", friEnd: "18:00",
-        satEnabled: false,
-      });
-    } catch (e: any) {
-      if (!e.message?.includes("duplicate")) throw e;
-    }
-  }
-  log("  Driver schedules done");
-}
-
-async function seedDriverPerfScores(companies: any[], drivers: any[]) {
-  log("Seeding driver perf scores...");
-  const existing = await db.select().from(s.driverPerfScores);
-  if (existing.length >= 6) return;
-
-  for (const driver of drivers) {
-    const company = companies.find(c => c.id === driver.companyId);
-    if (!company) continue;
-    try {
-      await db.insert(s.driverPerfScores).values({
-        companyId: company.id,
-        driverId: driver.id,
-        window: "7d",
-        score: 70 + Math.floor(Math.random() * 30),
-        components: {
-          punctuality: 0.8 + Math.random() * 0.2,
-          completion: 0.85 + Math.random() * 0.15,
-          cancellations: Math.random() * 0.1,
-          gpsQuality: 0.9 + Math.random() * 0.1,
-          acceptance: 0.75 + Math.random() * 0.25,
-        },
-      });
-    } catch (e: any) {
-      if (!e.message?.includes("duplicate")) throw e;
-    }
-  }
-  log("  Driver perf scores done");
-}
-
-async function seedDailyMetrics(cities: any[], clinics: any[], drivers: any[]) {
-  log("Seeding daily metrics rollup...");
-  const existing = await db.select().from(s.dailyMetricsRollup);
-  if (existing.length >= 10) return;
-
-  for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
-    const date = pastDate(dayOffset);
-    for (const city of cities.slice(0, 4)) {
-      const cityClinic = clinics.find(c => c.cityId === city.id);
-      const cityDriver = drivers.find(d => d.cityId === city.id);
-      try {
-        await db.insert(s.dailyMetricsRollup).values({
-          metricDate: date,
-          cityId: city.id,
-          clinicId: cityClinic?.id ?? null,
-          driverId: cityDriver?.id ?? null,
-          tripsTotal: 10 + Math.floor(Math.random() * 15),
-          tripsCompleted: 8 + Math.floor(Math.random() * 10),
-          tripsCancelled: Math.floor(Math.random() * 3),
-          tripsNoShow: Math.floor(Math.random() * 2),
-          onTimePickupCount: 7 + Math.floor(Math.random() * 8),
-          latePickupCount: Math.floor(Math.random() * 3),
-          gpsVerifiedCount: 6 + Math.floor(Math.random() * 10),
-          revenueCents: 25000 + Math.floor(Math.random() * 15000),
-          estCostCents: 15000 + Math.floor(Math.random() * 8000),
-          marginCents: 8000 + Math.floor(Math.random() * 7000),
-        });
-      } catch (e: any) {
-        if (!e.message?.includes("duplicate")) throw e;
-      }
-    }
-  }
-  log("  Daily metrics done");
-}
-
-async function seedInvoiceSequence() {
-  log("Seeding invoice sequence...");
-  const existing = await db.select().from(s.invoiceSequences);
-  if (existing.length > 0) return;
-  try {
-    await db.insert(s.invoiceSequences).values({
-      id: 1,
-      lastNumber: 0,
-      prefix: "INV",
-    });
-  } catch (e: any) {
-    if (!e.message?.includes("duplicate")) throw e;
-  }
-  log("  Invoice sequence done");
 }
 
 async function seedClinicBillingSettings(clinics: any[]) {
@@ -939,21 +894,88 @@ async function seedClinicBillingSettings(clinics: any[]) {
   log("  Clinic billing settings done");
 }
 
-async function seedDriverVehicleAssignments(drivers: any[], vehicles: any[], cities: any[]) {
-  log("Seeding driver vehicle assignments...");
+async function seedPricingProfiles(city: any) {
+  log("Seeding pricing profiles...");
+  const existing = await db.select().from(s.pricingProfiles);
+  if (existing.find((e: any) => e.city === "Las Vegas")) { log("  Already exists"); return; }
+  try {
+    const [profile] = await db.insert(s.pricingProfiles).values({
+      name: "Standard Rate - Las Vegas",
+      city: "Las Vegas",
+      isActive: true,
+      appliesTo: "private",
+    }).returning();
+
+    const rules = [
+      { key: "base_rate", valueNumeric: "25.0000" },
+      { key: "per_mile_rate", valueNumeric: "2.7500" },
+      { key: "wait_time_per_minute", valueNumeric: "0.8000" },
+      { key: "wheelchair_surcharge", valueNumeric: "6.0000" },
+    ];
+    for (const rule of rules) {
+      await db.insert(s.pricingRules).values({
+        profileId: profile.id,
+        key: rule.key,
+        valueNumeric: rule.valueNumeric,
+        enabled: true,
+      }).onConflictDoNothing();
+    }
+  } catch (e: any) {
+    if (!e.message?.includes("duplicate")) throw e;
+  }
+  log("  Pricing profiles done");
+}
+
+async function seedDailyMetrics(city: any, clinics: any[], drivers: any[]) {
+  log("Seeding daily metrics rollup...");
+  const existing = await db.select().from(s.dailyMetricsRollup);
+  if (existing.length >= 28) { log("  Already seeded"); return; }
+
+  for (let dayOffset = 1; dayOffset <= 14; dayOffset++) {
+    const date = pastDate(dayOffset);
+    const clinic = clinics[dayOffset % clinics.length];
+    const driver = drivers[dayOffset % Math.min(drivers.length, 20)];
+    try {
+      await db.insert(s.dailyMetricsRollup).values({
+        metricDate: date,
+        cityId: city.id,
+        clinicId: clinic?.id ?? null,
+        driverId: driver?.id ?? null,
+        tripsTotal: randInt(30, 60),
+        tripsCompleted: randInt(25, 50),
+        tripsCancelled: randInt(1, 6),
+        tripsNoShow: randInt(0, 3),
+        onTimePickupCount: randInt(20, 45),
+        latePickupCount: randInt(1, 8),
+        gpsVerifiedCount: randInt(20, 50),
+        revenueCents: randInt(50000, 120000),
+        estCostCents: randInt(30000, 70000),
+        marginCents: randInt(15000, 50000),
+      });
+    } catch (e: any) {
+      if (!e.message?.includes("duplicate")) throw e;
+    }
+  }
+  log("  Daily metrics done");
+}
+
+async function seedDriverVehicleAssignments(drivers: any[], vehicles: any[], city: any) {
+  log("Seeding driver-vehicle assignments...");
   const existing = await db.select().from(s.driverVehicleAssignments);
-  if (existing.length >= 6) return;
+  if (existing.length >= 50) { log("  Already seeded"); return; }
 
   const today = futureDate(0);
-  for (const driver of drivers) {
-    const vehicle = vehicles.find(v => v.id === driver.vehicleId);
+  const activeDrivers = drivers.filter((d: any) => d.status === "ACTIVE" && d.vehicleId);
+
+  for (const d of activeDrivers.slice(0, 80)) {
+    const vehicle = vehicles.find((v: any) => v.id === d.vehicleId);
     if (!vehicle) continue;
     try {
       await db.insert(s.driverVehicleAssignments).values({
         date: today,
-        cityId: driver.cityId,
+        cityId: city.id,
         shiftStartTime: "06:00",
-        driverId: driver.id,
+        driverId: d.id,
         vehicleId: vehicle.id,
         assignedBy: "system",
         status: "active",
@@ -962,244 +984,157 @@ async function seedDriverVehicleAssignments(drivers: any[], vehicles: any[], cit
       if (!e.message?.includes("duplicate")) throw e;
     }
   }
-  log("  Driver vehicle assignments done");
+  log("  Driver-vehicle assignments done");
 }
 
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+async function seedInvoiceSequence() {
+  log("Seeding invoice sequence...");
+  const existing = await db.select().from(s.invoiceSequences);
+  if (existing.length > 0) return;
+  try {
+    await db.insert(s.invoiceSequences).values({ id: 1, lastNumber: 0, prefix: "INV" });
+  } catch (e: any) {
+    if (!e.message?.includes("duplicate")) throw e;
+  }
+  log("  Invoice sequence done");
+}
+
+async function seedOpsAnomalies(companies: any[]) {
+  log("Seeding ops anomalies...");
+  const existing = await db.select().from(s.opsAnomalies);
+  if (existing.length >= 10) { log("  Already seeded"); return; }
+
+  const anomalies = [
+    { code: "DRIVER_GPS_STALE", title: "Driver GPS data stale >30 min", severity: "warning", entityType: "driver" },
+    { code: "HIGH_CANCEL_RATE", title: "Cancellation rate above 15%", severity: "critical", entityType: "company" },
+    { code: "TRIP_UNASSIGNED", title: "Trips unassigned within 2 hours", severity: "warning", entityType: "trip" },
+    { code: "DRIVER_LOW_SCORE", title: "Driver performance below threshold", severity: "info", entityType: "driver" },
+    { code: "INVOICE_OVERDUE", title: "Invoice overdue by 14+ days", severity: "warning", entityType: "clinic" },
+  ];
+
+  for (let ci = 0; ci < companies.length; ci++) {
+    const co = companies[ci];
+    for (const a of anomalies.slice(0, 2 + ci)) {
+      try {
+        await db.insert(s.opsAnomalies).values({
+          companyId: co.id,
+          entityType: a.entityType,
+          entityId: ci + 1,
+          severity: a.severity,
+          code: a.code,
+          title: a.title,
+          details: { triggeredAt: new Date().toISOString(), metric: randInt(10, 90) },
+          isActive: true,
+        });
+      } catch (e: any) {
+        if (!e.message?.includes("duplicate")) throw e;
+      }
+    }
+  }
+  log("  Ops anomalies done");
 }
 
 interface CredentialRecord {
   email: string;
   role: string;
   company: string;
-  city: string;
-  clinicId: number | null;
-  driverId: number | null;
   password: string;
 }
 
-async function ensureUser(opts: {
-  email: string;
-  role: string;
-  companyId: number;
-  cityId?: number;
-  clinicId?: number | null;
-  driverId?: number | null;
-  firstName: string;
-  lastName: string;
-  password: string;
-}): Promise<void> {
-  const hashed = await hashPw(opts.password);
-  const existing = await db.select().from(s.users).where(eq(s.users.email, opts.email));
-
-  if (existing.length > 0) {
-    const u = existing[0];
-    const updates: any = {};
-    if (u.role !== opts.role) updates.role = opts.role;
-    if (opts.clinicId && u.clinicId !== opts.clinicId) updates.clinicId = opts.clinicId;
-    if (opts.driverId && u.driverId !== opts.driverId) updates.driverId = opts.driverId;
-    if (opts.companyId && u.companyId !== opts.companyId) updates.companyId = opts.companyId;
-    if (Object.keys(updates).length > 0) {
-      await db.update(s.users).set(updates).where(eq(s.users.id, u.id));
-    }
-    if (opts.cityId) {
-      const cityAccess = await db.select().from(s.userCityAccess)
-        .where(and(eq(s.userCityAccess.userId, u.id), eq(s.userCityAccess.cityId, opts.cityId)));
-      if (cityAccess.length === 0) {
-        try { await db.insert(s.userCityAccess).values({ userId: u.id, cityId: opts.cityId }); } catch {}
-      }
-    }
-    return;
-  }
-
-  const pid = nextPid();
-  const [newUser] = await db.insert(s.users).values({
-    publicId: pid,
-    email: opts.email,
-    password: hashed,
-    firstName: opts.firstName,
-    lastName: opts.lastName,
-    role: opts.role as any,
-    companyId: opts.companyId,
-    clinicId: opts.clinicId ?? null,
-    driverId: opts.driverId ?? null,
-    active: true,
-    mustChangePassword: false,
-  }).returning();
-
-  if (opts.cityId) {
-    try { await db.insert(s.userCityAccess).values({ userId: newUser.id, cityId: opts.cityId }); } catch {}
-  }
-}
-
-async function seedDeterministicCredentials(companies: any[], cities: any[], clinics: any[], drivers: any[]) {
+async function seedDeterministicCredentials(companies: any[], city: any, clinics: any[], drivers: any[]) {
   log("Ensuring deterministic credential accounts...");
   const credentials: CredentialRecord[] = [];
+  const allUsers = await db.select().from(s.users);
 
-  const superEmail = "superadmin@ucm.test";
-  await ensureUser({
-    email: superEmail,
-    role: "SUPER_ADMIN",
-    companyId: companies[0].id,
-    firstName: "Super",
-    lastName: "Admin",
-    password: "SeedPass123!",
-  });
-  const allCities = await db.select().from(s.cities);
-  const superUser = await db.select().from(s.users).where(eq(s.users.email, superEmail)).then(r => r[0]);
-  if (superUser) {
-    for (const city of allCities) {
-      const ex = await db.select().from(s.userCityAccess)
-        .where(and(eq(s.userCityAccess.userId, superUser.id), eq(s.userCityAccess.cityId, city.id)));
-      if (ex.length === 0) {
-        try { await db.insert(s.userCityAccess).values({ userId: superUser.id, cityId: city.id }); } catch {}
-      }
+  credentials.push({ email: "superadmin@ucm.test", role: "SUPER_ADMIN", company: "(global)", password: "SeedPass123!" });
+
+  for (const co of companies) {
+    const slug = slugify(co.name);
+    credentials.push({ email: `${slug}.admin@ucm.test`, role: "COMPANY_ADMIN", company: co.name, password: "SeedPass123!" });
+    credentials.push({ email: `${slug}.dispatch1@ucm.test`, role: "DISPATCH", company: co.name, password: "SeedPass123!" });
+  }
+
+  for (let i = 0; i < clinics.length; i++) {
+    credentials.push({ email: `seed.clinic.lv${i + 1}@ucm.test`, role: "CLINIC_USER", company: companies[i]?.name || "", password: "ClinicPass123!" });
+  }
+
+  const sampleDrivers = drivers.slice(0, 5);
+  for (const d of sampleDrivers) {
+    if (d.email) {
+      credentials.push({ email: d.email, role: "DRIVER", company: companies.find((c: any) => c.id === d.companyId)?.name || "", password: "DriverPass123!" });
     }
   }
-  credentials.push({ email: superEmail, role: "SUPER_ADMIN", company: "(global)", city: "(all)", clinicId: null, driverId: null, password: "SeedPass123!" });
 
-  for (const company of companies) {
-    const slug = slugify(company.name);
-    const companyCities = cities.filter((c: any) => {
-      const companyClinic = clinics.find((cl: any) => cl.companyId === company.id && cl.cityId === c.id);
-      return !!companyClinic;
-    });
-    const primaryCity = companyCities[0] || cities[0];
-
-    const adminEmail = `${slug}.admin@ucm.test`;
-    await ensureUser({
-      email: adminEmail,
-      role: "COMPANY_ADMIN",
-      companyId: company.id,
-      cityId: primaryCity?.id,
-      firstName: "Admin",
-      lastName: company.name.split(" ")[0],
-      password: "SeedPass123!",
-    });
-    credentials.push({ email: adminEmail, role: "COMPANY_ADMIN", company: company.name, city: primaryCity?.name || "", clinicId: null, driverId: null, password: "SeedPass123!" });
-
-    const dispatchEmail = `${slug}.dispatch@ucm.test`;
-    await ensureUser({
-      email: dispatchEmail,
-      role: "DISPATCH",
-      companyId: company.id,
-      cityId: primaryCity?.id,
-      firstName: "Dispatch",
-      lastName: company.name.split(" ")[0],
-      password: "SeedPass123!",
-    });
-    credentials.push({ email: dispatchEmail, role: "DISPATCH", company: company.name, city: primaryCity?.name || "", clinicId: null, driverId: null, password: "SeedPass123!" });
-  }
-
-  const allClinics = await db.select().from(s.clinics);
-  for (const clinic of allClinics) {
-    const company = companies.find((c: any) => c.id === clinic.companyId);
-    if (!company) continue;
-    const slug = slugify(company.name);
-    const clinicEmail = `${slug}.clinic.${clinic.id}@ucm.test`;
-    await ensureUser({
-      email: clinicEmail,
-      role: "CLINIC_USER",
-      companyId: company.id,
-      cityId: clinic.cityId,
-      clinicId: clinic.id,
-      firstName: "Clinic",
-      lastName: clinic.name.split(" ")[0],
-      password: "ClinicPass123!",
-    });
-    const city = cities.find((c: any) => c.id === clinic.cityId);
-    credentials.push({ email: clinicEmail, role: "CLINIC_USER", company: company.name, city: city?.name || "", clinicId: clinic.id, driverId: null, password: "ClinicPass123!" });
-  }
-
-  const allDrivers = await db.select().from(s.drivers);
-  for (const driver of allDrivers) {
-    const company = companies.find((c: any) => c.id === driver.companyId);
-    if (!company) continue;
-    const slug = slugify(company.name);
-    const driverEmail = `${slug}.driver.${driver.id}@ucm.test`;
-    await ensureUser({
-      email: driverEmail,
-      role: "DRIVER",
-      companyId: company.id,
-      cityId: driver.cityId,
-      driverId: driver.id,
-      firstName: driver.firstName,
-      lastName: driver.lastName,
-      password: "DriverPass123!",
-    });
-    const city = cities.find((c: any) => c.id === driver.cityId);
-    credentials.push({ email: driverEmail, role: "DRIVER", company: company.name, city: city?.name || "", clinicId: null, driverId: driver.id, password: "DriverPass123!" });
-  }
-
-  console.log("\n" + "=".repeat(120));
-  console.log("  SEED CREDENTIALS TABLE");
-  console.log("=".repeat(120));
-  console.log(
-    "EMAIL".padEnd(45) +
-    "ROLE".padEnd(16) +
-    "COMPANY".padEnd(26) +
-    "CITY".padEnd(16) +
-    "CLINIC".padEnd(8) +
-    "DRIVER".padEnd(8) +
-    "PASSWORD"
-  );
-  console.log("-".repeat(120));
+  console.log("\n" + "=".repeat(100));
+  console.log("  SEED CREDENTIALS TABLE (key accounts)");
+  console.log("=".repeat(100));
+  console.log("EMAIL".padEnd(55) + "ROLE".padEnd(16) + "COMPANY".padEnd(30) + "PASSWORD");
+  console.log("-".repeat(100));
   for (const c of credentials) {
-    console.log(
-      c.email.padEnd(45) +
-      c.role.padEnd(16) +
-      c.company.padEnd(26) +
-      c.city.padEnd(16) +
-      (c.clinicId ? String(c.clinicId) : "-").padEnd(8) +
-      (c.driverId ? String(c.driverId) : "-").padEnd(8) +
-      c.password
-    );
+    console.log(c.email.padEnd(55) + c.role.padEnd(16) + c.company.padEnd(30) + c.password);
   }
-  console.log("=".repeat(120));
+  console.log("=".repeat(100));
 
   const fs = await import("fs");
   const path = await import("path");
   const outPath = path.join(path.dirname(new URL(import.meta.url).pathname), "seed-credentials.json");
   fs.writeFileSync(outPath, JSON.stringify(credentials, null, 2));
   log(`Credentials written to ${outPath}`);
+}
 
-  return credentials;
+async function preflightSchemaCheck() {
+  log("Running preflight schema check...");
+  const alterStatements = [
+    `ALTER TABLE clinics ADD COLUMN IF NOT EXISTS discount_percent numeric DEFAULT 0`,
+    `ALTER TABLE clinics ADD COLUMN IF NOT EXISTS membership_tier varchar(50)`,
+    `ALTER TABLE clinics ADD COLUMN IF NOT EXISTS membership_started_at timestamp`,
+    `ALTER TABLE clinics ADD COLUMN IF NOT EXISTS membership_expires_at timestamp`,
+  ];
+  for (const stmt of alterStatements) {
+    try {
+      await db.execute(sql.raw(stmt));
+    } catch (e: any) {
+      log(`  Schema fix skipped: ${e.message?.substring(0, 80)}`);
+    }
+  }
+  log("  Schema preflight done");
 }
 
 async function main() {
-  console.log("=".repeat(60));
-  log("Starting comprehensive UCM seed...");
-  console.log("=".repeat(60));
+  console.log("=".repeat(70));
+  log("Starting Las Vegas Field Test Seed (5 companies, 150 drivers, 300 patients)");
+  console.log("=".repeat(70));
 
   try {
+    await preflightSchemaCheck();
     await initPidCounter();
-    const companies = await seedCompanies();
-    const cities = await seedCities();
-    const users = await seedUsers(companies, cities);
-    await seedUserCityAccess(users, cities);
-    await seedVehicleMakesModels();
-    const vehicles = await seedVehicles(companies, cities);
-    const drivers = await seedDrivers(companies, cities, vehicles, users);
-    const clinics = await seedClinics(companies, cities, users);
-    const patients = await seedPatients(companies, cities, clinics);
-    const trips = await seedTrips(companies, cities, drivers, vehicles, patients, clinics);
-    await seedInvoices(clinics, trips, patients);
-    await seedCitySettings(cities);
-    await seedCompanySettings(companies);
-    await seedDriverScores(drivers, cities);
-    await seedClinicTariffs(clinics);
-    await seedClinicBillingProfiles(clinics, users);
-    await seedPricingProfiles(cities, users);
-    await seedDriverWeeklySchedules(drivers);
-    await seedDriverPerfScores(companies, drivers);
-    await seedDailyMetrics(cities, clinics, drivers);
-    await seedInvoiceSequence();
-    await seedClinicBillingSettings(clinics);
-    await seedDriverVehicleAssignments(drivers, vehicles, cities);
-    await seedDeterministicCredentials(companies, cities, clinics, drivers);
 
-    console.log("=".repeat(60));
+    const companies = await seedCompanies();
+    const city = await seedCity();
+    await seedVehicleMakesModels();
+    await seedDispatchUsers(companies, city);
+    const vehicles = await seedVehicles(companies, city);
+    const clinics = await seedClinics(companies, city);
+    const drivers = await seedDrivers(companies, city, vehicles);
+    const patients = await seedPatients(companies, city, clinics);
+    const trips = await seedTrips(companies, city, drivers, vehicles, patients, clinics);
+    await seedInvoices(clinics, trips, patients);
+    await seedCitySettings(city);
+    await seedCompanySettings(companies);
+    await seedDriverWeeklySchedules(drivers);
+    await seedDriverScores(drivers, city);
+    await seedDriverPerfScores(companies, drivers);
+    await seedClinicTariffs(clinics);
+    await seedClinicBillingProfiles(clinics);
+    await seedClinicBillingSettings(clinics);
+    await seedPricingProfiles(city);
+    await seedDailyMetrics(city, clinics, drivers);
+    await seedDriverVehicleAssignments(drivers, vehicles, city);
+    await seedInvoiceSequence();
+    await seedOpsAnomalies(companies);
+    await seedDeterministicCredentials(companies, city, clinics, drivers);
+
+    console.log("\n" + "=".repeat(70));
     log("Seed complete! Summary:");
 
     const counts = await db.execute(sql`
@@ -1216,20 +1151,22 @@ async function main() {
       UNION ALL SELECT 'city_settings', count(*) FROM city_settings
       UNION ALL SELECT 'company_settings', count(*) FROM company_settings
       UNION ALL SELECT 'driver_scores', count(*) FROM driver_scores
+      UNION ALL SELECT 'driver_perf_scores', count(*) FROM driver_perf_scores
+      UNION ALL SELECT 'driver_weekly_schedules', count(*) FROM driver_weekly_schedules
       UNION ALL SELECT 'clinic_tariffs', count(*) FROM clinic_tariffs
       UNION ALL SELECT 'clinic_billing_profiles', count(*) FROM clinic_billing_profiles
-      UNION ALL SELECT 'pricing_profiles', count(*) FROM pricing_profiles
-      UNION ALL SELECT 'driver_weekly_schedules', count(*) FROM driver_weekly_schedules
-      UNION ALL SELECT 'driver_perf_scores', count(*) FROM driver_perf_scores
-      UNION ALL SELECT 'daily_metrics_rollup', count(*) FROM daily_metrics_rollup
       UNION ALL SELECT 'clinic_billing_settings', count(*) FROM clinic_billing_settings
+      UNION ALL SELECT 'pricing_profiles', count(*) FROM pricing_profiles
+      UNION ALL SELECT 'daily_metrics_rollup', count(*) FROM daily_metrics_rollup
       UNION ALL SELECT 'driver_vehicle_assignments', count(*) FROM driver_vehicle_assignments
+      UNION ALL SELECT 'invoice_sequences', count(*) FROM invoice_sequences
+      UNION ALL SELECT 'ops_anomalies', count(*) FROM ops_anomalies
       ORDER BY entity
     `);
     for (const row of (counts as any).rows) {
       console.log(`  ${row.entity}: ${row.c}`);
     }
-    console.log("=".repeat(60));
+    console.log("=".repeat(70));
   } catch (error) {
     console.error(`[${SEED_TAG}] ERROR:`, error);
     process.exit(1);
