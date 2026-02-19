@@ -179,6 +179,22 @@ export async function getSystemStatus(_req: AuthRequest, res: Response) {
       checks.dataIntegrity = { ok: false, note: e.message };
     }
 
+    let fkChecks: Record<string, { ok: boolean; orphanCount: number; detail?: string }> = {};
+    try {
+      const fkQueries = [
+        { name: "clinics→companies", query: sql`SELECT count(*)::int as c FROM clinics cl LEFT JOIN companies co ON cl.company_id = co.id WHERE co.id IS NULL` },
+        { name: "patients→companies", query: sql`SELECT count(*)::int as c FROM patients p LEFT JOIN companies co ON p.company_id = co.id WHERE co.id IS NULL` },
+        { name: "drivers→companies", query: sql`SELECT count(*)::int as c FROM drivers d LEFT JOIN companies co ON d.company_id = co.id WHERE co.id IS NULL` },
+        { name: "vehicles→companies", query: sql`SELECT count(*)::int as c FROM vehicles v LEFT JOIN companies co ON v.company_id = co.id WHERE co.id IS NULL` },
+        { name: "trips→companies", query: sql`SELECT count(*)::int as c FROM trips t LEFT JOIN companies co ON t.company_id = co.id WHERE co.id IS NULL` },
+      ];
+      for (const fk of fkQueries) {
+        const result = await db.execute(fk.query);
+        const orphanCount = (result as any).rows?.[0]?.c || 0;
+        fkChecks[fk.name] = { ok: orphanCount === 0, orphanCount };
+      }
+    } catch {}
+
     let latestSmokeRun: any = null;
     try {
       const [run] = await db.select().from(opsSmokeRuns).orderBy(desc(opsSmokeRuns.id)).limit(1);
@@ -188,6 +204,7 @@ export async function getSystemStatus(_req: AuthRequest, res: Response) {
     const allOk = checks.database.ok && checks.auth.ok;
     const environment = process.env.NODE_ENV || "development";
 
+    const hasFkIssues = Object.values(fkChecks).some(f => !f.ok);
     res.json({
       version: APP_VERSION,
       environment,
@@ -199,8 +216,9 @@ export async function getSystemStatus(_req: AuthRequest, res: Response) {
       },
       checks,
       entityCounts,
+      fkChecks,
       latestSmokeRun,
-      overallStatus: allOk ? "healthy" : "degraded",
+      overallStatus: allOk ? (hasFkIssues ? "warning" : "healthy") : "degraded",
       timestamp: new Date().toISOString(),
     });
   } catch (e: any) {
@@ -386,6 +404,94 @@ async function executeSmokeTestAsync(runId: number) {
     const ci = (cityCount as any)[0]?.c || 0;
     if (s === 0) throw new Error("No US states in reference table");
     return `states=${s} cities=${ci}`;
+  });
+
+  await runStep("FK: Clinics → Companies", async () => {
+    const orphaned = await db.execute(sql`
+      SELECT count(*)::int as c FROM clinics cl
+      LEFT JOIN companies co ON cl.company_id = co.id
+      WHERE co.id IS NULL
+    `);
+    const orphanCount = (orphaned as any).rows?.[0]?.c || 0;
+    if (orphanCount > 0) throw new Error(`${orphanCount} clinics with invalid company_id`);
+    return `0 orphaned clinics`;
+  });
+
+  await runStep("FK: Patients → Clinics", async () => {
+    const orphaned = await db.execute(sql`
+      SELECT count(*)::int as c FROM patients p
+      LEFT JOIN clinics cl ON p.clinic_id = cl.id
+      WHERE p.clinic_id IS NOT NULL AND cl.id IS NULL
+    `);
+    const orphanCount = (orphaned as any).rows?.[0]?.c || 0;
+    if (orphanCount > 0) throw new Error(`${orphanCount} patients with invalid clinic_id`);
+    return `0 orphaned patients`;
+  });
+
+  await runStep("FK: Patients → Companies", async () => {
+    const orphaned = await db.execute(sql`
+      SELECT count(*)::int as c FROM patients p
+      LEFT JOIN companies co ON p.company_id = co.id
+      WHERE co.id IS NULL
+    `);
+    const orphanCount = (orphaned as any).rows?.[0]?.c || 0;
+    if (orphanCount > 0) throw new Error(`${orphanCount} patients with invalid company_id`);
+    return `0 orphaned patients`;
+  });
+
+  await runStep("FK: Drivers → Companies", async () => {
+    const orphaned = await db.execute(sql`
+      SELECT count(*)::int as c FROM drivers d
+      LEFT JOIN companies co ON d.company_id = co.id
+      WHERE co.id IS NULL
+    `);
+    const orphanCount = (orphaned as any).rows?.[0]?.c || 0;
+    if (orphanCount > 0) throw new Error(`${orphanCount} drivers with invalid company_id`);
+    return `0 orphaned drivers`;
+  });
+
+  await runStep("FK: Vehicles → Companies", async () => {
+    const orphaned = await db.execute(sql`
+      SELECT count(*)::int as c FROM vehicles v
+      LEFT JOIN companies co ON v.company_id = co.id
+      WHERE co.id IS NULL
+    `);
+    const orphanCount = (orphaned as any).rows?.[0]?.c || 0;
+    if (orphanCount > 0) throw new Error(`${orphanCount} vehicles with invalid company_id`);
+    return `0 orphaned vehicles`;
+  });
+
+  await runStep("FK: Trips → Companies", async () => {
+    const orphaned = await db.execute(sql`
+      SELECT count(*)::int as c FROM trips t
+      LEFT JOIN companies co ON t.company_id = co.id
+      WHERE co.id IS NULL
+    `);
+    const orphanCount = (orphaned as any).rows?.[0]?.c || 0;
+    if (orphanCount > 0) throw new Error(`${orphanCount} trips with invalid company_id`);
+    return `0 orphaned trips`;
+  });
+
+  await runStep("FK: Users → Companies", async () => {
+    const orphaned = await db.execute(sql`
+      SELECT count(*)::int as c FROM users u
+      LEFT JOIN companies co ON u.company_id = co.id
+      WHERE u.company_id IS NOT NULL AND co.id IS NULL
+    `);
+    const orphanCount = (orphaned as any).rows?.[0]?.c || 0;
+    if (orphanCount > 0) throw new Error(`${orphanCount} users with invalid company_id`);
+    return `0 orphaned users`;
+  });
+
+  await runStep("FK: Cities → US States ref", async () => {
+    const orphaned = await db.execute(sql`
+      SELECT count(*)::int as c FROM cities c
+      LEFT JOIN us_states s ON c.state = s.code
+      WHERE c.state IS NOT NULL AND s.code IS NULL
+    `);
+    const orphanCount = (orphaned as any).rows?.[0]?.c || 0;
+    if (orphanCount > 0) throw new Error(`${orphanCount} cities with invalid state reference`);
+    return `0 orphaned cities`;
   });
 
   await runStep("RBAC matrix loaded", async () => {

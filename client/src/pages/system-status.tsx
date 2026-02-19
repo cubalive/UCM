@@ -25,6 +25,12 @@ interface SystemCheck {
   value?: any;
 }
 
+interface FkCheck {
+  ok: boolean;
+  orphanCount: number;
+  detail?: string;
+}
+
 interface SystemStatus {
   version: string;
   environment: string;
@@ -33,6 +39,7 @@ interface SystemStatus {
   memory: { rss: number; heapUsed: number };
   checks: Record<string, SystemCheck>;
   entityCounts: Record<string, number>;
+  fkChecks?: Record<string, FkCheck>;
   latestSmokeRun: any;
   overallStatus: string;
   timestamp: string;
@@ -82,18 +89,28 @@ function CheckRow({ name, check }: { name: string; check: SystemCheck }) {
 }
 
 function SystemOverview({ data }: { data: SystemStatus }) {
-  const overallOk = data.overallStatus === "healthy";
+  const status = data.overallStatus;
+  const bannerClass = status === "healthy"
+    ? "border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/30"
+    : status === "warning"
+    ? "border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/30"
+    : "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30";
+  const textClass = status === "healthy"
+    ? "text-green-800 dark:text-green-200"
+    : status === "warning"
+    ? "text-yellow-800 dark:text-yellow-200"
+    : "text-red-800 dark:text-red-200";
+  const statusLabel = status === "healthy" ? "System Healthy" : status === "warning" ? "System Warning" : "System Degraded";
+  const StatusIcon = status === "healthy" ? CheckCircle : status === "warning" ? AlertTriangle : XCircle;
+  const iconClass = status === "healthy" ? "text-green-500" : status === "warning" ? "text-yellow-500" : "text-red-500";
+
   return (
     <div className="space-y-4">
-      <div className={`flex items-center gap-3 p-4 rounded-lg border-2 ${overallOk ? "border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/30" : "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30"}`} data-testid="banner-overall-status">
-        {overallOk ? (
-          <CheckCircle className="w-8 h-8 text-green-500" />
-        ) : (
-          <XCircle className="w-8 h-8 text-red-500" />
-        )}
+      <div className={`flex items-center gap-3 p-4 rounded-lg border-2 ${bannerClass}`} data-testid="banner-overall-status">
+        <StatusIcon className={`w-8 h-8 ${iconClass}`} />
         <div>
-          <div className={`text-xl font-bold ${overallOk ? "text-green-800 dark:text-green-200" : "text-red-800 dark:text-red-200"}`} data-testid="text-overall-status">
-            {overallOk ? "System Healthy" : "System Degraded"}
+          <div className={`text-xl font-bold ${textClass}`} data-testid="text-overall-status">
+            {statusLabel}
           </div>
           <div className="text-sm text-muted-foreground">
             v{data.version} | {data.environment} | Uptime: {formatUptime(data.uptime)}
@@ -167,6 +184,36 @@ function ExternalKeysCard({ keys }: { keys: Record<string, boolean> }) {
             </div>
           ))}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FkChecksCard({ fkChecks }: { fkChecks: Record<string, FkCheck> }) {
+  const hasIssues = Object.values(fkChecks).some(f => !f.ok);
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5" />
+          Data Integrity (FK Checks)
+          {hasIssues && (
+            <Badge variant="destructive" className="ml-2" data-testid="badge-fk-issues">Issues Found</Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {Object.entries(fkChecks).map(([name, check]) => (
+          <div key={name} className="flex items-center justify-between py-2 px-3 rounded-md bg-muted/30 hover:bg-muted/50" data-testid={`fk-check-${name}`}>
+            <div className="flex items-center gap-2">
+              <StatusIndicator ok={check.ok} />
+              <span className="font-medium text-sm">{name}</span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {check.ok ? "No orphaned records" : `${check.orphanCount} orphaned records`}
+            </div>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );
@@ -556,6 +603,9 @@ export default function SystemStatusPage() {
             <HealthChecks checks={checksWithoutKeys} />
             {externalKeys && <ExternalKeysCard keys={externalKeys} />}
             <EntityCounts counts={data.entityCounts} />
+            {data.fkChecks && Object.keys(data.fkChecks).length > 0 && (
+              <FkChecksCard fkChecks={data.fkChecks} />
+            )}
           </TabsContent>
 
           <TabsContent value="smoke" className="space-y-4">
