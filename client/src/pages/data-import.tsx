@@ -382,22 +382,22 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
     onError: (e: any) => toast({ title: "Rollback failed", description: e.message, variant: "destructive" }),
   });
 
-  if (isLoading) return <Skeleton className="h-64" />;
-  if (!job) return null;
-
-  const summary = job.summaryJson as any;
-  const hasFiles = job.files?.length > 0;
-
   const healthQuery = useQuery({
-    queryKey: ["/api/admin/imports/company", job.companyId, "health"],
+    queryKey: ["/api/admin/imports/company", job?.companyId, "health"],
     queryFn: async () => {
       const res = await rawAuthFetch(`/api/admin/imports/company/${job.companyId}/health`);
       if (!res.ok) return null;
       return res.json();
     },
-    enabled: !!job.companyId,
+    enabled: !!job?.companyId,
     staleTime: 10000,
   });
+
+  if (isLoading) return <Skeleton className="h-64" />;
+  if (!job) return null;
+
+  const summary = job.summaryJson as any;
+  const hasFiles = job.files?.length > 0;
 
   return (
     <div className="space-y-4">
