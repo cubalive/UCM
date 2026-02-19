@@ -247,91 +247,162 @@ export async function validateImport(req: AuthRequest, res: Response) {
   }
 }
 
+const importProgress = new Map<string, { phase: string; entity: string; current: number; total: number; results: Record<string, any> }>();
+
 export async function runImport(req: AuthRequest, res: Response) {
   try {
     const jobId = req.params.id;
     const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
     if (!job) return res.status(404).json({ error: "Import job not found" });
-    if (job.status !== "validated") {
-      return res.status(400).json({ error: "Job must be validated before running" });
+
+    if (job.status === "running") {
+      const stuckMinutes = (Date.now() - new Date(job.updatedAt).getTime()) / 60000;
+      if (stuckMinutes < 10) {
+        return res.status(409).json({ error: "Import is already running", status: "running" });
+      }
+      console.log(`[IMPORT] Job ${jobId} stuck in running for ${stuckMinutes.toFixed(0)}min, resetting to validated`);
+      await db.update(importJobs).set({ status: "validated", updatedAt: new Date() }).where(eq(importJobs.id, jobId));
+    } else if (job.status !== "validated") {
+      return res.status(400).json({ error: `Job must be validated before running (current: ${job.status})` });
     }
 
     await db.update(importJobs).set({ status: "running", updatedAt: new Date() }).where(eq(importJobs.id, jobId));
 
-    const files = await db.select().from(importJobFiles).where(eq(importJobFiles.importJobId, jobId));
-    const entityOrder: ImportEntity[] = ["clinics", "patients", "drivers", "vehicles"];
-    const results: Record<string, { inserted: number; updated: number; errors: number }> = {};
-    const insertedIds: { entity: string; id: number }[] = [];
+    res.json({ status: "running", message: "Import started. Poll GET /api/admin/imports/" + jobId + "/status for progress." });
 
-    const cityId = job.cityId || (await getDefaultCityId());
-    const defaultCity = await getDefaultCityName(job.cityId);
-    const defaults: EntityDefaults = { defaultCity };
+    executeImportAsync(jobId, job.companyId, job.cityId, job.sourceSystem).catch(err => {
+      console.error(`[IMPORT] Async execution failed for job ${jobId}:`, err);
+    });
+  } catch (e: any) {
+    console.error(`[IMPORT] runImport error:`, e);
+    return res.status(500).json({ error: e.message });
+  }
+}
 
-    try {
-      for (const entity of entityOrder) {
-        const file = files.find(f => f.entity === entity);
-        if (!file) continue;
+async function executeImportAsync(jobId: string, companyId: number, jobCityId: number | null, sourceSystem: string) {
+  const files = await db.select().from(importJobFiles).where(eq(importJobFiles.importJobId, jobId));
+  const entityOrder: ImportEntity[] = ["clinics", "patients", "drivers", "vehicles"];
+  const results: Record<string, { inserted: number; updated: number; errors: number }> = {};
+  const insertedIds: { entity: string; id: number }[] = [];
 
-        const storage = file.storageJson as any;
-        const buffer = Buffer.from(storage.base64, "base64");
-        const rows = parseFileToRows(buffer, file.filename, file.mimeType);
-        const { mapped } = applyHeaderMapping(rows, entity);
-        const { unique } = dedupeRows(mapped, entity);
+  const cityId = jobCityId || (await getDefaultCityId());
+  const defaultCity = await getDefaultCityName(jobCityId);
+  const defaults: EntityDefaults = { defaultCity };
 
-        let inserted = 0, updated = 0, errors = 0;
+  let totalRows = 0;
+  let processedRows = 0;
 
-        for (let i = 0; i < unique.length; i++) {
-          const withDefaults = applyDefaults(unique[i], entity, i, defaults);
-          const row = normalizeRowValues(withDefaults, entity);
-          const schema = getCanonicalSchema(entity);
-          const validation = schema.safeParse(row);
-          if (!validation.success) {
-            errors++;
-            const errs = validation.error.issues.map(iss => `${iss.path.join(".")}: ${iss.message}`);
-            await db.insert(importJobEvents).values({
-              importJobId: jobId, level: "error",
-              message: `${entity} row ${i + 1}: ${errs.join("; ")}`,
-              payload: { row: i + 1, errors: errs },
-            });
-            continue;
-          }
+  const fileParsed: { entity: ImportEntity; unique: any[] }[] = [];
+  for (const entity of entityOrder) {
+    const file = files.find(f => f.entity === entity);
+    if (!file) continue;
+    const storage = file.storageJson as any;
+    const buffer = Buffer.from(storage.base64, "base64");
+    const rows = parseFileToRows(buffer, file.filename, file.mimeType);
+    const { mapped } = applyHeaderMapping(rows, entity);
+    const { unique } = dedupeRows(mapped, entity);
+    fileParsed.push({ entity, unique });
+    totalRows += unique.length;
+  }
 
-          try {
-            const result = await upsertRow(entity, row, job.companyId, job.sourceSystem, cityId, insertedIds);
-            if (result === "inserted") inserted++;
-            else if (result === "updated") updated++;
-          } catch (rowErr: any) {
-            errors++;
-            await db.insert(importJobEvents).values({
-              importJobId: jobId, level: "error",
-              message: `${entity} row ${i + 1}: ${rowErr.message}`,
-              payload: { row: i + 1, data: row },
-            });
-          }
+  importProgress.set(jobId, { phase: "processing", entity: "", current: 0, total: totalRows, results: {} });
+
+  try {
+    for (const { entity, unique } of fileParsed) {
+      let inserted = 0, updated = 0, errors = 0;
+
+      importProgress.set(jobId, { phase: "processing", entity, current: processedRows, total: totalRows, results: { ...results } });
+
+      for (let i = 0; i < unique.length; i++) {
+        const withDefaults = applyDefaults(unique[i], entity, i, defaults);
+        const row = normalizeRowValues(withDefaults, entity);
+        const schema = getCanonicalSchema(entity);
+        const validation = schema.safeParse(row);
+        if (!validation.success) {
+          errors++;
+          const errs = validation.error.issues.map(iss => `${iss.path.join(".")}: ${iss.message}`);
+          await db.insert(importJobEvents).values({
+            importJobId: jobId, level: "error",
+            message: `${entity} row ${i + 1}: ${errs.join("; ")}`,
+            payload: { row: i + 1, errors: errs },
+          });
+          processedRows++;
+          continue;
         }
 
-        results[entity] = { inserted, updated, errors };
-        await db.insert(importJobEvents).values({
-          importJobId: jobId, level: "info",
-          message: `${entity}: ${inserted} inserted, ${updated} updated, ${errors} errors`,
-        });
+        try {
+          const result = await upsertRow(entity, row, companyId, sourceSystem, cityId, insertedIds);
+          if (result === "inserted") inserted++;
+          else if (result === "updated") updated++;
+        } catch (rowErr: any) {
+          errors++;
+          await db.insert(importJobEvents).values({
+            importJobId: jobId, level: "error",
+            message: `${entity} row ${i + 1}: ${rowErr.message}`,
+            payload: { row: i + 1 },
+          });
+        }
+        processedRows++;
+
+        if (processedRows % 50 === 0) {
+          await db.update(importJobs).set({ updatedAt: new Date() }).where(eq(importJobs.id, jobId));
+          importProgress.set(jobId, { phase: "processing", entity, current: processedRows, total: totalRows, results: { ...results, [entity]: { inserted, updated, errors } } });
+        }
       }
 
-      await db.update(importJobs).set({
-        status: "completed",
-        summaryJson: { results, insertedIds },
-        updatedAt: new Date(),
-      }).where(eq(importJobs.id, jobId));
-
-      return res.json({ status: "completed", results });
-    } catch (e: any) {
-      await db.update(importJobs).set({ status: "failed", updatedAt: new Date() }).where(eq(importJobs.id, jobId));
+      results[entity] = { inserted, updated, errors };
       await db.insert(importJobEvents).values({
-        importJobId: jobId, level: "error",
-        message: `Import failed: ${e.message}`,
+        importJobId: jobId, level: "info",
+        message: `${entity}: ${inserted} inserted, ${updated} updated, ${errors} errors`,
       });
-      return res.status(500).json({ error: e.message });
     }
+
+    await db.update(importJobs).set({
+      status: "completed",
+      summaryJson: { results, insertedIds },
+      updatedAt: new Date(),
+    }).where(eq(importJobs.id, jobId));
+
+    importProgress.set(jobId, { phase: "completed", entity: "", current: totalRows, total: totalRows, results });
+    console.log(`[IMPORT] Job ${jobId} completed:`, JSON.stringify(results));
+
+    setTimeout(() => importProgress.delete(jobId), 120000);
+  } catch (e: any) {
+    console.error(`[IMPORT] Job ${jobId} failed:`, e);
+    await db.update(importJobs).set({ status: "failed", updatedAt: new Date() }).where(eq(importJobs.id, jobId));
+    await db.insert(importJobEvents).values({
+      importJobId: jobId, level: "error",
+      message: `Import failed: ${e.message}`,
+    });
+    importProgress.set(jobId, { phase: "failed", entity: "", current: processedRows, total: totalRows, results });
+    setTimeout(() => importProgress.delete(jobId), 120000);
+  }
+}
+
+export async function getImportStatus(req: AuthRequest, res: Response) {
+  try {
+    const jobId = req.params.id;
+    const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
+    if (!job) return res.status(404).json({ error: "Import job not found" });
+
+    const progress = importProgress.get(jobId);
+    const percent = progress && progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : null;
+
+    return res.json({
+      id: job.id,
+      status: job.status,
+      companyId: job.companyId,
+      summaryJson: job.summaryJson,
+      updatedAt: job.updatedAt,
+      progress: progress ? {
+        phase: progress.phase,
+        entity: progress.entity,
+        current: progress.current,
+        total: progress.total,
+        percent: percent,
+        results: progress.results,
+      } : null,
+    });
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }

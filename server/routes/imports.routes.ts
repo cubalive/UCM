@@ -5,7 +5,7 @@ import {
   validateImport, runImport, rollbackImport,
   listImportJobs, getImportJob,
   dryRunImport, downloadTemplate,
-  getCompanyImportHealth,
+  getCompanyImportHealth, getImportStatus,
 } from "../controllers/imports.controller";
 
 const router = Router();
@@ -21,6 +21,7 @@ router.post("/:id/rollback", rollbackImport as any);
 router.get("/", listImportJobs as any);
 router.get("/templates/:entity", downloadTemplate as any);
 router.get("/company/:companyId/health", getCompanyImportHealth as any);
+router.get("/:id/status", getImportStatus as any);
 router.get("/:id", getImportJob as any);
 
 export function registerImportRoutes(app: Express) {

@@ -1,0 +1,178 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+CRITICAL BUG
+Imports validate correctly but no data appears in company dashboard.
+UI shows:
+validated → run import → "offline" → counters remain 0.
+
+This means:
+VALIDATION WORKS
+BUT EXECUTION NEVER COMMITS TO DB.
+
+We must fix the import execution pipeline.
+
+-------------------------------------------------
+PHASE 1 — FIND IMPORT EXECUTION ROUTE
+-------------------------------------------------
+
+Locate backend route used by:
+POST /api/import-jobs/:id/run
+or similar.
+
+Search for:
+runImport
+executeImport
+commitImport
+
+We need to verify:
+
+1) Validation stores parsed rows
+2) Run Import actually inserts rows into DB
+3) Company ID is passed correctly
+4) Transaction commits
+
+-------------------------------------------------
+PHASE 2 — FIX OFFLINE FALSE ERROR
+-------------------------------------------------
+
+The UI shows:
+"Import failed — offline"
+
+This usually means:
+frontend catches fetch error
+OR backend returns 500 with no body.
+
+Ensure route returns:
+
+200 OK
+{ success:true }
+
+NOT empty response.
+
+Wrap entire import in try/catch and log errors.
+
+-------------------------------------------------
+PHASE 3 — ENSURE COMPANY SCOPING
+-------------------------------------------------
+
+All inserts must include:
+
+company_id = job.company_id
+
+Check insert logic for:
+
+clinics
+drivers
+vehicles
+patients
+
+Make sure each insert uses job.company_id.
+
+Example:
+
+INSERT INTO drivers (...)
+VALUES (...)
+WITH company_id = job.company_id
+
+If missing → dashboard will show 0.
+
+-------------------------------------------------
+PHASE 4 — FORCE COMMIT
+-------------------------------------------------
+
+If using transaction:
+
+BEGIN
+insert clinics
+insert drivers
+insert vehicles
+insert patients
+COMMIT
+
+Make sure commit executes.
+
+If any await is missing → transaction never commits.
+
+Add explicit commit at end.
+
+-------------------------------------------------
+PHASE 5 — RETURN STATUS TO UI
+-------------------------------------------------
+
+After success:
+
+return res.json({
+  success:true,
+  inserted:{
+    clinics:X,
+    drivers:Y,
+    vehicles:Z,
+    patients:W
+  }
+})
+
+UI must refresh company counters.
+
+-------------------------------------------------
+PHASE 6 — AUTO REFRESH COMPANY DATA
+-------------------------------------------------
+
+After import success:
+
+Trigger refetch:
+GET /api/company/:id/stats
+
+Update:
+Company Data Health cards.
+
+-------------------------------------------------
+PHASE 7 — ADD PROGRESS BAR SUPPORT
+-------------------------------------------------
+
+While running import:
+
+job.status = "running"
+job.progress = 0 → 100
+
+Return progress endpoint:
+GET /api/import-jobs/:id/status
+
+UI polls every 1s.
+
+When 100:
+show message:
+"Todo fue transferido exitosamente."
+
+-------------------------------------------------
+PHASE 8 — VERIFY ON COMPANY #7
+-------------------------------------------------
+
+Use existing job:
+Company #7
+
+Run import again.
+
+Expected result:
+Clinics > 0
+Drivers > 0
+Vehicles > 0
+Patients > 0
+
+Dashboard must update immediately.
+
+-------------------------------------------------
+DO NOT EXIT UNTIL:
+
+1) Run import executes without "offline"
+2) Data appears in company dashboard
+3) Counters update
+4) No rollback occurs
+5) Status becomes "completed"

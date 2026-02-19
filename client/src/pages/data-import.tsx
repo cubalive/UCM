@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { rawAuthFetch } from "@/lib/api";
@@ -327,6 +327,46 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
   const { toast } = useToast();
   const [dryRunResults, setDryRunResults] = useState<any>(null);
   const [showDryRun, setShowDryRun] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
+  const [progress, setProgress] = useState<any>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    setIsPolling(false);
+  }, []);
+
+  const startPolling = useCallback((jobId: string) => {
+    stopPolling();
+    setIsPolling(true);
+    const poll = async () => {
+      try {
+        const res = await rawAuthFetch(`/api/admin/imports/${jobId}/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setProgress(data.progress);
+        if (data.status === "completed") {
+          stopPolling();
+          toast({ title: "Import completed successfully" });
+          onRefresh();
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/imports/company", job?.companyId, "health"] });
+        } else if (data.status === "failed") {
+          stopPolling();
+          toast({ title: "Import failed", variant: "destructive" });
+          onRefresh();
+        }
+      } catch { }
+    };
+    poll();
+    pollRef.current = setInterval(poll, 2000);
+  }, [stopPolling, onRefresh, toast, job?.companyId]);
+
+  useEffect(() => {
+    if (job?.status === "running") {
+      startPolling(job.id);
+    }
+    return stopPolling;
+  }, [job?.id, job?.status, startPolling, stopPolling]);
 
   const validateMutation = useMutation({
     mutationFn: async () => {
@@ -362,9 +402,9 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Import completed successfully" });
+      toast({ title: "Import started" });
+      startPolling(job.id);
       onRefresh();
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/imports/company", job.companyId, "health"] });
     },
     onError: (e: any) => toast({ title: "Import failed", description: e.message, variant: "destructive" }),
   });
@@ -398,10 +438,46 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
 
   const summary = job.summaryJson as any;
   const hasFiles = job.files?.length > 0;
+  const isRunning = job.status === "running" || isPolling;
+  const progressPercent = progress?.percent ?? 0;
 
   return (
     <div className="space-y-4">
-      {job.status === "validated" && (
+      {isRunning && (
+        <Card className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20" data-testid="card-running-banner">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-blue-800 dark:text-blue-300">
+                  Import running{progress?.entity ? ` — processing ${progress.entity}` : ""}
+                </p>
+                <p className="text-xs text-blue-700 dark:text-blue-400 mt-0.5">
+                  {progress ? `${progress.current} / ${progress.total} rows (${progressPercent}%)` : "Starting..."}
+                </p>
+              </div>
+            </div>
+            <div className="w-full bg-blue-200 dark:bg-blue-900 rounded-md h-3 overflow-hidden" data-testid="div-progress-bar">
+              <div
+                className="h-full bg-blue-600 dark:bg-blue-400 rounded-md transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            {progress?.results && Object.keys(progress.results).length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                {Object.entries(progress.results).map(([entity, r]: [string, any]) => (
+                  <div key={entity} className="bg-blue-100 dark:bg-blue-900/50 rounded-md p-1.5 text-center">
+                    <div className="font-medium capitalize">{entity}</div>
+                    <div className="text-blue-700 dark:text-blue-300">{r.inserted} ins / {r.updated} upd</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {job.status === "validated" && !isRunning && (
         <Card className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20" data-testid="card-validated-banner">
           <CardContent className="p-3 flex items-start gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
@@ -417,7 +493,7 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
         </Card>
       )}
 
-      {job.status === "completed" && (
+      {job.status === "completed" && !isRunning && (
         <Card className="border-green-500/50 bg-green-50 dark:bg-green-950/20" data-testid="card-completed-banner">
           <CardContent className="p-3 flex items-start gap-2">
             <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
@@ -449,7 +525,7 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
           </div>
 
           <div className="flex gap-2 flex-wrap pt-2">
-            {hasFiles && ["draft", "validated"].includes(job.status) && (
+            {hasFiles && ["draft", "validated"].includes(job.status) && !isRunning && (
               <Button
                 size="sm"
                 variant="outline"
@@ -461,7 +537,7 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
                 Dry Run Preview
               </Button>
             )}
-            {["draft", "validated"].includes(job.status) && (
+            {["draft", "validated"].includes(job.status) && !isRunning && (
               <Button
                 size="sm"
                 variant="outline"
@@ -473,7 +549,7 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
                 Validate
               </Button>
             )}
-            {job.status === "validated" && (
+            {job.status === "validated" && !isRunning && (
               <Button
                 size="sm"
                 onClick={() => runMutation.mutate()}
@@ -484,7 +560,7 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
                 Run Import
               </Button>
             )}
-            {["completed", "failed"].includes(job.status) && (
+            {["completed", "failed"].includes(job.status) && !isRunning && (
               <Button
                 size="sm"
                 variant="destructive"
