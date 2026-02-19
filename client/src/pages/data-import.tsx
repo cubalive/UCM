@@ -46,6 +46,9 @@ import {
   Car,
   Loader2,
   Eye,
+  Download,
+  Search,
+  Info,
 } from "lucide-react";
 
 const ENTITIES = [
@@ -117,21 +120,24 @@ export default function DataImportPage() {
           <h1 className="text-xl font-semibold" data-testid="text-page-title">Data Import</h1>
           <p className="text-sm text-muted-foreground">Import clinics, patients, drivers, and vehicles from external sources</p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-create-import">
-              <Plus className="w-4 h-4 mr-1" /> New Import Job
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create Import Job</DialogTitle>
-            </DialogHeader>
-            <CreateJobForm
-              onCreated={(id) => { setCreateOpen(false); setSelectedJobId(id); queryClient.invalidateQueries({ queryKey: ["/api/admin/imports"] }); }}
-            />
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2 flex-wrap">
+          <TemplateDownloadMenu />
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-create-import">
+                <Plus className="w-4 h-4 mr-1" /> New Import Job
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create Import Job</DialogTitle>
+              </DialogHeader>
+              <CreateJobForm
+                onCreated={(id) => { setCreateOpen(false); setSelectedJobId(id); queryClient.invalidateQueries({ queryKey: ["/api/admin/imports"] }); }}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -185,6 +191,62 @@ export default function DataImportPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function TemplateDownloadMenu() {
+  const { toast } = useToast();
+
+  const downloadTemplate = async (entity: string) => {
+    try {
+      const res = await rawAuthFetch(`/api/admin/imports/templates/${entity}`);
+      if (!res.ok) throw new Error("Failed to download template");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${entity}_template.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: `${entity} template downloaded` });
+    } catch (e: any) {
+      toast({ title: "Download failed", description: e.message, variant: "destructive" });
+    }
+  };
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" data-testid="button-download-templates">
+          <Download className="w-4 h-4 mr-1" /> Templates
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Download CSV Templates</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Download pre-formatted CSV templates with the correct headers for each entity type.
+        </p>
+        <div className="grid grid-cols-2 gap-2 pt-2">
+          {ENTITIES.map(ent => {
+            const Icon = ent.icon;
+            return (
+              <Button
+                key={ent.key}
+                variant="outline"
+                className="justify-start"
+                onClick={() => downloadTemplate(ent.key)}
+                data-testid={`button-template-${ent.key}`}
+              >
+                <Icon className="w-4 h-4 mr-2" />
+                {ent.label}
+              </Button>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -263,6 +325,8 @@ function CreateJobForm({ onCreated }: { onCreated: (id: string) => void }) {
 
 function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: boolean; onRefresh: () => void }) {
   const { toast } = useToast();
+  const [dryRunResults, setDryRunResults] = useState<any>(null);
+  const [showDryRun, setShowDryRun] = useState(false);
 
   const validateMutation = useMutation({
     mutationFn: async () => {
@@ -270,11 +334,25 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
       if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast({ title: "Validation complete" });
       onRefresh();
     },
     onError: (e: any) => toast({ title: "Validation failed", description: e.message, variant: "destructive" }),
+  });
+
+  const dryRunMutation = useMutation({
+    mutationFn: async () => {
+      const res = await rawAuthFetch(`/api/admin/imports/${job.id}/dry-run`, { method: "POST" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setDryRunResults(data.results);
+      setShowDryRun(true);
+      toast({ title: "Dry run complete" });
+    },
+    onError: (e: any) => toast({ title: "Dry run failed", description: e.message, variant: "destructive" }),
   });
 
   const runMutation = useMutation({
@@ -283,7 +361,7 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
       if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast({ title: "Import completed" });
       onRefresh();
     },
@@ -307,6 +385,7 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
   if (!job) return null;
 
   const summary = job.summaryJson as any;
+  const hasFiles = job.files?.length > 0;
 
   return (
     <div className="space-y-4">
@@ -326,6 +405,18 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
           </div>
 
           <div className="flex gap-2 flex-wrap pt-2">
+            {hasFiles && ["draft", "validated"].includes(job.status) && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => dryRunMutation.mutate()}
+                disabled={dryRunMutation.isPending}
+                data-testid="button-dry-run"
+              >
+                {dryRunMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Search className="w-4 h-4 mr-1" />}
+                Dry Run Preview
+              </Button>
+            )}
             {["draft", "validated"].includes(job.status) && (
               <Button
                 size="sm"
@@ -377,6 +468,10 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
           />
         ))}
       </div>
+
+      {showDryRun && dryRunResults && (
+        <DryRunResultsPanel results={dryRunResults} onClose={() => setShowDryRun(false)} />
+      )}
 
       {summary?.counts && (
         <Card>
@@ -464,6 +559,107 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
         </Card>
       )}
     </div>
+  );
+}
+
+function DryRunResultsPanel({ results, onClose }: { results: Record<string, any>; onClose: () => void }) {
+  const [expandedEntity, setExpandedEntity] = useState<string | null>(null);
+
+  return (
+    <Card data-testid="card-dry-run-results">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Eye className="w-4 h-4" /> Dry Run Preview
+        </CardTitle>
+        <Button size="sm" variant="outline" onClick={onClose} data-testid="button-close-dry-run">
+          Close
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {Object.entries(results).map(([entity, r]: [string, any]) => (
+          <div key={entity} className="space-y-2">
+            <div
+              className="flex items-center justify-between gap-2 flex-wrap cursor-pointer"
+              onClick={() => setExpandedEntity(expandedEntity === entity ? null : entity)}
+              data-testid={`dry-run-entity-${entity}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium capitalize">{entity}</span>
+                <Badge variant="secondary" className="text-xs">{r.totalRows} rows</Badge>
+              </div>
+              <div className="flex items-center gap-1">
+                <Badge variant="default">{r.validRows} valid</Badge>
+                {r.errorRows > 0 && <Badge variant="destructive">{r.errorRows} errors</Badge>}
+                {r.duplicateRows > 0 && <Badge variant="outline">{r.duplicateRows} dupes</Badge>}
+              </div>
+            </div>
+
+            {r.headerInfo?.unmapped?.length > 0 && (
+              <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 p-2 rounded-md">
+                <Info className="w-3 h-3 mt-0.5 shrink-0" />
+                <span>Unmapped columns: {r.headerInfo.unmapped.join(", ")}</span>
+              </div>
+            )}
+
+            {r.headerInfo?.mapped && Object.keys(r.headerInfo.mapped).length > 0 && (
+              <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 p-2 rounded-md">
+                <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-green-600" />
+                <span>
+                  Mapped: {Object.entries(r.headerInfo.mapped).map(([from, to]) =>
+                    from !== to ? `${from} -> ${to}` : from
+                  ).join(", ")}
+                </span>
+              </div>
+            )}
+
+            {r.missingRequiredFields?.length > 0 && (
+              <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 p-2 rounded-md">
+                <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                <span>Missing required: {r.missingRequiredFields.join(", ")}</span>
+              </div>
+            )}
+
+            {r.rowErrors?.length > 0 && expandedEntity === entity && (
+              <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
+                {r.rowErrors.slice(0, 20).map((err: any, idx: number) => (
+                  <div key={idx} className="text-xs text-destructive">
+                    {err.message}
+                  </div>
+                ))}
+                {r.rowErrors.length > 20 && (
+                  <div className="text-xs text-muted-foreground">...and {r.rowErrors.length - 20} more errors</div>
+                )}
+              </div>
+            )}
+
+            {r.preview?.length > 0 && expandedEntity === entity && (
+              <div className="overflow-x-auto border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {Object.keys(r.preview[0]).filter(k => !k.startsWith("_")).slice(0, 8).map(col => (
+                        <TableHead key={col} className="text-xs whitespace-nowrap">{col}</TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {r.preview.slice(0, 5).map((row: any, idx: number) => (
+                      <TableRow key={idx}>
+                        {Object.keys(r.preview[0]).filter(k => !k.startsWith("_")).slice(0, 8).map(col => (
+                          <TableCell key={col} className="text-xs max-w-[150px] truncate">
+                            {String(row[col] ?? "")}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

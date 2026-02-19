@@ -18,8 +18,8 @@ router.post("/:id/dry-run", dryRunImport as any);
 router.post("/:id/run", runImport as any);
 router.post("/:id/rollback", rollbackImport as any);
 router.get("/", listImportJobs as any);
-router.get("/:id", getImportJob as any);
 router.get("/templates/:entity", downloadTemplate as any);
+router.get("/:id", getImportJob as any);
 
 export function registerImportRoutes(app: Express) {
   app.use("/api/admin/imports", router);

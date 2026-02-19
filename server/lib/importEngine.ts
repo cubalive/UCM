@@ -266,8 +266,17 @@ const ALIAS_MAPS: Record<ImportEntity, Record<string, string>> = {
   vehicles: VEHICLE_ALIASES,
 };
 
+function getCanonicalKeys(entity: ImportEntity): Set<string> {
+  const schema = getCanonicalSchema(entity);
+  return new Set(Object.keys(schema.shape));
+}
+
 export function resolveAlias(normalizedHeader: string, entity: ImportEntity): string | null {
-  return ALIAS_MAPS[entity][normalizedHeader] || null;
+  const aliased = ALIAS_MAPS[entity][normalizedHeader];
+  if (aliased) return aliased;
+  const canonicalKeys = getCanonicalKeys(entity);
+  if (canonicalKeys.has(normalizedHeader)) return normalizedHeader;
+  return null;
 }
 
 export function normalizeHeaders(rawHeaders: string[], entity: ImportEntity): { normalized: string[]; mapping: Record<string, string>; unmapped: string[] } {
