@@ -17,7 +17,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -191,11 +193,25 @@ export function AppSidebar() {
                 <SelectValue placeholder="Select city" />
               </SelectTrigger>
               <SelectContent>
-                {cities.map((city) => (
-                  <SelectItem key={city.id} value={city.id.toString()}>
-                    {city.name}, {city.state}
-                  </SelectItem>
-                ))}
+                {Object.entries(
+                  cities.reduce<Record<string, typeof cities>>((acc, city) => {
+                    const st = city.state || "Other";
+                    if (!acc[st]) acc[st] = [];
+                    acc[st].push(city);
+                    return acc;
+                  }, {})
+                )
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([state, stateCities]) => (
+                    <SelectGroup key={state}>
+                      <SelectLabel>{state}</SelectLabel>
+                      {stateCities.map((city) => (
+                        <SelectItem key={city.id} value={city.id.toString()}>
+                          {city.name}, {city.state}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
               </SelectContent>
             </Select>
           </div>

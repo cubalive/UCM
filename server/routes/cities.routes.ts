@@ -9,6 +9,12 @@ import {
   createCityHandler,
   updateCityHandler,
 } from "../controllers/cities.controller";
+import {
+  getStatesHandler,
+  getCitiesByStateHandler,
+  resolveCityHandler,
+  searchAllCitiesHandler,
+} from "../controllers/locations.controller";
 
 const router = express.Router();
 
@@ -19,6 +25,11 @@ router.post("/api/companies/:id/admin", authMiddleware, requireRole("SUPER_ADMIN
 router.get("/api/cities", authMiddleware, getCitiesHandler as any);
 router.post("/api/cities", authMiddleware, requireRole("ADMIN"), createCityHandler as any);
 router.patch("/api/cities/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), updateCityHandler as any);
+
+router.get("/api/locations/states", authMiddleware, getStatesHandler as any);
+router.get("/api/locations/cities", authMiddleware, getCitiesByStateHandler as any);
+router.get("/api/locations/resolve", authMiddleware, resolveCityHandler as any);
+router.get("/api/locations/search", authMiddleware, searchAllCitiesHandler as any);
 
 export function registerCityRoutes(app: Express) {
   app.use(router);

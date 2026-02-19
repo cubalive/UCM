@@ -17,6 +17,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -25,8 +34,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import type { Company } from "@shared/schema";
+import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2, Search } from "lucide-react";
+import type { Company, UsState, UsCity } from "@shared/schema";
 
 const TIMEZONES = [
   "America/New_York",
@@ -42,35 +51,63 @@ const TIMEZONES = [
 function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [cityName, setCityName] = useState("");
-  const [cityState, setCityState] = useState("");
-  const [cityTimezone, setCityTimezone] = useState("America/New_York");
+  const [selectedState, setSelectedState] = useState("");
+  const [selectedCityId, setSelectedCityId] = useState("");
+  const [citySearch, setCitySearch] = useState("");
+  const [cityTimezone, setCityTimezone] = useState("America/Los_Angeles");
   const { toast } = useToast();
+
+  const { data: statesData } = useQuery<{ ok: boolean; items: UsState[] }>({
+    queryKey: ["/api/locations/states"],
+  });
+  const states = statesData?.items || [];
+
+  const citiesUrl = selectedState
+    ? `/api/locations/cities?state=${selectedState}${citySearch.trim() ? `&search=${encodeURIComponent(citySearch.trim())}` : ""}`
+    : null;
+  const { data: citiesData, isLoading: citiesLoading } = useQuery<{ ok: boolean; items: UsCity[] }>({
+    queryKey: ["/api/locations/cities", selectedState, citySearch],
+    queryFn: async () => {
+      const res = await apiRequest("GET", citiesUrl!);
+      return res.json();
+    },
+    enabled: !!selectedState && !!citiesUrl,
+  });
+  const citiesList = citiesData?.items || [];
 
   const createMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("POST", "/api/companies", {
         name: name.trim(),
-        cityName: cityName.trim(),
-        cityState: cityState.trim(),
+        usCityId: parseInt(selectedCityId),
         cityTimezone,
       });
     },
     onSuccess: () => {
-      toast({ title: "Company created with first city" });
+      toast({ title: "Company created successfully" });
       setName("");
-      setCityName("");
-      setCityState("");
-      setCityTimezone("America/New_York");
+      setSelectedState("");
+      setSelectedCityId("");
+      setCitySearch("");
+      setCityTimezone("America/Los_Angeles");
       setOpen(false);
       onCreated();
+      queryClient.invalidateQueries({ queryKey: ["/api/cities"] });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to create company", description: err.message, variant: "destructive" });
     },
   });
 
-  const canSubmit = name.trim() && cityName.trim() && cityState.trim();
+  const handleStateChange = (val: string) => {
+    setSelectedState(val);
+    setSelectedCityId("");
+    setCitySearch("");
+  };
+
+  const canSubmit = name.trim() && selectedCityId;
+
+  const selectedCityObj = citiesList.find(c => String(c.id) === selectedCityId);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -99,38 +136,71 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
             <p className="text-sm font-medium mb-3">Primary City (required)</p>
             <div className="space-y-3">
               <div className="space-y-2">
-                <Label htmlFor="city-name">City Name</Label>
-                <Input
-                  id="city-name"
-                  value={cityName}
-                  onChange={(e) => setCityName(e.target.value)}
-                  placeholder="e.g. San Francisco"
-                  data-testid="input-city-name"
-                />
+                <Label>State</Label>
+                <Select value={selectedState} onValueChange={handleStateChange}>
+                  <SelectTrigger data-testid="select-company-state">
+                    <SelectValue placeholder="Select a state..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {states.map((s) => (
+                      <SelectItem key={s.code} value={s.code} data-testid={`select-state-${s.code}`}>
+                        {s.name} ({s.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="city-state">State</Label>
-                <Input
-                  id="city-state"
-                  value={cityState}
-                  onChange={(e) => setCityState(e.target.value)}
-                  placeholder="e.g. CA"
-                  data-testid="input-city-state"
-                />
-              </div>
+
+              {selectedState && (
+                <div className="space-y-2">
+                  <Label>City</Label>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      value={citySearch}
+                      onChange={(e) => setCitySearch(e.target.value)}
+                      placeholder="Search cities..."
+                      className="pl-8"
+                      data-testid="input-city-search"
+                    />
+                  </div>
+                  {citiesLoading ? (
+                    <Skeleton className="h-9 w-full" />
+                  ) : (
+                    <Select value={selectedCityId} onValueChange={setSelectedCityId}>
+                      <SelectTrigger data-testid="select-company-city">
+                        <SelectValue placeholder="Select a city..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {citiesList.map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)} data-testid={`select-city-${c.id}`}>
+                            {c.city}, {c.stateCode}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
+
+              {selectedCityObj && (
+                <div className="text-sm text-muted-foreground bg-muted rounded-md px-3 py-2" data-testid="text-selected-city">
+                  Selected: {selectedCityObj.city}, {selectedCityObj.stateCode}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="city-timezone">Timezone</Label>
-                <select
-                  id="city-timezone"
-                  value={cityTimezone}
-                  onChange={(e) => setCityTimezone(e.target.value)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  data-testid="select-city-timezone"
-                >
-                  {TIMEZONES.map(tz => (
-                    <option key={tz} value={tz}>{tz}</option>
-                  ))}
-                </select>
+                <Select value={cityTimezone} onValueChange={setCityTimezone}>
+                  <SelectTrigger data-testid="select-city-timezone">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIMEZONES.map(tz => (
+                      <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>

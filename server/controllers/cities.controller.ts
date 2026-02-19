@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { authMiddleware, requireRole, getUserCityIds, getCompanyIdFromAuth, applyCompanyFilter, hashPassword, type AuthRequest } from "../auth";
 import { insertCitySchema, insertCompanySchema, companies, cities as citiesTable, users } from "@shared/schema";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
 
 export const ALLOWED_TIMEZONES = [
@@ -32,23 +32,45 @@ export async function getCompaniesHandler(_req: AuthRequest, res: Response) {
 
 export async function createCompanyHandler(req: AuthRequest, res: Response) {
   try {
-    const { name, cityName, cityState, cityTimezone } = req.body;
+    const { name, usCityId, cityTimezone } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ message: "Company name is required" });
-    if (!cityName || !cityName.trim()) return res.status(400).json({ message: "First city name is required" });
-    if (!cityState || !cityState.trim()) return res.status(400).json({ message: "City state is required" });
+    if (!usCityId) return res.status(400).json({ message: "City selection is required" });
 
-    const tz = (cityTimezone && cityTimezone.trim()) || "America/New_York";
+    const tz = (cityTimezone && cityTimezone.trim()) || "America/Los_Angeles";
     if (!ALLOWED_TIMEZONES.includes(tz)) {
       return res.status(400).json({ message: `Invalid timezone. Allowed: ${ALLOWED_TIMEZONES.join(", ")}` });
     }
 
+    const usCityIdNum = parseInt(String(usCityId));
+    if (isNaN(usCityIdNum)) return res.status(400).json({ message: "Invalid city ID" });
+
+    const usCityRows = await db.execute(
+      sql`SELECT uc.id, uc.city, uc.state_code, us.name as state_name
+          FROM us_cities uc JOIN us_states us ON uc.state_code = us.code
+          WHERE uc.id = ${usCityIdNum}`
+    );
+    const usCity = usCityRows.rows?.[0] as any;
+    if (!usCity) return res.status(400).json({ message: "Selected city not found" });
+
+    const existingServiceCity = await db.execute(
+      sql`SELECT id, name, state FROM cities WHERE us_city_id = ${usCityIdNum} LIMIT 1`
+    );
+    
     const result = await db.transaction(async (tx) => {
       const [company] = await tx.insert(companies).values({ name: name.trim() }).returning();
-      const [city] = await tx.insert(citiesTable).values({
-        name: cityName.trim(),
-        state: cityState.trim(),
-        timezone: tz,
-      }).returning();
+
+      let city: any;
+      if (existingServiceCity.rows?.length) {
+        city = existingServiceCity.rows[0];
+      } else {
+        const [newCity] = await tx.insert(citiesTable).values({
+          name: usCity.city,
+          state: usCity.state_code,
+          timezone: tz,
+          usCityId: usCityIdNum,
+        }).returning();
+        city = newCity;
+      }
       return { company, city };
     });
 
@@ -57,7 +79,7 @@ export async function createCompanyHandler(req: AuthRequest, res: Response) {
       action: "CREATE",
       entity: "company",
       entityId: result.company.id,
-      details: `Created company "${result.company.name}" with first city "${result.city.name}"`,
+      details: `Created company "${result.company.name}" with city "${result.city.name}, ${usCity.state_code}"`,
       cityId: result.city.id,
     });
 
@@ -121,6 +143,48 @@ export async function getCitiesHandler(req: AuthRequest, res: Response) {
 
 export async function createCityHandler(req: AuthRequest, res: Response) {
   try {
+    const { usCityId, timezone: rawTz } = req.body;
+
+    if (usCityId) {
+      const usCityIdNum = parseInt(String(usCityId));
+      if (isNaN(usCityIdNum)) return res.status(400).json({ message: "Invalid city ID" });
+
+      const existingRows = await db.execute(
+        sql`SELECT id FROM cities WHERE us_city_id = ${usCityIdNum} LIMIT 1`
+      );
+      if (existingRows.rows?.length) {
+        return res.status(409).json({ message: "This city already exists as a service city" });
+      }
+
+      const usCityRows = await db.execute(
+        sql`SELECT uc.city, uc.state_code FROM us_cities uc WHERE uc.id = ${usCityIdNum}`
+      );
+      const usCity = usCityRows.rows?.[0] as any;
+      if (!usCity) return res.status(400).json({ message: "City not found in master data" });
+
+      const tz = (rawTz && rawTz.trim()) || "America/Los_Angeles";
+      if (!ALLOWED_TIMEZONES.includes(tz)) {
+        return res.status(400).json({ message: `Invalid timezone. Allowed: ${ALLOWED_TIMEZONES.join(", ")}` });
+      }
+
+      const city = await storage.createCity({
+        name: usCity.city,
+        state: usCity.state_code,
+        timezone: tz,
+        usCityId: usCityIdNum,
+      } as any);
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "CREATE",
+        entity: "city",
+        entityId: city.id,
+        details: `Created service city ${city.name}, ${usCity.state_code}`,
+        cityId: city.id,
+      });
+      return res.json(city);
+    }
+
     const parsed = insertCitySchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid city data" });
@@ -132,7 +196,19 @@ export async function createCityHandler(req: AuthRequest, res: Response) {
     if (!ALLOWED_TIMEZONES.includes(cityData.timezone)) {
       return res.status(400).json({ message: `Invalid timezone. Allowed: ${ALLOWED_TIMEZONES.join(", ")}` });
     }
-    const city = await storage.createCity(cityData);
+
+    const normalizedName = cityData.name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    const state = (cityData.state || "").trim().toUpperCase();
+    if (state.length === 2) {
+      const matchRows = await db.execute(
+        sql`SELECT id FROM us_cities WHERE state_code = ${state} AND city_normalized = ${normalizedName} LIMIT 1`
+      );
+      if (matchRows.rows?.length) {
+        (cityData as any).usCityId = (matchRows.rows[0] as any).id;
+      }
+    }
+
+    const city = await storage.createCity(cityData as any);
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "CREATE",

@@ -18,7 +18,7 @@ The application follows a client-server architecture.
 **Technical Implementations & Feature Specifications:**
 - **Authentication**: JWT-based with `bcryptjs` and Magic Link Login, supporting dual-auth (Bearer token + httpOnly session cookie).
 - **Authorization**: Centralized Permission-Based Access Control using a `ROLE_PERMISSIONS` matrix.
-- **Data Management**: PostgreSQL with Drizzle ORM, multi-city data segregation, and a public ID system.
+- **Data Management**: PostgreSQL with Drizzle ORM, multi-city data segregation, and a public ID system. US States/Cities master reference tables (`us_states`, `us_cities`) with cascading State→City dropdowns, "City, ST" display format, and city deduplication via `us_city_id` linking.
 - **Dispatch Engine**: Automated driver-vehicle and trip assignment, real-time tracking, ETA, and safety rule enforcement.
 - **Communication**: SMS notifications and branded email services.
 - **Location Services**: Google Maps integration for geocoding, autocomplete, ETA, route optimization, and live maps.

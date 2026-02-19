@@ -86,12 +86,29 @@ export const assignmentStatusEnum = pgEnum("assignment_status", [
   "cancelled",
 ]);
 
+export const usStates = pgTable("us_states", {
+  code: varchar("code", { length: 2 }).primaryKey(),
+  name: text("name").notNull(),
+});
+
+export const usCities = pgTable("us_cities", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  stateCode: varchar("state_code", { length: 2 }).notNull().references(() => usStates.code),
+  city: text("city").notNull(),
+  cityNormalized: text("city_normalized").notNull(),
+  population: integer("population"),
+  isMajor: boolean("is_major").notNull().default(true),
+}, (table) => [
+  uniqueIndex("us_cities_state_city_idx").on(table.stateCode, table.cityNormalized),
+]);
+
 export const cities = pgTable("cities", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
   state: text("state").notNull(),
   timezone: text("timezone").notNull().default("America/New_York"),
   active: boolean("active").notNull().default(true),
+  usCityId: integer("us_city_id").references(() => usCities.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -584,6 +601,8 @@ export const insertDriverBonusRuleSchema = createInsertSchema(driverBonusRules);
 
 export const insertCompanySchema = createInsertSchema(companies).omit({ createdAt: true });
 export const insertCitySchema = createInsertSchema(cities).omit({ createdAt: true });
+export const insertUsStateSchema = createInsertSchema(usStates);
+export const insertUsCitySchema = createInsertSchema(usCities);
 export const insertUserSchema = createInsertSchema(users).omit({ createdAt: true });
 export const insertVehicleSchema = createInsertSchema(vehicles).omit({ createdAt: true });
 export const insertDriverSchema = createInsertSchema(drivers).omit({ createdAt: true });
@@ -612,6 +631,10 @@ export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 
 export type Company = typeof companies.$inferSelect;
 export type City = typeof cities.$inferSelect;
+export type UsState = typeof usStates.$inferSelect;
+export type UsCity = typeof usCities.$inferSelect;
+export type InsertUsState = z.infer<typeof insertUsStateSchema>;
+export type InsertUsCity = z.infer<typeof insertUsCitySchema>;
 export type User = typeof users.$inferSelect;
 export type UserCityAccess = typeof userCityAccess.$inferSelect;
 export type Vehicle = typeof vehicles.$inferSelect;

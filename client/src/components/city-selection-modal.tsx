@@ -5,7 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -73,11 +75,25 @@ export function CitySelectionModal() {
                   All Cities
                 </SelectItem>
               )}
-              {activeCities.map((city) => (
-                <SelectItem key={city.id} value={String(city.id)} data-testid={`select-city-${city.id}`}>
-                  {city.name}, {city.state}
-                </SelectItem>
-              ))}
+              {Object.entries(
+                activeCities.reduce<Record<string, typeof activeCities>>((acc, city) => {
+                  const st = city.state || "Other";
+                  if (!acc[st]) acc[st] = [];
+                  acc[st].push(city);
+                  return acc;
+                }, {})
+              )
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([state, stateCities]) => (
+                  <SelectGroup key={state}>
+                    <SelectLabel>{state}</SelectLabel>
+                    {stateCities.map((city) => (
+                      <SelectItem key={city.id} value={String(city.id)} data-testid={`select-city-${city.id}`}>
+                        {city.name}, {city.state}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
             </SelectContent>
           </Select>
           <Button

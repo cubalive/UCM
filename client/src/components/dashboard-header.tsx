@@ -6,7 +6,9 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -127,11 +129,25 @@ export function DashboardHeader() {
                     {t("common.allCities")}
                   </SelectItem>
                 )}
-                {activeCities.map((city) => (
-                  <SelectItem key={city.id} value={String(city.id)} data-testid={`select-header-city-${city.id}`}>
-                    {city.name}, {city.state}
-                  </SelectItem>
-                ))}
+                {Object.entries(
+                  activeCities.reduce<Record<string, typeof activeCities>>((acc, city) => {
+                    const st = city.state || "Other";
+                    if (!acc[st]) acc[st] = [];
+                    acc[st].push(city);
+                    return acc;
+                  }, {})
+                )
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([state, stateCities]) => (
+                    <SelectGroup key={state}>
+                      <SelectLabel>{state}</SelectLabel>
+                      {stateCities.map((city) => (
+                        <SelectItem key={city.id} value={String(city.id)} data-testid={`select-header-city-${city.id}`}>
+                          {city.name}, {city.state}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
               </SelectContent>
             </Select>
           </div>
