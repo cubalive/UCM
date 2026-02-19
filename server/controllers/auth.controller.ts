@@ -305,6 +305,20 @@ export async function meHandler(req: Request, res: Response) {
   }
 }
 
+export async function authHealthHandler(_req: Request, res: Response) {
+  const { allowedAppOrigins } = await import("../index");
+  res.json({
+    ok: true,
+    allowedOrigins: Array.from(allowedAppOrigins),
+    appBaseUrl: process.env.PUBLIC_BASE_URL_APP || "https://app.unitedcaremobility.com",
+    driverBaseUrl: process.env.PUBLIC_BASE_URL_DRIVER || "https://driver.unitedcaremobility.com",
+    apiBaseUrl: process.env.PUBLIC_BASE_URL_API || null,
+    twilioConfigured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
+    geofenceEnabled: process.env.GEOFENCE_ENABLED === "true",
+    smsReminderEnabled: process.env.SMS_REMINDER_ENABLED === "true",
+  });
+}
+
 export async function setWorkingCityHandler(req: Request, res: Response) {
   try {
     const authReq = req as AuthRequest;

@@ -22,6 +22,7 @@ import {
   cancelRequestHandler,
   rejectCancelHandler,
   cancelTripHandler,
+  acceptTripHandler,
   createReturnTripHandler,
   recomputeRouteHandler,
   driverSignatureHandler,
@@ -52,6 +53,8 @@ router.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEW
 router.patch("/api/trips/:id", authMiddleware, requirePermission("trips", "write"), requireTenantScope, updateTripHandler as any);
 
 router.patch("/api/trips/:id/status", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER", "SUPER_ADMIN", "COMPANY_ADMIN"), requireTenantScope, updateTripStatusHandler as any);
+
+router.post("/api/trips/:id/accept", authMiddleware, requireRole("DRIVER"), requireTenantScope, acceptTripHandler as any);
 
 router.get("/api/trips/:id/dialysis-return-check", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), requireTenantScope, dialysisReturnCheckHandler as any);
 router.post("/api/trips/:id/dialysis-return-adjust", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER"), requireTenantScope, dialysisReturnAdjustHandler as any);

@@ -8,6 +8,10 @@ import { sendEmail } from "./email";
 
 const router = Router();
 
+router.get("/health", (_req: Request, res: Response) => {
+  res.json({ ok: true });
+});
+
 // CORS is handled globally in server/index.ts for all /api/* routes
 
 function rateLimitMiddleware(limit: number, windowSec: number) {

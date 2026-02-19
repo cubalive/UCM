@@ -88,7 +88,8 @@ export type TripNotifyStatus =
   | "arrived"
   | "picked_up"
   | "completed"
-  | "canceled";
+  | "canceled"
+  | "reminder_24h";
 
 interface TemplateVars {
   pickup_time?: string;
@@ -144,6 +145,11 @@ const TEMPLATES: Record<TripNotifyStatus, (v: TemplateVars) => string> = {
   canceled: (v) => {
     const dispatch = v.dispatch_phone || "your dispatch office";
     return `${PREFIX} Trip cancelled. Call dispatch ${dispatch}.${OPT_OUT}`;
+  },
+  reminder_24h: (v) => {
+    const trackLink = v.tracking_url ? ` Track: ${v.tracking_url}` : "";
+    const driverInfo = v.driver_name ? ` Driver: ${v.driver_name}.` : "";
+    return `${PREFIX} Reminder: your ride is tomorrow at ${v.pickup_time || "your appointment time"}.${driverInfo}${trackLink}${OPT_OUT}`;
   },
 };
 

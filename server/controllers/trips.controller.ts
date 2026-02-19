@@ -910,7 +910,16 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       }).catch(() => {});
     }
 
-    if (parsed.data.status === "EN_ROUTE_TO_PICKUP" || parsed.data.status === "IN_PROGRESS") {
+    const smsBaseUrl = process.env.PUBLIC_BASE_URL_APP
+      || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://app.unitedcaremobility.com");
+
+    if (parsed.data.status === "EN_ROUTE_TO_PICKUP") {
+      import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+        autoNotifyPatient(id, "en_route", { base_url: smsBaseUrl });
+      }).catch(() => {});
+    }
+
+    if (parsed.data.status === "ARRIVED_PICKUP") {
       import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
         autoNotifyPatient(id, "arrived");
       }).catch(() => {});
@@ -961,6 +970,104 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       }),
       cityId: updatedTrip.cityId,
     });
+    res.json(updatedTrip);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function acceptTripHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const idempotencyKey = req.body.idempotencyKey;
+    if (idempotencyKey) {
+      const { cache } = await import("../lib/cache");
+      const idemKey = `idem:accept:${idempotencyKey}`;
+      const claimed = cache.setIfNotExists(idemKey, true, 600_000);
+      if (!claimed) {
+        return res.json({ message: "Already applied", idempotent: true });
+      }
+    }
+
+    const trip = await storage.getTrip(id);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+    if (tripLockedGuard(trip, req, res)) return;
+
+    const companyId = getCompanyIdFromAuth(req);
+    if (!checkCompanyOwnership(trip, companyId)) {
+      return res.status(403).json({ message: "Access denied: trip belongs to a different company" });
+    }
+
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId || trip.driverId !== user.driverId) {
+      return res.status(403).json({ message: "You can only accept your assigned trips" });
+    }
+
+    if (trip.status === "EN_ROUTE_TO_PICKUP") {
+      return res.json({ message: "Already accepted", idempotent: true });
+    }
+
+    if (trip.status !== "ASSIGNED") {
+      return res.status(400).json({ message: `Cannot accept trip in ${trip.status} status. Trip must be ASSIGNED.` });
+    }
+
+    const updateData: any = {
+      status: "EN_ROUTE_TO_PICKUP",
+      startedAt: new Date(),
+    };
+
+    const updated = await db.update(trips).set(updateData).where(
+      and(eq(trips.id, id), eq(trips.status, "ASSIGNED"))
+    ).returning();
+
+    if (!updated.length) {
+      return res.json({ message: "Trip status already changed", idempotent: true });
+    }
+
+    const updatedTrip = updated[0];
+
+    import("../lib/realtime").then(({ broadcastToTrip }) => {
+      broadcastToTrip(id, { type: "status_change", data: { status: "EN_ROUTE_TO_PICKUP", tripId: id } });
+    }).catch(() => {});
+
+    import("../lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
+      broadcastTripSupabase(id, { type: "status_change", data: { status: "EN_ROUTE_TO_PICKUP", tripId: id } });
+    }).catch(() => {});
+
+    const baseUrl = process.env.PUBLIC_BASE_URL_APP
+      || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://app.unitedcaremobility.com");
+
+    import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+      autoNotifyPatient(id, "en_route", { base_url: baseUrl });
+    }).catch(() => {});
+
+    if (updatedTrip.driverId) {
+      import("../lib/driverLocationIngest").then(({ persistOnStatusEvent, getDriverLocationFromCache }) => {
+        const loc = getDriverLocationFromCache(updatedTrip.driverId!);
+        if (loc) {
+          persistOnStatusEvent(updatedTrip.driverId!, loc.lat, loc.lng);
+        }
+      }).catch(() => {});
+    }
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "TRIP_ACCEPTED",
+      entity: "trip",
+      entityId: updatedTrip.id,
+      details: JSON.stringify({
+        oldStatus: "ASSIGNED",
+        newStatus: "EN_ROUTE_TO_PICKUP",
+        driverId: trip.driverId,
+        patientId: trip.patientId,
+        clinicId: trip.clinicId,
+      }),
+      cityId: updatedTrip.cityId,
+    });
+
     res.json(updatedTrip);
   } catch (err: any) {
     res.status(500).json({ message: err.message });

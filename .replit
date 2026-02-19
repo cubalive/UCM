@@ -46,6 +46,17 @@ waitForPort = 5000
 PUBLIC_BASE_URL = "https://app.unitedcaremobility.com"
 ALLOWED_ORIGIN_1 = "https://unitedcaremobility.lovable.app"
 VITE_UCM_DEBUG = "true"
+PUBLIC_BASE_URL_APP = "https://app.unitedcaremobility.com"
+PUBLIC_BASE_URL_DRIVER = "https://driver.unitedcaremobility.com"
+GEOFENCE_ENABLED = "true"
+ETA_REFRESH_SECONDS = "20"
+LOCATION_STALE_SECONDS = "180"
+GEOFENCE_PICKUP_RADIUS_METERS = "120"
+GEOFENCE_DROPOFF_RADIUS_METERS = "160"
+SMS_REMINDER_ENABLED = "true"
+SMS_T24_WINDOW_MINUTES = "20"
+SMS_SCHEDULER_INTERVAL_SECONDS = "60"
+PATIENT_LINK_TTL_HOURS = "72"
 
 [userenv.development]
 

@@ -23,7 +23,8 @@ The application follows a client-server architecture.
 - **Communication**: SMS notifications and branded email services.
 - **Location Services**: Google Maps integration for geocoding, autocomplete, ETA, route optimization, and live maps.
 - **Audit Logging**: Comprehensive logging of key system actions.
-- **Trip Management**: Includes public tracking links, clinic address enforcement, trip approval workflow, recurring trip series, no-show/late tracking, and driver offer acceptance.
+- **Trip Management**: Includes public tracking links, clinic address enforcement, trip approval workflow, recurring trip series, no-show/late tracking, and driver offer acceptance. Driver trip accept endpoint (`POST /api/trips/:id/accept`) transitions ASSIGNED→EN_ROUTE_TO_PICKUP with SMS notification.
+- **Patient Communication System**: Automated SMS notifications for driver assignment, en-route with tracking links, T-24H reminders (background scheduler), geofence auto-arrival, and proper base URL routing. Feature flags: `GEOFENCE_ENABLED`, `SMS_REMINDER_ENABLED`.
 - **Automation & Operational Features**: A 7-Phase Automation System covering routing, auto-assignment, anti-no-show, driver scoring, financial dashboards, map status badges, and an operational health automation tab.
 - **Portals & APIs**: Public Booking API, Clinic Portal, and multi-company isolation.
 - **Realtime & Performance Hardening**: WebSocket server, Supabase Realtime, Upstash Redis for distributed caching, in-memory cache, rate-limited driver location ingest, and ETA throttling.

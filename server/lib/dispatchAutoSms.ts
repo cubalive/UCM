@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { sendSms, normalizePhone, buildNotifyMessage, getDispatchPhone, type TripNotifyStatus } from "./twilioSms";
 
-const TRACKING_STATUSES: TripNotifyStatus[] = ["driver_assigned", "en_route", "arriving_soon"];
+const TRACKING_STATUSES: TripNotifyStatus[] = ["driver_assigned", "en_route", "arriving_soon", "reminder_24h"];
 
 export async function autoNotifyPatient(
   tripId: number,

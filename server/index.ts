@@ -307,6 +307,9 @@ app.use((req, res, next) => {
   const { startJobEngine } = await import("./lib/jobEngine");
   startJobEngine();
 
+  const { startSmsReminderScheduler } = await import("./lib/smsReminderScheduler");
+  startSmsReminderScheduler();
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

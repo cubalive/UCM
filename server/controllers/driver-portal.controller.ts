@@ -686,6 +686,20 @@ export async function postDriverOfferAcceptHandler(req: AuthRequest, res: Respon
       await db.update(trips).set(updateData).where(eq(trips.id, offer.tripId));
     }
 
+    import("../lib/realtime").then(({ broadcastToTrip }) => {
+      broadcastToTrip(offer.tripId, { type: "status_change", data: { status: "ASSIGNED", tripId: offer.tripId } });
+    }).catch(() => {});
+
+    import("../lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
+      broadcastTripSupabase(offer.tripId, { type: "status_change", data: { status: "ASSIGNED", tripId: offer.tripId } });
+    }).catch(() => {});
+
+    const smsBaseUrl = process.env.PUBLIC_BASE_URL_APP
+      || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://app.unitedcaremobility.com");
+    import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+      autoNotifyPatient(offer.tripId, "driver_assigned", { base_url: smsBaseUrl });
+    }).catch(() => {});
+
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "OFFER_ACCEPTED",
