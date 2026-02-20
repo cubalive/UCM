@@ -98,7 +98,7 @@ export async function createClinicHandler(req: AuthRequest, res: Response) {
           password: hashed,
           firstName: nameParts[0] || clinic.name,
           lastName: nameParts.slice(1).join(" ") || "Clinic",
-          role: "CLINIC_USER",
+          role: "CLINIC_ADMIN",
           phone: clinic.phone || null,
           active: true,
           mustChangePassword: true,

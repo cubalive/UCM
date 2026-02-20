@@ -90,8 +90,8 @@ router.patch("/api/admin/trips/:id/archive", authMiddleware, requirePermission("
 router.patch("/api/admin/trips/:id/restore", authMiddleware, requirePermission("trips", "write"), restoreTripHandler as any);
 router.delete("/api/admin/trips/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteTripHandler as any);
 
-router.patch("/api/clinic/patients/:id/archive", authMiddleware, requireRole("CLINIC_USER"), clinicPatientArchiveHandler as any);
-router.patch("/api/clinic/patients/:id/unarchive", authMiddleware, requireRole("CLINIC_USER"), clinicPatientUnarchiveHandler as any);
+router.patch("/api/clinic/patients/:id/archive", authMiddleware, requireRole("CLINIC_USER", "CLINIC_ADMIN"), clinicPatientArchiveHandler as any);
+router.patch("/api/clinic/patients/:id/unarchive", authMiddleware, requireRole("CLINIC_USER", "CLINIC_ADMIN"), clinicPatientUnarchiveHandler as any);
 
 router.get("/api/admin/hard-delete/preview", authMiddleware, requireRole("SUPER_ADMIN"), hardDeletePreviewHandler as any);
 router.post("/api/admin/hard-delete", authMiddleware, requireRole("SUPER_ADMIN"), hardDeleteHandler as any);
@@ -106,7 +106,7 @@ router.get("/api/admin/ops-intel/scores/csv", authMiddleware, requireRole("SUPER
 router.post("/api/trips/pdf/batch", authMiddleware, requirePermission("trips", "read"), batchPdfHandler as any);
 router.get("/api/trips/pdf/batch/:jobId/download", authMiddleware, requirePermission("trips", "read"), batchPdfDownloadHandler as any);
 router.get("/api/app-config", authMiddleware, appConfigHandler as any);
-router.post("/api/realtime/token", authMiddleware, requireRole("CLINIC_USER", "DISPATCH", "ADMIN", "SUPER_ADMIN", "DRIVER", "COMPANY_ADMIN"), realtimeTokenHandler as any);
+router.post("/api/realtime/token", authMiddleware, requireRole("CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "DISPATCH", "ADMIN", "SUPER_ADMIN", "DRIVER", "COMPANY_ADMIN"), realtimeTokenHandler as any);
 router.get("/api/ops/realtime-metrics", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), realtimeMetricsHandler as any);
 router.post("/api/realtime/test", authMiddleware, requireRole("SUPER_ADMIN", "DISPATCH"), realtimeTestHandler as any);
 router.get("/api/ops/directions-metrics", authMiddleware, requirePermission("dashboard", "read"), directionsMetricsHandler as any);

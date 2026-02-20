@@ -143,16 +143,19 @@ export function AppSidebar() {
 
   const isClinic = !!user?.clinicId;
 
+  const CLINIC_SCOPED = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"];
+
   const clinicNavItems: NavItem[] = [
     { titleKey: "nav.clinicPortal", url: "/clinic-trips", icon: Stethoscope, resource: "trips" },
     { titleKey: "nav.invoices", url: "/invoices", icon: FileText, resource: "invoices" },
     { titleKey: "nav.clinicBillingV2", url: "/clinic-billing-v2", icon: Receipt, resource: "billing" },
     { titleKey: "nav.supportChat", url: "/support-chat", icon: MessageSquare, resource: "support" },
+    ...(upperRole === "CLINIC_ADMIN" ? [{ titleKey: "nav.clinicUsers" as const, url: "/clinic-users", icon: Users, resource: "users" as Resource }] : []),
   ];
 
   const visibleNav = isDriver
     ? driverNavItems
-    : isClinic && (upperRole === "VIEWER" || upperRole === "CLINIC_USER")
+    : isClinic && (CLINIC_SCOPED.includes(upperRole) || upperRole === "VIEWER")
     ? clinicNavItems
     : navItems.filter((item) => {
         if (item.url === "/live-map" && ["VIEWER", "DRIVER"].includes(upperRole)) return true;

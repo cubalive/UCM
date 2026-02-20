@@ -76,7 +76,7 @@ export function registerMapsRoutes(app: Express): void {
     });
   });
 
-  app.get("/api/maps/client-key", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "DRIVER", "CLINIC_USER"), (_req: Request, res: Response) => {
+  app.get("/api/maps/client-key", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "DRIVER", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER"), (_req: Request, res: Response) => {
     const clientKey = GOOGLE_MAPS_BROWSER_KEY;
     if (!clientKey) {
       return res.status(503).json({ key: null, message: "Google Maps browser API key not configured. Set GOOGLE_MAPS_BROWSER_KEY." });
@@ -84,7 +84,7 @@ export function registerMapsRoutes(app: Express): void {
     res.json({ key: clientKey });
   });
 
-  app.post("/api/maps/geocode", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "CLINIC_USER", "COMPANY_ADMIN", "SUPER_ADMIN"), async (req: Request, res: Response) => {
+  app.post("/api/maps/geocode", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "COMPANY_ADMIN", "SUPER_ADMIN"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = geocodeSchema.safeParse(req.body);
@@ -100,7 +100,7 @@ export function registerMapsRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/maps/places/autocomplete", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "CLINIC_USER", "COMPANY_ADMIN", "SUPER_ADMIN"), async (req: Request, res: Response) => {
+  app.post("/api/maps/places/autocomplete", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "COMPANY_ADMIN", "SUPER_ADMIN"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = autocompleteSchema.safeParse(req.body);
@@ -116,7 +116,7 @@ export function registerMapsRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/maps/places/details", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "CLINIC_USER", "COMPANY_ADMIN", "SUPER_ADMIN"), async (req: Request, res: Response) => {
+  app.post("/api/maps/places/details", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "COMPANY_ADMIN", "SUPER_ADMIN"), async (req: Request, res: Response) => {
     if (!rateLimitMiddleware(req, res)) return;
 
     const parsed = placeDetailsSchema.safeParse(req.body);

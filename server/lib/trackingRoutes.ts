@@ -468,7 +468,7 @@ export function registerTrackingRoutes(app: Express) {
   app.get(
     "/api/trips/:id/live",
     authMiddleware,
-    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER"),
+    requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER"),
     async (req: AuthRequest, res) => {
       try {
         const tripId = parseInt(req.params.id as string);

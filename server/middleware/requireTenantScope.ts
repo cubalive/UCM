@@ -3,7 +3,7 @@ import type { AuthRequest } from "../auth";
 
 const SUPER_ADMIN_ROLE = "SUPER_ADMIN";
 
-const TENANT_EXEMPT_ROLES = new Set(["DRIVER", "CLINIC_USER", "VIEWER"]);
+const TENANT_EXEMPT_ROLES = new Set(["DRIVER", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "VIEWER"]);
 
 export function requireTenantScope(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) {

@@ -113,7 +113,7 @@ router.patch(
 router.get(
   "/api/intel/certifications",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "CLINIC_USER"),
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER"),
   requireCityAccess,
   getCertificationsHandler as any
 );

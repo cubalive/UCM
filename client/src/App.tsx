@@ -66,6 +66,7 @@ import PlatformFeesPage from "@/pages/platform-fees";
 import ClinicBillingV2Page from "@/pages/clinic-billing-v2";
 import SupportChatPage from "@/pages/support-chat";
 import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
+import ClinicUsersPage from "@/pages/clinic-users";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
 import SystemStatusPage from "@/pages/system-status";
@@ -180,11 +181,14 @@ function ProtectedRoute({ resource, component: Component }: { resource: Resource
   return <Component />;
 }
 
+const CLINIC_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"];
+
 function LiveMapRoute() {
   const { user } = useAuth();
   if (!user) return <Redirect to="/unauthorized" />;
   const role = user.role.toUpperCase();
-  if (user.clinicId && (role === "VIEWER" || role === "CLINIC_USER")) return <Redirect to="/unauthorized" />;
+  if (user.clinicId && CLINIC_ROLES.includes(role)) return <Redirect to="/unauthorized" />;
+  if (user.clinicId && role === "VIEWER") return <Redirect to="/unauthorized" />;
   const hasAccess = can(user.role, "dispatch") || ["VIEWER", "DRIVER"].includes(role);
   if (!hasAccess) return <Redirect to="/unauthorized" />;
   return <LiveMapPage />;
@@ -217,11 +221,23 @@ function ClinicRoute({ component: Component }: { component: React.ComponentType 
 function ClinicOrPermissionRoute({ resource, component: Component }: { resource: Resource; component: React.ComponentType }) {
   const { user } = useAuth();
   if (!user) return <Redirect to="/unauthorized" />;
-  const isClinicUser = user.clinicId && (user.role.toUpperCase() === "CLINIC_USER" || user.role.toUpperCase() === "VIEWER");
-  if (isClinicUser || can(user.role, resource)) {
+  const role = user.role.toUpperCase();
+  const isClinicScoped = user.clinicId && (CLINIC_ROLES.includes(role) || role === "VIEWER");
+  if (isClinicScoped || can(user.role, resource)) {
     return <Component />;
   }
   return <Redirect to="/unauthorized" />;
+}
+
+function ClinicAdminRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user } = useAuth();
+  if (!user) return <Redirect to="/unauthorized" />;
+  const role = user.role.toUpperCase();
+  if (!user.clinicId) return <Redirect to="/unauthorized" />;
+  if (role !== "CLINIC_ADMIN" && role !== "SUPER_ADMIN" && role !== "ADMIN" && role !== "COMPANY_ADMIN") {
+    return <Redirect to="/unauthorized" />;
+  }
+  return <Component />;
 }
 
 function SuperAdminRoute({ component: Component }: { component: React.ComponentType }) {
@@ -238,7 +254,7 @@ function HomeRedirect() {
   if (role === "DRIVER") {
     return <Redirect to="/driver" />;
   }
-  if (user.clinicId && (role === "VIEWER" || role === "CLINIC_USER")) {
+  if (user.clinicId && (CLINIC_ROLES.includes(role) || role === "VIEWER")) {
     return <Redirect to="/clinic-trips" />;
   }
   if (can(user.role, "dashboard")) {
@@ -298,6 +314,7 @@ function Router() {
       <Route path="/dispatch-swaps">{() => <ProtectedRoute resource="dispatch" component={DispatchSwapsPage} />}</Route>
       <Route path="/clinic-trip/:id">{() => <ClinicRoute component={ClinicTripDetailsPage} />}</Route>
       <Route path="/clinic-trips">{() => <ClinicRoute component={ClinicTripsPage} />}</Route>
+      <Route path="/clinic-users">{() => <ClinicAdminRoute component={ClinicUsersPage} />}</Route>
       <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/invoices">{() => <ClinicOrPermissionRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>

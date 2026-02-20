@@ -51,6 +51,7 @@ export interface AuthPayload {
   userId: number;
   role: string;
   companyId?: number | null;
+  clinicId?: number | null;
   iat?: number;
 }
 
@@ -139,9 +140,10 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
 }
 
 export function normalizeRole(role: string): string {
-  if (role === "CLINIC_USER") return "VIEWER";
   return role;
 }
+
+export const CLINIC_SCOPED_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"];
 
 export function isDispatchLevel(role: string): boolean {
   return ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH"].includes(role);
@@ -159,8 +161,7 @@ export interface UserProfile {
 }
 
 export function isClinicUser(user: UserProfile): boolean {
-  const role = normalizeRole(user.role);
-  return (role === "VIEWER" || role === "CLINIC_USER") && user.clinicId != null;
+  return CLINIC_SCOPED_ROLES.includes(user.role) && user.clinicId != null;
 }
 
 export function isPatientUser(user: UserProfile): boolean {
@@ -221,7 +222,7 @@ export function requirePermission(resource: Resource, permission: Permission = "
   };
 }
 
-const OPS_DENIED_ROLES = ["DRIVER", "CLINIC_USER"];
+const OPS_DENIED_ROLES = ["DRIVER"];
 export function opsRouteGuard(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED" });

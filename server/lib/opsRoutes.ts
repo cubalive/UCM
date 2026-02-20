@@ -738,7 +738,7 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/ops/clinic-health", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/clinic-health", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"), async (req: AuthRequest, res) => {
     try {
       const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
 
@@ -830,7 +830,7 @@ export function registerOpsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ops/clinic-help", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER"), async (req: AuthRequest, res) => {
+  app.post("/api/ops/clinic-help", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "VIEWER", "CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"), async (req: AuthRequest, res) => {
     try {
       const { clinic_id, message } = req.body;
       if (!clinic_id || !message) return res.status(400).json({ error: "clinic_id and message required" });

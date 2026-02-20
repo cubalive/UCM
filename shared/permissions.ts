@@ -1,4 +1,4 @@
-export type AppRole = "SUPER_ADMIN" | "ADMIN" | "COMPANY_ADMIN" | "DISPATCH" | "DRIVER" | "VIEWER";
+export type AppRole = "SUPER_ADMIN" | "ADMIN" | "COMPANY_ADMIN" | "DISPATCH" | "DRIVER" | "VIEWER" | "CLINIC_ADMIN" | "CLINIC_USER" | "CLINIC_VIEWER";
 
 export type Resource =
   | "dashboard"
@@ -122,7 +122,64 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     billing: ["read"],
     support: ["read", "write"],
   },
+  CLINIC_ADMIN: {
+    dashboard: ["read"],
+    dispatch: [],
+    trips: ["read", "write"],
+    patients: ["read", "write"],
+    drivers: [],
+    vehicles: [],
+    clinics: ["read"],
+    invoices: ["read"],
+    cities: [],
+    users: ["read", "write"],
+    audit: [],
+    time_entries: [],
+    payroll: [],
+    billing: ["read"],
+    support: ["read", "write"],
+  },
+  CLINIC_USER: {
+    dashboard: ["read"],
+    dispatch: [],
+    trips: ["read", "write"],
+    patients: ["read", "write"],
+    drivers: [],
+    vehicles: [],
+    clinics: ["read"],
+    invoices: [],
+    cities: [],
+    users: [],
+    audit: [],
+    time_entries: [],
+    payroll: [],
+    billing: [],
+    support: ["read", "write"],
+  },
+  CLINIC_VIEWER: {
+    dashboard: ["read"],
+    dispatch: [],
+    trips: ["read"],
+    patients: ["read"],
+    drivers: [],
+    vehicles: [],
+    clinics: ["read"],
+    invoices: ["read"],
+    cities: [],
+    users: [],
+    audit: [],
+    time_entries: [],
+    payroll: [],
+    billing: ["read"],
+    support: ["read"],
+  },
 };
+
+export const CLINIC_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"] as const;
+
+export function isClinicRole(role: string): boolean {
+  return CLINIC_ROLES.includes(role.toUpperCase() as any);
+}
 
 export function can(role: string, resource: Resource, permission: Permission = "read"): boolean {
   const normalizedRole = role.toUpperCase() as AppRole;

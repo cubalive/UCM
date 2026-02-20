@@ -55,7 +55,7 @@ export async function loginHandler(req: Request, res: Response) {
       }
     }
 
-    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null });
+    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null });
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
 
@@ -135,7 +135,7 @@ export async function loginJwtHandler(req: Request, res: Response) {
       }
     }
 
-    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null });
+    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null });
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
     const userRole = user.role as string;
@@ -175,7 +175,7 @@ export async function devSessionHandler(_req: Request, res: Response) {
     if (!user) {
       return res.status(503).json({ message: "Dev session unavailable: admin user not found" });
     }
-    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null });
+    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null });
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
     const accessibleCities = user.role === "SUPER_ADMIN"
