@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import type { AuthRequest } from "../auth";
-import { db, pool, getDbSource, getDbHost, getDbPort, hasDatabaseUrl, hasSupabaseDbUrl } from "../db";
+import { db, pool, getDbSource, getDbHost, getDbPort } from "../db";
 import { sql } from "drizzle-orm";
 
 export async function dbCheckHandler(req: AuthRequest, res: Response) {
@@ -11,8 +11,7 @@ export async function dbCheckHandler(req: AuthRequest, res: Response) {
     port: 0,
     source: "",
     env_present: {
-      DATABASE_URL: hasDatabaseUrl(),
-      SUPABASE_DB_URL: hasSupabaseDbUrl(),
+      DATABASE_URL: !!process.env.DATABASE_URL,
     },
     timestamp_from_db: null,
     companies_count: null,

@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { AuthRequest } from "../auth";
-import { db, pool, getDbSource, getDbHost, getDbPort, hasDatabaseUrl, hasSupabaseDbUrl, hasNeonRefs } from "../db";
+import { db, pool, getDbSource, getDbHost, getDbPort } from "../db";
 import { sql } from "drizzle-orm";
 
 const APP_VERSION = "2.0.0";
@@ -151,9 +151,8 @@ export async function healthDbDetails(_req: AuthRequest, res: Response) {
       latencyMs,
     },
     flags: {
-      hasDatabaseUrl: hasDatabaseUrl(),
-      hasSupabaseDbUrl: hasSupabaseDbUrl(),
-      hasNeonRefs: hasNeonRefs(),
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+      source: "DATABASE_URL",
     },
     timestamp: new Date().toISOString(),
   });
