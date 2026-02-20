@@ -262,11 +262,20 @@ app.use((req, res, next) => {
     console.warn("[BOOT] Schema migration warning:", migErr.message);
   }
 
+  const jwtSecretSource = process.env.JWT_SECRET ? "env" : "fallback";
+  const jwtSecretMasked = process.env.JWT_SECRET
+    ? `${process.env.JWT_SECRET.slice(0, 4)}***${process.env.JWT_SECRET.slice(-4)}`
+    : "(dev-fallback)";
+  console.log(`[AUTH] JWT_SECRET loaded — source: ${jwtSecretSource}, fingerprint: ${jwtSecretMasked}`);
+  console.log(`[AUTH] SESSION_SECRET loaded — present: ${!!process.env.SESSION_SECRET}`);
+
   const bootConfig = {
     event: "boot_config",
     nodeEnv: process.env.NODE_ENV || "undefined",
     appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
     dbSource: getDbSource(),
+    jwtSecret: jwtSecretSource,
+    sessionSecret: !!process.env.SESSION_SECRET,
     sessionCookie: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax", domain: ".unitedcaremobility.com (auto)", path: "/" },
   };
   console.log(JSON.stringify(bootConfig));
