@@ -1,0 +1,109 @@
+ROLE: Principal Systems Auditor
+PROJECT: UCM Dispatch
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No partial testing
+- No superficial API-only validation
+- Do NOT reset database
+- Do NOT fake success
+- Perform FULL SYSTEM WALKTHROUGH
+
+IMPORTANT:
+Previous tests were only API curl checks.
+That is NOT acceptable.
+We need full logical + UI + DB + tenant audit.
+
+OBJECTIVE:
+System must function like a Swiss clock.
+All features must work end-to-end from UI to DB.
+
+PHASE 1 – REAL END-TO-END TESTS (NOT CURL ONLY)
+
+You MUST:
+
+1. Create a new Company
+2. Create a Clinic under that company
+3. Create a Clinic User login
+4. Create a Driver under that company
+5. Create a Vehicle under that company
+6. Assign Vehicle to Driver
+7. Create a Patient from:
+   - Clinic portal
+   - Dispatch portal
+8. Create a Trip from:
+   - Dispatch
+   - Super Admin
+9. Verify Trip appears in:
+   - Dispatch view
+   - Clinic view
+10. Move Trip through FULL status lifecycle
+11. Validate GeoFence logic using simulated driver coordinates
+12. Generate invoice
+
+If ANY step fails:
+- Identify root cause
+- Fix it
+- Retest
+
+PHASE 2 – TENANT ISOLATION VALIDATION
+
+For EVERY table:
+- Ensure company_id exists
+- Ensure all queries filter by company_id
+- Ensure no cross-company data leakage
+- Ensure vehicle cannot be assigned across companies
+
+If missing:
+- Add migration (ALTER TABLE only)
+- Backfill safely
+
+PHASE 3 – ADDRESS + GOOGLE API
+
+- Confirm autocomplete works in:
+  - Patient creation
+  - Trip pickup
+  - Trip dropoff
+- Confirm lat/lng saved in DB
+- Confirm geofence uses those coordinates
+- If Google key missing, clear error message shown (not crash)
+
+PHASE 4 – MANUAL + AUTO LOGIC
+
+- Manual override must always exist
+- Automation must not block manual creation
+- Auto schedule must not override manual times
+- Auto assign must respect:
+  - driver schedule
+  - vehicle type
+  - company isolation
+
+PHASE 5 – SECURITY
+
+- Server-side RBAC only
+- UI checks are secondary
+- Confirm driver cannot access other company data
+- Confirm clinic cannot see other company data
+
+PHASE 6 – STABILITY
+
+- No silent failures
+- All endpoints return structured JSON errors
+- All UI forms show field-level errors
+- No infinite loading states
+
+FINAL DELIVERABLE REQUIRED:
+
+Provide a written SYSTEM AUDIT REPORT including:
+
+1. Tables reviewed
+2. Missing fields added
+3. Logic bugs fixed
+4. Endpoints corrected
+5. Tenant isolation verification proof
+6. Geofence verification proof
+7. Remaining technical debt list
+8. Confirmation: System stable for production use
+
+Do NOT mark tasks complete until ALL flows are verified.
+No shortcuts.
+No superficial testing.
