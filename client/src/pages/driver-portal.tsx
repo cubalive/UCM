@@ -2034,6 +2034,11 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMuta
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   const [emergencyNote, setEmergencyNote] = useState("");
 
+  const healthQuery = useQuery<{ version?: string }>({
+    queryKey: ["/api/healthz"],
+    staleTime: 300_000,
+  });
+
   const emergencyMutation = useMutation({
     mutationFn: (data: { lat?: number; lng?: number; note?: string }) =>
       apiFetch("/api/driver/emergency", token, {
@@ -2146,6 +2151,12 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMuta
           </Card>
         </div>
       )}
+
+      <div className="pt-4 text-center" data-testid="text-app-version">
+        <p className="text-xs text-muted-foreground">
+          UCM Driver v{healthQuery.data?.version || "..."}
+        </p>
+      </div>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import type { AuthRequest } from "../auth";
 import { db, pool, getDbSource, getDbHost, getDbPort } from "../db";
 import { sql } from "drizzle-orm";
 
-const APP_VERSION = "2.0.0";
+const APP_VERSION = process.env.UCM_BUILD_VERSION || process.env.BUILD_VERSION || "dev";
 
 export async function healthz(_req: Request, res: Response) {
   const start = Date.now();
