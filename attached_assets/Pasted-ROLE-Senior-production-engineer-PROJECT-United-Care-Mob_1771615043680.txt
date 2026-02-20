@@ -1,0 +1,81 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify with queries + UI checks
+
+GOAL
+Fix Super Admin map showing “No driver locations available for this city” by ensuring:
+1) Every Driver belongs to exactly one Company and one City (required fields).
+2) Driver location updates are stored with driverId + companyId + cityId + updatedAt + isOnline.
+3) Super Admin map endpoint returns ALL companies’ drivers for the selected city (no company filter).
+4) Company Admin map endpoint returns only that company’s drivers (company filter).
+5) UI shows driver name + company name on marker/tooltips, and counts Active/Stale.
+
+TASKS
+A) DATA MODEL / DB
+- Add/ensure columns:
+  - drivers.companyId (FK) NOT NULL
+  - drivers.cityId (FK) NOT NULL
+  - vehicles.companyId (FK) NOT NULL
+  - vehicles.cityId (FK) NOT NULL
+- Create/ensure driver_locations table:
+  - id (uuid pk)
+  - driverId (FK) NOT NULL
+  - companyId (FK) NOT NULL
+  - cityId (FK) NOT NULL
+  - lat (double) NOT NULL
+  - lng (double) NOT NULL
+  - heading (int, nullable)
+  - speed (double, nullable)
+  - accuracy (double, nullable)
+  - isOnline (bool) NOT NULL default false
+  - updatedAt (timestamp) NOT NULL default now()
+  - createdAt (timestamp) NOT NULL default now()
+- Add index on (cityId, updatedAt) and (companyId, cityId, updatedAt)
+
+B) DRIVER APP -> LOCATION UPDATES
+- Ensure driver app sends location updates to backend:
+  POST /api/driver/location
+  body: { lat, lng, heading?, speed?, accuracy?, isOnline:true }
+- Backend must infer driverId from auth (JWT user -> driverId) and then attach companyId + cityId from drivers table.
+- If driver.companyId or driver.cityId missing, reject with clear error and log.
+
+C) MAP QUERIES
+- Implement endpoints:
+  GET /api/admin/driver-locations?cityId=...
+    - RBAC: SUPER_ADMIN only
+    - Return latest location per driver for that cityId across ALL companies
+  GET /api/company/driver-locations?cityId=...
+    - RBAC: COMPANY_ADMIN/DISPATCH only
+    - Filter by requester companyId + cityId
+- “Latest location per driver” logic:
+  Use DISTINCT ON (driverId) ordered by updatedAt desc (Postgres) OR window function.
+- Define stale threshold = 2 minutes. Return status: "active" if updatedAt >= now-2m else "stale".
+- Include driverName, companyName, vehicle label if available.
+
+D) UI FIX (SUPER ADMIN MAP)
+- On Super Admin map page:
+  - When city is selected, call /api/admin/driver-locations?cityId=
+  - Show counts Active / Stale
+  - If empty, show 2 hints:
+    1) “No drivers online for this city”
+    2) “Check driver app CONNECT”
+- Marker tooltip: “Driver Name — Company — Vehicle — Last update X sec ago”
+
+E) VERIFICATION (MANDATORY)
+1) SQL check: pick one driver (Ibrahi) confirm drivers.companyId and drivers.cityId not null.
+2) Simulate update: call POST /api/driver/location for that driver session, verify row inserted with companyId/cityId.
+3) Call GET /api/admin/driver-locations?cityId=LasVegasCityId verify it returns that driver.
+4) Open Super Admin map -> Las Vegas -> see marker.
+5) Confirm Company Admin only sees own drivers.
+
+Deliver:
+- Exact files changed
+- Exact SQL migrations (Drizzle)
+- Exact endpoints + RBAC checks
+- Screenshot/console proof steps (or logs) that it works

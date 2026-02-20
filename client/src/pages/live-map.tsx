@@ -18,11 +18,13 @@ import { AlertTriangle, MapPin, RefreshCw, Users } from "lucide-react";
 interface DriverLocation {
   driver_id: number;
   driver_name: string;
+  company_name: string | null;
   city_id: number;
   lat: number;
   lng: number;
   updated_at: string | null;
   status: string;
+  stale: boolean;
   vehicle_id: number | null;
   vehicle_label: string | null;
   vehicle_color: string | null;
@@ -362,9 +364,14 @@ function GoogleMapView({ drivers, center, zoom, mapsLoaded }: GoogleMapProps) {
                ${d.active_trip_patient ? `<div style="font-size:10px;color:#666;">Patient: ${d.active_trip_patient}</div>` : ""}`
             : `<div style="margin-top:4px;font-size:10px;color:#999;font-style:italic;">No active trip</div>`;
 
+          const companyInfo = d.company_name
+            ? `<div style="font-size:11px;color:#666;margin-top:2px;">Company: ${d.company_name}</div>`
+            : "";
+
           entry.infoWindow.setContent(`
             <div style="padding:4px;min-width:160px;">
               <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${d.driver_name}</div>
+              ${companyInfo}
               <div style="font-size:12px;color:#666;">
                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dStatusColor};margin-right:4px;"></span>
                 ${statusLabel}
@@ -849,10 +856,13 @@ function DispatchMapView({ token, localCityId, cities, setSelectedCity, setLocal
           )}
           {localCityId && !renderError && !keyLoading && mapsLoaded && !driversLoading && drivers.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="bg-card/90 border rounded-md p-4 text-center pointer-events-auto">
-                <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground" data-testid="text-no-driver-locations">
-                  No driver locations available for this city
+              <div className="bg-card/90 border rounded-md p-6 text-center pointer-events-auto max-w-xs">
+                <Users className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                <p className="text-sm font-medium mb-2" data-testid="text-no-driver-locations">
+                  No drivers online for this city
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Drivers must be connected via the Driver App to appear on the map. Check that drivers have tapped "Start Shift" in their app.
                 </p>
               </div>
             </div>

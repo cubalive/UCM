@@ -1,10 +1,13 @@
 import type { Express } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, getCompanyIdFromAuth, type AuthRequest } from "../auth";
 import { sendSms, normalizePhone, isTwilioConfigured } from "./twilioSms";
 import { sendEmail } from "./email";
 import type { Trip, City, Clinic } from "@shared/schema";
+import { db } from "../db";
+import { drivers, vehicles, companies, trips } from "@shared/schema";
+import { eq, and, isNotNull, isNull, sql, inArray, desc } from "drizzle-orm";
 
 const COOLDOWN_MINUTES = 30;
 const SCHEDULER_INTERVAL_MS = 5 * 60 * 1000;
@@ -1360,6 +1363,133 @@ export function registerOpsRoutes(app: Express) {
       sendCsv(res, toCsvServer(rows, ["generatedAt", "route", "count", "p95Ms", "errorCount"]), `ucm-metrics-routes-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  const LOCATION_STALE_MS = 120_000;
+
+  app.get("/api/ops/driver-locations", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+    try {
+      const cityId = req.query.city_id ? parseInt(String(req.query.city_id)) : null;
+      if (!cityId) return res.status(400).json({ message: "city_id is required" });
+
+      const callerRole = req.user?.role;
+      const callerCompanyId = getCompanyIdFromAuth(req);
+
+      const conditions: any[] = [
+        eq(drivers.cityId, cityId),
+        eq(drivers.active, true),
+        isNull(drivers.deletedAt),
+        isNotNull(drivers.lastLat),
+        isNotNull(drivers.lastLng),
+      ];
+
+      if (callerRole !== "SUPER_ADMIN" && callerCompanyId) {
+        conditions.push(eq(drivers.companyId, callerCompanyId));
+      }
+
+      const rows = await db
+        .select({
+          driverId: drivers.id,
+          firstName: drivers.firstName,
+          lastName: drivers.lastName,
+          cityId: drivers.cityId,
+          companyId: drivers.companyId,
+          companyName: companies.name,
+          lat: drivers.lastLat,
+          lng: drivers.lastLng,
+          lastSeenAt: drivers.lastSeenAt,
+          dispatchStatus: drivers.dispatchStatus,
+          connected: drivers.connected,
+          vehicleId: drivers.vehicleId,
+          vehicleName: vehicles.name,
+          vehicleLicensePlate: vehicles.licensePlate,
+          vehicleColorHex: vehicles.colorHex,
+          vehicleMake: vehicles.makeText,
+          vehicleModel: vehicles.modelText,
+        })
+        .from(drivers)
+        .leftJoin(companies, eq(drivers.companyId, companies.id))
+        .leftJoin(vehicles, eq(drivers.vehicleId, vehicles.id))
+        .where(and(...conditions))
+        .orderBy(desc(drivers.lastSeenAt));
+
+      const now = Date.now();
+
+      const activeTripsMap = new Map<number, { tripId: number; publicId: string; status: string; patientName: string | null }>();
+      try {
+        const activeStatuses = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "IN_TRANSIT", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"];
+        const driverIds = rows.map(r => r.driverId);
+        if (driverIds.length > 0) {
+          const activeTrips = await db
+            .select({
+              driverId: trips.driverId,
+              tripId: trips.id,
+              publicId: trips.publicId,
+              status: trips.status,
+            })
+            .from(trips)
+            .where(and(
+              inArray(trips.driverId, driverIds),
+              inArray(trips.status, activeStatuses as any),
+              eq(trips.cityId, cityId),
+            ));
+          for (const t of activeTrips) {
+            if (t.driverId && !activeTripsMap.has(t.driverId)) {
+              activeTripsMap.set(t.driverId, { tripId: t.tripId, publicId: t.publicId, status: t.status, patientName: null });
+            }
+          }
+        }
+      } catch {}
+
+      const statusMap: Record<string, string> = {
+        available: "available",
+        on_trip: "enroute",
+        hold: "hold",
+        off: "off",
+      };
+
+      const result = rows.map(r => {
+        const updatedAt = r.lastSeenAt ? new Date(r.lastSeenAt).toISOString() : null;
+        const ageMs = r.lastSeenAt ? now - new Date(r.lastSeenAt).getTime() : Infinity;
+        const activeTrip = activeTripsMap.get(r.driverId);
+        const driverStatus = activeTrip ? "enroute" : (statusMap[r.dispatchStatus] || (r.connected ? "available" : "off"));
+
+        return {
+          driver_id: r.driverId,
+          driver_name: `${r.firstName} ${r.lastName}`,
+          company_name: r.companyName,
+          city_id: r.cityId,
+          lat: r.lat!,
+          lng: r.lng!,
+          updated_at: updatedAt,
+          status: driverStatus,
+          stale: ageMs > LOCATION_STALE_MS,
+          vehicle_id: r.vehicleId,
+          vehicle_label: r.vehicleName,
+          vehicle_color: r.vehicleColorHex,
+          vehicle_color_hex: r.vehicleColorHex,
+          vehicle_make: r.vehicleMake,
+          vehicle_model: r.vehicleModel,
+          active_trip_status: activeTrip?.status || null,
+          active_trip_id: activeTrip?.publicId || null,
+          active_trip_patient: activeTrip?.patientName || null,
+        };
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("[OPS] driver-locations error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ops/my-active-trips", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const cityId = req.query.city_id ? parseInt(String(req.query.city_id)) : null;
+      res.json({ role: req.user?.role || "unknown", trips: [] });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 }
