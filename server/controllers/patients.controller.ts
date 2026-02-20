@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { type AuthRequest } from "../auth";
 import { insertPatientSchema, patients } from "@shared/schema";
 import { db } from "../db";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, ilike, or, sql } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
 import { getScope, requireScope, buildScopeFilters, forceCompanyOnCreate } from "../middleware/scopeContext";
 
@@ -43,6 +43,17 @@ export async function getPatientsHandler(req: AuthRequest, res: Response) {
       conditions.push(eq(patients.source, "internal"));
     } else if (source === "private") {
       conditions.push(eq(patients.source, "private"));
+    }
+
+    const q = (req.query.q as string)?.trim();
+    if (q) {
+      const pattern = `%${q}%`;
+      conditions.push(or(
+        ilike(patients.firstName, pattern),
+        ilike(patients.lastName, pattern),
+        ilike(patients.phone, pattern),
+        ilike(patients.publicId, pattern),
+      )!);
     }
 
     const result = await db.select().from(patients).where(and(...conditions)).orderBy(patients.firstName);
@@ -254,6 +265,31 @@ export async function updatePatientHandler(req: AuthRequest, res: Response) {
       details: `Updated patient fields: ${Object.keys(updateData).join(", ")}`,
       cityId: patient?.cityId ?? existing.cityId,
     });
+    res.json(patient);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getPatientByIdHandler(req: AuthRequest, res: Response) {
+  try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid patient ID" });
+
+    const result = await db.select().from(patients).where(eq(patients.id, id));
+    if (!result.length) return res.status(404).json({ message: "Patient not found" });
+
+    const patient = result[0];
+    if (!scope.isSuperAdmin && scope.companyId && patient.companyId !== scope.companyId) {
+      return res.status(403).json({ message: "No access to this patient" });
+    }
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(patient.cityId)) {
+      return res.status(403).json({ message: "No access to this patient" });
+    }
+
     res.json(patient);
   } catch (err: any) {
     res.status(500).json({ message: err.message });

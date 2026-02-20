@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Search, Filter, X, SlidersHorizontal } from "lucide-react";
+import { useLocation, useSearch } from "wouter";
 
 export interface FilterOption {
   key: string;
@@ -55,14 +56,6 @@ export function FilterBar({
 }: FilterBarProps) {
   const [filterOpen, setFilterOpen] = useState(false);
 
-  useEffect(() => {
-    if (storageKey && activeFilters.length > 0) {
-      try {
-        localStorage.setItem(`ucm-filters-${storageKey}`, JSON.stringify(activeFilters));
-      } catch {}
-    }
-  }, [activeFilters, storageKey]);
-
   const addFilter = useCallback((key: string, value: string) => {
     const filterDef = filters.find(f => f.key === key);
     if (!filterDef) return;
@@ -74,24 +67,11 @@ export function FilterBar({
 
   const removeFilter = useCallback((key: string) => {
     onFilterChange(activeFilters.filter(f => f.key !== key));
-    if (storageKey) {
-      try {
-        const updated = activeFilters.filter(f => f.key !== key);
-        if (updated.length === 0) {
-          localStorage.removeItem(`ucm-filters-${storageKey}`);
-        } else {
-          localStorage.setItem(`ucm-filters-${storageKey}`, JSON.stringify(updated));
-        }
-      } catch {}
-    }
-  }, [activeFilters, onFilterChange, storageKey]);
+  }, [activeFilters, onFilterChange]);
 
   const clearAll = useCallback(() => {
     onFilterChange([]);
-    if (storageKey) {
-      try { localStorage.removeItem(`ucm-filters-${storageKey}`); } catch {}
-    }
-  }, [onFilterChange, storageKey]);
+  }, [onFilterChange]);
 
   return (
     <div className="space-y-2" data-testid="filter-bar">
@@ -242,8 +222,25 @@ export function FilterBar({
   );
 }
 
-export function usePersistedFilters(storageKey: string): [ActiveFilter[], (filters: ActiveFilter[]) => void] {
-  const [filters, setFilters] = useState<ActiveFilter[]>(() => {
+export function usePersistedFilters(storageKey: string, filterDefs?: FilterOption[]): [ActiveFilter[], (filters: ActiveFilter[]) => void] {
+  const searchString = useSearch();
+  const [, navigate] = useLocation();
+
+  const filtersFromUrl = useMemo(() => {
+    const params = new URLSearchParams(searchString);
+    const result: ActiveFilter[] = [];
+    params.forEach((value, key) => {
+      if (key === "q" || key === "cityId") return;
+      const def = filterDefs?.find(f => f.key === key);
+      const label = def?.label || key;
+      const displayValue = def?.options?.find(o => o.value === value)?.label || value;
+      result.push({ key, value, label, displayValue });
+    });
+    return result;
+  }, [searchString, filterDefs]);
+
+  const [localFilters, setLocalFilters] = useState<ActiveFilter[]>(() => {
+    if (filtersFromUrl.length > 0) return filtersFromUrl;
     try {
       const saved = localStorage.getItem(`ucm-filters-${storageKey}`);
       return saved ? JSON.parse(saved) : [];
@@ -251,5 +248,31 @@ export function usePersistedFilters(storageKey: string): [ActiveFilter[], (filte
       return [];
     }
   });
-  return [filters, setFilters];
+
+  const setFilters = useCallback((newFilters: ActiveFilter[]) => {
+    setLocalFilters(newFilters);
+    try {
+      if (newFilters.length > 0) {
+        localStorage.setItem(`ucm-filters-${storageKey}`, JSON.stringify(newFilters));
+      } else {
+        localStorage.removeItem(`ucm-filters-${storageKey}`);
+      }
+    } catch {}
+    const params = new URLSearchParams(window.location.search);
+    const preserveKeys = ["cityId", "q"];
+    const currentKeys = Array.from(params.keys());
+    currentKeys.forEach(k => { if (!preserveKeys.includes(k)) params.delete(k); });
+    newFilters.forEach(f => params.set(f.key, f.value));
+    const newSearch = params.toString();
+    const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}`;
+    window.history.replaceState(null, "", newUrl);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (filtersFromUrl.length > 0 && JSON.stringify(filtersFromUrl) !== JSON.stringify(localFilters)) {
+      setLocalFilters(filtersFromUrl);
+    }
+  }, [filtersFromUrl]);
+
+  return [localFilters, setFilters];
 }

@@ -32,19 +32,19 @@ function EntityLink({ id, route, label, publicId, showIcon = true, className = "
 }
 
 export function PatientRef(props: EntityRefProps) {
-  return <EntityLink {...props} route={`/patients?highlight=${props.id}`} icon={HeartPulse} entityName="Patient" testPrefix="patient" />;
+  return <EntityLink {...props} route={`/patients/${props.id}`} icon={HeartPulse} entityName="Patient" testPrefix="patient" />;
 }
 
 export function DriverRef(props: EntityRefProps) {
-  return <EntityLink {...props} route={`/drivers?highlight=${props.id}`} icon={UserCheck} entityName="Driver" testPrefix="driver" />;
+  return <EntityLink {...props} route={`/drivers/${props.id}`} icon={UserCheck} entityName="Driver" testPrefix="driver" />;
 }
 
 export function VehicleRef(props: EntityRefProps) {
-  return <EntityLink {...props} route={`/vehicles?highlight=${props.id}`} icon={Truck} entityName="Vehicle" testPrefix="vehicle" />;
+  return <EntityLink {...props} route={`/vehicles/${props.id}`} icon={Truck} entityName="Vehicle" testPrefix="vehicle" />;
 }
 
 export function ClinicRef(props: EntityRefProps) {
-  return <EntityLink {...props} route={`/clinics?highlight=${props.id}`} icon={Building2} entityName="Clinic" testPrefix="clinic" />;
+  return <EntityLink {...props} route={`/clinics/${props.id}`} icon={Building2} entityName="Clinic" testPrefix="clinic" />;
 }
 
 export function CompanyRef(props: EntityRefProps) {

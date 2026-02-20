@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { authMiddleware, requireRole, hashPassword, getUserCityIds, type AuthRequest } from "../auth";
 import { insertDriverSchema, drivers, users, vehicles, trips } from "@shared/schema";
 import { db } from "../db";
-import { eq, ne, and, isNull, inArray } from "drizzle-orm";
+import { eq, ne, and, isNull, inArray, ilike, or } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
 import { getScope, requireScope, buildScopeFilters, forceCompanyOnCreate } from "../middleware/scopeContext";
 import { checkDriverQuota } from "../lib/companyQuotas";
@@ -15,9 +15,20 @@ export async function getDriversHandler(req: AuthRequest, res: Response) {
     if (!requireScope(scope, res)) return;
     const filters = buildScopeFilters(scope);
 
-    const conditions = [eq(drivers.active, true), isNull(drivers.deletedAt)];
+    const conditions: any[] = [eq(drivers.active, true), isNull(drivers.deletedAt)];
     if (filters.companyId) conditions.push(eq(drivers.companyId, filters.companyId));
     if (filters.cityId) conditions.push(eq(drivers.cityId, filters.cityId));
+
+    const q = (req.query.q as string)?.trim();
+    if (q) {
+      const pattern = `%${q}%`;
+      conditions.push(or(
+        ilike(drivers.firstName, pattern),
+        ilike(drivers.lastName, pattern),
+        ilike(drivers.phone, pattern),
+        ilike(drivers.publicId, pattern),
+      )!);
+    }
 
     const result = await db.select().from(drivers).where(and(...conditions));
     res.json(result);
@@ -373,6 +384,36 @@ export async function getDriverVehicleHistoryHandler(req: AuthRequest, res: Resp
       };
     });
     res.json(enriched);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getDriverByIdHandler(req: AuthRequest, res: Response) {
+  try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid driver ID" });
+
+    const result = await db.select().from(drivers).where(eq(drivers.id, id));
+    if (!result.length) return res.status(404).json({ message: "Driver not found" });
+
+    const driver = result[0];
+    if (!scope.isSuperAdmin && scope.companyId && driver.companyId !== scope.companyId) {
+      return res.status(403).json({ message: "No access to this driver" });
+    }
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(driver.cityId)) {
+      return res.status(403).json({ message: "No access to this driver" });
+    }
+
+    let vehicle = null;
+    if (driver.vehicleId) {
+      vehicle = await storage.getVehicle(driver.vehicleId);
+    }
+
+    res.json({ ...driver, vehicle });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

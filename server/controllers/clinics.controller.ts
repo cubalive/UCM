@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { hashPassword, type AuthRequest } from "../auth";
 import { insertClinicSchema, users, clinics } from "@shared/schema";
 import { db } from "../db";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, ilike, or } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
 import { getScope, requireScope, buildScopeFilters, forceCompanyOnCreate } from "../middleware/scopeContext";
 
@@ -17,6 +17,17 @@ export async function getClinicsHandler(req: AuthRequest, res: Response) {
     const conditions: any[] = [eq(clinics.active, true), isNull(clinics.deletedAt)];
     if (filters.companyId) conditions.push(eq(clinics.companyId, filters.companyId));
     if (filters.cityId) conditions.push(eq(clinics.cityId, filters.cityId));
+
+    const q = (req.query.q as string)?.trim();
+    if (q) {
+      const pattern = `%${q}%`;
+      conditions.push(or(
+        ilike(clinics.name, pattern),
+        ilike(clinics.phone, pattern),
+        ilike(clinics.email, pattern),
+        ilike(clinics.publicId, pattern),
+      )!);
+    }
 
     const result = await db
       .select()
@@ -291,6 +302,31 @@ export async function updateClinicHandler(req: AuthRequest, res: Response) {
       cityId: clinic.cityId,
     });
     res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getClinicByIdHandler(req: AuthRequest, res: Response) {
+  try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid clinic ID" });
+
+    const result = await db.select().from(clinics).where(eq(clinics.id, id));
+    if (!result.length) return res.status(404).json({ message: "Clinic not found" });
+
+    const clinic = result[0];
+    if (!scope.isSuperAdmin && scope.companyId && clinic.companyId !== scope.companyId) {
+      return res.status(403).json({ message: "No access to this clinic" });
+    }
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(clinic.cityId)) {
+      return res.status(403).json({ message: "No access to this clinic" });
+    }
+
+    res.json(clinic);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

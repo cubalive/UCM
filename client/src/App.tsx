@@ -22,6 +22,10 @@ import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import TripsPage from "@/pages/trips";
 import TripDetailPage from "@/pages/trip-detail";
+import PatientDetailPage from "@/pages/patient-detail";
+import DriverDetailPage from "@/pages/driver-detail";
+import VehicleDetailPage from "@/pages/vehicle-detail";
+import ClinicDetailPage from "@/pages/clinic-detail";
 import PatientsPage from "@/pages/patients";
 import DriversPage from "@/pages/drivers";
 import VehiclesPage from "@/pages/vehicles";
@@ -68,6 +72,8 @@ import ClinicBillingV2Page from "@/pages/clinic-billing-v2";
 import SupportChatPage from "@/pages/support-chat";
 import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
 import ClinicUsersPage from "@/pages/clinic-users";
+import InvoiceDetailPage from "@/pages/invoice-detail";
+import PayrollDetailPage from "@/pages/payroll-detail";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
 import SystemStatusPage from "@/pages/system-status";
@@ -293,9 +299,13 @@ function Router() {
       <Route path="/" component={HomeRedirect} />
       <Route path="/trips/:id">{() => <ProtectedRoute resource="trips" component={TripDetailPage} />}</Route>
       <Route path="/trips">{() => <ProtectedRoute resource="trips" component={TripsPage} />}</Route>
+      <Route path="/patients/:id">{() => <ProtectedRoute resource="patients" component={PatientDetailPage} />}</Route>
       <Route path="/patients">{() => <ProtectedRoute resource="patients" component={PatientsPage} />}</Route>
+      <Route path="/drivers/:id">{() => <ProtectedRoute resource="drivers" component={DriverDetailPage} />}</Route>
       <Route path="/drivers">{() => <ProtectedRoute resource="drivers" component={DriversPage} />}</Route>
+      <Route path="/vehicles/:id">{() => <ProtectedRoute resource="vehicles" component={VehicleDetailPage} />}</Route>
       <Route path="/vehicles">{() => <ProtectedRoute resource="vehicles" component={VehiclesPage} />}</Route>
+      <Route path="/clinics/:id">{() => <ProtectedRoute resource="clinics" component={ClinicDetailPage} />}</Route>
       <Route path="/clinics">{() => <ProtectedRoute resource="clinics" component={ClinicsPage} />}</Route>
       <Route path="/cities">{() => <ProtectedRoute resource="cities" component={CitiesPage} />}</Route>
       <Route path="/users">{() => <ProtectedRoute resource="users" component={UsersPage} />}</Route>
@@ -318,6 +328,7 @@ function Router() {
       <Route path="/clinic-users">{() => <ClinicAdminRoute component={ClinicUsersPage} />}</Route>
       <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
+      <Route path="/invoices/:id">{() => <ClinicOrPermissionRoute resource="invoices" component={InvoiceDetailPage} />}</Route>
       <Route path="/invoices">{() => <ClinicOrPermissionRoute resource="invoices" component={ClinicInvoicesPage} />}</Route>
       <Route path="/billing">{() => <ProtectedRoute resource="invoices" component={BillingPage} />}</Route>
       <Route path="/clinic-billing">{() => <ProtectedRoute resource="invoices" component={ClinicBillingPage} />}</Route>
@@ -335,6 +346,7 @@ function Router() {
       <Route path="/system-status">{() => <SuperAdminRoute component={SystemStatusPage} />}</Route>
       <Route path="/timecards">{() => <ProtectedRoute resource="time_entries" component={TimecardsPage} />}</Route>
       <Route path="/tp-payroll">{() => <ProtectedRoute resource="payroll" component={TpPayrollPage} />}</Route>
+      <Route path="/payroll/runs/:id">{() => <ProtectedRoute resource="payroll" component={PayrollDetailPage} />}</Route>
       <Route path="/billing-config">{() => <ProtectedRoute resource="billing" component={BillingTariffsPage} />}</Route>
       <Route path="/platform-fees">{() => <ProtectedRoute resource="billing" component={PlatformFeesPage} />}</Route>
       <Route path="/admin/subscriptions">{() => { window.location.href = "/platform-fees?tab=subscription"; return null; }}</Route>

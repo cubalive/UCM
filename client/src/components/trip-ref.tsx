@@ -53,7 +53,7 @@ export function InvoiceRef({ invoiceId, invoiceNumber, label, showIcon = true, c
 
   const display = label || invoiceNumber || `#${invoiceId}`;
   const textSize = size === "sm" ? "text-xs" : "text-sm";
-  const targetRoute = route || `/clinic-invoices`;
+  const targetRoute = route || `/invoices/${invoiceId}`;
 
   return (
     <button

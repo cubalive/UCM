@@ -3,6 +3,7 @@ import { authMiddleware, requirePermission, type AuthRequest } from "../auth";
 import { requireTenantScope, requireCityAccess } from "../middleware";
 import {
   getDriversHandler,
+  getDriverByIdHandler,
   createDriverHandler,
   updateDriverHandler,
   getDriverVehicleHistoryHandler,
@@ -11,6 +12,7 @@ import {
 const router = express.Router();
 
 router.get("/api/drivers", authMiddleware, requirePermission("drivers", "read"), requireTenantScope, requireCityAccess, getDriversHandler as any);
+router.get("/api/drivers/:id", authMiddleware, requirePermission("drivers", "read"), requireTenantScope, getDriverByIdHandler as any);
 router.post("/api/drivers", authMiddleware, requirePermission("drivers", "write"), requireTenantScope, createDriverHandler as any);
 router.put("/api/drivers/:id", authMiddleware, requirePermission("drivers", "write"), requireTenantScope, updateDriverHandler as any);
 router.patch("/api/drivers/:id", authMiddleware, requirePermission("drivers", "write"), requireTenantScope, updateDriverHandler as any);

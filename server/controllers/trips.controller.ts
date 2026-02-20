@@ -467,6 +467,16 @@ export async function getTripsHandler(req: AuthRequest, res: Response) {
       conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
     }
 
+    const q = (req.query.q as string)?.trim();
+    if (q) {
+      const pattern = `%${q}%`;
+      conditions.push(or(
+        sql`${trips.publicId} ILIKE ${pattern}`,
+        sql`${trips.pickupAddress} ILIKE ${pattern}`,
+        sql`${trips.dropoffAddress} ILIKE ${pattern}`,
+      )!);
+    }
+
     let query = db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt)).limit(limitParam);
     const result = await query;
     res.json(result);
