@@ -1,0 +1,59 @@
+ROLE: Principal Production Engineer
+PROJECT: UCM DISPATCH
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT drop/recreate tables
+
+GOAL:
+Guarantee 100% that BOTH Replit workspace AND published deployment use Supabase ONLY, never Neon, and provide proof.
+
+TASK 1 — CODEBASE AUDIT (MUST PROVIDE EVIDENCE)
+1) Search entire repo for Neon:
+   - strings: "neon", "neon.tech", "@neondatabase", "pg.neon"
+   - Provide the exact file paths + line numbers where found.
+   - Remove/disable any neon client usage if present.
+2) Search entire repo for Prisma runtime usage:
+   - strings: "@prisma/client", "PrismaClient"
+   - Provide file paths + line numbers where found.
+   - Ensure runtime does NOT depend on Prisma DB env vars.
+3) Search DB env usage:
+   - DATABASE_URL, DIRECT_URL, PRISMA_DATABASE_URL, PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE
+   - Provide file paths + line numbers where each is referenced.
+   - Ensure the app uses ONLY process.env.DATABASE_URL for runtime DB connection.
+
+TASK 2 — SINGLE SOURCE OF TRUTH (DRIZZLE)
+4) Confirm there is ONE db initialization module used everywhere (e.g. server/db.ts):
+   - It must read ONLY process.env.DATABASE_URL
+   - No fallbacks, no alternate env vars.
+5) Confirm Drizzle migrations/config also use DATABASE_URL only.
+
+TASK 3 — HEALTH PROOF ENDPOINT
+6) Implement/verify GET /api/health/details returns (sanitized):
+   - dbHost (from DATABASE_URL parsed host)
+   - current_database()
+   - select version()
+   - booleans: hasDatabaseUrl, hasDirectUrl, hasPrismaUrl, hasAnyNeonVars
+   - NEVER print secrets.
+7) Add logs to show which DB module is used at startup (just the module name and dbHost).
+
+TASK 4 — DEPLOYMENT PARITY (CRITICAL)
+8) Explain how Replit deployment env vars are set for this project.
+9) Verify the deployment environment uses the SAME DATABASE_URL value as workspace:
+   - Provide proof by calling /api/health/details on:
+     a) local/workspace url
+     b) published url
+   Both must show Supabase pooler host (aws-0-us-west-2.pooler.supabase.com) and NEVER neon.
+
+TASK 5 — END-TO-END PROOF
+10) On published app:
+   - Create a patient and a trip via UI
+   - Provide created IDs and confirm records exist in Supabase.
+11) Write “SUPABASE-ONLY REPORT”:
+   - What was pointing to Neon (if anything)
+   - What changed (files + summary)
+   - Required secrets list (only DATABASE_URL for DB)
+   - Verification outputs (health endpoints + record IDs)
+
+DO NOT declare success until TASK 4 and TASK 5 are proven on the published URL.

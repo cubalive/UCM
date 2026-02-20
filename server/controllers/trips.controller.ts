@@ -169,7 +169,7 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
     if (tripLockedGuard(trip, req, res)) return;
-    const otherTerminal = ["CANCELLED", "NO_SHOW"];
+    const otherTerminal = ["CANCELLED", "NO_SHOW", "COMPLETED"];
     if (otherTerminal.includes(trip.status)) {
       return res.status(400).json({ message: `Cannot assign driver to a ${trip.status.toLowerCase()} trip` });
     }
@@ -180,6 +180,18 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
     if (driver.cityId !== trip.cityId) {
       return res.status(400).json({ message: "Driver must be in the same city as the trip" });
     }
+
+    const callerCompanyId = getCompanyIdFromAuth(req);
+    if (callerCompanyId && trip.companyId && trip.companyId !== callerCompanyId) {
+      return res.status(403).json({ message: "Trip does not belong to your company" });
+    }
+    if (callerCompanyId && driver.companyId && driver.companyId !== callerCompanyId) {
+      return res.status(403).json({ message: "Driver does not belong to your company" });
+    }
+    if (trip.companyId && driver.companyId && trip.companyId !== driver.companyId) {
+      return res.status(400).json({ message: "Cannot assign a driver from a different company to this trip" });
+    }
+
     const { isDriverAssignable } = await import("../lib/driverClassification");
     const assignCheck = isDriverAssignable(driver);
     if (!assignCheck.ok) {
@@ -190,15 +202,23 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
       return res.status(409).json({ message: assignCheck.warning, requiresConfirmation: true });
     }
 
-    if (vehicleId && trip.mobilityRequirement) {
+    if (vehicleId) {
       const vehicle = await storage.getVehicle(vehicleId);
       if (vehicle) {
-        const { isVehicleCompatible } = await import("@shared/schema");
-        if (!isVehicleCompatible(trip.mobilityRequirement, vehicle.capability)) {
-          return res.status(400).json({ message: `Vehicle capability "${vehicle.capability || "STANDARD"}" is not compatible with trip mobility requirement "${trip.mobilityRequirement}".` });
+        if (vehicle.companyId && trip.companyId && vehicle.companyId !== trip.companyId) {
+          return res.status(400).json({ message: "Vehicle does not belong to the same company as the trip" });
+        }
+        if (trip.mobilityRequirement) {
+          const { isVehicleCompatible } = await import("@shared/schema");
+          if (!isVehicleCompatible(trip.mobilityRequirement, vehicle.capability)) {
+            return res.status(400).json({ message: `Vehicle capability "${vehicle.capability || "STANDARD"}" is not compatible with trip mobility requirement "${trip.mobilityRequirement}".` });
+          }
         }
       }
     }
+
+    const useOffer = req.body.useOffer === true;
+    const now = new Date();
 
     await db.update(driverOffers).set({ status: "cancelled" }).where(
       and(
@@ -207,53 +227,114 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
       )
     );
 
-    const OFFER_TTL_SECONDS = 30;
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + OFFER_TTL_SECONDS * 1000);
+    if (useOffer) {
+      const OFFER_TTL_SECONDS = 30;
+      const expiresAt = new Date(now.getTime() + OFFER_TTL_SECONDS * 1000);
 
-    const [offer] = await db.insert(driverOffers).values({
-      tripId: id,
+      const [offer] = await db.insert(driverOffers).values({
+        tripId: id,
+        driverId,
+        offeredAt: now,
+        expiresAt,
+        status: "pending",
+        createdBy: req.user!.userId,
+      }).returning();
+
+      await storage.createAuditLog({
+        userId: req.user!.userId,
+        action: "OFFER_SENT",
+        entity: "trip",
+        entityId: id,
+        details: JSON.stringify({
+          driverId,
+          driverPublicId: driver.publicId,
+          driverName: `${driver.firstName} ${driver.lastName}`,
+          vehicleId: vehicleId || null,
+          tripPublicId: trip.publicId,
+          offerId: offer.id,
+          expiresInSec: OFFER_TTL_SECONDS,
+          requestId: (req as any)._requestId || req.headers["x-request-id"] || null,
+          role: req.user!.role,
+        }),
+        cityId: trip.cityId,
+      });
+
+      sendPushToDriver(driverId, {
+        title: "New Trip Offer",
+        body: `You have a new trip offer for ${trip.pickupAddress || "pickup"}. Respond in ${OFFER_TTL_SECONDS}s.`,
+        data: { tripId: String(id), action: "trip_offer", offerId: String(offer.id) },
+      }).catch(err => console.error(`[PUSH] Offer push failed for driver ${driverId}:`, err.message));
+
+      return res.json({
+        offerId: offer.id,
+        tripId: id,
+        driverId,
+        driverName: `${driver.firstName} ${driver.lastName}`,
+        status: "pending",
+        expiresAt: expiresAt.toISOString(),
+        secondsRemaining: OFFER_TTL_SECONDS,
+        offerSent: true,
+      });
+    }
+
+    const updateData: any = {
       driverId,
-      offeredAt: now,
-      expiresAt,
-      status: "pending",
-      createdBy: req.user!.userId,
-    }).returning();
+      status: "ASSIGNED",
+      assignedAt: now,
+      assignedBy: req.user!.userId,
+      assignmentSource: "dispatch_direct",
+    };
+    if (vehicleId) updateData.vehicleId = vehicleId;
+    else if (driver.vehicleId) updateData.vehicleId = driver.vehicleId;
+
+    const [updatedTrip] = await db.update(trips).set(updateData).where(eq(trips.id, id)).returning();
+
+    import("../lib/realtime").then(({ broadcastToTrip }) => {
+      broadcastToTrip(id, { type: "status_change", data: { status: "ASSIGNED", tripId: id } });
+    }).catch(() => {});
+
+    import("../lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
+      broadcastTripSupabase(id, { type: "status_change", data: { status: "ASSIGNED", tripId: id } });
+    }).catch(() => {});
+
+    const smsBaseUrl = process.env.PUBLIC_BASE_URL_APP
+      || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://app.unitedcaremobility.com");
+    import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+      autoNotifyPatient(id, "driver_assigned", { base_url: smsBaseUrl });
+    }).catch(() => {});
+
+    sendPushToDriver(driverId, {
+      title: "Trip Assigned",
+      body: `You have been assigned a trip to ${trip.pickupAddress || "pickup"}.`,
+      data: { tripId: String(id), action: "trip_assigned" },
+    }).catch(err => console.error(`[PUSH] Assign push failed for driver ${driverId}:`, err.message));
 
     await storage.createAuditLog({
       userId: req.user!.userId,
-      action: "OFFER_SENT",
+      action: "ASSIGN",
       entity: "trip",
       entityId: id,
       details: JSON.stringify({
         driverId,
         driverPublicId: driver.publicId,
         driverName: `${driver.firstName} ${driver.lastName}`,
-        vehicleId: vehicleId || null,
+        vehicleId: updateData.vehicleId || null,
         tripPublicId: trip.publicId,
-        offerId: offer.id,
-        expiresInSec: OFFER_TTL_SECONDS,
+        oldStatus: trip.status,
+        newStatus: "ASSIGNED",
         requestId: (req as any)._requestId || req.headers["x-request-id"] || null,
         role: req.user!.role,
       }),
       cityId: trip.cityId,
     });
 
-    sendPushToDriver(driverId, {
-      title: "New Trip Offer",
-      body: `You have a new trip offer for ${trip.pickupAddress || "pickup"}. Respond in ${OFFER_TTL_SECONDS}s.`,
-      data: { tripId: String(id), action: "trip_offer", offerId: String(offer.id) },
-    }).catch(err => console.error(`[PUSH] Offer push failed for driver ${driverId}:`, err.message));
-
     res.json({
-      offerId: offer.id,
       tripId: id,
       driverId,
       driverName: `${driver.firstName} ${driver.lastName}`,
-      status: "pending",
-      expiresAt: expiresAt.toISOString(),
-      secondsRemaining: OFFER_TTL_SECONDS,
-      offerSent: true,
+      vehicleId: updateData.vehicleId || null,
+      status: "ASSIGNED",
+      assigned: true,
     });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -892,6 +973,48 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       return res.status(400).json({ message: "Cannot complete trip: no pickup timestamp recorded. Trip must be picked up first." });
     }
 
+    if (req.user!.role === "DRIVER" && process.env.GEOFENCE_ENABLED === "true") {
+      const geofenceStatuses = ["ARRIVED_PICKUP", "ARRIVED_DROPOFF"];
+      if (geofenceStatuses.includes(parsed.data.status) && trip.driverId) {
+        const { getDriverLocationFromCache } = await import("../lib/driverLocationIngest");
+        const driverLoc = getDriverLocationFromCache(trip.driverId);
+
+        if (driverLoc) {
+          const PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
+          const DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
+
+          const haversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+            const R = 6371000;
+            const dLat = ((lat2 - lat1) * Math.PI) / 180;
+            const dLng = ((lng2 - lng1) * Math.PI) / 180;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          };
+
+          if (parsed.data.status === "ARRIVED_PICKUP" && trip.pickupLat && trip.pickupLng) {
+            const dist = haversine(driverLoc.lat, driverLoc.lng, trip.pickupLat, trip.pickupLng);
+            if (dist > PICKUP_RADIUS) {
+              return res.status(400).json({
+                ok: false,
+                code: "GEOFENCE_REQUIRED",
+                message: `You must be within ${PICKUP_RADIUS}m of pickup location to mark arrival. Current distance: ${Math.round(dist)}m.`,
+              });
+            }
+          }
+          if (parsed.data.status === "ARRIVED_DROPOFF" && trip.dropoffLat && trip.dropoffLng) {
+            const dist = haversine(driverLoc.lat, driverLoc.lng, trip.dropoffLat, trip.dropoffLng);
+            if (dist > DROPOFF_RADIUS) {
+              return res.status(400).json({
+                ok: false,
+                code: "GEOFENCE_REQUIRED",
+                message: `You must be within ${DROPOFF_RADIUS}m of dropoff location to mark arrival. Current distance: ${Math.round(dist)}m.`,
+              });
+            }
+          }
+        }
+      }
+    }
+
     const timestampField = STATUS_TIMESTAMP_MAP[parsed.data.status];
     const updateData: any = { status: parsed.data.status };
     if (timestampField) {
@@ -933,9 +1056,21 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       }).catch(() => {});
     }
 
+    if (parsed.data.status === "PICKED_UP") {
+      import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+        autoNotifyPatient(id, "picked_up");
+      }).catch(() => {});
+    }
+
     if (parsed.data.status === "CANCELLED") {
       import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
         autoNotifyPatient(id, "canceled");
+      }).catch(() => {});
+    }
+
+    if (parsed.data.status === "COMPLETED") {
+      import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
+        autoNotifyPatient(id, "completed");
       }).catch(() => {});
     }
 

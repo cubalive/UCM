@@ -68,6 +68,10 @@ export async function updateVehicleHandler(req: AuthRequest, res: Response) {
     if (!(await checkCityAccess(req, vehicle.cityId))) {
       return res.status(403).json({ message: "No access to this vehicle" });
     }
+    const companyId = getCompanyIdFromAuth(req);
+    if (!checkCompanyOwnership(vehicle, companyId)) {
+      return res.status(403).json({ message: "Vehicle does not belong to your company" });
+    }
 
     const { name, licensePlate, colorHex, make, model, makeId, modelId, makeText, modelText, year, capacity, wheelchairAccessible, status, cityId, lastServiceDate, maintenanceNotes } = req.body;
 

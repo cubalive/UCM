@@ -173,6 +173,10 @@ export async function updateDriverHandler(req: AuthRequest, res: Response) {
     if (!(await checkCityAccess(req, driver.cityId))) {
       return res.status(403).json({ message: "No access to this driver" });
     }
+    const callerCompanyId = getCompanyIdFromAuth(req);
+    if (!checkCompanyOwnership(driver, callerCompanyId)) {
+      return res.status(403).json({ message: "Driver does not belong to your company" });
+    }
 
     const { firstName, lastName, phone, email, licenseNumber, vehicleId, status, unassignReason, forceAssign } = req.body;
 
@@ -183,6 +187,9 @@ export async function updateDriverHandler(req: AuthRequest, res: Response) {
       if (!vehicle) return res.status(400).json({ message: "Vehicle not found" });
       if (vehicle.cityId !== driver.cityId) {
         return res.status(400).json({ message: "Vehicle must belong to the same city as the driver" });
+      }
+      if (driver.companyId && vehicle.companyId && driver.companyId !== vehicle.companyId) {
+        return res.status(400).json({ message: "Vehicle does not belong to the same company as the driver" });
       }
       if (vehicle.status !== "ACTIVE") {
         return res.status(400).json({ message: "Vehicle is not active and cannot be assigned." });
