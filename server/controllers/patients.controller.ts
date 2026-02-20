@@ -20,6 +20,16 @@ export async function getPatientsHandler(req: AuthRequest, res: Response) {
         isNull(patients.deletedAt),
       ];
       if (scope.companyId) conditions.push(eq(patients.companyId, scope.companyId));
+      const q = (req.query.q as string)?.trim();
+      if (q) {
+        const pattern = `%${q}%`;
+        conditions.push(or(
+          ilike(patients.firstName, pattern),
+          ilike(patients.lastName, pattern),
+          ilike(patients.phone, pattern),
+          ilike(patients.publicId, pattern),
+        )!);
+      }
       const clinicPatients = await db.select().from(patients).where(
         and(...conditions)
       ).orderBy(patients.firstName);
