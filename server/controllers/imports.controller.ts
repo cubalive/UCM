@@ -920,3 +920,68 @@ export async function getImportJob(req: AuthRequest, res: Response) {
     return res.status(500).json({ error: e.message });
   }
 }
+
+export async function fixOrphanedClinics(req: AuthRequest, res: Response) {
+  try {
+    const orphaned = await db.select({ id: clinics.id, name: clinics.name, cityId: clinics.cityId })
+      .from(clinics)
+      .where(sql`${clinics.companyId} IS NULL`);
+
+    if (orphaned.length === 0) {
+      return res.json({ fixed: 0, orphanedBefore: 0, orphanedAfter: 0, assignments: [] });
+    }
+
+    const allCompanies = await db.select().from(companies);
+    const companyMap = new Map(allCompanies.map(c => [c.id, c]));
+
+    const allCities = await db.select().from(cities);
+    const cityToCompanyMap = new Map<number, number>();
+    const companyClinics = await db.select({ companyId: clinics.companyId, cityId: clinics.cityId })
+      .from(clinics)
+      .where(sql`${clinics.companyId} IS NOT NULL`);
+    for (const cc of companyClinics) {
+      if (cc.companyId && cc.cityId) {
+        cityToCompanyMap.set(cc.cityId, cc.companyId);
+      }
+    }
+
+    const assignments: { id: number; name: string; assignedCompanyId: number | null; reason: string }[] = [];
+    let fixed = 0;
+
+    for (const clinic of orphaned) {
+      let assignCompanyId: number | null = null;
+      let reason = "ambiguous";
+
+      if (clinic.cityId && cityToCompanyMap.has(clinic.cityId)) {
+        assignCompanyId = cityToCompanyMap.get(clinic.cityId)!;
+        reason = `matched city_id=${clinic.cityId} to company ${assignCompanyId}`;
+      } else {
+        const firstCompany = allCompanies[0];
+        if (firstCompany) {
+          assignCompanyId = firstCompany.id;
+          reason = `fallback to first company (${firstCompany.id})`;
+        }
+      }
+
+      if (assignCompanyId) {
+        await db.update(clinics).set({ companyId: assignCompanyId }).where(eq(clinics.id, clinic.id));
+        fixed++;
+      }
+
+      assignments.push({ id: clinic.id, name: clinic.name, assignedCompanyId: assignCompanyId, reason });
+    }
+
+    const remainingOrphans = await db.select({ count: sql<number>`count(*)` })
+      .from(clinics)
+      .where(sql`${clinics.companyId} IS NULL`);
+
+    return res.json({
+      fixed,
+      orphanedBefore: orphaned.length,
+      orphanedAfter: Number(remainingOrphans[0]?.count || 0),
+      assignments,
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+}
