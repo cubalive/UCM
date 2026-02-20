@@ -1,0 +1,74 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+ROLE: Senior payments + full-stack engineer
+PROJECT: United Care Mobility (UCM)
+TASK: Implement Stripe TEST monthly subscription ($1200/mo) per company with ON/OFF toggles, webhook sync, Billing Portal, and access enforcement toggle.
+
+CONSTRAINTS
+- DO NOT reset database
+- DO NOT drop/recreate tables
+- DO NOT delete/modify existing business rows
+- Extend existing system only
+- Keep production stable
+- No secrets in logs
+- Use TEST keys only (sk_test / whsec)
+- Provide code diff only + verification checklist
+
+SECRETS (already present or must be added)
+- STRIPE_SECRET_KEY (sk_test...)
+- STRIPE_WEBHOOK_SECRET (whsec...)
+- STRIPE_PRICE_ID_PLATFORM_1200 (price_...)
+- APP_BASE_URL (use current App Public URL)
+
+REQUIREMENTS
+1) Create DB tables (Drizzle + migration):
+   - stripe_customers(company_id unique, stripe_customer_id unique)
+   - company_subscription(company_id unique, stripe_subscription_id unique, stripe_price_id, status, current_period_start/end, cancel_at_period_end, canceled_at, last_event_id)
+   - platform_billing_settings(company_id unique, subscription_enabled bool, subscription_required_for_access bool default true)
+
+2) Implement Stripe service:
+   - getOrCreateCustomer(company)
+   - createSubscription(customer, priceId)
+   - createBillingPortalSession(customer, returnUrl)
+   - cancelSubscriptionAtPeriodEnd / reactivate
+
+3) Webhook route POST /api/stripe/webhook:
+   - Verify signature using STRIPE_WEBHOOK_SECRET
+   - Handle: customer.subscription.created/updated/deleted, invoice.paid, invoice.payment_failed
+   - Idempotency: skip if event.id == last_event_id
+   - Update company_subscription row status + dates
+
+4) UI: “Tarifas Plataforma” → new “Subscription” tab
+   SUPER_ADMIN:
+   - Select company
+   - Toggle subscription_enabled ON/OFF
+   - Button: “Start subscription” (creates customer+subscription)
+   - Show status + next bill date (current_period_end)
+   - Button: “Manage billing” (Billing Portal)
+   - Toggle: cancel at period end / reactivate
+   - Toggle enforcement (subscription_required_for_access)
+   COMPANY_ADMIN/DISPATCH:
+   - View-only status + manage billing button (optional)
+
+5) Enforcement (server-side guard):
+   - If subscription_required_for_access=true and subscription_enabled=true:
+     allow full access only when status in ('active','trialing')
+     else restrict create-trip and create-invoice endpoints (minimal disruption) and show clear error message.
+   - SUPER_ADMIN bypass.
+
+6) Add verification endpoint (SUPER_ADMIN only):
+   GET /api/system/stripe-subscription-check?companyId=...
+   returns JSON: customerExists, subscriptionExists, status, current_period_end, enforcement_active, allowed_access
+
+DELIVERABLES
+- Migration + schema
+- Stripe module
+- Webhook handler
+- UI tab
+- Enforcement guard
+- Verification checklist:
+  - create customer/subscription
+  - test card 4242
+  - simulate payment_failed -> past_due
+  - confirm restriction behavior
+  - reactivate and restore access
