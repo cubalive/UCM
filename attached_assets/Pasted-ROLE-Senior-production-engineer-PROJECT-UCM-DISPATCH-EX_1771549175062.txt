@@ -1,0 +1,64 @@
+ROLE: Senior production engineer
+PROJECT: UCM DISPATCH
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT drop/recreate tables
+- Target: Supabase Postgres ONLY + Drizzle ONLY
+
+CONTEXT:
+We previously used Supabase correctly. Now runtime sometimes connects to Neon unexpectedly.
+We use Drizzle. Prisma exists in repo but should NOT affect runtime.
+
+OBJECTIVE:
+1) Ensure ALL runtime DB connections use Supabase ONLY.
+2) Remove any Neon/Prisma DB fallbacks and conflicting env var usage.
+3) Add verifiable proof via /api/health/details and real UI create flows.
+
+TASKS (DO IN THIS ORDER):
+
+A) FIND ROOT CAUSE
+1) Search repo for Neon usage:
+   - '@neondatabase', 'neon', 'neon.tech', 'Pool', 'pg.neon'
+2) Search repo for Prisma usage at runtime:
+   - '@prisma/client', 'PrismaClient', 'prisma.'
+3) Search for DB env vars usage:
+   - DATABASE_URL, DIRECT_URL, PRISMA_DATABASE_URL, PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE
+4) Identify EXACTLY which module initializes DB client for API routes.
+
+B) FIX DB CONFIG (DRIZZLE ONLY)
+5) Ensure there is exactly ONE DB client initializer used everywhere (e.g. server/db.ts):
+   - It must read ONLY process.env.DATABASE_URL
+   - It must NOT read DIRECT_URL or any Neon vars
+   - Remove any fallback code path to Neon
+6) Ensure Drizzle config/migrations also read DATABASE_URL only.
+7) If Prisma is not used in runtime, ensure it cannot hijack DB:
+   - Remove Prisma runtime imports if present
+   - Remove any scripts that run Prisma automatically during start/build
+   - Do NOT require PRISMA_DATABASE_URL
+
+C) ENV VAR CLEANUP (REPORT ONLY, DO NOT PRINT SECRETS)
+8) Provide a checklist of which env vars must exist:
+   - DATABASE_URL (Supabase)
+   - and which must be removed if present (DIRECT_URL pointing Neon, PRISMA_DATABASE_URL, NEON_*)
+
+D) PROOF / VERIFICATION (MANDATORY)
+9) Implement/verify GET /api/health/details returns:
+   - dbHost (sanitized)
+   - current_database()
+   - select version()
+   - plus booleans: hasDatabaseUrl, hasDirectUrl, hasPrismaUrl (do not show actual values)
+10) Run this in shell:
+   - curl /api/health/details
+   Confirm dbHost is Supabase, not Neon.
+11) Use UI to create:
+   - a patient
+   - a trip
+   Confirm records exist in Supabase Table Editor.
+12) Write a short “DB CONNECTION REPORT”:
+   - What was pointing to Neon
+   - What you changed (files)
+   - Verification outputs (health endpoint + created record IDs)
+
+DO NOT mark complete until verification proves Supabase is used.
