@@ -1,0 +1,242 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Do NOT drop/recreate tables
+- Extend existing system only
+- Verify before exit with real UI tests + API tests
+
+CONTEXT / BUGS:
+- Creating trips from DISPATCH / SUPER_ADMIN / ADMIN is failing or inconsistent
+- Creating patients is failing or inconsistent
+- Google APIs (Places/Geocoding/Maps) + address autocomplete must work everywhere a user enters an address
+- Geo-fence must work reliably (pickup/arrival/dropped validations)
+- Too many incongruences; system must run “like a clock”: clear, stable, secure, minimal friction
+
+GOAL:
+Do an exhaustive end-to-end audit (frontend + backend + DB) and fix all blockers so:
+1) Patients can be created reliably from clinic + dispatch + admin flows
+2) Trips can be created reliably from dispatch + admin flows (and clinic, if enabled)
+3) Address search/autocomplete works consistently at all address inputs
+4) Geocoding + lat/lng storage is consistent and required where needed
+5) Geo-fence logic is correct and cannot be bypassed (with sensible override rules)
+6) Errors are visible and actionable (no silent failures), with logs + metrics
+7) RBAC is enforced server-side and safe (no client-only checks)
+
+========================================================
+PHASE 0 — BASELINE + INVENTORY (NO CHANGES YET)
+========================================================
+0.1) Confirm production env variables exist (Replit Secrets) and are used correctly:
+- VITE_GOOGLE_MAPS_API_KEY (frontend)
+- GOOGLE_MAPS_API_KEY (backend, if backend geocodes)
+- DATABASE_URL / SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY (as applicable)
+- TWILIO keys (if used)
+- STRIPE keys (if used)
+Ensure no mismatch between “VITE_*” (frontend build-time) and backend runtime env vars.
+
+0.2) Add temporary diagnostic logging (server only):
+- Log request id, user id, role, endpoint, status, error stack
+- Add a /api/health/details endpoint (admin-only) that reports:
+  - db ok
+  - google key presence (boolean only; never print key)
+  - required tables existence (boolean)
+
+0.3) Identify all “create” paths:
+- Create Patient (clinic UI, dispatch UI, admin UI)
+- Create Trip (dispatch/admin UI; clinic if present)
+Document current required fields and where failures occur.
+
+========================================================
+PHASE 1 — DATA MODEL + VALIDATIONS (DB SAFE, NO RESETS)
+========================================================
+1.1) Verify DB schema for core entities (no changes yet):
+PATIENTS table must minimally support:
+- id (uuid)
+- clinic_id (nullable if admin created)
+- first_name, last_name
+- phone (nullable), email (nullable)
+- address_line1, city, state, zip (or single address string)
+- pickup_lat, pickup_lng (nullable until geocoded; but must exist before trip creation)
+- notes (nullable)
+- created_at, updated_at
+
+TRIPS table must minimally support:
+- id (uuid)
+- clinic_id
+- patient_id
+- pickup_address (string)
+- dropoff_address (string)
+- pickup_lat/lng
+- dropoff_lat/lng
+- scheduled_pickup_at (timestamp) REQUIRED
+- scheduled_dropoff_at (timestamp) nullable or computed
+- status (enum/string) default “scheduled”
+- assigned_driver_id (nullable)
+- created_by_user_id
+- created_at, updated_at
+
+If any required fields are missing, add them via migrations (ALTER TABLE only).
+
+1.2) Server-side validation rules (single source of truth):
+- Patient creation: require name + at least one usable address field
+- Trip creation: require patient_id + pickup + dropoff + scheduled_pickup_at
+- If lat/lng missing, backend must geocode (or return explicit error telling UI to geocode first)
+Never rely on client-side validation alone.
+
+1.3) Normalize address handling:
+Create a single utility:
+- normalizeAddress(input) -> trimmed string
+- validateAddress(input) -> throws friendly error if empty
+Store BOTH:
+- formatted_address (string)
+- lat/lng (numbers)
+This prevents later geo-fence failures.
+
+========================================================
+PHASE 2 — GOOGLE MAPS / PLACES / GEOCODING (CONSISTENT)
+========================================================
+2.1) Frontend:
+All address fields must use ONE shared AddressAutocomplete component.
+Requirements:
+- Uses Places Autocomplete
+- Returns: formatted address + place_id + lat/lng
+- Works in all forms: Create Patient, Create Trip, Edit Patient, Edit Trip
+- If API key missing, show a clear error banner with instructions (no silent fail)
+
+2.2) Backend:
+Add a single geocode endpoint (server-side) to avoid client inconsistency:
+POST /api/geocode { address } -> { formatted_address, lat, lng, place_id? }
+- Uses GOOGLE_MAPS_API_KEY (server runtime)
+- Rate-limit basic (per IP/user) to prevent abuse
+- Returns JSON errors (never HTML)
+
+2.3) Enforce: before saving a Patient address or Trip addresses, we must have lat/lng.
+If lat/lng not present from autocomplete, backend geocodes.
+If geocode fails, return actionable error to UI.
+
+========================================================
+PHASE 3 — TRIP CREATION FLOW (DISPATCH/ADMIN RELIABLE)
+========================================================
+3.1) Fix Trip Create UI so it cannot submit incomplete payload:
+- patient_id required
+- pickup/dropoff from AddressAutocomplete (lat/lng included)
+- scheduled_pickup_at required (date+time)
+- optional return trip rules if your app supports “round trip”
+Ensure UI shows backend error messages.
+
+3.2) Fix Trip Create backend:
+- Verify role allowed (super_admin/dispatch/admin)
+- Validate patient exists and belongs to clinic scope rules
+- Validate timestamp not in the past unless override
+- Save trip with a deterministic status (“scheduled”)
+
+3.3) Ensure trip details load after creation:
+- After POST success, redirect to Trip Details and fetch by id
+- Fix any “trip completed click doesn’t show details” by ensuring:
+  - the endpoint returns details JSON
+  - UI has a route + query to fetch and render
+
+========================================================
+PHASE 4 — PATIENT CREATION FLOW (CLINIC + DISPATCH)
+========================================================
+4.1) Patient Create UI:
+- All address inputs must autocomplete and store lat/lng
+- If clinic creates patient, clinic_id auto assigned
+- Show suggestions always at every address field
+
+4.2) Patient Create backend:
+- Role checks: clinic_user can create within their clinic_id only
+- dispatch/admin can create with chosen clinic_id
+- Save patient, then verify it appears in list immediately
+
+========================================================
+PHASE 5 — GEOFENCE (CORRECT + HARD TO BREAK)
+========================================================
+5.1) Define geo-fence rules (implement once server-side):
+- “Arrived at pickup” allowed only if driver location within X meters of pickup point
+- “Picked up” allowed only after “Arrived at pickup”
+- “Arrived at dropoff” allowed only if within X meters of dropoff point
+- “Dropped off” allowed only after “Arrived at dropoff”
+Store driver GPS pings with timestamps.
+
+Default radius:
+- Pickup: 150m
+- Dropoff: 150m
+(allow admin to configure per clinic later)
+
+5.2) Override / exceptions (needed in real life):
+- Dispatch can override geo-fence with reason code (logged)
+- Driver can request override; dispatch approves (logged + email if configured)
+
+5.3) Implement server-side state machine for trip status transitions:
+Reject invalid transitions with clear JSON error.
+
+========================================================
+PHASE 6 — SECURITY + RBAC (SERVER ENFORCED)
+========================================================
+6.1) Ensure every create/update/delete endpoint checks role server-side:
+- super_admin: all
+- dispatch: all ops except destructive super_admin-only actions
+- admin (if exists): define scope clearly
+- clinic_user: only within their clinic
+- driver: only own status updates, location, etc.
+
+6.2) Data isolation:
+- Clinics cannot see other clinics’ patients/trips
+- Operators (if multi-tenant) cannot cross-see
+Ensure queries always filter by tenant/clinic unless super_admin/dispatch.
+
+========================================================
+PHASE 7 — RELIABILITY: ERRORS, LOGS, TESTS
+========================================================
+7.1) Frontend:
+- No silent failures. Every failed request shows toast/banner with message.
+- Add “Copy error details” for admin/dispatch.
+
+7.2) Backend:
+- Standard JSON error shape:
+  { ok:false, error:"...", code:"...", requestId:"..." }
+
+7.3) Add a minimal smoke test script (node or python) that:
+- creates a patient (with address -> lat/lng)
+- creates a trip
+- assigns driver (if endpoint exists)
+- simulates location ping inside geo-fence
+- progresses status
+This script must run against production-like env (not resetting DB).
+
+========================================================
+ACCEPTANCE CRITERIA (MUST VERIFY BEFORE EXIT)
+========================================================
+A) Create Patient:
+- From clinic_user: success, appears in list, address lat/lng saved
+- From dispatch/admin: success with clinic selection
+
+B) Create Trip:
+- From dispatch/admin: success, trip details page loads, all times shown
+- pickup/dropoff lat/lng stored
+- status default scheduled
+
+C) Address autocomplete:
+- Works on every address field (patient + trip)
+- If API key missing, clear error shown
+
+D) Geofence:
+- Driver cannot mark arrived unless within radius
+- Dispatch override works and is logged
+
+E) Security:
+- Clinic cannot see other clinic data
+- Server rejects unauthorized actions
+
+Deliverables:
+- Summary of changes
+- List of fixed root causes
+- Locations of key files/components (AddressAutocomplete, geofence rules, validators)
+- Evidence screenshots or logs for each acceptance test
+
+START NOW. Do the audit first, then implement fixes in the safest minimal way.
