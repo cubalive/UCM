@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric, uniqueIndex, index, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, pgEnum, doublePrecision, numeric, uniqueIndex, index, jsonb, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -566,6 +566,23 @@ export const tripSmsLog = pgTable("trip_sms_log", {
 }, (table) => [
   uniqueIndex("trip_sms_log_trip_kind_unique").on(table.tripId, table.kind),
 ]);
+
+export const smsEvents = pgTable("sms_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: integer("company_id").notNull(),
+  tripId: integer("trip_id"),
+  patientId: integer("patient_id"),
+  driverId: integer("driver_id"),
+  toPhone: text("to_phone").notNull(),
+  fromPhone: text("from_phone"),
+  purpose: text("purpose").notNull(),
+  status: text("status").notNull(),
+  twilioSid: text("twilio_sid"),
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  metadata: jsonb("metadata"),
+});
 
 export const auditLog = pgTable("audit_log", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

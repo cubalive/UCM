@@ -1,0 +1,187 @@
+ROLE: Senior backend engineer (Twilio + multi-tenant)
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+RULES:
+- One agent only. No parallel tasks.
+- Do NOT reset database. Do NOT recreate tables.
+- Do NOT change existing RBAC behavior.
+- Extend existing system only.
+- Keep changes surgical, minimal, testable.
+- Add logs but NEVER log secrets/tokens/PII.
+- If anything is missing, STOP and print a checklist of what you need.
+
+GOAL
+Make Twilio SMS in UCM production-grade and fully consistent end-to-end:
+1) Credentials validation at boot
+2) Safe SMS sender service (single place in code)
+3) Trip lifecycle SMS flows (scheduled/assigned/en-route/arrived/cancelled/no-show)
+4) Patient tracking link + dispatcher contact link included in SMS
+5) Idempotency + rate limiting + audit logging
+6) Metrics health checks (HEALTHY/GOOD/CRITICAL) integrated into existing /metrics health cards
+7) Test endpoints for Super Admin only
+
+CURRENT REALITY / CONSTRAINTS
+- We use Twilio for SMS only.
+- Toll-free number is used as FROM; may not have A2P 10DLC (note: toll-free has its own verification rules).
+- Secrets exist in Replit (do not move them to configurations):
+  TWILIO_ACCOUNT_SID
+  TWILIO_AUTH_TOKEN
+  TWILIO_FROM_NUMBER
+  (Optional if present) DISPATCH_PHONE_NUMBER, DISPATCH_EMAIL
+- System is multi-tenant (company_id isolation is critical).
+- There is already a metrics page with health cards; extend it.
+
+PHASE 0 — INVENTORY + ASSERTIONS (NO CODE YET)
+1) Search codebase for all Twilio usage:
+   - twilio client init
+   - message sending
+   - SMS scheduler/reminders
+   - any hardcoded numbers
+2) Output a map: files + functions + triggers + current behavior.
+3) Identify missing secrets and missing env wiring.
+4) Identify existing “patient tracking link” logic (if any), otherwise plan.
+
+PHASE 1 — CREATE A SINGLE TWILIO SERVICE LAYER
+Implement a single module (example path):
+- server/lib/sms/twilioClient.ts
+- server/lib/sms/smsService.ts
+
+Requirements:
+- Initialize Twilio client once.
+- Validate at startup:
+  - TWILIO_ACCOUNT_SID starts with "AC"
+  - TWILIO_AUTH_TOKEN non-empty
+  - TWILIO_FROM_NUMBER in E.164 (+1xxxxxxxxxx)
+- Provide function:
+  sendSms({ companyId, to, body, purpose, tripId?, patientId?, driverId? })
+- Enforce:
+  - Normalize phone to E.164; reject if invalid.
+  - Max body length guard (1600 ok, but warn above 320).
+  - Prevent duplicates (idempotency key: companyId|purpose|tripId|to|YYYY-MM-DDTHH:mm bucket OR explicit idempotency key)
+  - Per-number rate limit (configurable) to prevent spam loops
+- Errors:
+  - Map Twilio errors into { code, message, retryable }
+  - Do not crash server on Twilio failures.
+- Logging:
+  - Log masked phone (last 2-4 digits only)
+  - Log purpose + tenant + tripId
+  - Never log message body if it contains PII (mask patient name/address).
+  
+PHASE 2 — PERSIST SMS EVENTS (AUDIT + IDENTITY)
+Add a lightweight table if none exists:
+- sms_events
+  id (uuid)
+  company_id
+  trip_id nullable
+  patient_id nullable
+  driver_id nullable
+  to_phone
+  from_phone
+  purpose (enum/string)
+  status (queued|sent|failed|skipped|rate_limited|duplicate)
+  twilio_sid nullable
+  error_code nullable
+  error_message nullable
+  created_at
+  metadata jsonb (non-PII only)
+
+Rules:
+- STRICT company_id required
+- Index on (company_id, trip_id), (company_id, created_at), (to_phone, created_at)
+- If a table already exists, reuse it; do not duplicate schema.
+
+PHASE 3 — PATIENT TRACKING LINK + DISPATCH CONTACT
+We need an SMS-safe link:
+- Use PUBLIC_BASE_URL (or APP_PUBLIC_URL if that’s the canonical one) to build:
+  /track/<token>
+Token rules:
+- Signed, expiring token (JWT or HMAC) with claims:
+  - companyId, tripId, patientId
+  - exp = now + PATIENT_LINK_TTL_HOURS (default 72)
+- Route:
+  GET /track/:token
+  - Renders a minimal mobile page OR redirects to the PWA route
+  - Shows:
+    - driver name (if assigned)
+    - vehicle (make/model/color/plate) if available
+    - live map location if driver is en-route and location is available
+    - button: “Contact Dispatcher” (tel:DISPATCH_PHONE_NUMBER) and optionally SMS dispatcher or open chat
+- No authentication required, token is the gate.
+- Ensure token cannot access other trips/companies.
+
+PHASE 4 — TRIP LIFECYCLE SMS FLOWS (SERVER-SIDE)
+Implement SMS triggers from backend ONLY (no client sending).
+
+Events and required templates (English + Spanish if app already supports; otherwise English only for now):
+A) TRIP_SCHEDULED (optional, controlled by config)
+B) DRIVER_ASSIGNED (required)
+C) DRIVER_EN_ROUTE (required; trigger when driver accepts OR when trip starts in <X minutes; use existing logic if present)
+D) DRIVER_ARRIVED_PICKUP (required; use geofence arrived or driver taps “Arrived”)
+E) PICKUP_CONFIRMED / TRIP_STARTED (optional)
+F) TRIP_COMPLETED (optional)
+G) TRIP_CANCELLED (required if cancelled after assignment)
+H) NO_SHOW (optional)
+I) REMINDER (existing scheduler: 24h/2h/60m configurable) — ensure tenant-safe
+
+Each SMS must include:
+- UCM brand name
+- Pickup time (local)
+- Pickup address (if policy allows; otherwise clinic name)
+- Driver + vehicle summary (when assigned)
+- Tracking link
+- Dispatcher contact link
+
+Rules:
+- Idempotent per event (do not re-send if same event already sent for same trip+purpose)
+- Only send if patient has phone and has opted-in if opt-in exists (if not, log “no opt-in field; sending enabled by default”)
+- Handle missing data gracefully and log “skipped: missing phone/driver/vehicle”
+
+PHASE 5 — SUPER ADMIN TEST & DIAGNOSTICS ENDPOINTS
+Add SUPER_ADMIN-only endpoints:
+1) POST /api/admin/sms/test
+   body: { to: "+1..." }
+   sends: “UCM test message - verified.”
+2) POST /api/admin/sms/preview
+   body: { tripId, purpose }
+   returns the computed SMS body + links WITHOUT sending
+3) GET /api/admin/sms/health
+   returns:
+   - configured (bool)
+   - fromNumber masked
+   - lastSendAt
+   - lastError
+   - counts last 24h by status
+4) GET /api/admin/sms/events?companyId=&tripId=&limit=
+   tenant-safe; super admin can query all
+
+PHASE 6 — METRICS HEALTH CARD INTEGRATION
+Extend existing metrics “Platform Health” dashboard:
+Add/confirm SMS card:
+- HEALTHY (green): last 15 min send ok OR no errors in last 60 min AND credentials valid
+- GOOD (blue): some failures but below threshold, or no recent sends but credentials valid
+- CRITICAL (red): credentials missing/invalid OR >N failures in last 15 min OR Twilio auth error
+
+Also show:
+- sent_24h, failed_24h, duplicates_24h, rate_limited_24h
+- last_twilio_sid (masked), last_error_code
+- recommended action text (e.g., “Verify Toll-Free / A2P compliance”)
+
+PHASE 7 — HARDENING CHECKLIST + FINAL VALIDATION
+Provide a “ready for production” checklist and run these tests in workspace:
+- Boot without Twilio secrets => server still runs, SMS card CRITICAL, no crash
+- With secrets => /api/admin/sms/test works
+- Import + trip creation doesn’t break
+- Trigger DRIVER_ASSIGNED => exactly one SMS created and logged in sms_events
+- Token link works and cannot cross company boundaries
+- No PII in logs
+
+DELIVERABLES
+At the end, print:
+1) Files changed + what changed
+2) How to set secrets (names only, no values)
+3) How to test (exact curl commands)
+4) Known limitations (toll-free verification/A2P) + what user must do in Twilio console
+5) Rollback instructions (git/replit checkpoint)
+
+START NOW.
+First do PHASE 0 inventory and output it, then proceed phase-by-phase.

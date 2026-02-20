@@ -1,37 +1,14 @@
-import Twilio from "twilio";
+export {
+  isTwilioConfigured,
+  getDispatchPhone,
+  isValidE164,
+  normalizePhone,
+  maskPhone,
+} from "./sms/twilioClient";
 
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
-const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "";
+export { sendSms as sendSmsRaw } from "./sms/smsService";
 
-let twilioClient: Twilio.Twilio | null = null;
-
-function getClient(): Twilio.Twilio | null {
-  if (twilioClient) return twilioClient;
-  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) return null;
-  twilioClient = Twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-  return twilioClient;
-}
-
-export function isTwilioConfigured(): boolean {
-  return !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM_NUMBER);
-}
-
-export function getDispatchPhone(): string {
-  return process.env.DISPATCH_PHONE_NUMBER || TWILIO_FROM_NUMBER || "";
-}
-
-export function isValidE164(phone: string): boolean {
-  return /^\+[1-9]\d{1,14}$/.test(phone);
-}
-
-export function normalizePhone(phone: string): string | null {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  if (phone.startsWith("+") && isValidE164(phone)) return phone;
-  return null;
-}
+import { getTwilioClient, getTwilioFromNumber, normalizePhone, isValidE164 } from "./sms/twilioClient";
 
 export interface SendSmsResult {
   success: boolean;
@@ -40,34 +17,34 @@ export interface SendSmsResult {
 }
 
 export async function sendSms(to: string, message: string): Promise<SendSmsResult> {
-  const client = getClient();
+  const client = getTwilioClient();
   if (!client) {
     console.error("[SMS] Twilio client not configured");
     return { success: false, error: "Twilio not configured" };
   }
-  if (!TWILIO_FROM_NUMBER) {
+  const fromNumber = getTwilioFromNumber();
+  if (!fromNumber) {
     console.error("[SMS] TWILIO_FROM_NUMBER not set");
     return { success: false, error: "TWILIO_FROM_NUMBER not set" };
   }
 
-  const normalized = normalizePhone(to);
-  const dest = normalized || to;
-  if (!isValidE164(dest)) {
-    console.error(`[SMS] Invalid phone after normalization: ${to} → ${dest}`);
+  const normalized = normalizePhone(to) || to;
+  if (!isValidE164(normalized)) {
+    console.error(`[SMS] Invalid phone after normalization: ${to}`);
     return { success: false, error: "Invalid phone number" };
   }
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const msg = await client.messages.create({
-        to: dest,
-        from: TWILIO_FROM_NUMBER,
+        to: normalized,
+        from: fromNumber,
         body: message,
       });
-      console.log(`[SMS] Sent to ${dest}, SID: ${msg.sid}, attempt: ${attempt}`);
+      console.log(`[SMS] Sent to ***${normalized.slice(-4)}, SID: ${msg.sid}, attempt: ${attempt}`);
       return { success: true, sid: msg.sid };
     } catch (err: any) {
-      console.error(`[SMS] Attempt ${attempt} failed for ${dest}: ${err.message}`);
+      console.error(`[SMS] Attempt ${attempt} failed for ***${normalized.slice(-4)}: ${err.message}`);
       if (attempt === 2) {
         return { success: false, error: err.message };
       }
@@ -89,7 +66,8 @@ export type TripNotifyStatus =
   | "picked_up"
   | "completed"
   | "canceled"
-  | "reminder_24h";
+  | "reminder_24h"
+  | "no_show";
 
 interface TemplateVars {
   pickup_time?: string;
@@ -109,35 +87,22 @@ const TEMPLATES: Record<TripNotifyStatus, (v: TemplateVars) => string> = {
   scheduled: (v) =>
     `${PREFIX} Your ride is scheduled for ${v.pickup_time || "your appointment time"}.${OPT_OUT}`,
   driver_assigned: (v) =>
-    `${PREFIX} ${v.driver_name || "Your driver"} has been assigned to your trip.${OPT_OUT}`,
+    `${PREFIX} ${v.driver_name || "Your driver"} has been assigned to your trip.${v.vehicle_label ? ` Vehicle: ${v.vehicle_label}.` : ""}${v.tracking_url ? ` Track: ${v.tracking_url}` : ""}${v.dispatch_phone ? `\nNeed help? Call: ${v.dispatch_phone}` : ""}${OPT_OUT}`,
   en_route: (v) => {
     const eta = v.eta_minutes != null ? ` ETA ${v.eta_minutes} min.` : "";
-    const mapLink = v.pickup_lat && v.pickup_lng
-      ? ` Track: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
-      : v.tracking_url ? ` Track: ${v.tracking_url}` : "";
-    return `${PREFIX} ${v.driver_name || "Your driver"} is on the way.${eta}${mapLink}${OPT_OUT}`;
+    const track = v.tracking_url ? ` Track: ${v.tracking_url}` : "";
+    return `${PREFIX} ${v.driver_name || "Your driver"} is on the way.${eta}${track}${v.dispatch_phone ? `\nNeed help? Call: ${v.dispatch_phone}` : ""}${OPT_OUT}`;
   },
   arriving_soon: (v) => {
     const eta = v.eta_minutes != null ? `about ${v.eta_minutes} minutes` : "about 5 minutes";
-    const mapLink = v.pickup_lat && v.pickup_lng
-      ? ` Track: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
-      : v.tracking_url ? ` Track: ${v.tracking_url}` : "";
-    return `${PREFIX} Your driver will arrive in ${eta}.${mapLink}${OPT_OUT}`;
+    return `${PREFIX} Your driver will arrive in ${eta}.${OPT_OUT}`;
   },
-  eta_10: (v) => {
-    const mapLink = v.pickup_lat && v.pickup_lng
-      ? ` Track: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
-      : "";
-    return `${PREFIX} ${v.driver_name || "Your driver"} is about 10 minutes away.${mapLink}${OPT_OUT}`;
-  },
-  eta_5: (v) => {
-    const mapLink = v.pickup_lat && v.pickup_lng
-      ? ` Track: https://maps.google.com/?q=${v.pickup_lat},${v.pickup_lng}`
-      : "";
-    return `${PREFIX} ${v.driver_name || "Your driver"} is about 5 minutes away.${mapLink}${OPT_OUT}`;
-  },
-  arrived: () =>
-    `${PREFIX} Your driver has arrived.${OPT_OUT}`,
+  eta_10: (v) =>
+    `${PREFIX} ${v.driver_name || "Your driver"} is about 10 minutes away.${OPT_OUT}`,
+  eta_5: (v) =>
+    `${PREFIX} ${v.driver_name || "Your driver"} is about 5 minutes away.${OPT_OUT}`,
+  arrived: (v) =>
+    `${PREFIX} ${v.driver_name || "Your driver"} has arrived.${v.dispatch_phone ? `\nNeed help? Call: ${v.dispatch_phone}` : ""}${OPT_OUT}`,
   picked_up: () =>
     `${PREFIX} You are now picked up.${OPT_OUT}`,
   completed: () =>
@@ -151,9 +116,14 @@ const TEMPLATES: Record<TripNotifyStatus, (v: TemplateVars) => string> = {
     const driverInfo = v.driver_name ? ` Driver: ${v.driver_name}.` : "";
     return `${PREFIX} Reminder: your ride is tomorrow at ${v.pickup_time || "your appointment time"}.${driverInfo}${trackLink}${OPT_OUT}`;
   },
+  no_show: (v) => {
+    const dispatch = v.dispatch_phone || "your dispatch office";
+    return `${PREFIX} We couldn't locate you at pickup. Contact dispatch: ${dispatch}.${OPT_OUT}`;
+  },
 };
 
 export function buildNotifyMessage(status: TripNotifyStatus, vars: TemplateVars): string {
   const fn = TEMPLATES[status];
+  if (!fn) return `${PREFIX} Notification for your trip.${OPT_OUT}`;
   return fn(vars);
 }

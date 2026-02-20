@@ -1,0 +1,90 @@
+ROLE: Principal Engineer (Multi-tenant + City/Clinic scoping + Global Search)
+PROJECT: UCM
+EXECUTION MODE: SINGLE AGENT ONLY
+RULES:
+- One agent only. No parallel tasks.
+- Do NOT reset DB. Do NOT recreate tables.
+- Enforce server-side scoping (company/city/clinic) everywhere. UI is secondary.
+- Any create/update must force scope fields from server where applicable.
+- Add minimal tests.
+
+GOALS
+1) Make company_id + city_id mandatory for Vehicles, Drivers, Clinics/Hospitals, Patients, Trips (where applicable).
+2) Enforce global filtering by company + city + clinic across the entire API and UI:
+   - SUPER_ADMIN: can view all; can filter by company + city
+   - COMPANY_ADMIN: only their company; can filter by city
+   - DISPATCHER: only their company; restrict to allowed cities if configured; otherwise all company cities
+   - CLINIC_*: only their clinic; should only see patients/trips for that clinic and its company/city scope
+   - DRIVER: only own trips + assigned vehicle
+   - PATIENT: only own trips via auth or token
+3) Implement global search bars across the system. Where missing, add them.
+4) Patient search must work: typing name in a search input returns scoped matches (company/city/clinic enforced).
+
+PHASE 0 — INVENTORY
+- List tables/columns for: vehicles, drivers, clinics, patients, trips, users, cities, company.
+- Locate existing city selector logic and how it passes params.
+- Identify ALL list endpoints for each entity and whether they apply company/city/clinic filters server-side.
+- Identify current search behavior (if any) and where it’s client-only.
+
+PHASE 1 — DATA MODEL HARDENING (SAFE MIGRATIONS)
+- Ensure company_id is NOT NULL for core entities:
+  vehicles, drivers, clinics, patients, trips.
+- Ensure city_id exists and is required (or equivalent city field). Prefer FK city_id if cities table exists.
+- Add indexes:
+  vehicles(company_id, city_id)
+  drivers(company_id, city_id)
+  clinics(company_id, city_id)
+  patients(company_id, city_id, clinic_id)
+  trips(company_id, city_id, clinic_id, patient_id, driver_id)
+- Add a super-admin-only integrity report endpoint:
+  /api/admin/integrity
+  showing orphan counts and any records with NULL or invalid FK.
+
+PHASE 2 — SERVER-SIDE SCOPE ENFORCEMENT (MANDATORY)
+Create a single reusable scope middleware/helper:
+- getScope(req): { role, companyId, clinicId, allowedCityIds[] }
+Then apply to ALL routes:
+- Every SELECT must include WHERE company_id = scope.companyId (unless SUPER_ADMIN).
+- If a cityId filter is active, enforce WHERE city_id = cityId AND cityId in allowedCityIds if dispatcher restricted.
+- If role is CLINIC_*, enforce WHERE clinic_id = scope.clinicId (and company/city as derived).
+- Every UPDATE/DELETE must use compound WHERE (id AND company_id) plus city/clinic checks when applicable.
+- For creates, ignore client-provided company_id/city_id unless SUPER_ADMIN; otherwise force from scope or validated selections.
+
+PHASE 3 — GLOBAL SEARCH API (SERVER)
+Implement:
+- GET /api/search/patients?q=&cityId?&limit=20
+- GET /api/search/drivers?q=&cityId?&limit=20
+- GET /api/search/vehicles?q=&cityId?&limit=20
+- GET /api/search/trips?q=&cityId?&limit=20
+Requirements:
+- Always apply scope filters (company/city/clinic/role).
+- Search fields:
+  patients: first_name, last_name, fullName, phone, external_id
+  drivers: name, phone, email
+  vehicles: plate, vin, unit_number, make/model
+  trips: trip_id/external_id, patient name join, pickup address
+- Use ILIKE / trigram if available; otherwise simple ILIKE with indexes.
+- Return minimal fields for dropdown results.
+
+PHASE 4 — UI: CITY + COMPANY + SEARCH BARS EVERYWHERE
+- Ensure Create/Edit forms for Vehicles/Drivers/Clinics/Patients/Trips require selecting:
+  company (super-admin only), city (always), clinic (when applicable).
+- City dropdown must be filtered by company.
+- Add a shared <GlobalSearchInput> component with debounce and reuse across list pages.
+- On pages lacking a search bar, add it:
+  Vehicles list, Drivers list, Patients list, Trips list, Clinics list.
+- Patient search in header/toolbar must work and be scoped; show results as you type.
+
+PHASE 5 — TESTS (MINIMUM)
+Add automated tests:
+- Company A cannot read Company B vehicles/drivers/patients/trips.
+- Dispatcher with allowed cities [LV] cannot list Dallas vehicles even inside same company.
+- Clinic user cannot list all vehicles/drivers (403) and only sees its own patients/trips.
+- Patient search returns only scoped results.
+
+PHASE 6 — FINAL VERIFICATION OUTPUT
+Print a checklist of endpoints audited + PASS/FAIL and what was fixed.
+Provide curl examples for:
+- /api/search/patients?q=ana&cityId=...
+- /api/vehicles?cityId=...
+Start with PHASE 0 now.

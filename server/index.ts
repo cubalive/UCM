@@ -307,6 +307,12 @@ app.use((req, res, next) => {
   const { startJobEngine } = await import("./lib/jobEngine");
   startJobEngine();
 
+  const { validateTwilioAtBoot } = await import("./lib/sms/twilioClient");
+  validateTwilioAtBoot();
+
+  const { registerSmsAdminRoutes } = await import("./lib/sms/smsAdminRoutes");
+  registerSmsAdminRoutes(app);
+
   const { startSmsReminderScheduler } = await import("./lib/smsReminderScheduler");
   startSmsReminderScheduler();
 

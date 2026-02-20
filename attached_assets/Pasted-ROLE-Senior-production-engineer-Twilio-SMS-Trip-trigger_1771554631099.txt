@@ -1,0 +1,110 @@
+ROLE: Senior production engineer (Twilio SMS + Trip triggers)
+PROJECT: UCM DISPATCH
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT drop/recreate tables
+- Extend existing system only
+
+CONTEXT:
+- Twilio is PAID.
+- We send SMS only.
+- We use a VERIFIED Toll-Free number.
+- We do NOT use local numbers (no 10DLC).
+- Secret available: TWILIO_FROM_NUMBER (E.164 +1...)
+- Tracking endpoint already exists.
+- SMS currently does NOT send because triggers/logs are missing.
+
+GOAL:
+Send patient SMS automatically with trip details + tracking link + dispatch contact when:
+1) Trip is scheduled/confirmed (immediate if <24h, otherwise schedule 24h reminder)
+2) Driver is assigned OR driver taps "On My Way" (EN_ROUTE)
+3) Driver arrives at pickup (ARRIVED_PICKUP)
+4) Trip starts (STARTED)
+5) Trip completes (COMPLETED)
+Never spam duplicates; always log attempts; must be multi-tenant safe.
+
+REQUIRED SECRETS (fail fast if missing):
+- TWILIO_ACCOUNT_SID
+- TWILIO_AUTH_TOKEN
+- TWILIO_FROM_NUMBER
+- PUBLIC_BASE_URL (e.g., https://app.unitedcaremobility.com)
+Optional:
+- DISPATCH_PHONE_NUMBER (fallback if company dispatch not configured)
+
+PHASE 1 — AUDIT (NO CODING YET)
+1) Find and list file paths + functions where:
+   - trip status is updated
+   - driver assignment happens
+   - scheduler/job engine runs
+   - tracking link/token is generated
+   - any Twilio code exists
+Return paths + short notes.
+
+PHASE 2 — CENTRALIZE SMS SENDING
+2) Create/extend a single service: server/services/sms.service.ts
+Export functions:
+- sendPatientTripSMS({ tripId, eventType })
+Where eventType ∈:
+  "TRIP_CONFIRMED" | "REMINDER_24H" | "DRIVER_ASSIGNED" | "EN_ROUTE" | "ARRIVED_PICKUP" | "TRIP_STARTED" | "TRIP_COMPLETED" | "TRIP_CANCELLED"
+3) The service must:
+   - Load trip + patient + company + clinic + driver + vehicle (as available)
+   - Validate patient phone exists, normalize to E.164
+   - Build tracking link using existing tracking token logic:
+       `${PUBLIC_BASE_URL}/track/${tripId}?token=${token}`
+     Token must be unguessable and expiring (keep existing).
+   - Compose SMS body with:
+       patient first name (optional), driver name (if assigned),
+       vehicle summary (make/model/color + plate last 4),
+       pickup time, ETA if available,
+       tracking link,
+       "Need help? Call Dispatch: <phone>"
+   - Send Twilio SMS via messages.create using FROM=TWILIO_FROM_NUMBER
+   - Log every attempt (success/fail/skip) in DB
+
+PHASE 3 — LOGGING + DEDUPE (NO SPAM)
+4) Add sms_logs table ONLY if not existing (Drizzle migration, minimal):
+   columns:
+     id (uuid), company_id, trip_id, event_type, to_phone, from_phone,
+     twilio_sid, status ("sent"|"failed"|"skipped"),
+     error_code, error_message, created_at
+   Unique constraint: (trip_id, event_type) to prevent duplicates.
+5) If a duplicate is attempted, do not send; log as skipped with reason "duplicate".
+
+PHASE 4 — WIRE TRIGGERS (FIX THE ROOT CAUSE)
+6) In the canonical trip status update flow, AFTER DB update succeeds:
+   - if status changes to ASSIGNED => send eventType "DRIVER_ASSIGNED"
+   - if status changes to EN_ROUTE => send eventType "EN_ROUTE"
+   - if status changes to ARRIVED_PICKUP => send eventType "ARRIVED_PICKUP"
+   - if status changes to STARTED => send eventType "TRIP_STARTED"
+   - if status changes to COMPLETED => send eventType "TRIP_COMPLETED"
+7) In trip creation/scheduling flow:
+   - if scheduled_time >= now + 24h => schedule reminder job "REMINDER_24H" at (scheduled_time - 24h)
+   - else => send "TRIP_CONFIRMED" immediately
+8) Ensure triggers are tenant-safe:
+   - trip.company_id must match current user scope
+   - never allow clinic/company cross-access
+
+PHASE 5 — ADMIN TEST + HEALTH (SUPER_ADMIN ONLY)
+9) Add POST /api/admin/sms/test (SUPER_ADMIN):
+   body: { to: "+1..." }
+   sends a simple test SMS; returns { ok, sid }
+   logs to sms_logs.
+10) Add GET /api/admin/sms/health (SUPER_ADMIN):
+   returns last 50 sms_logs + fail rate last 24h + counts by event_type.
+
+PHASE 6 — VERIFICATION (MUST PROVE)
+11) Show console logs for a real send:
+   [SMS] event=EN_ROUTE tripId=... to=... status=sent sid=...
+12) Prove end-to-end:
+   - Call /api/admin/sms/test -> receive SMS
+   - Create a trip with patient phone, assign driver -> receive SMS
+   - Move to EN_ROUTE -> receive SMS with tracking link
+   - Click tracking link -> page loads and shows driver + ETA
+13) Do NOT mark complete until real SMS is received and sms_logs rows exist.
+
+IMPORTANT:
+- Do not touch DB provider (Supabase only).
+- Do not use Replit internal database.
+- No silent success: every skip/fail must be visible in logs and sms_logs.
