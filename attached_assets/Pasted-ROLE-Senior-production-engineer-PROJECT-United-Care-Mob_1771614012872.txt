@@ -1,0 +1,44 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify with real UI checks
+
+GOAL:
+Implement strict multi-tenant ownership for drivers (drivers must belong to exactly one company), same as patients belong to a company and a clinic.
+
+REQUIREMENTS:
+1) DATABASE
+- Ensure `drivers` table has a required `companyId` (UUID) FK to `companies.id`.
+- Ensure `patients` table has required `companyId` (transport company) and required `clinicId`.
+- If clinics can work with multiple companies, create join table `clinic_companies (id, clinicId, companyId, status, createdAt)` and use it in clinic UI.
+
+2) MIGRATION / BACKFILL
+- If existing drivers have `users.companyId` and `users.driverId`, backfill `drivers.companyId = users.companyId`.
+- If not available, infer from most recent trips or assigned vehicle company; otherwise mark drivers as “unassigned” and require assignment in admin UI.
+- Add DB constraint to prevent null companyId for new drivers.
+
+3) API
+- Update driver creation endpoint to require companyId.
+- Add GET /api/drivers?companyId=... (super admin can omit companyId to see all).
+- Update GET /api/me to return companyId + companyName for logged-in driver.
+- Enforce authorization: company admins only access their companyId records.
+
+4) UI
+- Super Admin: Drivers list shows Company column + filter dropdown by company.
+- Company Admin: Drivers list auto-filtered by their companyId (no cross-company leakage).
+- Driver Settings page: show “Company: {companyName}” and “Vehicle: {vehicleNumber}”.
+
+5) VERIFICATION CHECKLIST (must execute)
+- Create a new company, create a driver assigned to that company, confirm it appears only under that company.
+- Login as company admin, confirm drivers list only shows their drivers.
+- Login as driver, confirm Settings shows correct company name.
+- Confirm patients require both company and clinic on create.
+- No regressions in trips assignment.
+
+DELIVERABLE:
+Implement changes with minimal code, add only necessary migrations, and report the exact files changed + screenshots/console proof of filters working.

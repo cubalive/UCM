@@ -61,6 +61,7 @@ import {
   Inbox,
   Check,
   RefreshCw,
+  Building2,
 } from "lucide-react";
 
 type TabId = "home" | "trips" | "performance" | "bonuses" | "earnings" | "schedule" | "settings";
@@ -2025,10 +2026,11 @@ function ScheduleChangesSection({ token }: { token: string | null }) {
   );
 }
 
-function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMutation, geoLocation }: {
+function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMutation, geoLocation, companyName }: {
   driver: any; vehicle: any; token: string | null;
   isDriverOnline: boolean; toggleActiveMutation: any;
   geoLocation: { lat: number; lng: number } | null;
+  companyName: string | null;
 }) {
   const { toast } = useToast();
   const { logout } = useAuth();
@@ -2082,6 +2084,11 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMuta
               )}
               {vehicle?.capability && (
                 <Badge variant="secondary" className="mt-1" data-testid="badge-vehicle-capability">{vehicle.capability}</Badge>
+              )}
+              {companyName && (
+                <p className="text-sm text-muted-foreground flex items-center gap-1.5 mt-1" data-testid="text-settings-company">
+                  <Building2 className="w-4 h-4" /> {companyName}
+                </p>
               )}
             </div>
           </div>
@@ -2539,6 +2546,7 @@ export default function DriverPortal() {
             isDriverOnline={isDriverOnline}
             toggleActiveMutation={toggleActiveMutation}
             geoLocation={geoLocation}
+            companyName={profileQuery.data?.companyName ?? null}
           />
         )}
       </div>

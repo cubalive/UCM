@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive, LogOut, RotateCcw, Trash2 } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive, LogOut, RotateCcw, Trash2, Building2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
 import { GlobalSearchInput } from "@/components/GlobalSearchInput";
@@ -46,6 +46,7 @@ export default function DriversPage() {
   const [historyDriver, setHistoryDriver] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [companyFilter, setCompanyFilter] = useState<string>("all");
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
   const [vehicleConflict, setVehicleConflict] = useState<{
     driverId: number;
@@ -54,14 +55,20 @@ export default function DriversPage() {
     conflictingDriverName: string;
     pendingData: any;
   } | null>(null);
-  const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
+  const buildDriversUrl = () => {
+    const params = new URLSearchParams();
+    if (selectedCity) params.set("cityId", String(selectedCity.id));
+    if (companyFilter && companyFilter !== "all") params.set("companyId", companyFilter);
+    const qs = params.toString();
+    return `/api/drivers${qs ? `?${qs}` : ""}`;
+  };
 
   const canManageAuth = user?.role === "SUPER_ADMIN" || user?.role === "DISPATCH";
   const canEdit = user?.role ? can(user.role, "drivers", "write") : false;
 
   const { data: drivers, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/drivers", selectedCity?.id],
-    queryFn: () => apiFetch(`/api/drivers${cityParam}`, token),
+    queryKey: ["/api/drivers", selectedCity?.id, companyFilter],
+    queryFn: () => apiFetch(buildDriversUrl(), token),
     enabled: !!token,
   });
 
@@ -75,6 +82,13 @@ export default function DriversPage() {
     queryKey: ["/api/vehicles"],
     queryFn: () => apiFetch("/api/vehicles", token),
     enabled: !!token,
+  });
+
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const { data: companiesList } = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch("/api/companies", token),
+    enabled: !!token && isSuperAdmin,
   });
 
   const createMutation = useMutation({
@@ -251,6 +265,12 @@ export default function DriversPage() {
     return v ? `${v.name} — ${v.licensePlate}` : null;
   };
 
+  const getCompanyName = (companyId: number | null) => {
+    if (!companyId || !companiesList) return null;
+    const c = companiesList.find((c: any) => c.id === companyId);
+    return c?.name ?? null;
+  };
+
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -290,7 +310,21 @@ export default function DriversPage() {
 
       <div className="flex items-center gap-3 flex-wrap">
         <GlobalSearchInput entity="drivers" placeholder={t("drivers.search")} onQueryChange={setSearch} className="max-w-sm" />
-        {user?.role === "SUPER_ADMIN" && (
+        {isSuperAdmin && companiesList && companiesList.length > 0 && (
+          <Select value={companyFilter} onValueChange={setCompanyFilter}>
+            <SelectTrigger className="w-[200px]" data-testid="select-company-filter">
+              <Building2 className="w-4 h-4 mr-2 text-muted-foreground" />
+              <SelectValue placeholder="All Companies" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Companies</SelectItem>
+              {companiesList.map((c: any) => (
+                <SelectItem key={c.id} value={String(c.id)} data-testid={`select-company-${c.id}`}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {isSuperAdmin && (
           <div className="flex items-center gap-2">
             <Switch
               checked={showArchived}
@@ -324,13 +358,18 @@ export default function DriversPage() {
                   <div className="space-y-1 min-w-0">
                     <p className="font-medium" data-testid={`text-driver-name-${d.id}`}>{d.firstName} {d.lastName}</p>
                     <p className="text-xs font-mono text-muted-foreground">{d.publicId}</p>
+                    {isSuperAdmin && d.companyId && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-driver-company-${d.id}`}>
+                        <Building2 className="w-3 h-3" />{getCompanyName(d.companyId) || `Company #${d.companyId}`}
+                      </p>
+                    )}
                     {d.email && <p className="text-sm text-muted-foreground" data-testid={`text-driver-email-${d.id}`}>{d.email}</p>}
                     <p className="text-sm text-muted-foreground">{d.phone}</p>
                     {d.licenseNumber && <p className="text-xs text-muted-foreground">License: {d.licenseNumber}</p>}
                     {d.vehicleId ? (
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-driver-vehicle-${d.id}`}>
-                          Vehicle: <VehicleRef id={d.vehicleId} label={getVehicleName(d.vehicleId)} showIcon={false} />
+                          Vehicle: <VehicleRef id={d.vehicleId} label={getVehicleName(d.vehicleId) ?? undefined} showIcon={false} />
                         </div>
                         {canEdit && (
                           <Button

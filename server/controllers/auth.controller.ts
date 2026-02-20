@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
 import { signToken, comparePassword, hashPassword, getUserCityIds, setAuthCookie, type AuthRequest, verifyToken } from "../auth";
-import { loginSchema, driverDevices, users } from "@shared/schema";
+import { loginSchema, driverDevices, users, companies } from "@shared/schema";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { getSupabaseServer } from "../../lib/supabaseClient";
@@ -227,9 +227,15 @@ export async function authMeHandler(req: AuthRequest, res: Response) {
       return true;
     });
 
+    let companyName: string | null = null;
+    if (user.companyId) {
+      const [company] = await db.select({ name: companies.name }).from(companies).where(eq(companies.id, user.companyId));
+      companyName = company?.name ?? null;
+    }
+
     const { password, ...safeUser } = user;
     res.json({
-      user: { ...safeUser, cityAccess },
+      user: { ...safeUser, cityAccess, companyName },
       cities: dedupedCities,
       workingCityId: user.workingCityId ?? null,
       workingCityScope: user.workingCityScope ?? "CITY",

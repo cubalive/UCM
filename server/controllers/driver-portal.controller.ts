@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, invalidateRevocationCache, clearAuthCookie, type AuthRequest } from "../auth";
-import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests, driverShifts } from "@shared/schema";
+import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests, driverShifts, companies } from "@shared/schema";
 import { db } from "../db";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { registerPushToken, unregisterPushToken, sendPushToDriver, isPushEnabled } from "../lib/push";
@@ -69,7 +69,12 @@ export async function getDriverProfileHandler(req: AuthRequest, res: Response) {
     const driver = await storage.getDriver(user.driverId);
     if (!driver) return res.status(404).json({ message: "Driver not found" });
     const vehicle = driver.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
-    res.json({ driver, vehicle });
+    let companyName: string | null = null;
+    if (driver.companyId) {
+      const [company] = await db.select({ name: companies.name }).from(companies).where(eq(companies.id, driver.companyId));
+      companyName = company?.name ?? null;
+    }
+    res.json({ driver, vehicle, companyName });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

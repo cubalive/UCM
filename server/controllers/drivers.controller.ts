@@ -17,6 +17,10 @@ export async function getDriversHandler(req: AuthRequest, res: Response) {
 
     const conditions: any[] = [eq(drivers.active, true), isNull(drivers.deletedAt)];
     if (filters.companyId) conditions.push(eq(drivers.companyId, filters.companyId));
+    if (!filters.companyId && scope.isSuperAdmin && req.query.companyId) {
+      const filterCompanyId = parseInt(String(req.query.companyId));
+      if (!isNaN(filterCompanyId)) conditions.push(eq(drivers.companyId, filterCompanyId));
+    }
     if (filters.cityId) conditions.push(eq(drivers.cityId, filters.cityId));
 
     const q = (req.query.q as string)?.trim();
