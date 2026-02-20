@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, invalidateRevocationCache, clearAuthCookie, type AuthRequest } from "../auth";
-import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests } from "@shared/schema";
+import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests, driverShifts } from "@shared/schema";
 import { db } from "../db";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { registerPushToken, unregisterPushToken, sendPushToDriver, isPushEnabled } from "../lib/push";
@@ -638,6 +638,12 @@ export async function postDriverOfferAcceptHandler(req: AuthRequest, res: Respon
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+    const [activeShift] = await db.select().from(driverShifts)
+      .where(and(eq(driverShifts.driverId, user.driverId), eq(driverShifts.status, "ACTIVE")))
+      .limit(1);
+    if (!activeShift) return res.status(403).json({ message: "You must start a shift before accepting trips" });
+
     const offerId = parseInt(String(req.params.offerId));
     if (isNaN(offerId)) return res.status(400).json({ message: "Invalid offer ID" });
 
@@ -1583,6 +1589,8 @@ export async function getDriverTripsHandler(req: AuthRequest, res: Response) {
     const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 50);
     const today = new Date().toISOString().split("T")[0];
 
+    const q = (req.query.q as string)?.trim();
+    const statusFilter = req.query.status as string;
     let conditions: any[] = [eq(trips.driverId, user.driverId), isNull(trips.deletedAt)];
 
     if (scope === "today") {
@@ -1592,6 +1600,18 @@ export async function getDriverTripsHandler(req: AuthRequest, res: Response) {
       conditions.push(sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`);
     } else if (scope === "completed") {
       conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
+    }
+
+    if (q) {
+      conditions.push(sql`(
+        ${trips.pickupAddress} ILIKE ${'%' + q + '%'} OR
+        ${trips.dropoffAddress} ILIKE ${'%' + q + '%'} OR
+        ${trips.publicId} ILIKE ${'%' + q + '%'} OR
+        CAST(${trips.id} AS TEXT) = ${q}
+      )`);
+    }
+    if (statusFilter) {
+      conditions.push(eq(trips.status, statusFilter));
     }
 
     const total = await db.select({ count: sql<number>`count(*)` }).from(trips)

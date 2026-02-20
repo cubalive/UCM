@@ -1059,6 +1059,43 @@ export default function DriverDashboard() {
 
   const driver = profileQuery.data?.driver;
   const vehicle = profileQuery.data?.vehicle;
+
+  const shiftQuery = useQuery<{ shift: any }>({
+    queryKey: ["/api/driver/shift/active"],
+    queryFn: () => apiFetch("/api/driver/shift/active", token),
+    enabled: !!token,
+    refetchInterval: 30000,
+  });
+  const activeShift = shiftQuery.data?.shift;
+
+  const [shiftTick, setShiftTick] = useState(0);
+  useEffect(() => {
+    if (!activeShift) return;
+    const iv = setInterval(() => setShiftTick(t => t + 1), 60000);
+    return () => clearInterval(iv);
+  }, [activeShift?.id]);
+
+  const shiftStartMutation = useMutation({
+    mutationFn: () => apiFetch("/api/driver/shift/start", token, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/shift/active"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
+      toast({ title: "Shift started — you are online" });
+      if (isNativePlatform) bgStart();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const shiftEndMutation = useMutation({
+    mutationFn: () => apiFetch("/api/driver/shift/end", token, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/shift/active"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
+      toast({ title: "Shift ended — you are offline" });
+      if (isNativePlatform) bgStop();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
   const todayTrips = tripsQuery.data?.todayTrips || [];
   const allTrips = tripsQuery.data?.allTrips || [];
 
@@ -1070,6 +1107,7 @@ export default function DriverDashboard() {
   const { permission: _geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverOnline || hasActiveTrip);
   const geoPermission: string = _geoPermission;
   const isNetworkOnline = useNetworkStatus();
+  const [geofenceInfo, setGeofenceInfo] = useState<{ pickupDistanceMeters: number | null; dropoffDistanceMeters: number | null; withinPickupRadius: boolean; withinDropoffRadius: boolean } | null>(null);
   const { tracking: bgTracking, bgLastSent, bgAccuracy, bgPermissionDenied, isStale: bgStale, startTracking: bgStart, stopTracking: bgStop, openSettings: bgOpenSettings } = useNativeBackgroundTracking(token);
 
   const lastSentRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
@@ -1280,12 +1318,18 @@ export default function DriverDashboard() {
     if (showGpsGate && gpsGateLoading && geoLocation && geoPermission === "granted") {
       setShowGpsGate(false);
       setGpsGateLoading(false);
-      toggleActiveMutation.mutate(true);
+      shiftStartMutation.mutate();
     }
   }, [showGpsGate, gpsGateLoading, geoLocation, geoPermission]);
   const [confirmDialog, setConfirmDialog] = useState<{ tripId: number; nextStatus: string; label: string } | null>(null);
   const [driverSignature, setDriverSignature] = useState<string | null>(null);
   const [confirmNote, setConfirmNote] = useState("");
+  const [noShowCountdown, setNoShowCountdown] = useState<number | null>(null);
+  const [noShowTrip, setNoShowTrip] = useState<any>(null);
+  const [noShowActions, setNoShowActions] = useState({ call: false, sms: false, notify: false });
+  const noShowTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [signatureRefused, setSignatureRefused] = useState(false);
+  const [refusedReason, setRefusedReason] = useState("");
   const [needHelpOpen, setNeedHelpOpen] = useState(false);
   const [needHelpNote, setNeedHelpNote] = useState("");
   const [supportSubmitting, setSupportSubmitting] = useState(false);
@@ -1455,6 +1499,19 @@ export default function DriverDashboard() {
   const scheduledToday = todayTrips.filter((t: any) => t.status === "SCHEDULED");
   const activeTrip = activeTripQuery.data?.trip || null;
 
+  useEffect(() => {
+    if (!activeTrip || !geoLocation || !token) { setGeofenceInfo(null); return; }
+    const check = async () => {
+      try {
+        const data = await apiFetch(`/api/driver/geofence-check?tripId=${activeTrip.id}&lat=${geoLocation.lat}&lng=${geoLocation.lng}`, token);
+        setGeofenceInfo(data);
+      } catch { }
+    };
+    check();
+    const iv = setInterval(check, 15000);
+    return () => clearInterval(iv);
+  }, [activeTrip?.id, geoLocation?.lat, geoLocation?.lng, token]);
+
   useAutoReroute(activeTrip, geoLocation, token);
 
   const nextPickup = todayTrips.find((t: any) => t.status === "SCHEDULED" || t.status === "ASSIGNED");
@@ -1526,6 +1583,8 @@ export default function DriverDashboard() {
     setConfirmDialog(null);
     setConfirmNote("");
     setDriverSignature(null);
+    setSignatureRefused(false);
+    setRefusedReason("");
     if (!navigator.onLine) {
       queueAction({
         type: "status_transition",
@@ -1535,11 +1594,18 @@ export default function DriverDashboard() {
       return;
     }
     try {
-      if (sigData && nextStatus === "COMPLETED" && token) {
-        await apiFetch(`/api/trips/${tripId}/signature/driver`, token, {
-          method: "POST",
-          body: JSON.stringify({ signature: sigData }),
-        });
+      if (nextStatus === "COMPLETED" && token) {
+        if (signatureRefused) {
+          await apiFetch("/api/driver/signature-refused", token, {
+            method: "POST",
+            body: JSON.stringify({ tripId, reason: refusedReason || undefined }),
+          });
+        } else if (sigData) {
+          await apiFetch(`/api/trips/${tripId}/signature/driver`, token, {
+            method: "POST",
+            body: JSON.stringify({ signature: sigData }),
+          });
+        }
       }
       await apiFetch(`/api/trips/${tripId}/status`, token, {
         method: "PATCH",
@@ -1879,6 +1945,25 @@ export default function DriverDashboard() {
                   </div>
                 </div>
 
+                {geofenceInfo && (
+                  <div className="flex items-center gap-3 text-sm" data-testid="div-geofence-info">
+                    {geofenceInfo.pickupDistanceMeters !== null && (
+                      <div className={`flex items-center gap-1 ${geofenceInfo.withinPickupRadius ? "text-green-600" : "text-muted-foreground"}`}>
+                        <LocateFixed className="w-4 h-4" />
+                        <span data-testid="text-pickup-distance">Pickup: {geofenceInfo.pickupDistanceMeters < 1000 ? `${geofenceInfo.pickupDistanceMeters}m` : `${(geofenceInfo.pickupDistanceMeters / 1609).toFixed(1)}mi`}</span>
+                        {geofenceInfo.withinPickupRadius && <CheckCircle className="w-3.5 h-3.5" />}
+                      </div>
+                    )}
+                    {geofenceInfo.dropoffDistanceMeters !== null && (
+                      <div className={`flex items-center gap-1 ${geofenceInfo.withinDropoffRadius ? "text-green-600" : "text-muted-foreground"}`}>
+                        <MapPinned className="w-4 h-4" />
+                        <span data-testid="text-dropoff-distance">Dropoff: {geofenceInfo.dropoffDistanceMeters < 1000 ? `${geofenceInfo.dropoffDistanceMeters}m` : `${(geofenceInfo.dropoffDistanceMeters / 1609).toFixed(1)}mi`}</span>
+                        {geofenceInfo.withinDropoffRadius && <CheckCircle className="w-3.5 h-3.5" />}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex gap-2 flex-wrap">
                   {STATUS_FLOW[activeTrip.status] && (
                     <Button
@@ -2178,26 +2263,44 @@ export default function DriverDashboard() {
           )}
         </div>
         <Button
-          variant={isDriverOnline ? "destructive" : "default"}
+          variant={activeShift ? "destructive" : "default"}
           onClick={() => {
-            if (!isDriverOnline) {
+            if (!activeShift) {
               if (geoPermission === "granted" && geoLocation) {
-                toggleActiveMutation.mutate(true);
+                shiftStartMutation.mutate();
               } else {
                 setShowGpsGate(true);
               }
             } else {
-              toggleActiveMutation.mutate(false);
+              shiftEndMutation.mutate();
             }
           }}
-          disabled={toggleActiveMutation.isPending}
+          disabled={shiftStartMutation.isPending || shiftEndMutation.isPending}
           className="min-h-[44px] text-base px-5"
           data-testid="button-toggle-active"
         >
-          {isDriverOnline ? <PowerOff className="w-5 h-5 mr-2" /> : <Power className="w-5 h-5 mr-2" />}
-          {isDriverOnline ? "Go Offline" : "Go Online"}
+          {activeShift ? <PowerOff className="w-5 h-5 mr-2" /> : <Power className="w-5 h-5 mr-2" />}
+          {activeShift ? "End Shift" : "Start Shift"}
         </Button>
       </div>
+
+      {activeShift && (
+        <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 flex items-center justify-between" data-testid="div-shift-timer-banner">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium" data-testid="text-shift-duration">
+              Shift: {(() => {
+                const start = new Date(activeShift.startedAt).getTime();
+                const mins = Math.floor((Date.now() - start) / 60000);
+                const h = Math.floor(mins / 60);
+                const m = mins % 60;
+                return h > 0 ? `${h}h ${m}m` : `${m}m`;
+              })()}
+            </span>
+          </div>
+          {isOnBreak && <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400" data-testid="badge-on-break">On Break</Badge>}
+        </div>
+      )}
 
       {/* SLIDE-UP DRAWER */}
       {drawerOpen && (
@@ -2206,7 +2309,7 @@ export default function DriverDashboard() {
           <div className="relative bg-background rounded-t-xl max-h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <span className="text-lg font-semibold">
-                {drawerSection === "trips" ? "My Trips" : drawerSection === "schedule" ? "My Schedule" : drawerSection === "schedule-change" ? "Schedule Change" : drawerSection === "metrics" ? "My Metrics" : drawerSection === "bonus" ? "Weekly Bonus" : "Menu"}
+                {drawerSection === "trips" ? "My Trips" : drawerSection === "schedule" ? "My Schedule" : drawerSection === "schedule-change" ? "Schedule Change" : drawerSection === "metrics" ? "My Metrics" : drawerSection === "bonus" ? "Weekly Bonus" : drawerSection === "earnings" ? "My Earnings" : "Menu"}
               </span>
               <div className="flex items-center gap-2">
                 {drawerSection && (
@@ -2292,6 +2395,13 @@ export default function DriverDashboard() {
                         highlight={bonus.progressColor === "green"}
                       />
                     )}
+
+                    <DrawerMenuItem
+                      icon={TrendingUp}
+                      label="My Earnings"
+                      onClick={() => setDrawerSection("earnings")}
+                      testId="button-drawer-earnings"
+                    />
                   </div>
 
                   {/* Break toggle in drawer */}
@@ -2369,16 +2479,16 @@ export default function DriverDashboard() {
 
                   {/* S8: Logout / Go Offline */}
                   <div className="border-t pt-3 space-y-2">
-                    {isDriverOnline && (
+                    {activeShift && (
                       <Button
                         variant="destructive"
                         className="w-full min-h-[48px] text-base"
-                        onClick={() => { toggleActiveMutation.mutate(false); setDrawerOpen(false); }}
-                        disabled={toggleActiveMutation.isPending}
+                        onClick={() => { shiftEndMutation.mutate(); setDrawerOpen(false); }}
+                        disabled={shiftEndMutation.isPending}
                         data-testid="button-drawer-go-offline"
                       >
                         <PowerOff className="w-5 h-5 mr-2" />
-                        Go Offline
+                        End Shift
                       </Button>
                     )}
                     <Button
@@ -2435,6 +2545,10 @@ export default function DriverDashboard() {
               {/* BONUS SECTION */}
               {drawerSection === "bonus" && bonus?.active && (
                 <DrawerBonusSection bonus={bonus} />
+              )}
+
+              {drawerSection === "earnings" && (
+                <DrawerEarningsSection token={token} />
               )}
             </div>
           </div>
@@ -2570,7 +2684,7 @@ export default function DriverDashboard() {
                       if (geoLocation) {
                         setShowGpsGate(false);
                         setGpsGateLoading(false);
-                        toggleActiveMutation.mutate(true);
+                        shiftStartMutation.mutate();
                       } else {
                         setGpsGateLoading(false);
                       }
@@ -2624,18 +2738,45 @@ export default function DriverDashboard() {
                 <span data-testid="text-confirm-timestamp">{new Date().toLocaleTimeString()}</span>
               </div>
               {confirmDialog.nextStatus === "COMPLETED" && (
-                <div className="space-y-1.5">
-                  <SignaturePad
-                    label="Driver Signature (required for trip completion)"
-                    onSave={(dataUrl) => setDriverSignature(dataUrl)}
-                    height={100}
-                  />
-                  {driverSignature && (
-                    <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      <span data-testid="text-signature-saved">Signature captured</span>
+                <div className="space-y-3">
+                  {!signatureRefused ? (
+                    <>
+                      <SignaturePad
+                        label="Driver Signature (required for trip completion)"
+                        onSave={(dataUrl) => setDriverSignature(dataUrl)}
+                        height={100}
+                      />
+                      {driverSignature && (
+                        <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          <span data-testid="text-signature-saved">Signature captured</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm text-amber-600 dark:text-amber-400 font-medium" data-testid="text-signature-refused-label">Patient refused to sign</p>
+                      <Input
+                        placeholder="Reason (optional)"
+                        value={refusedReason}
+                        onChange={(e) => setRefusedReason(e.target.value)}
+                        className="text-base"
+                        data-testid="input-refused-reason"
+                      />
                     </div>
                   )}
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="sig-refused"
+                      checked={signatureRefused}
+                      onCheckedChange={(v) => {
+                        setSignatureRefused(!!v);
+                        if (v) setDriverSignature(null);
+                      }}
+                      data-testid="checkbox-signature-refused"
+                    />
+                    <label htmlFor="sig-refused" className="text-sm cursor-pointer">Patient refused to sign</label>
+                  </div>
                 </div>
               )}
               <div className="space-y-1.5">
@@ -2653,7 +2794,7 @@ export default function DriverDashboard() {
                 <Button
                   className="flex-1 min-h-[48px] text-base font-semibold"
                   onClick={handleConfirmSubmit}
-                  disabled={statusMutation.isPending || (confirmDialog.nextStatus === "COMPLETED" && !driverSignature)}
+                  disabled={statusMutation.isPending || (confirmDialog.nextStatus === "COMPLETED" && !driverSignature && !signatureRefused)}
                   data-testid="button-confirm-submit"
                 >
                   <CheckCircle className="w-5 h-5 mr-2" />
@@ -2768,7 +2909,21 @@ function DrawerTripsSection({ todayTrips, allTrips, tripsTab, setTripsTab, selec
   setChatTripId: (id: number) => void;
   token: string | null;
 }) {
-  const displayTrips = tripsTab === "scheduled" ? todayTrips : allTrips;
+  const [searchQ, setSearchQ] = useState("");
+  const [statusChip, setStatusChip] = useState("ALL");
+  const rawTrips = tripsTab === "scheduled" ? todayTrips : allTrips;
+  const displayTrips = rawTrips.filter((t: any) => {
+    if (statusChip !== "ALL" && t.status !== statusChip) return false;
+    if (searchQ.trim()) {
+      const q = searchQ.toLowerCase();
+      const match = (t.pickupAddress || "").toLowerCase().includes(q) ||
+        (t.dropoffAddress || "").toLowerCase().includes(q) ||
+        (t.publicId || "").toLowerCase().includes(q) ||
+        (t.patientName || "").toLowerCase().includes(q);
+      if (!match) return false;
+    }
+    return true;
+  });
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
@@ -2792,6 +2947,17 @@ function DrawerTripsSection({ todayTrips, allTrips, tripsTab, setTripsTab, selec
         </Button>
       </div>
 
+      <div className="relative">
+        <Input
+          placeholder="Search trips..."
+          value={searchQ}
+          onChange={(e) => setSearchQ(e.target.value)}
+          className="min-h-[44px] text-base pl-10"
+          data-testid="input-search-trips"
+        />
+        <LocateFixed className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+      </div>
+
       {tripsTab === "scheduled" && (
         <div className="flex items-center gap-2">
           <Label className="text-base">Date</Label>
@@ -2804,6 +2970,20 @@ function DrawerTripsSection({ todayTrips, allTrips, tripsTab, setTripsTab, selec
           />
         </div>
       )}
+
+      <div className="flex gap-1.5 flex-wrap">
+        {(["ALL", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "COMPLETED", "NO_SHOW"] as const).map((s) => (
+          <Badge
+            key={s}
+            variant={statusChip === s ? "default" : "outline"}
+            className="cursor-pointer text-xs px-2 py-1"
+            onClick={() => setStatusChip(s === statusChip ? "ALL" : s)}
+            data-testid={`chip-status-${s.toLowerCase()}`}
+          >
+            {s === "ALL" ? "All" : STATUS_LABELS[s] || s}
+          </Badge>
+        ))}
+      </div>
 
       {isLoading ? (
         <div className="space-y-3">
@@ -3159,6 +3339,87 @@ function BonusRequirement({ label, current, required, met }: { label: string; cu
         <span>{label}</span>
       </div>
       <span className="font-medium">{current} / {required}</span>
+    </div>
+  );
+}
+
+function DrawerEarningsSection({ token }: { token: string | null }) {
+  const [range, setRange] = useState<"today" | "week" | "month">("week");
+  const earningsQuery = useQuery<any>({
+    queryKey: ["/api/driver/shift-earnings", range],
+    queryFn: () => apiFetch(`/api/driver/shift-earnings?range=${range}`, token),
+    enabled: !!token,
+  });
+  const data = earningsQuery.data;
+
+  return (
+    <div className="space-y-4" data-testid="div-earnings-section">
+      <div className="flex gap-2">
+        {(["today", "week", "month"] as const).map((r) => (
+          <Button
+            key={r}
+            variant={range === r ? "default" : "outline"}
+            size="sm"
+            onClick={() => setRange(r)}
+            className="capitalize"
+            data-testid={`button-earnings-${r}`}
+          >
+            {r === "today" ? "Today" : r === "week" ? "This Week" : "This Month"}
+          </Button>
+        ))}
+      </div>
+
+      {earningsQuery.isLoading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+        </div>
+      ) : data ? (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <Card data-testid="card-earnings-total">
+              <CardContent className="py-3 text-center">
+                <p className="text-2xl font-bold text-primary">${(data.totalCents / 100).toFixed(2)}</p>
+                <p className="text-xs text-muted-foreground">{data.tripCount} trips</p>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-earnings-hours">
+              <CardContent className="py-3 text-center">
+                <p className="text-2xl font-bold">{Math.floor(data.totalShiftMinutes / 60)}h {data.totalShiftMinutes % 60}m</p>
+                <p className="text-xs text-muted-foreground">{data.shiftCount} shifts</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {range !== "today" && (
+            <Card data-testid="card-earnings-today">
+              <CardContent className="py-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">Today</span>
+                  <span className="font-semibold">${(data.todayCents / 100).toFixed(2)} · {data.todayTripCount} trips · {data.todayMinutes}m on shift</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Recent Trips</p>
+            {data.items?.length > 0 ? data.items.map((item: any) => (
+              <div key={item.tripId} className="flex justify-between items-center py-2 border-b text-sm" data-testid={`row-earning-${item.tripId}`}>
+                <div>
+                  <span className="font-mono text-xs">{item.publicId}</span>
+                  <p className="text-xs text-muted-foreground truncate max-w-[200px]">{item.pickupAddress}</p>
+                </div>
+                <span className="font-semibold">${(item.amountCents / 100).toFixed(2)}</span>
+              </div>
+            )) : (
+              <p className="text-sm text-muted-foreground">No completed trips in this period</p>
+            )}
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">Unable to load earnings</p>
+      )}
     </div>
   );
 }

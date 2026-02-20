@@ -393,6 +393,9 @@ export const tripSignatures = pgTable("trip_signatures", {
   clinicSigBase64: text("clinic_sig_base64"),
   driverSignedAt: timestamp("driver_signed_at"),
   clinicSignedAt: timestamp("clinic_signed_at"),
+  signatureRefused: boolean("signature_refused").notNull().default(false),
+  refusedReason: text("refused_reason"),
+  signatureStage: text("signature_stage").default("dropoff"),
 });
 
 export const insertTripSignatureSchema = createInsertSchema(tripSignatures);
@@ -2372,6 +2375,51 @@ export const companySubscriptionSettings = pgTable("company_subscription_setting
 });
 
 export type CompanySubscriptionSettings = typeof companySubscriptionSettings.$inferSelect;
+
+export const driverShiftStatusEnum = pgEnum("driver_shift_status", ["ACTIVE", "COMPLETED", "AUTO_ENDED"]);
+
+export const driverShifts = pgTable("driver_shifts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  endedAt: timestamp("ended_at"),
+  status: driverShiftStatusEnum("status").notNull().default("ACTIVE"),
+  totalMinutes: doublePrecision("total_minutes"),
+  breakMinutes: doublePrecision("break_minutes").default(0),
+  source: text("source").notNull().default("manual"),
+  autoEnded: boolean("auto_ended").notNull().default(false),
+  notes: text("notes"),
+}, (table) => [
+  index("idx_driver_shifts_driver").on(table.driverId),
+  index("idx_driver_shifts_started").on(table.startedAt),
+  index("idx_driver_shifts_status").on(table.status),
+]);
+
+export const insertDriverShiftSchema = createInsertSchema(driverShifts).omit({ id: true, totalMinutes: true });
+export type DriverShift = typeof driverShifts.$inferSelect;
+export type InsertDriverShift = z.infer<typeof insertDriverShiftSchema>;
+
+export const noShowEvidence = pgTable("no_show_evidence", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  arrivedAt: timestamp("arrived_at"),
+  waitedMinutes: doublePrecision("waited_minutes"),
+  callAttempted: boolean("call_attempted").notNull().default(false),
+  smsAttempted: boolean("sms_attempted").notNull().default(false),
+  dispatchNotified: boolean("dispatch_notified").notNull().default(false),
+  reason: text("reason"),
+  notes: text("notes"),
+  overrideUsed: boolean("override_used").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_no_show_evidence_trip").on(table.tripId),
+]);
+
+export const insertNoShowEvidenceSchema = createInsertSchema(noShowEvidence).omit({ id: true, createdAt: true });
+export type NoShowEvidence = typeof noShowEvidence.$inferSelect;
+export type InsertNoShowEvidence = z.infer<typeof insertNoShowEvidenceSchema>;
 
 export const routeCache = pgTable("route_cache", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

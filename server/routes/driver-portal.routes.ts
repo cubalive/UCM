@@ -1,6 +1,16 @@
 import express, { type Express } from "express";
 import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import {
+  postDriverShiftStartHandler,
+  postDriverShiftEndHandler,
+  getDriverActiveShiftHandler,
+  getDriverShiftHistoryHandler,
+  postNoShowEvidenceHandler,
+  postSignatureRefusedHandler,
+  getDriverGeofenceCheckHandler,
+  getDriverShiftEarningsHandler,
+} from "../controllers/driver-shift.controller";
+import {
   getDriverMyTripsHandler,
   getDriverProfileHandler,
   postDriverActiveHandler,
@@ -127,6 +137,15 @@ router.get("/api/driver/schedule", authMiddleware, requireRole("DRIVER"), getDri
 router.get("/api/driver/metrics/weekly", authMiddleware, requireRole("DRIVER"), getDriverMetricsWeeklyHandler as any);
 
 router.post("/api/driver/account-deletion-request", authMiddleware, requireRole("DRIVER"), postDriverAccountDeletionRequestHandler as any);
+
+router.post("/api/driver/shift/start", authMiddleware, requireRole("DRIVER"), postDriverShiftStartHandler as any);
+router.post("/api/driver/shift/end", authMiddleware, requireRole("DRIVER"), postDriverShiftEndHandler as any);
+router.get("/api/driver/shift/active", authMiddleware, requireRole("DRIVER"), getDriverActiveShiftHandler as any);
+router.get("/api/driver/shift/history", authMiddleware, requireRole("DRIVER"), getDriverShiftHistoryHandler as any);
+router.post("/api/driver/no-show-evidence", authMiddleware, requireRole("DRIVER"), postNoShowEvidenceHandler as any);
+router.post("/api/driver/signature-refused", authMiddleware, requireRole("DRIVER"), postSignatureRefusedHandler as any);
+router.get("/api/driver/geofence-check", authMiddleware, requireRole("DRIVER"), getDriverGeofenceCheckHandler as any);
+router.get("/api/driver/shift-earnings", authMiddleware, requireRole("DRIVER"), getDriverShiftEarningsHandler as any);
 
 export function registerDriverPortalRoutes(app: Express) {
   app.use(router);
