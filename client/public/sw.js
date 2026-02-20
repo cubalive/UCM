@@ -3,10 +3,7 @@ const CACHE_NAME = `ucm-cache-${APP_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 
 const PRECACHE_URLS = [
-  "/",
   "/offline.html",
-  "/manifest.webmanifest",
-  "/manifest.json",
   "/branding/icon-192.png",
   "/branding/icon-512.png",
   "/branding/logo-small.png",
@@ -15,9 +12,14 @@ const PRECACHE_URLS = [
   "/icons/icon-512.png",
 ];
 
+const NETWORK_FIRST_PATHS = [
+  "/manifest.webmanifest",
+  "/manifest.json",
+  "/manifest-driver.webmanifest",
+  "/version.json",
+];
+
 const STATIC_EXTENSIONS = [
-  ".js",
-  ".css",
   ".png",
   ".jpg",
   ".jpeg",
@@ -52,6 +54,14 @@ function isApiRequest(url) {
   return url.pathname.startsWith("/api/");
 }
 
+function isNetworkFirstPath(url) {
+  return NETWORK_FIRST_PATHS.some((p) => url.pathname === p);
+}
+
+function isJsOrCss(url) {
+  return url.pathname.endsWith(".js") || url.pathname.endsWith(".css");
+}
+
 function isStaticAsset(url) {
   return STATIC_EXTENSIONS.some((ext) => url.pathname.endsWith(ext));
 }
@@ -70,13 +80,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (isStaticAsset(url)) {
-    event.respondWith(staleWhileRevalidate(event.request));
+  if (isNavigationRequest(event.request)) {
+    event.respondWith(networkFirstNavigation(event.request));
     return;
   }
 
-  if (isNavigationRequest(event.request)) {
-    event.respondWith(networkFirstNavigation(event.request));
+  if (isNetworkFirstPath(url) || isJsOrCss(url)) {
+    event.respondWith(networkFirst(event.request));
+    return;
+  }
+
+  if (isStaticAsset(url)) {
+    event.respondWith(staleWhileRevalidate(event.request));
     return;
   }
 
@@ -89,6 +104,10 @@ self.addEventListener("message", (event) => {
   }
   if (event.data === "CHECK_VERSION") {
     event.source?.postMessage({ type: "SW_VERSION", version: APP_VERSION });
+  }
+  if (event.data === "FORCE_ACTIVATE") {
+    self.skipWaiting();
+    self.clients.claim();
   }
 });
 

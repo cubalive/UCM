@@ -1,9 +1,18 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile } from "fs/promises";
+import { rm, readFile, writeFile, copyFile } from "fs/promises";
 
-// server deps to bundle to reduce openat(2) syscalls
-// which helps cold start times
+function generateBuildVersion(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const h = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  const s = String(now.getSeconds()).padStart(2, "0");
+  return `${y}.${m}.${d}.${h}${min}${s}`;
+}
+
 const allowlist = [
   "@google/generative-ai",
   "axios",
@@ -33,10 +42,26 @@ const allowlist = [
 ];
 
 async function buildAll() {
+  const BUILD_VERSION = generateBuildVersion();
+  console.log(`Build version: ${BUILD_VERSION}`);
+
   await rm("dist", { recursive: true, force: true });
 
   console.log("building client...");
   await viteBuild();
+
+  console.log("stamping service worker with version...");
+  const swPath = "dist/public/sw.js";
+  let swContent = await readFile(swPath, "utf-8");
+  swContent = swContent.replace(/__UCM_BUILD__/g, BUILD_VERSION);
+  await writeFile(swPath, swContent, "utf-8");
+
+  console.log("generating version.json...");
+  await writeFile(
+    "dist/public/version.json",
+    JSON.stringify({ version: BUILD_VERSION, built: new Date().toISOString() }),
+    "utf-8"
+  );
 
   console.log("building server...");
   const pkg = JSON.parse(await readFile("package.json", "utf-8"));
@@ -54,6 +79,7 @@ async function buildAll() {
     outfile: "dist/index.cjs",
     define: {
       "process.env.NODE_ENV": '"production"',
+      "process.env.UCM_BUILD_VERSION": JSON.stringify(BUILD_VERSION),
     },
     minify: true,
     external: externals,
