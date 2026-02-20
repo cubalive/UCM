@@ -1,20 +1,34 @@
 import { useCallback, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTripRealtime } from "@/hooks/use-trip-realtime";
 import { RealtimeDebugPanel } from "@/components/realtime-debug-panel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin, Download, Loader2 } from "lucide-react";
+import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin, Download, Loader2, Ban, Archive, Trash2, RotateCcw } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { TripStaticMap } from "@/components/trip-static-map";
 import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
 import { queryClient } from "@/lib/queryClient";
 import { downloadWithAuth } from "@/lib/export";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const STATUS_DISPLAY_LABELS: Record<string, string> = {
   SCHEDULED: "Scheduled",
@@ -46,7 +60,38 @@ export default function TripDetailPage() {
   const { token, user } = useAuth();
   const { toast } = useToast();
   const [downloading, setDownloading] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelFaultParty, setCancelFaultParty] = useState("unknown");
+  const [archiveReason, setArchiveReason] = useState("");
   const debugEnabled = import.meta.env.VITE_UCM_DEBUG === 'true';
+
+  const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"];
+  const canWrite = user?.role && WRITE_ROLES.includes(user.role);
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+
+  const cancelMutation = useMutation({
+    mutationFn: () => rawAuthFetch(`/api/trips/${tripId}/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: cancelReason || "Cancelled via trip detail", faultParty: cancelFaultParty }) }),
+    onSuccess: () => { toast({ title: "Trip cancelled successfully" }); queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId] }); queryClient.invalidateQueries({ queryKey: ["/api/trips"] }); setCancelReason(""); setCancelFaultParty("unknown"); },
+    onError: (err: any) => toast({ title: "Cancel failed", description: err.message, variant: "destructive" }),
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: () => rawAuthFetch(`/api/trips/${tripId}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: archiveReason || "Archived via trip detail" }) }),
+    onSuccess: () => { toast({ title: "Trip archived successfully" }); queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId] }); queryClient.invalidateQueries({ queryKey: ["/api/trips"] }); setArchiveReason(""); },
+    onError: (err: any) => toast({ title: "Archive failed", description: err.message, variant: "destructive" }),
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: () => rawAuthFetch(`/api/admin/trips/${tripId}/restore`, { method: "PATCH" }),
+    onSuccess: () => { toast({ title: "Trip restored successfully" }); queryClient.invalidateQueries({ queryKey: ["/api/trips", tripId] }); queryClient.invalidateQueries({ queryKey: ["/api/trips"] }); },
+    onError: (err: any) => toast({ title: "Restore failed", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => rawAuthFetch(`/api/trips/${tripId}`, { method: "DELETE" }),
+    onSuccess: () => { toast({ title: "Trip permanently deleted" }); navigate("/trips"); },
+    onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
+  });
 
   const { data: trip, isLoading, error } = useQuery<any>({
     queryKey: ["/api/trips", tripId],
@@ -172,6 +217,118 @@ export default function TripDetailPage() {
           )}
           {trip.mobilityRequirement && trip.mobilityRequirement !== "STANDARD" && (
             <Badge variant="outline" data-testid="badge-mobility-requirement">{trip.mobilityRequirement}</Badge>
+          )}
+          {trip.archivedAt && (
+            <Badge variant="outline" className="border-amber-500 text-amber-600" data-testid="badge-trip-archived">Archived</Badge>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {canWrite && trip.status !== "CANCELLED" && !trip.archivedAt && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="outline" className="text-orange-600 border-orange-300 hover:bg-orange-50" data-testid="button-cancel-trip">
+                  <Ban className="w-4 h-4 mr-1" />
+                  Cancel
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Cancel Trip {trip.publicId}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will cancel the trip and notify relevant parties. A cancellation fee may apply depending on fault party.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="space-y-3 py-2">
+                  <div>
+                    <Label>Fault Party</Label>
+                    <Select value={cancelFaultParty} onValueChange={setCancelFaultParty}>
+                      <SelectTrigger data-testid="select-cancel-fault-party"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unknown">Unknown</SelectItem>
+                        <SelectItem value="clinic">Clinic</SelectItem>
+                        <SelectItem value="patient">Patient</SelectItem>
+                        <SelectItem value="driver">Driver</SelectItem>
+                        <SelectItem value="dispatch">Dispatch</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Reason</Label>
+                    <Textarea placeholder="Cancellation reason..." value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} data-testid="input-cancel-reason" />
+                  </div>
+                </div>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-cancel-trip-dismiss">Keep Trip</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending} className="bg-orange-600 hover:bg-orange-700" data-testid="button-cancel-trip-confirm">
+                    {cancelMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                    Confirm Cancel
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+
+          {canWrite && !trip.archivedAt && ["COMPLETED", "CANCELLED", "NO_SHOW", "SCHEDULED"].includes(trip.status) && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="outline" className="text-amber-600 border-amber-300 hover:bg-amber-50" data-testid="button-archive-trip">
+                  <Archive className="w-4 h-4 mr-1" />
+                  Archive
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Archive Trip {trip.publicId}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Archived trips are hidden from the main list but can be restored later.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="py-2">
+                  <Label>Reason (optional)</Label>
+                  <Textarea placeholder="Archive reason..." value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} data-testid="input-archive-reason" />
+                </div>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-archive-trip-dismiss">Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => archiveMutation.mutate()} disabled={archiveMutation.isPending} className="bg-amber-600 hover:bg-amber-700" data-testid="button-archive-trip-confirm">
+                    {archiveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                    Archive Trip
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+
+          {canWrite && trip.archivedAt && (
+            <Button size="sm" variant="outline" className="text-green-600 border-green-300 hover:bg-green-50" onClick={() => restoreMutation.mutate()} disabled={restoreMutation.isPending} data-testid="button-restore-trip">
+              {restoreMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RotateCcw className="w-4 h-4 mr-1" />}
+              Restore
+            </Button>
+          )}
+
+          {isSuperAdmin && ["SCHEDULED", "ASSIGNED", "CANCELLED"].includes(trip.status) && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="destructive" data-testid="button-delete-trip">
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Permanently Delete Trip {trip.publicId}?</AlertDialogTitle>
+                  <AlertDialogDescription className="text-destructive font-medium">
+                    This action is irreversible. The trip and all associated data (SMS logs, tracking tokens) will be permanently removed.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-delete-trip-dismiss">Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending} className="bg-red-600 hover:bg-red-700" data-testid="button-delete-trip-confirm">
+                    {deleteMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                    Delete Forever
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </div>
       </div>

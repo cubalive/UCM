@@ -804,21 +804,45 @@ export async function archiveTripHandler(req: AuthRequest, res: Response) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
-    const scope = await enforceArchiveScoping(req, trip, "trip");
-    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
-    if (["EN_ROUTE_PICKUP", "AT_PICKUP", "EN_ROUTE_DROPOFF", "AT_DROPOFF"].includes(trip.status)) {
+
+    const role = req.user?.role;
+    const userCompanyId = req.user?.companyId;
+    if (role !== "SUPER_ADMIN") {
+      if (!["COMPANY_ADMIN", "ADMIN", "DISPATCH"].includes(role || "")) {
+        return res.status(403).json({ message: "Not authorized to archive trips" });
+      }
+      if (userCompanyId && trip.companyId !== userCompanyId) {
+        return res.status(403).json({ message: "Cannot archive trips from another company" });
+      }
+    }
+
+    const ACTIVE_STATUSES = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+    if (ACTIVE_STATUSES.includes(trip.status)) {
       return res.status(409).json({ message: "Cannot archive an active/in-progress trip" });
     }
+    if (trip.archivedAt) {
+      return res.status(400).json({ message: "Trip is already archived" });
+    }
+
     const reason = req.body?.reason || null;
-    const updated = await storage.updateTrip(id, { deletedAt: new Date(), deletedBy: req.user!.userId, deleteReason: reason } as any);
+    const beforeSnapshot = { status: trip.status, archivedAt: trip.archivedAt };
+    const updated = await storage.updateTrip(id, {
+      archivedAt: new Date(),
+      archivedBy: req.user!.userId,
+      archiveReason: reason,
+    } as any);
     await storage.createAuditLog({
       userId: req.user!.userId,
-      action: "ARCHIVE",
+      action: "ARCHIVE_TRIP",
       entity: "trip",
       entityId: id,
-      details: `Archived trip #${trip.id}${reason ? ` (reason: ${reason})` : ""}`,
+      details: `Archived trip #${trip.publicId || trip.id}${reason ? ` (reason: ${reason})` : ""}`,
       cityId: trip.cityId,
-    });
+      actorRole: role,
+      companyId: trip.companyId,
+      beforeJson: beforeSnapshot,
+      afterJson: { archivedAt: new Date(), archivedBy: req.user!.userId, archiveReason: reason },
+    } as any);
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -831,17 +855,33 @@ export async function restoreTripHandler(req: AuthRequest, res: Response) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
-    const scope = await enforceArchiveScoping(req, trip, "trip");
-    if (!scope.allowed) return res.status(403).json({ message: scope.reason });
-    const updated = await storage.updateTrip(id, { deletedAt: null, deletedBy: null, deleteReason: null } as any);
+
+    const role = req.user?.role;
+    const userCompanyId = req.user?.companyId;
+    if (role !== "SUPER_ADMIN") {
+      if (!["COMPANY_ADMIN", "ADMIN", "DISPATCH"].includes(role || "")) {
+        return res.status(403).json({ message: "Not authorized to restore trips" });
+      }
+      if (userCompanyId && trip.companyId !== userCompanyId) {
+        return res.status(403).json({ message: "Cannot restore trips from another company" });
+      }
+    }
+
+    if (!trip.archivedAt) {
+      return res.status(400).json({ message: "Trip is not archived" });
+    }
+
+    const updated = await storage.updateTrip(id, { archivedAt: null, archivedBy: null, archiveReason: null } as any);
     await storage.createAuditLog({
       userId: req.user!.userId,
-      action: "RESTORE",
+      action: "RESTORE_TRIP",
       entity: "trip",
       entityId: id,
-      details: `Restored trip #${trip.id}`,
+      details: `Restored trip #${trip.publicId || trip.id} from archive`,
       cityId: trip.cityId,
-    });
+      actorRole: role,
+      companyId: trip.companyId,
+    } as any);
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -854,17 +894,54 @@ export async function permanentDeleteTripHandler(req: AuthRequest, res: Response
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
-    if (!trip.deletedAt) return res.status(400).json({ message: "Must archive before permanent delete" });
+
+    const DELETABLE_STATUSES = ["SCHEDULED", "ASSIGNED", "CANCELLED"];
+    if (!DELETABLE_STATUSES.includes(trip.status)) {
+      return res.status(400).json({
+        message: `Cannot delete trip with status "${trip.status}". Only trips with status: ${DELETABLE_STATUSES.join(", ")} can be deleted.`,
+        rule: "status_check",
+      });
+    }
+
+    if (trip.invoiceId) {
+      return res.status(400).json({
+        message: "Cannot delete trip — it has a linked invoice. Remove the invoice first.",
+        rule: "invoice_check",
+      });
+    }
+
+    const { tripBilling: tripBillingTable } = await import("@shared/schema");
+    const billingRecords = await db.select({ id: tripBillingTable.id }).from(tripBillingTable)
+      .where(eq(tripBillingTable.tripId, id)).limit(1);
+    if (billingRecords.length > 0) {
+      return res.status(400).json({
+        message: "Cannot delete trip — it has billing records. Resolve billing first.",
+        rule: "billing_check",
+      });
+    }
+
+    const beforeSnapshot = {
+      id: trip.id,
+      publicId: trip.publicId,
+      status: trip.status,
+      patientId: trip.patientId,
+      driverId: trip.driverId,
+      scheduledDate: trip.scheduledDate,
+    };
+
     await storage.deleteTrip(id);
     await storage.createAuditLog({
       userId: req.user!.userId,
-      action: "PERMANENT_DELETE",
+      action: "PERMANENT_DELETE_TRIP",
       entity: "trip",
       entityId: id,
-      details: `Permanently deleted trip #${trip.id}`,
+      details: `Permanently deleted trip #${trip.publicId || trip.id} (status: ${trip.status})`,
       cityId: trip.cityId,
-    });
-    res.json({ success: true });
+      actorRole: req.user?.role,
+      companyId: trip.companyId,
+      beforeJson: beforeSnapshot,
+    } as any);
+    res.json({ success: true, deletedTripId: id });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

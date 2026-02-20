@@ -1,0 +1,66 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+
+GOAL:
+Add full trip lifecycle controls: Cancel, Archive, and Super-Admin Hard Delete (safe rules) + UI buttons + RBAC + audit logging.
+Zero regressions. Do NOT reset database. Do NOT recreate tables. Extend only.
+
+REQUIREMENTS:
+1) Database
+- Add fields to trips table if missing:
+  - status (enum or text) must include: scheduled, unassigned, assigned, picked_up, in_progress, completed, cancelled
+  - cancelled_at timestamptz, cancelled_by uuid, cancel_reason text
+  - archived_at timestamptz, archived_by uuid
+  - deleted_at timestamptz, deleted_by uuid (soft-delete marker for admin tools)
+- Create/ensure audit_log table (if exists, reuse):
+  - id, created_at, actor_user_id, actor_role, company_id, entity_type, entity_id, action, before_json, after_json, metadata_json
+- Ensure trips reference company_id and city_id and never cross companies.
+
+2) Permissions / RBAC
+- COMPANY_ADMIN + DISPATCH: can Cancel + Archive trips in their company only.
+- SUPER_ADMIN: can Cancel + Archive any trip; can Hard Delete only if rules pass.
+- CLINIC_USER: can request cancel (optional), but cannot delete.
+
+3) Business Rules
+- Cancel allowed if status in: scheduled, unassigned, assigned
+- Archive allowed if status in: cancelled, completed (and optionally assigned/unassigned if needed)
+- Hard Delete allowed ONLY for SUPER_ADMIN and ONLY if:
+  - status in: scheduled, unassigned, assigned, cancelled
+  - no invoice/payment/billing records linked (check invoices table if exists)
+  - delete related child records safely (trip_events, notifications) or block delete if present
+Return clear errors explaining why delete is blocked.
+
+4) API
+Implement endpoints:
+- POST /api/trips/:id/cancel { reason }
+- POST /api/trips/:id/archive
+- DELETE /api/trips/:id (hard delete, super admin only, rule-checked)
+All endpoints must:
+- verify auth
+- enforce company scoping (except super admin)
+- write audit_log with before/after
+- return updated trip
+
+5) UI
+- In Trip Details and Trips list:
+  - Show buttons based on role and trip status:
+    - Cancel Trip (with modal to enter reason)
+    - Archive Trip
+    - Delete Trip (Super Admin only; red confirm; shows rule warnings)
+- Add filters in Trips list:
+  - Status filter + “Show Archived” toggle
+- After actions: optimistic UI update + toast.
+
+6) Tests / Verification checklist (must run)
+- Create trip -> cancel -> appears as cancelled; audit log written
+- Archive cancelled trip -> disappears from default list; appears when “Show Archived”
+- Attempt delete as non-super-admin -> forbidden
+- Attempt delete super admin but trip has billing -> blocked with clear message
+- Ensure city/company scoping still correct
+- No impact to driver app trip flow
+
+OUTPUT FORMAT:
+- List exact files changed
+- Provide SQL migration script (idempotent)
+- Provide brief test results and how to reproduce

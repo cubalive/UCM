@@ -35,6 +35,7 @@ import {
   createTripInvoiceHandler,
   dispatchOverrideStatusHandler,
 } from "../controllers/trips.controller";
+import { archiveTripHandler, permanentDeleteTripHandler } from "../controllers/admin.controller";
 
 const router = express.Router();
 
@@ -66,6 +67,10 @@ router.patch("/api/trips/:id/approve", authMiddleware, requirePermission("trips"
 router.patch("/api/trips/:id/cancel-request", authMiddleware, requireRole("VIEWER", "CLINIC_USER", "CLINIC_ADMIN"), requireTenantScope, cancelRequestHandler as any);
 router.patch("/api/trips/:id/reject-cancel", authMiddleware, requirePermission("trips", "write"), requireTenantScope, rejectCancelHandler as any);
 router.patch("/api/trips/:id/cancel", authMiddleware, requirePermission("trips", "write"), requireTenantScope, cancelTripHandler as any);
+router.post("/api/trips/:id/cancel", authMiddleware, requirePermission("trips", "write"), requireTenantScope, cancelTripHandler as any);
+
+router.post("/api/trips/:id/archive", authMiddleware, requirePermission("trips", "write"), requireTenantScope, archiveTripHandler as any);
+router.delete("/api/trips/:id", authMiddleware, requireRole("SUPER_ADMIN"), requireTenantScope, permanentDeleteTripHandler as any);
 
 router.post("/api/trips/:id/return-trip", authMiddleware, requirePermission("trips", "write"), requireTenantScope, createReturnTripHandler as any);
 router.post("/api/trips/:id/route/recompute", authMiddleware, requirePermission("dispatch", "write"), requireTenantScope, recomputeRouteHandler as any);

@@ -609,6 +609,11 @@ export const auditLog = pgTable("audit_log", {
   entityId: integer("entity_id"),
   details: text("details"),
   cityId: integer("city_id").references(() => cities.id),
+  actorRole: text("actor_role"),
+  companyId: integer("company_id"),
+  beforeJson: jsonb("before_json"),
+  afterJson: jsonb("after_json"),
+  metadataJson: jsonb("metadata_json"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

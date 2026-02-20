@@ -438,7 +438,8 @@ export async function getTripsHandler(req: AuthRequest, res: Response) {
     const source = req.query.source as string | undefined;
 
     const conditions: any[] = [isNull(trips.deletedAt)];
-    const includeArchived = req.query.includeArchived === "true" && req.user?.role === "SUPER_ADMIN";
+    const archivedRoles = ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"];
+    const includeArchived = req.query.includeArchived === "true" && archivedRoles.includes(req.user?.role || "");
     if (!includeArchived) {
       conditions.push(isNull(trips.archivedAt));
     }
@@ -1760,7 +1761,7 @@ export async function cancelTripHandler(req: AuthRequest, res: Response) {
     }
     await storage.createAuditLog({
       userId: req.user!.userId,
-      action: "dispatch_cancel_approve",
+      action: "CANCEL_TRIP",
       entity: "trip",
       entityId: id,
       details: JSON.stringify({
@@ -1776,7 +1777,11 @@ export async function cancelTripHandler(req: AuthRequest, res: Response) {
         reason: req.body.reason || "No reason given",
       }),
       cityId: trip.cityId,
-    });
+      actorRole: req.user?.role,
+      companyId: trip.companyId,
+      beforeJson: { status: trip.status, approvalStatus: trip.approvalStatus },
+      afterJson: { status: "CANCELLED", approvalStatus: "cancelled", cancelType, faultParty, cancelFee: finalFee },
+    } as any);
 
     import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
       autoNotifyPatient(id, "canceled");

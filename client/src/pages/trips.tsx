@@ -102,6 +102,7 @@ export default function TripsPage() {
   const [detailTrip, setDetailTrip] = useState<any>(null);
   const [tripTab, setTripTab] = useState<TripTab>("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | "clinic" | "internal" | "private">("all");
+  const [showArchived, setShowArchived] = useState(false);
   const [assignTrip, setAssignTrip] = useState<any>(null);
   const [tripFilters, setTripFilters] = usePersistedFilters("trips");
 
@@ -133,11 +134,12 @@ export default function TripsPage() {
   if (selectedCity?.id) tripQueryParams.set("cityId", String(selectedCity.id));
   if (tripTab !== "all") tripQueryParams.set("tab", tripTab);
   if (sourceFilter !== "all") tripQueryParams.set("source", sourceFilter);
+  if (showArchived) tripQueryParams.set("includeArchived", "true");
   tripQueryParams.set("limit", "200");
   const tripQueryString = tripQueryParams.toString() ? `?${tripQueryParams.toString()}` : "";
 
   const { data: trips, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/trips", selectedCity?.id, tripTab, sourceFilter],
+    queryKey: ["/api/trips", selectedCity?.id, tripTab, sourceFilter, showArchived],
     queryFn: () => apiFetch(`/api/trips${tripQueryString}`, token),
     enabled: !!token,
   });
@@ -435,6 +437,21 @@ export default function TripsPage() {
         </div>
       )}
 
+      {isDispatchOrAdmin && (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={showArchived ? "default" : "outline"}
+            onClick={() => setShowArchived(!showArchived)}
+            data-testid="button-toggle-archived"
+            className={showArchived ? "bg-amber-600 hover:bg-amber-700" : ""}
+          >
+            <Archive className="w-3.5 h-3.5 mr-1.5" />
+            {showArchived ? "Showing Archived" : "Show Archived"}
+          </Button>
+        </div>
+      )}
+
       <FilterBar
         filters={[
           ...(isDispatchOrAdmin ? [{
@@ -518,6 +535,9 @@ export default function TripsPage() {
                       )}
                       {trip.requestSource === "private" && (
                         <Badge variant="outline" className="text-xs" data-testid={`badge-source-${trip.id}`}><Globe className="w-3 h-3 mr-1" />Private</Badge>
+                      )}
+                      {trip.archivedAt && (
+                        <Badge variant="outline" className="text-xs border-amber-500 text-amber-600" data-testid={`badge-archived-${trip.id}`}><Archive className="w-3 h-3 mr-1" />Archived</Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
