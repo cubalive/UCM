@@ -1,0 +1,51 @@
+ROLE: Senior backend engineer (Data import reliability)
+PROJECT: UCM DISPATCH
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT drop/recreate tables
+- Must produce verifiable persistence in Supabase
+
+PROBLEM:
+Import flow looks successful but inserts nothing. FK integrity shows orphaned clinics -> companies.
+Goal: imports for Company #7 must persist and appear in UI. No fake success.
+
+TASK 1 — INSTRUMENTATION (MANDATORY)
+1) Add structured logs for import:
+   - jobId, companyId target, userId, role
+   - DB_PROVIDER + dbHost (sanitized) at import start
+2) For each entity import (clinics/patients/drivers/vehicles/trips):
+   - attempted, inserted, updated, skipped, failed
+   - top 3 failure reasons
+3) If inserted+updated = 0 for any entity, return ok:false with reasons (no silent success).
+
+TASK 2 — TENANT ENFORCEMENT
+4) Force company_id = requested companyId (Company 7) on every row, regardless of CSV content.
+5) Validate companyId exists before import. If not, hard fail.
+6) Ensure clinics created/updated get correct company_id to avoid orphan records.
+
+TASK 3 — TRANSACTION + ERROR SURFACING
+7) If using transactions, capture and surface rollback reason.
+8) Return detailed JSON summary in response:
+   { ok, jobId, summary:{...}, errors:[{row, field, error}] }
+
+TASK 4 — DB PATH CONSISTENCY
+9) Confirm import code uses the SAME Drizzle DB initializer as the rest of the app (process.env.DATABASE_URL only).
+10) Confirm no alternate DB env vars are used (DIRECT_URL/PG*).
+11) Provide file path + line numbers of DB initializer used by import.
+
+TASK 5 — FIX ORPHANED DATA
+12) Identify orphaned clinics->companies and fix them by assigning to Company 7 where appropriate:
+   - list orphaned clinic rows
+   - update company_id to 7 ONLY if they belong to that import
+   - otherwise mark needs_review
+
+TASK 6 — END-TO-END PROOF
+13) Run an import for Company 7 with a sample file.
+14) Show:
+   - server logs summary with inserted counts > 0
+   - Supabase SQL query confirming new rows exist under company_id=7
+   - UI screenshots showing imported records in Company 7 pages
+
+DO NOT mark complete until rows are visible in Supabase and UI for Company 7.

@@ -1,0 +1,60 @@
+ROLE: Senior backend engineer (Import reliability)
+PROJECT: UCM DISPATCH
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT drop/recreate tables
+- Keep existing schema; only safe migrations if absolutely necessary
+
+CONTEXT:
+CSV import runs through backend using Drizzle + Postgres (Supabase). It "looks successful" but records do not appear in the system and FK integrity shows orphaned clinics->companies. Target company is Company ID = 7.
+
+GOAL:
+Make import truly persist records for company_id=7, show accurate progress, and never return fake success. Orphan clinics must go to 0.
+
+TASK 1 — HARD ENFORCE TENANT FIELDS
+1) In the import endpoint(s), force company_id=7 on EVERY inserted/updated entity:
+   - clinics, patients, drivers, vehicles, trips, schedules, any related tables
+   Never trust CSV for companyId.
+2) Validate company 7 exists before import; if not, hard fail.
+
+TASK 2 — TRANSACTION + TRUTHFUL RESPONSE
+3) If import uses a transaction, ensure rollback errors are caught and returned.
+4) The endpoint response MUST include counts:
+   attempted, inserted, updated, skipped, failed
+   plus top failure reasons (max 10).
+5) If inserted+updated == 0, return HTTP 400/500 with ok:false and reason. No "ok:true".
+
+TASK 3 — INSTRUMENTATION (MANDATORY)
+6) Add structured logs for each import run:
+   - importJobId, companyId, userId, role
+   - dbHost (sanitized from DATABASE_URL)
+7) Log per-entity summary and first 5 row errors (row number + field + message).
+
+TASK 4 — DB CONNECTION CONSISTENCY
+8) Prove the import uses the same Drizzle DB initializer as the main API.
+   - Provide file path + line numbers where import gets db instance.
+   - Ensure it reads ONLY process.env.DATABASE_URL.
+
+TASK 5 — FIX EXISTING ORPHANS
+9) List orphaned clinics->companies:
+   SELECT c.id,c.name,c.company_id FROM clinics c
+   LEFT JOIN companies co ON c.company_id=co.id
+   WHERE co.id IS NULL;
+10) For orphans that belong to the failed import, update company_id=7.
+    For any ambiguous ones, leave untouched but output them in report.
+
+TASK 6 — END-TO-END PROOF
+11) Run an import for company 7 with a real sample CSV.
+12) Show Supabase SQL proof after import:
+   - counts in clinics/patients/drivers/vehicles/trips where company_id=7 increased
+13) Confirm UI now shows imported records under company 7.
+
+DELIVERABLE:
+A short "IMPORT RELIABILITY REPORT" with:
+- what was broken
+- what changed (files)
+- before/after counts
+- orphan count now 0
+- example response JSON from import

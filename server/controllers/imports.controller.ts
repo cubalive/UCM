@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { db } from "../db";
+import { getDbSource } from "../db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import {
   importJobs, importJobFiles, importJobEvents, externalIdMap,
@@ -252,8 +253,26 @@ const importProgress = new Map<string, { phase: string; entity: string; current:
 export async function runImport(req: AuthRequest, res: Response) {
   try {
     const jobId = req.params.id;
+    const user = req.user!;
     const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
     if (!job) return res.status(404).json({ error: "Import job not found" });
+
+    const [company] = await db.select().from(companies).where(eq(companies.id, job.companyId));
+    if (!company) {
+      console.error(`[IMPORT] HARD_FAIL job=${jobId} companyId=${job.companyId} does not exist in companies table`);
+      return res.status(400).json({ ok: false, error: `Company ${job.companyId} does not exist. Import aborted.` });
+    }
+
+    console.log(JSON.stringify({
+      event: "import_start",
+      jobId,
+      companyId: job.companyId,
+      companyName: company.name,
+      userId: user.userId,
+      role: user.role,
+      sourceSystem: job.sourceSystem,
+      dbProvider: getDbSource(),
+    }));
 
     if (job.status === "running") {
       const stuckMinutes = (Date.now() - new Date(job.updatedAt).getTime()) / 60000;
@@ -268,22 +287,27 @@ export async function runImport(req: AuthRequest, res: Response) {
 
     await db.update(importJobs).set({ status: "running", updatedAt: new Date() }).where(eq(importJobs.id, jobId));
 
-    res.json({ status: "running", message: "Import started. Poll GET /api/admin/imports/" + jobId + "/status for progress." });
+    res.json({ status: "running", jobId, message: "Import started. Poll GET /api/admin/imports/" + jobId + "/status for progress." });
 
     executeImportAsync(jobId, job.companyId, job.cityId, job.sourceSystem).catch(err => {
       console.error(`[IMPORT] Async execution failed for job ${jobId}:`, err);
     });
   } catch (e: any) {
     console.error(`[IMPORT] runImport error:`, e);
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ ok: false, error: e.message });
   }
 }
 
 async function executeImportAsync(jobId: string, companyId: number, jobCityId: number | null, sourceSystem: string) {
-  console.log(`[IMPORT] === Starting async execution job=${jobId} company=${companyId} cityId=${jobCityId} source=${sourceSystem} ===`);
+  const dbSource = getDbSource();
+  console.log(JSON.stringify({
+    event: "import_async_start",
+    jobId, companyId, cityId: jobCityId, sourceSystem, dbProvider: dbSource,
+  }));
+
   const files = await db.select().from(importJobFiles).where(eq(importJobFiles.importJobId, jobId));
   const entityOrder: ImportEntity[] = ["clinics", "patients", "drivers", "vehicles"];
-  const results: Record<string, { inserted: number; updated: number; errors: number }> = {};
+  const results: Record<string, { attempted: number; inserted: number; updated: number; skipped: number; failed: number; topFailReasons: string[] }> = {};
   const insertedIds: { entity: string; id: number }[] = [];
 
   const cityId = jobCityId || (await getDefaultCityId(companyId));
@@ -294,7 +318,7 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
   let totalRows = 0;
   let processedRows = 0;
 
-  const fileParsed: { entity: ImportEntity; unique: any[] }[] = [];
+  const fileParsed: { entity: ImportEntity; unique: any[]; duplicates: number }[] = [];
   for (const entity of entityOrder) {
     const file = files.find(f => f.entity === entity);
     if (!file) continue;
@@ -302,17 +326,22 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
     const buffer = Buffer.from(storage.base64, "base64");
     const rows = parseFileToRows(buffer, file.filename, file.mimeType);
     const { mapped } = applyHeaderMapping(rows, entity);
-    const { unique } = dedupeRows(mapped, entity);
-    fileParsed.push({ entity, unique });
+    const { unique, duplicates } = dedupeRows(mapped, entity);
+    fileParsed.push({ entity, unique, duplicates });
     totalRows += unique.length;
-    console.log(`[IMPORT] job=${jobId} entity=${entity} parsed=${rows.length} unique=${unique.length}`);
+    console.log(JSON.stringify({
+      event: "import_entity_parsed",
+      jobId, entity, rawRows: rows.length, uniqueRows: unique.length, duplicates,
+    }));
   }
 
   importProgress.set(jobId, { phase: "processing", entity: "", current: 0, total: totalRows, results: {} });
 
   try {
-    for (const { entity, unique } of fileParsed) {
-      let inserted = 0, updated = 0, errors = 0;
+    for (const { entity, unique, duplicates } of fileParsed) {
+      let inserted = 0, updated = 0, failed = 0;
+      const failReasons: Record<string, number> = {};
+      const attempted = unique.length;
       console.log(`[IMPORT] job=${jobId} processing entity=${entity} rows=${unique.length}`);
 
       importProgress.set(jobId, { phase: "processing", entity, current: processedRows, total: totalRows, results: { ...results } });
@@ -320,11 +349,14 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
       for (let i = 0; i < unique.length; i++) {
         const withDefaults = applyDefaults(unique[i], entity, i, defaults);
         const row = normalizeRowValues(withDefaults, entity);
+        row.company_id = companyId;
         const schema = getCanonicalSchema(entity);
         const validation = schema.safeParse(row);
         if (!validation.success) {
-          errors++;
+          failed++;
           const errs = validation.error.issues.map(iss => `${iss.path.join(".")}: ${iss.message}`);
+          const reason = `validation: ${errs[0] || "unknown"}`;
+          failReasons[reason] = (failReasons[reason] || 0) + 1;
           console.warn(`[IMPORT] job=${jobId} entity=${entity} row=${i + 1} VALIDATION_ERROR: ${errs.join("; ")}`);
           await db.insert(importJobEvents).values({
             importJobId: jobId, level: "error",
@@ -340,10 +372,12 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
           if (result === "inserted") inserted++;
           else if (result === "updated") updated++;
         } catch (rowErr: any) {
-          errors++;
+          failed++;
           const dbCode = rowErr.code || "";
           const constraint = rowErr.constraint || "";
           const detail = rowErr.detail || "";
+          const reason = `db: ${constraint || dbCode || rowErr.message}`.slice(0, 80);
+          failReasons[reason] = (failReasons[reason] || 0) + 1;
           console.error(`[IMPORT] job=${jobId} entity=${entity} row=${i + 1} DB_ERROR code=${dbCode} constraint=${constraint} detail=${detail} msg=${rowErr.message}`);
           await db.insert(importJobEvents).values({
             importJobId: jobId, level: "error",
@@ -355,39 +389,87 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
 
         if (processedRows % 25 === 0 || processedRows === totalRows) {
           await db.update(importJobs).set({ updatedAt: new Date() }).where(eq(importJobs.id, jobId));
-          importProgress.set(jobId, { phase: "processing", entity, current: processedRows, total: totalRows, results: { ...results, [entity]: { inserted, updated, errors } } });
+          importProgress.set(jobId, { phase: "processing", entity, current: processedRows, total: totalRows, results: { ...results, [entity]: { attempted, inserted, updated, skipped: duplicates, failed, topFailReasons: [] } } });
         }
       }
 
-      results[entity] = { inserted, updated, errors };
-      console.log(`[IMPORT] job=${jobId} entity=${entity} DONE inserted=${inserted} updated=${updated} errors=${errors}`);
+      const topFailReasons = Object.entries(failReasons)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([reason, count]) => `${reason} (x${count})`);
+
+      results[entity] = { attempted, inserted, updated, skipped: duplicates, failed, topFailReasons };
+
+      console.log(JSON.stringify({
+        event: "import_entity_done",
+        jobId, entity, attempted, inserted, updated, skipped: duplicates, failed, topFailReasons,
+      }));
+
       await db.insert(importJobEvents).values({
-        importJobId: jobId, level: "info",
-        message: `${entity}: ${inserted} inserted, ${updated} updated, ${errors} errors`,
-        payload: { entity, inserted, updated, errors },
+        importJobId: jobId, level: inserted + updated === 0 && attempted > 0 ? "error" : "info",
+        message: `${entity}: ${inserted} inserted, ${updated} updated, ${failed} errors, ${duplicates} skipped`,
+        payload: { entity, attempted, inserted, updated, skipped: duplicates, failed, topFailReasons },
       });
     }
 
+    const allInserted = Object.values(results).reduce((sum, r) => sum + r.inserted, 0);
+    const allUpdated = Object.values(results).reduce((sum, r) => sum + r.updated, 0);
+    const allFailed = Object.values(results).reduce((sum, r) => sum + r.failed, 0);
+    const allAttempted = Object.values(results).reduce((sum, r) => sum + r.attempted, 0);
+
+    const importOk = allInserted + allUpdated > 0 || allAttempted === 0;
+    const zeroInsertEntities = Object.entries(results)
+      .filter(([, r]) => r.inserted + r.updated === 0 && r.attempted > 0)
+      .map(([e]) => e);
+
+    const finalStatus = importOk ? "completed" : "failed";
+    const summaryJson: any = {
+      ok: importOk,
+      jobId,
+      summary: results,
+      insertedIds,
+      totals: { attempted: allAttempted, inserted: allInserted, updated: allUpdated, failed: allFailed },
+    };
+
+    if (!importOk) {
+      summaryJson.error = `Zero records persisted for: ${zeroInsertEntities.join(", ")}. All ${allAttempted} rows failed.`;
+      summaryJson.zeroInsertEntities = zeroInsertEntities;
+    }
+
     await db.update(importJobs).set({
-      status: "completed",
-      summaryJson: { results, insertedIds },
+      status: finalStatus,
+      summaryJson,
       updatedAt: new Date(),
     }).where(eq(importJobs.id, jobId));
 
-    importProgress.set(jobId, { phase: "completed", entity: "", current: totalRows, total: totalRows, results });
-    console.log(`[IMPORT] === Job ${jobId} COMPLETED ===`, JSON.stringify(results));
+    importProgress.set(jobId, { phase: finalStatus, entity: "", current: totalRows, total: totalRows, results });
+
+    console.log(JSON.stringify({
+      event: "import_complete",
+      jobId, ok: importOk, status: finalStatus,
+      totals: { attempted: allAttempted, inserted: allInserted, updated: allUpdated, failed: allFailed },
+      zeroInsertEntities,
+    }));
 
     setTimeout(() => importProgress.delete(jobId), 120000);
   } catch (e: any) {
     const dbCode = (e as any).code || "";
     const constraint = (e as any).constraint || "";
-    console.error(`[IMPORT] === Job ${jobId} FAILED === code=${dbCode} constraint=${constraint}`, e.message, e.stack?.slice(0, 500));
+    console.error(JSON.stringify({
+      event: "import_crash",
+      jobId, error: e.message, sqlCode: dbCode, constraint,
+      stack: e.stack?.slice(0, 500),
+    }));
     try {
-      await db.update(importJobs).set({ status: "failed", summaryJson: { results, insertedIds, error: e.message }, updatedAt: new Date() }).where(eq(importJobs.id, jobId));
+      await db.update(importJobs).set({
+        status: "failed",
+        summaryJson: { ok: false, jobId, summary: results, insertedIds, error: e.message, rollbackReason: `${dbCode} ${constraint} ${e.message}`.trim() },
+        updatedAt: new Date(),
+      }).where(eq(importJobs.id, jobId));
       await db.insert(importJobEvents).values({
         importJobId: jobId, level: "error",
         message: `Import failed: ${e.message}`,
-        payload: { sqlCode: dbCode, constraint, results },
+        payload: { sqlCode: dbCode, constraint, results, rollbackReason: e.message },
       });
     } catch (updateErr: any) {
       console.error(`[IMPORT] job=${jobId} Could not update job status after failure:`, updateErr.message);
@@ -461,14 +543,14 @@ async function upsertRow(
         eq(externalIdMap.externalId, String(row.external_id)),
       ));
     if (existing) {
-      await updateEntity(entity, existing.ucmId, row);
+      await updateEntity(entity, existing.ucmId, row, companyId);
       return "updated";
     }
   }
 
   const naturalMatch = await findNaturalMatch(entity, row, companyId, cityId);
   if (naturalMatch) {
-    await updateEntity(entity, naturalMatch, row);
+    await updateEntity(entity, naturalMatch, row, companyId);
     if (row.external_id) {
       await db.insert(externalIdMap).values({
         companyId, entity, sourceSystem,
@@ -496,11 +578,12 @@ async function findNaturalMatch(entity: ImportEntity, row: Record<string, any>, 
     case "clinics": {
       if (row.name) {
         const matches = await db.select().from(clinics)
-          .where(and(eq(clinics.name, row.name), eq(clinics.cityId, cityId)));
+          .where(and(eq(clinics.companyId, companyId), eq(clinics.name, row.name), eq(clinics.cityId, cityId)));
         if (matches.length === 1) return matches[0].id;
       }
       if (row.email) {
-        const matches = await db.select().from(clinics).where(eq(clinics.email, row.email));
+        const matches = await db.select().from(clinics)
+          .where(and(eq(clinics.companyId, companyId), eq(clinics.email, row.email)));
         if (matches.length === 1) return matches[0].id;
       }
       return null;
@@ -508,12 +591,13 @@ async function findNaturalMatch(entity: ImportEntity, row: Record<string, any>, 
     case "patients": {
       if (row.phone) {
         const matches = await db.select().from(patients)
-          .where(and(eq(patients.phone, row.phone), eq(patients.cityId, cityId)));
+          .where(and(eq(patients.companyId, companyId), eq(patients.phone, row.phone), eq(patients.cityId, cityId)));
         if (matches.length === 1) return matches[0].id;
       }
       if (row.first_name && row.last_name && row.date_of_birth) {
         const matches = await db.select().from(patients)
           .where(and(
+            eq(patients.companyId, companyId),
             eq(patients.firstName, row.first_name),
             eq(patients.lastName, row.last_name),
             eq(patients.dateOfBirth, row.date_of_birth),
@@ -524,18 +608,21 @@ async function findNaturalMatch(entity: ImportEntity, row: Record<string, any>, 
     }
     case "drivers": {
       if (row.phone) {
-        const matches = await db.select().from(drivers).where(eq(drivers.phone, row.phone));
+        const matches = await db.select().from(drivers)
+          .where(and(eq(drivers.companyId, companyId), eq(drivers.phone, row.phone)));
         if (matches.length === 1) return matches[0].id;
       }
       if (row.email) {
-        const matches = await db.select().from(drivers).where(eq(drivers.email, row.email));
+        const matches = await db.select().from(drivers)
+          .where(and(eq(drivers.companyId, companyId), eq(drivers.email, row.email)));
         if (matches.length === 1) return matches[0].id;
       }
       return null;
     }
     case "vehicles": {
       if (row.license_plate) {
-        const matches = await db.select().from(vehicles).where(eq(vehicles.licensePlate, row.license_plate));
+        const matches = await db.select().from(vehicles)
+          .where(and(eq(vehicles.companyId, companyId), eq(vehicles.licensePlate, row.license_plate)));
         if (matches.length === 1) return matches[0].id;
       }
       return null;
@@ -543,7 +630,7 @@ async function findNaturalMatch(entity: ImportEntity, row: Record<string, any>, 
   }
 }
 
-async function updateEntity(entity: ImportEntity, id: number, row: Record<string, any>): Promise<void> {
+async function updateEntity(entity: ImportEntity, id: number, row: Record<string, any>, companyId?: number): Promise<void> {
   switch (entity) {
     case "clinics": {
       const data: any = {};
@@ -555,7 +642,12 @@ async function updateEntity(entity: ImportEntity, id: number, row: Record<string
       if (row.address_zip) data.addressZip = row.address_zip;
       if (row.phone) data.phone = row.phone;
       if (row.contact_name) data.contactName = row.contact_name;
-      if (Object.keys(data).length) await db.update(clinics).set(data).where(eq(clinics.id, id));
+      if (Object.keys(data).length) {
+        const condition = companyId
+          ? and(eq(clinics.id, id), eq(clinics.companyId, companyId))
+          : eq(clinics.id, id);
+        await db.update(clinics).set(data).where(condition);
+      }
       break;
     }
     case "patients": {
@@ -572,7 +664,12 @@ async function updateEntity(entity: ImportEntity, id: number, row: Record<string
       if (row.insurance_id) data.insuranceId = row.insurance_id;
       if (row.notes) data.notes = row.notes;
       if (row.wheelchair_required !== undefined) data.wheelchairRequired = row.wheelchair_required;
-      if (Object.keys(data).length) await db.update(patients).set(data).where(eq(patients.id, id));
+      if (Object.keys(data).length) {
+        const condition = companyId
+          ? and(eq(patients.id, id), eq(patients.companyId, companyId))
+          : eq(patients.id, id);
+        await db.update(patients).set(data).where(condition);
+      }
       break;
     }
     case "drivers": {
@@ -581,7 +678,12 @@ async function updateEntity(entity: ImportEntity, id: number, row: Record<string
       if (row.last_name) data.lastName = row.last_name;
       if (row.phone) data.phone = row.phone;
       if (row.license_number) data.licenseNumber = row.license_number;
-      if (Object.keys(data).length) await db.update(drivers).set(data).where(eq(drivers.id, id));
+      if (Object.keys(data).length) {
+        const condition = companyId
+          ? and(eq(drivers.id, id), eq(drivers.companyId, companyId))
+          : eq(drivers.id, id);
+        await db.update(drivers).set(data).where(condition);
+      }
       break;
     }
     case "vehicles": {
@@ -595,7 +697,12 @@ async function updateEntity(entity: ImportEntity, id: number, row: Record<string
       if (row.wheelchair_accessible !== undefined) data.wheelchairAccessible = row.wheelchair_accessible;
       if (row.capability) data.capability = row.capability;
       if (row.color) data.colorHex = row.color;
-      if (Object.keys(data).length) await db.update(vehicles).set(data).where(eq(vehicles.id, id));
+      if (Object.keys(data).length) {
+        const condition = companyId
+          ? and(eq(vehicles.id, id), eq(vehicles.companyId, companyId))
+          : eq(vehicles.id, id);
+        await db.update(vehicles).set(data).where(condition);
+      }
       break;
     }
   }
@@ -746,6 +853,10 @@ export async function getCompanyImportHealth(req: AuthRequest, res: Response) {
     const vehicleCount = await db.select({ count: sql<number>`count(*)` }).from(vehicles).where(eq(vehicles.companyId, companyId));
     const patientCount = await db.select({ count: sql<number>`count(*)` }).from(patients).where(eq(patients.companyId, companyId));
 
+    const orphanedClinics = await db.select({ id: clinics.id, name: clinics.name })
+      .from(clinics)
+      .where(sql`${clinics.companyId} IS NULL`);
+
     const recentJobs = await db.select({
       id: importJobs.id,
       status: importJobs.status,
@@ -761,12 +872,14 @@ export async function getCompanyImportHealth(req: AuthRequest, res: Response) {
     return res.json({
       companyId,
       companyName: company.name,
+      dbProvider: getDbSource(),
       counts: {
         clinics: Number(clinicCount[0]?.count || 0),
         drivers: Number(driverCount[0]?.count || 0),
         vehicles: Number(vehicleCount[0]?.count || 0),
         patients: Number(patientCount[0]?.count || 0),
       },
+      orphanedClinics: orphanedClinics.map(c => ({ id: c.id, name: c.name })),
       recentImportJobs: recentJobs,
     });
   } catch (e: any) {
