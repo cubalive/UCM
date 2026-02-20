@@ -11,6 +11,13 @@ export async function postDriverShiftStartHandler(req: AuthRequest, res: Respons
     const user = await storage.getUser(req.user!.userId);
     if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
 
+    const driver = await storage.getDriver(user.driverId);
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+    if (!driver.connected) {
+      return res.status(400).json({ message: "Must be connected before starting shift. Tap Connect first." });
+    }
+
     const existing = await db.select().from(driverShifts)
       .where(and(eq(driverShifts.driverId, user.driverId), eq(driverShifts.status, "ACTIVE")))
       .limit(1);
@@ -18,15 +25,13 @@ export async function postDriverShiftStartHandler(req: AuthRequest, res: Respons
       return res.status(400).json({ message: "Shift already active", shift: existing[0] });
     }
 
-    const driver = await storage.getDriver(user.driverId);
     const [shift] = await db.insert(driverShifts).values({
       driverId: user.driverId,
-      companyId: driver?.companyId || null,
+      companyId: driver.companyId || null,
       source: "manual",
     }).returning();
 
     await db.update(drivers).set({
-      dispatchStatus: "available",
       lastActiveAt: new Date(),
       lastSeenAt: new Date(),
     }).where(eq(drivers.id, user.driverId));
@@ -65,7 +70,7 @@ export async function postDriverShiftEndHandler(req: AuthRequest, res: Response)
       .returning();
 
     await db.update(drivers).set({
-      dispatchStatus: "off",
+      dispatchStatus: "available",
       lastSeenAt: now,
       lastLat: null,
       lastLng: null,

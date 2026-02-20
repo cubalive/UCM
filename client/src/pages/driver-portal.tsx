@@ -800,18 +800,19 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, isPending }: {
 function HomePage({
   driver, vehicle, token, gpsStatus, lastSentTime, requestPermission,
   isDriverActive, isOnBreak, isDriverOnline, hasActiveTrip, activeTrip,
-  todayTrips, toggleActiveMutation, shiftStartMutation, shiftEndMutation, activeShift,
+  todayTrips, connectMutation, disconnectMutation, shiftStartMutation, shiftEndMutation, activeShift,
   breakMutation, onStatusChange, statusIsPending,
-  onOpenNavigation, isNetworkOnline,
+  onOpenNavigation, isNetworkOnline, isConnected, isOnShift,
 }: {
   driver: any; vehicle: any; token: string | null;
   gpsStatus: GpsStatus; lastSentTime: number | null; requestPermission: () => void;
   isDriverActive: boolean; isOnBreak: boolean; isDriverOnline: boolean; hasActiveTrip: boolean;
   activeTrip: ActiveTripData | null; todayTrips: any[];
-  toggleActiveMutation: any; shiftStartMutation: any; shiftEndMutation: any; activeShift: any;
+  connectMutation: any; disconnectMutation: any; shiftStartMutation: any; shiftEndMutation: any; activeShift: any;
   breakMutation: any;
   onStatusChange: (tripId: number, currentStatus: string) => void; statusIsPending: boolean;
   onOpenNavigation: (trip: ActiveTripData) => void; isNetworkOnline: boolean;
+  isConnected: boolean; isOnShift: boolean;
 }) {
   const { toast } = useToast();
   const [showChecklist, setShowChecklist] = useState(false);
@@ -819,14 +820,14 @@ function HomePage({
   const goTimeQuery = useQuery<{ goTimeTrips: any[] }>({
     queryKey: ["/api/driver/upcoming-go-time"],
     queryFn: () => apiFetch("/api/driver/upcoming-go-time", token),
-    enabled: !!token && isDriverActive,
+    enabled: !!token && isOnShift,
     refetchInterval: 60000,
   });
 
   const offersQuery = useQuery<{ offers: any[] }>({
     queryKey: ["/api/driver/offers/active"],
     queryFn: () => apiFetch("/api/driver/offers/active", token),
-    enabled: !!token && isDriverActive,
+    enabled: !!token && isOnShift,
     refetchInterval: 10000,
   });
 
@@ -876,9 +877,9 @@ function HomePage({
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const handleStartShift = () => {
+  const handleConnect = () => {
     if (getStoredChecklist()) {
-      shiftStartMutation.mutate();
+      connectMutation.mutate();
     } else {
       setShowChecklist(true);
     }
@@ -894,6 +895,13 @@ function HomePage({
     toast({ title: ok ? "Address copied" : "Could not copy" });
   };
 
+  const driverState: "DISCONNECTED" | "CONNECTED_OFF_SHIFT" | "ON_SHIFT" | "ON_BREAK" = (() => {
+    if (!isConnected) return "DISCONNECTED";
+    if (isOnBreak && isOnShift) return "ON_BREAK";
+    if (isOnShift) return "ON_SHIFT";
+    return "CONNECTED_OFF_SHIFT";
+  })();
+
   return (
     <div className="space-y-4 p-4" data-testid="page-home">
       <GpsStatusBanner status={gpsStatus} lastSentTime={lastSentTime} onRequestPermission={requestPermission} />
@@ -907,24 +915,81 @@ function HomePage({
 
       <Card data-testid="card-connect-status">
         <CardContent className="py-6">
-          {!isDriverOnline ? (
+          {driverState === "DISCONNECTED" && (
             <div className="text-center space-y-4">
               <div className="w-20 h-20 rounded-full bg-muted mx-auto flex items-center justify-center">
                 <PowerOff className="w-10 h-10 text-muted-foreground" />
               </div>
-              <p className="text-lg font-semibold text-muted-foreground" data-testid="text-status-offline">Off Shift</p>
-              <p className="text-sm text-muted-foreground">Start your shift to go online and receive trips</p>
+              <p className="text-lg font-semibold text-muted-foreground" data-testid="text-status-disconnected">DISCONNECTED</p>
+              <p className="text-sm text-muted-foreground">Connect to start your session and receive trips</p>
               <Button
-                onClick={handleStartShift}
-                disabled={shiftStartMutation.isPending}
-                className="w-full min-h-[56px] text-lg bg-green-600 border-green-700 text-white"
-                data-testid="button-start-shift"
+                onClick={handleConnect}
+                disabled={connectMutation.isPending}
+                className="w-full min-h-[56px] text-lg bg-blue-600 hover:bg-blue-700 text-white"
+                data-testid="button-connect"
               >
-                {shiftStartMutation.isPending ? <Loader2 className="w-6 h-6 mr-2 animate-spin" /> : <Power className="w-6 h-6 mr-2" />}
-                Start Shift
+                {connectMutation.isPending ? <Loader2 className="w-6 h-6 mr-2 animate-spin" /> : <Power className="w-6 h-6 mr-2" />}
+                CONNECT
               </Button>
             </div>
-          ) : isOnBreak ? (
+          )}
+
+          {driverState === "CONNECTED_OFF_SHIFT" && (
+            <div className="text-center space-y-4">
+              <div className="w-20 h-20 rounded-full bg-blue-100 dark:bg-blue-900/30 mx-auto flex items-center justify-center">
+                <Power className="w-10 h-10 text-blue-600" />
+              </div>
+              <p className="text-lg font-semibold text-blue-600" data-testid="text-status-connected">CONNECTED</p>
+              <p className="text-sm text-muted-foreground">You're connected. Start your shift to begin tracking and payroll.</p>
+              <Button
+                onClick={() => shiftStartMutation.mutate()}
+                disabled={shiftStartMutation.isPending}
+                className="w-full min-h-[56px] text-lg bg-green-600 hover:bg-green-700 text-white"
+                data-testid="button-start-shift"
+              >
+                {shiftStartMutation.isPending ? <Loader2 className="w-6 h-6 mr-2 animate-spin" /> : <PlayCircle className="w-6 h-6 mr-2" />}
+                START SHIFT (Clock In)
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => disconnectMutation.mutate()}
+                disabled={disconnectMutation.isPending}
+                className="w-full min-h-[48px] text-base"
+                data-testid="button-disconnect"
+              >
+                {disconnectMutation.isPending ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <PowerOff className="w-5 h-5 mr-2" />}
+                DISCONNECT
+              </Button>
+            </div>
+          )}
+
+          {driverState === "ON_SHIFT" && (
+            <div className="text-center space-y-3">
+              <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30 mx-auto flex items-center justify-center">
+                <Satellite className="w-10 h-10 text-green-600" />
+              </div>
+              <p className="text-lg font-semibold text-green-600" data-testid="text-status-on-shift">ON SHIFT</p>
+              {activeShift && (
+                <p className="text-xs text-muted-foreground" data-testid="text-shift-timer">
+                  Shift started {formatTimeAgoShift(activeShift.startedAt)}
+                </p>
+              )}
+              <div className="flex gap-2 justify-center">
+                {!hasActiveTrip && (
+                  <>
+                    <Button variant="outline" onClick={() => breakMutation.mutate(true)} disabled={breakMutation.isPending} className="min-h-[44px]" data-testid="button-take-break">
+                      <Coffee className="w-5 h-5 mr-2" /> Break
+                    </Button>
+                    <Button variant="outline" onClick={() => shiftEndMutation.mutate()} disabled={shiftEndMutation.isPending} className="min-h-[44px]" data-testid="button-end-shift">
+                      <PowerOff className="w-5 h-5 mr-2" /> End Shift (Clock Out)
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {driverState === "ON_BREAK" && (
             <div className="text-center space-y-4">
               <div className="w-20 h-20 rounded-full bg-amber-100 dark:bg-amber-900/30 mx-auto flex items-center justify-center">
                 <Coffee className="w-10 h-10 text-amber-600" />
@@ -951,30 +1016,6 @@ function HomePage({
                 >
                   End Shift
                 </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center space-y-3">
-              <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30 mx-auto flex items-center justify-center">
-                <Satellite className="w-10 h-10 text-green-600" />
-              </div>
-              <p className="text-lg font-semibold text-green-600" data-testid="text-status-on-shift">ON SHIFT</p>
-              {activeShift && (
-                <p className="text-xs text-muted-foreground" data-testid="text-shift-timer">
-                  Shift started {formatTimeAgoShift(activeShift.startedAt)}
-                </p>
-              )}
-              <div className="flex gap-2 justify-center">
-                {!hasActiveTrip && (
-                  <>
-                    <Button variant="outline" onClick={() => breakMutation.mutate(true)} disabled={breakMutation.isPending} className="min-h-[44px]" data-testid="button-take-break">
-                      <Coffee className="w-5 h-5 mr-2" /> Break
-                    </Button>
-                    <Button variant="outline" onClick={() => shiftEndMutation.mutate()} disabled={shiftEndMutation.isPending} className="min-h-[44px]" data-testid="button-end-shift">
-                      <PowerOff className="w-5 h-5 mr-2" /> End Shift
-                    </Button>
-                  </>
-                )}
               </div>
             </div>
           )}
@@ -1115,7 +1156,7 @@ function HomePage({
       {showChecklist && (
         <PreConnectChecklist
           vehicle={vehicle}
-          onConfirm={() => { setShowChecklist(false); shiftStartMutation.mutate(); }}
+          onConfirm={() => { setShowChecklist(false); connectMutation.mutate(); }}
           onClose={() => setShowChecklist(false)}
         />
       )}
@@ -2063,9 +2104,10 @@ function ScheduleChangesSection({ token }: { token: string | null }) {
   );
 }
 
-function SettingsPage({ driver, vehicle, token, isDriverOnline, shiftEndMutation, geoLocation, companyName, cityName }: {
+function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isOnShift, shiftEndMutation, disconnectMutation, geoLocation, companyName, cityName }: {
   driver: any; vehicle: any; token: string | null;
-  isDriverOnline: boolean; shiftEndMutation: any;
+  isDriverOnline: boolean; isConnected: boolean; isOnShift: boolean;
+  shiftEndMutation: any; disconnectMutation: any;
   geoLocation: { lat: number; lng: number } | null;
   companyName: string | null;
   cityName: string | null;
@@ -2138,7 +2180,7 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, shiftEndMutation
         </CardContent>
       </Card>
 
-      {isDriverOnline && (
+      {isOnShift && (
         <Button
           variant="outline"
           className="w-full min-h-[48px] text-base"
@@ -2146,7 +2188,20 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, shiftEndMutation
           disabled={shiftEndMutation.isPending}
           data-testid="button-end-shift-settings"
         >
-          <PowerOff className="w-5 h-5 mr-2" /> End Shift
+          <PowerOff className="w-5 h-5 mr-2" /> End Shift (Clock Out)
+        </Button>
+      )}
+
+      {isConnected && (
+        <Button
+          variant="outline"
+          className="w-full min-h-[48px] text-base text-amber-600 border-amber-300"
+          onClick={() => disconnectMutation.mutate()}
+          disabled={disconnectMutation.isPending}
+          data-testid="button-disconnect-settings"
+        >
+          {disconnectMutation.isPending ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <PowerOff className="w-5 h-5 mr-2" />}
+          DISCONNECT
         </Button>
       )}
 
@@ -2275,12 +2330,14 @@ export default function DriverPortal() {
 
   const activeShift = activeShiftQuery.data?.shift || null;
 
+  const isConnected = !!driver?.connected;
+  const isOnShift = !!activeShift;
   const isDriverActive = driver?.dispatchStatus === "available";
   const isOnBreak = driver?.dispatchStatus === "hold";
-  const isDriverOnline = isDriverActive || isOnBreak;
+  const isDriverOnline = isConnected && (isDriverActive || isOnBreak);
   const hasActiveTrip = todayTrips.some((t: any) => ACTIVE_STATUSES.includes(t.status));
 
-  const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isDriverOnline || hasActiveTrip);
+  const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isOnShift || hasActiveTrip);
   const isNetworkOnline = useNetworkStatus();
   const { tracking: bgTracking, startTracking: bgStart, stopTracking: bgStop } = useNativeBackgroundTracking(token);
 
@@ -2335,7 +2392,7 @@ export default function DriverPortal() {
   }, [isNetworkOnline, flushQueue]);
 
   useEffect(() => {
-    const shouldTrack = isDriverOnline || hasActiveTrip;
+    const shouldTrack = isOnShift || hasActiveTrip;
     if (!shouldTrack || !geoLocation) {
       if (gpsTimerRef.current) { clearInterval(gpsTimerRef.current); gpsTimerRef.current = null; }
       return;
@@ -2362,21 +2419,21 @@ export default function DriverPortal() {
     if (gpsTimerRef.current) clearInterval(gpsTimerRef.current);
     gpsTimerRef.current = setInterval(checkAndSend, 5000);
     return () => { if (gpsTimerRef.current) { clearInterval(gpsTimerRef.current); gpsTimerRef.current = null; } };
-  }, [isDriverOnline, hasActiveTrip, geoLocation?.lat, geoLocation?.lng, sendLocation]);
+  }, [isOnShift, hasActiveTrip, geoLocation?.lat, geoLocation?.lng, sendLocation]);
 
   useEffect(() => {
-    if (!isDriverOnline || !token || !isNetworkOnline) return;
+    if (!isConnected || !token || !isNetworkOnline) return;
     const sendHeartbeat = () => { apiFetch("/api/driver/heartbeat", token, { method: "POST" }).catch(() => {}); };
     sendHeartbeat();
     const hbInterval = setInterval(sendHeartbeat, 30000);
     return () => clearInterval(hbInterval);
-  }, [isDriverOnline, token, isNetworkOnline]);
+  }, [isConnected, token, isNetworkOnline]);
 
   useEffect(() => {
     if (!isNativePlatform) return;
-    if (isDriverOnline && token && !bgTracking) bgStart();
-    else if (!isDriverOnline && bgTracking) bgStop();
-  }, [isDriverOnline, token, bgTracking, bgStart, bgStop]);
+    if (isOnShift && token && !bgTracking) bgStart();
+    else if (!isOnShift && bgTracking) bgStop();
+  }, [isOnShift, token, bgTracking, bgStart, bgStop]);
 
   const gpsStatus: GpsStatus = (() => {
     if (!isNetworkOnline) return "offline";
@@ -2388,13 +2445,37 @@ export default function DriverPortal() {
     return "permission_needed";
   })();
 
+  const connectMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/driver/connect", token, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/connection"] });
+      toast({ title: "Connected — you are now available" });
+    },
+    onError: (err: any) => toast({ title: "Error connecting", description: err.message, variant: "destructive" }),
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/driver/disconnect", token, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/connection"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/shift/active"] });
+      toast({ title: "Disconnected — session ended" });
+      if (isNativePlatform) bgStop();
+    },
+    onError: (err: any) => toast({ title: "Error disconnecting", description: err.message, variant: "destructive" }),
+  });
+
   const shiftStartMutation = useMutation({
     mutationFn: () =>
       apiFetch("/api/driver/shift/start", token, { method: "POST", body: JSON.stringify({}) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/shift/active"] });
-      toast({ title: "Shift started — you are now online" });
+      toast({ title: "Shift started — clock in confirmed" });
       if (isNativePlatform) bgStart();
     },
     onError: (err: any) => toast({ title: "Error starting shift", description: err.message, variant: "destructive" }),
@@ -2406,7 +2487,7 @@ export default function DriverPortal() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/shift/active"] });
-      toast({ title: "Shift ended — you are now offline" });
+      toast({ title: "Shift ended — clock out confirmed. Still connected." });
       if (isNativePlatform) bgStop();
     },
     onError: (err: any) => toast({ title: "Error ending shift", description: err.message, variant: "destructive" }),
@@ -2602,7 +2683,8 @@ export default function DriverPortal() {
             hasActiveTrip={hasActiveTrip}
             activeTrip={activeTrip}
             todayTrips={todayTrips}
-            toggleActiveMutation={toggleActiveMutation}
+            connectMutation={connectMutation}
+            disconnectMutation={disconnectMutation}
             shiftStartMutation={shiftStartMutation}
             shiftEndMutation={shiftEndMutation}
             activeShift={activeShift}
@@ -2611,6 +2693,8 @@ export default function DriverPortal() {
             statusIsPending={statusMutation.isPending}
             onOpenNavigation={openNavigation}
             isNetworkOnline={isNetworkOnline}
+            isConnected={isConnected}
+            isOnShift={isOnShift}
           />
         )}
         {activeTab === "trips" && (
@@ -2626,7 +2710,10 @@ export default function DriverPortal() {
             vehicle={vehicle}
             token={token}
             isDriverOnline={isDriverOnline}
+            isConnected={isConnected}
+            isOnShift={isOnShift}
             shiftEndMutation={shiftEndMutation}
+            disconnectMutation={disconnectMutation}
             geoLocation={geoLocation}
             companyName={profileQuery.data?.companyName ?? null}
             cityName={profileQuery.data?.cityName ?? null}

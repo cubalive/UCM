@@ -115,6 +115,12 @@ export async function postDriverBreakHandler(req: AuthRequest, res: Response) {
       if (driver.dispatchStatus === "off") {
         return res.status(400).json({ message: "Cannot go on break while offline. Go online first." });
       }
+      const [activeShift] = await db.select().from(driverShifts)
+        .where(and(eq(driverShifts.driverId, driver.id), eq(driverShifts.status, "ACTIVE")))
+        .limit(1);
+      if (!activeShift) {
+        return res.status(400).json({ message: "Cannot go on break without an active shift. Start your shift first." });
+      }
       const TERMINAL = ["COMPLETED", "CANCELLED", "NO_SHOW"];
       const activeTrips = await db.select({ id: trips.id }).from(trips).where(
         and(eq(trips.driverId, driver.id), not(inArray(trips.status, TERMINAL as any)))
@@ -1745,6 +1751,8 @@ export async function postDriverConnectHandler(req: AuthRequest, res: Response) 
     await db.update(drivers).set({
       connected: true,
       connectedAt: new Date(),
+      dispatchStatus: "available",
+      lastActiveAt: new Date(),
       lastSeenAt: new Date(),
     }).where(eq(drivers.id, user.driverId));
 
@@ -1757,7 +1765,8 @@ export async function postDriverConnectHandler(req: AuthRequest, res: Response) 
       cityId: driver.cityId,
     });
 
-    res.json({ ok: true, connected: true });
+    const updatedDriver = await storage.getDriver(user.driverId);
+    res.json({ ok: true, connected: true, driver: updatedDriver });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -1770,9 +1779,26 @@ export async function postDriverDisconnectHandler(req: AuthRequest, res: Respons
     const driver = await storage.getDriver(user.driverId);
     if (!driver) return res.status(404).json({ message: "Driver not found" });
 
+    const [activeShift] = await db.select().from(driverShifts)
+      .where(and(eq(driverShifts.driverId, user.driverId), eq(driverShifts.status, "ACTIVE")))
+      .limit(1);
+    if (activeShift) {
+      const now = new Date();
+      const totalMinutes = (now.getTime() - new Date(activeShift.startedAt).getTime()) / 60000;
+      await db.update(driverShifts).set({
+        status: "COMPLETED",
+        endedAt: now,
+        totalMinutes: Math.round(totalMinutes * 100) / 100,
+        notes: "Auto-ended on disconnect",
+      }).where(eq(driverShifts.id, activeShift.id));
+    }
+
     await db.update(drivers).set({
       connected: false,
+      dispatchStatus: "off",
       lastSeenAt: new Date(),
+      lastLat: null,
+      lastLng: null,
     }).where(eq(drivers.id, user.driverId));
 
     await storage.createAuditLog({
@@ -1784,7 +1810,8 @@ export async function postDriverDisconnectHandler(req: AuthRequest, res: Respons
       cityId: driver.cityId,
     });
 
-    res.json({ ok: true, connected: false });
+    const updatedDriver = await storage.getDriver(user.driverId);
+    res.json({ ok: true, connected: false, driver: updatedDriver });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

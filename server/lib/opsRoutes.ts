@@ -1376,7 +1376,7 @@ export function registerOpsRoutes(app: Express) {
 
   const LOCATION_STALE_MS = 120_000;
 
-  app.get("/api/ops/driver-locations", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res) => {
+  app.get("/api/ops/driver-locations", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const cityId = req.query.city_id ? parseInt(String(req.query.city_id)) : null;
       if (!cityId) return res.status(400).json({ message: "city_id is required" });
