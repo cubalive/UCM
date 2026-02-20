@@ -206,7 +206,6 @@ export default function PatientsPage() {
   const filtered = patients?.filter((p: any) => {
     const isArchived = !!p.deletedAt || !p.active;
     if (!effectiveShowArchived && isArchived) return false;
-    if (effectiveShowArchived && !isArchived) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!(`${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||

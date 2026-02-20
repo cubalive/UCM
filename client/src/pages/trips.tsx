@@ -317,11 +317,13 @@ export default function TripsPage() {
         if (f.value === "unassigned" && t.driverId) return false;
       }
       if (f.key === "dateFrom" && f.value) {
-        const tripDate = (t.scheduledDate || "").slice(0, 10);
+        if (!t.scheduledDate) return false;
+        const tripDate = t.scheduledDate.slice(0, 10);
         if (tripDate < f.value) return false;
       }
       if (f.key === "dateTo" && f.value) {
-        const tripDate = (t.scheduledDate || "").slice(0, 10);
+        if (!t.scheduledDate) return false;
+        const tripDate = t.scheduledDate.slice(0, 10);
         if (tripDate > f.value) return false;
       }
     }
