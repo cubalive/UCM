@@ -122,6 +122,9 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       staleTime: Infinity,
       retry: (failureCount, error) => {
+        if (error instanceof Error && error.message.startsWith("401")) {
+          return failureCount < 1;
+        }
         if (error instanceof Error && error.message.startsWith("4")) return false;
         return failureCount < 2;
       },

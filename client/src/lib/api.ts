@@ -84,7 +84,8 @@ function clearTokenAndRedirect() {
 export async function apiFetch(
   url: string,
   token: string | null,
-  options?: RequestInit
+  options?: RequestInit,
+  _retryCount: number = 0
 ) {
   if (isDriverHost && (url.startsWith("/api/ops") || url.startsWith("/api/admin/metrics"))) {
     const error: any = new Error("Ops endpoints are not available on this host");
@@ -105,7 +106,18 @@ export async function apiFetch(
       const err = await res.json().catch(() => ({ message: res.statusText }));
       if (err.code === "SESSION_REVOKED") {
         window.dispatchEvent(new CustomEvent("ucm-session-revoked", { detail: { code: "SESSION_REVOKED" } }));
+        clearTokenAndRedirect();
+        const error: any = new Error(err.message || "Session revoked");
+        error.code = "SESSION_REVOKED";
+        error.data = err;
+        throw error;
       }
+      if (_retryCount < 1) {
+        console.debug(`[AUTH] 401 detected on ${url} – retrying before logout`);
+        await new Promise((r) => setTimeout(r, 800));
+        return apiFetch(url, token, options, _retryCount + 1);
+      }
+      console.debug(`[AUTH] 401 retry failed on ${url} – logging out`);
       clearTokenAndRedirect();
       const error: any = new Error(err.message || "Session expired");
       error.code = err.code || "UNAUTHORIZED";

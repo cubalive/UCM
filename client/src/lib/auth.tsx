@@ -151,7 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchDriverUser = useCallback(async (t: string) => {
+  const fetchDriverUser = useCallback(async (t: string, _retry = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -166,6 +166,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const msg = `Auth failed (${res.status}): ${body.message || "Session expired"}`;
 
         if (res.status === 401 || res.status === 403) {
+          if (!_retry) {
+            console.debug(`[AUTH] 401 detected on /api/auth/me (driver) – retrying before logout`);
+            await new Promise((r) => setTimeout(r, 800));
+            return fetchDriverUser(t, true);
+          }
+          console.debug(`[AUTH] 401 retry failed on /api/auth/me (driver) – clearing session`);
           setError(msg);
           setUser(null);
           setMeData(null);
@@ -195,17 +201,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {}
     } catch (e: any) {
+      console.debug(`[AUTH] Driver session fetch error: ${e.message}`);
       setError(e.message || "Failed to load driver session");
-      setToken(null);
       setUser(null);
       setMeData(null);
-      localStorage.removeItem(DRIVER_TOKEN_KEY);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const fetchAppUser = useCallback(async (t: string) => {
+  const fetchAppUser = useCallback(async (t: string, _retry = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -218,6 +223,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!authRes.ok) {
         if (authRes.status === 401 || authRes.status === 403) {
+          if (!_retry) {
+            console.debug(`[AUTH] 401 detected on /api/auth/me (app) – retrying before logout`);
+            await new Promise((r) => setTimeout(r, 800));
+            return fetchAppUser(t, true);
+          }
+          console.debug(`[AUTH] 401 retry failed on /api/auth/me (app) – clearing session`);
           localStorage.removeItem(getTokenKey());
           setToken(null);
           setUser(null);
@@ -250,11 +261,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {}
     } catch (e: any) {
+      console.debug(`[AUTH] App session fetch error: ${e.message}`);
       setError(e.message || "Failed to load user session");
-      setToken(null);
       setUser(null);
       setMeData(null);
-      localStorage.removeItem(getTokenKey());
     } finally {
       setLoading(false);
     }
