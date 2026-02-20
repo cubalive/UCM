@@ -167,14 +167,8 @@ async function networkFirst(request) {
 async function networkFirstNavigation(request) {
   try {
     const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(CACHE_NAME);
-      cache.put(request, response.clone());
-    }
     return response;
   } catch {
-    const cached = await caches.match(request);
-    if (cached) return cached;
     const offlinePage = await caches.match(OFFLINE_URL);
     if (offlinePage) return offlinePage;
     return new Response("Offline", { status: 503 });

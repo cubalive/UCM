@@ -1,0 +1,92 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (driver.unitedcaremobility.com)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT change auth architecture (keep current JWT/users table)
+GOAL:
+Fix PWA update propagation on iOS Safari + ensure new deployments are immediately visible.
+Symptoms:
+- After publish, driver app still shows old UI/behavior
+- User believes changes didn’t deploy
+- Service worker exists but Safari keeps old SW controlling
+- Navigation sometimes returns cached shell
+
+DELIVERABLES (must implement all):
+A) Make HTML app shell non-cacheable:
+1) In the backend (Express) ensure the main HTML entry (index.html) and any HTML navigation fallback are served with:
+   Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate
+   Pragma: no-cache
+   Expires: 0
+2) Ensure this applies in production for:
+   "/" and any SPA fallback route that returns index.html
+   (Do NOT break static assets caching, only HTML)
+
+B) Implement “App Version” + update handshake:
+1) Ensure /version.json returns:
+   { "version": "<build-id>", "builtAt": "<iso>", "env": "prod|dev" }
+   The version must change on every production publish automatically (use git commit hash if available, else timestamp at build time).
+2) In the frontend create a tiny “UpdateManager” that:
+   - Registers the SW
+   - Calls registration.update() on app load and every 30 minutes
+   - Detects waiting SW and forces activation
+   - Listens to controllerchange and reloads once
+
+Required logic:
+- If registration.waiting exists → postMessage("SKIP_WAITING") to waiting worker
+- registration.addEventListener("updatefound") → when installing reaches "installed" and navigator.serviceWorker.controller exists → postMessage("SKIP_WAITING")
+- navigator.serviceWorker.addEventListener("controllerchange") → hard reload window.location.reload()
+
+C) Add user-facing update banner + “Force Refresh” in Settings:
+1) Add a top banner when an update is ready:
+   "Update available — Tap to refresh"
+   Tapping triggers:
+   - registration.update()
+   - send "FORCE_ACTIVATE" (or "SKIP_WAITING")
+   - clear ALL caches (caches.keys -> delete)
+   - reload
+2) Add a Settings button:
+   "Force Refresh (Fix Updates)"
+   That runs the same routine.
+3) Add “App Version” display in Settings footer showing version from /version.json.
+
+D) Service worker correctness improvements (minimal, no refactor):
+1) Confirm the SW message handler supports:
+   "SKIP_WAITING" → self.skipWaiting()
+   "FORCE_ACTIVATE" → self.skipWaiting(); self.clients.claim()
+2) Ensure navigation requests NEVER return stale index.html:
+   For navigation (mode==="navigate"):
+   - Always network-first
+   - If network ok, return network
+   - If offline, return OFFLINE_URL
+   - Do NOT serve cached index.html for navigation when online
+3) Keep existing caching for static assets (png/js/css/fonts) as is.
+
+E) Verification checklist (must run and report results):
+1) In production build, curl endpoints (or equivalent):
+   - GET /sw.js returns JS (not HTML) with 200
+   - GET /manifest.webmanifest returns JSON with 200
+   - GET /version.json returns version with 200 and changes after publish
+   - GET / returns Cache-Control: no-store headers
+2) Add a debug page or console logs (dev only) showing:
+   - active SW state
+   - waiting SW present?
+   - current version from /version.json
+
+CONSTRAINTS:
+- Do not remove the 3 map options in driver app.
+- Do not change domain/cookie auth settings.
+- Keep app behavior same except for update handling.
+- Keep it App Store submission friendly (no intrusive popups; banner is ok).
+
+IMPLEMENTATION NOTES:
+- If this is a Vite/React SPA, update index serving via Express fallback.
+- If Next.js, configure headers accordingly.
+- Prefer small, surgical code changes.
+
+After implementing, provide:
+- Files changed list
+- Exact code snippets added (UpdateManager + Settings button)
+- Verification output for headers and version.

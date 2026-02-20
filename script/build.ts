@@ -59,7 +59,11 @@ async function buildAll() {
   console.log("generating version.json...");
   await writeFile(
     "dist/public/version.json",
-    JSON.stringify({ version: BUILD_VERSION, built: new Date().toISOString() }),
+    JSON.stringify({
+      version: BUILD_VERSION,
+      builtAt: new Date().toISOString(),
+      env: "production",
+    }),
     "utf-8"
   );
 

@@ -11,46 +11,39 @@ export function serveStatic(app: Express) {
   }
 
   const NO_STORE = "no-store, no-cache, must-revalidate, proxy-revalidate";
+  const NO_STORE_HEADERS = {
+    "Cache-Control": NO_STORE,
+    "Pragma": "no-cache",
+    "Expires": "0",
+  };
   const LONG_CACHE = "public, max-age=31536000, immutable";
 
   app.get("/sw.js", (_req: Request, res: Response) => {
     res.set({
+      ...NO_STORE_HEADERS,
       "Content-Type": "application/javascript",
-      "Cache-Control": NO_STORE,
       "Service-Worker-Allowed": "/",
     });
     res.sendFile(path.resolve(distPath, "sw.js"));
   });
 
   app.get("/manifest.webmanifest", (_req: Request, res: Response) => {
-    res.set({
-      "Content-Type": "application/manifest+json",
-      "Cache-Control": NO_STORE,
-    });
+    res.set({ ...NO_STORE_HEADERS, "Content-Type": "application/manifest+json" });
     res.sendFile(path.resolve(distPath, "manifest.webmanifest"));
   });
 
   app.get("/manifest-driver.webmanifest", (_req: Request, res: Response) => {
-    res.set({
-      "Content-Type": "application/manifest+json",
-      "Cache-Control": NO_STORE,
-    });
+    res.set({ ...NO_STORE_HEADERS, "Content-Type": "application/manifest+json" });
     res.sendFile(path.resolve(distPath, "manifest-driver.webmanifest"));
   });
 
   app.get("/manifest.json", (_req: Request, res: Response) => {
-    res.set({
-      "Content-Type": "application/manifest+json",
-      "Cache-Control": NO_STORE,
-    });
+    res.set({ ...NO_STORE_HEADERS, "Content-Type": "application/manifest+json" });
     res.sendFile(path.resolve(distPath, "manifest.json"));
   });
 
   app.get("/version.json", (_req: Request, res: Response) => {
-    res.set({
-      "Content-Type": "application/json",
-      "Cache-Control": NO_STORE,
-    });
+    res.set({ ...NO_STORE_HEADERS, "Content-Type": "application/json" });
     res.sendFile(path.resolve(distPath, "version.json"));
   });
 
@@ -77,7 +70,7 @@ export function serveStatic(app: Express) {
   );
 
   app.use("/{*path}", (_req: Request, res: Response) => {
-    res.set({ "Cache-Control": NO_STORE });
+    res.set(NO_STORE_HEADERS);
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

@@ -60,6 +60,7 @@ import {
   ArrowLeftRight,
   Inbox,
   Check,
+  RefreshCw,
 } from "lucide-react";
 
 type TabId = "home" | "trips" | "performance" | "bonuses" | "earnings" | "schedule" | "settings";
@@ -2034,8 +2035,13 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMuta
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   const [emergencyNote, setEmergencyNote] = useState("");
 
-  const healthQuery = useQuery<{ version?: string }>({
-    queryKey: ["/api/healthz"],
+  const versionQuery = useQuery<{ version?: string; builtAt?: string; env?: string }>({
+    queryKey: ["/version.json"],
+    queryFn: async () => {
+      const res = await fetch("/version.json?_t=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) return {};
+      return res.json();
+    },
     staleTime: 300_000,
   });
 
@@ -2152,9 +2158,26 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMuta
         </div>
       )}
 
-      <div className="pt-4 text-center" data-testid="text-app-version">
+      <Card className="mt-4" data-testid="card-force-refresh">
+        <CardContent className="py-4">
+          <Button
+            variant="outline"
+            className="w-full min-h-[44px]"
+            data-testid="button-force-refresh"
+            onClick={() => {
+              toast({ title: "Refreshing app..." });
+              (window as any).__ucmForceRefresh?.();
+            }}
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Force Refresh (Fix Updates)
+          </Button>
+        </CardContent>
+      </Card>
+
+      <div className="pt-4 pb-2 text-center" data-testid="text-app-version">
         <p className="text-xs text-muted-foreground">
-          UCM Driver v{healthQuery.data?.version || "..."}
+          UCM Driver v{versionQuery.data?.version || "..."}
         </p>
       </div>
     </div>
