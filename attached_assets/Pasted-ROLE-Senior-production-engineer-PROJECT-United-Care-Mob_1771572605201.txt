@@ -1,0 +1,87 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- No breaking changes
+- Verify with proof
+
+GOAL
+Make the entire Trips and Invoicing experience “click-through” by default:
+Any place a Trip (or Invoice) is referenced must be clickable and must open the correct detail page, even after the trip is completed/closed, and even when viewed from invoices.
+
+SCOPE (must implement everywhere applicable)
+A) Trips UI:
+- Trips table rows
+- Trip cards
+- Trip status widgets (late pickups, no-shows, completed, canceled)
+- Driver trip lists
+- Clinic trip lists
+- Patient trip lists
+- Dispatch screens
+- Any “Recent Activity” / Audit logs referencing trips
+
+B) Invoices UI:
+- Invoice list rows
+- Invoice detail page
+- Trip line items inside invoices (every line item that represents a trip must be clickable)
+- “Trips included in invoice” summaries
+- Any billing/finance logs referencing trips or invoices
+
+C) Ops / Platform Health:
+- Any card that references trips/invoices must route to filtered list AND allow opening a specific trip.
+
+REQUIREMENTS
+
+1) UNIVERSAL CLICK-THROUGH STANDARD
+Implement a shared component or utility:
+- <ClickRow to="/trips/:id"> or similar
+- “TripRef” component: renders trip display (Trip #, patient, pickup time) and links to /trips/:tripId
+- “InvoiceRef” component links to /invoices/:invoiceId
+Use it everywhere a trip/invoice appears (no duplicates, no one-off link hacks).
+
+2) TRIP DETAILS MUST WORK FOR ALL STATUSES
+Fix the root issue: completed trips (or billed trips) currently cannot be opened from invoices.
+- Ensure GET /api/trips/:id returns trips regardless of status (active/completed/canceled/no-show), as long as the user has permission.
+- Ensure list queries don’t exclude completed trips when loading invoice context.
+- If there is “activeOnly” filtering, make it explicit and never used by default on detail views.
+
+3) INVOICE → TRIP DRILLDOWN
+On invoice detail:
+- Each trip line item must link to Trip Detail.
+- Trip Detail must show “Billed / Invoice #” metadata and link back to invoice.
+- If tripId is missing and only an externalRef exists, implement a resolver:
+  - /api/trips/resolve?externalId=... OR resolve by invoice_line_item.trip_id mapping.
+  - Must return the internal UUID tripId reliably.
+
+4) RBAC + TENANT SAFETY
+- SUPER_ADMIN: can open any trip/invoice
+- COMPANY_ADMIN: only trips/invoices for their company
+- CLINIC_USER: only trips tied to their clinic + company rules
+- DRIVER: only trips assigned to them (historical included)
+No cross-tenant leakage.
+
+5) UX SPEC
+- Entire row clickable where appropriate.
+- Also keep explicit “View” icon/button for accessibility.
+- Open in same tab.
+- On mobile: tap area must be large; no tiny links.
+
+6) PROOF / VERIFICATION (mandatory)
+Provide:
+- Files changed
+- Screenshots or logs showing:
+  a) Completed trip opens from Trips list
+  b) Completed trip opens from Invoice detail line item
+  c) RBAC blocks unauthorized trip
+  d) Build passes and production publish works
+
+IMPORTANT: DO NOT REMOVE FEATURES
+Only fix click-through and data loading logic. Do not change DB schema unless unavoidable.
+
+START NOW
+First, identify why trips referenced in invoices are not opening (missing tripId mapping, filtering out completed trips, route guard, or API returning 404).
+Then implement the universal TripRef + InvoiceRef pattern and replace all non-clickable references in the app.
