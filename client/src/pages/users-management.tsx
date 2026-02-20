@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -11,7 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Users, Search, Key, Mail, Copy, Archive } from "lucide-react";
+import { Plus, Users, Search, Key, Mail, Copy, Archive, MapPin } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { apiFetch } from "@/lib/api";
 
 export default function UsersPage() {
@@ -20,6 +21,7 @@ export default function UsersPage() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
+  const [cityPermsUser, setCityPermsUser] = useState<any | null>(null);
 
   const { data: usersData, isLoading } = useQuery<any[]>({
     queryKey: ["/api/users"],
@@ -189,12 +191,30 @@ export default function UsersPage() {
                       <Archive className="w-3 h-3 mr-2" />
                       Archive
                     </Button>
+                    {u.role === "DISPATCH" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCityPermsUser(u)}
+                        data-testid={`button-city-perms-${u.id}`}
+                      >
+                        <MapPin className="w-3 h-3 mr-2" />
+                        City Access
+                      </Button>
+                    )}
                   </div>
                 )}
               </CardContent>
             </Card>
           ))}
         </div>
+      )}
+      {cityPermsUser && (
+        <DispatcherCityPermsDialog
+          user={cityPermsUser}
+          token={token}
+          onClose={() => setCityPermsUser(null)}
+        />
       )}
       {tempPasswordInfo && (
         <Dialog open={!!tempPasswordInfo} onOpenChange={() => setTempPasswordInfo(null)}>
@@ -226,6 +246,155 @@ export default function UsersPage() {
         </Dialog>
       )}
     </div>
+  );
+}
+
+function DispatcherCityPermsDialog({
+  user,
+  token,
+  onClose,
+}: {
+  user: any;
+  token: string | null;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [selectedCities, setSelectedCities] = useState<number[]>([]);
+
+  const { data: currentPerms, isLoading: permsLoading } = useQuery<{
+    allowedCityIds: number[];
+    companyId: number;
+  }>({
+    queryKey: ["/api/company/dispatchers", user.id, "permissions"],
+    queryFn: () =>
+      apiFetch(
+        `/api/company/dispatchers/${user.id}/permissions`,
+        token,
+      ),
+    enabled: !!token && !!user.id,
+  });
+
+  const dispatcherCompanyId = currentPerms?.companyId;
+
+  const { data: companyCities, isLoading: citiesLoading } = useQuery<
+    Array<{ cityId: number; cityName: string }>
+  >({
+    queryKey: ["/api/company/cities", dispatcherCompanyId],
+    queryFn: () =>
+      apiFetch(
+        `/api/company/cities?companyId=${dispatcherCompanyId}`,
+        token,
+      ),
+    enabled: !!token && !!dispatcherCompanyId,
+  });
+
+  useEffect(() => {
+    if (currentPerms) {
+      setSelectedCities(currentPerms.allowedCityIds);
+    }
+  }, [currentPerms]);
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(
+        `/api/company/dispatchers/${user.id}/permissions`,
+        token,
+        {
+          method: "PUT",
+          body: JSON.stringify({ allowedCityIds: selectedCities }),
+        },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/company/dispatchers", user.id, "permissions"],
+      });
+      toast({
+        title: "Permissions updated",
+        description: `City access for ${user.firstName} ${user.lastName} has been saved.`,
+      });
+      onClose();
+    },
+    onError: (err: any) =>
+      toast({
+        title: "Failed to save",
+        description: err.message,
+        variant: "destructive",
+      }),
+  });
+
+  const toggleCity = (cityId: number) => {
+    setSelectedCities((prev) =>
+      prev.includes(cityId)
+        ? prev.filter((id) => id !== cityId)
+        : [...prev, cityId],
+    );
+  };
+
+  const isLoading = citiesLoading || permsLoading;
+
+  return (
+    <Dialog open onOpenChange={() => onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            City Access: {user.firstName} {user.lastName}
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Select which cities this dispatcher can access. They will only see trips, drivers, vehicles, and patients in these cities.
+        </p>
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : !companyCities?.length ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No cities configured for this company.
+          </p>
+        ) : (
+          <div className="space-y-2 max-h-60 overflow-y-auto border rounded-md p-3">
+            {companyCities.map((c) => (
+              <label
+                key={c.cityId}
+                className="flex items-center gap-3 py-1 px-1 rounded hover:bg-muted/50 cursor-pointer"
+              >
+                <Checkbox
+                  checked={selectedCities.includes(c.cityId)}
+                  onCheckedChange={() => toggleCity(c.cityId)}
+                  data-testid={`checkbox-city-${c.cityId}`}
+                />
+                <span className="text-sm">{c.cityName}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-xs text-muted-foreground">
+            {selectedCities.length} {selectedCities.length === 1 ? "city" : "cities"} selected
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              data-testid="button-cancel-city-perms"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+              data-testid="button-save-city-perms"
+            >
+              {saveMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

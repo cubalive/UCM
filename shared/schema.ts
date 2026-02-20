@@ -146,6 +146,17 @@ export const userCityAccess = pgTable("user_city_access", {
   cityId: integer("city_id").notNull().references(() => cities.id),
 });
 
+export const dispatcherCityPermissions = pgTable("dispatcher_city_permissions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("dispatcher_city_perms_user_city_idx").on(table.userId, table.cityId),
+  index("dispatcher_city_perms_company_user_idx").on(table.companyId, table.userId),
+]);
+
 export const vehicleMakes = pgTable("vehicle_makes", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull().unique(),
@@ -692,6 +703,7 @@ export type InsertUsState = z.infer<typeof insertUsStateSchema>;
 export type InsertUsCity = z.infer<typeof insertUsCitySchema>;
 export type User = typeof users.$inferSelect;
 export type UserCityAccess = typeof userCityAccess.$inferSelect;
+export type DispatcherCityPermission = typeof dispatcherCityPermissions.$inferSelect;
 export type Vehicle = typeof vehicles.$inferSelect;
 export type Driver = typeof drivers.$inferSelect;
 export type Clinic = typeof clinics.$inferSelect;

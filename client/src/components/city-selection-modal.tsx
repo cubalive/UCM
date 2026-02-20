@@ -44,7 +44,9 @@ export function CitySelectionModal() {
             <p className="text-sm text-muted-foreground">
               {user?.role === "SUPER_ADMIN"
                 ? "No service cities have been set up. Go to City Management to create one."
-                : "No service cities are assigned to your account. Please contact your administrator."}
+                : user?.role === "DISPATCH"
+                  ? "You have not been assigned access to any cities yet. Your Company Admin needs to grant you city access permissions before you can use the dispatch system."
+                  : "No service cities are assigned to your account. Please contact your administrator."}
             </p>
           </CardContent>
         </Card>

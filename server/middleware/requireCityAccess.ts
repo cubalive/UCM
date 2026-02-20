@@ -13,7 +13,13 @@ export async function requireCityAccess(req: AuthRequest, res: Response, next: N
   if (!cityIdParam || isNaN(cityIdParam)) {
     return next();
   }
-  const allowedCityIds = await getUserCityIds(req.user.userId, req.user.role);
+  const allowedCityIds = await getUserCityIds(req.user.userId, req.user.role, req.user.companyId);
+  if (allowedCityIds.length === 0 && req.user.role === "DISPATCH") {
+    return res.status(403).json({
+      message: "DISPATCHER_NO_PERMISSIONS",
+      error: "No cities assigned. Ask your Company Admin to grant access.",
+    });
+  }
   if (allowedCityIds.length === 0) {
     return next();
   }

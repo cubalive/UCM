@@ -2,8 +2,8 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type { Request, Response, NextFunction } from "express";
 import { db } from "./db";
-import { users, userCityAccess, sessionRevocations } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { users, userCityAccess, sessionRevocations, dispatcherCityPermissions } from "@shared/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { can, type Resource, type Permission } from "@shared/permissions";
 
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -261,8 +261,20 @@ export function checkCompanyOwnership(entity: { companyId?: number | null } | un
   return entity.companyId === companyId;
 }
 
-export async function getUserCityIds(userId: number, role: string): Promise<number[]> {
+export async function getUserCityIds(userId: number, role: string, companyId?: number | null): Promise<number[]> {
   if (role === "SUPER_ADMIN") return [];
+  if (role === "DISPATCH" && companyId) {
+    const rows = await db
+      .select({ cityId: dispatcherCityPermissions.cityId })
+      .from(dispatcherCityPermissions)
+      .where(
+        and(
+          eq(dispatcherCityPermissions.userId, userId),
+          eq(dispatcherCityPermissions.companyId, companyId),
+        ),
+      );
+    return rows.map((r) => r.cityId);
+  }
   const access = await db
     .select({ cityId: userCityAccess.cityId })
     .from(userCityAccess)
@@ -288,7 +300,6 @@ export async function getActorContext(req: AuthRequest): Promise<ActorContext | 
     .from(users)
     .where(eq(users.id, userId))
     .then(r => r[0]);
-  const allowedCityIds = await getUserCityIds(userId, role);
   let effectiveCompanyId = companyId || null;
   if (role === "SUPER_ADMIN") {
     const headerVal = req.headers["x-ucm-company-id"];
@@ -297,6 +308,7 @@ export async function getActorContext(req: AuthRequest): Promise<ActorContext | 
       if (!isNaN(parsed) && parsed > 0) effectiveCompanyId = parsed;
     }
   }
+  const allowedCityIds = await getUserCityIds(userId, role, effectiveCompanyId);
   return {
     userId,
     role,
