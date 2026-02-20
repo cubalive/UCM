@@ -1553,6 +1553,10 @@ export const platformBillingSettings = pgTable("platform_billing_settings", {
   defaultFeePercent: numeric("default_fee_percent").notNull().default("0"),
   defaultFeeCents: integer("default_fee_cents").notNull().default(0),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  monthlySubscriptionEnabled: boolean("monthly_subscription_enabled").notNull().default(false),
+  monthlySubscriptionPriceId: text("monthly_subscription_price_id"),
+  subscriptionRequiredForAccess: boolean("subscription_required_for_access").notNull().default(false),
+  gracePeriodDays: integer("grace_period_days").notNull().default(0),
 });
 
 export type PlatformBillingSettings = typeof platformBillingSettings.$inferSelect;
@@ -2322,6 +2326,40 @@ export const opsSmokeRuns = pgTable("ops_smoke_runs", {
   resultsJson: jsonb("results_json"),
   triggeredBy: integer("triggered_by").references(() => users.id),
 });
+
+export const subscriptionStatusEnum = pgEnum("subscription_status", [
+  "active", "trialing", "past_due", "canceled", "incomplete", "unpaid", "paused", "incomplete_expired",
+]);
+
+export const stripeCustomers = pgTable("stripe_customers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id).unique(),
+  stripeCustomerId: text("stripe_customer_id").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type StripeCustomer = typeof stripeCustomers.$inferSelect;
+
+export const companySubscriptions = pgTable("company_subscriptions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id).unique(),
+  stripeSubscriptionId: text("stripe_subscription_id").unique(),
+  stripePriceId: text("stripe_price_id").notNull(),
+  status: text("status").notNull().default("incomplete"),
+  currentPeriodStart: timestamp("current_period_start"),
+  currentPeriodEnd: timestamp("current_period_end"),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  canceledAt: timestamp("canceled_at"),
+  lastEventId: text("last_event_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("cs_status_idx").on(table.status),
+  index("cs_company_idx").on(table.companyId),
+]);
+
+export type CompanySubscription = typeof companySubscriptions.$inferSelect;
 
 export const routeCache = pgTable("route_cache", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

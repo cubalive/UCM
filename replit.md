@@ -43,6 +43,7 @@ The application follows a client-server architecture.
 - **UCM Intelligence Core**: Integrates daily/weekly metrics, TRI scores, cost leak alerts, and certifications with corresponding API endpoints and a frontend dashboard.
 - **Driver Intelligence Engine**: Driver performance scoring based on various metrics, anomaly detection, and background score recomputation.
 - **Platform Billing Fees**: Application fees collected on clinic invoice payments via Stripe Connect, with global and company-specific overrides.
+- **Company Subscriptions**: Stripe-powered monthly subscription billing for companies. Configurable via `platform_billing_settings` (monthly_subscription_enabled, price_id, subscription_required_for_access, grace_period_days). Tables: `stripe_customers`, `company_subscriptions`. Webhook at `/api/webhooks/stripe/subscription`. Admin API at `/api/admin/subscriptions/*`. Admin UI at `/admin/subscriptions`.
 - **Production Ops & Observability**: Boot config logging, pooler enforcement, Redis startup diagnostic, SUPER_ADMIN-only ops endpoints (`/api/ops/*`), graceful shutdown, HTTP timeouts, access-denied logging, WebSocket hardening, and DB-backed route cache.
 
 ## Running the Project

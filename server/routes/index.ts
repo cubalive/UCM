@@ -40,6 +40,7 @@ import { registerBillingV2Routes } from "./billingV2.routes";
 import { registerPlatformFeeRoutes } from "./platformFee.routes";
 import { registerDispatcherPermissionsRoutes } from "./dispatcherPermissions.routes";
 import { registerInfraOpsRoutes } from "./ops.routes";
+import { registerSubscriptionRoutes, registerSubscriptionWebhook } from "./subscription.routes";
 import { startRouteScheduler } from "../lib/routeEngine";
 import { startNoShowScheduler } from "../lib/noShowEngine";
 import { startRecurringScheduleScheduler } from "../lib/recurringScheduleEngine";
@@ -95,6 +96,8 @@ export async function registerRoutes(
   registerPlatformFeeRoutes(app);
   registerDispatcherPermissionsRoutes(app);
   registerInfraOpsRoutes(app);
+  registerSubscriptionRoutes(app);
+  registerSubscriptionWebhook(app);
 
   startOpsAlertScheduler();
   startRouteScheduler();
