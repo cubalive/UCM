@@ -58,6 +58,9 @@ import {
   setClinicCompaniesHandler,
   getAllCompanyCitiesHandler,
   getAllClinicCompaniesHandler,
+  batchArchiveTripsHandler,
+  unarchiveTripHandler,
+  archiveStatsHandler,
 } from "../controllers/admin.controller";
 
 const router = express.Router();
@@ -125,6 +128,10 @@ router.put("/api/admin/companies/:companyId/cities", authMiddleware, requireRole
 router.get("/api/admin/clinic-companies", authMiddleware, requireRole("SUPER_ADMIN"), getAllClinicCompaniesHandler as any);
 router.get("/api/admin/clinics/:clinicId/companies", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"), getClinicCompaniesHandler as any);
 router.put("/api/admin/clinics/:clinicId/companies", authMiddleware, requireRole("SUPER_ADMIN"), setClinicCompaniesHandler as any);
+
+router.post("/api/admin/archive-trips", authMiddleware, requireRole("SUPER_ADMIN"), batchArchiveTripsHandler as any);
+router.post("/api/admin/unarchive-trip/:id", authMiddleware, requireRole("SUPER_ADMIN"), unarchiveTripHandler as any);
+router.get("/api/admin/archive-stats", authMiddleware, requireRole("SUPER_ADMIN"), archiveStatsHandler as any);
 
 export function registerAdminRoutes(app: Express) {
   app.use(router);

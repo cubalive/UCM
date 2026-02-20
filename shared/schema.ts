@@ -382,6 +382,9 @@ export const trips = pgTable("trips", {
   sharedPricingMode: text("shared_pricing_mode").notNull().default("PER_PATIENT"),
   primaryTripId: integer("primary_trip_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  archivedAt: timestamp("archived_at"),
+  archivedBy: integer("archived_by"),
+  archiveReason: text("archive_reason"),
 });
 
 export const tripSignatures = pgTable("trip_signatures", {

@@ -2,7 +2,7 @@ import type { Response } from "express";
 import { storage } from "../storage";
 import { type AuthRequest, hashPassword, getCompanyIdFromAuth, checkCompanyOwnership, getActorContext } from "../auth";
 import { db } from "../db";
-import { eq, and, desc, gte, sql, count, inArray } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql, count, inArray, isNull, isNotNull } from "drizzle-orm";
 import {
   users, jobs, clinics, drivers, patients, trips, vehicles, cities, companies,
   invoices, tripSmsLog, tripShareTokens, tripEvents, tripSignatures, tripBilling,
@@ -1744,6 +1744,102 @@ export async function getAllClinicCompaniesHandler(req: AuthRequest, res: Respon
   try {
     const rows = await db.select().from(clinicCompanies);
     res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+const batchArchiveSchema = z.object({
+  cutoffDays: z.number().int().min(1),
+  batchSize: z.number().int().min(1).max(1000).default(200),
+  reason: z.string().optional(),
+});
+
+export async function batchArchiveTripsHandler(req: AuthRequest, res: Response) {
+  try {
+    const parsed = batchArchiveSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    const { cutoffDays, batchSize, reason } = parsed.data;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - cutoffDays);
+
+    const activeStatuses = [
+      "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP",
+      "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS",
+      "SCHEDULED", "ASSIGNED",
+    ];
+
+    const archiveReason = reason || `Bulk archive: trips older than ${cutoffDays} days`;
+    const result = await db.execute(sql`
+      UPDATE trips SET
+        archived_at = NOW(),
+        archived_by = ${req.user!.userId},
+        archive_reason = ${archiveReason}
+      WHERE id IN (
+        SELECT id FROM trips
+        WHERE created_at <= ${cutoffDate}
+          AND archived_at IS NULL
+          AND deleted_at IS NULL
+          AND status NOT IN (${sql.raw(activeStatuses.map(s => `'${s}'`).join(","))})
+        LIMIT ${batchSize}
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING id
+    `);
+
+    const rows = (result as any).rows || result;
+    const updatedCount = Array.isArray(rows) ? rows.length : 0;
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "BULK_ARCHIVE",
+      entity: "trip",
+      entityId: 0,
+      details: `Bulk archived ${updatedCount} trips older than ${cutoffDays} days`,
+    });
+
+    res.json({ updatedCount });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function unarchiveTripHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const trip = await storage.getTrip(id);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+    if (!trip.archivedAt) return res.status(400).json({ message: "Trip is not archived" });
+
+    const updated = await storage.updateTrip(id, {
+      archivedAt: null,
+      archivedBy: null,
+      archiveReason: null,
+    } as any);
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "UNARCHIVE",
+      entity: "trip",
+      entityId: id,
+      details: `Unarchived trip #${id}`,
+      cityId: trip.cityId,
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function archiveStatsHandler(req: AuthRequest, res: Response) {
+  try {
+    const [activeCount] = await db.select({ count: count() }).from(trips).where(and(isNull(trips.archivedAt), isNull(trips.deletedAt)));
+    const [archivedCount] = await db.select({ count: count() }).from(trips).where(and(isNotNull(trips.archivedAt), isNull(trips.deletedAt)));
+    res.json({ active: activeCount.count, archived: archivedCount.count });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

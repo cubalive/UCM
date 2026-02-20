@@ -438,6 +438,10 @@ export async function getTripsHandler(req: AuthRequest, res: Response) {
     const source = req.query.source as string | undefined;
 
     const conditions: any[] = [isNull(trips.deletedAt)];
+    const includeArchived = req.query.includeArchived === "true" && req.user?.role === "SUPER_ADMIN";
+    if (!includeArchived) {
+      conditions.push(isNull(trips.archivedAt));
+    }
     if (filters.cityId && filters.cityId > 0) conditions.push(eq(trips.cityId, filters.cityId));
     if (filters.companyId) conditions.push(eq(trips.companyId, filters.companyId));
 

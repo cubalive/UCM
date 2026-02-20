@@ -486,9 +486,9 @@ export class DatabaseStorage implements IStorage {
   async getTrips(cityId?: number, limit?: number): Promise<Trip[]> {
     let query = db.select().from(trips);
     if (cityId) {
-      query = query.where(and(eq(trips.cityId, cityId), isNull(trips.deletedAt))) as any;
+      query = query.where(and(eq(trips.cityId, cityId), isNull(trips.deletedAt), isNull(trips.archivedAt))) as any;
     } else {
-      query = query.where(isNull(trips.deletedAt)) as any;
+      query = query.where(and(isNull(trips.deletedAt), isNull(trips.archivedAt))) as any;
     }
     query = query.orderBy(desc(trips.createdAt)) as any;
     if (limit) {

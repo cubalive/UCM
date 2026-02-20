@@ -2,14 +2,14 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Archive, RotateCcw, Trash2, Search, Building2, UserCheck, HeartPulse, Users, Copy, KeyRound, Route, Car } from "lucide-react";
+import { Archive, RotateCcw, Trash2, Search, Building2, UserCheck, HeartPulse, Users, Copy, KeyRound, Route, Car, PackageOpen, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 type EntityTab = "clinics" | "drivers" | "patients" | "users" | "trips" | "vehicles";
@@ -212,6 +212,47 @@ export default function ArchivePage() {
     );
   };
 
+  const [cutoffDays, setCutoffDays] = useState(90);
+  const [archiveRunning, setArchiveRunning] = useState(false);
+  const [archiveTotal, setArchiveTotal] = useState(0);
+
+  const archiveStats = useQuery<{ active: number; archived: number }>({
+    queryKey: ["/api/admin/archive-stats"],
+    queryFn: () => apiFetch("/api/admin/archive-stats", token),
+    enabled: !!token && isSuperAdmin,
+  });
+
+  const bulkArchiveMutation = useMutation({
+    mutationFn: (body: { cutoffDays: number; batchSize: number }) =>
+      apiFetch("/api/admin/archive-trips", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+
+  const runBulkArchive = async () => {
+    setArchiveRunning(true);
+    setArchiveTotal(0);
+    const batchSize = 200;
+    let total = 0;
+    try {
+      while (true) {
+        const result: any = await bulkArchiveMutation.mutateAsync({ cutoffDays, batchSize });
+        total += result.updatedCount;
+        setArchiveTotal(total);
+        if (result.updatedCount < batchSize) break;
+      }
+      toast({ title: `Archived ${total} trips`, description: `Trips older than ${cutoffDays} days have been archived.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/archive-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/archived"] });
+    } catch (err: any) {
+      toast({ title: "Archive failed", description: err.message, variant: "destructive" });
+    } finally {
+      setArchiveRunning(false);
+    }
+  };
+
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <div>
@@ -221,6 +262,61 @@ export default function ArchivePage() {
         </div>
         <p className="text-sm text-muted-foreground mt-1">View and manage archived records</p>
       </div>
+
+      {isSuperAdmin && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <PackageOpen className="w-5 h-5" />
+              Bulk Trip Archiving
+            </CardTitle>
+            <CardDescription>
+              Archive old completed/cancelled trips to keep the database fast. Active and scheduled trips are never archived.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-4 flex-wrap">
+              {archiveStats.data && (
+                <div className="flex gap-3 text-sm">
+                  <Badge variant="outline" data-testid="badge-active-trips">Active: {archiveStats.data.active}</Badge>
+                  <Badge variant="secondary" data-testid="badge-archived-trips">Archived: {archiveStats.data.archived}</Badge>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-sm whitespace-nowrap">Archive trips older than</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={cutoffDays}
+                  onChange={(e) => setCutoffDays(parseInt(e.target.value) || 90)}
+                  className="w-20"
+                  data-testid="input-cutoff-days"
+                />
+                <span className="text-sm">days</span>
+              </div>
+              <Button
+                onClick={runBulkArchive}
+                disabled={archiveRunning || cutoffDays < 1}
+                data-testid="button-bulk-archive"
+              >
+                {archiveRunning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    Archiving... ({archiveTotal})
+                  </>
+                ) : (
+                  <>
+                    <PackageOpen className="w-4 h-4 mr-1" />
+                    Archive Old Trips
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex items-center gap-2 flex-wrap">
         {tabs.map((tab) => (
