@@ -307,6 +307,9 @@ app.use((req, res, next) => {
   const { startJobEngine } = await import("./lib/jobEngine");
   startJobEngine();
 
+  const { registerIntegrityRoutes } = await import("./lib/integrityReport");
+  registerIntegrityRoutes(app);
+
   const { validateTwilioAtBoot } = await import("./lib/sms/twilioClient");
   validateTwilioAtBoot();
 

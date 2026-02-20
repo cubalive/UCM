@@ -1,11 +1,11 @@
 import type { Response } from "express";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, type AuthRequest } from "../auth";
 import { insertVehicleSchema, vehicles, vehicleMakes, vehicleModels } from "@shared/schema";
 import { db } from "../db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, isNull } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
-import { enforceCityContext, getAllowedCityId, checkCityAccess } from "../middleware/cityContext";
+import { getScope, requireScope, buildScopeFilters, forceCompanyOnCreate } from "../middleware/scopeContext";
 
 export async function getVehicleMakesHandler(_req: AuthRequest, res: Response) {
   try {
@@ -31,13 +31,16 @@ export async function getVehicleModelsHandler(req: AuthRequest, res: Response) {
 
 export async function getVehiclesHandler(req: AuthRequest, res: Response) {
   try {
-    const enforced = enforceCityContext(req, res);
-    if (enforced === false) return;
-    const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
-    if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-    const companyId = getCompanyIdFromAuth(req);
-    const allVehicles = await storage.getVehicles(cityId);
-    res.json(applyCompanyFilter(allVehicles, companyId));
+    const scope = await getScope(req);
+    if (!scope || !requireScope(scope, res)) return;
+    const filters = buildScopeFilters(scope);
+
+    const conditions: any[] = [eq(vehicles.active, true), isNull(vehicles.deletedAt)];
+    if (filters.companyId) conditions.push(eq(vehicles.companyId, filters.companyId));
+    if (filters.cityId) conditions.push(eq(vehicles.cityId, filters.cityId));
+
+    const result = await db.select().from(vehicles).where(and(...conditions)).orderBy(vehicles.name);
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -45,13 +48,14 @@ export async function getVehiclesHandler(req: AuthRequest, res: Response) {
 
 export async function getVehicleByIdHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
     const vehicle = await storage.getVehicle(parseInt(String(req.params.id)));
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
-    if (!(await checkCityAccess(req, vehicle.cityId))) {
+    if (!scope.isSuperAdmin && scope.companyId && vehicle.companyId !== scope.companyId) {
       return res.status(403).json({ message: "No access to this vehicle" });
     }
-    const companyId = getCompanyIdFromAuth(req);
-    if (!checkCompanyOwnership(vehicle, companyId)) {
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(vehicle.cityId)) {
       return res.status(403).json({ message: "No access to this vehicle" });
     }
     res.json(vehicle);
@@ -62,15 +66,16 @@ export async function getVehicleByIdHandler(req: AuthRequest, res: Response) {
 
 export async function updateVehicleHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
     const vehicleId = parseInt(String(req.params.id));
     const vehicle = await storage.getVehicle(vehicleId);
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
-    if (!(await checkCityAccess(req, vehicle.cityId))) {
-      return res.status(403).json({ message: "No access to this vehicle" });
-    }
-    const companyId = getCompanyIdFromAuth(req);
-    if (!checkCompanyOwnership(vehicle, companyId)) {
+    if (!scope.isSuperAdmin && scope.companyId && vehicle.companyId !== scope.companyId) {
       return res.status(403).json({ message: "Vehicle does not belong to your company" });
+    }
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(vehicle.cityId)) {
+      return res.status(403).json({ message: "No access to this vehicle" });
     }
 
     const { name, licensePlate, colorHex, make, model, makeId, modelId, makeText, modelText, year, capacity, wheelchairAccessible, status, cityId, lastServiceDate, maintenanceNotes } = req.body;
@@ -79,7 +84,7 @@ export async function updateVehicleHandler(req: AuthRequest, res: Response) {
       return res.status(400).json({ message: "Vehicle color is required" });
     }
     if (cityId && cityId !== vehicle.cityId) {
-      if (!(await checkCityAccess(req, cityId))) {
+      if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(cityId)) {
         return res.status(403).json({ message: "No access to the target city" });
       }
       const assignedDriver = await storage.getDriverByVehicleId(vehicleId);
@@ -123,6 +128,9 @@ export async function updateVehicleHandler(req: AuthRequest, res: Response) {
 
 export async function createVehicleHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    forceCompanyOnCreate(scope, req.body);
     const parsed = insertVehicleSchema.omit({ publicId: true }).safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid vehicle data" });
@@ -133,7 +141,7 @@ export async function createVehicleHandler(req: AuthRequest, res: Response) {
     if (!parsed.data.cityId) {
       return res.status(400).json({ message: "City is required" });
     }
-    if (!(await checkCityAccess(req, parsed.data.cityId))) {
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(parsed.data.cityId)) {
       return res.status(403).json({ message: "No access to this city" });
     }
     if (parsed.data.licensePlate) {
@@ -143,8 +151,7 @@ export async function createVehicleHandler(req: AuthRequest, res: Response) {
       }
     }
     const publicId = await generatePublicId();
-    const companyId = getCompanyIdFromAuth(req);
-    const vehicle = await storage.createVehicle({ ...parsed.data, publicId, companyId });
+    const vehicle = await storage.createVehicle({ ...parsed.data, publicId });
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "CREATE",

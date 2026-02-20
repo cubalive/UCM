@@ -1,22 +1,26 @@
 import type { Response } from "express";
 import { storage } from "../storage";
-import { authMiddleware, requireRole, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, hashPassword, getUserCityIds, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, hashPassword, getUserCityIds, type AuthRequest } from "../auth";
 import { insertDriverSchema, drivers, users, vehicles, trips } from "@shared/schema";
 import { db } from "../db";
 import { eq, ne, and, isNull, inArray } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
-import { enforceCityContext, getAllowedCityId, checkCityAccess } from "../middleware/cityContext";
+import { getScope, requireScope, buildScopeFilters, forceCompanyOnCreate } from "../middleware/scopeContext";
 import { checkDriverQuota } from "../lib/companyQuotas";
 
 export async function getDriversHandler(req: AuthRequest, res: Response) {
   try {
-    const enforced = enforceCityContext(req, res);
-    if (enforced === false) return;
-    const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
-    if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-    const companyId = getCompanyIdFromAuth(req);
-    const allDrivers = await storage.getDrivers(cityId);
-    res.json(applyCompanyFilter(allDrivers, companyId));
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    if (!requireScope(scope, res)) return;
+    const filters = buildScopeFilters(scope);
+
+    const conditions = [eq(drivers.active, true), isNull(drivers.deletedAt)];
+    if (filters.companyId) conditions.push(eq(drivers.companyId, filters.companyId));
+    if (filters.cityId) conditions.push(eq(drivers.cityId, filters.cityId));
+
+    const result = await db.select().from(drivers).where(and(...conditions));
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -24,6 +28,12 @@ export async function getDriversHandler(req: AuthRequest, res: Response) {
 
 export async function createDriverHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    if (!requireScope(scope, res)) return;
+
+    forceCompanyOnCreate(scope, req.body);
+
     const parsed = insertDriverSchema.omit({ publicId: true }).safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid driver data" });
@@ -46,7 +56,7 @@ export async function createDriverHandler(req: AuthRequest, res: Response) {
         return res.status(400).json({ message: "Vehicle is not active and cannot be assigned." });
       }
     }
-    if (!(await checkCityAccess(req, parsed.data.cityId))) {
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(parsed.data.cityId)) {
       return res.status(403).json({ message: "No access to this city" });
     }
     if (parsed.data.licenseNumber) {
@@ -55,7 +65,7 @@ export async function createDriverHandler(req: AuthRequest, res: Response) {
         return res.status(400).json({ message: "License number may only contain letters, numbers, and hyphens" });
       }
     }
-    const callerCompanyId = getCompanyIdFromAuth(req);
+    const callerCompanyId = scope.companyId;
     if (callerCompanyId) {
       const quota = await checkDriverQuota(callerCompanyId);
       if (!quota.allowed) {
@@ -167,14 +177,18 @@ export async function createDriverHandler(req: AuthRequest, res: Response) {
 
 export async function updateDriverHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    if (!requireScope(scope, res)) return;
+
     const driverId = parseInt(String(req.params.id));
     const driver = await storage.getDriver(driverId);
     if (!driver) return res.status(404).json({ message: "Driver not found" });
-    if (!(await checkCityAccess(req, driver.cityId))) {
+
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(driver.cityId)) {
       return res.status(403).json({ message: "No access to this driver" });
     }
-    const callerCompanyId = getCompanyIdFromAuth(req);
-    if (!checkCompanyOwnership(driver, callerCompanyId)) {
+    if (!scope.isSuperAdmin && scope.companyId && driver.companyId !== scope.companyId) {
       return res.status(403).json({ message: "Driver does not belong to your company" });
     }
 
@@ -320,12 +334,21 @@ export async function updateDriverHandler(req: AuthRequest, res: Response) {
 
 export async function getDriverVehicleHistoryHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    if (!requireScope(scope, res)) return;
+
     const driverId = parseInt(String(req.params.id));
     const driver = await storage.getDriver(driverId);
     if (!driver) return res.status(404).json({ message: "Driver not found" });
-    if (!(await checkCityAccess(req, driver.cityId))) {
+
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(driver.cityId)) {
       return res.status(403).json({ message: "No access to this driver" });
     }
+    if (!scope.isSuperAdmin && scope.companyId && driver.companyId !== scope.companyId) {
+      return res.status(403).json({ message: "Driver does not belong to your company" });
+    }
+
     let history = await storage.getVehicleAssignmentHistory(driverId);
     if (driver.vehicleId) {
       const hasOpen = history.some((h) => h.vehicleId === driver.vehicleId && !h.unassignedAt);

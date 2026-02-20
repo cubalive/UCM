@@ -1,21 +1,30 @@
 import type { Response } from "express";
 import { storage } from "../storage";
-import { getCompanyIdFromAuth, applyCompanyFilter, hashPassword, type AuthRequest } from "../auth";
-import { insertClinicSchema, users } from "@shared/schema";
+import { hashPassword, type AuthRequest } from "../auth";
+import { insertClinicSchema, users, clinics } from "@shared/schema";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
-import { enforceCityContext, getAllowedCityId, checkCityAccess } from "../middleware/cityContext";
+import { getScope, requireScope, buildScopeFilters, forceCompanyOnCreate } from "../middleware/scopeContext";
 
 export async function getClinicsHandler(req: AuthRequest, res: Response) {
   try {
-    const enforced = enforceCityContext(req, res);
-    if (enforced === false) return;
-    const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
-    if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-    const companyId = getCompanyIdFromAuth(req);
-    const allClinics = await storage.getClinics(cityId);
-    res.json(applyCompanyFilter(allClinics, companyId));
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    if (!requireScope(scope, res)) return;
+    const filters = buildScopeFilters(scope);
+
+    const conditions: any[] = [eq(clinics.active, true), isNull(clinics.deletedAt)];
+    if (filters.companyId) conditions.push(eq(clinics.companyId, filters.companyId));
+    if (filters.cityId) conditions.push(eq(clinics.cityId, filters.cityId));
+
+    const result = await db
+      .select()
+      .from(clinics)
+      .where(and(...conditions))
+      .orderBy(clinics.name);
+
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -23,6 +32,10 @@ export async function getClinicsHandler(req: AuthRequest, res: Response) {
 
 export async function createClinicHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    if (!requireScope(scope, res)) return;
+
     const parsed = insertClinicSchema.omit({ publicId: true }).safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid clinic data" });
@@ -43,7 +56,7 @@ export async function createClinicHandler(req: AuthRequest, res: Response) {
     if (!parsed.data.cityId) {
       return res.status(400).json({ message: "Service City is required" });
     }
-    if (!(await checkCityAccess(req, parsed.data.cityId))) {
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(parsed.data.cityId)) {
       return res.status(403).json({ message: "No access to this city" });
     }
     const selectedCity = await storage.getCity(parsed.data.cityId);
@@ -58,8 +71,8 @@ export async function createClinicHandler(req: AuthRequest, res: Response) {
       });
     }
     const publicId = await generatePublicId();
-    const callerCompanyId = getCompanyIdFromAuth(req);
-    const clinicData = { ...parsed.data, publicId, companyId: callerCompanyId };
+    const clinicData: any = { ...parsed.data, publicId };
+    forceCompanyOnCreate(scope, clinicData);
     if (clinicData.phone) {
       const { normalizePhone } = await import("../lib/twilioSms");
       clinicData.phone = normalizePhone(clinicData.phone) || clinicData.phone;
@@ -148,13 +161,21 @@ export async function createClinicHandler(req: AuthRequest, res: Response) {
 
 export async function updateClinicHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    if (!requireScope(scope, res)) return;
+
     const clinicId = parseInt(String(req.params.id));
     if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
 
     const clinic = await storage.getClinic(clinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
-    if (!(await checkCityAccess(req, clinic.cityId))) {
+    if (!scope.isSuperAdmin && scope.companyId && clinic.companyId !== scope.companyId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(clinic.cityId)) {
       return res.status(403).json({ message: "No access to this city" });
     }
 
@@ -192,7 +213,7 @@ export async function updateClinicHandler(req: AuthRequest, res: Response) {
       if (!targetCity) {
         return res.status(400).json({ message: "Invalid Service City" });
       }
-      if (cityIdChanged && !(await checkCityAccess(req, updateData.cityId))) {
+      if (cityIdChanged && !scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(updateData.cityId)) {
         return res.status(403).json({ message: "No access to target city" });
       }
       const ac = (effectiveAddrCity || "").trim().toLowerCase();

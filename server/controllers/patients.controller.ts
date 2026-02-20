@@ -1,31 +1,39 @@
 import type { Response } from "express";
 import { storage } from "../storage";
-import { getCompanyIdFromAuth, applyCompanyFilter, type AuthRequest } from "../auth";
+import { type AuthRequest } from "../auth";
 import { insertPatientSchema, patients } from "@shared/schema";
 import { db } from "../db";
 import { eq, and, isNull } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
-import { enforceCityContext, getAllowedCityId, checkCityAccess } from "../middleware/cityContext";
+import { getScope, requireScope, buildScopeFilters, forceCompanyOnCreate } from "../middleware/scopeContext";
 
 export async function getPatientsHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+
     const user = await storage.getUser(req.user!.userId);
     if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
+      const conditions: any[] = [
+        eq(patients.clinicId, user.clinicId),
+        eq(patients.active, true),
+        isNull(patients.deletedAt),
+      ];
+      if (scope.companyId) conditions.push(eq(patients.companyId, scope.companyId));
       const clinicPatients = await db.select().from(patients).where(
-        and(eq(patients.clinicId, user.clinicId), eq(patients.active, true), isNull(patients.deletedAt))
+        and(...conditions)
       ).orderBy(patients.firstName);
       return res.json(clinicPatients);
     }
-    const enforced = enforceCityContext(req, res);
-    if (enforced === false) return;
-    const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
-    if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-    const companyId = getCompanyIdFromAuth(req);
+
+    if (!requireScope(scope, res)) return;
+    const filters = buildScopeFilters(scope);
 
     const source = req.query.source as string | undefined;
     const conditions: any[] = [isNull(patients.deletedAt), eq(patients.active, true)];
-    if (cityId && cityId > 0) conditions.push(eq(patients.cityId, cityId));
-    if (companyId) conditions.push(eq(patients.companyId, companyId));
+    if (filters.companyId) conditions.push(eq(patients.companyId, filters.companyId));
+    if (filters.cityId) conditions.push(eq(patients.cityId, filters.cityId));
+    if (filters.clinicId) conditions.push(eq(patients.clinicId, filters.clinicId));
 
     if (source === "clinic") {
       conditions.push(eq(patients.source, "clinic"));
@@ -46,20 +54,22 @@ export async function getPatientsHandler(req: AuthRequest, res: Response) {
 
 export async function getPatientClinicGroupsHandler(req: AuthRequest, res: Response) {
   try {
-    const enforced = enforceCityContext(req, res);
-    if (enforced === false) return;
-    const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
-    if (cityId === -1) return res.status(403).json({ message: "Access denied" });
-    const companyId = getCompanyIdFromAuth(req);
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    if (!requireScope(scope, res)) return;
+    const filters = buildScopeFilters(scope);
 
     const conditions: any[] = [isNull(patients.deletedAt), eq(patients.active, true), eq(patients.source, "clinic")];
-    if (cityId && cityId > 0) conditions.push(eq(patients.cityId, cityId));
-    if (companyId) conditions.push(eq(patients.companyId, companyId));
+    if (filters.companyId) conditions.push(eq(patients.companyId, filters.companyId));
+    if (filters.cityId) conditions.push(eq(patients.cityId, filters.cityId));
 
     const clinicPatients = await db.select().from(patients).where(and(...conditions)).orderBy(patients.firstName);
 
-    const allClinics = await storage.getClinics(cityId || undefined);
-    const filteredClinics = applyCompanyFilter(allClinics, companyId).filter((c: any) => !c.deletedAt);
+    const allClinics = await storage.getClinics(filters.cityId || undefined);
+    const filteredClinics = (filters.companyId
+      ? allClinics.filter((c: any) => c.companyId === filters.companyId)
+      : allClinics
+    ).filter((c: any) => !c.deletedAt);
 
     const groups = filteredClinics.map((clinic: any) => {
       const pts = clinicPatients.filter((p: any) => p.clinicId === clinic.id);
@@ -79,12 +89,18 @@ export async function getPatientClinicGroupsHandler(req: AuthRequest, res: Respo
 
 export async function createPatientHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+
     const user = await storage.getUser(req.user!.userId);
     if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
       const clinic = await storage.getClinic(user.clinicId);
       if (!clinic) return res.status(403).json({ message: "No clinic linked" });
       req.body.clinicId = user.clinicId;
       req.body.cityId = clinic.cityId;
+      req.body.companyId = clinic.companyId;
+    } else {
+      forceCompanyOnCreate(scope, req.body);
     }
     const parsed = insertPatientSchema.omit({ publicId: true }).safeParse(req.body);
     if (!parsed.success) {
@@ -104,11 +120,11 @@ export async function createPatientHandler(req: AuthRequest, res: Response) {
         return res.status(400).json({ message: `Could not geocode patient address: ${geoErr.message}. Please select from autocomplete.` });
       }
     }
-    if (!(await checkCityAccess(req, parsed.data.cityId))) {
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(parsed.data.cityId)) {
       return res.status(403).json({ message: "No access to this city" });
     }
     const publicId = await generatePublicId();
-    const callerCompanyId = getCompanyIdFromAuth(req);
+    const callerCompanyId = scope.companyId;
     if (parsed.data.clinicId) {
       const clinic = await storage.getClinic(parsed.data.clinicId);
       if (!clinic) return res.status(400).json({ message: "Selected clinic not found" });
@@ -118,7 +134,9 @@ export async function createPatientHandler(req: AuthRequest, res: Response) {
       }
     }
     const autoSource = (user?.role === "CLINIC_USER" || user?.role === "VIEWER") && user.clinicId ? "clinic" : "internal";
-    const patientData = { ...parsed.data, publicId, companyId: callerCompanyId, source: parsed.data.source || autoSource };
+    const effectiveCompanyId = parsed.data.companyId || callerCompanyId;
+    if (!effectiveCompanyId) return res.status(400).json({ message: "Company is required to create a patient" });
+    const patientData = { ...parsed.data, publicId, companyId: effectiveCompanyId, source: parsed.data.source || autoSource };
     const effectiveSource = patientData.source;
     if (effectiveSource === "private" && !patientData.email?.trim()) {
       return res.status(400).json({ message: "Email is required for Private-pay patients to receive invoices and payment links." });
@@ -150,14 +168,16 @@ export async function createPatientHandler(req: AuthRequest, res: Response) {
 
 export async function updatePatientHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+
     const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid patient ID" });
 
     const existing = await storage.getPatient(id);
     if (!existing) return res.status(404).json({ message: "Patient not found" });
 
-    const callerCompanyId = getCompanyIdFromAuth(req);
-    if (callerCompanyId && existing.companyId && existing.companyId !== callerCompanyId) {
+    if (!scope.isSuperAdmin && scope.companyId && existing.companyId && existing.companyId !== scope.companyId) {
       return res.status(403).json({ message: "Access denied" });
     }
 
@@ -168,7 +188,7 @@ export async function updatePatientHandler(req: AuthRequest, res: Response) {
       }
     }
 
-    if (!(await checkCityAccess(req, existing.cityId))) {
+    if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(existing.cityId)) {
       return res.status(403).json({ message: "No access to this city" });
     }
 
@@ -181,7 +201,7 @@ export async function updatePatientHandler(req: AuthRequest, res: Response) {
     }
 
     if (updateData.cityId && updateData.cityId !== existing.cityId) {
-      if (!(await checkCityAccess(req, updateData.cityId))) {
+      if (!scope.isSuperAdmin && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(updateData.cityId)) {
         return res.status(403).json({ message: "No access to target city" });
       }
     }

@@ -6,6 +6,7 @@ import { db } from "../db";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
 import { enforceCityContext, getAllowedCityId, checkCityAccess } from "../middleware/cityContext";
+import { getScope, requireScope, buildScopeFilters, forceCompanyOnCreate } from "../middleware/scopeContext";
 import { tripLockedGuard } from "../lib/tripLockGuard";
 import { sendEmail } from "../lib/email";
 import { z } from "zod";
@@ -421,10 +422,11 @@ export async function getTripsHandler(req: AuthRequest, res: Response) {
       }
       return res.status(403).json({ message: "No clinic linked" });
     }
-    const enforced = enforceCityContext(req, res);
-    if (enforced === false) return;
-    const cityId = enforced !== undefined ? enforced : await getAllowedCityId(req);
-    if (cityId === -1) return res.status(403).json({ message: "Access denied" });
+
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    if (!requireScope(scope, res)) return;
+    const filters = buildScopeFilters(scope);
 
     const tab = (req.query.tab as string) || "all";
     const DEFAULT_TRIPS_PAGE = 50;
@@ -433,12 +435,11 @@ export async function getTripsHandler(req: AuthRequest, res: Response) {
       req.query.limit ? parseInt(req.query.limit as string) : DEFAULT_TRIPS_PAGE,
       MAX_TRIPS_PAGE
     );
-    const companyId = getCompanyIdFromAuth(req);
     const source = req.query.source as string | undefined;
 
     const conditions: any[] = [isNull(trips.deletedAt)];
-    if (cityId && cityId > 0) conditions.push(eq(trips.cityId, cityId));
-    if (companyId) conditions.push(eq(trips.companyId, companyId));
+    if (filters.cityId && filters.cityId > 0) conditions.push(eq(trips.cityId, filters.cityId));
+    if (filters.companyId) conditions.push(eq(trips.companyId, filters.companyId));
 
     if (source === "clinic") {
       conditions.push(eq(trips.requestSource, "clinic"));
@@ -533,17 +534,19 @@ export async function getTripByIdHandler(req: AuthRequest, res: Response) {
     const [trip] = await db.select().from(trips).where(and(eq(trips.id, tripId), isNull(trips.deletedAt)));
     if (!trip) return res.status(404).json({ message: "Trip not found" });
 
-    const companyId = getCompanyIdFromAuth(req);
-    if (companyId && trip.companyId !== companyId) {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+
+    if (scope.companyId && trip.companyId !== scope.companyId) {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const user = await storage.getUser(req.user!.userId);
-    if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
-      const clinic = await storage.getClinic(user.clinicId);
-      if (!clinic || trip.cityId !== clinic.cityId) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+    if (scope.cityId && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(trip.cityId)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    if (scope.clinicId && trip.clinicId !== scope.clinicId) {
+      return res.status(403).json({ message: "Access denied" });
     }
 
     const [enriched] = await enrichTripsWithRelations([trip]);
@@ -567,6 +570,10 @@ export const createTripSchema = insertTripSchema.omit({ publicId: true }).refine
 
 export async function createTripHandler(req: AuthRequest, res: Response) {
   try {
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+    forceCompanyOnCreate(scope, req.body);
+
     const parsed = createTripSchema.safeParse(req.body);
     if (!parsed.success) {
       const firstIssue = parsed.error.issues[0];
@@ -771,6 +778,9 @@ export async function updateTripHandler(req: AuthRequest, res: Response) {
     const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
 
+    const scope = await getScope(req);
+    if (!scope) return res.status(401).json({ message: "Unauthorized" });
+
     const parsed = updateTripSchema.safeParse(req.body);
     if (!parsed.success) {
       const firstIssue = parsed.error.issues[0];
@@ -779,6 +789,10 @@ export async function updateTripHandler(req: AuthRequest, res: Response) {
 
     const existing = await storage.getTrip(id);
     if (!existing) return res.status(404).json({ message: "Trip not found" });
+
+    if (scope.companyId && existing.companyId !== scope.companyId) {
+      return res.status(403).json({ message: "Trip does not belong to your company" });
+    }
 
     if (tripLockedGuard(existing, req, res)) return;
     const otherTerminalEdit = ["CANCELLED", "NO_SHOW"];

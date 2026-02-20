@@ -1,0 +1,111 @@
+ROLE: Principal Engineer (Dispatcher city permissions — default DENY)
+PROJECT: UCM
+EXECUTION MODE: SINGLE AGENT ONLY
+RULES:
+- One agent only. No parallel tasks.
+- Do NOT reset DB. Do NOT recreate tables.
+- Server-side enforcement is mandatory; UI is secondary.
+- Default for DISPATCHER with no permissions = DENY (sees nothing) and 403 on restricted requests.
+- Backward compatible: SUPER_ADMIN and COMPANY_ADMIN unaffected.
+
+GOAL
+Implement dispatcher permissions by city (and optionally clinics later), such that:
+- COMPANY_ADMIN can assign allowed cities to each DISPATCHER via a UI button.
+- DISPATCHER can only view/manage records where city_id ∈ allowedCityIds.
+- If DISPATCHER has no cities assigned: they see nothing and endpoints return 403 with a clear message.
+Apply consistently to vehicles, drivers, patients, trips, clinics/hospitals, and search endpoints.
+
+PHASE 0 — INVENTORY (NO CODE YET)
+1) Identify user/roles model and current authorization middleware.
+2) Identify how cities are stored (cities table or city string) and how entities reference city.
+3) List all endpoints that list/search data for: vehicles, drivers, patients, trips, clinics.
+4) Identify existing company scoping logic (company_id checks) and gaps.
+
+PHASE 1 — DATA MODEL (MINIMAL, SAFE)
+Create a dispatcher permission store (prefer table):
+- dispatcher_city_permissions
+  id uuid primary key
+  user_id (dispatcher user id) not null
+  company_id not null
+  city_id not null
+  created_at timestamp default now()
+Unique index: (user_id, city_id)
+Index: (company_id, user_id)
+Validate city belongs to company in server logic.
+
+PHASE 2 — SCOPE HELPER (SINGLE SOURCE OF TRUTH)
+Create/extend: getUserScope(req) returning:
+{ role, companyId, clinicId?, driverId?, allowedCityIds: number[] | "ALL" }
+
+Rules:
+- SUPER_ADMIN: allowedCityIds="ALL"
+- COMPANY_ADMIN: allowedCityIds="ALL" within their company
+- DISPATCHER:
+   - Load allowedCityIds from dispatcher_city_permissions for that user+company
+   - If none found => allowedCityIds=[]
+- CLINIC_*: scope derived from clinic (company_id + city_id); allowedCityIds=[clinic.city_id]
+- DRIVER: scope derived from driver (company_id + city_id); allowedCityIds=[driver.city_id]
+- PATIENT: scope via auth or token only; no global lists
+
+PHASE 3 — ENFORCE CITY PERMISSIONS ON ALL RELEVANT ENDPOINTS
+For each entity list/read/search endpoint:
+A) LIST endpoints must:
+- Always enforce company_id (unless SUPER_ADMIN with explicit company context)
+- For DISPATCHER:
+   - If allowedCityIds=[] => return 403 "Dispatcher has no city permissions assigned"
+   - If request has cityId and cityId not in allowedCityIds => 403
+   - If request has no cityId => apply WHERE city_id IN (allowedCityIds)
+B) READ endpoints must:
+- WHERE id AND company_id AND (city_id in allowedCityIds for dispatcher)
+C) CREATE/UPDATE/ARCHIVE/DELETE must:
+- Force company_id from scope (ignore client company_id unless SUPER_ADMIN)
+- Validate city_id belongs to company AND dispatcher is allowed that city
+- Compound WHERE (id AND company_id) always; add city constraint where relevant
+Apply same logic to:
+- vehicles
+- drivers
+- patients
+- trips
+- clinics/hospitals
+- search endpoints (/api/search/*)
+
+PHASE 4 — COMPANY ADMIN UI (PERMISSIONS BUTTON)
+Add UI in Company Admin area:
+- Users/Dispatchers list:
+  - button "Cities Permissions"
+  - opens modal with multi-select of that company’s cities
+  - Save updates allowed cities
+
+PHASE 5 — PERMISSIONS API
+Add endpoints (COMPANY_ADMIN + SUPER_ADMIN only):
+- GET /api/company/dispatchers/:dispatcherUserId/permissions
+  returns { allowedCityIds }
+- PUT /api/company/dispatchers/:dispatcherUserId/permissions
+  body { allowedCityIds: number[] }
+Validation:
+- Dispatcher belongs to same company as admin
+- All cityIds belong to admin’s company
+Behavior:
+- Replace existing permissions with provided list (transaction)
+- If list empty => dispatcher effectively disabled (deny)
+
+PHASE 6 — UX FOR DISPATCHER WITH NO PERMISSIONS
+When dispatcher logs in with allowedCityIds=[]:
+- UI should show a clear banner:
+  "No cities assigned. Ask your Company Admin to grant access."
+- Hide or disable list pages to avoid confusion.
+- API returns 403 with same message.
+
+PHASE 7 — TESTS (MINIMUM)
+Add tests:
+1) Dispatcher no permissions => GET /api/vehicles returns 403
+2) Dispatcher allowed [LV] => cannot access Dallas cityId (403)
+3) Company admin can set permissions and dispatcher immediately gains access
+4) No cross-company access in any role
+
+PHASE 8 — FINAL AUDIT REPORT
+Output:
+- Endpoints audited + PASS/FAIL + fixes
+- Where permissions stored
+- How to verify (curl examples)
+Start now with PHASE 0 inventory and proceed step-by-step.
