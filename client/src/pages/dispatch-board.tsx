@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
+import { TripRef } from "@/components/trip-ref";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -810,7 +811,7 @@ function NeedsAttentionPanel({
             >
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium" data-testid={`text-attention-trip-id-${item.tripId}`}>{item.tripPublicId}</span>
+                  <TripRef tripId={item.tripId} publicId={item.tripPublicId} className="text-sm font-medium" />
                   <span className="text-xs text-muted-foreground flex items-center gap-1">
                     <Clock className="w-3 h-3" />
                     {item.pickupTime}
@@ -1039,9 +1040,7 @@ function TripCard({ trip, tab, onAssign, onReassign }: { trip: any; tab: string;
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0 space-y-1.5">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-medium" data-testid={`text-trip-id-${trip.id}`}>
-                {trip.publicId}
-              </span>
+              <TripRef tripId={trip.id} publicId={trip.publicId} className="text-sm font-medium" size="md" />
               <Badge className={STATUS_COLORS[trip.status] || ""}>{STATUS_LABELS[trip.status] || trip.status}</Badge>
               {trip.tripType === "recurring" && <Badge variant="outline">Recurring</Badge>}
               {trip.notes?.toLowerCase().includes("wheelchair") && (

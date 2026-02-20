@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { TripRef } from "@/components/trip-ref";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -525,7 +527,9 @@ function TripsLogTab() {
                           {(legs as any[]).map((leg: any) => (
                             <TableRow key={leg.tripId} data-testid={`row-trip-log-${leg.tripId}`}>
                               <TableCell className="text-xs">{leg.pickupTime || "—"}</TableCell>
-                              <TableCell className="text-xs font-mono">{leg.publicId}</TableCell>
+                              <TableCell className="text-xs font-mono">
+                                <TripRef tripId={leg.tripId} publicId={leg.publicId} />
+                              </TableCell>
                               <TableCell>
                                 <Badge variant="outline" className="text-xs capitalize">{leg.legType}</Badge>
                               </TableCell>
@@ -887,7 +891,9 @@ function InvoicesTab() {
                           <TableBody>
                             {(lines as any[]).map((line: any) => (
                               <TableRow key={line.id}>
-                                <TableCell className="text-xs">{line.pickupTime || "—"}</TableCell>
+                                <TableCell className="text-xs">
+                                  {line.tripId ? <TripRef tripId={line.tripId} label={line.pickupTime || "View"} /> : (line.pickupTime || "—")}
+                                </TableCell>
                                 <TableCell>
                                   <Badge variant="outline" className="text-xs capitalize">{line.legType}</Badge>
                                 </TableCell>

@@ -14,7 +14,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { FileText, Download, Receipt, MapPin, CreditCard, ExternalLink } from "lucide-react";
+import { FileText, Download, Receipt, MapPin, CreditCard, ExternalLink, Eye } from "lucide-react";
+import { TripRef } from "@/components/trip-ref";
 import { useToast } from "@/hooks/use-toast";
 import { downloadWithAuth } from "@/lib/export";
 import { rawAuthFetch } from "@/lib/api";
@@ -138,7 +139,7 @@ export default function ClinicInvoicesPage() {
                 </TableHeader>
                 <TableBody>
                   {invoicesList.map((inv) => (
-                    <TableRow key={inv.id} data-testid={`row-invoice-${inv.id}`}>
+                    <TableRow key={inv.id} data-testid={`row-invoice-${inv.id}`} className="hover:bg-muted/50">
                       <TableCell>
                         <InvoiceMapThumb tripId={inv.tripId} token={token} />
                       </TableCell>
@@ -158,6 +159,9 @@ export default function ClinicInvoicesPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1 flex-wrap">
+                          {inv.tripId && (
+                            <TripRef tripId={inv.tripId} label="Trip" showIcon={true} />
+                          )}
                           {inv.status !== "paid" && (
                             <PayInvoiceButton invoiceId={inv.id} token={token} />
                           )}

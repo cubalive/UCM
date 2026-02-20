@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { TripRef } from "@/components/trip-ref";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -242,7 +243,11 @@ export default function ClinicBillingV2Page() {
                         <TableRow key={item.id} data-testid={`row-item-${item.id}`}>
                           <TableCell>{i + 1}</TableCell>
                           <TableCell>{item.patientName}</TableCell>
-                          <TableCell>{item.trip?.publicId || "-"}</TableCell>
+                          <TableCell>
+                            {item.tripId ? (
+                              <TripRef tripId={item.tripId} publicId={item.trip?.publicId} />
+                            ) : "-"}
+                          </TableCell>
                           <TableCell className="max-w-xs truncate">{item.description}</TableCell>
                           <TableCell>${cents(item.amountCents)}</TableCell>
                         </TableRow>

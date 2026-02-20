@@ -43,6 +43,7 @@ import {
   CheckCircle,
   Loader2,
 } from "lucide-react";
+import { TripRef } from "@/components/trip-ref";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -440,7 +441,9 @@ export default function BillingPage() {
                   <TableBody>
                     {(detailQuery.data.trips || []).map((t: any, i: number) => (
                       <TableRow key={t.id} data-testid={`row-detail-trip-${t.id}`}>
-                        <TableCell className="text-sm">{i + 1}</TableCell>
+                        <TableCell className="text-sm">
+                          {t.id ? <TripRef tripId={t.id} publicId={t.publicId || `${i + 1}`} /> : i + 1}
+                        </TableCell>
                         <TableCell className="text-sm">{t.scheduledDate}</TableCell>
                         <TableCell className="text-sm">{t.patientName}</TableCell>
                         <TableCell className="text-sm truncate max-w-[180px]">{t.pickupAddress}</TableCell>

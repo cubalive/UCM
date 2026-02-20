@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity, Radio, Clock, Navigation, WifiOff } from "lucide-react";
+import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity, Radio, Clock, Navigation, WifiOff, Eye } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { authHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -115,6 +116,7 @@ export default function DashboardPage() {
 
 function RecentTrips() {
   const { token, selectedCity } = useAuth();
+  const [, navigate] = useLocation();
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}&limit=5` : "?limit=5";
 
   const { data: trips, isLoading } = useQuery<any[]>({
@@ -159,17 +161,26 @@ function RecentTrips() {
   return (
     <div className="space-y-3">
       {trips.map((trip: any) => (
-        <div key={trip.id} className="flex items-center justify-between gap-3 py-2 border-b last:border-0">
+        <button
+          key={trip.id}
+          type="button"
+          onClick={() => navigate(`/trips/${trip.id}`)}
+          className="w-full flex items-center justify-between gap-3 py-2 border-b last:border-0 cursor-pointer hover:bg-muted/50 transition-colors rounded px-1 text-left"
+          data-testid={`button-recent-trip-${trip.id}`}
+        >
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium truncate">{trip.publicId}</p>
             <p className="text-xs text-muted-foreground truncate">
               {trip.pickupAddress} &rarr; {trip.dropoffAddress}
             </p>
           </div>
-          <Badge variant={statusColors[trip.status] as any || "secondary"} className="flex-shrink-0">
-            {trip.status.replace("_", " ")}
-          </Badge>
-        </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Badge variant={statusColors[trip.status] as any || "secondary"}>
+              {trip.status.replace("_", " ")}
+            </Badge>
+            <Eye className="w-3 h-3 text-muted-foreground" />
+          </div>
+        </button>
       ))}
     </div>
   );
