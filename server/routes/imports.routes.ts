@@ -6,7 +6,6 @@ import {
   listImportJobs, getImportJob,
   dryRunImport, downloadTemplate,
   getCompanyImportHealth, getImportStatus,
-  fixOrphanedClinics,
 } from "../controllers/imports.controller";
 
 const router = Router();
@@ -22,7 +21,6 @@ router.post("/:id/rollback", rollbackImport as any);
 router.get("/", listImportJobs as any);
 router.get("/templates/:entity", downloadTemplate as any);
 router.get("/company/:companyId/health", getCompanyImportHealth as any);
-router.post("/fix-orphaned-clinics", fixOrphanedClinics as any);
 router.get("/:id/status", getImportStatus as any);
 router.get("/:id", getImportJob as any);
 
