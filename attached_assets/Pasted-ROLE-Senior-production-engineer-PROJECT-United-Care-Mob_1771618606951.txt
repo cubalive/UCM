@@ -1,0 +1,87 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM) — Driver + Admin/Company dashboards
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Margin of error: ZERO
+GOAL (single deliverable): Fix “changes don’t appear after publish” + fix Driver Shift (Start Shift button + driver live locations) + fix Google Maps key error in admin/company live map. All fixes must be verifiable in production immediately after publish.
+
+CONTEXT (symptoms observed)
+1) After publish, the app often still shows old UI/logic (we re-do work and it “doesn’t show”).
+2) Driver app screen shows CONNECTED but “Start Shift” button is missing; only “Break” shows.
+3) Admin/Company “Live Map” shows:
+   - “Maps unavailable — Google Maps API key is not configured or invalid”
+   - “No drivers online for this city” even while driver is CONNECTED
+4) Everything worked days ago. Regression happened after recent changes.
+
+NON-NEGOTIABLES
+- Keep the 3 map options (do not remove)
+- Publish must propagate reliably: after publish, the latest build MUST appear without manual guesswork
+- Driver online + location must show on Live Map when driver is in shift and sharing GPS
+
+PHASE 1 — STOP “PUBLISH BUT OLD APP” (deployment/cache hardening)
+A) Confirm we are editing the SAME deployment that serves:
+   - https://driver.unitedcaremobility.com (driver)
+   - https://app.unitedcaremobility.com (admin/company)
+   Add a visible build stamp in BOTH apps:
+   - Fetch and display /version.json in Settings (already exists for driver; add to admin/company too).
+   - Add a small footer line: “Build: {version} {builtAt} {env}”.
+B) Ensure production always serves fresh HTML:
+   - For “text/html”, “/sw.js”, “/manifest*.webmanifest”, “/version.json” responses, set headers:
+     Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate
+     Pragma: no-cache
+     Expires: 0
+C) Service Worker rules:
+   - NEVER cache the HTML shell when online.
+   - Navigation requests should be network-first (online) and only use offline.html if fetch fails.
+   - Add a “Force Refresh” action in BOTH apps (driver + admin):
+     clears caches, unregisters SW, reloads with cache-bust param.
+D) Publish verification MUST be automatic:
+   - After deploy, run a server-side check that /version.json returns the NEW version.
+   - Log to console: “DEPLOY_OK version=… builtAt=… env=production”.
+   - If mismatch, fail the deploy step with clear error so we don’t think it shipped when it didn’t.
+
+PHASE 2 — FIX GOOGLE MAPS KEY (Maps unavailable)
+A) Identify exactly what the frontend expects:
+   - Search code for the env var name(s): VITE_GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_API_KEY, etc.
+   - Standardize to ONE for frontend: VITE_GOOGLE_MAPS_API_KEY (Vite only exposes VITE_*).
+B) Ensure prod has it:
+   - Add the secret to Replit DEPLOYMENT secrets (not only workspace secrets).
+   - Also ensure it exists in the runtime env for the frontend build step.
+C) Add a health endpoint to verify maps key presence (do NOT leak key value):
+   - /api/maps/health -> returns { ok:true, hasKey:true, keySource:"VITE_GOOGLE_MAPS_API_KEY" }
+D) Add UI diagnostic in admin/company map screen:
+   - If Maps fails, show exact reason:
+     “missing env var”, “Google loader error”, “referer not allowed”, “billing disabled”, etc.
+E) NOTE: If the same key is being used for server + browser and is restricted, it can break.
+   - For now, make it work in production first.
+   - If restrictions are the cause, create two keys:
+     1) Browser key restricted by HTTP referrers: *.unitedcaremobility.com/*
+     2) Server key restricted by IP (if needed)
+   - Update code accordingly.
+
+PHASE 3 — FIX SHIFT + DRIVER LIVE LOCATION PIPELINE (why CONNECTED but not on map)
+A) UI: Restore “Start Shift” button deterministically:
+   - Define shift state machine:
+     OFFLINE -> CONNECTED_NO_SHIFT -> ON_SHIFT -> BREAK -> ON_SHIFT -> OFFLINE
+   - On Driver Home:
+     If NOT on shift => show “Start Shift”
+     If on shift => show “End Shift” + “Break” (or Break toggle)
+   - “CONNECTED” alone must NOT hide Start Shift unless on_shift=true.
+B) Backend truth:
+   - Create/verify DB fields (no destructive changes):
+     drivers.on_shift (boolean)
+     drivers.shift_started_at (timestamptz)
+     drivers.shift_ended_at (timestamptz nullable)
+     drivers.last_location_at (timestamptz)
+     drivers.last_lat, drivers.last_lng (numeric)
+     drivers.current_city_id (uuid nullable) OR derive by geofence/city mapping
+     drivers.company_id (uuid NOT NULL)  <-- required for “no mixing”
+   - Ensure drivers table is linked to users via users.driverId (already).
+C) API endpoints (must be explicit, consistent, and logged):
+   - POST /api/driver/shift/start -> sets on_shift=true, shift_started_at=now()
+   - POST /api/driver/shift/end -> sets on_shift=false, shift_ended_at=now()
+   - POST /api/driver/location -> requires on_shift=true, stores lat/lng, last_location_at
