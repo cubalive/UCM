@@ -1,0 +1,99 @@
+ROLE: Senior full-stack engineer (Observability + Health Dashboard)
+PROJECT: UCM DISPATCH
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT drop/recreate tables
+- Extend existing system only
+- Must be multi-tenant safe (Super Admin only)
+
+GOAL:
+Create a "Metrics & Health" dashboard visible ONLY to SUPER_ADMIN that:
+1) shows key platform metrics (DB, API, imports, trips, drivers, notifications)
+2) evaluates each metric vs thresholds to determine health state
+3) renders color-coded status:
+   - GREEN = "Healthy"
+   - BLUE = "Good"
+   - RED = "Critical"
+4) provides a clear explanation for why each metric is in that state
+5) supports configurable thresholds via env vars or DB settings (safe defaults)
+
+SCOPE:
+A) Backend: add endpoints that compute metrics + health states
+B) Frontend: add a /metrics page that shows cards, trends, and color states
+C) Access control: SUPER_ADMIN only
+
+PHASE 1 — DEFINE HEALTH MODEL (SINGLE SOURCE OF TRUTH)
+1) Create a shared health evaluator module (server/lib/healthEvaluator.ts) that maps raw metrics -> state:
+   - state: "HEALTHY" | "GOOD" | "CRITICAL"
+   - color: green | blue | red (frontend mapping ok)
+   - reason: short string for UI
+2) Implement threshold definitions with safe defaults and override via env vars:
+   - HEALTH_DB_LATENCY_MS_GOOD (default 150)
+   - HEALTH_DB_LATENCY_MS_CRITICAL (default 400)
+   - HEALTH_API_P95_MS_GOOD (default 600)
+   - HEALTH_API_P95_MS_CRITICAL (default 1500)
+   - HEALTH_ERROR_RATE_GOOD (default 0.01)
+   - HEALTH_ERROR_RATE_CRITICAL (default 0.03)
+   - HEALTH_IMPORT_FAIL_RATE_GOOD (default 0.02)
+   - HEALTH_IMPORT_FAIL_RATE_CRITICAL (default 0.05)
+   - HEALTH_SMS_FAIL_RATE_GOOD (default 0.02)
+   - HEALTH_SMS_FAIL_RATE_CRITICAL (default 0.05)
+   - HEALTH_DRIVER_LOCATION_STALE_GOOD_SEC (default 120)
+   - HEALTH_DRIVER_LOCATION_STALE_CRITICAL_SEC (default 300)
+
+PHASE 2 — BACKEND METRICS ENDPOINTS (SUPER_ADMIN ONLY)
+3) Add GET /api/admin/metrics/summary that returns JSON:
+   - timestamp
+   - db: { latencyMs, state, reason }
+   - api: { p95Ms, errorRate, state, reason }
+   - imports: { last24hJobs, failRate, lastJobStatus, state, reason }
+   - trips: { activeTrips, scheduledNext24h, latePickups, noShows, state, reason }
+   - drivers: { activeDrivers, staleLocationCount, state, reason }
+   - notifications: { smsSent24h, smsFailRate, state, reason }
+   - security: { orphanFksCount, crossTenantGuardsEnabled, state, reason }
+4) Add GET /api/admin/metrics/details for drill-down:
+   - top errors (last 50)
+   - recent imports (last 20 with summaryJson)
+   - late trips list (id, companyId, clinicId, scheduledTime, status)
+   - stale drivers list (id, companyId, lastLocationAt)
+5) All admin metrics routes must require SUPER_ADMIN via existing RBAC middleware.
+
+PHASE 3 — DATA SOURCES (NO NEW INFRA REQUIRED)
+6) DB latency: run a lightweight SELECT 1 and measure server-side duration.
+7) API p95 + error rate:
+   - If you already log requests, compute from logs in-memory for last N minutes;
+   - Otherwise implement a minimal request metrics middleware storing rolling window stats in memory (no Redis required).
+8) Import fail rate: compute from import jobs table/log (or stored summaries).
+9) SMS fail rate: compute from sms_logs/notifications log; if missing, add a minimal table without touching existing flows.
+10) Orphan FK count: run existing FK check queries and return count only (no heavy scans).
+
+PHASE 4 — FRONTEND DASHBOARD UI
+11) Create /metrics page (or /admin/metrics) visible only to SUPER_ADMIN:
+   - Top bar: Overall status chip (Worst of all states)
+   - Grid of cards for each metric category
+   - Each card shows: label, current value, state badge, reason text
+   - Color rules:
+     - HEALTHY => green
+     - GOOD => blue
+     - CRITICAL => red
+12) Add auto-refresh toggle + interval (default 20s) using existing ETA_REFRESH_SECONDS if appropriate.
+13) Add a “Details” modal/panel that calls /api/admin/metrics/details.
+
+PHASE 5 — SAFETY + PERFORMANCE
+14) Ensure metrics endpoints are fast:
+   - hard timeout for any DB query (e.g., 1–2s)
+   - cache results for 10–20s server-side to avoid hammering DB
+15) Do not expose secrets, tokens, phone numbers, or patient PII in metrics responses.
+
+PHASE 6 — VERIFICATION
+16) Add a small test plan:
+   - verify SUPER_ADMIN can access /metrics and others cannot
+   - simulate thresholds by temporarily forcing values and confirm colors change
+   - confirm endpoints work in production domain
+
+DELIVERABLES:
+- New endpoints + RBAC enforcement
+- New UI page with color-coded health
+- A short "METRICS HEALTH REPORT" describing thresholds and where to change them

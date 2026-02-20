@@ -3,36 +3,78 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
 import pgConnStringParse from "pg-connection-string";
 
-const IS_PROD = process.env.NODE_ENV === "production";
-
-const databaseUrlRaw = process.env.DATABASE_URL || "";
-if (databaseUrlRaw) {
-  const lcHost = databaseUrlRaw.toLowerCase();
-  if (lcHost.includes("neon.tech") || lcHost.includes("helium") || lcHost.includes("replit")) {
-    console.warn("[DB] DATABASE_URL ignored (Supabase-only mode) — pointed to non-Supabase host.");
-  } else {
-    console.warn("[DB] DATABASE_URL ignored (Supabase-only mode). Only SUPABASE_DB_URL is used.");
-  }
+function isNeonOrReplit(url: string): boolean {
+  const lc = url.toLowerCase();
+  return lc.includes("neon.tech") || lc.includes("helium") || lc.includes("replit") || lc.includes("@neondatabase");
 }
 
-const supabaseRaw = process.env.SUPABASE_DB_URL || "";
+function extractHost(url: string): string | null {
+  try { return new URL(url.trim()).hostname; } catch { return null; }
+}
 
-if (!supabaseRaw) {
-  console.error("[DB-FATAL] SUPABASE_DB_URL is not set. This application requires Supabase PostgreSQL. Exiting.");
+function sanitizeHost(host: string): string {
+  if (host.length <= 14) return host;
+  return host.replace(/^(.{6}).*(.{6})$/, "$1***$2");
+}
+
+const rawDatabaseUrl = (process.env.DATABASE_URL || "").trim();
+const rawSupabaseUrl = (process.env.SUPABASE_DB_URL || "").trim();
+
+let chosenUrl = "";
+let chosenSource: "DATABASE_URL" | "SUPABASE_DB_URL" = "DATABASE_URL";
+
+if (rawDatabaseUrl && rawSupabaseUrl) {
+  const hostA = extractHost(rawDatabaseUrl);
+  const hostB = extractHost(rawSupabaseUrl);
+
+  if (isNeonOrReplit(rawDatabaseUrl)) {
+    console.warn(`[DB] DATABASE_URL points to non-Supabase host (${sanitizeHost(hostA || "unknown")}). Ignoring — using SUPABASE_DB_URL.`);
+    chosenUrl = rawSupabaseUrl;
+    chosenSource = "SUPABASE_DB_URL";
+  } else if (hostA && hostB && hostA !== hostB) {
+    console.error(`[DB-FATAL] Conflicting DB URLs detected.`);
+    console.error(`  DATABASE_URL   host: ${sanitizeHost(hostA)}`);
+    console.error(`  SUPABASE_DB_URL host: ${sanitizeHost(hostB)}`);
+    console.error(`[DB-FATAL] Both env vars are set but point to different hosts. Fix your secrets and restart.`);
+    process.exit(1);
+  } else {
+    chosenUrl = rawDatabaseUrl;
+    chosenSource = "DATABASE_URL";
+    console.log(`[DB] Both DATABASE_URL and SUPABASE_DB_URL set (same host). Using DATABASE_URL.`);
+  }
+} else if (rawDatabaseUrl) {
+  if (isNeonOrReplit(rawDatabaseUrl)) {
+    console.error(`[DB-FATAL] DATABASE_URL points to non-Supabase host (Neon/Replit). SUPABASE_DB_URL is not set.`);
+    console.error(`[DB-FATAL] This application requires Supabase PostgreSQL. Set SUPABASE_DB_URL and restart.`);
+    process.exit(1);
+  }
+  chosenUrl = rawDatabaseUrl;
+  chosenSource = "DATABASE_URL";
+} else if (rawSupabaseUrl) {
+  chosenUrl = rawSupabaseUrl;
+  chosenSource = "SUPABASE_DB_URL";
+} else {
+  console.error("[DB-FATAL] Neither DATABASE_URL nor SUPABASE_DB_URL is set.");
+  console.error("[DB-FATAL] This application requires Supabase PostgreSQL. Set at least one and restart.");
+  process.exit(1);
+}
+
+if (isNeonOrReplit(chosenUrl)) {
+  console.error(`[DB-FATAL] Chosen URL (${chosenSource}) points to Neon/Replit, not Supabase. Refusing to start.`);
   process.exit(1);
 }
 
 function prepareConnStr(raw: string): { connStr: string; host: string; port: number; useSSL: boolean | object } {
   let connStr = raw.trim();
   if (connStr !== raw) {
-    console.warn("[BOOT-WARN] SUPABASE_DB_URL had leading/trailing whitespace — auto-trimmed.");
+    console.warn(`[BOOT-WARN] ${chosenSource} had leading/trailing whitespace — auto-trimmed.`);
   }
 
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(connStr);
   } catch {
-    console.error("[DB-FATAL] SUPABASE_DB_URL is not a valid URL. Exiting.");
+    console.error(`[DB-FATAL] ${chosenSource} is not a valid URL. Exiting.`);
     process.exit(1);
   }
 
@@ -55,7 +97,7 @@ function prepareConnStr(raw: string): { connStr: string; host: string; port: num
 
   const pgParsed = pgConnStringParse.parse(connStr);
   if (!pgParsed.host || pgParsed.host === "base") {
-    console.error(`[DB-FATAL] SUPABASE_DB_URL resolved host="${pgParsed.host}" — connection string is malformed. Exiting.`);
+    console.error(`[DB-FATAL] ${chosenSource} resolved host="${pgParsed.host}" — connection string is malformed. Exiting.`);
     process.exit(1);
   }
 
@@ -70,7 +112,7 @@ function prepareConnStr(raw: string): { connStr: string; host: string; port: num
   return { connStr, host, port, useSSL };
 }
 
-const connInfo = prepareConnStr(supabaseRaw);
+const connInfo = prepareConnStr(chosenUrl);
 
 const pool = new pg.Pool({
   connectionString: connInfo.connStr,
@@ -83,23 +125,30 @@ const pool = new pg.Pool({
 const db = drizzle(pool, { schema });
 
 const dbReady = (async () => {
-  const redactedHost = connInfo.host.replace(/^(.{6}).*(.{6})$/, "$1***$2");
+  const redacted = sanitizeHost(connInfo.host);
   try {
     const client = await pool.connect();
     await client.query("SELECT 1");
     client.release();
     console.log(
-      `[DB] Connected — source: SUPABASE_DB_URL, host: ${redactedHost}, port: ${connInfo.port}, ssl: true, pooler: ${connInfo.port === 6543}`
+      `[DB] Connected — source: ${chosenSource}, host: ${redacted}, port: ${connInfo.port}, ssl: true, pooler: ${connInfo.port === 6543}`
     );
   } catch (err: any) {
-    console.error(`[DB-FATAL] Cannot connect to Supabase PostgreSQL at ${redactedHost}:${connInfo.port}`);
+    console.error(`[DB-FATAL] Cannot connect to PostgreSQL at ${redacted}:${connInfo.port} (source: ${chosenSource})`);
     console.error(`[DB-FATAL] Error: ${err.message}`);
-    console.error("[DB-FATAL] Check that SUPABASE_DB_URL has the correct password and the Supabase project is active.");
+    console.error(`[DB-FATAL] Check that ${chosenSource} has the correct password and the Supabase project is active.`);
     console.error("[DB-FATAL] No fallback database will be used. Exiting.");
     process.exit(1);
   }
 })();
 
-function getDbSource() { return "SUPABASE_DB_URL"; }
+function getDbSource(): string { return chosenSource; }
+function getDbHost(): string { return connInfo.host; }
+function getDbPort(): number { return connInfo.port; }
+function hasDatabaseUrl(): boolean { return !!rawDatabaseUrl; }
+function hasSupabaseDbUrl(): boolean { return !!rawSupabaseUrl; }
+function hasNeonRefs(): boolean {
+  return isNeonOrReplit(rawDatabaseUrl) || isNeonOrReplit(rawSupabaseUrl);
+}
 
-export { pool, db, dbReady, getDbSource };
+export { pool, db, dbReady, getDbSource, getDbHost, getDbPort, hasDatabaseUrl, hasSupabaseDbUrl, hasNeonRefs };

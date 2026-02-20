@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { AuthRequest } from "../auth";
-import { db, getDbSource } from "../db";
+import { db, pool, getDbSource, getDbHost, getDbPort, hasDatabaseUrl, hasSupabaseDbUrl, hasNeonRefs } from "../db";
 import { sql } from "drizzle-orm";
 
 const APP_VERSION = "2.0.0";
@@ -111,6 +111,50 @@ export async function healthDetailedHandler(_req: AuthRequest, res: Response) {
     uptime: process.uptime(),
     checks,
     totalLatencyMs: Date.now() - start,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export async function healthDbDetails(_req: AuthRequest, res: Response) {
+  const sanitizedHost = (() => {
+    const h = getDbHost();
+    if (h.length <= 14) return h;
+    return h.replace(/^(.{6}).*(.{6})$/, "$1***$2");
+  })();
+
+  let pgCurrentDb: string | null = null;
+  let pgVersion: string | null = null;
+  let dbOk = false;
+  let latencyMs = 0;
+
+  try {
+    const start = Date.now();
+    const client = await pool.connect();
+    const dbRes = await client.query("SELECT current_database() AS db, version() AS ver");
+    client.release();
+    latencyMs = Date.now() - start;
+    dbOk = true;
+    pgCurrentDb = dbRes.rows[0]?.db || null;
+    pgVersion = dbRes.rows[0]?.ver || null;
+  } catch (err: any) {
+    pgCurrentDb = `error: ${err.message}`;
+  }
+
+  res.json({
+    ok: dbOk,
+    db: {
+      source: getDbSource(),
+      host: sanitizedHost,
+      port: getDbPort(),
+      currentDatabase: pgCurrentDb,
+      pgVersion,
+      latencyMs,
+    },
+    flags: {
+      hasDatabaseUrl: hasDatabaseUrl(),
+      hasSupabaseDbUrl: hasSupabaseDbUrl(),
+      hasNeonRefs: hasNeonRefs(),
+    },
     timestamp: new Date().toISOString(),
   });
 }
