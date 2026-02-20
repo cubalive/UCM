@@ -1,6 +1,7 @@
 import { Router, type Express } from "express";
 import { authMiddleware, requirePermission, requireRole } from "../auth";
 import { requireTenantScope } from "../middleware";
+import { requireSubscription } from "../middleware/requireSubscription";
 import {
   listTariffsHandler,
   createTariffHandler,
@@ -36,7 +37,7 @@ router.get("/api/company/billing/settings/clinic/:clinicId", authMiddleware, req
 router.post("/api/company/billing/settings/clinic/:clinicId", authMiddleware, requirePermission("billing", "write"), requireTenantScope, upsertClinicBillingSettingsHandler as any);
 
 router.post("/api/company/billing/backfill", authMiddleware, requirePermission("billing", "write"), requireTenantScope, backfillBillingHandler as any);
-router.post("/api/company/billing/invoices/generate", authMiddleware, requirePermission("billing", "write"), requireTenantScope, generateInvoiceHandler as any);
+router.post("/api/company/billing/invoices/generate", authMiddleware, requirePermission("billing", "write"), requireTenantScope, requireSubscription, generateInvoiceHandler as any);
 router.get("/api/company/billing/invoices", authMiddleware, requirePermission("billing", "read"), requireTenantScope, companyListInvoicesHandler as any);
 
 router.get("/api/clinic/billing/invoices", authMiddleware, requirePermission("billing", "read"), clinicListInvoicesHandler as any);

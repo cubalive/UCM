@@ -2361,6 +2361,15 @@ export const companySubscriptions = pgTable("company_subscriptions", {
 
 export type CompanySubscription = typeof companySubscriptions.$inferSelect;
 
+export const companySubscriptionSettings = pgTable("company_subscription_settings", {
+  companyId: integer("company_id").primaryKey().references(() => companies.id),
+  subscriptionEnabled: boolean("subscription_enabled").notNull().default(false),
+  subscriptionRequiredForAccess: boolean("subscription_required_for_access").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type CompanySubscriptionSettings = typeof companySubscriptionSettings.$inferSelect;
+
 export const routeCache = pgTable("route_cache", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   keyHash: text("key_hash").notNull(),

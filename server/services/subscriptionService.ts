@@ -3,10 +3,11 @@ import { eq, and } from "drizzle-orm";
 import {
   stripeCustomers,
   companySubscriptions,
-  platformBillingSettings,
+  companySubscriptionSettings,
   companies,
   type StripeCustomer,
   type CompanySubscription,
+  type CompanySubscriptionSettings,
 } from "@shared/schema";
 
 function getStripe() {
@@ -15,60 +16,48 @@ function getStripe() {
 }
 
 const APP_URL = () =>
+  process.env.APP_BASE_URL ||
   process.env.APP_PUBLIC_URL ||
   process.env.PUBLIC_BASE_URL ||
   process.env.APP_URL ||
   "https://app.unitedcaremobility.com";
 
-export async function getSubscriptionSettings() {
+const PRICE_ID = () =>
+  process.env.STRIPE_PRICE_ID_PLATFORM_1200 || null;
+
+export async function getCompanySubSettings(companyId: number): Promise<CompanySubscriptionSettings | null> {
   const [row] = await db
-    .select({
-      monthlySubscriptionEnabled: platformBillingSettings.monthlySubscriptionEnabled,
-      monthlySubscriptionPriceId: platformBillingSettings.monthlySubscriptionPriceId,
-      subscriptionRequiredForAccess: platformBillingSettings.subscriptionRequiredForAccess,
-      gracePeriodDays: platformBillingSettings.gracePeriodDays,
-    })
-    .from(platformBillingSettings)
-    .where(eq(platformBillingSettings.id, 1));
-  return row || {
-    monthlySubscriptionEnabled: false,
-    monthlySubscriptionPriceId: null,
-    subscriptionRequiredForAccess: false,
-    gracePeriodDays: 0,
-  };
+    .select()
+    .from(companySubscriptionSettings)
+    .where(eq(companySubscriptionSettings.companyId, companyId));
+  return row || null;
 }
 
-async function ensureSettingsRow(): Promise<void> {
-  const existing = await db.select().from(platformBillingSettings).where(eq(platformBillingSettings.id, 1));
-  if (existing.length === 0) {
-    await db.insert(platformBillingSettings).values({
-      id: 1,
-      enabled: false,
-      defaultFeeType: "PERCENT",
-      defaultFeePercent: "0",
-      defaultFeeCents: 0,
-    }).onConflictDoNothing();
+export async function upsertCompanySubSettings(
+  companyId: number,
+  data: { subscriptionEnabled?: boolean; subscriptionRequiredForAccess?: boolean }
+): Promise<CompanySubscriptionSettings> {
+  const existing = await getCompanySubSettings(companyId);
+  if (existing) {
+    const setData: Record<string, any> = { updatedAt: new Date() };
+    if (data.subscriptionEnabled !== undefined) setData.subscriptionEnabled = data.subscriptionEnabled;
+    if (data.subscriptionRequiredForAccess !== undefined) setData.subscriptionRequiredForAccess = data.subscriptionRequiredForAccess;
+    const [updated] = await db
+      .update(companySubscriptionSettings)
+      .set(setData)
+      .where(eq(companySubscriptionSettings.companyId, companyId))
+      .returning();
+    return updated;
   }
-}
-
-export async function updateSubscriptionSettings(data: {
-  monthlySubscriptionEnabled?: boolean;
-  monthlySubscriptionPriceId?: string | null;
-  subscriptionRequiredForAccess?: boolean;
-  gracePeriodDays?: number;
-}) {
-  await ensureSettingsRow();
-  const setData: Record<string, any> = { updatedAt: new Date() };
-  if (data.monthlySubscriptionEnabled !== undefined) setData.monthlySubscriptionEnabled = data.monthlySubscriptionEnabled;
-  if (data.monthlySubscriptionPriceId !== undefined) setData.monthlySubscriptionPriceId = data.monthlySubscriptionPriceId;
-  if (data.subscriptionRequiredForAccess !== undefined) setData.subscriptionRequiredForAccess = data.subscriptionRequiredForAccess;
-  if (data.gracePeriodDays !== undefined) setData.gracePeriodDays = data.gracePeriodDays;
-
-  await db
-    .update(platformBillingSettings)
-    .set(setData)
-    .where(eq(platformBillingSettings.id, 1));
-  return getSubscriptionSettings();
+  const [created] = await db
+    .insert(companySubscriptionSettings)
+    .values({
+      companyId,
+      subscriptionEnabled: data.subscriptionEnabled ?? false,
+      subscriptionRequiredForAccess: data.subscriptionRequiredForAccess ?? true,
+    })
+    .returning();
+  return created;
 }
 
 export async function getOrCreateStripeCustomer(companyId: number): Promise<StripeCustomer> {
@@ -112,11 +101,9 @@ export async function getAllSubscriptions() {
     .innerJoin(companies, eq(companies.id, companySubscriptions.companyId));
 }
 
-export async function createCheckoutSession(companyId: number): Promise<string> {
-  const settings = await getSubscriptionSettings();
-  if (!settings.monthlySubscriptionEnabled || !settings.monthlySubscriptionPriceId) {
-    throw new Error("Monthly subscriptions are not enabled or no price configured");
-  }
+export async function createSubscription(companyId: number): Promise<string> {
+  const priceId = PRICE_ID();
+  if (!priceId) throw new Error("STRIPE_PRICE_ID_PLATFORM_1200 is not configured");
 
   const existing = await getCompanySubscription(companyId);
   if (existing && ["active", "trialing"].includes(existing.status)) {
@@ -129,14 +116,16 @@ export async function createCheckoutSession(companyId: number): Promise<string> 
   const session = await stripe.checkout.sessions.create({
     customer: stripeCustomer.stripeCustomerId,
     mode: "subscription",
-    line_items: [{ price: settings.monthlySubscriptionPriceId, quantity: 1 }],
-    success_url: `${APP_URL()}/admin/subscriptions?success=true&company=${companyId}`,
-    cancel_url: `${APP_URL()}/admin/subscriptions?canceled=true&company=${companyId}`,
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: `${APP_URL()}/platform-fees?tab=subscription&success=true&company=${companyId}`,
+    cancel_url: `${APP_URL()}/platform-fees?tab=subscription&canceled=true&company=${companyId}`,
     metadata: { ucm_company_id: String(companyId) },
     subscription_data: {
       metadata: { ucm_company_id: String(companyId) },
     },
   });
+
+  await upsertCompanySubSettings(companyId, { subscriptionEnabled: true });
 
   return session.url!;
 }
@@ -147,13 +136,13 @@ export async function createPortalSession(companyId: number): Promise<string> {
 
   const session = await stripe.billingPortal.sessions.create({
     customer: stripeCustomer.stripeCustomerId,
-    return_url: `${APP_URL()}/admin/subscriptions`,
+    return_url: `${APP_URL()}/platform-fees?tab=subscription`,
   });
 
   return session.url;
 }
 
-export async function cancelSubscription(companyId: number): Promise<CompanySubscription> {
+export async function cancelSubscriptionAtPeriodEnd(companyId: number): Promise<CompanySubscription> {
   const sub = await getCompanySubscription(companyId);
   if (!sub || !sub.stripeSubscriptionId) {
     throw new Error("No active subscription found");
@@ -167,6 +156,28 @@ export async function cancelSubscription(companyId: number): Promise<CompanySubs
   const [updated] = await db
     .update(companySubscriptions)
     .set({ cancelAtPeriodEnd: true, updatedAt: new Date() })
+    .where(eq(companySubscriptions.companyId, companyId))
+    .returning();
+  return updated;
+}
+
+export async function reactivateSubscription(companyId: number): Promise<CompanySubscription> {
+  const sub = await getCompanySubscription(companyId);
+  if (!sub || !sub.stripeSubscriptionId) {
+    throw new Error("No subscription found to reactivate");
+  }
+  if (sub.status === "canceled") {
+    throw new Error("Cannot reactivate a fully canceled subscription. Please start a new one.");
+  }
+
+  const stripe = getStripe();
+  await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+    cancel_at_period_end: false,
+  });
+
+  const [updated] = await db
+    .update(companySubscriptions)
+    .set({ cancelAtPeriodEnd: false, canceledAt: null, updatedAt: new Date() })
     .where(eq(companySubscriptions.companyId, companyId))
     .returning();
   return updated;
@@ -188,6 +199,7 @@ export async function handleSubscriptionWebhook(event: any): Promise<void> {
 
       const subscription = await stripe.subscriptions.retrieve(session.subscription);
       await upsertSubscriptionFromStripe(companyId, subscription, event.id);
+      await upsertCompanySubSettings(companyId, { subscriptionEnabled: true });
       break;
     }
 
@@ -195,29 +207,66 @@ export async function handleSubscriptionWebhook(event: any): Promise<void> {
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
       const subscription = event.data.object;
-      const companyId = parseInt(subscription.metadata?.ucm_company_id);
-      if (isNaN(companyId)) {
-        const [sc] = await db
-          .select()
-          .from(stripeCustomers)
-          .where(eq(stripeCustomers.stripeCustomerId, subscription.customer));
-        if (!sc) {
-          console.error("[SUBSCRIPTION] Cannot resolve company for subscription", subscription.id);
-          return;
-        }
-        await upsertSubscriptionFromStripe(sc.companyId, subscription, event.id);
-      } else {
-        await upsertSubscriptionFromStripe(companyId, subscription, event.id);
+      const companyId = await resolveCompanyId(subscription);
+      if (companyId === null) return;
+      await upsertSubscriptionFromStripe(companyId, subscription, event.id);
+      break;
+    }
+
+    case "invoice.paid": {
+      const invoice = event.data.object;
+      if (!invoice.subscription) return;
+      const subId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription.id;
+      const sub = await findSubscriptionByStripeId(subId);
+      if (sub) {
+        console.log(JSON.stringify({
+          event: "invoice_paid",
+          companyId: sub.companyId,
+          invoiceId: invoice.id,
+        }));
       }
       break;
     }
 
     case "invoice.payment_failed": {
       const invoice = event.data.object;
-      console.warn("[SUBSCRIPTION] Payment failed for invoice", invoice.id, "subscription", invoice.subscription);
+      console.warn(JSON.stringify({
+        event: "invoice_payment_failed",
+        invoiceId: invoice.id,
+        subscription: invoice.subscription,
+      }));
       break;
     }
   }
+}
+
+async function resolveCompanyId(subscription: any): Promise<number | null> {
+  const fromMeta = parseInt(subscription.metadata?.ucm_company_id);
+  if (!isNaN(fromMeta)) return fromMeta;
+
+  const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
+  if (!customerId) {
+    console.error("[SUBSCRIPTION] Cannot resolve company: no metadata or customer", subscription.id);
+    return null;
+  }
+
+  const [sc] = await db
+    .select()
+    .from(stripeCustomers)
+    .where(eq(stripeCustomers.stripeCustomerId, customerId));
+  if (!sc) {
+    console.error("[SUBSCRIPTION] Cannot resolve company for customer", customerId);
+    return null;
+  }
+  return sc.companyId;
+}
+
+async function findSubscriptionByStripeId(stripeSubId: string): Promise<CompanySubscription | null> {
+  const [row] = await db
+    .select()
+    .from(companySubscriptions)
+    .where(eq(companySubscriptions.stripeSubscriptionId, stripeSubId));
+  return row || null;
 }
 
 async function upsertSubscriptionFromStripe(
@@ -278,30 +327,57 @@ export async function checkCompanyAccess(companyId: number): Promise<{
   allowed: boolean;
   reason?: string;
   subscription?: CompanySubscription | null;
+  settings?: CompanySubscriptionSettings | null;
 }> {
-  const settings = await getSubscriptionSettings();
-  if (!settings.subscriptionRequiredForAccess) {
-    return { allowed: true };
+  const settings = await getCompanySubSettings(companyId);
+
+  if (!settings || !settings.subscriptionEnabled || !settings.subscriptionRequiredForAccess) {
+    return { allowed: true, settings };
   }
 
   const sub = await getCompanySubscription(companyId);
   if (isSubscriptionActive(sub)) {
-    return { allowed: true, subscription: sub };
+    return { allowed: true, subscription: sub, settings };
   }
 
-  if (sub && sub.status === "past_due" && settings.gracePeriodDays > 0) {
-    const periodEnd = sub.currentPeriodEnd;
-    if (periodEnd) {
-      const graceEnd = new Date(periodEnd.getTime() + settings.gracePeriodDays * 86400000);
-      if (new Date() <= graceEnd) {
-        return { allowed: true, reason: "grace_period", subscription: sub };
-      }
-    }
+  if (sub && sub.status === "past_due") {
+    return {
+      allowed: false,
+      reason: "subscription_past_due",
+      subscription: sub,
+      settings,
+    };
   }
 
   return {
     allowed: false,
     reason: sub ? `subscription_${sub.status}` : "no_subscription",
     subscription: sub,
+    settings,
+  };
+}
+
+export async function getStripeSubscriptionCheck(companyId: number) {
+  const [sc] = await db
+    .select()
+    .from(stripeCustomers)
+    .where(eq(stripeCustomers.companyId, companyId));
+
+  const sub = await getCompanySubscription(companyId);
+  const settings = await getCompanySubSettings(companyId);
+  const access = await checkCompanyAccess(companyId);
+
+  return {
+    customerExists: !!sc,
+    stripeCustomerId: sc?.stripeCustomerId || null,
+    subscriptionExists: !!sub,
+    stripeSubscriptionId: sub?.stripeSubscriptionId || null,
+    status: sub?.status || null,
+    currentPeriodEnd: sub?.currentPeriodEnd || null,
+    cancelAtPeriodEnd: sub?.cancelAtPeriodEnd || false,
+    subscriptionEnabled: settings?.subscriptionEnabled ?? false,
+    enforcementActive: !!(settings?.subscriptionEnabled && settings?.subscriptionRequiredForAccess),
+    allowedAccess: access.allowed,
+    accessReason: access.reason || null,
   };
 }
