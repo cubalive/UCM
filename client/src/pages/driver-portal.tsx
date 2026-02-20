@@ -2026,11 +2026,12 @@ function ScheduleChangesSection({ token }: { token: string | null }) {
   );
 }
 
-function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMutation, geoLocation, companyName }: {
+function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMutation, geoLocation, companyName, cityName }: {
   driver: any; vehicle: any; token: string | null;
   isDriverOnline: boolean; toggleActiveMutation: any;
   geoLocation: { lat: number; lng: number } | null;
   companyName: string | null;
+  cityName: string | null;
 }) {
   const { toast } = useToast();
   const { logout } = useAuth();
@@ -2088,6 +2089,11 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, toggleActiveMuta
               {companyName && (
                 <p className="text-sm text-muted-foreground flex items-center gap-1.5 mt-1" data-testid="text-settings-company">
                   <Building2 className="w-4 h-4" /> {companyName}
+                </p>
+              )}
+              {cityName && (
+                <p className="text-sm text-muted-foreground flex items-center gap-1.5 mt-1" data-testid="text-settings-city">
+                  <MapPin className="w-4 h-4" /> {cityName}
                 </p>
               )}
             </div>
@@ -2547,6 +2553,7 @@ export default function DriverPortal() {
             toggleActiveMutation={toggleActiveMutation}
             geoLocation={geoLocation}
             companyName={profileQuery.data?.companyName ?? null}
+            cityName={profileQuery.data?.cityName ?? null}
           />
         )}
       </div>

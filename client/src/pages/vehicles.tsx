@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Truck, Search, Accessibility, Pencil, Wrench, Archive, RotateCcw, Trash2 } from "lucide-react";
+import { Plus, Truck, Search, Accessibility, Pencil, Wrench, Archive, RotateCcw, Trash2, MapPin } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { GlobalSearchInput } from "@/components/GlobalSearchInput";
 import { CompanyRef } from "@/components/entity-ref";
@@ -32,11 +32,18 @@ export default function VehiclesPage() {
   const [search, setSearch] = useState("");
   const [companyFilter, setCompanyFilter] = useState<string>("all");
   const [showArchived, setShowArchived] = useState(false);
-  const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
+
+  const buildVehiclesUrl = () => {
+    const params = new URLSearchParams();
+    if (selectedCity) params.set("cityId", String(selectedCity.id));
+    if (companyFilter && companyFilter !== "all") params.set("companyId", companyFilter);
+    const qs = params.toString();
+    return `/api/vehicles${qs ? `?${qs}` : ""}`;
+  };
 
   const { data: vehicles, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/vehicles", selectedCity?.id],
-    queryFn: () => apiFetch(`/api/vehicles${cityParam}`, token),
+    queryKey: ["/api/vehicles", selectedCity?.id, companyFilter],
+    queryFn: () => apiFetch(buildVehiclesUrl(), token),
     enabled: !!token,
   });
 
@@ -116,6 +123,7 @@ export default function VehiclesPage() {
   });
 
   const companyMap = new Map((companiesList || []).map((c: any) => [c.id, c.name]));
+  const cityMap = new Map((cities || []).map((c: any) => [c.id, c.name]));
 
   const filtered = vehicles?.filter((v: any) => {
     const isArchived = !!v.deletedAt || !v.active;
@@ -214,6 +222,11 @@ export default function VehiclesPage() {
                       <div className="text-xs text-muted-foreground" data-testid={`text-vehicle-company-${v.id}`}>
                         <CompanyRef id={v.companyId} label={companyMap.get(v.companyId)} showIcon={false} />
                       </div>
+                    )}
+                    {v.cityId && cityMap.has(v.cityId) && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-vehicle-city-${v.id}`}>
+                        <MapPin className="w-3 h-3" />{cityMap.get(v.cityId)}
+                      </p>
                     )}
                     {v.lastServiceDate && (
                       <p className="text-xs text-muted-foreground" data-testid={`text-vehicle-service-date-${v.id}`}>

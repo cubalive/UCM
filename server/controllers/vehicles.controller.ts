@@ -37,6 +37,10 @@ export async function getVehiclesHandler(req: AuthRequest, res: Response) {
 
     const conditions: any[] = [eq(vehicles.active, true), isNull(vehicles.deletedAt)];
     if (filters.companyId) conditions.push(eq(vehicles.companyId, filters.companyId));
+    if (!filters.companyId && scope.isSuperAdmin && req.query.companyId) {
+      const filterCompanyId = parseInt(String(req.query.companyId));
+      if (!isNaN(filterCompanyId)) conditions.push(eq(vehicles.companyId, filterCompanyId));
+    }
     if (filters.cityId) conditions.push(eq(vehicles.cityId, filters.cityId));
 
     const result = await db.select().from(vehicles).where(and(...conditions)).orderBy(vehicles.name);

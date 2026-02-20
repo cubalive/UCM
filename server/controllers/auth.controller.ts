@@ -233,9 +233,15 @@ export async function authMeHandler(req: AuthRequest, res: Response) {
       companyName = company?.name ?? null;
     }
 
+    let cityName: string | null = null;
+    if (user.workingCityId) {
+      const city = await storage.getCity(user.workingCityId);
+      cityName = city?.name ?? null;
+    }
+
     const { password, ...safeUser } = user;
     res.json({
-      user: { ...safeUser, cityAccess, companyName },
+      user: { ...safeUser, cityAccess, companyName, cityName },
       cities: dedupedCities,
       workingCityId: user.workingCityId ?? null,
       workingCityScope: user.workingCityScope ?? "CITY",

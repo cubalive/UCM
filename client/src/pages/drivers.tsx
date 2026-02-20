@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive, LogOut, RotateCcw, Trash2, Building2 } from "lucide-react";
+import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive, LogOut, RotateCcw, Trash2, Building2, MapPin } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
 import { GlobalSearchInput } from "@/components/GlobalSearchInput";
@@ -271,6 +271,9 @@ export default function DriversPage() {
     return c?.name ?? null;
   };
 
+  const cityMap = new Map((cities || []).map((c: any) => [c.id, c.name]));
+  const getCityName = (cityId: number | null) => cityId ? cityMap.get(cityId) ?? null : null;
+
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -361,6 +364,11 @@ export default function DriversPage() {
                     {isSuperAdmin && d.companyId && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-driver-company-${d.id}`}>
                         <Building2 className="w-3 h-3" />{getCompanyName(d.companyId) || `Company #${d.companyId}`}
+                      </p>
+                    )}
+                    {d.cityId && getCityName(d.cityId) && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-driver-city-${d.id}`}>
+                        <MapPin className="w-3 h-3" />{getCityName(d.cityId)}
                       </p>
                     )}
                     {d.email && <p className="text-sm text-muted-foreground" data-testid={`text-driver-email-${d.id}`}>{d.email}</p>}
