@@ -310,6 +310,9 @@ app.use((req, res, next) => {
   const { registerIntegrityRoutes } = await import("./lib/integrityReport");
   registerIntegrityRoutes(app);
 
+  const searchRouter = (await import("./controllers/search.controller")).default;
+  app.use(searchRouter);
+
   const { validateTwilioAtBoot } = await import("./lib/sms/twilioClient");
   validateTwilioAtBoot();
 

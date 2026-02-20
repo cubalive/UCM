@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Truck, Search, Accessibility, Pencil, Wrench, Archive, RotateCcw, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { GlobalSearchInput } from "@/components/GlobalSearchInput";
 
 export default function VehiclesPage() {
   const { token, selectedCity, user } = useAuth();
@@ -121,7 +122,7 @@ export default function VehiclesPage() {
     if (showArchived && !isArchived) return false;
     if (companyFilter !== "all" && String(v.companyId) !== companyFilter) return false;
     const q = search.toLowerCase();
-    return !q || v.name?.toLowerCase().includes(q) || v.licensePlate?.toLowerCase().includes(q) || v.publicId?.toLowerCase().includes(q);
+    return !q || v.name?.toLowerCase().includes(q) || v.licensePlate?.toLowerCase().includes(q) || v.make?.toLowerCase().includes(q) || v.model?.toLowerCase().includes(q) || v.publicId?.toLowerCase().includes(q);
   });
 
   const statusColors: Record<string, string> = { ACTIVE: "secondary", MAINTENANCE: "default", OUT_OF_SERVICE: "destructive" };
@@ -150,10 +151,7 @@ export default function VehiclesPage() {
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search vehicles..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-vehicles" />
-        </div>
+        <GlobalSearchInput entity="vehicles" placeholder="Search vehicles..." onQueryChange={setSearch} className="max-w-sm" />
         {user?.role === "SUPER_ADMIN" && companiesList && (
           <Select value={companyFilter} onValueChange={setCompanyFilter}>
             <SelectTrigger className="w-[180px]" data-testid="select-company-filter">

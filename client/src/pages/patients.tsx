@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, RotateCcw, Trash2, Clock, Repeat, Building2, UserCheck, Globe, ChevronDown, ChevronRight, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { GlobalSearchInput } from "@/components/GlobalSearchInput";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { can } from "@shared/permissions";
 
@@ -200,8 +201,10 @@ export default function PatientsPage() {
     const isArchived = !!p.deletedAt || !p.active;
     if (!showArchived && isArchived) return false;
     if (showArchived && !isArchived) return false;
-    return `${p.firstName} ${p.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
-      p.publicId?.toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    return !q || `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
+      p.phone?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q) ||
+      p.publicId?.toLowerCase().includes(q);
   });
 
   const renderPatientCard = (p: any) => (
@@ -407,10 +410,7 @@ export default function PatientsPage() {
       )}
 
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search patients..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-patients" />
-        </div>
+        <GlobalSearchInput entity="patients" placeholder="Search patients..." onQueryChange={setSearch} className="max-w-sm" />
         {user?.role === "SUPER_ADMIN" && (
           <div className="flex items-center gap-2">
             <Switch

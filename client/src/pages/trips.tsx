@@ -29,6 +29,7 @@ import { downloadWithAuth } from "@/lib/export";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw, Download, RotateCcw } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { GlobalSearchInput } from "@/components/GlobalSearchInput";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { useTranslation } from "react-i18next";
 import { RecurringSchedule, type TripType, type SeriesPattern, type SeriesEndType } from "@/components/recurring-schedule";
@@ -411,16 +412,7 @@ export default function TripsPage() {
         </div>
       )}
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder={t("trips.search")}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-          data-testid="input-search-trips"
-        />
-      </div>
+      <GlobalSearchInput entity="trips" placeholder={t("trips.search")} onQueryChange={setSearch} className="max-w-sm" />
 
       {isLoading ? (
         <div className="space-y-3">

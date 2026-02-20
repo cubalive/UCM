@@ -21,6 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key, Archive, RotateCcw, Trash2, Link2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
+import { GlobalSearchInput } from "@/components/GlobalSearchInput";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { ClinicHealthBanner } from "@/components/clinic-health-banner";
 import type { Company } from "@shared/schema";
@@ -154,7 +155,7 @@ export default function ClinicsPage() {
     if (!showArchived && isArchived) return false;
     if (showArchived && !isArchived) return false;
     const q = search.toLowerCase();
-    return !q || c.name?.toLowerCase().includes(q) || c.publicId?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q);
+    return !q || c.name?.toLowerCase().includes(q) || c.address?.toLowerCase().includes(q) || c.phone?.toLowerCase().includes(q) || c.publicId?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q);
   });
 
   return (
@@ -180,10 +181,7 @@ export default function ClinicsPage() {
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search clinics..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-clinics" />
-        </div>
+        <GlobalSearchInput entity="clinics" placeholder="Search clinics..." onQueryChange={setSearch} className="max-w-sm" />
         {user?.role === "SUPER_ADMIN" && (
           <div className="flex items-center gap-2">
             <Switch

@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, UserCheck, Search, Mail, ShieldCheck, ShieldAlert, Copy, Key, Pencil, Unlink, History, AlertTriangle, Archive, LogOut, RotateCcw, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
+import { GlobalSearchInput } from "@/components/GlobalSearchInput";
 import { useTranslation } from "react-i18next";
 import { can } from "@shared/permissions";
 
@@ -235,7 +236,7 @@ export default function DriversPage() {
     if (!showArchived && isArchived) return false;
     if (showArchived && !isArchived) return false;
     const q = search.toLowerCase();
-    return !q || `${d.firstName} ${d.lastName}`.toLowerCase().includes(q) || d.publicId?.toLowerCase().includes(q);
+    return !q || `${d.firstName} ${d.lastName}`.toLowerCase().includes(q) || d.phone?.toLowerCase().includes(q) || d.email?.toLowerCase().includes(q) || d.publicId?.toLowerCase().includes(q);
   });
 
   const driversWithoutAuth = drivers?.filter((d: any) => d.email && !d.authUserId) || [];
@@ -286,10 +287,7 @@ export default function DriversPage() {
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder={t("drivers.search")} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-drivers" />
-        </div>
+        <GlobalSearchInput entity="drivers" placeholder={t("drivers.search")} onQueryChange={setSearch} className="max-w-sm" />
         {user?.role === "SUPER_ADMIN" && (
           <div className="flex items-center gap-2">
             <Switch
