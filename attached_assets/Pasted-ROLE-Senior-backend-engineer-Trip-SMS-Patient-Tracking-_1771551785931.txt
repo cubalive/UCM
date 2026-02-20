@@ -1,0 +1,53 @@
+ROLE: Senior backend engineer (Trip SMS + Patient Tracking)
+PROJECT: UCM DISPATCH
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT drop/recreate tables
+- Keep patient privacy and multi-tenant isolation strict
+
+GOAL:
+When a trip is scheduled/assigned and when driver is en route/arrived, send patient SMS with:
+- trip details
+- driver + vehicle info (when assigned)
+- secure tracking link
+- dispatch contact action (call/text)
+
+TASK 1 — AUDIT CURRENT IMPLEMENTATION
+1) Search repo for Twilio SMS implementation:
+   - sendSms, twilio, messaging, notifications
+   Provide file paths + line numbers.
+2) Identify existing triggers (trip create, scheduled, assigned, status change).
+3) Identify whether tracking link exists and how token is generated.
+
+TASK 2 — DEFINE TRIGGERS (IMPLEMENT IF MISSING)
+4) Implement SMS triggers:
+   A) On trip scheduled/confirmed (or created with scheduledTime)
+   B) On driver status -> ON_THE_WAY_TO_PICKUP
+   C) On driver status -> ARRIVED_AT_PICKUP
+   Ensure dedupe so we don't spam (one per trigger per trip).
+
+TASK 3 — SECURE TRACKING LINK
+5) Implement public tracking page:
+   - URL: /track/:token
+   - token must be random, unguessable, expiring (e.g., 24h)
+   - shows only driver location, ETA, driver name, vehicle summary, and dispatch contact buttons
+   - NO sensitive data leakage, no cross-tenant access
+6) Add endpoint to resolve token -> trip summary safely.
+
+TASK 4 — DISPATCH CONTACT
+7) Add "Call Dispatch" button (tel:) and optional "Text Dispatch" link (sms:) on tracking page.
+   Dispatch number should come from company settings; fallback to a default.
+
+TASK 5 — LOGGING + PROOF
+8) Add sms_logs table (if not existing) or extend existing notifications log:
+   - tripId, patientId, phone, template, status, sentAt, error
+9) Provide end-to-end proof:
+   - create trip with patient phone
+   - schedule + assign driver
+   - transition statuses to ON_THE_WAY and ARRIVED
+   - show logs entries + Twilio send success
+   - show tracking link works in browser
+
+DO NOT mark complete until a real SMS is received and the tracking link renders correctly.
