@@ -17,7 +17,7 @@ The application follows a client-server architecture.
 
 **Technical Implementations & Feature Specifications:**
 - **Authentication**: JWT-based with `bcryptjs` and Magic Link Login, supporting dual-auth (Bearer token + httpOnly session cookie).
-- **Authorization**: Centralized Permission-Based Access Control using a `ROLE_PERMISSIONS` matrix.
+- **Authorization**: Centralized Permission-Based Access Control using a `ROLE_PERMISSIONS` matrix. Three clinic-scoped roles: CLINIC_ADMIN (full clinic access + user management), CLINIC_USER (trips/patients read-write), CLINIC_VIEWER (read-only). clinicId embedded in JWT for scope enforcement via `requireClinicScope` and `requireClinicAdmin` middleware. Clinic user management at `/api/clinic/users` (CRUD + password reset). Frontend admin console at `/clinic-users` with role-gated sidebar navigation.
 - **Data Management**: PostgreSQL with Drizzle ORM, multi-city data segregation, and a public ID system. US States/Cities master reference tables (`us_states`, `us_cities`) with cascading State→City dropdowns, "City, ST" display format, and city deduplication via `us_city_id` linking.
 - **Dispatch Engine**: Automated driver-vehicle and trip assignment, real-time tracking, ETA, and safety rule enforcement.
 - **Communication**: SMS notifications and branded email services.
