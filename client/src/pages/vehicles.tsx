@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Plus, Truck, Search, Accessibility, Pencil, Wrench, Archive, RotateCcw, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { GlobalSearchInput } from "@/components/GlobalSearchInput";
+import { CompanyRef } from "@/components/entity-ref";
 
 export default function VehiclesPage() {
   const { token, selectedCity, user } = useAuth();
@@ -210,7 +211,9 @@ export default function VehiclesPage() {
                     {v.make && <p className="text-sm text-muted-foreground">{v.year} {v.make} {v.model}</p>}
                     <p className="text-xs text-muted-foreground">Capacity: {v.capacity}</p>
                     {v.companyId && companyMap.has(v.companyId) && (
-                      <p className="text-xs text-muted-foreground" data-testid={`text-vehicle-company-${v.id}`}>{companyMap.get(v.companyId)}</p>
+                      <div className="text-xs text-muted-foreground" data-testid={`text-vehicle-company-${v.id}`}>
+                        <CompanyRef id={v.companyId} label={companyMap.get(v.companyId)} showIcon={false} />
+                      </div>
                     )}
                     {v.lastServiceDate && (
                       <p className="text-xs text-muted-foreground" data-testid={`text-vehicle-service-date-${v.id}`}>

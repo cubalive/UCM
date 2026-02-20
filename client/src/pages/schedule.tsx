@@ -28,6 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { DriverRef } from "@/components/entity-ref";
 import {
   Calendar,
   Clock,
@@ -249,7 +250,7 @@ function WeeklyScheduleTab({ cityId, token }: { cityId: number; token: string })
               return (
                 <tr key={driver.id} className="border-b" data-testid={`row-schedule-${driver.id}`}>
                   <td className="py-2 px-2">
-                    <div className="font-medium">{driver.firstName} {driver.lastName}</div>
+                    <DriverRef id={driver.id} label={`${driver.firstName} ${driver.lastName}`} size="md" />
                     <div className="text-xs text-muted-foreground">{driver.publicId}</div>
                   </td>
                   {DAYS.map((day) => {
@@ -420,9 +421,7 @@ function SundayRosterTab({ cityId, token }: { cityId: number; token: string }) {
                   data-testid={`row-sunday-driver-${entry.driverId}`}
                 >
                   <div>
-                    <span className="font-medium">
-                      {entry.driver ? `${entry.driver.firstName} ${entry.driver.lastName}` : `Driver #${entry.driverId}`}
-                    </span>
+                    <DriverRef id={entry.driverId} label={entry.driver ? `${entry.driver.firstName} ${entry.driver.lastName}` : `Driver #${entry.driverId}`} size="md" />
                     {entry.driver && (
                       <span className="text-xs text-muted-foreground ml-2">{entry.driver.publicId}</span>
                     )}

@@ -23,6 +23,8 @@ import {
 import { Plus, HeartPulse, Search, Accessibility, Pencil, Calendar, Archive, RotateCcw, Trash2, Clock, Repeat, Building2, UserCheck, Globe, ChevronDown, ChevronRight, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { GlobalSearchInput } from "@/components/GlobalSearchInput";
+import { FilterBar, type ActiveFilter, usePersistedFilters } from "@/components/filter-bar";
+import { EmptyState } from "@/components/empty-state";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { can } from "@shared/permissions";
 
@@ -36,6 +38,7 @@ export default function PatientsPage() {
   const [search, setSearch] = useState("");
   const [sourceTab, setSourceTab] = useState<SourceTab>("all");
   const [showArchived, setShowArchived] = useState(false);
+  const [patientFilters, setPatientFilters] = usePersistedFilters("patients");
 
   const canEdit = user?.role ? can(user.role, "patients", "write") : false;
   const isDispatchOrAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH" || user?.role === "COMPANY_ADMIN";
@@ -197,14 +200,23 @@ export default function PatientsPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const archivedFilter = patientFilters.find(f => f.key === "archived");
+  const effectiveShowArchived = archivedFilter?.value === "true" || showArchived;
+
   const filtered = patients?.filter((p: any) => {
     const isArchived = !!p.deletedAt || !p.active;
-    if (!showArchived && isArchived) return false;
-    if (showArchived && !isArchived) return false;
-    const q = search.toLowerCase();
-    return !q || `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
-      p.phone?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q) ||
-      p.publicId?.toLowerCase().includes(q);
+    if (!effectiveShowArchived && isArchived) return false;
+    if (effectiveShowArchived && !isArchived) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!(`${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
+        p.phone?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q) ||
+        p.publicId?.toLowerCase().includes(q))) return false;
+    }
+    for (const f of patientFilters) {
+      if (f.key === "source" && f.value && p.source !== f.value) return false;
+    }
+    return true;
   });
 
   const renderPatientCard = (p: any) => (
@@ -325,12 +337,14 @@ export default function PatientsPage() {
     }
     if (!filtered?.length) {
       return (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <HeartPulse className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No patients found</p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={search || patientFilters.length > 0 ? "search" : "empty"}
+          title={search || patientFilters.length > 0 ? "No patients match your filters" : "No patients found"}
+          description={search || patientFilters.length > 0 ? "Try adjusting your search or filters." : "Add your first patient to get started."}
+          actionLabel={!search && patientFilters.length === 0 && canEdit ? "Add Patient" : undefined}
+          onAction={!search && patientFilters.length === 0 && canEdit ? () => setOpen(true) : undefined}
+          testId="empty-state-patients"
+        />
       );
     }
     return (
@@ -409,19 +423,31 @@ export default function PatientsPage() {
         </Tabs>
       )}
 
-      <div className="flex items-center gap-3 flex-wrap">
-        <GlobalSearchInput entity="patients" placeholder="Search patients..." onQueryChange={setSearch} className="max-w-sm" />
-        {user?.role === "SUPER_ADMIN" && (
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={showArchived}
-              onCheckedChange={setShowArchived}
-              data-testid="switch-show-archived-patients"
-            />
-            <Label className="text-sm text-muted-foreground">Show Archived</Label>
-          </div>
-        )}
-      </div>
+      <FilterBar
+        filters={[
+          {
+            key: "source",
+            label: "Source",
+            type: "select",
+            options: [
+              { value: "clinic", label: "Clinic" },
+              { value: "internal", label: "Internal" },
+              { value: "private", label: "Private" },
+            ],
+          },
+          ...(user?.role === "SUPER_ADMIN" ? [{
+            key: "archived",
+            label: "Archived",
+            type: "boolean" as const,
+          }] : []),
+        ]}
+        activeFilters={patientFilters}
+        onFilterChange={setPatientFilters}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search patients..."
+        storageKey="patients"
+      />
 
       {sourceTab === "clinic" && !isClinicUser ? renderClinicGrouped() : renderPatientList()}
 

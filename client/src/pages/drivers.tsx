@@ -24,6 +24,8 @@ import { apiFetch } from "@/lib/api";
 import { GlobalSearchInput } from "@/components/GlobalSearchInput";
 import { useTranslation } from "react-i18next";
 import { can } from "@shared/permissions";
+import { VehicleRef } from "@/components/entity-ref";
+import { EmptyState } from "@/components/empty-state";
 
 const UNASSIGN_REASONS = [
   { value: "vehicle_maintenance", label: "Vehicle in maintenance" },
@@ -305,12 +307,14 @@ export default function DriversPage() {
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-28 w-full" />)}
         </div>
       ) : !filtered?.length ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <UserCheck className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">{t("drivers.noDrivers")}</p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={search ? "search" : "empty"}
+          title={search ? "No drivers match your search" : t("drivers.noDrivers")}
+          description={search ? "Try adjusting your search terms." : "Add your first driver to get started."}
+          actionLabel={!search && canEdit ? "Add Driver" : undefined}
+          onAction={!search && canEdit ? () => setOpen(true) : undefined}
+          testId="empty-state-drivers"
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((d: any) => (
@@ -325,9 +329,9 @@ export default function DriversPage() {
                     {d.licenseNumber && <p className="text-xs text-muted-foreground">License: {d.licenseNumber}</p>}
                     {d.vehicleId ? (
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-xs text-muted-foreground" data-testid={`text-driver-vehicle-${d.id}`}>
-                          Vehicle: {getVehicleName(d.vehicleId)}
-                        </p>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-driver-vehicle-${d.id}`}>
+                          Vehicle: <VehicleRef id={d.vehicleId} label={getVehicleName(d.vehicleId)} showIcon={false} />
+                        </div>
                         {canEdit && (
                           <Button
                             variant="outline"

@@ -18,6 +18,7 @@ import { queryClient } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { UniversalSearchBar } from "@/components/universal-search";
 import { useTranslation } from "react-i18next";
 import { getStoredCompanyScopeId, setStoredCompanyScopeId } from "@/lib/api";
 import type { Company } from "@shared/schema";
@@ -112,15 +113,15 @@ export function DashboardHeader() {
         </span>
       </div>
 
-      <div className="flex-1 flex items-center justify-center min-w-0">
+      <div className="flex-1 flex items-center justify-center gap-3 min-w-0">
         {needsCitySwitcher ? (
-          <div className="flex items-center gap-1.5" data-testid="city-switcher">
+          <div className="flex items-center gap-1.5 flex-shrink-0" data-testid="city-switcher">
             <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             <Select
               value={selectedCity ? String(selectedCity.id) : "all"}
               onValueChange={handleCityChange}
             >
-              <SelectTrigger className="w-[200px] h-8 text-sm" data-testid="select-header-city">
+              <SelectTrigger className="w-[180px] h-8 text-sm" data-testid="select-header-city">
                 <SelectValue placeholder={t("common.selectCity")} />
               </SelectTrigger>
               <SelectContent>
@@ -153,12 +154,15 @@ export function DashboardHeader() {
           </div>
         ) : selectedCity ? (
           <span
-            className="text-sm text-muted-foreground font-medium truncate"
+            className="text-sm text-muted-foreground font-medium truncate flex-shrink-0"
             data-testid="text-header-city"
           >
             {selectedCity.name}, {selectedCity.state}
           </span>
         ) : null}
+        <div className="hidden md:block flex-1 max-w-md min-w-0">
+          <UniversalSearchBar />
+        </div>
       </div>
 
       <div className="flex items-center gap-1 flex-shrink-0">

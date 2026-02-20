@@ -30,11 +30,15 @@ import { DialogFooter } from "@/components/ui/dialog";
 import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw, Download, RotateCcw } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { GlobalSearchInput } from "@/components/GlobalSearchInput";
+import { FilterBar, type ActiveFilter, type FilterOption, usePersistedFilters } from "@/components/filter-bar";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { useTranslation } from "react-i18next";
 import { RecurringSchedule, type TripType, type SeriesPattern, type SeriesEndType } from "@/components/recurring-schedule";
 import { TripStaticMap } from "@/components/trip-static-map";
 import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
+import { PatientRef, DriverRef, VehicleRef, ClinicRef } from "@/components/entity-ref";
+import { SearchableCombobox } from "@/components/searchable-combobox";
+import { EmptyState } from "@/components/empty-state";
 
 function normalizePhoneToE164(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -99,6 +103,7 @@ export default function TripsPage() {
   const [tripTab, setTripTab] = useState<TripTab>("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | "clinic" | "internal" | "private">("all");
   const [assignTrip, setAssignTrip] = useState<any>(null);
+  const [tripFilters, setTripFilters] = usePersistedFilters("trips");
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -300,12 +305,28 @@ export default function TripsPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const filtered = trips?.filter(
-    (t: any) =>
-      t.publicId?.toLowerCase().includes(search.toLowerCase()) ||
-      t.pickupAddress?.toLowerCase().includes(search.toLowerCase()) ||
-      t.dropoffAddress?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = trips?.filter((t: any) => {
+    if (search) {
+      const s = search.toLowerCase();
+      if (!(t.publicId?.toLowerCase().includes(s) || t.pickupAddress?.toLowerCase().includes(s) || t.dropoffAddress?.toLowerCase().includes(s))) return false;
+    }
+    for (const f of tripFilters) {
+      if (f.key === "clinicId" && f.value && String(t.clinicId) !== f.value) return false;
+      if (f.key === "assigned") {
+        if (f.value === "assigned" && !t.driverId) return false;
+        if (f.value === "unassigned" && t.driverId) return false;
+      }
+      if (f.key === "dateFrom" && f.value) {
+        const tripDate = (t.scheduledDate || "").slice(0, 10);
+        if (tripDate < f.value) return false;
+      }
+      if (f.key === "dateTo" && f.value) {
+        const tripDate = (t.scheduledDate || "").slice(0, 10);
+        if (tripDate > f.value) return false;
+      }
+    }
+    return true;
+  });
 
   const statusColors: Record<string, string> = {
     SCHEDULED: "secondary",
@@ -412,19 +433,57 @@ export default function TripsPage() {
         </div>
       )}
 
-      <GlobalSearchInput entity="trips" placeholder={t("trips.search")} onQueryChange={setSearch} className="max-w-sm" />
+      <FilterBar
+        filters={[
+          ...(isDispatchOrAdmin ? [{
+            key: "clinicId",
+            label: "Clinic",
+            type: "select" as const,
+            options: (clinics || []).map((c: any) => ({ value: String(c.id), label: c.name })),
+          }] : []),
+          {
+            key: "assigned",
+            label: "Assignment",
+            type: "select" as const,
+            options: [
+              { value: "assigned", label: "Assigned" },
+              { value: "unassigned", label: "Unassigned" },
+            ],
+          },
+          {
+            key: "dateFrom",
+            label: "From Date",
+            type: "date" as const,
+          },
+          {
+            key: "dateTo",
+            label: "To Date",
+            type: "date" as const,
+          },
+        ]}
+        activeFilters={tripFilters}
+        onFilterChange={setTripFilters}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("trips.search")}
+        totalCount={trips?.length}
+        filteredCount={filtered?.length}
+        storageKey="trips"
+      />
 
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
       ) : !filtered?.length ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Route className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">{t("trips.noTrips")}</p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={search || tripFilters.length > 0 ? "search" : "empty"}
+          title={search || tripFilters.length > 0 ? "No trips match your filters" : t("trips.noTrips")}
+          description={search || tripFilters.length > 0 ? "Try adjusting your search or filters to find what you're looking for." : "Schedule a new trip to get started."}
+          actionLabel={!search && tripFilters.length === 0 ? "Schedule Trip" : undefined}
+          onAction={!search && tripFilters.length === 0 ? () => setOpen(true) : undefined}
+          testId="empty-state-trips"
+        />
       ) : (
         <div className="space-y-3">
           {filtered.map((trip: any) => (
@@ -1695,7 +1754,7 @@ function TripDetailDialog({
             {driver && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium text-muted-foreground">Driver</h3>
-                <p className="text-sm" data-testid="text-trip-driver">{driver.firstName} {driver.lastName}</p>
+                <DriverRef id={driver.id} label={`${driver.firstName} ${driver.lastName}`} size="md" />
               </div>
             )}
 
@@ -1803,7 +1862,7 @@ function TripDetailDialog({
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">Name:</span>
-                    <span className="text-sm" data-testid="text-patient-name">{patient.firstName} {patient.lastName}</span>
+                    <PatientRef id={patient.id} label={`${patient.firstName} ${patient.lastName}`} size="md" />
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">Phone:</span>
@@ -2213,14 +2272,19 @@ function TripForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label>Patient *</Label>
-        <Select value={patientId} onValueChange={setPatientId}>
-          <SelectTrigger data-testid="select-trip-patient"><SelectValue placeholder="Select patient" /></SelectTrigger>
-          <SelectContent>
-            {patients.map((p) => (
-              <SelectItem key={p.id} value={p.id.toString()}>{p.firstName} {p.lastName}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableCombobox
+          options={patients.map((p) => ({
+            value: p.id.toString(),
+            label: `${p.firstName} ${p.lastName}`,
+            subLabel: p.phone || undefined,
+          }))}
+          value={patientId}
+          onValueChange={setPatientId}
+          placeholder="Select patient"
+          searchPlaceholder="Search patients..."
+          testId="select-trip-patient"
+          allowDeselect={false}
+        />
       </div>
 
       <div className="space-y-2">
@@ -2327,38 +2391,49 @@ function TripForm({
       {tripSource === "clinic" && (
         <div className="space-y-2">
           <Label>Clinic</Label>
-          <Select value={clinicId} onValueChange={setClinicId}>
-            <SelectTrigger data-testid="select-trip-clinic"><SelectValue placeholder="Select clinic (optional)" /></SelectTrigger>
-            <SelectContent>
-              {clinics.map((c) => (
-                <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableCombobox
+            options={clinics.map((c) => ({
+              value: c.id.toString(),
+              label: c.name,
+            }))}
+            value={clinicId}
+            onValueChange={setClinicId}
+            placeholder="Select clinic (optional)"
+            searchPlaceholder="Search clinics..."
+            testId="select-trip-clinic"
+          />
         </div>
       )}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Driver</Label>
-          <Select value={driverId} onValueChange={setDriverId}>
-            <SelectTrigger data-testid="select-trip-driver"><SelectValue placeholder="Assign later" /></SelectTrigger>
-            <SelectContent>
-              {drivers.map((d) => (
-                <SelectItem key={d.id} value={d.id.toString()}>{d.firstName} {d.lastName}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableCombobox
+            options={drivers.map((d) => ({
+              value: d.id.toString(),
+              label: `${d.firstName} ${d.lastName}`,
+              subLabel: d.phone || undefined,
+            }))}
+            value={driverId}
+            onValueChange={setDriverId}
+            placeholder="Assign later"
+            searchPlaceholder="Search drivers..."
+            testId="select-trip-driver"
+          />
         </div>
         <div className="space-y-2">
           <Label>Vehicle</Label>
-          <Select value={vehicleId} onValueChange={setVehicleId}>
-            <SelectTrigger data-testid="select-trip-vehicle"><SelectValue placeholder="Assign later" /></SelectTrigger>
-            <SelectContent>
-              {vehicles.map((v) => (
-                <SelectItem key={v.id} value={v.id.toString()}>{v.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableCombobox
+            options={vehicles.map((v) => ({
+              value: v.id.toString(),
+              label: v.name,
+              subLabel: v.licensePlate || undefined,
+            }))}
+            value={vehicleId}
+            onValueChange={setVehicleId}
+            placeholder="Assign later"
+            searchPlaceholder="Search vehicles..."
+            testId="select-trip-vehicle"
+          />
         </div>
       </div>
       <div className="space-y-2">
