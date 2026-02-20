@@ -61,6 +61,60 @@ export async function healthLegacy(_req: Request, res: Response) {
   });
 }
 
+export async function healthDetailedHandler(_req: AuthRequest, res: Response) {
+  const start = Date.now();
+  const checks: Record<string, any> = {};
+
+  try {
+    const dbStart = Date.now();
+    await db.execute(sql`SELECT 1`);
+    checks.database = { status: "ok", latencyMs: Date.now() - dbStart, source: getDbSource() };
+  } catch (err: any) {
+    checks.database = { status: "error", error: err.message };
+  }
+
+  try {
+    const { pingRedis, isRedisConnected, getRedisMetrics } = await import("../lib/redis");
+    if (isRedisConnected()) {
+      const pingResult = await pingRedis();
+      checks.redis = { status: pingResult.ok ? "ok" : "error", latencyMs: pingResult.latencyMs, metrics: getRedisMetrics() };
+    } else {
+      checks.redis = { status: "not_configured" };
+    }
+  } catch (err: any) {
+    checks.redis = { status: "error", error: err.message };
+  }
+
+  checks.googleMaps = {
+    serverKeyConfigured: !!process.env.GOOGLE_MAPS_API_KEY,
+    browserKeyConfigured: !!process.env.VITE_GOOGLE_MAPS_KEY || !!process.env.GOOGLE_MAPS_API_KEY,
+  };
+
+  checks.featureFlags = {
+    geofenceEnabled: process.env.GEOFENCE_ENABLED === "true",
+    geofencePickupRadiusM: parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120"),
+    geofenceDropoffRadiusM: parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160"),
+    smsReminderEnabled: process.env.SMS_REMINDER_ENABLED === "true",
+    driverDeviceBinding: process.env.DRIVER_DEVICE_BINDING === "true",
+  };
+
+  checks.services = {
+    twilioConfigured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
+    stripeConfigured: !!process.env.STRIPE_SECRET_KEY,
+    supabaseConfigured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
+  };
+
+  const allOk = checks.database?.status === "ok";
+  res.status(allOk ? 200 : 503).json({
+    ok: allOk,
+    version: APP_VERSION,
+    uptime: process.uptime(),
+    checks,
+    totalLatencyMs: Date.now() - start,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 export function pwaHealth(_req: Request, res: Response) {
   res.json({
     ok: true,

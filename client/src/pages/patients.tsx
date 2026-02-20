@@ -550,7 +550,7 @@ function PatientForm({ onSubmit, loading, initialData, isEdit, patientSource }: 
 }) {
   const { token } = useAuth();
   const { toast } = useToast();
-  const emailRequired = patientSource === "private" || patientSource === "internal";
+  const emailRequired = patientSource === "private";
   const parsed = parseStructuredNotes(initialData?.notes || "");
 
   const parsedDays = parsed.recurringSchedule
@@ -606,7 +606,7 @@ function PatientForm({ onSubmit, loading, initialData, isEdit, patientSource }: 
       return;
     }
     if (emailRequired && !form.email.trim()) {
-      toast({ title: "Email required", description: "Email is required for Private/Internal patients to receive invoices and payment links.", variant: "destructive" });
+      toast({ title: "Email required", description: "Email is required for Private-pay patients to receive invoices and payment links.", variant: "destructive" });
       return;
     }
     if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {

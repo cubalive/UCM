@@ -545,6 +545,8 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
       }
     }
 
+    const autoScheduledTime = (!parsed.data.scheduledTime && parsed.data.pickupTime) ? parsed.data.pickupTime : undefined;
+
     const publicId = await generatePublicId();
     const user = await storage.getUser(req.user!.userId);
     const isClinic = (user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId != null;
@@ -591,7 +593,8 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
     }
 
     let pricingFields: Record<string, any> = {};
-    if (isPrivatePay && parsed.data.pickupAddress && parsed.data.dropoffAddress && parsed.data.scheduledTime) {
+    const effectiveScheduledTime = parsed.data.scheduledTime || autoScheduledTime;
+    if (isPrivatePay && parsed.data.pickupAddress && parsed.data.dropoffAddress && effectiveScheduledTime) {
       try {
         const { calculatePrivateQuote } = await import("../lib/privatePricing");
         const city = await storage.getCity(parsed.data.cityId);
@@ -599,7 +602,7 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
           pickupAddress: parsed.data.pickupAddress,
           dropoffAddress: parsed.data.dropoffAddress,
           scheduledDate: parsed.data.scheduledDate || new Date().toISOString().slice(0, 10),
-          scheduledTime: parsed.data.scheduledTime,
+          scheduledTime: effectiveScheduledTime!,
           isWheelchair: (parsed.data as any).serviceType === "wheelchair",
           roundTrip: (parsed.data as any).roundTrip === true,
           cityName: city?.name || "ALL",
@@ -626,7 +629,7 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
       }
     }
 
-    const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, ...pricingFields, companyId: callerCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource } as any);
+    const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, ...pricingFields, companyId: callerCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource, ...(autoScheduledTime ? { scheduledTime: autoScheduledTime } : {}) } as any);
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "CREATE",
@@ -967,6 +970,109 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
         driverId: trip.driverId,
         patientId: trip.patientId,
         clinicId: trip.clinicId,
+      }),
+      cityId: updatedTrip.cityId,
+    });
+    res.json(updatedTrip);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+const OVERRIDE_REASON_CODES = [
+  "GPS_ISSUE",
+  "PATIENT_CONFIRMED",
+  "MANUAL_OVERRIDE",
+  "SYSTEM_ERROR",
+  "DRIVER_PHONE_ISSUE",
+  "GEOFENCE_INACCURATE",
+] as const;
+
+const ALLOWED_OVERRIDE_STATUSES = [
+  "SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP",
+  "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF",
+  "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW",
+] as const;
+
+const dispatchOverrideSchema = z.object({
+  status: z.enum(ALLOWED_OVERRIDE_STATUSES),
+  reasonCode: z.enum(OVERRIDE_REASON_CODES as any),
+  notes: z.string().optional(),
+});
+
+export async function dispatchOverrideStatusHandler(req: AuthRequest, res: Response) {
+  try {
+    const parsed = dispatchOverrideSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: `Invalid override request: ${parsed.error.issues.map(i => i.message).join("; ")}` });
+    }
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const trip = await storage.getTrip(id);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+    if (tripLockedGuard(trip, req, res)) return;
+
+    if (!(await checkCityAccess(req, trip.cityId))) {
+      return res.status(403).json({ message: "No access to this city" });
+    }
+    const callerCompanyId = getCompanyIdFromAuth(req);
+    if (callerCompanyId && trip.companyId && trip.companyId !== callerCompanyId) {
+      return res.status(403).json({ message: "Trip does not belong to your company" });
+    }
+
+    const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+    if (terminalStatuses.includes(trip.status)) {
+      return res.status(400).json({ message: `Cannot override: trip is already in terminal status ${trip.status}` });
+    }
+
+    if (trip.status === parsed.data.status) {
+      return res.json({ message: "Already in this status", idempotent: true });
+    }
+
+    const timestampField = STATUS_TIMESTAMP_MAP[parsed.data.status];
+    const updateData: any = { status: parsed.data.status };
+    if (timestampField) {
+      updateData[timestampField] = new Date();
+    }
+
+    const conditions = [eq(trips.id, id)];
+    if (callerCompanyId) conditions.push(eq(trips.companyId, callerCompanyId));
+
+    const updated = await db.update(trips).set(updateData).where(and(...conditions)).returning();
+    if (!updated.length) {
+      return res.status(404).json({ message: "Trip not found or access denied" });
+    }
+    const updatedTrip = updated[0];
+
+    import("../lib/realtime").then(({ broadcastToTrip }) => {
+      broadcastToTrip(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
+    }).catch(() => {});
+
+    import("../lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
+      broadcastTripSupabase(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
+    }).catch(() => {});
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "DISPATCH_OVERRIDE",
+      entity: "trip",
+      entityId: updatedTrip.id,
+      details: JSON.stringify({
+        oldStatus: trip.status,
+        newStatus: parsed.data.status,
+        reasonCode: parsed.data.reasonCode,
+        notes: parsed.data.notes || null,
+        role: req.user!.role,
+        overriddenBy: req.user!.userId,
+        previousTimestamps: {
+          startedAt: trip.startedAt,
+          arrivedPickupAt: trip.arrivedPickupAt,
+          pickedUpAt: trip.pickedUpAt,
+          arrivedDropoffAt: trip.arrivedDropoffAt,
+          completedAt: trip.completedAt,
+        },
       }),
       cityId: updatedTrip.cityId,
     });

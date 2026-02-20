@@ -88,13 +88,21 @@ export async function createPatientHandler(req: AuthRequest, res: Response) {
     }
     const parsed = insertPatientSchema.omit({ publicId: true }).safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ message: "Invalid patient data" });
+      const fieldErrors = parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ");
+      return res.status(400).json({ message: `Invalid patient data: ${fieldErrors}` });
     }
     if (parsed.data.address && !parsed.data.addressZip) {
       return res.status(400).json({ message: "ZIP code is required when providing an address" });
     }
     if (parsed.data.address && (parsed.data.lat == null || parsed.data.lng == null)) {
-      return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
+      try {
+        const { geocodeAddress } = await import("../lib/googleMaps");
+        const geo = await geocodeAddress(parsed.data.address);
+        (parsed.data as any).lat = geo.lat;
+        (parsed.data as any).lng = geo.lng;
+      } catch (geoErr: any) {
+        return res.status(400).json({ message: `Could not geocode patient address: ${geoErr.message}. Please select from autocomplete.` });
+      }
     }
     if (!(await checkCityAccess(req, parsed.data.cityId))) {
       return res.status(403).json({ message: "No access to this city" });
@@ -112,8 +120,8 @@ export async function createPatientHandler(req: AuthRequest, res: Response) {
     const autoSource = (user?.role === "CLINIC_USER" || user?.role === "VIEWER") && user.clinicId ? "clinic" : "internal";
     const patientData = { ...parsed.data, publicId, companyId: callerCompanyId, source: parsed.data.source || autoSource };
     const effectiveSource = patientData.source;
-    if ((effectiveSource === "private" || effectiveSource === "internal") && !patientData.email?.trim()) {
-      return res.status(400).json({ message: "Email is required for Private/Internal patients to receive invoices and payment links." });
+    if (effectiveSource === "private" && !patientData.email?.trim()) {
+      return res.status(400).json({ message: "Email is required for Private-pay patients to receive invoices and payment links." });
     }
     if (patientData.email) {
       patientData.email = patientData.email.trim().toLowerCase();
@@ -178,7 +186,14 @@ export async function updatePatientHandler(req: AuthRequest, res: Response) {
         return res.status(400).json({ message: "ZIP code is required when providing an address" });
       }
       if (updateData.lat == null || updateData.lng == null) {
-        return res.status(400).json({ message: "Address must be selected from autocomplete (lat/lng required)" });
+        try {
+          const { geocodeAddress } = await import("../lib/googleMaps");
+          const geo = await geocodeAddress(updateData.address);
+          updateData.lat = geo.lat;
+          updateData.lng = geo.lng;
+        } catch (geoErr: any) {
+          return res.status(400).json({ message: `Could not geocode address: ${geoErr.message}. Please select from autocomplete.` });
+        }
       }
     }
 
@@ -190,13 +205,13 @@ export async function updatePatientHandler(req: AuthRequest, res: Response) {
         }
       }
       const effectiveSource = existing.source;
-      if ((effectiveSource === "private" || effectiveSource === "internal") && !updateData.email?.trim()) {
-        return res.status(400).json({ message: "Email is required for Private/Internal patients." });
+      if (effectiveSource === "private" && !updateData.email?.trim()) {
+        return res.status(400).json({ message: "Email is required for Private-pay patients." });
       }
     } else {
       const effectiveSource = existing.source;
-      if ((effectiveSource === "private" || effectiveSource === "internal") && !existing.email?.trim()) {
-        return res.status(400).json({ message: "Email is required for Private/Internal patients. Please add an email address." });
+      if (effectiveSource === "private" && !existing.email?.trim()) {
+        return res.status(400).json({ message: "Email is required for Private-pay patients. Please add an email address." });
       }
     }
 
