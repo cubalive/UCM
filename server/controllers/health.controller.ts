@@ -3,7 +3,8 @@ import type { AuthRequest } from "../auth";
 import { db, pool, getDbSource, getDbHost, getDbPort } from "../db";
 import { sql } from "drizzle-orm";
 
-const APP_VERSION = process.env.UCM_BUILD_VERSION || process.env.BUILD_VERSION || "dev";
+export const APP_VERSION = process.env.UCM_BUILD_VERSION || process.env.BUILD_VERSION || "dev";
+const APP_ENV = process.env.NODE_ENV || "development";
 
 export async function healthz(_req: Request, res: Response) {
   const start = Date.now();
@@ -21,6 +22,7 @@ export async function healthz(_req: Request, res: Response) {
   res.status(ok ? 200 : 503).json({
     ok,
     version: APP_VERSION,
+    env: APP_ENV,
     uptime: process.uptime(),
     db: {
       status: dbOk ? "connected" : "disconnected",

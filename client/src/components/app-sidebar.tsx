@@ -1,5 +1,6 @@
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useQuery } from "@tanstack/react-query";
 import { can, type Resource } from "@shared/permissions";
 import { useTranslation } from "react-i18next";
 import {
@@ -131,6 +132,16 @@ export function AppSidebar() {
   const [location] = useLocation();
   const { user, cities, selectedCity, setSelectedCity, logout } = useAuth();
   const { t } = useTranslation();
+
+  const versionQuery = useQuery<{ version?: string }>({
+    queryKey: ["/version.json"],
+    queryFn: async () => {
+      const res = await fetch("/version.json?_t=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) return {};
+      return res.json();
+    },
+    staleTime: 300_000,
+  });
 
   const role = user?.role || "";
 
@@ -295,6 +306,9 @@ export function AppSidebar() {
             <LogOut className="w-4 h-4" />
           </Button>
         </div>
+        <p className="text-[10px] text-muted-foreground text-center mt-1" data-testid="text-admin-version">
+          UCM v{versionQuery.data?.version || "..."}
+        </p>
       </SidebarFooter>
     </Sidebar>
   );

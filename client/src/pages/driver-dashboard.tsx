@@ -519,6 +519,7 @@ function formatTimeSince(timestamp: number): string {
 
 function useLoadGoogleMaps(token: string | null) {
   const [loaded, setLoaded] = useState(false);
+  const [keyMissing, setKeyMissing] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -528,9 +529,10 @@ function useLoadGoogleMaps(token: string | null) {
         const res = await fetch("/api/maps/client-key", {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) return;
+        if (!res.ok) { if (!cancelled) setKeyMissing(true); return; }
         const json = await res.json();
-        if (cancelled || !json.key) return;
+        if (cancelled) return;
+        if (!json.key) { setKeyMissing(true); return; }
 
         if (window.google?.maps) {
           setLoaded(true);
@@ -547,13 +549,14 @@ function useLoadGoogleMaps(token: string | null) {
         script.async = true;
         script.defer = true;
         script.onload = () => setLoaded(true);
+        script.onerror = () => { if (!cancelled) setKeyMissing(true); };
         document.head.appendChild(script);
-      } catch {}
+      } catch { if (!cancelled) setKeyMissing(true); }
     })();
     return () => { cancelled = true; };
   }, [token]);
 
-  return loaded;
+  return { loaded, keyMissing };
 }
 
 interface ActiveTripData {
@@ -991,7 +994,7 @@ export default function DriverDashboard() {
     })();
   }, [token]);
 
-  const mapsLoaded = useLoadGoogleMaps(token);
+  const { loaded: mapsLoaded, keyMissing: mapsKeyMissing } = useLoadGoogleMaps(token);
 
   const handleRtStatusChange = useCallback((statusData: { status: string; tripId: number }) => {
     queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
@@ -2628,12 +2631,22 @@ export default function DriverDashboard() {
             </Button>
           </div>
           <div className="flex-1 relative min-h-0">
-            <FullScreenMap
-              driverLocation={geoLocation}
-              activeTrip={activeTrip}
-              mapsLoaded={mapsLoaded}
-              gpsWatchError={geoWatchError}
-            />
+            {mapsKeyMissing ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-muted" data-testid="banner-maps-key-missing">
+                <div className="text-center space-y-2 p-6">
+                  <AlertTriangle className="w-10 h-10 mx-auto text-amber-500" />
+                  <p className="font-semibold">Google Maps Unavailable</p>
+                  <p className="text-sm text-muted-foreground">The Maps API key is not configured. Contact your administrator.</p>
+                </div>
+              </div>
+            ) : (
+              <FullScreenMap
+                driverLocation={geoLocation}
+                activeTrip={activeTrip}
+                mapsLoaded={mapsLoaded}
+                gpsWatchError={geoWatchError}
+              />
+            )}
           </div>
         </div>
       )}

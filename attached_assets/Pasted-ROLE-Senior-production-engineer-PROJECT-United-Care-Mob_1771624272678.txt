@@ -1,0 +1,73 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT remove existing UI flows
+- Restore/keep BOTH driver controls: (1) Connected status + (2) Start Shift / End Shift (Clock In/Out)
+- Make changes minimal, explicit, and verifiable with smoke tests
+
+TASK A — Fix Replit Deploy reliability / propagation
+1) Ensure production build artifacts are served correctly and consistently (no stale bundles):
+   - Add version stamping already present (version.json) to UI display (driver settings and admin footer).
+   - Ensure service worker does NOT cache HTML shell while online.
+2) Add a “Build + Deploy Verification” script/step:
+   - After publish, fetch /version.json and log it in server startup.
+   - Add a /healthz returning version + env.
+
+TASK B — Google Maps “Maps unavailable” fix
+1) Standardize env usage:
+   - Frontend MUST read from VITE_GOOGLE_MAPS_API_KEY (Vite requirement).
+   - Backend (if any) reads from GOOGLE_MAPS_API_KEY.
+   - They can be same underlying key, but both env names must exist.
+2) Add explicit runtime checks:
+   - If VITE_GOOGLE_MAPS_API_KEY missing, show a clear banner in UI telling which env var is missing.
+3) Confirm map loader uses the correct key and required libraries (places if autocomplete is used).
+
+TASK C — Twilio not configured must NOT error
+1) Wrap Twilio initialization:
+   - If TWILIO_ACCOUNT_SID/AUTH_TOKEN missing, set twilioClient = null and skip SMS send with a log “SMS skipped: Twilio not configured”.
+2) Ensure this does not affect deployment.
+
+TASK D — Driver App shift + tracking must be correct
+1) Restore driver Home UI to include:
+   - A visible “Start Shift (Clock In)” button when OFF shift.
+   - A visible “End Shift (Clock Out)” when ON shift.
+   - A visible “Connected” status for realtime location channel.
+   - Both features must coexist; do not replace one with the other.
+2) State model:
+   - connected = realtime channel websocket/subscription active
+   - onShift = clocked in
+   - location tracking should publish only when connected AND onShift
+3) Ensure admin live map shows driver when driver is connected+onShift and has a current city/company.
+
+TASK E — Trip workflow in Driver App must include pickup/start and nav options
+1) Restore/implement buttons and transitions:
+   - “Navigate to Pickup” + choose Google Maps / Apple Maps / Waze
+   - “Arrived at Pickup” (manual + optional geofence suggestion)
+   - “Picked Up”
+   - “Start Trip”
+   - “Navigate to Dropoff” (same chooser)
+   - “Arrived at Dropoff”
+   - “Complete Trip”
+2) Must not jump straight to dropoff. Must show pickup first.
+3) Preserve existing trip fields; extend only.
+
+TASK F — Deleting trips (admin rules)
+1) Implement:
+   - Super Admin: hard delete trip (with confirmation + audit log).
+   - Company Admin/Dispatch: cannot hard delete; can cancel/archive.
+2) Add UI button where appropriate (“Cancel/Archive” and Super Admin “Delete”).
+
+DELIVERABLES (required)
+1) List files changed + exact reasons
+2) Smoke tests with exact steps + expected results:
+   - Maps loads (admin + driver)
+   - Driver can Start Shift + Connected simultaneously
+   - Driver appears on admin live map
+   - Trip shows pickup flow and nav chooser (3 apps)
+   - Delete/Archive behavior works by role
+   - Twilio missing does not throw errors
+3) Confirm /version.json changes after publish and matches UI

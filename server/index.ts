@@ -280,6 +280,9 @@ app.use((req, res, next) => {
   };
   console.log(JSON.stringify(bootConfig));
 
+  const { APP_VERSION } = await import("./controllers/health.controller");
+  console.log(`[BOOT] UCM version: ${APP_VERSION}, env: ${process.env.NODE_ENV || "development"}`);
+
   app.get("/api/boot", (_req, res) => {
     res.json({
       nodeEnv: process.env.NODE_ENV || "undefined",
