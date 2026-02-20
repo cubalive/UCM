@@ -340,8 +340,10 @@ export async function runAnomalySweep(companyId: number): Promise<{ detected: nu
 
   const detectedCodes = new Set(detected.map(d => `${d.code}:${d.entityType}:${d.entityId ?? "null"}`));
 
+  let newDetected = 0;
   for (const d of detected) {
-    await upsertAnomaly(companyId, d.code, d.entityType, d.entityId, d.severity, d.title, d.details);
+    const isNew = await upsertAnomaly(companyId, d.code, d.entityType, d.entityId, d.severity, d.title, d.details);
+    if (isNew) newDetected++;
   }
 
   const activeAnomalies = await db.select().from(opsAnomalies).where(
@@ -362,10 +364,10 @@ export async function runAnomalySweep(companyId: number): Promise<{ detected: nu
     }
   }
 
-  return { detected: detected.length, resolved };
+  return { detected: newDetected, resolved };
 }
 
-async function upsertAnomaly(companyId: number, code: string, entityType: string, entityId: number | null, severity: string, title: string, details: Record<string, unknown>) {
+async function upsertAnomaly(companyId: number, code: string, entityType: string, entityId: number | null, severity: string, title: string, details: Record<string, unknown>): Promise<boolean> {
   const now = new Date();
   const conditions = [
     eq(opsAnomalies.companyId, companyId),
@@ -389,6 +391,7 @@ async function upsertAnomaly(companyId: number, code: string, entityType: string
       title,
       details,
     }).where(eq(opsAnomalies.id, existing[0].id));
+    return false;
   } else {
     await db.insert(opsAnomalies).values({
       companyId,
@@ -402,6 +405,7 @@ async function upsertAnomaly(companyId: number, code: string, entityType: string
       lastSeenAt: now,
       isActive: true,
     });
+    return true;
   }
 }
 
