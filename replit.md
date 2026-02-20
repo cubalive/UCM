@@ -45,6 +45,9 @@ The application follows a client-server architecture.
 - **Platform Billing Fees**: Application fees collected on clinic invoice payments via Stripe Connect, with global and company-specific overrides.
 - **Company Subscriptions**: Stripe-powered monthly subscription billing for companies. Configurable via `platform_billing_settings` (monthly_subscription_enabled, price_id, subscription_required_for_access, grace_period_days). Tables: `stripe_customers`, `company_subscriptions`. Webhook at `/api/webhooks/stripe/subscription`. Admin API at `/api/admin/subscriptions/*`. Admin UI at `/admin/subscriptions`.
 - **Production Ops & Observability**: Boot config logging, pooler enforcement, Redis startup diagnostic, SUPER_ADMIN-only ops endpoints (`/api/ops/*`), graceful shutdown, HTTP timeouts, access-denied logging, WebSocket hardening, and DB-backed route cache.
+- **Entity Detail Pages & Click-Through Navigation**: Dedicated detail pages for patients (`/patients/:id`), drivers (`/drivers/:id`), vehicles (`/vehicles/:id`), clinics (`/clinics/:id`), invoices (`/invoices/:id`), and payroll runs (`/payroll/runs/:id`). All EntityRef components (PatientRef, DriverRef, VehicleRef, ClinicRef, InvoiceRef, TripRef) navigate to corresponding detail pages with back button navigation.
+- **URL-Based Filter Persistence**: FilterBar's `usePersistedFilters` hook syncs active filters to URL query params (bidirectional). Filters are preserved in URLs for shareability and browser history, with localStorage fallback.
+- **Server-Side Search**: All major list endpoints (patients, drivers, clinics, trips) support `?q=` query parameter for ILIKE text search across name, phone, publicId, and address fields. Search respects RBAC scope for all roles including clinic users.
 
 ## Running the Project
 - **Development**: `npm run dev` (uses tsx for hot reload)
