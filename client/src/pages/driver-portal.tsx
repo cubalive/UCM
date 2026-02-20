@@ -77,14 +77,27 @@ const TABS: { id: TabId; label: string; icon: any }[] = [
 ];
 
 const STATUS_FLOW: Record<string, { next: string; label: string; icon: any }> = {
-  ASSIGNED: { next: "EN_ROUTE_TO_PICKUP", label: "Start Trip", icon: PlayCircle },
-  EN_ROUTE_TO_PICKUP: { next: "ARRIVED_PICKUP", label: "Arrived at Pickup", icon: MapPin },
+  ASSIGNED: { next: "EN_ROUTE_TO_PICKUP", label: "Go to Pickup", icon: Navigation },
+  EN_ROUTE_TO_PICKUP: { next: "ARRIVED_PICKUP", label: "Mark Arrived at Pickup", icon: MapPin },
   ARRIVED_PICKUP: { next: "PICKED_UP", label: "Picked Up Patient", icon: User },
-  PICKED_UP: { next: "EN_ROUTE_TO_DROPOFF", label: "En Route to Dropoff", icon: Navigation },
-  EN_ROUTE_TO_DROPOFF: { next: "ARRIVED_DROPOFF", label: "Arrived at Dropoff", icon: MapPin },
+  PICKED_UP: { next: "EN_ROUTE_TO_DROPOFF", label: "Start Trip to Dropoff", icon: PlayCircle },
+  EN_ROUTE_TO_DROPOFF: { next: "ARRIVED_DROPOFF", label: "Mark Arrived at Dropoff", icon: MapPin },
   ARRIVED_DROPOFF: { next: "COMPLETED", label: "Complete Trip", icon: CheckCircle },
   IN_PROGRESS: { next: "COMPLETED", label: "Complete Trip", icon: CheckCircle },
 };
+
+type TripPhase = "PICKUP" | "DROPOFF" | "DONE";
+
+function getTripPhase(trip: { status: string }): TripPhase {
+  if (PICKUP_STAGES.includes(trip.status)) return "PICKUP";
+  if (["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status)) return "DONE";
+  return "DROPOFF";
+}
+
+function getNavLabel(trip: { status: string }): string {
+  const phase = getTripPhase(trip);
+  return phase === "PICKUP" ? "Go to Pickup" : "Go to Dropoff";
+}
 
 const STATUS_COLORS: Record<string, string> = {
   SCHEDULED: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -680,26 +693,20 @@ function TripCardCompact({ trip, onTap }: { trip: any; onTap: () => void }) {
   );
 }
 
-function TripDetailModal({ trip, token, onClose, onStatusChange, isPending }: {
+function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigation, isPending }: {
   trip: any;
   token: string | null;
   onClose: () => void;
   onStatusChange: (tripId: number, status: string) => void;
+  onOpenNavigation: (trip: ActiveTripData) => void;
   isPending: boolean;
 }) {
   const { toast } = useToast();
   const statusAction = STATUS_FLOW[trip.status];
   const isLocked = trip.status === "COMPLETED" || trip.status === "CANCELLED" || trip.status === "NO_SHOW";
-
-  const openNavigation = useCallback(() => {
-    const savedApp = getSavedNavApp();
-    if (savedApp) {
-      window.open(getNavUrlForApp(trip, savedApp), "_blank");
-    } else {
-      const url = getNavUrlForApp(trip, "google");
-      window.open(url, "_blank");
-    }
-  }, [trip]);
+  const phase = getTripPhase(trip);
+  const navLabel = getNavLabel(trip);
+  const savedNavApp = getSavedNavApp();
 
   const handleCopy = async () => {
     const addr = getDestinationAddress(trip);
@@ -734,14 +741,14 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, isPending }: {
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-start gap-2">
+            <div className={`flex items-start gap-2 ${phase === "PICKUP" ? "ring-1 ring-green-500/30 rounded-md p-2" : ""}`}>
               <Navigation className="w-5 h-5 mt-0.5 flex-shrink-0 text-green-600" />
               <div className="flex-1 min-w-0">
                 <span className="text-xs text-muted-foreground">Pickup</span>
                 <p className="text-sm" data-testid="text-detail-pickup">{trip.pickupAddress || "N/A"}</p>
               </div>
             </div>
-            <div className="flex items-start gap-2">
+            <div className={`flex items-start gap-2 ${phase === "DROPOFF" ? "ring-1 ring-red-500/30 rounded-md p-2" : ""}`}>
               <MapPin className="w-5 h-5 mt-0.5 flex-shrink-0 text-red-600" />
               <div className="flex-1 min-w-0">
                 <span className="text-xs text-muted-foreground">Dropoff</span>
@@ -767,18 +774,27 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, isPending }: {
             </div>
           </div>
 
-          <div className="flex gap-2 flex-wrap">
-            {!isLocked && (
-              <Button variant="outline" onClick={openNavigation} className="flex-1 min-h-[44px]" data-testid="button-detail-navigate">
-                <Navigation className="w-5 h-5 mr-2" /> Navigate
-              </Button>
-            )}
-            {!isLocked && (
-              <Button variant="outline" onClick={handleCopy} className="min-h-[44px]" data-testid="button-detail-copy">
-                <ClipboardCopy className="w-5 h-5" />
-              </Button>
-            )}
-          </div>
+          {!isLocked && (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => onOpenNavigation(trip)} className="flex-1 min-h-[44px]" data-testid="button-detail-navigate">
+                  <Navigation className="w-5 h-5 mr-2" /> {navLabel}
+                </Button>
+                <Button variant="outline" onClick={handleCopy} className="min-h-[44px]" data-testid="button-detail-copy">
+                  <ClipboardCopy className="w-5 h-5" />
+                </Button>
+              </div>
+              {savedNavApp && (
+                <button
+                  onClick={() => { setSavedNavApp(null); toast({ title: "Nav preference cleared" }); }}
+                  className="text-xs text-muted-foreground underline"
+                  data-testid="button-change-nav-provider"
+                >
+                  Using {savedNavApp === "google" ? "Google Maps" : savedNavApp === "apple" ? "Apple Maps" : "Waze"} &middot; Change
+                </button>
+              )}
+            </div>
+          )}
 
           {!isLocked && statusAction && (
             <Button
@@ -1091,7 +1107,7 @@ function HomePage({
             )}
             <div className="flex gap-2 flex-wrap">
               <Button variant="outline" onClick={() => onOpenNavigation(activeTrip)} className="flex-1 min-h-[44px]" data-testid="button-active-navigate">
-                <Navigation className="w-5 h-5 mr-2" /> Navigate
+                <Navigation className="w-5 h-5 mr-2" /> {getNavLabel(activeTrip)}
               </Button>
               <Button variant="outline" onClick={() => handleCopy(activeTrip)} className="min-h-[44px]" data-testid="button-active-copy">
                 <ClipboardCopy className="w-5 h-5" />
@@ -1166,10 +1182,11 @@ function HomePage({
 
 type TripsSubTab = "offers" | "today" | "scheduled" | "completed";
 
-function TripsPage({ token, onStatusChange, statusIsPending }: {
+function TripsPage({ token, onStatusChange, statusIsPending, onOpenNavigation }: {
   token: string | null;
   onStatusChange: (tripId: number, currentStatus: string) => void;
   statusIsPending: boolean;
+  onOpenNavigation: (trip: ActiveTripData) => void;
 }) {
   const [subTab, setSubTab] = useState<TripsSubTab>("today");
   const [selectedTrip, setSelectedTrip] = useState<any>(null);
@@ -1306,6 +1323,7 @@ function TripsPage({ token, onStatusChange, statusIsPending }: {
           token={token}
           onClose={() => setSelectedTrip(null)}
           onStatusChange={onStatusChange}
+          onOpenNavigation={onOpenNavigation}
           isPending={statusIsPending}
         />
       )}
@@ -2698,7 +2716,7 @@ export default function DriverPortal() {
           />
         )}
         {activeTab === "trips" && (
-          <TripsPage token={token} onStatusChange={handleStatusWithConfirm} statusIsPending={statusMutation.isPending} />
+          <TripsPage token={token} onStatusChange={handleStatusWithConfirm} statusIsPending={statusMutation.isPending} onOpenNavigation={openNavigation} />
         )}
         {activeTab === "performance" && <PerformancePage token={token} />}
         {activeTab === "bonuses" && <BonusesPage token={token} />}
