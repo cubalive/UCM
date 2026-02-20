@@ -388,6 +388,7 @@ export function registerTrackingRoutes(app: Express) {
       }
 
       let driverData: { name: string; lat: number | null; lng: number | null; updated_at: string | null } | null = null;
+      let vehicleData: { name: string; license_plate: string; make?: string; model?: string; year?: number } | null = null;
       let etaData: { minutes: number; distance_text: string | null; updated_at: string | null } | null = null;
 
       if (trip.driverId) {
@@ -407,6 +408,21 @@ export function registerTrackingRoutes(app: Express) {
             lng: driverLng,
             updated_at: driver.lastSeenAt ? driver.lastSeenAt.toISOString() : null,
           };
+
+          if (trip.vehicleId) {
+            try {
+              const vehicle = await storage.getVehicle(trip.vehicleId);
+              if (vehicle) {
+                vehicleData = {
+                  name: vehicle.name,
+                  license_plate: vehicle.licensePlate,
+                  make: vehicle.make || undefined,
+                  model: vehicle.model || undefined,
+                  year: vehicle.year || undefined,
+                };
+              }
+            } catch {}
+          }
 
           let gpsStale: any = null;
           try {
@@ -446,6 +462,20 @@ export function registerTrackingRoutes(app: Express) {
       const pickupParts = [trip.pickupStreet, trip.pickupCity, trip.pickupState, trip.pickupZip].filter(Boolean);
       const pickupSummary = pickupParts.length > 0 ? pickupParts.join(", ") : trip.pickupAddress;
 
+      let dispatchPhone: string | null = null;
+      if (trip.companyId) {
+        try {
+          const company = await storage.getCompany(trip.companyId);
+          if (company?.dispatchPhone) {
+            dispatchPhone = company.dispatchPhone;
+          }
+        } catch {}
+      }
+      if (!dispatchPhone) {
+        const { getDispatchPhone } = await import("./twilioSms");
+        dispatchPhone = getDispatchPhone() || null;
+      }
+
       res.json({
         ok: true,
         trip: {
@@ -457,7 +487,9 @@ export function registerTrackingRoutes(app: Express) {
           scheduled_date: trip.scheduledDate,
         },
         driver: driverData,
+        vehicle: vehicleData,
         eta: etaData,
+        dispatch_phone: dispatchPhone,
         route_polyline: trip.routePolyline || null,
       });
     } catch (err: any) {

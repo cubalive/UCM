@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Clock, MapPin, Navigation, AlertTriangle, Car, CheckCircle2, XCircle } from "lucide-react";
+import { Clock, MapPin, Navigation, AlertTriangle, Car, CheckCircle2, XCircle, Phone, MessageSquare, Truck } from "lucide-react";
 
 function StaticMapImage({ token, ...props }: { token: string; "data-testid"?: string }) {
   const [failed, setFailed] = useState(false);
@@ -32,22 +33,37 @@ interface TrackingData {
     scheduled_date: string;
   };
   driver?: {
-    first_name: string;
+    name: string;
     lat: number;
     lng: number;
     updated_at: string;
   } | null;
-  eta?: {
-    eta_minutes: number;
-    distance_text: string;
+  vehicle?: {
+    name: string;
+    license_plate: string;
+    make?: string;
+    model?: string;
+    year?: number;
   } | null;
+  eta?: {
+    minutes: number;
+    distance_text: string;
+    updated_at?: string;
+  } | null;
+  dispatch_phone?: string | null;
   route_polyline?: string | null;
 }
 
 const STATUS_DISPLAY: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   SCHEDULED: { label: "Scheduled", color: "secondary", icon: Clock },
+  CONFIRMED: { label: "Confirmed", color: "secondary", icon: CheckCircle2 },
   ASSIGNED: { label: "Driver Assigned", color: "secondary", icon: Car },
-  IN_PROGRESS: { label: "Driver En Route", color: "default", icon: Navigation },
+  EN_ROUTE_TO_PICKUP: { label: "Driver On The Way", color: "default", icon: Navigation },
+  ARRIVED_PICKUP: { label: "Driver Arrived", color: "default", icon: MapPin },
+  PICKED_UP: { label: "Picked Up", color: "default", icon: Car },
+  IN_PROGRESS: { label: "In Progress", color: "default", icon: Navigation },
+  EN_ROUTE_TO_DROPOFF: { label: "En Route to Destination", color: "default", icon: Navigation },
+  ARRIVED_DROPOFF: { label: "Arrived at Destination", color: "default", icon: MapPin },
   COMPLETED: { label: "Completed", color: "secondary", icon: CheckCircle2 },
   CANCELLED: { label: "Cancelled", color: "destructive", icon: XCircle },
   NO_SHOW: { label: "No Show", color: "destructive", icon: AlertTriangle },
@@ -58,6 +74,16 @@ function formatTimeAgo(isoStr: string): string {
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   return `${Math.floor(diff / 3600)}h ago`;
+}
+
+function formatVehicleLabel(v: TrackingData["vehicle"]): string {
+  if (!v) return "";
+  const parts: string[] = [];
+  if (v.year) parts.push(String(v.year));
+  if (v.make) parts.push(v.make);
+  if (v.model) parts.push(v.model);
+  if (parts.length === 0) parts.push(v.name);
+  return parts.join(" ");
 }
 
 export default function PublicTrackingPage() {
@@ -76,7 +102,7 @@ export default function PublicTrackingPage() {
       const res = await fetch(`/api/public/trips/track/${token}`);
       const json = await res.json();
       if (!json.ok) {
-        setError(json.error || "Unable to load tracking information");
+        setError(json.message || json.error || "Unable to load tracking information");
         setData(null);
       } else {
         setData(json);
@@ -91,7 +117,7 @@ export default function PublicTrackingPage() {
 
   useEffect(() => {
     fetchTracking();
-    const interval = setInterval(fetchTracking, 30000);
+    const interval = setInterval(fetchTracking, 15000);
     return () => clearInterval(interval);
   }, [fetchTracking]);
 
@@ -289,7 +315,9 @@ export default function PublicTrackingPage() {
   const trip = data.trip;
   const statusInfo = STATUS_DISPLAY[trip.status] || STATUS_DISPLAY.SCHEDULED;
   const StatusIcon = statusInfo.icon;
-  const showMap = !!data.driver && (trip.status === "ASSIGNED" || trip.status === "IN_PROGRESS");
+  const enRouteStatuses = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "IN_PROGRESS", "EN_ROUTE_TO_DROPOFF"];
+  const showMap = !!data.driver && enRouteStatuses.includes(trip.status);
+  const showEta = !!data.eta && enRouteStatuses.includes(trip.status);
 
   return (
     <div className="min-h-screen bg-background">
@@ -311,14 +339,14 @@ export default function PublicTrackingPage() {
               </Badge>
             </div>
 
-            {data.eta && trip.status === "IN_PROGRESS" && (
+            {showEta && data.eta && (
               <div className="bg-primary/10 rounded-md p-3 text-center" data-testid="section-eta">
                 <p className="text-sm text-muted-foreground">Estimated Arrival</p>
-                <p className="text-2xl font-bold" data-testid="text-eta-value">{data.eta.eta_minutes} min</p>
+                <p className="text-2xl font-bold" data-testid="text-eta-value">{data.eta.minutes} min</p>
                 {data.eta.distance_text && (
                   <p className="text-xs text-muted-foreground" data-testid="text-eta-distance">{data.eta.distance_text} away</p>
                 )}
-                {data.eta.eta_minutes <= 5 && (
+                {data.eta.minutes <= 5 && (
                   <Badge variant="destructive" className="mt-2" data-testid="badge-arriving-soon">
                     <AlertTriangle className="w-3 h-3 mr-1" />
                     Arriving Soon
@@ -349,8 +377,21 @@ export default function PublicTrackingPage() {
                   <Car className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                   <div>
                     <p className="text-xs text-muted-foreground">Driver</p>
-                    <p className="text-sm" data-testid="text-driver-name">{data.driver.first_name}</p>
-                    <p className="text-xs text-muted-foreground">Location updated {formatTimeAgo(data.driver.updated_at)}</p>
+                    <p className="text-sm" data-testid="text-driver-name">{data.driver.name}</p>
+                    {data.driver.updated_at && (
+                      <p className="text-xs text-muted-foreground">Location updated {formatTimeAgo(data.driver.updated_at)}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {data.vehicle && (
+                <div className="flex items-start gap-2">
+                  <Truck className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Vehicle</p>
+                    <p className="text-sm" data-testid="text-vehicle-info">{formatVehicleLabel(data.vehicle)}</p>
+                    <p className="text-xs text-muted-foreground" data-testid="text-vehicle-plate">{data.vehicle.license_plate}</p>
                   </div>
                 </div>
               )}
@@ -380,6 +421,28 @@ export default function PublicTrackingPage() {
           <Card>
             <CardContent className="p-0">
               <StaticMapImage token={token!} data-testid="img-public-static-map" />
+            </CardContent>
+          </Card>
+        )}
+
+        {data.dispatch_phone && (
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-sm font-medium mb-3" data-testid="text-dispatch-label">Need Help?</p>
+              <div className="flex gap-2">
+                <Button asChild variant="default" className="flex-1" data-testid="button-call-dispatch">
+                  <a href={`tel:${data.dispatch_phone}`}>
+                    <Phone className="w-4 h-4 mr-2" />
+                    Call Dispatch
+                  </a>
+                </Button>
+                <Button asChild variant="outline" className="flex-1" data-testid="button-text-dispatch">
+                  <a href={`sms:${data.dispatch_phone}`}>
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Text Dispatch
+                  </a>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
