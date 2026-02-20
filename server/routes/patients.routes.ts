@@ -14,6 +14,7 @@ router.get("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VI
 router.get("/api/patients/clinic-groups", authMiddleware, requirePermission("patients", "read"), requireTenantScope, getPatientClinicGroupsHandler as any);
 router.post("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER", "SUPER_ADMIN"), requireTenantScope, createPatientHandler as any);
 router.patch("/api/patients/:id", authMiddleware, requirePermission("patients", "write"), requireTenantScope, updatePatientHandler as any);
+router.put("/api/patients/:id", authMiddleware, requirePermission("patients", "write"), requireTenantScope, updatePatientHandler as any);
 
 export function registerPatientRoutes(app: Express) {
   app.use(router);

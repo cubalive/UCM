@@ -156,6 +156,11 @@ export async function updatePatientHandler(req: AuthRequest, res: Response) {
     const existing = await storage.getPatient(id);
     if (!existing) return res.status(404).json({ message: "Patient not found" });
 
+    const callerCompanyId = getCompanyIdFromAuth(req);
+    if (callerCompanyId && existing.companyId && existing.companyId !== callerCompanyId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     const user = await storage.getUser(req.user!.userId);
     if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
       if (existing.clinicId !== user.clinicId) {
