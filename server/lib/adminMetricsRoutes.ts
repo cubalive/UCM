@@ -7,6 +7,7 @@ import { getRequestMetricsSummary, getTopRoutes } from "./requestMetrics";
 import { getJobStatus } from "./jobHeartbeat";
 import { getActiveConnectionCount, getActiveSubscriptionCount } from "./realtime";
 import { isDriverOnline } from "./driverClassification";
+import { metricsSummary as healthSummaryHandler, metricsDetails as healthDetailsHandler } from "../controllers/adminMetrics.controller";
 
 const startedAt = Date.now();
 
@@ -245,6 +246,9 @@ export function registerAdminMetricsRoutes(app: Express) {
       res.status(500).json({ ok: false, error: err.message });
     }
   });
+
+  app.get("/api/admin/metrics/health", ...gate, healthSummaryHandler as any);
+  app.get("/api/admin/metrics/health/details", ...gate, healthDetailsHandler as any);
 
   app.get("/api/admin/metrics/counts", ...gate, async (_req: AuthRequest, res) => {
     try {

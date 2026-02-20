@@ -19,6 +19,24 @@ function sanitizeHost(host: string): string {
 
 const rawDatabaseUrl = (process.env.DATABASE_URL || "").trim();
 const rawSupabaseUrl = (process.env.SUPABASE_DB_URL || "").trim();
+const rawPgHost = (process.env.PGHOST || "").trim();
+
+if (rawPgHost && rawPgHost.toLowerCase().includes("neon.tech")) {
+  console.error(`[DB-FATAL] PGHOST contains "neon.tech" (${sanitizeHost(rawPgHost)}). Neon is blocked.`);
+  console.error(`[DB-FATAL] Remove or update PGHOST and restart.`);
+  process.exit(1);
+}
+
+const databaseUrlIsNeon = rawDatabaseUrl ? isNeonOrReplit(rawDatabaseUrl) : false;
+
+if (databaseUrlIsNeon) {
+  const neonHost = extractHost(rawDatabaseUrl);
+  console.error(`[DB-BLOCK] DATABASE_URL contains Neon/Replit host (${sanitizeHost(neonHost || "unknown")}). Neon is BLOCKED — will not be used.`);
+  if (!rawSupabaseUrl) {
+    console.error(`[DB-FATAL] SUPABASE_DB_URL is also not set. No valid database configured. Exiting.`);
+    process.exit(1);
+  }
+}
 
 let chosenUrl = "";
 let chosenSource: "DATABASE_URL" | "SUPABASE_DB_URL" = "DATABASE_URL";
@@ -27,27 +45,23 @@ if (rawDatabaseUrl && rawSupabaseUrl) {
   const hostA = extractHost(rawDatabaseUrl);
   const hostB = extractHost(rawSupabaseUrl);
 
-  if (isNeonOrReplit(rawDatabaseUrl)) {
-    console.warn(`[DB] DATABASE_URL points to non-Supabase host (${sanitizeHost(hostA || "unknown")}). Ignoring — using SUPABASE_DB_URL.`);
+  if (databaseUrlIsNeon) {
     chosenUrl = rawSupabaseUrl;
     chosenSource = "SUPABASE_DB_URL";
+    console.warn(`[DB-WARN] DATABASE_URL (Neon) and SUPABASE_DB_URL both exist. Neon blocked — using SUPABASE_DB_URL.`);
   } else if (hostA && hostB && hostA !== hostB) {
-    console.error(`[DB-FATAL] Conflicting DB URLs detected.`);
-    console.error(`  DATABASE_URL   host: ${sanitizeHost(hostA)}`);
-    console.error(`  SUPABASE_DB_URL host: ${sanitizeHost(hostB)}`);
-    console.error(`[DB-FATAL] Both env vars are set but point to different hosts. Fix your secrets and restart.`);
-    process.exit(1);
+    console.warn(`[DB-WARN] DATABASE_URL and SUPABASE_DB_URL point to different hosts.`);
+    console.warn(`  DATABASE_URL   host: ${sanitizeHost(hostA!)}`);
+    console.warn(`  SUPABASE_DB_URL host: ${sanitizeHost(hostB!)}`);
+    chosenUrl = rawSupabaseUrl;
+    chosenSource = "SUPABASE_DB_URL";
+    console.warn(`[DB-WARN] Preferring SUPABASE_DB_URL (the intended Supabase connection).`);
   } else {
     chosenUrl = rawDatabaseUrl;
     chosenSource = "DATABASE_URL";
     console.log(`[DB] Both DATABASE_URL and SUPABASE_DB_URL set (same host). Using DATABASE_URL.`);
   }
-} else if (rawDatabaseUrl) {
-  if (isNeonOrReplit(rawDatabaseUrl)) {
-    console.error(`[DB-FATAL] DATABASE_URL points to non-Supabase host (Neon/Replit). SUPABASE_DB_URL is not set.`);
-    console.error(`[DB-FATAL] This application requires Supabase PostgreSQL. Set SUPABASE_DB_URL and restart.`);
-    process.exit(1);
-  }
+} else if (rawDatabaseUrl && !databaseUrlIsNeon) {
   chosenUrl = rawDatabaseUrl;
   chosenSource = "DATABASE_URL";
 } else if (rawSupabaseUrl) {

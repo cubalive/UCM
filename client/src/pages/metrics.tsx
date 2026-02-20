@@ -326,6 +326,26 @@ export default function MetricsPage() {
     enabled: !isDriverHost && !!user && user.role === "SUPER_ADMIN",
   });
 
+  interface HealthMetric { state: "HEALTHY" | "GOOD" | "CRITICAL"; reason: string; [key: string]: any }
+  interface PlatformHealth {
+    ok: boolean;
+    overallState: "HEALTHY" | "GOOD" | "CRITICAL";
+    timestamp: string;
+    db: HealthMetric;
+    api: HealthMetric;
+    imports: HealthMetric;
+    trips: HealthMetric;
+    drivers: HealthMetric;
+    notifications: HealthMetric;
+  }
+
+  const { data: platformHealth, refetch: refetchHealth } = useQuery<PlatformHealth>({
+    queryKey: ["/api/admin/metrics/health"],
+    refetchInterval: 20_000,
+    retry: 2,
+    enabled: !isDriverHost && !!user && user.role === "SUPER_ADMIN",
+  });
+
   const { toast } = useToast();
 
   const showToast = (msg: string) => toast({ title: msg, variant: "destructive" });
@@ -482,7 +502,7 @@ export default function MetricsPage() {
             </p>
           )}
         </div>
-        <Button size="sm" variant="outline" onClick={() => { refetchMetrics(); refetchAdmin(); }} data-testid="button-refresh-metrics">
+        <Button size="sm" variant="outline" onClick={() => { refetchMetrics(); refetchAdmin(); refetchHealth(); }} data-testid="button-refresh-metrics">
           <RefreshCw className="mr-2 h-3 w-3" />
           Refresh
         </Button>
@@ -566,6 +586,51 @@ export default function MetricsPage() {
           icon={BarChart3}
         />
       </div>
+
+      {platformHealth && (
+        <Card data-testid="card-platform-health">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-medium" data-testid="text-platform-health-title">Platform Health</CardTitle>
+              <Badge
+                variant={platformHealth.overallState === "CRITICAL" ? "destructive" : "default"}
+                className={platformHealth.overallState === "HEALTHY" ? "bg-emerald-600 text-white" : platformHealth.overallState === "GOOD" ? "bg-blue-600 text-white" : ""}
+                data-testid="badge-overall-health"
+              >
+                {platformHealth.overallState}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {([
+                { key: "db", label: "Database", icon: DatabaseIcon, extra: (d: any) => d.latencyMs != null ? `${d.latencyMs}ms` : "" },
+                { key: "api", label: "API", icon: Activity, extra: (d: any) => d.p95Ms != null ? `p95: ${d.p95Ms}ms` : "" },
+                { key: "imports", label: "Imports", icon: ListChecks, extra: (d: any) => d.last24hJobs != null ? `${d.last24hJobs} jobs/24h` : "" },
+                { key: "trips", label: "Trips", icon: Car, extra: (d: any) => d.activeTrips != null ? `${d.activeTrips} active` : "" },
+                { key: "drivers", label: "Drivers", icon: Users, extra: (d: any) => d.activeDrivers != null ? `${d.activeDrivers} active` : "" },
+                { key: "notifications", label: "SMS", icon: Radio, extra: (d: any) => d.smsSent24h != null ? `${d.smsSent24h} sent/24h` : "" },
+              ] as const).map(({ key, label, icon: Ic, extra }) => {
+                const metric = (platformHealth as any)[key] as HealthMetric | undefined;
+                if (!metric) return null;
+                const stateColor = metric.state === "CRITICAL" ? "text-red-600 dark:text-red-400" : metric.state === "GOOD" ? "text-blue-600 dark:text-blue-400" : "text-emerald-600 dark:text-emerald-400";
+                const bgColor = metric.state === "CRITICAL" ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900" : metric.state === "GOOD" ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900" : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900";
+                return (
+                  <div key={key} className={`rounded-md border p-3 ${bgColor}`} data-testid={`health-card-${key}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Ic className={`h-3.5 w-3.5 ${stateColor}`} />
+                      <span className="text-xs font-medium">{label}</span>
+                    </div>
+                    <div className={`text-sm font-semibold ${stateColor}`} data-testid={`health-state-${key}`}>{metric.state}</div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight" data-testid={`health-reason-${key}`}>{metric.reason}</p>
+                    {extra(metric) && <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">{extra(metric)}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {adminSummary && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
