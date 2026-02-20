@@ -1010,7 +1010,7 @@ export async function clinicInvoiceByIdHandler(req: AuthRequest, res: Response) 
 export async function clinicDeletePatientHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || user.role !== "VIEWER" || !user.clinicId) {
+    if (!user || (user.role !== "VIEWER" && user.role !== "CLINIC_USER") || !user.clinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
     const id = parseInt(String(req.params.id));
@@ -1041,7 +1041,7 @@ export async function clinicDeletePatientHandler(req: AuthRequest, res: Response
 export async function clinicDeleteTripHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || user.role !== "VIEWER" || !user.clinicId) {
+    if (!user || (user.role !== "VIEWER" && user.role !== "CLINIC_USER") || !user.clinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
     const id = parseInt(String(req.params.id));
@@ -1072,7 +1072,7 @@ export async function clinicDeleteTripHandler(req: AuthRequest, res: Response) {
 export async function clinicPatientsHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || user.role !== "VIEWER" || !user.clinicId) {
+    if (!user || (user.role !== "VIEWER" && user.role !== "CLINIC_USER") || !user.clinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
     const clinicPatients = await db.select().from(patients).where(
@@ -1099,7 +1099,7 @@ export async function clinicProfileHandler(req: AuthRequest, res: Response) {
 export async function clinicRecurringSchedulesHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || user.role !== "VIEWER" || !user.clinicId) {
+    if (!user || (user.role !== "VIEWER" && user.role !== "CLINIC_USER") || !user.clinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
     const clinicPatientIds = await db.select({ id: patients.id }).from(patients).where(

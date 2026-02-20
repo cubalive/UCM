@@ -157,7 +157,7 @@ export async function updatePatientHandler(req: AuthRequest, res: Response) {
     if (!existing) return res.status(404).json({ message: "Patient not found" });
 
     const user = await storage.getUser(req.user!.userId);
-    if (user?.role === "VIEWER" && user.clinicId) {
+    if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
       if (existing.clinicId !== user.clinicId) {
         return res.status(403).json({ message: "You can only edit patients belonging to your clinic" });
       }

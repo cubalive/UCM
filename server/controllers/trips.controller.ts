@@ -629,7 +629,12 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
       }
     }
 
-    const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, ...pricingFields, companyId: callerCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource, ...(autoScheduledTime ? { scheduledTime: autoScheduledTime } : {}) } as any);
+    let effectiveCompanyId = callerCompanyId;
+    if (!effectiveCompanyId && parsed.data.patientId) {
+      const patientForCompany = await storage.getPatient(parsed.data.patientId);
+      if (patientForCompany?.companyId) effectiveCompanyId = patientForCompany.companyId;
+    }
+    const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, ...pricingFields, companyId: effectiveCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource, ...(autoScheduledTime ? { scheduledTime: autoScheduledTime } : {}) } as any);
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "CREATE",
@@ -705,7 +710,7 @@ export async function updateTripHandler(req: AuthRequest, res: Response) {
     }
 
     const editUser = await storage.getUser(req.user!.userId);
-    const isClinicEditor = editUser?.role === "VIEWER" && editUser.clinicId != null;
+    const isClinicEditor = (editUser?.role === "VIEWER" || editUser?.role === "CLINIC_USER") && editUser.clinicId != null;
     if (isClinicEditor) {
       if (existing.clinicId !== editUser.clinicId) {
         return res.status(403).json({ message: "You can only edit your own clinic's trips" });

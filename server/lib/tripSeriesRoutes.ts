@@ -229,7 +229,7 @@ export function registerTripSeriesRoutes(app: Express) {
         });
 
         const user = await storage.getUser(req.user!.userId);
-        const isClinic = user?.role === "VIEWER" && user.clinicId != null;
+        const isClinic = (user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId != null;
 
         const createdTrips: Array<Trip> = [];
         for (const date of dates) {

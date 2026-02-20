@@ -744,7 +744,7 @@ export function registerOpsRoutes(app: Express) {
 
       if (!clinicId) return res.status(400).json({ error: "clinic_id required" });
 
-      if (req.user!.role === "VIEWER") {
+      if (req.user!.role === "VIEWER" || req.user!.role === "CLINIC_USER") {
         const viewerUser = await storage.getUser(req.user!.userId);
         if (viewerUser?.clinicId !== clinicId) {
           return res.status(403).json({ error: "Access denied" });
@@ -836,7 +836,7 @@ export function registerOpsRoutes(app: Express) {
       if (!clinic_id || !message) return res.status(400).json({ error: "clinic_id and message required" });
 
       const parsedClinicId = parseInt(clinic_id);
-      if (req.user!.role === "VIEWER") {
+      if (req.user!.role === "VIEWER" || req.user!.role === "CLINIC_USER") {
         const viewerUser = await storage.getUser(req.user!.userId);
         if (viewerUser?.clinicId !== parsedClinicId) {
           return res.status(403).json({ error: "Access denied" });

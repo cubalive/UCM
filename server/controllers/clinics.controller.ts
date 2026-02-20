@@ -98,11 +98,12 @@ export async function createClinicHandler(req: AuthRequest, res: Response) {
           password: hashed,
           firstName: nameParts[0] || clinic.name,
           lastName: nameParts.slice(1).join(" ") || "Clinic",
-          role: "VIEWER",
+          role: "CLINIC_USER",
           phone: clinic.phone || null,
           active: true,
           mustChangePassword: true,
           clinicId: clinic.id,
+          companyId: clinicData.companyId || null,
         });
         await storage.setUserCityAccess(newUser.id, [clinic.cityId]);
         userCreated = true;
@@ -246,10 +247,12 @@ export async function updateClinicHandler(req: AuthRequest, res: Response) {
             password: hashed,
             firstName: nameParts[0] || clinic.name,
             lastName: nameParts.slice(1).join(" ") || "Clinic",
-            role: "VIEWER",
+            role: "CLINIC_USER",
             phone: clinic.phone || null,
             active: true,
             mustChangePassword: true,
+            clinicId: clinic.id,
+            companyId: clinic.companyId || null,
           });
           await storage.setUserCityAccess(newUser.id, [clinic.cityId]);
         }

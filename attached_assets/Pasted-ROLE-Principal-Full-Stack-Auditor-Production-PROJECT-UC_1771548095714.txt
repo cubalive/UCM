@@ -1,0 +1,229 @@
+ROLE: Principal Full-Stack Auditor (Production)
+PROJECT: UCM DISPATCH (United Care Mobility LLC)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Do NOT drop/recreate tables
+- Extend existing system only (ALTER migrations allowed)
+- Validate via UI + DB + server logs (NOT curl-only)
+- Do NOT claim “done” until ALL functions pass end-to-end
+
+USER ROLE CLARIFICATION:
+- The real operator is SUPER_ADMIN (Cubalive). SUPER_ADMIN must be able to see and operate EVERYTHING across ALL companies.
+- Clinics, company admins, dispatchers, drivers must be strictly isolated by company_id / clinic_id.
+
+MISSION:
+Multiple past prompts created inconsistencies. Some actions (especially assigning trips to drivers, and saving/creating trips/patients) are unreliable.
+You must do a COMPLETE feature-by-feature audit of the ENTIRE app and fix/complete all functions so it runs like a Swiss clock.
+
+CORE PRINCIPLE (MANDATORY):
+A) Manual control ALWAYS exists for SUPER_ADMIN/Dispatch (manual create/edit/assign/override).
+B) Automation is ALWAYS available and prioritized (auto schedule/auto assign/auto alerts) BUT must NEVER block manual operations.
+C) SUPER_ADMIN can override anything with reason code; everything is audited.
+
+=====================================================================
+PHASE 0 — INVENTORY (NO CODE CHANGES YET)
+=====================================================================
+0.1 Build a “Feature Map”:
+- List every UI page/route by role: SUPER_ADMIN, DISPATCH, COMPANY_ADMIN, CLINIC_USER, DRIVER
+- List every API endpoint and which role can call it
+- List every DB table + columns + relationships
+Include this map in the final report.
+
+0.2 Identify the tenant model used today:
+- company_id / tenant_id / org_id / clinic_id
+Pick ONE canonical tenant key: company_id (preferred).
+Document current state and mismatches.
+
+0.3 Enable structured server logs:
+- requestId, userId, role, companyId, endpoint, status, error stack
+- never log secrets/PHI
+UI must show requestId on errors.
+
+=====================================================================
+PHASE 1 — TENANT ISOLATION + DATA INTEGRITY (ROOT CAUSE)
+=====================================================================
+1.1 For EVERY core table confirm company_id exists and is indexed:
+- companies
+- clinics
+- users
+- patients
+- drivers
+- vehicles
+- trips
+- schedules / recurring schedules
+- assignments
+- messages/chat
+- gps_pings/locations
+- invoices/billing/payments
+- audit_logs
+If missing: add via ALTER TABLE + index (NO resets).
+
+1.2 Backfill company_id safely for existing rows:
+- derive from clinic.company_id, user.company_id, trip.clinic_id, etc.
+- ambiguous rows -> mark needs_review and count them in report.
+
+1.3 Server-side scoping rules:
+- Non-super-admin queries MUST always filter by company_id.
+- SUPER_ADMIN can query across companies, but must still be able to filter by company in UI.
+- Add helper getCompanyScope(req) to apply consistently.
+
+1.4 Hard constraints and cross-entity validation (CRITICAL FOR ASSIGN BUG):
+- vehicles.company_id NOT NULL
+- drivers.company_id NOT NULL
+- patients.company_id NOT NULL
+- trips.company_id NOT NULL
+- Prevent assigning a driver/vehicle from company A to a trip in company B.
+- If any UI allows cross-company selection, fix it:
+  - SUPER_ADMIN can choose company explicitly, but once selected, all pickers filter to that company.
+
+=====================================================================
+PHASE 2 — END-TO-END FEATURE AUDIT (EVERY FUNCTION)
+=====================================================================
+For EACH function below:
+(a) reproduce in UI,
+(b) confirm API request/response,
+(c) confirm DB write,
+(d) confirm it shows in the correct list,
+(e) confirm RBAC enforced server-side,
+(f) fix if broken,
+(g) re-test.
+
+A) COMPANY (SUPER_ADMIN)
+- Create company
+- Edit company settings (timezone, geofence radius, auto-assign toggles, pricing)
+- Archive company (if supported)
+- Company list and filters
+
+B) CLINICS
+- Create clinic under company
+- Edit clinic
+- Clinic user account creation (email + temp password + force reset)
+- Clinic sees only its clinic/company
+
+C) USERS / ROLES
+- Create users for DISPATCH, COMPANY_ADMIN, CLINIC_USER, DRIVER
+- Verify SUPER_ADMIN sees everything
+- Verify others are scoped
+
+D) PATIENTS
+- Create patient as SUPER_ADMIN and as CLINIC_USER
+- Ensure patient belongs to selected company + clinic
+- Edit patient
+- Archive patient (required)
+- Delete patient only if super_admin allowed; otherwise keep archive-only
+- Verify lists show only correct tenant
+
+E) DRIVERS
+- Create driver (company_id required)
+- Edit driver
+- Archive driver
+- Driver schedule + break/hold
+- Driver can only see their company trips
+
+F) VEHICLES (MUST FIX COMPANY LINK)
+- Create vehicle (company_id required)
+- Store: type, wheelchair_capable, plate, color, status
+- Assign vehicle to driver (same company only)
+- Archive vehicle
+- Ensure vehicle list filters by company
+
+G) TRIPS (CRITICAL)
+- Create trip as SUPER_ADMIN and DISPATCH
+- Trip must save reliably and appear immediately
+- Trip details page must load reliably
+- ASSIGNMENT MUST WORK:
+  1) Manual assign driver from UI
+  2) Backend validates company match
+  3) DB writes: trips.assigned_driver_id and (if applicable) trips.vehicle_id
+  4) UI updates: dispatch list + driver app shows trip
+- Reschedule pickup/return (rules)
+- Cancel trip
+- Complete lifecycle
+
+H) AUTO LOGIC (PRIORITY BUT NEVER BLOCKS MANUAL)
+- Auto-schedule recurring patients (3 weeks advance)
+- Auto-assign driver by schedule + proximity + vehicle capability
+- If auto logic fails, trip must still be manually assignable
+
+I) GEOFENCE + STATUS MACHINE (SERVER ENFORCED)
+- Implement strict transitions server-side
+- Geofence checks against pickup/dropoff lat/lng
+- Dispatch override with reason code (audited)
+- Verify with simulated GPS pings and configurable radius
+
+J) MESSAGING
+- Clinic-to-dispatch chat works
+- Driver notifications if used
+- Twilio failures handled with clear errors
+
+K) OPS HEALTH (CLINIC MONITOR)
+- Inbound/outbound, late, no-show, ETA
+- “Need help” button to dispatch
+- Counts must match DB truth
+
+L) BILLING / STRIPE
+- Private ride quote -> checkout -> webhook -> DB record
+- Weekly clinic invoice grouped by patient with trip details
+- Export PDF/CSV if feature exists
+
+M) IMPORT/CSV (if exists)
+- Import patients/drivers/vehicles
+- MUST map to company_id + clinic_id
+- Progress bar + success message
+- Verify imported records appear
+
+=====================================================================
+PHASE 3 — GOOGLE MAPS / ADDRESS RELIABILITY
+=====================================================================
+- Ensure VITE_GOOGLE_MAPS_API_KEY is set for frontend
+- Ensure GOOGLE_MAPS_API_KEY is set for backend geocoding (if used)
+- One shared AddressAutocomplete component everywhere
+- Always store formatted_address + lat/lng
+- Trip creation must fail clearly if lat/lng missing (no silent fail)
+
+=====================================================================
+PHASE 4 — RELIABILITY + ERROR HANDLING (NO MORE “NO GUARDA”)
+=====================================================================
+- Standard API response shape:
+  success: { ok:true, data, requestId }
+  error:   { ok:false, code, error, fields?, requestId }
+- UI shows field errors + toast
+- Remove infinite spinners: add timeout + retry
+- Add audit logs for all mutations:
+  create/edit/archive/assign/override/cancel/complete
+
+=====================================================================
+PHASE 5 — VERIFICATION (MANDATORY)
+=====================================================================
+5.1 Manual UI walkthrough (documented):
+- SUPER_ADMIN: create company -> clinic -> dispatch user
+- SUPER_ADMIN/DISPATCH: create patient -> create trip -> assign driver/vehicle -> reschedule -> cancel
+- DRIVER: accept trip -> status transitions with geofence
+- CLINIC: ops monitor + chat + trip visibility
+- BILLING: generate weekly invoice
+
+5.2 Automated smoke test script (no DB reset):
+- create patient -> create trip -> assign driver -> simulate gps -> status transitions -> invoice
+Must pass and output saved.
+
+=====================================================================
+FINAL OUTPUT REQUIRED (DO NOT SKIP)
+=====================================================================
+Deliver “UCM SYSTEM AUDIT REPORT”:
+1) Feature Map (pages + endpoints + tables)
+2) Root causes of failures (esp trip assignment / saves) + fixes
+3) Migrations applied (SQL shown)
+4) Tenant isolation proof
+5) Trip assignment proof (logs/screens)
+6) Remaining TODOs (if any) + priority
+7) Confirmation checklist: ALL features verified end-to-end
+
+START NOW:
+- First reproduce: “Trip cannot be assigned to a driver” and “Trip/patient not saving”
+- Trace request/response, verify DB writes and tenant ids
+- Fix root cause (commonly: missing company_id on drivers/vehicles/trips, wrong filters, or UI sending wrong id)
+- Retest until assignment and save flows are 100% reliable.

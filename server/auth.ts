@@ -160,7 +160,7 @@ export interface UserProfile {
 
 export function isClinicUser(user: UserProfile): boolean {
   const role = normalizeRole(user.role);
-  return role === "VIEWER" && user.clinicId != null;
+  return (role === "VIEWER" || role === "CLINIC_USER") && user.clinicId != null;
 }
 
 export function isPatientUser(user: UserProfile): boolean {
