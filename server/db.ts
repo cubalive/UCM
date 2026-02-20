@@ -3,9 +3,14 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
 import pgConnStringParse from "pg-connection-string";
 
-function isNeonOrReplit(url: string): boolean {
-  const lc = url.toLowerCase();
-  return lc.includes("neon.tech") || lc.includes("helium") || lc.includes("replit") || lc.includes("@neondatabase");
+function isNeonHost(hostname: string): boolean {
+  const lc = hostname.toLowerCase();
+  return lc.includes("neon.tech") || lc.includes("neon-") || lc.endsWith(".neon.fl0.io");
+}
+
+function isSupabaseHost(hostname: string): boolean {
+  const lc = hostname.toLowerCase();
+  return lc.includes("supabase.com") || lc.includes("supabase.co");
 }
 
 function extractHost(url: string): string | null {
@@ -21,17 +26,19 @@ const rawDatabaseUrl = (process.env.DATABASE_URL || "").trim();
 const rawSupabaseUrl = (process.env.SUPABASE_DB_URL || "").trim();
 const rawPgHost = (process.env.PGHOST || "").trim();
 
-if (rawPgHost && rawPgHost.toLowerCase().includes("neon.tech")) {
-  console.error(`[DB-FATAL] PGHOST contains "neon.tech" (${sanitizeHost(rawPgHost)}). Neon is blocked.`);
+if (rawPgHost && isNeonHost(rawPgHost)) {
+  console.error(`[DB-FATAL] PGHOST points to Neon (${sanitizeHost(rawPgHost)}). Neon is blocked.`);
   console.error(`[DB-FATAL] Remove or update PGHOST and restart.`);
   process.exit(1);
 }
 
-const databaseUrlIsNeon = rawDatabaseUrl ? isNeonOrReplit(rawDatabaseUrl) : false;
+const databaseUrlHost = extractHost(rawDatabaseUrl);
+const supabaseUrlHost = extractHost(rawSupabaseUrl);
+const databaseUrlIsNeon = databaseUrlHost ? isNeonHost(databaseUrlHost) : false;
+const databaseUrlIsSupabase = databaseUrlHost ? isSupabaseHost(databaseUrlHost) : false;
 
 if (databaseUrlIsNeon) {
-  const neonHost = extractHost(rawDatabaseUrl);
-  console.error(`[DB-BLOCK] DATABASE_URL contains Neon/Replit host (${sanitizeHost(neonHost || "unknown")}). Neon is BLOCKED — will not be used.`);
+  console.warn(`[DB-BLOCK] DATABASE_URL host is Neon (${sanitizeHost(databaseUrlHost!)}). Neon is BLOCKED.`);
   if (!rawSupabaseUrl) {
     console.error(`[DB-FATAL] SUPABASE_DB_URL is also not set. No valid database configured. Exiting.`);
     process.exit(1);
@@ -42,28 +49,32 @@ let chosenUrl = "";
 let chosenSource: "DATABASE_URL" | "SUPABASE_DB_URL" = "DATABASE_URL";
 
 if (rawDatabaseUrl && rawSupabaseUrl) {
-  const hostA = extractHost(rawDatabaseUrl);
-  const hostB = extractHost(rawSupabaseUrl);
-
   if (databaseUrlIsNeon) {
     chosenUrl = rawSupabaseUrl;
     chosenSource = "SUPABASE_DB_URL";
-    console.warn(`[DB-WARN] DATABASE_URL (Neon) and SUPABASE_DB_URL both exist. Neon blocked — using SUPABASE_DB_URL.`);
-  } else if (hostA && hostB && hostA !== hostB) {
-    console.warn(`[DB-WARN] DATABASE_URL and SUPABASE_DB_URL point to different hosts.`);
-    console.warn(`  DATABASE_URL   host: ${sanitizeHost(hostA!)}`);
-    console.warn(`  SUPABASE_DB_URL host: ${sanitizeHost(hostB!)}`);
-    chosenUrl = rawSupabaseUrl;
-    chosenSource = "SUPABASE_DB_URL";
-    console.warn(`[DB-WARN] Preferring SUPABASE_DB_URL (the intended Supabase connection).`);
-  } else {
+    console.warn(`[DB] DATABASE_URL is Neon — using SUPABASE_DB_URL instead.`);
+  } else if (databaseUrlHost && supabaseUrlHost && databaseUrlHost === supabaseUrlHost) {
     chosenUrl = rawDatabaseUrl;
     chosenSource = "DATABASE_URL";
-    console.log(`[DB] Both DATABASE_URL and SUPABASE_DB_URL set (same host). Using DATABASE_URL.`);
+    console.log(`[DB] DATABASE_URL and SUPABASE_DB_URL share the same Supabase host. Using DATABASE_URL.`);
+  } else if (databaseUrlIsSupabase) {
+    chosenUrl = rawDatabaseUrl;
+    chosenSource = "DATABASE_URL";
+    console.log(`[DB] DATABASE_URL is on Supabase (${sanitizeHost(databaseUrlHost!)}). Using DATABASE_URL.`);
+  } else {
+    chosenUrl = rawSupabaseUrl;
+    chosenSource = "SUPABASE_DB_URL";
+    console.warn(`[DB-WARN] DATABASE_URL host (${sanitizeHost(databaseUrlHost || "unknown")}) is not Supabase — preferring SUPABASE_DB_URL.`);
   }
 } else if (rawDatabaseUrl && !databaseUrlIsNeon) {
-  chosenUrl = rawDatabaseUrl;
-  chosenSource = "DATABASE_URL";
+  if (databaseUrlIsSupabase) {
+    chosenUrl = rawDatabaseUrl;
+    chosenSource = "DATABASE_URL";
+    console.log(`[DB] Using DATABASE_URL (Supabase: ${sanitizeHost(databaseUrlHost!)})`);
+  } else {
+    console.error(`[DB-FATAL] DATABASE_URL host (${sanitizeHost(databaseUrlHost || "unknown")}) is not Supabase. Set SUPABASE_DB_URL.`);
+    process.exit(1);
+  }
 } else if (rawSupabaseUrl) {
   chosenUrl = rawSupabaseUrl;
   chosenSource = "SUPABASE_DB_URL";
@@ -73,8 +84,13 @@ if (rawDatabaseUrl && rawSupabaseUrl) {
   process.exit(1);
 }
 
-if (isNeonOrReplit(chosenUrl)) {
-  console.error(`[DB-FATAL] Chosen URL (${chosenSource}) points to Neon/Replit, not Supabase. Refusing to start.`);
+const chosenHost = extractHost(chosenUrl);
+if (chosenHost && isNeonHost(chosenHost)) {
+  console.error(`[DB-FATAL] Chosen URL (${chosenSource}) points to Neon. Refusing to start.`);
+  process.exit(1);
+}
+if (chosenHost && !isSupabaseHost(chosenHost)) {
+  console.error(`[DB-FATAL] Chosen URL (${chosenSource}) host (${sanitizeHost(chosenHost)}) is not Supabase. Only Supabase is allowed.`);
   process.exit(1);
 }
 
@@ -162,7 +178,8 @@ function getDbPort(): number { return connInfo.port; }
 function hasDatabaseUrl(): boolean { return !!rawDatabaseUrl; }
 function hasSupabaseDbUrl(): boolean { return !!rawSupabaseUrl; }
 function hasNeonRefs(): boolean {
-  return isNeonOrReplit(rawDatabaseUrl) || isNeonOrReplit(rawSupabaseUrl);
+  return (databaseUrlHost ? isNeonHost(databaseUrlHost) : false) ||
+         (supabaseUrlHost ? isNeonHost(supabaseUrlHost) : false);
 }
 
 export { pool, db, dbReady, getDbSource, getDbHost, getDbPort, hasDatabaseUrl, hasSupabaseDbUrl, hasNeonRefs };
