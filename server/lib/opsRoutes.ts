@@ -568,6 +568,14 @@ export function stopOpsAlertScheduler() {
 }
 
 export function registerOpsRoutes(app: Express) {
+  app.get("/api/config/maps", authMiddleware, requireRole("SUPER_ADMIN"), (_req: AuthRequest, res) => {
+    const hasBrowserKey = !!(process.env.GOOGLE_MAPS_BROWSER_KEY || "").trim();
+    const hasServerKey = !!(process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_SERVER_KEY || "").trim();
+    const hasViteKey = !!(process.env.VITE_GOOGLE_MAPS_API_KEY || "").trim();
+    const domain = process.env.APP_BASE_URL || "unknown";
+    res.json({ hasBrowserKey, hasServerKey, hasViteKey, domain });
+  });
+
   app.get("/api/ops/health", authMiddleware, requirePermission("dashboard", "read"), async (req: AuthRequest, res) => {
     try {
       const cityId = req.query.city_id ? parseInt(req.query.city_id as string) : undefined;
