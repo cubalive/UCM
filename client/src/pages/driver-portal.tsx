@@ -2,6 +2,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import {
+  uiActions as getUiActions,
+  derivePhase,
+  getNavLabel as smGetNavLabel,
+  deriveStateFromTrip,
+  type TripPhase,
+} from "@shared/tripStateMachine";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -76,27 +83,32 @@ const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const STATUS_FLOW: Record<string, { next: string; label: string; icon: any }> = {
-  ASSIGNED: { next: "EN_ROUTE_TO_PICKUP", label: "Go to Pickup", icon: Navigation },
-  EN_ROUTE_TO_PICKUP: { next: "ARRIVED_PICKUP", label: "Mark Arrived at Pickup", icon: MapPin },
-  ARRIVED_PICKUP: { next: "PICKED_UP", label: "Picked Up Patient", icon: User },
-  PICKED_UP: { next: "EN_ROUTE_TO_DROPOFF", label: "Start Trip to Dropoff", icon: PlayCircle },
-  EN_ROUTE_TO_DROPOFF: { next: "ARRIVED_DROPOFF", label: "Mark Arrived at Dropoff", icon: MapPin },
-  ARRIVED_DROPOFF: { next: "COMPLETED", label: "Complete Trip", icon: CheckCircle },
-  IN_PROGRESS: { next: "COMPLETED", label: "Complete Trip", icon: CheckCircle },
+const STATUS_ICON_MAP: Record<string, any> = {
+  ASSIGNED: Navigation,
+  EN_ROUTE_TO_PICKUP: MapPin,
+  ARRIVED_PICKUP: User,
+  PICKED_UP: PlayCircle,
+  EN_ROUTE_TO_DROPOFF: MapPin,
+  ARRIVED_DROPOFF: CheckCircle,
+  IN_PROGRESS: CheckCircle,
 };
 
-type TripPhase = "PICKUP" | "DROPOFF" | "DONE";
+function getStatusAction(status: string): { targetStatus: string; label: string; icon: any } | null {
+  const { statusAction } = getUiActions(status);
+  if (!statusAction) return null;
+  return {
+    targetStatus: statusAction.targetStatus,
+    label: statusAction.label,
+    icon: STATUS_ICON_MAP[status] || CheckCircle,
+  };
+}
 
 function getTripPhase(trip: { status: string }): TripPhase {
-  if (PICKUP_STAGES.includes(trip.status)) return "PICKUP";
-  if (["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status)) return "DONE";
-  return "DROPOFF";
+  return derivePhase(trip.status);
 }
 
 function getNavLabel(trip: { status: string }): string {
-  const phase = getTripPhase(trip);
-  return phase === "PICKUP" ? "Go to Pickup" : "Go to Dropoff";
+  return smGetNavLabel(trip.status);
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -702,7 +714,7 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigatio
   isPending: boolean;
 }) {
   const { toast } = useToast();
-  const statusAction = STATUS_FLOW[trip.status];
+  const statusAction = getStatusAction(trip.status);
   const isLocked = trip.status === "COMPLETED" || trip.status === "CANCELLED" || trip.status === "NO_SHOW";
   const phase = getTripPhase(trip);
   const navLabel = getNavLabel(trip);
@@ -1113,17 +1125,22 @@ function HomePage({
                 <ClipboardCopy className="w-5 h-5" />
               </Button>
             </div>
-            {STATUS_FLOW[activeTrip.status] && (
-              <Button
-                onClick={() => onStatusChange(activeTrip.id, activeTrip.status)}
-                disabled={statusIsPending}
-                className="w-full min-h-[48px] text-base"
-                data-testid="button-active-status"
-              >
-                {STATUS_FLOW[activeTrip.status].icon && (() => { const I = STATUS_FLOW[activeTrip.status].icon; return <I className="w-5 h-5 mr-2" />; })()}
-                {STATUS_FLOW[activeTrip.status].label}
-              </Button>
-            )}
+            {(() => {
+              const action = getStatusAction(activeTrip.status);
+              if (!action) return null;
+              const Icon = action.icon;
+              return (
+                <Button
+                  onClick={() => onStatusChange(activeTrip.id, activeTrip.status)}
+                  disabled={statusIsPending}
+                  className="w-full min-h-[48px] text-base"
+                  data-testid="button-active-status"
+                >
+                  {Icon && <Icon className="w-5 h-5 mr-2" />}
+                  {action.label}
+                </Button>
+              );
+            })()}
           </CardContent>
         </Card>
       )}
@@ -2136,9 +2153,9 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
   const [emergencyNote, setEmergencyNote] = useState("");
 
   const versionQuery = useQuery<{ version?: string; builtAt?: string; env?: string }>({
-    queryKey: ["/version.json"],
+    queryKey: ["/api/healthz"],
     queryFn: async () => {
-      const res = await fetch("/version.json?_t=" + Date.now(), { cache: "no-store" });
+      const res = await fetch("/api/healthz?_t=" + Date.now(), { cache: "no-store" });
       if (!res.ok) return {};
       return res.json();
     },
@@ -2243,7 +2260,10 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
       </Button>
 
       <div className="text-center text-xs text-muted-foreground pt-4" data-testid="text-app-version">
-        UCM Driver Portal v2.0
+        UCM Driver Portal v{versionQuery.data?.version || "2.0"}
+        {versionQuery.data?.builtAt && (
+          <span className="block text-[10px] opacity-60">Build: {new Date(versionQuery.data.builtAt).toLocaleDateString()}</span>
+        )}
       </div>
 
       {showEmergencyConfirm && (
@@ -2579,9 +2599,9 @@ export default function DriverPortal() {
   }, [isNetworkOnline, flushActionQueue]);
 
   const handleStatusWithConfirm = useCallback((tripId: number, currentStatus: string) => {
-    const flow = STATUS_FLOW[currentStatus];
-    if (!flow) return;
-    setConfirmDialog({ tripId, nextStatus: flow.next, label: flow.label });
+    const action = getStatusAction(currentStatus);
+    if (!action) return;
+    setConfirmDialog({ tripId, nextStatus: action.targetStatus, label: action.label });
   }, []);
 
   const handleConfirmSubmit = useCallback(async (note: string) => {

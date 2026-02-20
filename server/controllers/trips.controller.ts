@@ -2,6 +2,7 @@ import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, getUserCityIds, type AuthRequest } from "../auth";
 import { insertTripSchema, drivers, vehicles, trips, tripMessages, recurringSchedules, driverOffers, invoices, tripPdfs, tripBilling } from "@shared/schema";
+import { VALID_TRANSITIONS, STATUS_TIMESTAMP_MAP } from "@shared/tripStateMachine";
 import { db } from "../db";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
@@ -930,30 +931,6 @@ export const updateStatusSchema = z.object({
   status: z.enum(["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"]),
 });
 
-export const VALID_TRANSITIONS: Record<string, string[]> = {
-  SCHEDULED: ["ASSIGNED", "CANCELLED"],
-  ASSIGNED: ["EN_ROUTE_TO_PICKUP", "CANCELLED"],
-  EN_ROUTE_TO_PICKUP: ["ARRIVED_PICKUP", "CANCELLED"],
-  ARRIVED_PICKUP: ["PICKED_UP", "NO_SHOW", "CANCELLED"],
-  PICKED_UP: ["EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "CANCELLED"],
-  EN_ROUTE_TO_DROPOFF: ["ARRIVED_DROPOFF", "CANCELLED"],
-  ARRIVED_DROPOFF: ["COMPLETED", "CANCELLED"],
-  IN_PROGRESS: ["COMPLETED", "CANCELLED"],
-  COMPLETED: [],
-  CANCELLED: [],
-  NO_SHOW: [],
-};
-
-export const STATUS_TIMESTAMP_MAP: Record<string, string> = {
-  EN_ROUTE_TO_PICKUP: "startedAt",
-  ARRIVED_PICKUP: "arrivedPickupAt",
-  PICKED_UP: "pickedUpAt",
-  EN_ROUTE_TO_DROPOFF: "enRouteDropoffAt",
-  ARRIVED_DROPOFF: "arrivedDropoffAt",
-  COMPLETED: "completedAt",
-  CANCELLED: "cancelledAt",
-  NO_SHOW: "cancelledAt",
-};
 
 export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
   try {
@@ -995,7 +972,13 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
 
     const allowedNext = VALID_TRANSITIONS[trip.status] || [];
     if (!allowedNext.includes(parsed.data.status)) {
-      return res.status(400).json({ message: `Invalid transition from ${trip.status} to ${parsed.data.status}` });
+      return res.status(409).json({
+        message: `Invalid transition from ${trip.status} to ${parsed.data.status}`,
+        code: "INVALID_TRANSITION",
+        currentStatus: trip.status,
+        requestedStatus: parsed.data.status,
+        allowedStatuses: allowedNext,
+      });
     }
 
     if (parsed.data.status === "COMPLETED" && !trip.pickedUpAt) {

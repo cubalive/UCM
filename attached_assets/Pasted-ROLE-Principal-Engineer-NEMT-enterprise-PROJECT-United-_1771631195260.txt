@@ -1,0 +1,168 @@
+ROLE: Principal Engineer (NEMT enterprise)
+PROJECT: United Care Mobility (UCM) — Driver App Trip State Engine (Enterprise-grade)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only. No parallel tasks.
+- Do NOT reset DB. Do NOT recreate tables.
+- Do NOT remove existing working features/UI.
+- Minimize schema changes. Prefer additive changes only.
+- Maintain backward compatibility with existing trip statuses.
+- Every change must include tests + smoke checklist + evidence screenshots/logs.
+
+PROBLEM
+Our driver workflow keeps regressing because status logic is spread across UI and API and “helpful” code changes cause hidden jumps (pickup->dropoff) or missing buttons. We need an enterprise-grade deterministic state engine with:
+- A strict state machine (finite states, finite events)
+- Single source of truth for trip phase
+- Strict transitions (cannot jump)
+- No implicit auto-advance (only explicit events, except optional “arrived” suggestion prompts)
+- Navigation must be decoupled from state (navigate is not a state change)
+- UI buttons must be derived from state machine only (no custom if/else per screen)
+- Persist nav provider preference (Google/Apple/Waze) without affecting state
+
+DELIVERABLES
+A) State machine module (shared, single source of truth)
+Create /packages or /shared module (depending repo structure) such as:
+- src/shared/tripStateMachine.ts
+It must expose:
+- TripState enum (canonical phases)
+- TripEvent enum (allowed events)
+- transition(state, event) -> nextState (or throws)
+- allowedEvents(state) -> array
+- uiActions(state) -> actions list with labels + enabled/disabled + semantics
+- deriveStateFromTrip(trip) -> TripState (BACKWARD COMPAT with existing statuses)
+
+B) API enforcement (server-side)
+All trip status updates must go through one server function:
+- updateTripStatus(tripId, event, actorContext)
+Server must:
+- Load current trip
+- deriveStateFromTrip(trip)
+- Validate event is allowed for current state
+- Apply transition
+- Persist updated status fields
+- Log audit record: trip_id, old_state, event, new_state, actor_id, timestamp
+- Reject invalid transitions with 409 + clear message
+
+C) UI integration (driver app)
+Replace scattered status logic with:
+- deriveStateFromTrip(trip) for display
+- uiActions(state) to render buttons
+Buttons must be correct for each phase:
+1) SCHEDULED: show "Go to Pickup" (NAV ONLY) + "Mark Arrived at Pickup" (EVENT)
+2) ARRIVED_PICKUP: show "Picked Up Patient" (EVENT)
+3) PICKED_UP: show "Start Trip to Dropoff" (EVENT) + optionally "Go to Dropoff" (NAV ONLY)
+4) EN_ROUTE_DROPOFF: show "Mark Arrived at Dropoff" (EVENT)
+5) ARRIVED_DROPOFF: show "Complete Trip" (EVENT)
+6) COMPLETED: no status buttons
+IMPORTANT: Navigation NEVER changes state. Only EVENT buttons do.
+
+D) Navigation provider chooser (decoupled)
+Implement a nav service:
+- src/driver/nav/navService.ts (or similar)
+Features:
+- Providers: Google Maps, Apple Maps (iOS), Waze
+- Detect availability (platform + installed)
+- Let driver choose provider per navigation action
+- Add “Set as default” toggle
+- Persist default in storage (localStorage for web/PWA, AsyncStorage if RN; use repo standard)
+- Use fallback: if Waze not installed -> Google Maps; if Apple Maps not available -> Google Maps
+- Must not touch trip status
+
+E) Start Shift + Connected must coexist
+Driver Home must show:
+- Connection state (Connected/Disconnected) from live tracking channel
+- Shift state (On Shift/Off Shift) from shift system
+Must show both at same time. Never replace one with the other.
+
+F) Trip delete/cancel policy (admin side)
+Implement:
+- Super Admin: hard delete trip (DELETE /trips/:id) allowed
+- Company Admin/Dispatch: cannot hard delete; can cancel/archive (soft delete) => trip.status = CANCELED or trip.archived_at set
+- Driver: no delete
+Add UI buttons accordingly and server authorization checks.
+If schema lacks archived_at/canceled_at, add additive columns only (no destructive migrations).
+
+G) Deploy/publish reliability + version stamp
+Add:
+- A build/version stamp in UI footer (commit hash or build time)
+- Ensure Vite env vars are used correctly:
+  - Frontend must ONLY read VITE_* at build time
+  - Backend must read process.env at runtime
+  - If maps key is needed in frontend, ensure it is VITE_GOOGLE_MAPS_API_KEY and is present in deployment env at build time
+- Add a health endpoint returning version/build stamp.
+
+H) Tests + smoke checklist
+1) Unit tests for transition table:
+- No invalid jumps
+- Every state has defined allowed events
+- transition throws on invalid event
+2) API tests for updateTripStatus:
+- 409 on invalid transitions
+- success on valid ones
+3) Manual smoke checklist:
+- Create scheduled trip -> driver sees Go to Pickup + Arrived Pickup
+- Press Go to Pickup -> opens nav, status unchanged
+- Press Arrived Pickup -> status changes only then
+- Press Picked Up -> status changes
+- Press Start Trip to Dropoff -> status changes
+- Press Go to Dropoff -> opens nav, status unchanged
+- Arrived Dropoff -> status changes
+- Complete -> status changes
+- Live map shows driver when On Shift
+- Shift + Connected both visible
+- Nav provider persists default
+
+IMPLEMENTATION RULES (NON-NEGOTIABLE)
+- Single source of truth: deriveStateFromTrip + transition table. No other logic decides.
+- No auto-advance. Never change state on timers, navigation, geofence. Geofence can only prompt a suggestion UI, requiring tap to confirm event.
+- Backward compatibility: keep existing trip.status values; map them into canonical TripState.
+- Do not remove existing fields; only add.
+- Keep UI layout intact; minimal changes.
+
+STATE MODEL (CANONICAL)
+Define canonical TripState:
+- SCHEDULED
+- EN_ROUTE_PICKUP (optional if you want; but must be deterministic)
+- ARRIVED_PICKUP
+- PICKED_UP
+- EN_ROUTE_DROPOFF
+- ARRIVED_DROPOFF
+- COMPLETED
+- CANCELED (terminal)
+
+Define TripEvent:
+- DRIVER_START_SHIFT / DRIVER_END_SHIFT (shift subsystem separate from trip state)
+- NAVIGATE_TO_PICKUP (NAV ONLY, not state)
+- NAVIGATE_TO_DROPOFF (NAV ONLY, not state)
+- MARK_ARRIVED_PICKUP
+- MARK_PICKED_UP
+- MARK_START_TO_DROPOFF
+- MARK_ARRIVED_DROPOFF
+- MARK_COMPLETE
+- CANCEL_TRIP (admin/dispatch only)
+
+IMPORTANT: If current schema already stores statuses differently, implement mapping:
+- deriveStateFromTrip(trip): map existing statuses (e.g., 'scheduled','assigned','arrived_pickup','picked_up','arrived_dropoff','completed') into canonical states.
+
+EVIDENCE REQUIRED IN RESPONSE
+After implementation, output:
+1) Transition table in code (or generated markdown)
+2) List of touched files
+3) Test results summary (pass/fail)
+4) Screenshots or logs showing:
+   - Driver sees correct buttons at each stage
+   - Navigation chooser shows Google/Apple/Waze
+   - Default provider persists
+   - Status does not change on navigation
+   - Shift + Connected both visible
+   - Admin delete/cancel behavior matches policy
+   - Live map shows driver when on shift
+
+START NOW
+- First: locate existing trip status constants and driver trip UI.
+- Second: implement state machine module + mapping.
+- Third: refactor UI to rely only on uiActions(state).
+- Fourth: enforce transitions on server endpoint.
+- Fifth: implement nav chooser + persistence.
+- Sixth: add delete/cancel with RBAC.
+- Seventh: add version stamp + env correctness.
+- Eighth: run tests + provide evidence.

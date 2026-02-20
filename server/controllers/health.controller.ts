@@ -4,6 +4,7 @@ import { db, pool, getDbSource, getDbHost, getDbPort } from "../db";
 import { sql } from "drizzle-orm";
 
 export const APP_VERSION = process.env.UCM_BUILD_VERSION || process.env.BUILD_VERSION || "dev";
+export const APP_BUILD_TIME = process.env.UCM_BUILD_TIME || new Date().toISOString();
 const APP_ENV = process.env.NODE_ENV || "development";
 
 export async function healthz(_req: Request, res: Response) {
@@ -22,6 +23,7 @@ export async function healthz(_req: Request, res: Response) {
   res.status(ok ? 200 : 503).json({
     ok,
     version: APP_VERSION,
+    builtAt: APP_BUILD_TIME,
     env: APP_ENV,
     uptime: process.uptime(),
     db: {

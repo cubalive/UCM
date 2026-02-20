@@ -127,3 +127,47 @@ When `GEOFENCE_ENABLED=true`:
 10. "Remember my choice" persists and auto-opens preferred app
 11. "Change" link clears saved preference
 12. Completed/Cancelled trips show no action buttons
+
+## Architecture: Single Source of Truth
+
+All trip state logic lives in `shared/tripStateMachine.ts`:
+- `TripState` / `TripEvent` constants
+- `transition(state, event)` - returns next state or throws
+- `allowedEvents(state)` - returns valid events for a state
+- `uiActions(state)` - returns status action + nav action for driver UI
+- `derivePhase(state)` - returns PICKUP / DROPOFF / DONE
+- `deriveStateFromTrip(trip)` - maps existing trip record to canonical state
+- `VALID_TRANSITIONS` - computed from transition table, used by server
+- `STATUS_TIMESTAMP_MAP` - maps status to timestamp column name
+
+Server imports `VALID_TRANSITIONS` and `STATUS_TIMESTAMP_MAP` from this module.
+UI imports `uiActions`, `derivePhase`, `getNavLabel` from this module.
+No other code decides state transitions.
+
+## Navigation is Decoupled from State
+
+Navigation actions (Go to Pickup, Go to Dropoff) open external map apps.
+They NEVER change trip state. Only EVENT buttons (status actions) change state.
+The NavChooser component is purely a UI utility for launching Google Maps, Apple Maps, or Waze.
+
+## Shift + Connected Coexistence
+
+Driver home shows four independent states:
+- DISCONNECTED: not connected to dispatch
+- CONNECTED_OFF_SHIFT: connected but not clocked in
+- ON_SHIFT: connected and clocked in, tracking active
+- ON_BREAK: on shift but temporarily on break
+
+Both connection state and shift state are always visible simultaneously.
+
+## Trip Delete/Cancel RBAC
+
+| Role | Can Archive (Soft Delete) | Can Hard Delete | Can Cancel |
+|---|---|---|---|
+| SUPER_ADMIN | Yes | Yes (SCHEDULED/ASSIGNED/CANCELLED only) | Yes |
+| COMPANY_ADMIN | Yes (own company) | No | Yes |
+| DISPATCH | Yes (own company) | No | Yes |
+| DRIVER | No | No | No |
+
+Hard delete removes the trip record permanently. Archive sets `archivedAt` timestamp.
+Active/in-progress trips cannot be archived (409 response).
