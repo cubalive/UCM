@@ -496,8 +496,13 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
     const Stripe = require("stripe").default;
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
+    const { ensureClinicStripeCustomer } = await import("../services/stripeCustomerService");
+    const { writeBillingAudit } = await import("../services/billingAuditService");
+
     const [clinic] = await db.select().from(clinics).where(eq(clinics.id, ctx.clinicId));
     const clinicName = clinic?.name || "Clinic";
+
+    const stripeCustomerId = await ensureClinicStripeCustomer(ctx.clinicId);
 
     const actor = await getActorContext(req);
     const user = actor ? await storage.getUser(actor.userId) : null;
@@ -524,6 +529,7 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
+      customer: stripeCustomerId,
       line_items: [
         {
           price_data: {
@@ -538,10 +544,10 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
         },
       ],
       mode: "payment",
-      customer_email: user?.email || undefined,
       success_url: `${baseUrl}/billing?paid=1&invoice=${invoice.id}`,
       cancel_url: `${baseUrl}/billing?canceled=1&invoice=${invoice.id}`,
       payment_intent_data: {
+        setup_future_usage: "off_session",
         transfer_data: {
           destination: stripeAccount.stripeAccountId,
         },
@@ -562,6 +568,18 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
       netToCompanyCents: amountCents - applicationFeeAmount,
       updatedAt: new Date(),
     }).where(eq(billingCycleInvoices.id, invoiceId));
+
+    await writeBillingAudit({
+      actorUserId: actor?.userId,
+      actorRole: actor?.role,
+      scopeClinicId: ctx.clinicId,
+      scopeCompanyId: companyId,
+      action: "checkout_started",
+      entityType: "invoice",
+      entityId: invoiceId,
+      details: { amountCents, sessionId: session.id, platformFeeCents: applicationFeeAmount },
+      req,
+    });
 
     res.json({ checkoutUrl: session.url, sessionId: session.id });
   } catch (err: any) {

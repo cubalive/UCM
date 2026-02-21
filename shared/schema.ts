@@ -252,6 +252,8 @@ export const clinics = pgTable("clinics", {
   companyId: integer("company_id").references(() => companies.id),
   active: boolean("active").notNull().default(true),
   discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeDefaultPaymentMethodId: text("stripe_default_payment_method_id"),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
@@ -2506,6 +2508,113 @@ export const driverTelemetryEvents = pgTable("driver_telemetry_events", {
 export const insertDriverTelemetryEventSchema = createInsertSchema(driverTelemetryEvents).omit({ id: true, createdAt: true });
 export type DriverTelemetryEvent = typeof driverTelemetryEvents.$inferSelect;
 export type InsertDriverTelemetryEvent = z.infer<typeof insertDriverTelemetryEventSchema>;
+
+// ── Enterprise Billing vNext ──────────────────────────────────────
+
+export const billingAdjustmentKindEnum = pgEnum("billing_adjustment_kind", [
+  "credit",
+  "debit",
+  "refund",
+  "fee_override",
+]);
+
+export const billingAdjustments = pgTable("billing_adjustments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  invoiceId: integer("invoice_id").notNull().references(() => billingCycleInvoices.id, { onDelete: "cascade" }),
+  kind: billingAdjustmentKindEnum("kind").notNull(),
+  reason: text("reason").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  createdBy: integer("created_by").references(() => users.id),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("ba_invoice_idx").on(table.invoiceId),
+  index("ba_created_idx").on(table.createdAt),
+]);
+
+export const insertBillingAdjustmentSchema = createInsertSchema(billingAdjustments).omit({ id: true, createdAt: true });
+export type BillingAdjustment = typeof billingAdjustments.$inferSelect;
+export type InsertBillingAdjustment = z.infer<typeof insertBillingAdjustmentSchema>;
+
+export const ledgerDirectionEnum = pgEnum("ledger_direction", ["debit", "credit"]);
+
+export const ledgerEntries = pgTable("ledger_entries", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  journalId: text("journal_id").notNull(),
+  refType: text("ref_type").notNull(),
+  refId: text("ref_id").notNull(),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  companyId: integer("company_id").references(() => companies.id),
+  account: text("account").notNull(),
+  direction: ledgerDirectionEnum("direction").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull().default("usd"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("le_journal_idx").on(table.journalId),
+  index("le_ref_idx").on(table.refType, table.refId),
+  index("le_clinic_idx").on(table.clinicId),
+  index("le_company_idx").on(table.companyId),
+  index("le_account_idx").on(table.account),
+  index("le_created_idx").on(table.createdAt),
+]);
+
+export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ id: true, createdAt: true });
+export type LedgerEntry = typeof ledgerEntries.$inferSelect;
+export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
+
+export const payoutReconciliation = pgTable("payout_reconciliation", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  stripeAccountId: text("stripe_account_id").notNull(),
+  stripeBalanceTransactionId: text("stripe_balance_transaction_id").notNull().unique(),
+  stripeTransferId: text("stripe_transfer_id"),
+  stripePayoutId: text("stripe_payout_id"),
+  stripeChargeId: text("stripe_charge_id"),
+  amountCents: integer("amount_cents").notNull(),
+  feeCents: integer("fee_cents").notNull().default(0),
+  netCents: integer("net_cents").notNull(),
+  currency: text("currency").notNull().default("usd"),
+  type: text("type"),
+  status: text("status"),
+  availableOn: timestamp("available_on"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("pr_company_idx").on(table.companyId),
+  index("pr_stripe_acct_idx").on(table.stripeAccountId),
+  index("pr_payout_idx").on(table.stripePayoutId),
+  index("pr_available_idx").on(table.availableOn),
+]);
+
+export const insertPayoutReconciliationSchema = createInsertSchema(payoutReconciliation).omit({ id: true, createdAt: true });
+export type PayoutReconciliation = typeof payoutReconciliation.$inferSelect;
+export type InsertPayoutReconciliation = z.infer<typeof insertPayoutReconciliationSchema>;
+
+export const billingAuditEvents = pgTable("billing_audit_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  actorUserId: integer("actor_user_id").references(() => users.id),
+  actorRole: text("actor_role"),
+  scopeClinicId: integer("scope_clinic_id").references(() => clinics.id),
+  scopeCompanyId: integer("scope_company_id").references(() => companies.id),
+  action: text("action").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  details: jsonb("details"),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("bae_actor_idx").on(table.actorUserId),
+  index("bae_entity_idx").on(table.entityType, table.entityId),
+  index("bae_clinic_idx").on(table.scopeClinicId),
+  index("bae_company_idx").on(table.scopeCompanyId),
+  index("bae_action_idx").on(table.action),
+  index("bae_created_idx").on(table.createdAt),
+]);
+
+export const insertBillingAuditEventSchema = createInsertSchema(billingAuditEvents).omit({ id: true, createdAt: true });
+export type BillingAuditEvent = typeof billingAuditEvents.$inferSelect;
+export type InsertBillingAuditEvent = z.infer<typeof insertBillingAuditEventSchema>;
 
 export const driverRiskScores = pgTable("driver_risk_scores", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

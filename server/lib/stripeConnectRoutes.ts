@@ -372,6 +372,56 @@ export function registerStripeConnectRoutes(app: Express) {
             updatedAt: new Date(),
           }).where(eq(billingCycleInvoices.id, bciId));
 
+          try {
+            const { ledgerEntries } = await import("@shared/schema");
+            const existing = await db.select().from(ledgerEntries)
+              .where(and(
+                eq(ledgerEntries.refType, "payment_intent"),
+                eq(ledgerEntries.refId, bciPaymentIntentId || `session_${session.id}`),
+              ))
+              .limit(1);
+            if (existing.length === 0) {
+              const { writePaymentSucceededJournal } = await import("../services/ledgerService");
+              await writePaymentSucceededJournal({
+                paymentIntentId: bciPaymentIntentId || `session_${session.id}`,
+                invoiceId: bciId,
+                clinicId: bci.clinicId,
+                companyId: bci.companyId || parseInt(metadata.company_id) || 0,
+                totalCents: bci.totalCents || 0,
+                platformFeeCents: bci.platformFeeCents || parseInt(metadata.platform_fee_cents || "0") || 0,
+              });
+            }
+          } catch (ledgerErr: any) {
+            console.warn("[StripeWebhook] Ledger write failed (non-fatal):", ledgerErr.message);
+          }
+
+          try {
+            const { writeBillingAudit } = await import("../services/billingAuditService");
+            await writeBillingAudit({
+              action: "payment_succeeded",
+              entityType: "invoice",
+              entityId: bciId,
+              scopeClinicId: bci.clinicId,
+              scopeCompanyId: bci.companyId,
+              details: { paymentIntentId: bciPaymentIntentId, amountCents: bci.totalCents, source: "webhook", stripeEventId: event.id },
+            });
+          } catch {}
+
+          if (bciPaymentIntentId) {
+            try {
+              const pi = await stripe.paymentIntents.retrieve(bciPaymentIntentId);
+              if (pi.payment_method && bci.clinicId) {
+                const { clinics: clinicsTable } = await import("@shared/schema");
+                const [clinic] = await db.select().from(clinicsTable).where(eq(clinicsTable.id, bci.clinicId));
+                if (clinic && !clinic.stripeDefaultPaymentMethodId) {
+                  await db.update(clinicsTable).set({
+                    stripeDefaultPaymentMethodId: pi.payment_method as string,
+                  }).where(eq(clinicsTable.id, bci.clinicId));
+                }
+              }
+            } catch {}
+          }
+
           await storage.updateStripeWebhookEvent(event.id, "PROCESSED");
           console.log(`[StripeWebhook] BillingCycleInvoice ${bciId} marked PAID`);
           return res.status(200).json({ received: true, invoiceId: bciId, status: "paid" });
@@ -451,6 +501,33 @@ export function registerStripeConnectRoutes(app: Express) {
 
         console.log(`[StripeWebhook] Invoice ${invoiceId} marked PAID via checkout.session.completed`);
         return res.status(200).json({ received: true, invoiceId, status: "paid" });
+      }
+
+      if (event.type === "charge.dispute.created") {
+        try {
+          const dispute = event.data.object;
+          const { writeDisputeJournal } = await import("../services/ledgerService");
+          const { writeBillingAudit } = await import("../services/billingAuditService");
+
+          await writeDisputeJournal({
+            disputeId: dispute.id,
+            amountCents: dispute.amount || 0,
+            currency: dispute.currency || "usd",
+          });
+
+          await writeBillingAudit({
+            action: "dispute_created",
+            entityType: "dispute",
+            entityId: dispute.id,
+            details: { amount: dispute.amount, reason: dispute.reason, chargeId: dispute.charge },
+          });
+
+          await storage.updateStripeWebhookEvent(event.id, "PROCESSED", `Dispute ${dispute.id} recorded`);
+          console.log(`[StripeWebhook] Dispute ${dispute.id} recorded, amount=${dispute.amount}`);
+          return res.status(200).json({ received: true });
+        } catch (disputeErr: any) {
+          console.error("[StripeWebhook] Dispute handling error:", disputeErr.message);
+        }
       }
 
       await storage.updateStripeWebhookEvent(event.id, "IGNORED", `Unhandled event type: ${event.type}`);

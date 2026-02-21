@@ -221,6 +221,99 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS working_city_id INTEGER REFERENCES cities(id)`);
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS working_city_scope TEXT DEFAULT 'CITY'`);
 
+    await bootDb.execute(bootSql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS stripe_default_payment_method_id TEXT`);
+
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        CREATE TYPE billing_adjustment_kind AS ENUM ('credit', 'debit', 'refund', 'fee_override');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS billing_adjustments (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        invoice_id INTEGER NOT NULL REFERENCES billing_cycle_invoices(id) ON DELETE CASCADE,
+        kind billing_adjustment_kind NOT NULL,
+        reason TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        created_by INTEGER REFERENCES users(id),
+        metadata JSONB,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS ba_invoice_idx ON billing_adjustments(invoice_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS ba_created_idx ON billing_adjustments(created_at)`);
+
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        CREATE TYPE ledger_direction AS ENUM ('debit', 'credit');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS ledger_entries (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        journal_id TEXT NOT NULL,
+        ref_type TEXT NOT NULL,
+        ref_id TEXT NOT NULL,
+        clinic_id INTEGER REFERENCES clinics(id),
+        company_id INTEGER REFERENCES companies(id),
+        account TEXT NOT NULL,
+        direction ledger_direction NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'usd',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS le_journal_idx ON ledger_entries(journal_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS le_ref_idx ON ledger_entries(ref_type, ref_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS le_clinic_idx ON ledger_entries(clinic_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS le_company_idx ON ledger_entries(company_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS le_account_idx ON ledger_entries(account)`);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS payout_reconciliation (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        stripe_account_id TEXT NOT NULL,
+        stripe_balance_transaction_id TEXT NOT NULL UNIQUE,
+        stripe_transfer_id TEXT,
+        stripe_payout_id TEXT,
+        stripe_charge_id TEXT,
+        amount_cents INTEGER NOT NULL,
+        fee_cents INTEGER NOT NULL DEFAULT 0,
+        net_cents INTEGER NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'usd',
+        type TEXT,
+        status TEXT,
+        available_on TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS pr_company_idx ON payout_reconciliation(company_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS pr_payout_idx ON payout_reconciliation(stripe_payout_id)`);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS billing_audit_events (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        actor_user_id INTEGER REFERENCES users(id),
+        actor_role TEXT,
+        scope_clinic_id INTEGER REFERENCES clinics(id),
+        scope_company_id INTEGER REFERENCES companies(id),
+        action TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        details JSONB,
+        ip TEXT,
+        user_agent TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS bae_entity_idx ON billing_audit_events(entity_type, entity_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS bae_action_idx ON billing_audit_events(action)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS bae_created_idx ON billing_audit_events(created_at)`);
+
     await bootDb.execute(bootSql`
       CREATE TABLE IF NOT EXISTS company_cities (
         id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

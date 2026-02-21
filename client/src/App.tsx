@@ -81,6 +81,7 @@ import PublicTrackingPage from "@/pages/public-tracking";
 import { DriverAppV4 } from "@/driver-v4/DriverAppV4";
 import { ClinicPortalLayout } from "@/clinic-portal/ClinicPortalLayout";
 import SystemStatusPage from "@/pages/system-status";
+import FinanceConsolePage from "@/pages/finance-console";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState as useStateHook } from "react";
@@ -352,6 +353,7 @@ function Router() {
       <Route path="/admin/imports">{() => <SuperAdminRoute component={DataImportPage} />}</Route>
       <Route path="/companies">{() => <SuperAdminRoute component={CompaniesPage} />}</Route>
       <Route path="/system-status">{() => <SuperAdminRoute component={SystemStatusPage} />}</Route>
+      <Route path="/finance-console">{() => <SuperAdminRoute component={FinanceConsolePage} />}</Route>
       <Route path="/timecards">{() => <ProtectedRoute resource="time_entries" component={TimecardsPage} />}</Route>
       <Route path="/tp-payroll">{() => <ProtectedRoute resource="payroll" component={TpPayrollPage} />}</Route>
       <Route path="/payroll/runs/:id">{() => <ProtectedRoute resource="payroll" component={PayrollDetailPage} />}</Route>

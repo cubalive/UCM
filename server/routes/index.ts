@@ -41,6 +41,7 @@ import { registerPlatformFeeRoutes } from "./platformFee.routes";
 import { registerDispatcherPermissionsRoutes } from "./dispatcherPermissions.routes";
 import { registerInfraOpsRoutes } from "./ops.routes";
 import { registerSubscriptionRoutes, registerSubscriptionWebhook } from "./subscription.routes";
+import { registerEnterpriseFinanceRoutes, startDunningScheduler } from "./enterpriseFinance.routes";
 import { startRouteScheduler } from "../lib/routeEngine";
 import { startNoShowScheduler } from "../lib/noShowEngine";
 import { startRecurringScheduleScheduler } from "../lib/recurringScheduleEngine";
@@ -99,6 +100,7 @@ export async function registerRoutes(
   registerInfraOpsRoutes(app);
   registerSubscriptionRoutes(app);
   registerSubscriptionWebhook(app);
+  registerEnterpriseFinanceRoutes(app);
 
   startOpsAlertScheduler();
   startRouteScheduler();
@@ -107,6 +109,7 @@ export async function registerRoutes(
   startAiEngine();
   startOpsScheduler();
   startPayrollScheduler();
+  startDunningScheduler();
 
   return httpServer;
 }

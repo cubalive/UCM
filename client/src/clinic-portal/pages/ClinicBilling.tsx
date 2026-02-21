@@ -185,7 +185,58 @@ function InvoiceLineDrawer({ invoice, onClose }: { invoice: any; onClose: () => 
               </div>
             )}
           </div>
+
+          <AdjustmentsSection invoiceId={invoice.id} />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AdjustmentsSection({ invoiceId }: { invoiceId: number }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/finance/invoices", invoiceId, "adjustments"],
+    queryFn: async () => {
+      const res = await fetch(`/api/finance/invoices/${invoiceId}/adjustments`, { credentials: "include" });
+      if (!res.ok) return { adjustments: [] };
+      return res.json();
+    },
+  });
+
+  const adjustments = (data as any)?.adjustments || [];
+  if (isLoading) return null;
+  if (adjustments.length === 0) return null;
+
+  return (
+    <div>
+      <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-3">
+        Adjustments ({adjustments.length})
+      </h3>
+      <div className="space-y-2">
+        {adjustments.map((adj: any) => (
+          <div
+            key={adj.id}
+            className="bg-[#111827] border border-[#1e293b] rounded-xl p-3 flex items-center justify-between"
+            data-testid={`adjustment-row-${adj.id}`}
+          >
+            <div>
+              <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                adj.kind === "credit" || adj.kind === "refund"
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                  : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+              }`}>
+                {adj.kind.toUpperCase()}
+              </span>
+              <p className="text-xs text-gray-400 mt-1">{adj.reason}</p>
+            </div>
+            <span className={`text-sm font-semibold ${
+              adj.kind === "credit" || adj.kind === "refund" ? "text-emerald-400" : "text-amber-400"
+            }`}>
+              {adj.kind === "credit" || adj.kind === "refund" ? "-" : "+"}
+              {formatCents(adj.amountCents)}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

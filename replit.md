@@ -36,6 +36,7 @@ The application follows a client-server architecture.
 - **Production Scale Hardening**: Structured JSON logging, adaptive backpressure, circuit breakers, graceful shutdown, and HTTP timeouts.
 - **Platform Pricing Settings**: Configurable tariffs, discount logic, clinic memberships, and an admin API.
 - **Financial & Billing**: Automatic invoice email sending, Stripe integration, and detailed clinic cancellation/billing workflows.
+- **Enterprise Billing vNext**: Billing adjustments (credit/debit/refund/fee_override), double-entry ledger (journal-based with balance enforcement), payout reconciliation (Stripe balance transaction sync), billing audit events, dunning/retry logic with Stripe idempotency keys, Stripe customer/PM management (setup_future_usage), dispute tracking via webhooks, and SUPER_ADMIN Finance Console UI.
 - **Company-to-Driver Payroll**: Per-company payroll settings, idempotent earnings ledger, payrun management with Stripe transfers.
 - **Time & Pay v1 (Hourly Timesheets)**: Manual and CSV import of time entries with a DRAFT→PAID workflow and driver self-service views.
 - **Driver App Experience**: Today Dashboard, status confirmations, support events, offline queue, heartbeat, navigation UX, and score trend chart.
