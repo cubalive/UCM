@@ -654,9 +654,14 @@ const CLINIC_ROLES = new Set(["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"]);
 const COMPANY_ROLES = new Set(["COMPANY_ADMIN", "ADMIN", "DISPATCH", "DRIVER", "VIEWER"]);
 
 function UserForm({ cities, companies, clinics, onSubmit, loading }: { cities: any[]; companies: any[]; clinics: any[]; onSubmit: (data: any) => void; loading: boolean }) {
+  const { token } = useAuth();
+  const { toast } = useToast();
   const [form, setForm] = useState({
     email: "", password: "", firstName: "", lastName: "", role: "VIEWER", phone: "", cityIds: [] as string[], companyId: "", clinicId: "",
   });
+  const [showNewClinic, setShowNewClinic] = useState(false);
+  const [newClinic, setNewClinic] = useState({ name: "", address: "", cityId: "", companyId: "" });
+  const [creatingClinic, setCreatingClinic] = useState(false);
 
   const isClinicRole = CLINIC_ROLES.has(form.role);
   const isCompanyRole = COMPANY_ROLES.has(form.role);
@@ -760,6 +765,84 @@ function UserForm({ cities, companies, clinics, onSubmit, loading }: { cities: a
               ))}
             </SelectContent>
           </Select>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full mt-1"
+            onClick={() => {
+              setNewClinic({ name: "", address: "", cityId: "", companyId: form.companyId });
+              setShowNewClinic(true);
+            }}
+            data-testid="button-create-new-clinic"
+          >
+            <Plus className="w-4 h-4 mr-1" /> Create New Clinic
+          </Button>
+          {showNewClinic && (
+            <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
+              <div className="text-sm font-medium">New Clinic</div>
+              <Input
+                placeholder="Clinic name *"
+                value={newClinic.name}
+                onChange={(e) => setNewClinic({ ...newClinic, name: e.target.value })}
+                data-testid="input-new-clinic-name"
+              />
+              <Input
+                placeholder="Address *"
+                value={newClinic.address}
+                onChange={(e) => setNewClinic({ ...newClinic, address: e.target.value })}
+                data-testid="input-new-clinic-address"
+              />
+              <Select value={newClinic.cityId} onValueChange={(v) => setNewClinic({ ...newClinic, cityId: v })}>
+                <SelectTrigger data-testid="select-new-clinic-city"><SelectValue placeholder="Select city *" /></SelectTrigger>
+                <SelectContent>
+                  {cities.map((c: any) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}, {c.state}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!form.companyId && companies.length > 0 && (
+                <Select value={newClinic.companyId} onValueChange={(v) => setNewClinic({ ...newClinic, companyId: v })}>
+                  <SelectTrigger data-testid="select-new-clinic-company"><SelectValue placeholder="Select company" /></SelectTrigger>
+                  <SelectContent>
+                    {companies.map((c: any) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={creatingClinic || !newClinic.name || !newClinic.address || !newClinic.cityId}
+                  onClick={async () => {
+                    setCreatingClinic(true);
+                    try {
+                      const body: any = { name: newClinic.name, address: newClinic.address, cityId: Number(newClinic.cityId) };
+                      const compId = form.companyId || newClinic.companyId;
+                      if (compId) body.companyId = Number(compId);
+                      const created = await apiFetch("/api/clinics", token, { method: "POST", body: JSON.stringify(body) });
+                      queryClient.invalidateQueries({ queryKey: ["/api/clinics"] });
+                      setForm((prev) => ({ ...prev, clinicId: String(created.id), companyId: compId || prev.companyId }));
+                      setShowNewClinic(false);
+                      toast({ title: "Clinic created", description: created.name });
+                    } catch (err: any) {
+                      toast({ title: "Error", description: err.message || "Failed to create clinic", variant: "destructive" });
+                    } finally {
+                      setCreatingClinic(false);
+                    }
+                  }}
+                  data-testid="button-save-new-clinic"
+                >
+                  {creatingClinic ? "Creating..." : "Save Clinic"}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setShowNewClinic(false)} data-testid="button-cancel-new-clinic">
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       <div className="space-y-2">
