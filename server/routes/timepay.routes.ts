@@ -19,6 +19,9 @@ import {
   finalizePayrollHandler,
   payPayrollHandler,
   listCompanyDriversHandler,
+  listStaffPayConfigsHandler,
+  upsertStaffPayConfigHandler,
+  deleteStaffPayConfigHandler,
 } from "../controllers/timepay.controller";
 
 const router = Router();
@@ -41,6 +44,10 @@ router.get("/api/company/payroll/runs", authMiddleware, requirePermission("payro
 router.get("/api/company/payroll/runs/:runId", authMiddleware, requirePermission("payroll", "read"), requireTenantScope, getPayrollRunHandler as any);
 router.post("/api/company/payroll/:runId/finalize", authMiddleware, requirePermission("payroll", "write"), requireTenantScope, finalizePayrollHandler as any);
 router.post("/api/company/payroll/:runId/pay", authMiddleware, requirePermission("payroll", "write"), requireTenantScope, payPayrollHandler as any);
+
+router.get("/api/company/staff-pay-configs", authMiddleware, requirePermission("payroll", "read"), requireTenantScope, listStaffPayConfigsHandler as any);
+router.post("/api/company/staff-pay-configs", authMiddleware, requirePermission("payroll", "write"), requireTenantScope, upsertStaffPayConfigHandler as any);
+router.delete("/api/company/staff-pay-configs/:id", authMiddleware, requirePermission("payroll", "write"), requireTenantScope, deleteStaffPayConfigHandler as any);
 
 export function registerTimePayRoutes(app: Express) {
   app.use(router);

@@ -9,6 +9,7 @@ import {
   tpPayrollItems,
   drivers,
   companyPayrollSettings,
+  staffPayConfigs,
 } from "@shared/schema";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import multer from "multer";
@@ -727,6 +728,160 @@ export async function payPayrollHandler(req: AuthRequest, res: Response) {
     });
 
     res.json({ ...updated, note: "Stripe Connect payout not yet configured. Entries marked PAID for record-keeping." });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function listStaffPayConfigsHandler(req: AuthRequest, res: Response) {
+  const companyId = requireCompanyOrFail(req, res);
+  if (!companyId) return;
+  try {
+    const { isNull } = await import("drizzle-orm");
+    const allDrivers = await db
+      .select({
+        id: drivers.id,
+        firstName: drivers.firstName,
+        lastName: drivers.lastName,
+        email: drivers.email,
+        phone: drivers.phone,
+        status: drivers.status,
+      })
+      .from(drivers)
+      .where(and(eq(drivers.companyId, companyId), eq(drivers.active, true), isNull(drivers.deletedAt)));
+
+    const configs = await db
+      .select()
+      .from(staffPayConfigs)
+      .where(and(eq(staffPayConfigs.companyId, companyId), eq(staffPayConfigs.active, true)));
+
+    const [defaultSettings] = await db
+      .select()
+      .from(companyPayrollSettings)
+      .where(eq(companyPayrollSettings.companyId, companyId))
+      .limit(1);
+
+    const configMap = new Map(configs.map(c => [c.driverId, c]));
+
+    const merged = allDrivers.map(d => {
+      const override = configMap.get(d.id);
+      return {
+        driver: d,
+        payConfig: override || null,
+        effectivePayType: override?.payType || (defaultSettings?.payMode === "PER_TRIP" ? "PER_TRIP" : "HOURLY"),
+        effectiveHourlyRateCents: override?.hourlyRateCents ?? defaultSettings?.hourlyRateCents ?? null,
+        effectivePerTripFlatCents: override?.perTripFlatCents ?? defaultSettings?.perTripFlatCents ?? null,
+        effectivePerTripPercentBps: override?.perTripPercentBps ?? defaultSettings?.perTripPercentBps ?? null,
+        effectiveFixedSalaryCents: override?.fixedSalaryCents ?? null,
+        hasOverride: !!override,
+      };
+    });
+
+    res.json({ drivers: merged, companyDefaults: defaultSettings || null });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function upsertStaffPayConfigHandler(req: AuthRequest, res: Response) {
+  const companyId = requireCompanyOrFail(req, res);
+  if (!companyId) return;
+  try {
+    const { driverId, payType, hourlyRateCents, fixedSalaryCents, fixedPeriod, perTripFlatCents, perTripPercentBps, notes } = req.body;
+
+    if (!driverId || !payType) {
+      return res.status(400).json({ message: "driverId and payType are required" });
+    }
+
+    const validPayTypes = ["HOURLY", "FIXED", "PER_TRIP"];
+    if (!validPayTypes.includes(payType)) {
+      return res.status(400).json({ message: "payType must be HOURLY, FIXED, or PER_TRIP" });
+    }
+
+    const existing = await db
+      .select()
+      .from(staffPayConfigs)
+      .where(and(eq(staffPayConfigs.companyId, companyId), eq(staffPayConfigs.driverId, driverId)))
+      .limit(1);
+
+    let result;
+    if (existing.length > 0) {
+      [result] = await db
+        .update(staffPayConfigs)
+        .set({
+          payType,
+          hourlyRateCents: hourlyRateCents ?? null,
+          fixedSalaryCents: fixedSalaryCents ?? null,
+          fixedPeriod: fixedPeriod ?? "MONTHLY",
+          perTripFlatCents: perTripFlatCents ?? null,
+          perTripPercentBps: perTripPercentBps ?? null,
+          notes: notes ?? "",
+          active: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(staffPayConfigs.id, existing[0].id))
+        .returning();
+    } else {
+      [result] = await db
+        .insert(staffPayConfigs)
+        .values({
+          companyId,
+          driverId,
+          payType,
+          hourlyRateCents: hourlyRateCents ?? null,
+          fixedSalaryCents: fixedSalaryCents ?? null,
+          fixedPeriod: fixedPeriod ?? "MONTHLY",
+          perTripFlatCents: perTripFlatCents ?? null,
+          perTripPercentBps: perTripPercentBps ?? null,
+          notes: notes ?? "",
+        })
+        .returning();
+    }
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "UPSERT_STAFF_PAY_CONFIG",
+      entity: "staff_pay_config",
+      entityId: result.id,
+      details: `Set ${payType} pay config for driver #${driverId}`,
+      cityId: null,
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function deleteStaffPayConfigHandler(req: AuthRequest, res: Response) {
+  const companyId = requireCompanyOrFail(req, res);
+  if (!companyId) return;
+  try {
+    const configId = parseInt(req.params.id);
+    if (!configId) return res.status(400).json({ message: "Invalid config ID" });
+
+    const [existing] = await db
+      .select()
+      .from(staffPayConfigs)
+      .where(and(eq(staffPayConfigs.id, configId), eq(staffPayConfigs.companyId, companyId)));
+
+    if (!existing) return res.status(404).json({ message: "Pay config not found" });
+
+    await db
+      .update(staffPayConfigs)
+      .set({ active: false, updatedAt: new Date() })
+      .where(eq(staffPayConfigs.id, configId));
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "DELETE_STAFF_PAY_CONFIG",
+      entity: "staff_pay_config",
+      entityId: configId,
+      details: `Removed pay override for driver #${existing.driverId}`,
+      cityId: null,
+    });
+
+    res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

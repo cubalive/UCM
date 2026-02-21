@@ -395,6 +395,31 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS fra_rule_idx ON fee_rule_audit(rule_id)`);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS fra_created_idx ON fee_rule_audit(created_at)`);
 
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        CREATE TYPE staff_pay_type AS ENUM ('HOURLY', 'FIXED', 'PER_TRIP');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS staff_pay_configs (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        driver_id INTEGER REFERENCES drivers(id),
+        pay_type staff_pay_type NOT NULL DEFAULT 'HOURLY',
+        hourly_rate_cents INTEGER,
+        fixed_salary_cents INTEGER,
+        fixed_period TEXT DEFAULT 'MONTHLY',
+        per_trip_flat_cents INTEGER,
+        per_trip_percent_bps INTEGER,
+        notes TEXT DEFAULT '',
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS spc_company_driver_idx ON staff_pay_configs(company_id, driver_id)`);
+
     try {
       await bootDb.execute(bootSql`
         CREATE UNIQUE INDEX IF NOT EXISTS cities_state_name_unique_idx ON cities(state, lower(name))

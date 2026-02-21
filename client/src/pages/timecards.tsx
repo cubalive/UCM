@@ -43,7 +43,12 @@ import {
   Send,
   Loader2,
   FileSpreadsheet,
+  DollarSign,
+  Save,
+  RotateCcw,
+  Pencil,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -65,6 +70,49 @@ function statusVariant(status: string) {
 }
 
 export default function TimecardsPage() {
+  const [activeTab, setActiveTab] = useState<"entries" | "payrates">("entries");
+
+  return (
+    <div className="p-4 space-y-4 max-w-[1400px] mx-auto" data-testid="timecards-page">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-bold" data-testid="text-page-title">Timecards</h1>
+      </div>
+
+      <div className="flex border-b" data-testid="tab-navigation">
+        <button
+          className={cn(
+            "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+            activeTab === "entries"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+          )}
+          onClick={() => setActiveTab("entries")}
+          data-testid="tab-time-entries"
+        >
+          <Clock className="inline-block mr-1.5 h-4 w-4" />
+          Time Entries
+        </button>
+        <button
+          className={cn(
+            "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+            activeTab === "payrates"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+          )}
+          onClick={() => setActiveTab("payrates")}
+          data-testid="tab-staff-pay-rates"
+        >
+          <DollarSign className="inline-block mr-1.5 h-4 w-4" />
+          Staff Pay Rates
+        </button>
+      </div>
+
+      {activeTab === "entries" ? <TimeEntriesTab /> : <StaffPayRatesTab />}
+    </div>
+  );
+}
+
+function TimeEntriesTab() {
   const { token } = useAuth();
   const { toast } = useToast();
   const [from, setFrom] = useState(getMonthAgo());
@@ -124,22 +172,19 @@ export default function TimecardsPage() {
   const pendingCount = entries.filter((e) => e.status === "DRAFT" || e.status === "SUBMITTED").length;
 
   return (
-    <div className="p-4 space-y-4 max-w-[1400px] mx-auto" data-testid="timecards-page">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">Timecards</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => setShowCreate(true)} data-testid="button-create-entry">
-            <Plus className="mr-1 h-4 w-4" /> Manual Entry
-          </Button>
-          <Button variant="outline" onClick={() => setShowImport(true)} data-testid="button-import-csv">
-            <Upload className="mr-1 h-4 w-4" /> Import CSV
-          </Button>
-          <Button variant="ghost" onClick={() => {
-            window.open("/api/company/time/csv-template", "_blank");
-          }} data-testid="button-download-template">
-            <Download className="mr-1 h-4 w-4" /> Template
-          </Button>
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button onClick={() => setShowCreate(true)} data-testid="button-create-entry">
+          <Plus className="mr-1 h-4 w-4" /> Manual Entry
+        </Button>
+        <Button variant="outline" onClick={() => setShowImport(true)} data-testid="button-import-csv">
+          <Upload className="mr-1 h-4 w-4" /> Import CSV
+        </Button>
+        <Button variant="ghost" onClick={() => {
+          window.open("/api/company/time/csv-template", "_blank");
+        }} data-testid="button-download-template">
+          <Download className="mr-1 h-4 w-4" /> Template
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -299,6 +344,383 @@ export default function TimecardsPage() {
       <CreateEntryDialog open={showCreate} onClose={() => setShowCreate(false)} drivers={driversList} token={token} />
       <ImportCSVDialog open={showImport} onClose={() => setShowImport(false)} token={token} />
       {editEntry && <EditEntryDialog entry={editEntry} onClose={() => setEditEntry(null)} token={token} />}
+    </div>
+  );
+}
+
+function formatCentsToDisplay(cents: number | null | undefined): string {
+  if (cents == null) return "";
+  return (cents / 100).toFixed(2);
+}
+
+function parseDollarsToCents(val: string): number | null {
+  if (!val.trim()) return null;
+  const num = parseFloat(val);
+  if (isNaN(num)) return null;
+  return Math.round(num * 100);
+}
+
+function formatBps(bps: number | null | undefined): string {
+  if (bps == null) return "";
+  return (bps / 100).toFixed(2);
+}
+
+function parseBps(val: string): number | null {
+  if (!val.trim()) return null;
+  const num = parseFloat(val);
+  if (isNaN(num)) return null;
+  return Math.round(num * 100);
+}
+
+interface PayRateRow {
+  driver: { id: number; firstName: string; lastName: string; email: string | null; phone: string; status: string };
+  payConfig: any | null;
+  effectivePayType: string;
+  effectiveHourlyRateCents: number | null;
+  effectivePerTripFlatCents: number | null;
+  effectivePerTripPercentBps: number | null;
+  effectiveFixedSalaryCents: number | null;
+  hasOverride: boolean;
+}
+
+function StaffPayRatesTab() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editPayType, setEditPayType] = useState("HOURLY");
+  const [editHourlyRate, setEditHourlyRate] = useState("");
+  const [editFixedSalary, setEditFixedSalary] = useState("");
+  const [editFixedPeriod, setEditFixedPeriod] = useState("MONTHLY");
+  const [editPerTripFlat, setEditPerTripFlat] = useState("");
+  const [editPerTripPercent, setEditPerTripPercent] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [searchFilter, setSearchFilter] = useState("");
+
+  const payConfigsQuery = useQuery({
+    queryKey: ["/api/company/staff-pay-configs"],
+    queryFn: () => apiFetch("/api/company/staff-pay-configs", token),
+  });
+
+  const upsertMut = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/company/staff-pay-configs", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/staff-pay-configs"] });
+      toast({ title: "Pay configuration saved" });
+      setEditingId(null);
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (configId: number) => apiRequest("DELETE", `/api/company/staff-pay-configs/${configId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/staff-pay-configs"] });
+      toast({ title: "Pay override removed, using company defaults" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const data = payConfigsQuery.data as { drivers: PayRateRow[]; companyDefaults: any } | undefined;
+  const rows = data?.drivers || [];
+  const defaults = data?.companyDefaults;
+
+  const filteredRows = rows.filter((r) => {
+    if (!searchFilter.trim()) return true;
+    const name = `${r.driver.firstName} ${r.driver.lastName}`.toLowerCase();
+    return name.includes(searchFilter.toLowerCase());
+  });
+
+  function startEdit(row: PayRateRow) {
+    setEditingId(row.driver.id);
+    setEditPayType(row.payConfig?.payType || row.effectivePayType || "HOURLY");
+    setEditHourlyRate(formatCentsToDisplay(row.payConfig?.hourlyRateCents ?? row.effectiveHourlyRateCents));
+    setEditFixedSalary(formatCentsToDisplay(row.payConfig?.fixedSalaryCents ?? row.effectiveFixedSalaryCents));
+    setEditFixedPeriod(row.payConfig?.fixedPeriod || "MONTHLY");
+    setEditPerTripFlat(formatCentsToDisplay(row.payConfig?.perTripFlatCents ?? row.effectivePerTripFlatCents));
+    setEditPerTripPercent(formatBps(row.payConfig?.perTripPercentBps ?? row.effectivePerTripPercentBps));
+    setEditNotes(row.payConfig?.notes || "");
+  }
+
+  function handleSave(driverId: number) {
+    upsertMut.mutate({
+      driverId,
+      payType: editPayType,
+      hourlyRateCents: editPayType === "HOURLY" ? parseDollarsToCents(editHourlyRate) : null,
+      fixedSalaryCents: editPayType === "FIXED" ? parseDollarsToCents(editFixedSalary) : null,
+      fixedPeriod: editPayType === "FIXED" ? editFixedPeriod : null,
+      perTripFlatCents: editPayType === "PER_TRIP" ? parseDollarsToCents(editPerTripFlat) : null,
+      perTripPercentBps: editPayType === "PER_TRIP" ? parseBps(editPerTripPercent) : null,
+      notes: editNotes,
+    });
+  }
+
+  function payTypeLabel(pt: string) {
+    switch (pt) {
+      case "HOURLY": return "Hourly";
+      case "FIXED": return "Fixed Salary";
+      case "PER_TRIP": return "Per Trip";
+      default: return pt;
+    }
+  }
+
+  function renderEffectiveRate(row: PayRateRow) {
+    const pt = row.effectivePayType;
+    if (pt === "HOURLY" && row.effectiveHourlyRateCents != null) {
+      return `$${(row.effectiveHourlyRateCents / 100).toFixed(2)}/hr`;
+    }
+    if (pt === "FIXED" && row.effectiveFixedSalaryCents != null) {
+      return `$${(row.effectiveFixedSalaryCents / 100).toFixed(2)}/mo`;
+    }
+    if (pt === "PER_TRIP") {
+      const parts = [];
+      if (row.effectivePerTripFlatCents != null) parts.push(`$${(row.effectivePerTripFlatCents / 100).toFixed(2)}/trip`);
+      if (row.effectivePerTripPercentBps != null) parts.push(`${(row.effectivePerTripPercentBps / 100).toFixed(2)}%`);
+      return parts.join(" + ") || "-";
+    }
+    return "-";
+  }
+
+  return (
+    <div className="space-y-4">
+      {defaults && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Company Defaults</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Default Pay Mode:</span>{" "}
+                <Badge variant="outline" data-testid="badge-company-pay-mode">{payTypeLabel(defaults.payMode)}</Badge>
+              </div>
+              {defaults.hourlyRateCents != null && (
+                <div>
+                  <span className="text-muted-foreground">Hourly Rate:</span>{" "}
+                  <span className="font-medium" data-testid="text-company-hourly-rate">${(defaults.hourlyRateCents / 100).toFixed(2)}/hr</span>
+                </div>
+              )}
+              {defaults.perTripFlatCents != null && (
+                <div>
+                  <span className="text-muted-foreground">Per Trip Flat:</span>{" "}
+                  <span className="font-medium" data-testid="text-company-trip-flat">${(defaults.perTripFlatCents / 100).toFixed(2)}</span>
+                </div>
+              )}
+              {defaults.perTripPercentBps != null && (
+                <div>
+                  <span className="text-muted-foreground">Per Trip %:</span>{" "}
+                  <span className="font-medium" data-testid="text-company-trip-percent">{(defaults.perTripPercentBps / 100).toFixed(2)}%</span>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Drivers without a custom pay configuration will use these company defaults.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-lg">Driver Pay Rates</CardTitle>
+            <div className="w-64">
+              <Input
+                placeholder="Search drivers..."
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                data-testid="input-search-drivers"
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {payConfigsQuery.isLoading ? (
+            <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+          ) : filteredRows.length === 0 ? (
+            <p className="text-muted-foreground text-center py-8" data-testid="text-no-drivers">No drivers found</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Driver</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Pay Type</TableHead>
+                    <TableHead>Rate</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredRows.map((row) => {
+                    const isEditing = editingId === row.driver.id;
+
+                    if (isEditing) {
+                      return (
+                        <TableRow key={row.driver.id} className="bg-muted/30" data-testid={`row-pay-config-edit-${row.driver.id}`}>
+                          <TableCell className="font-medium">
+                            {row.driver.firstName} {row.driver.lastName}
+                            {row.driver.email && <div className="text-xs text-muted-foreground">{row.driver.email}</div>}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={row.driver.status === "ACTIVE" ? "default" : "secondary"}>{row.driver.status}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Select value={editPayType} onValueChange={setEditPayType}>
+                              <SelectTrigger className="w-32" data-testid="select-edit-pay-type">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="HOURLY">Hourly</SelectItem>
+                                <SelectItem value="FIXED">Fixed Salary</SelectItem>
+                                <SelectItem value="PER_TRIP">Per Trip</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-2 items-center">
+                              {editPayType === "HOURLY" && (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-sm text-muted-foreground">$</span>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={editHourlyRate}
+                                    onChange={(e) => setEditHourlyRate(e.target.value)}
+                                    className="w-24"
+                                    data-testid="input-edit-hourly-rate"
+                                  />
+                                  <span className="text-sm text-muted-foreground">/hr</span>
+                                </div>
+                              )}
+                              {editPayType === "FIXED" && (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-sm text-muted-foreground">$</span>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={editFixedSalary}
+                                    onChange={(e) => setEditFixedSalary(e.target.value)}
+                                    className="w-28"
+                                    data-testid="input-edit-fixed-salary"
+                                  />
+                                  <Select value={editFixedPeriod} onValueChange={setEditFixedPeriod}>
+                                    <SelectTrigger className="w-28" data-testid="select-edit-fixed-period">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="WEEKLY">Weekly</SelectItem>
+                                      <SelectItem value="BIWEEKLY">Biweekly</SelectItem>
+                                      <SelectItem value="MONTHLY">Monthly</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
+                              {editPayType === "PER_TRIP" && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-sm text-muted-foreground">$</span>
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      placeholder="Flat"
+                                      value={editPerTripFlat}
+                                      onChange={(e) => setEditPerTripFlat(e.target.value)}
+                                      className="w-20"
+                                      data-testid="input-edit-trip-flat"
+                                    />
+                                    <span className="text-sm text-muted-foreground">/trip</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      placeholder="%"
+                                      value={editPerTripPercent}
+                                      onChange={(e) => setEditPerTripPercent(e.target.value)}
+                                      className="w-20"
+                                      data-testid="input-edit-trip-percent"
+                                    />
+                                    <span className="text-sm text-muted-foreground">%</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">Custom</Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                size="sm"
+                                onClick={() => handleSave(row.driver.id)}
+                                disabled={upsertMut.isPending}
+                                data-testid={`button-save-pay-${row.driver.id}`}
+                              >
+                                {upsertMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} data-testid={`button-cancel-pay-${row.driver.id}`}>
+                                Cancel
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+
+                    return (
+                      <TableRow key={row.driver.id} data-testid={`row-pay-config-${row.driver.id}`}>
+                        <TableCell className="font-medium">
+                          {row.driver.firstName} {row.driver.lastName}
+                          {row.driver.email && <div className="text-xs text-muted-foreground">{row.driver.email}</div>}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={row.driver.status === "ACTIVE" ? "default" : "secondary"}>{row.driver.status}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" data-testid={`badge-pay-type-${row.driver.id}`}>{payTypeLabel(row.effectivePayType)}</Badge>
+                        </TableCell>
+                        <TableCell data-testid={`text-effective-rate-${row.driver.id}`}>
+                          {renderEffectiveRate(row)}
+                        </TableCell>
+                        <TableCell>
+                          {row.hasOverride ? (
+                            <Badge variant="default" data-testid={`badge-source-${row.driver.id}`}>Custom</Badge>
+                          ) : (
+                            <Badge variant="secondary" data-testid={`badge-source-${row.driver.id}`}>Company Default</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => startEdit(row)} data-testid={`button-edit-pay-${row.driver.id}`}>
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            {row.hasOverride && row.payConfig && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => deleteMut.mutate(row.payConfig.id)}
+                                disabled={deleteMut.isPending}
+                                title="Reset to company defaults"
+                                data-testid={`button-reset-pay-${row.driver.id}`}
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

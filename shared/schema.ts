@@ -2093,6 +2093,30 @@ export const insertCompanyPayrollSettingsSchema = createInsertSchema(companyPayr
 export type CompanyPayrollSettings = typeof companyPayrollSettings.$inferSelect;
 export type InsertCompanyPayrollSettings = z.infer<typeof insertCompanyPayrollSettingsSchema>;
 
+export const staffPayTypeEnum = pgEnum("staff_pay_type", ["HOURLY", "FIXED", "PER_TRIP"]);
+
+export const staffPayConfigs = pgTable("staff_pay_configs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  payType: staffPayTypeEnum("pay_type").notNull().default("HOURLY"),
+  hourlyRateCents: integer("hourly_rate_cents"),
+  fixedSalaryCents: integer("fixed_salary_cents"),
+  fixedPeriod: text("fixed_period").default("MONTHLY"),
+  perTripFlatCents: integer("per_trip_flat_cents"),
+  perTripPercentBps: integer("per_trip_percent_bps"),
+  notes: text("notes").default(""),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("spc_company_driver_idx").on(table.companyId, table.driverId),
+]);
+
+export const insertStaffPayConfigSchema = createInsertSchema(staffPayConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+export type StaffPayConfig = typeof staffPayConfigs.$inferSelect;
+export type InsertStaffPayConfig = z.infer<typeof insertStaffPayConfigSchema>;
+
 export const driverStripeAccountStatusEnum = pgEnum("driver_stripe_account_status", ["PENDING", "RESTRICTED", "ACTIVE"]);
 
 export const driverStripeAccounts = pgTable("driver_stripe_accounts", {
