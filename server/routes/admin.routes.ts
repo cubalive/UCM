@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
+import { storage } from "../storage";
 import {
   getCityMismatchHandler,
   archiveClinicHandler,
@@ -137,15 +138,69 @@ router.post("/api/admin/archive-trips", authMiddleware, requireRole("SUPER_ADMIN
 router.post("/api/admin/unarchive-trip/:id", authMiddleware, requireRole("SUPER_ADMIN"), unarchiveTripHandler as any);
 router.get("/api/admin/archive-stats", authMiddleware, requireRole("SUPER_ADMIN"), archiveStatsHandler as any);
 
-router.get("/api/audit", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+router.get("/api/audit", authMiddleware, async (req: AuthRequest, res) => {
   try {
     const { db } = await import("../db");
     const { auditLog, users } = await import("@shared/schema");
-    const { eq, desc } = await import("drizzle-orm");
+    const { eq, desc, and, gte, lte, ilike, or } = await import("drizzle-orm");
+
+    const caller = await storage.getUser(req.user!.userId);
+    if (!caller) return res.status(401).json({ message: "Unauthorized" });
+
     const cityId = req.query.cityId ? parseInt(String(req.query.cityId)) : undefined;
+    const action = req.query.action ? String(req.query.action).slice(0, 50) : undefined;
+    const entity = req.query.entity ? String(req.query.entity).slice(0, 50) : undefined;
+    const actorRole = req.query.actorRole ? String(req.query.actorRole).slice(0, 30) : undefined;
+    const search = req.query.search ? String(req.query.search).slice(0, 100) : undefined;
+    const dateFrom = req.query.dateFrom ? String(req.query.dateFrom) : undefined;
+    const dateTo = req.query.dateTo ? String(req.query.dateTo) : undefined;
 
     const conditions: any[] = [];
+
+    if (!["SUPER_ADMIN"].includes(caller.role)) {
+      if (caller.companyId) {
+        conditions.push(eq(auditLog.companyId, caller.companyId));
+      } else {
+        conditions.push(eq(auditLog.userId, caller.id));
+      }
+      if (["DRIVER"].includes(caller.role)) {
+        conditions.push(eq(auditLog.userId, caller.id));
+      }
+      if (["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"].includes(caller.role) && caller.clinicId) {
+        const { clinics: clinicsTable } = await import("@shared/schema");
+        const clinic = await db.select({ companyId: clinicsTable.companyId }).from(clinicsTable).where(eq(clinicsTable.id, caller.clinicId)).limit(1);
+        if (clinic[0]?.companyId) {
+          conditions.push(eq(auditLog.companyId, clinic[0].companyId));
+        }
+      }
+    }
+
     if (cityId) conditions.push(eq(auditLog.cityId, cityId));
+    if (action) conditions.push(eq(auditLog.action, action));
+    if (entity) conditions.push(eq(auditLog.entity, entity));
+    if (actorRole) conditions.push(eq(auditLog.actorRole, actorRole));
+    if (dateFrom) {
+      const d = new Date(dateFrom);
+      if (!isNaN(d.getTime())) conditions.push(gte(auditLog.createdAt, d));
+    }
+    if (dateTo) {
+      const d = new Date(dateTo);
+      if (!isNaN(d.getTime())) {
+        d.setHours(23, 59, 59, 999);
+        conditions.push(lte(auditLog.createdAt, d));
+      }
+    }
+    if (search) {
+      conditions.push(
+        or(
+          ilike(auditLog.details, `%${search}%`),
+          ilike(auditLog.entity, `%${search}%`),
+          ilike(users.email, `%${search}%`),
+          ilike(users.firstName, `%${search}%`),
+          ilike(users.lastName, `%${search}%`)
+        )
+      );
+    }
 
     const query = db
       .select({
@@ -166,10 +221,10 @@ router.get("/api/audit", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), as
       .from(auditLog)
       .leftJoin(users, eq(auditLog.userId, users.id))
       .orderBy(desc(auditLog.createdAt))
-      .limit(200);
+      .limit(500);
 
     const rows = conditions.length
-      ? await query.where(conditions[0])
+      ? await query.where(and(...conditions))
       : await query;
 
     const logs = rows.map((r: any) => ({
