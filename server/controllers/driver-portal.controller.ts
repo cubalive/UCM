@@ -1836,29 +1836,63 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
       return res.status(400).json({ message: "Cannot complete trip: no pickup timestamp recorded." });
     }
 
+    const { manualOverride } = req.body;
+    const MANUAL_FALLBACK_RADIUS = 300;
+
     if (process.env.GEOFENCE_ENABLED === "true") {
       const geofenceStatuses = ["ARRIVED_PICKUP", "ARRIVED_DROPOFF"];
       if (geofenceStatuses.includes(newStatus) && trip.driverId) {
         const { getDriverLocationFromCache } = await import("../lib/driverLocationIngest");
         const driverLoc = getDriverLocationFromCache(trip.driverId);
+        const PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
+        const DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
+        const haversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+          const R = 6371000;
+          const dLat = ((lat2 - lat1) * Math.PI) / 180;
+          const dLng = ((lng2 - lng1) * Math.PI) / 180;
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+          return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+
         if (driverLoc) {
-          const PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
-          const DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
-          const haversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-            const R = 6371000;
-            const dLat = ((lat2 - lat1) * Math.PI) / 180;
-            const dLng = ((lng2 - lng1) * Math.PI) / 180;
-            const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          };
           if (newStatus === "ARRIVED_PICKUP" && trip.pickupLat && trip.pickupLng) {
             const dist = haversine(driverLoc.lat, driverLoc.lng, trip.pickupLat, trip.pickupLng);
-            if (dist > PICKUP_RADIUS) return res.status(400).json({ ok: false, code: "GEOFENCE_REQUIRED", message: `Must be within ${PICKUP_RADIUS}m of pickup. Current: ${Math.round(dist)}m.` });
+            const effectiveRadius = manualOverride ? MANUAL_FALLBACK_RADIUS : PICKUP_RADIUS;
+            console.log(`[GEOFENCE] Trip ${tripId} ARRIVED_PICKUP check: dist=${Math.round(dist)}m, radius=${effectiveRadius}m, manual=${!!manualOverride}, enable=${dist <= effectiveRadius}`);
+            if (dist > effectiveRadius) {
+              return res.status(400).json({ ok: false, code: "GEOFENCE_REQUIRED", message: `Must be within ${effectiveRadius}m of pickup. Current: ${Math.round(dist)}m.`, distanceMeters: Math.round(dist), radiusMeters: effectiveRadius });
+            }
+            if (manualOverride) {
+              storage.createAuditLog({
+                userId: req.user!.userId,
+                action: "MANUAL_ARRIVAL_OVERRIDE",
+                entity: "trip",
+                entityId: tripId,
+                details: JSON.stringify({ status: newStatus, distanceMeters: Math.round(dist), normalRadius: PICKUP_RADIUS, fallbackRadius: MANUAL_FALLBACK_RADIUS }),
+                cityId: trip.cityId,
+              }).catch(() => {});
+            }
           }
           if (newStatus === "ARRIVED_DROPOFF" && trip.dropoffLat && trip.dropoffLng) {
             const dist = haversine(driverLoc.lat, driverLoc.lng, trip.dropoffLat, trip.dropoffLng);
-            if (dist > DROPOFF_RADIUS) return res.status(400).json({ ok: false, code: "GEOFENCE_REQUIRED", message: `Must be within ${DROPOFF_RADIUS}m of dropoff. Current: ${Math.round(dist)}m.` });
+            const effectiveRadius = manualOverride ? MANUAL_FALLBACK_RADIUS : DROPOFF_RADIUS;
+            console.log(`[GEOFENCE] Trip ${tripId} ARRIVED_DROPOFF check: dist=${Math.round(dist)}m, radius=${effectiveRadius}m, manual=${!!manualOverride}, enable=${dist <= effectiveRadius}`);
+            if (dist > effectiveRadius) {
+              return res.status(400).json({ ok: false, code: "GEOFENCE_REQUIRED", message: `Must be within ${effectiveRadius}m of dropoff. Current: ${Math.round(dist)}m.`, distanceMeters: Math.round(dist), radiusMeters: effectiveRadius });
+            }
+            if (manualOverride) {
+              storage.createAuditLog({
+                userId: req.user!.userId,
+                action: "MANUAL_ARRIVAL_OVERRIDE",
+                entity: "trip",
+                entityId: tripId,
+                details: JSON.stringify({ status: newStatus, distanceMeters: Math.round(dist), normalRadius: DROPOFF_RADIUS, fallbackRadius: MANUAL_FALLBACK_RADIUS }),
+                cityId: trip.cityId,
+              }).catch(() => {});
+            }
           }
+        } else {
+          console.log(`[GEOFENCE] Trip ${tripId} ${newStatus}: no cached driver location, allowing transition`);
         }
       }
     }
@@ -1867,7 +1901,77 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
     const updateData: any = { status: newStatus };
     if (timestampField) updateData[timestampField] = new Date();
 
+    if (newStatus === "ARRIVED_PICKUP") {
+      const { companySettings } = await import("@shared/schema");
+      const [cs] = await db.select().from(companySettings).where(eq(companySettings.companyId, trip.companyId));
+      const waitCfg = (cs?.driverV3 as any)?.waiting;
+      const waitMinutes = waitCfg?.minutes ?? 10;
+      updateData.waitingStartedAt = new Date();
+      updateData.waitingMinutes = waitMinutes;
+      updateData.waitingEndedAt = null;
+      updateData.waitingReason = null;
+      updateData.waitingOverride = false;
+      updateData.waitingExtendCount = 0;
+      console.log(`[WAITING] Trip ${tripId}: waiting timer started, ${waitMinutes} min`);
+    }
+
     const [updated] = await db.update(trips).set(updateData).where(eq(trips.id, tripId)).returning();
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function extendWaitingHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+    const tripId = parseInt(String(req.params.tripId));
+    if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const [trip] = await db.select().from(trips)
+      .where(and(eq(trips.id, tripId), eq(trips.driverId, user.driverId), isNull(trips.deletedAt)));
+    if (!trip) return res.status(404).json({ message: "Trip not found or not assigned to you" });
+
+    if (trip.status !== "ARRIVED_PICKUP") {
+      return res.status(400).json({ message: "Can only extend waiting when at pickup" });
+    }
+    if (!trip.waitingStartedAt) {
+      return res.status(400).json({ message: "Waiting timer not started" });
+    }
+
+    const { companySettings } = await import("@shared/schema");
+    const [cs] = await db.select().from(companySettings).where(eq(companySettings.companyId, trip.companyId));
+    const waitCfg = (cs?.driverV3 as any)?.waiting;
+    const allowExtend = waitCfg?.allowExtend !== false;
+    const maxExtends = waitCfg?.maxExtends ?? 3;
+    const extendMinutes = waitCfg?.minutes ?? 10;
+
+    if (!allowExtend) {
+      return res.status(403).json({ message: "Wait extension not allowed by company policy" });
+    }
+    if ((trip.waitingExtendCount ?? 0) >= maxExtends) {
+      return res.status(400).json({ message: `Maximum ${maxExtends} extensions reached` });
+    }
+
+    const newWaitMinutes = (trip.waitingMinutes ?? 10) + extendMinutes;
+    const newExtendCount = (trip.waitingExtendCount ?? 0) + 1;
+
+    const [updated] = await db.update(trips).set({
+      waitingMinutes: newWaitMinutes,
+      waitingExtendCount: newExtendCount,
+    }).where(eq(trips.id, tripId)).returning();
+
+    storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "WAITING_EXTENDED",
+      entity: "trip",
+      entityId: tripId,
+      details: JSON.stringify({ extendCount: newExtendCount, newWaitMinutes, reason: req.body.reason || null }),
+      cityId: trip.cityId,
+    }).catch(() => {});
+
+    console.log(`[WAITING] Trip ${tripId}: wait extended #${newExtendCount}, total ${newWaitMinutes} min`);
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ message: err.message });

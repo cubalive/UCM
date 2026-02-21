@@ -383,6 +383,12 @@ export const trips = pgTable("trips", {
   sharedPassengerCount: integer("shared_passenger_count").notNull().default(1),
   sharedPricingMode: text("shared_pricing_mode").notNull().default("PER_PATIENT"),
   primaryTripId: integer("primary_trip_id"),
+  waitingStartedAt: timestamp("waiting_started_at"),
+  waitingMinutes: integer("waiting_minutes").notNull().default(10),
+  waitingEndedAt: timestamp("waiting_ended_at"),
+  waitingReason: text("waiting_reason"),
+  waitingOverride: boolean("waiting_override").notNull().default(false),
+  waitingExtendCount: integer("waiting_extend_count").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   archivedAt: timestamp("archived_at"),
   archivedBy: integer("archived_by"),
@@ -1655,6 +1661,7 @@ export const companySettings = pgTable("company_settings", {
     };
     prompts?: { tMinusLeaveNow?: number; geofenceMeters?: number; cooldownMin?: number };
     tracking?: { fgSec?: number; bgSec?: number; accuracyMaxM?: number };
+    waiting?: { minutes?: number; allowExtend?: boolean; maxExtends?: number };
   }>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

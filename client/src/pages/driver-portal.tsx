@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -28,6 +28,14 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { NATIVE_ENABLED } from "@/lib/hostDetection";
+import {
+  evaluatePickupGeofence,
+  evaluateDropoffGeofence,
+  type GeofenceResult,
+  DEFAULT_PICKUP_RADIUS_M,
+  DEFAULT_DROPOFF_RADIUS_M,
+  MANUAL_FALLBACK_RADIUS_M,
+} from "@/lib/geofence";
 import { useSoundNotifications } from "@/hooks/use-sound-notifications";
 import { evaluatePrompts, acknowledgePrompt, cleanOldPromptRecords, type SmartPrompt } from "@/lib/smartPrompts";
 import { notify, enableSoundsOnUserGesture, initAudioContext, type NotificationEvent } from "@/lib/notificationManager";
@@ -180,6 +188,10 @@ interface ActiveTripData {
   pickedUpAt?: string | null;
   arrivedDropoffAt?: string | null;
   completedAt?: string | null;
+  waitingStartedAt?: string | null;
+  waitingMinutes?: number | null;
+  waitingEndedAt?: string | null;
+  waitingExtendCount?: number | null;
 }
 
 const isStandalone =
@@ -667,6 +679,50 @@ function NavChooser({ trip, onClose }: { trip: ActiveTripData; onClose: () => vo
   );
 }
 
+function ArrivalGeofenceInfo({ gate, targetStatus }: { gate: GeofenceResult; targetStatus: string }) {
+  const label = targetStatus === "ARRIVED_PICKUP" ? "pickup" : "dropoff";
+  const radius = targetStatus === "ARRIVED_PICKUP" ? DEFAULT_PICKUP_RADIUS_M : DEFAULT_DROPOFF_RADIUS_M;
+
+  if (gate.distanceMeters == null) {
+    return (
+      <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-sm" data-testid="geofence-info-no-coords">
+        <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+          <Satellite className="w-4 h-4 flex-shrink-0" />
+          <span>{!gate.gpsFresh ? "GPS signal stale — waiting for fresh location" : `No ${label} coordinates available`}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const withinRadius = gate.withinRadius;
+  const bgClass = withinRadius
+    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
+    : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800";
+  const textClass = withinRadius
+    ? "text-green-700 dark:text-green-400"
+    : "text-amber-700 dark:text-amber-400";
+
+  return (
+    <div className={`rounded-md border px-3 py-2 text-sm ${bgClass}`} data-testid="geofence-info">
+      <div className={`flex items-center gap-2 ${textClass}`}>
+        <LocateFixed className="w-4 h-4 flex-shrink-0" />
+        <span>
+          {gate.distanceMeters}m to {label}
+          {withinRadius
+            ? ` — within ${radius}m radius`
+            : ` — need to be within ${radius}m`}
+        </span>
+      </div>
+      {!gate.gpsFresh && gate.gpsFreshSeconds != null && (
+        <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500 mt-1">
+          <Satellite className="w-4 h-4 flex-shrink-0" />
+          <span>GPS {gate.gpsFreshSeconds}s old — waiting for fresh signal</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ConfirmStatusDialog({ label, onConfirm, onCancel }: { label: string; onConfirm: (note: string) => void; onCancel: () => void }) {
   const [note, setNote] = useState("");
   return (
@@ -715,13 +771,14 @@ function TripCardCompact({ trip, onTap }: { trip: any; onTap: () => void }) {
   );
 }
 
-function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigation, isPending }: {
+function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigation, isPending, geoLocation }: {
   trip: any;
   token: string | null;
   onClose: () => void;
   onStatusChange: (tripId: number, status: string) => void;
   onOpenNavigation: (trip: ActiveTripData) => void;
   isPending: boolean;
+  geoLocation: { lat: number; lng: number; accuracy: number; timestamp: number } | null;
 }) {
   const { toast } = useToast();
   const statusAction = getStatusAction(trip.status);
@@ -729,6 +786,21 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigatio
   const phase = getTripPhase(trip);
   const navLabel = getNavLabel(trip);
   const savedNavApp = getSavedNavApp();
+
+  const arrivalGate = useMemo((): GeofenceResult | null => {
+    if (!statusAction) return null;
+    const target = statusAction.targetStatus;
+    if (target !== "ARRIVED_PICKUP" && target !== "ARRIVED_DROPOFF") return null;
+    const isPickup = target === "ARRIVED_PICKUP";
+    const destLat = isPickup ? (trip.pickupLat ?? trip.pickup_lat ?? null) : (trip.dropoffLat ?? trip.dropoff_lat ?? null);
+    const destLng = isPickup ? (trip.pickupLng ?? trip.pickup_lng ?? null) : (trip.dropoffLng ?? trip.dropoff_lng ?? null);
+    const fn = isPickup ? evaluatePickupGeofence : evaluateDropoffGeofence;
+    return fn(
+      geoLocation?.lat ?? null, geoLocation?.lng ?? null,
+      destLat != null ? Number(destLat) : null, destLng != null ? Number(destLng) : null,
+      geoLocation?.timestamp ?? null,
+    );
+  }, [statusAction, trip, geoLocation]);
 
   const handleCopy = async () => {
     const addr = getDestinationAddress(trip);
@@ -819,15 +891,32 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigatio
           )}
 
           {!isLocked && statusAction && (
-            <Button
-              onClick={() => onStatusChange(trip.id, trip.status)}
-              disabled={isPending}
-              className="w-full min-h-[48px] text-base"
-              data-testid="button-detail-status-action"
-            >
-              <statusAction.icon className="w-5 h-5 mr-2" />
-              {statusAction.label}
-            </Button>
+            <div className="space-y-2">
+              {arrivalGate && (
+                <ArrivalGeofenceInfo gate={arrivalGate} targetStatus={statusAction.targetStatus} />
+              )}
+              <Button
+                onClick={() => onStatusChange(trip.id, trip.status)}
+                disabled={isPending || (arrivalGate != null && !arrivalGate.withinRadius)}
+                className="w-full min-h-[48px] text-base"
+                data-testid="button-detail-status-action"
+              >
+                <statusAction.icon className="w-5 h-5 mr-2" />
+                {statusAction.label}
+              </Button>
+              {arrivalGate && !arrivalGate.withinRadius && arrivalGate.withinFallbackRadius && (
+                <Button
+                  variant="outline"
+                  onClick={() => onStatusChange(trip.id, trip.status)}
+                  disabled={isPending}
+                  className="w-full min-h-[44px] text-sm border-amber-500/50 text-amber-700 dark:text-amber-400"
+                  data-testid="button-detail-manual-arrive"
+                >
+                  <AlertTriangle className="w-4 h-4 mr-2" />
+                  Mark Arrived (Manual Override)
+                </Button>
+              )}
+            </div>
           )}
         </div>
       </Card>
@@ -992,7 +1081,7 @@ function HomePage({
   activeTrip: ActiveTripData | null; todayTrips: any[];
   connectMutation: any; disconnectMutation: any; shiftStartMutation: any; shiftEndMutation: any; activeShift: any;
   breakMutation: any;
-  onStatusChange: (tripId: number, currentStatus: string) => void; statusIsPending: boolean;
+  onStatusChange: (tripId: number, currentStatus: string, manualOverride?: boolean) => void; statusIsPending: boolean;
   onOpenNavigation: (trip: ActiveTripData) => void; isNetworkOnline: boolean;
   isConnected: boolean; isOnShift: boolean;
   driverPrefs: { soundsOn: boolean; hapticsOn: boolean; promptsEnabled: boolean } | null;
@@ -1309,16 +1398,45 @@ function HomePage({
               const action = getStatusAction(activeTrip.status);
               if (!action) return null;
               const Icon = action.icon;
+              const isArrivalAction = action.targetStatus === "ARRIVED_PICKUP" || action.targetStatus === "ARRIVED_DROPOFF";
+              const gate = isArrivalAction ? (() => {
+                const isPickup = action.targetStatus === "ARRIVED_PICKUP";
+                const destLat = isPickup ? (activeTrip.pickupLat ?? null) : (activeTrip.dropoffLat ?? null);
+                const destLng = isPickup ? (activeTrip.pickupLng ?? null) : (activeTrip.dropoffLng ?? null);
+                const fn = isPickup ? evaluatePickupGeofence : evaluateDropoffGeofence;
+                return fn(
+                  geoLocation?.lat ?? null, geoLocation?.lng ?? null,
+                  destLat != null ? Number(destLat) : null, destLng != null ? Number(destLng) : null,
+                  geoLocation?.timestamp ?? null,
+                );
+              })() : null;
               return (
-                <Button
-                  onClick={() => onStatusChange(activeTrip.id, activeTrip.status)}
-                  disabled={statusIsPending}
-                  className="w-full min-h-[48px] text-base"
-                  data-testid="button-active-status"
-                >
-                  {Icon && <Icon className="w-5 h-5 mr-2" />}
-                  {action.label}
-                </Button>
+                <div className="space-y-2">
+                  {gate && (
+                    <ArrivalGeofenceInfo gate={gate} targetStatus={action.targetStatus} />
+                  )}
+                  <Button
+                    onClick={() => onStatusChange(activeTrip.id, activeTrip.status)}
+                    disabled={statusIsPending || (gate != null && !gate.withinRadius)}
+                    className="w-full min-h-[48px] text-base"
+                    data-testid="button-active-status"
+                  >
+                    {Icon && <Icon className="w-5 h-5 mr-2" />}
+                    {action.label}
+                  </Button>
+                  {gate && !gate.withinRadius && gate.withinFallbackRadius && (
+                    <Button
+                      variant="outline"
+                      onClick={() => onStatusChange(activeTrip.id, activeTrip.status, true)}
+                      disabled={statusIsPending}
+                      className="w-full min-h-[44px] text-sm border-amber-500/50 text-amber-700 dark:text-amber-400"
+                      data-testid="button-active-manual-arrive"
+                    >
+                      <AlertTriangle className="w-4 h-4 mr-2" />
+                      Mark Arrived (Manual Override)
+                    </Button>
+                  )}
+                </div>
               );
             })()}
           </CardContent>
@@ -1379,11 +1497,12 @@ function HomePage({
 
 type TripsSubTab = "offers" | "today" | "scheduled" | "completed";
 
-function TripsPage({ token, onStatusChange, statusIsPending, onOpenNavigation }: {
+function TripsPage({ token, onStatusChange, statusIsPending, onOpenNavigation, geoLocation }: {
   token: string | null;
-  onStatusChange: (tripId: number, currentStatus: string) => void;
+  onStatusChange: (tripId: number, currentStatus: string, manualOverride?: boolean) => void;
   statusIsPending: boolean;
   onOpenNavigation: (trip: ActiveTripData) => void;
+  geoLocation: { lat: number; lng: number; accuracy: number; timestamp: number } | null;
 }) {
   const [subTab, setSubTab] = useState<TripsSubTab>("today");
   const [selectedTrip, setSelectedTrip] = useState<any>(null);
@@ -1522,6 +1641,7 @@ function TripsPage({ token, onStatusChange, statusIsPending, onOpenNavigation }:
           onStatusChange={onStatusChange}
           onOpenNavigation={onOpenNavigation}
           isPending={statusIsPending}
+          geoLocation={geoLocation}
         />
       )}
     </div>
@@ -2653,7 +2773,7 @@ export default function DriverPortal() {
   const { toast } = useToast();
   const { play: playSound } = useSoundNotifications();
   const [activeTab, setActiveTab] = useState<TabId>("home");
-  const [confirmDialog, setConfirmDialog] = useState<{ tripId: number; nextStatus: string; label: string } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ tripId: number; nextStatus: string; label: string; manualOverride?: boolean } | null>(null);
   const [navChooserTrip, setNavChooserTrip] = useState<ActiveTripData | null>(null);
 
   const profileQuery = useQuery<any>({
@@ -2922,15 +3042,15 @@ export default function DriverPortal() {
     if (isNetworkOnline && getQueuedActions().length > 0) flushActionQueue();
   }, [isNetworkOnline, flushActionQueue]);
 
-  const handleStatusWithConfirm = useCallback((tripId: number, currentStatus: string) => {
+  const handleStatusWithConfirm = useCallback((tripId: number, currentStatus: string, manualOverride?: boolean) => {
     const action = getStatusAction(currentStatus);
     if (!action) return;
-    setConfirmDialog({ tripId, nextStatus: action.targetStatus, label: action.label });
+    setConfirmDialog({ tripId, nextStatus: action.targetStatus, label: action.label, manualOverride });
   }, []);
 
   const handleConfirmSubmit = useCallback(async (note: string) => {
     if (!confirmDialog) return;
-    const { tripId, nextStatus } = confirmDialog;
+    const { tripId, nextStatus, manualOverride } = confirmDialog;
     setConfirmDialog(null);
     if (!navigator.onLine) {
       queueAction({ type: "status_transition", payload: { tripId, status: nextStatus, note: note.trim() || undefined } });
@@ -2938,7 +3058,7 @@ export default function DriverPortal() {
       return;
     }
     try {
-      await apiFetch(`/api/trips/${tripId}/status`, token, { method: "PATCH", body: JSON.stringify({ status: nextStatus }) });
+      await apiFetch(`/api/trips/${tripId}/status`, token, { method: "PATCH", body: JSON.stringify({ status: nextStatus, ...(manualOverride ? { manualOverride: true } : {}) }) });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/trips"] });
@@ -3062,7 +3182,7 @@ export default function DriverPortal() {
           />
         )}
         {activeTab === "trips" && (
-          <TripsPage token={token} onStatusChange={handleStatusWithConfirm} statusIsPending={statusMutation.isPending} onOpenNavigation={openNavigation} />
+          <TripsPage token={token} onStatusChange={handleStatusWithConfirm} statusIsPending={statusMutation.isPending} onOpenNavigation={openNavigation} geoLocation={geoLocation} />
         )}
         {activeTab === "performance" && <PerformancePage token={token} />}
         {activeTab === "bonuses" && <BonusesPage token={token} />}

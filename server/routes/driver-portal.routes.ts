@@ -71,6 +71,7 @@ import {
   patchDriverSettingsHandler,
   getDriverV3FlagsHandler,
   getDriverPerformanceCurrentShiftHandler,
+  extendWaitingHandler,
 } from "../controllers/driver-portal.controller";
 
 const router = express.Router();
@@ -145,6 +146,7 @@ router.get("/api/driver/trips/active", authMiddleware, requireRole("DRIVER"), ge
 router.get("/api/driver/trips/upcoming", authMiddleware, requireRole("DRIVER"), getDriverTripsUpcomingHandler as any);
 router.get("/api/driver/trips/history", authMiddleware, requireRole("DRIVER"), getDriverTripsHistoryHandler as any);
 router.post("/api/driver/trips/:tripId/status", authMiddleware, requireRole("DRIVER"), postDriverTripStatusHandler as any);
+router.post("/api/driver/trips/:tripId/extend-wait", authMiddleware, requireRole("DRIVER"), extendWaitingHandler as any);
 router.get("/api/driver/trips/:tripId", authMiddleware, requireRole("DRIVER"), getDriverTripDetailHandler as any);
 router.get("/api/driver/schedule", authMiddleware, requireRole("DRIVER"), getDriverScheduleHandler as any);
 router.get("/api/driver/metrics/weekly", authMiddleware, requireRole("DRIVER"), getDriverMetricsWeeklyHandler as any);
