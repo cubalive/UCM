@@ -11,6 +11,8 @@ import {
   getDriverShiftEarningsHandler,
 } from "../controllers/driver-shift.controller";
 import {
+  getDriverMeHandler,
+  patchDriverMeHandler,
   getDriverTripDetailHandler,
   postDriverTripStatusHandler,
   getDriverMyTripsHandler,
@@ -69,6 +71,8 @@ import {
 
 const router = express.Router();
 
+router.get("/api/driver/me", authMiddleware, requireRole("DRIVER"), getDriverMeHandler as any);
+router.patch("/api/driver/me", authMiddleware, requireRole("DRIVER"), patchDriverMeHandler as any);
 router.get("/api/driver/my-trips", authMiddleware, requireRole("DRIVER"), getDriverMyTripsHandler as any);
 router.get("/api/driver/profile", authMiddleware, requireRole("DRIVER"), getDriverProfileHandler as any);
 router.post("/api/driver/me/active", authMiddleware, requireRole("DRIVER"), postDriverActiveHandler as any);

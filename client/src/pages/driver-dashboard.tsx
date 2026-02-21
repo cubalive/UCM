@@ -59,6 +59,10 @@ import {
   Wrench,
   CloudRain,
   Settings,
+  Building2,
+  Shield,
+  Pencil,
+  Save,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
@@ -1075,6 +1079,7 @@ export default function DriverDashboard() {
 
   const driver = profileQuery.data?.driver;
   const vehicle = profileQuery.data?.vehicle;
+  const driverProfileEnabled = profileQuery.data?.driverProfileEnabled !== false;
 
   const shiftQuery = useQuery<{ shift: any }>({
     queryKey: ["/api/driver/shift/active"],
@@ -2326,7 +2331,7 @@ export default function DriverDashboard() {
           <div className="relative bg-background rounded-t-xl max-h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <span className="text-lg font-semibold">
-                {drawerSection === "trips" ? "My Trips" : drawerSection === "schedule" ? "My Schedule" : drawerSection === "schedule-change" ? "Schedule Change" : drawerSection === "metrics" ? "My Metrics" : drawerSection === "bonus" ? "Weekly Bonus" : drawerSection === "earnings" ? "My Earnings" : "Menu"}
+                {drawerSection === "profile" ? "My Profile" : drawerSection === "trips" ? "My Trips" : drawerSection === "schedule" ? "My Schedule" : drawerSection === "schedule-change" ? "Schedule Change" : drawerSection === "metrics" ? "My Metrics" : drawerSection === "bonus" ? "Weekly Bonus" : drawerSection === "earnings" ? "My Earnings" : "Menu"}
               </span>
               <div className="flex items-center gap-2">
                 {drawerSection && (
@@ -2343,27 +2348,55 @@ export default function DriverDashboard() {
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
               {!drawerSection && (
                 <>
-                  {/* S1: Driver Profile */}
-                  <div className="flex items-center gap-3" data-testid="div-drawer-profile">
-                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <User className="w-7 h-7 text-primary" />
+                  {/* S1: Driver Profile - clickable to open profile section when enabled */}
+                  {driverProfileEnabled ? (
+                    <button
+                      className="flex items-center gap-3 w-full text-left rounded-lg p-2 -m-2 hover:bg-accent/50 transition-colors"
+                      onClick={() => setDrawerSection("profile")}
+                      data-testid="button-open-profile"
+                    >
+                      <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <User className="w-7 h-7 text-primary" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-lg font-semibold truncate">{driver.firstName} {driver.lastName}</p>
+                        {vehicle && (
+                          <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                            <Car className="w-4 h-4" />
+                            {vehicle.name} - {vehicle.licensePlate}
+                          </p>
+                        )}
+                        <Badge
+                          variant={isOnBreak ? "outline" : isDriverActive ? "default" : "secondary"}
+                          className={`mt-1 ${isOnBreak ? "border-amber-500 text-amber-700 dark:text-amber-400" : ""}`}
+                        >
+                          {isOnBreak ? "On Break" : isDriverActive ? "Online" : "Offline"}
+                        </Badge>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-3 w-full text-left p-2 -m-2" data-testid="div-profile-header-disabled">
+                      <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <User className="w-7 h-7 text-primary" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-lg font-semibold truncate">{driver.firstName} {driver.lastName}</p>
+                        {vehicle && (
+                          <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                            <Car className="w-4 h-4" />
+                            {vehicle.name} - {vehicle.licensePlate}
+                          </p>
+                        )}
+                        <Badge
+                          variant={isOnBreak ? "outline" : isDriverActive ? "default" : "secondary"}
+                          className={`mt-1 ${isOnBreak ? "border-amber-500 text-amber-700 dark:text-amber-400" : ""}`}
+                        >
+                          {isOnBreak ? "On Break" : isDriverActive ? "Online" : "Offline"}
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-lg font-semibold truncate">{driver.firstName} {driver.lastName}</p>
-                      {vehicle && (
-                        <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-                          <Car className="w-4 h-4" />
-                          {vehicle.name} - {vehicle.licensePlate}
-                        </p>
-                      )}
-                      <Badge
-                        variant={isOnBreak ? "outline" : isDriverActive ? "default" : "secondary"}
-                        className={`mt-1 ${isOnBreak ? "border-amber-500 text-amber-700 dark:text-amber-400" : ""}`}
-                      >
-                        {isOnBreak ? "On Break" : isDriverActive ? "Online" : "Offline"}
-                      </Badge>
-                    </div>
-                  </div>
+                  )}
 
                   <div className="border-t pt-3 space-y-1">
                     {/* S2: Trips */}
@@ -2569,6 +2602,10 @@ export default function DriverDashboard() {
 
               {drawerSection === "earnings" && (
                 <DrawerEarningsSection token={token} />
+              )}
+
+              {drawerSection === "profile" && (
+                <DrawerProfileSection token={token} />
               )}
             </div>
           </div>
@@ -3450,6 +3487,184 @@ function DrawerEarningsSection({ token }: { token: string | null }) {
       ) : (
         <p className="text-sm text-muted-foreground">Unable to load earnings</p>
       )}
+    </div>
+  );
+}
+
+function DrawerProfileSection({ token }: { token: string | null }) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState<{ firstName: string; lastName: string; phone: string }>({ firstName: "", lastName: "", phone: "" });
+
+  const profileQuery = useQuery<any>({
+    queryKey: ["/api/driver/me"],
+    queryFn: () => apiFetch("/api/driver/me", token),
+    enabled: !!token,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (body: any) => {
+      const res = await fetch("/api/driver/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || "Update failed"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/me"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/profile"] });
+      setEditing(false);
+      toast({ title: "Profile updated" });
+    },
+    onError: (err: any) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+  });
+
+  const data = profileQuery.data;
+  const d = data?.driver;
+  const settings = data?.settings;
+
+  if (profileQuery.isLoading) {
+    return (
+      <div className="space-y-3" data-testid="div-profile-loading">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
+      </div>
+    );
+  }
+
+  if (!d) {
+    return <p className="text-sm text-muted-foreground" data-testid="text-profile-error">Unable to load profile</p>;
+  }
+
+  const capLabel = d.vehicleCapability === "wheelchair" ? "Wheelchair" : d.vehicleCapability === "both" ? "Both (Sedan + Wheelchair)" : "Sedan";
+  const vehCatLabel = d.assignedVehicle?.category === "WHEELCHAIR" ? "Wheelchair Van" : d.assignedVehicle?.category === "BOTH" ? "Multi-Category" : "Sedan";
+
+  return (
+    <div className="space-y-4" data-testid="div-profile-section">
+      <div className="flex items-center gap-4">
+        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+          {d.photoUrl ? (
+            <img src={d.photoUrl} alt="Profile" className="w-16 h-16 rounded-full object-cover" data-testid="img-profile-photo" />
+          ) : (
+            <User className="w-8 h-8 text-primary" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xl font-bold truncate" data-testid="text-profile-name">{d.displayName}</p>
+          <p className="text-sm text-muted-foreground" data-testid="text-profile-email">{d.email || data?.user?.email}</p>
+          <p className="text-sm text-muted-foreground" data-testid="text-profile-id">ID: {d.publicId}</p>
+        </div>
+      </div>
+
+      {d.company && (
+        <Card data-testid="card-profile-company">
+          <CardContent className="py-3 space-y-1">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium text-muted-foreground">Working for</span>
+            </div>
+            <p className="text-lg font-semibold" data-testid="text-company-name">{d.company.name}</p>
+            {(d.company.cityName || d.company.stateCode) && (
+              <p className="text-sm text-muted-foreground" data-testid="text-company-location">
+                {[d.company.cityName, d.company.stateCode].filter(Boolean).join(", ")}
+              </p>
+            )}
+            {d.company.dispatchPhone && (
+              <p className="text-sm text-muted-foreground">Dispatch: {d.company.dispatchPhone}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card data-testid="card-profile-capability">
+        <CardContent className="py-3 space-y-1">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium text-muted-foreground">Vehicle Category</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="default" data-testid="badge-vehicle-capability">{capLabel}</Badge>
+            {settings?.lockDriverCapability && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1"><Lock className="w-3 h-3" /> Locked by company</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {d.assignedVehicle && (
+        <Card data-testid="card-profile-vehicle">
+          <CardContent className="py-3 space-y-1">
+            <div className="flex items-center gap-2">
+              <Car className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium text-muted-foreground">Assigned Vehicle</span>
+            </div>
+            <p className="font-semibold" data-testid="text-vehicle-name">{d.assignedVehicle.name}</p>
+            <div className="flex items-center gap-2 flex-wrap text-sm text-muted-foreground">
+              <span data-testid="text-vehicle-plate">{d.assignedVehicle.plate}</span>
+              {d.assignedVehicle.make && <span>· {d.assignedVehicle.make} {d.assignedVehicle.model} {d.assignedVehicle.year}</span>}
+              <Badge variant="outline" data-testid="badge-vehicle-category">{vehCatLabel}</Badge>
+            </div>
+            {d.assignedVehicle.color && (
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-full border" style={{ backgroundColor: d.assignedVehicle.color }} />
+                <span className="text-xs text-muted-foreground">Vehicle color</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card data-testid="card-profile-shift">
+        <CardContent className="py-3 space-y-1">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium text-muted-foreground">Shift Status</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={d.shift?.status === "ON_SHIFT" ? "default" : "secondary"} data-testid="badge-shift-status">
+              {d.shift?.status === "ON_SHIFT" ? "On Shift" : "Off Shift"}
+            </Badge>
+            {d.shift?.startedAt && (
+              <span className="text-sm text-muted-foreground" data-testid="text-shift-started">
+                Since {new Date(d.shift.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="border-t pt-3">
+        {!editing ? (
+          <Button variant="outline" className="w-full min-h-[44px]" onClick={() => { setEditForm({ firstName: d.firstName || "", lastName: d.lastName || "", phone: d.phone || "" }); setEditing(true); }} data-testid="button-edit-profile">
+            <Pencil className="w-4 h-4 mr-2" /> Edit Profile
+          </Button>
+        ) : (
+          <div className="space-y-3" data-testid="div-edit-profile-form">
+            <div>
+              <Label className="text-sm">First Name</Label>
+              <Input value={editForm.firstName} onChange={(e) => setEditForm(p => ({ ...p, firstName: e.target.value }))} data-testid="input-edit-firstname" />
+            </div>
+            <div>
+              <Label className="text-sm">Last Name</Label>
+              <Input value={editForm.lastName} onChange={(e) => setEditForm(p => ({ ...p, lastName: e.target.value }))} data-testid="input-edit-lastname" />
+            </div>
+            <div>
+              <Label className="text-sm">Phone</Label>
+              <Input value={editForm.phone} onChange={(e) => setEditForm(p => ({ ...p, phone: e.target.value }))} data-testid="input-edit-phone" />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="default" className="flex-1 min-h-[44px]" onClick={() => updateMutation.mutate(editForm)} disabled={updateMutation.isPending} data-testid="button-save-profile">
+                <Save className="w-4 h-4 mr-2" /> Save
+              </Button>
+              <Button variant="outline" className="min-h-[44px]" onClick={() => setEditing(false)} data-testid="button-cancel-edit">Cancel</Button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
