@@ -40,13 +40,24 @@ export function registerStripeConnectRoutes(app: Express) {
         if (!company) return res.status(404).json({ message: "Company not found" });
         const stripe = getStripe();
 
-        const account = await stripe.accounts.create({
-          type: "express",
-          metadata: { ucm_company_id: String(companyId) },
-          business_profile: {
-            name: company?.name || `Company ${companyId}`,
-          },
-        });
+        let account: any;
+        try {
+          account = await stripe.accounts.create({
+            type: "express",
+            metadata: { ucm_company_id: String(companyId) },
+            business_profile: {
+              name: company?.name || `Company ${companyId}`,
+            },
+          });
+        } catch (stripeErr: any) {
+          if (stripeErr.message?.includes("signed up for Connect")) {
+            return res.status(400).json({
+              message: "Stripe Connect is not enabled on your Stripe account. Please enable Connect at https://dashboard.stripe.com/connect/overview before setting up company payments.",
+              connectRequired: true,
+            });
+          }
+          throw stripeErr;
+        }
 
         await storage.upsertCompanyStripeAccount({
           companyId,
