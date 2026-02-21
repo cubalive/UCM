@@ -1604,7 +1604,9 @@ export async function getDriverTripsHandler(req: AuthRequest, res: Response) {
     const statusFilter = req.query.status as string;
     let conditions: any[] = [eq(trips.driverId, user.driverId), isNull(trips.deletedAt)];
 
-    if (scope === "today") {
+    if (scope === "active") {
+      conditions.push(sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`);
+    } else if (scope === "today") {
       conditions.push(eq(trips.scheduledDate, today));
     } else if (scope === "scheduled") {
       conditions.push(sql`${trips.scheduledDate} >= ${today}`);
@@ -1635,6 +1637,103 @@ export async function getDriverTripsHandler(req: AuthRequest, res: Response) {
       .offset((page - 1) * pageSize);
 
     res.json({ trips: results, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getDriverTripDetailHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+    const tripId = parseInt(String(req.params.tripId));
+    if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const [trip] = await db.select().from(trips)
+      .where(and(eq(trips.id, tripId), eq(trips.driverId, user.driverId), isNull(trips.deletedAt)));
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+    res.json(trip);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function postDriverTripStatusHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+    const tripId = parseInt(String(req.params.tripId));
+    if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const { status: newStatus, idempotencyKey } = req.body;
+    if (!newStatus) return res.status(400).json({ message: "status is required" });
+
+    if (idempotencyKey) {
+      const { cache } = await import("../lib/cache");
+      const idemKey = `idem:dstatus:${idempotencyKey}`;
+      const claimed = cache.setIfNotExists(idemKey, true, 600_000);
+      if (!claimed) return res.json({ message: "Already applied", idempotent: true });
+    }
+
+    const [trip] = await db.select().from(trips)
+      .where(and(eq(trips.id, tripId), eq(trips.driverId, user.driverId), isNull(trips.deletedAt)));
+    if (!trip) {
+      if (idempotencyKey) { const { cache } = await import("../lib/cache"); cache.delete(`idem:dstatus:${idempotencyKey}`); }
+      return res.status(404).json({ message: "Trip not found or not assigned to you" });
+    }
+
+    if (trip.status === newStatus) return res.json({ message: "Already in this status", idempotent: true });
+
+    const { VALID_TRANSITIONS, STATUS_TIMESTAMP_MAP } = await import("@shared/tripStateMachine");
+    const allowedNext = VALID_TRANSITIONS[trip.status] || [];
+    if (!allowedNext.includes(newStatus)) {
+      return res.status(409).json({
+        message: `Invalid transition from ${trip.status} to ${newStatus}`,
+        code: "INVALID_TRANSITION",
+        currentStatus: trip.status,
+        requestedStatus: newStatus,
+        allowedStatuses: allowedNext,
+      });
+    }
+
+    if (newStatus === "COMPLETED" && !trip.pickedUpAt) {
+      return res.status(400).json({ message: "Cannot complete trip: no pickup timestamp recorded." });
+    }
+
+    if (process.env.GEOFENCE_ENABLED === "true") {
+      const geofenceStatuses = ["ARRIVED_PICKUP", "ARRIVED_DROPOFF"];
+      if (geofenceStatuses.includes(newStatus) && trip.driverId) {
+        const { getDriverLocationFromCache } = await import("../lib/driverLocationIngest");
+        const driverLoc = getDriverLocationFromCache(trip.driverId);
+        if (driverLoc) {
+          const PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
+          const DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
+          const haversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+            const R = 6371000;
+            const dLat = ((lat2 - lat1) * Math.PI) / 180;
+            const dLng = ((lng2 - lng1) * Math.PI) / 180;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          };
+          if (newStatus === "ARRIVED_PICKUP" && trip.pickupLat && trip.pickupLng) {
+            const dist = haversine(driverLoc.lat, driverLoc.lng, trip.pickupLat, trip.pickupLng);
+            if (dist > PICKUP_RADIUS) return res.status(400).json({ ok: false, code: "GEOFENCE_REQUIRED", message: `Must be within ${PICKUP_RADIUS}m of pickup. Current: ${Math.round(dist)}m.` });
+          }
+          if (newStatus === "ARRIVED_DROPOFF" && trip.dropoffLat && trip.dropoffLng) {
+            const dist = haversine(driverLoc.lat, driverLoc.lng, trip.dropoffLat, trip.dropoffLng);
+            if (dist > DROPOFF_RADIUS) return res.status(400).json({ ok: false, code: "GEOFENCE_REQUIRED", message: `Must be within ${DROPOFF_RADIUS}m of dropoff. Current: ${Math.round(dist)}m.` });
+          }
+        }
+      }
+    }
+
+    const timestampField = STATUS_TIMESTAMP_MAP[newStatus];
+    const updateData: any = { status: newStatus };
+    if (timestampField) updateData[timestampField] = new Date();
+
+    const [updated] = await db.update(trips).set(updateData).where(eq(trips.id, tripId)).returning();
+    res.json(updated);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

@@ -35,6 +35,14 @@ export async function healthz(_req: Request, res: Response) {
   });
 }
 
+export async function versionHandler(_req: Request, res: Response) {
+  res.json({
+    version: APP_VERSION,
+    builtAt: APP_BUILD_TIME,
+    env: APP_ENV,
+  });
+}
+
 export async function healthLegacy(_req: Request, res: Response) {
   let dbStatus = "disconnected";
 

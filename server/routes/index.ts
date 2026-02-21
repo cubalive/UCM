@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import { authMiddleware, opsRouteGuard } from "../auth";
-import { healthz, healthLegacy, pwaHealth, healthDetailedHandler, healthDbDetails } from "../controllers/health.controller";
+import { healthz, healthLegacy, pwaHealth, healthDetailedHandler, healthDbDetails, versionHandler } from "../controllers/health.controller";
 import { dbCheckHandler } from "../controllers/dbCheck.controller";
 import { requireRole } from "../auth";
 import { registerAuthRoutes } from "./auth.routes";
@@ -53,6 +53,7 @@ export async function registerRoutes(
 ): Promise<Server> {
   app.get("/api/healthz", healthz);
   app.get("/api/health", healthLegacy);
+  app.get("/api/version", versionHandler);
   app.get("/api/health/detailed", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), healthDetailedHandler as any);
   app.get("/api/health/details", authMiddleware, requireRole("SUPER_ADMIN"), healthDbDetails as any);
   app.get("/api/pwa/health", pwaHealth);
