@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
 import { TripRef } from "@/components/trip-ref";
+import { useSoundNotifications } from "@/hooks/use-sound-notifications";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +50,9 @@ import {
   Timer,
   Send,
   XCircle,
+  ChevronDown,
+  ChevronUp,
+  Volume2,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -171,6 +176,8 @@ interface ClinicGroup {
 export default function DispatchBoardPage() {
   const { token, selectedCity } = useAuth();
   const { toast } = useToast();
+  const { play: playSound, enabled: soundEnabled, toggle: soundToggle } = useSoundNotifications();
+  const prevTripIdsRef = useRef<Set<number> | null>(null);
   const [activeTab, setActiveTab] = useState("unassigned");
   const [originFilter, setOriginFilter] = useState<OriginFilter>("");
   const [search, setSearch] = useState("");
@@ -346,6 +353,33 @@ export default function DispatchBoardPage() {
     : (Array.isArray(rawData) ? rawData : []);
   const driverStatus = driverStatusQuery.data || { available: [], on_trip: [], paused: [], hold: [], logged_out: [] };
 
+  const prevScopeRef = useRef<string>("");
+  const scopePrimedRef = useRef(false);
+  useEffect(() => {
+    const scopeKey = `${activeTab}|${search}|${originFilter}`;
+    if (scopeKey !== prevScopeRef.current) {
+      prevScopeRef.current = scopeKey;
+      prevTripIdsRef.current = null;
+      scopePrimedRef.current = false;
+    }
+    const currentIds = new Set(trips.map((t: any) => t.id as number));
+    if (!scopePrimedRef.current) {
+      scopePrimedRef.current = true;
+      prevTripIdsRef.current = currentIds;
+      return;
+    }
+    const prev = prevTripIdsRef.current;
+    if (prev && prev.size > 0) {
+      for (const id of currentIds) {
+        if (!prev.has(id)) {
+          playSound("notification");
+          break;
+        }
+      }
+    }
+    prevTripIdsRef.current = currentIds;
+  }, [trips, activeTab, search, originFilter, playSound]);
+
   return (
     <div className="p-4 space-y-4 max-w-full mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -386,6 +420,15 @@ export default function DispatchBoardPage() {
               data-testid="input-dispatch-search"
             />
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => { soundToggle(!soundEnabled); }}
+            title={soundEnabled ? "Mute sounds" : "Enable sounds"}
+            data-testid="button-toggle-sounds"
+          >
+            <Volume2 className={`w-4 h-4 ${soundEnabled ? "text-foreground" : "text-muted-foreground opacity-40"}`} />
+          </Button>
         </div>
       </div>
 
@@ -885,17 +928,33 @@ function DriverSection({
   variant: "available" | "busy" | "offline";
 }) {
   const isOffline = variant === "offline";
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(`ucm_dispatch_section_${variant}`) === "collapsed"; } catch { return isOffline; }
+  });
+
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try { localStorage.setItem(`ucm_dispatch_section_${variant}`, next ? "collapsed" : "open"); } catch {}
+  };
 
   return (
     <Card data-testid={`section-drivers-${variant}`}>
-      <CardHeader className="py-2 px-3 flex flex-row items-center justify-between gap-2 space-y-0">
+      <CardHeader
+        className="py-2 px-3 flex flex-row items-center justify-between gap-2 space-y-0 cursor-pointer select-none"
+        onClick={toggleCollapsed}
+        data-testid={`toggle-section-${variant}`}
+      >
         <div className="flex items-center gap-2">
           {icon}
           <CardTitle className="text-sm font-medium">{title}</CardTitle>
         </div>
-        <Badge variant="secondary" className="text-xs">{drivers.length}</Badge>
+        <div className="flex items-center gap-1.5">
+          <Badge variant="secondary" className="text-xs">{drivers.length}</Badge>
+          {collapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
+        </div>
       </CardHeader>
-      {drivers.length > 0 && (
+      {!collapsed && drivers.length > 0 && (
         <CardContent className="px-3 pb-2 pt-0">
           <div className="space-y-1">
             {drivers.map((d) => (
@@ -1029,13 +1088,14 @@ function ClinicGroupedTripList({
 }
 
 function TripCard({ trip, tab, onAssign, onReassign }: { trip: any; tab: string; onAssign?: (trip: any) => void; onReassign?: (trip: any) => void }) {
+  const [, navigate] = useLocation();
   const isCompleted = tab === "completed" || ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status);
   const canAssign = !isCompleted && onAssign && (tab === "unassigned" || tab === "scheduled");
 
   const showReassign = !isCompleted && onReassign && isTripNearPickup(trip) && isDriverNotReady(trip);
 
   return (
-    <Card data-testid={`card-trip-${trip.id}`}>
+    <Card data-testid={`card-trip-${trip.id}`} className="hover-elevate cursor-pointer" onClick={() => navigate(`/trips/${trip.id}`)}>
       <CardContent className="py-3 px-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0 space-y-1.5">
@@ -1132,7 +1192,7 @@ function TripCard({ trip, tab, onAssign, onReassign }: { trip: any; tab: string;
             )}
           </div>
 
-          <div className="flex flex-col gap-1 flex-shrink-0">
+          <div className="flex flex-col gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
             {canAssign && (
               <Button
                 size="sm"
