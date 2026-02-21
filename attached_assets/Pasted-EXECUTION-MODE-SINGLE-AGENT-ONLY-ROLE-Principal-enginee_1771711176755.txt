@@ -1,0 +1,223 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Principal engineer / product auditor (React + Node/Express + Supabase/Postgres + Maps + SMS).
+PROJECT: United Care Mobility (Replit)
+
+GOAL
+Run a complete end-to-end audit of ALL subdomains and core processes to identify:
+1) Logic gaps / broken flows / edge cases
+2) Security & multi-tenant isolation leaks
+3) UX friction that causes confusion or manual intervention
+4) Automation opportunities to reduce human work to the minimum
+5) Observability gaps (logs, audit trails, alerts)
+Deliver a structured report with “what you verified”, “evidence”, “issues”, “fix plan”, and “automation plan”.
+
+HARD RULES
+- Do NOT reset DB, do NOT drop tables.
+- Do NOT change secrets/env vars.
+- Do NOT refactor unrelated code.
+- DO NOT implement fixes yet unless a CRITICAL security issue is found (data leakage). If critical, implement minimal patch only.
+- Verification must be done using real navigation + API calls + DB checks; no assumptions.
+- Prefer 404 over 403 for unauthorized resources to reduce ID probing.
+- Keep strict multi-tenant isolation: company/clinic/city.
+
+SCOPE: SUBDOMAINS (must audit each separately)
+A) app.unitedcaremobility.com  (Admin/Dispatch/SuperAdmin unified)
+B) driver.unitedcaremobility.com
+C) clinic.unitedcaremobility.com
+D) Any other enabled subdomains (list them from config/DNS/app routing)
+
+------------------------------------------------------------
+1) INVENTORY & ACCESS CONTROL (must output)
+------------------------------------------------------------
+1.1 List all roles and permissions (actual enforced, not just UI):
+- SUPER_ADMIN
+- COMPANY_ADMIN
+- DISPATCHER
+- CLINIC_USER
+- DRIVER
+- Any others found
+For each role:
+- pages/routes accessible
+- API endpoints accessible
+- data scope rules (company_id, clinic_id, city_id)
+- whether they can create/edit/archive/delete
+
+1.2 Verify isolation with real tests:
+- Create 2 companies (A,B), 2 cities (LV, Dallas), 2 clinics, 2 drivers.
+- Confirm each role cannot view/modify other company/city/clinic data via:
+  a) UI list
+  b) search
+  c) direct URL
+  d) API calls (curl or equivalent)
+Report PASS/FAIL with evidence.
+
+------------------------------------------------------------
+2) CORE FLOWS AUDIT (must execute end-to-end)
+------------------------------------------------------------
+For each flow, run the scenario and record:
+- steps
+- expected vs actual
+- any missing buttons/statuses
+- any manual interventions required
+- any data inconsistencies
+
+2.1 Clinic-requested trip flow
+Clinic creates trip → dispatcher sees it → pricing (if applicable) → assign driver → driver accepts → navigation → pickup → dropoff → complete → invoice visible to clinic/admin/dispatch
+Verify:
+- trip appears in correct tabs (Unassigned/Today/Scheduled/Completed)
+- assignment UI exists and works
+- daily assignment includes clinic-created trips
+- driver sees correct “offers/today/scheduled”
+- timeline updates correctly for all parties
+- after completed: trip locked (no messages/edits) if policy says so
+
+2.2 Dispatch-managed trip flow (dispatcher creates)
+Dispatcher creates → assign → driver accepts → complete
+Verify the same items + audit logs.
+
+2.3 Private booking flow (Lovable → public API → Stripe → private_requests)
+Verify:
+- CORS allowlist exact match for Lovable origin
+- rate limits working
+- quote endpoint returns breakdown + rounding rules
+- request endpoint verifies Stripe PaymentIntent server-side
+- inserts private_requests with PENDING_APPROVAL + deadline
+- status endpoint reveals only safe info
+- no secrets exposed to frontend
+Provide curl proofs.
+
+2.4 SMS flow (Twilio)
+Verify:
+- When driver accepts trip: patient receives link SMS (immediate)
+- For scheduled trip: patient receives reminder 24h before (or configured timing)
+- When driver “en route”: patient receives update
+- If SMS “shows sent but not delivered”, check message status callbacks/logs and error states.
+Report:
+- delivery status handling
+- retries/backoff
+- opt-out/STOP compliance basics
+
+2.5 Location / GPS / Geofence / ETA
+Verify:
+- Driver app requests location permission properly
+- Background/foreground behavior (best possible in PWA constraints)
+- Driver location updates write to DB with timestamps
+- ETA engine uses driver location → pickup/dropoff and updates
+- Geofence triggers/suggestions:
+  - “Arrived pickup” suggested when within radius
+  - wait timer starts (5/10/15 configurable by company)
+  - “Arrived dropoff” suggested
+Report:
+- geofence radius config location (DB/settings)
+- failure fallbacks (manual buttons)
+
+2.6 Map routing (NO straight line)
+Verify:
+- route polyline stored once per trip
+- maps render real route for driver/admin/clinic
+- Directions not called repeatedly on refresh
+Provide:
+- evidence from logs showing one call
+- DB fields populated
+
+2.7 Billing & invoices
+Verify:
+- Dispatcher/admin can set price for clinic trips (or auto price rules)
+- After completion, invoice visible to:
+  - clinic (only their invoice)
+  - dispatch/admin (within scope)
+  - super admin (all)
+- Invoices immutable after finalization
+Report:
+- data model for invoices
+- missing states (draft/estimated/final)
+
+------------------------------------------------------------
+3) UX / PRODUCT SIMPLICITY REVIEW
+------------------------------------------------------------
+For each subdomain, list top friction points:
+- missing “single screen” views
+- unclear tabs or counts without detail
+- missing “one-click” actions
+- confusing city selection
+- missing empty-state guidance
+Propose improvements with:
+- minimal UI changes
+- clearer statuses
+- fewer steps
+
+Specific checks:
+3.1 City selection gating
+- On login for Admin/Dispatcher: prompt for city to work in (only cities allowed)
+- City persists in session and used in filters consistently
+- Switching city is explicit and visible
+Report whether implemented and correct.
+
+3.2 Driver “Active/Inactive” + communication
+- Driver can set “Active” with 1 tap
+- Dispatcher sees true active drivers per city/company
+- Driver can message dispatcher (or structured alerts) without leaking data
+Report current implementation and gaps.
+
+------------------------------------------------------------
+4) AUTOMATION PLAN (reduce human intervention)
+------------------------------------------------------------
+Identify and propose the automation stack (no implementation unless critical):
+4.1 Auto-assign rules
+- based on driver active status, proximity, vehicle type (WAV), schedule, load, clinic priority
+4.2 Auto-notifications
+- reminders 24h, 2h, 30m
+- “driver en route”
+- arrival geofence
+- no-show escalation
+4.3 Auto-exception handling
+- driver late → reassign
+- ETA worsening → alert clinic
+- cancellations → audit + reschedule suggestions
+4.4 Auto-quality scoring for clinics (what they see)
+- punctuality, variance, cancellations, average wait, missed pickups
+But clinics only see what super admin publishes (if that rule exists).
+Explain exactly how to enforce “publish-only” visibility.
+
+Output:
+- automation backlog ranked by ROI (time saved)
+- dependencies per feature
+
+------------------------------------------------------------
+5) OBSERVABILITY / SAFETY NET
+------------------------------------------------------------
+Verify existence and quality of:
+- audit logs for critical actions (create/assign/status change/price/invoice)
+- error logging for maps, sms, payments
+- alerts for failed sms, failed auto-assign, location stale, eta engine off
+Provide:
+- where logs are stored
+- what is missing
+- minimal additions recommended
+
+------------------------------------------------------------
+6) DELIVERABLE: AUDIT REPORT FORMAT (must follow)
+------------------------------------------------------------
+Return a single report with these sections:
+
+I. System map (subdomains, roles, key services)
+II. Verified test matrix (PASS/FAIL table)
+III. Issues found (grouped by severity)
+   - CRITICAL (security/data leak)
+   - HIGH (breaks operations)
+   - MED (bad UX, manual work)
+   - LOW (nice-to-have)
+For each issue:
+- reproduction steps
+- root cause file/endpoint
+- minimal fix plan
+- verification steps
+
+IV. Automation upgrades (90% automation plan)
+V. Quick wins (can do today without risk)
+VI. “Next 7 days” execution plan (ordered tasks)
+
+MANDATORY EVIDENCE
+- Include specific file paths, endpoints, and DB tables/columns involved for each finding.
+- Include at least 5 concrete verification actions you ran (UI/API/DB) with results.
+- No generic statements like “looks fine” without proof.

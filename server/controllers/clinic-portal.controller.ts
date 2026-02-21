@@ -998,7 +998,7 @@ export async function clinicInvoiceByIdHandler(req: AuthRequest, res: Response) 
     }
 
     if (!user.clinicId || user.clinicId !== invoice.clinicId) {
-      return res.status(403).json({ message: "Access denied" });
+      return res.status(404).json({ message: "Invoice not found" });
     }
 
     res.json(invoice);
@@ -1018,7 +1018,7 @@ export async function clinicDeletePatientHandler(req: AuthRequest, res: Response
     const patient = await storage.getPatient(id);
     if (!patient) return res.status(404).json({ message: "Patient not found" });
     if (patient.clinicId !== user.clinicId) {
-      return res.status(403).json({ message: "You can only delete patients belonging to your clinic" });
+      return res.status(404).json({ message: "Patient not found" });
     }
     const hasActive = await storage.hasActiveTripsForPatient(id);
     if (hasActive) return res.status(409).json({ message: "Cannot delete patient with active trips" });
@@ -1049,7 +1049,7 @@ export async function clinicDeleteTripHandler(req: AuthRequest, res: Response) {
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
     if (trip.clinicId !== user.clinicId) {
-      return res.status(403).json({ message: "You can only delete trips belonging to your clinic" });
+      return res.status(404).json({ message: "Trip not found" });
     }
     if (trip.approvalStatus !== "pending") {
       return res.status(400).json({ message: "Can only delete trips with pending approval status" });
