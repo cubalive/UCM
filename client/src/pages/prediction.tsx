@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
@@ -20,6 +20,7 @@ import {
   ExternalLink,
   ChevronRight,
   CalendarDays,
+  X,
 } from "lucide-react";
 
 function getDefaultDates() {
@@ -53,6 +54,7 @@ export default function PredictionPage() {
   const defaults = getDefaultDates();
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
+  const [riskFilter, setRiskFilter] = useState<string>("");
 
   const predQuery = useQuery({
     queryKey: ["/api/intelligence/prediction", dateFrom, dateTo],
@@ -76,7 +78,32 @@ export default function PredictionPage() {
 
   const goToTrip = (tripId: number) => navigate(`/trips/${tripId}`);
   const goToSchedule = (date: string) => navigate(`/schedule?date=${date}`);
-  const goToDispatch = () => navigate(`/dispatch`);
+
+  const allTrips: any[] = lateRisk?.riskyTrips || [];
+
+  const tripsForLevel = useMemo(() => {
+    return {
+      red: allTrips.filter((t: any) => t.riskLevel === "red"),
+      yellow: allTrips.filter((t: any) => t.riskLevel === "yellow"),
+      green: allTrips.filter((t: any) => t.riskLevel === "green"),
+    };
+  }, [allTrips]);
+
+  function handleRiskClick(level: "red" | "yellow" | "green") {
+    const trips = tripsForLevel[level];
+    if (trips.length === 1) {
+      goToTrip(trips[0].tripId);
+      return;
+    }
+    setRiskFilter(riskFilter === level ? "" : level);
+  }
+
+  const filteredTrips = useMemo(() => {
+    if (!riskFilter) return allTrips;
+    return allTrips.filter((t: any) => t.riskLevel === riskFilter);
+  }, [allTrips, riskFilter]);
+
+  const filterLabel = riskFilter === "red" ? "High Risk" : riskFilter === "yellow" ? "Moderate" : riskFilter === "green" ? "Low Risk" : "";
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="prediction-page">
@@ -134,24 +161,36 @@ export default function PredictionPage() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-3 gap-3">
                 <button
-                  className="text-center p-3 rounded-md border border-red-500/30 hover:border-red-500/60 hover:bg-red-500/5 transition-colors cursor-pointer"
-                  onClick={goToDispatch}
+                  className={`text-center p-3 rounded-md border transition-colors cursor-pointer ${
+                    riskFilter === "red"
+                      ? "border-red-500 bg-red-500/10 ring-2 ring-red-500/30"
+                      : "border-red-500/30 hover:border-red-500/60 hover:bg-red-500/5"
+                  }`}
+                  onClick={() => handleRiskClick("red")}
                   data-testid="late-risk-red"
                 >
                   <div className="text-2xl font-bold text-red-600 dark:text-red-400">{lateRisk?.summaryRed ?? 0}</div>
                   <p className="text-xs text-muted-foreground mt-1">High Risk</p>
                 </button>
                 <button
-                  className="text-center p-3 rounded-md border border-yellow-500/30 hover:border-yellow-500/60 hover:bg-yellow-500/5 transition-colors cursor-pointer"
-                  onClick={goToDispatch}
+                  className={`text-center p-3 rounded-md border transition-colors cursor-pointer ${
+                    riskFilter === "yellow"
+                      ? "border-yellow-500 bg-yellow-500/10 ring-2 ring-yellow-500/30"
+                      : "border-yellow-500/30 hover:border-yellow-500/60 hover:bg-yellow-500/5"
+                  }`}
+                  onClick={() => handleRiskClick("yellow")}
                   data-testid="late-risk-yellow"
                 >
                   <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{lateRisk?.summaryYellow ?? 0}</div>
                   <p className="text-xs text-muted-foreground mt-1">Moderate</p>
                 </button>
                 <button
-                  className="text-center p-3 rounded-md border border-green-500/30 hover:border-green-500/60 hover:bg-green-500/5 transition-colors cursor-pointer"
-                  onClick={goToDispatch}
+                  className={`text-center p-3 rounded-md border transition-colors cursor-pointer ${
+                    riskFilter === "green"
+                      ? "border-green-500 bg-green-500/10 ring-2 ring-green-500/30"
+                      : "border-green-500/30 hover:border-green-500/60 hover:bg-green-500/5"
+                  }`}
+                  onClick={() => handleRiskClick("green")}
                   data-testid="late-risk-green"
                 >
                   <div className="text-2xl font-bold text-green-600 dark:text-green-400">{lateRisk?.summaryGreen ?? 0}</div>
@@ -159,10 +198,30 @@ export default function PredictionPage() {
                 </button>
               </div>
 
-              {lateRisk?.riskyTrips && lateRisk.riskyTrips.length > 0 ? (
+              {filteredTrips.length > 0 ? (
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                  <p className="text-xs font-medium text-muted-foreground">Risky Trips</p>
-                  {lateRisk.riskyTrips.slice(0, 20).map((t: any) => (
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {riskFilter ? `${filterLabel} Trips` : "Risky Trips"}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <Badge variant="outline" className="text-[10px]">
+                        {filteredTrips.length} trip{filteredTrips.length !== 1 ? "s" : ""}
+                      </Badge>
+                      {riskFilter && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 px-1"
+                          onClick={() => setRiskFilter("")}
+                          data-testid="button-clear-risk-filter"
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  {filteredTrips.slice(0, 30).map((t: any) => (
                     <button
                       key={t.tripId}
                       className={`flex items-center gap-2 p-2 rounded-md border text-sm flex-wrap w-full text-left transition-colors cursor-pointer hover:bg-muted/50 ${riskBorderColor(t.riskLevel)}`}
@@ -170,9 +229,9 @@ export default function PredictionPage() {
                       data-testid={`risky-trip-${t.tripId}`}
                     >
                       <Badge
-                        variant={t.riskLevel === "red" ? "destructive" : "secondary"}
+                        variant={t.riskLevel === "red" ? "destructive" : t.riskLevel === "yellow" ? "secondary" : "default"}
                       >
-                        {t.riskLevel}
+                        {t.riskLevel === "red" ? "High" : t.riskLevel === "yellow" ? "Moderate" : "Low"}
                       </Badge>
                       <span className="flex-1 min-w-0 truncate font-medium">Trip #{t.tripId}</span>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
@@ -183,6 +242,11 @@ export default function PredictionPage() {
                       <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                     </button>
                   ))}
+                </div>
+              ) : riskFilter ? (
+                <div className="flex flex-col items-center gap-2 justify-center py-4" data-testid="text-no-filtered-trips">
+                  <span className="text-sm text-muted-foreground">No {filterLabel.toLowerCase()} trips found</span>
+                  <Button variant="link" size="sm" onClick={() => setRiskFilter("")}>Show all</Button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2 justify-center py-4" data-testid="text-no-risky-trips">

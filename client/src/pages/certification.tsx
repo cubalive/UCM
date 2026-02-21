@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 import {
   Select,
   SelectContent,
@@ -22,7 +23,7 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
-  ArrowUpRight,
+  X,
 } from "lucide-react";
 
 function getCurrentQuarterKey() {
@@ -63,11 +64,20 @@ function certLevelColor(level: string) {
   }
 }
 
+function certLevelFromScore(score: number): string {
+  if (score >= 90) return "PLATINUM";
+  if (score >= 75) return "GOLD";
+  if (score >= 55) return "SILVER";
+  return "AT_RISK";
+}
+
 export default function CertificationPage() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [quarterKey, setQuarterKey] = useState(getCurrentQuarterKey());
   const quarterOptions = getQuarterOptions();
+  const [levelFilter, setLevelFilter] = useState<string>("");
 
   const certQuery = useQuery({
     queryKey: ["/api/intelligence/certification", quarterKey],
@@ -97,6 +107,34 @@ export default function CertificationPage() {
     );
   };
 
+  const clinicsByLevel = useMemo(() => {
+    return {
+      PLATINUM: certs.filter((c: any) => (c.certLevel || certLevelFromScore(c.score)) === "PLATINUM"),
+      GOLD: certs.filter((c: any) => (c.certLevel || certLevelFromScore(c.score)) === "GOLD"),
+      SILVER: certs.filter((c: any) => (c.certLevel || certLevelFromScore(c.score)) === "SILVER"),
+      AT_RISK: certs.filter((c: any) => {
+        const lvl = c.certLevel || certLevelFromScore(c.score);
+        return lvl === "AT_RISK" || lvl === "BRONZE";
+      }),
+    };
+  }, [certs]);
+
+  function handleLevelClick(level: string) {
+    const clinicsInLevel = clinicsByLevel[level as keyof typeof clinicsByLevel] || [];
+    if (clinicsInLevel.length === 1 && clinicsInLevel[0].clinicId) {
+      navigate(`/clinics/${clinicsInLevel[0].clinicId}`);
+      return;
+    }
+    setLevelFilter(levelFilter === level ? "" : level);
+  }
+
+  const filteredCerts = useMemo(() => {
+    if (!levelFilter) return certs;
+    return clinicsByLevel[levelFilter as keyof typeof clinicsByLevel] || [];
+  }, [certs, levelFilter, clinicsByLevel]);
+
+  const filterLabel = levelFilter === "PLATINUM" ? "Platinum" : levelFilter === "GOLD" ? "Gold" : levelFilter === "SILVER" ? "Silver" : levelFilter === "AT_RISK" ? "At Risk" : "";
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="certification-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -105,7 +143,7 @@ export default function CertificationPage() {
           <h1 className="text-2xl font-semibold" data-testid="text-page-title">Clinic Certification</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Select value={quarterKey} onValueChange={setQuarterKey}>
+          <Select value={quarterKey} onValueChange={(v) => { setQuarterKey(v); setLevelFilter(""); }}>
             <SelectTrigger className="w-[130px]" data-testid="select-quarter">
               <SelectValue />
             </SelectTrigger>
@@ -132,12 +170,16 @@ export default function CertificationPage() {
       </div>
 
       {certQuery.isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)}
         </div>
       ) : summary ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card data-testid="card-platinum">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card
+            data-testid="card-platinum"
+            className={`cursor-pointer transition-all ${levelFilter === "PLATINUM" ? "ring-2 ring-blue-500/40 bg-blue-500/5" : "hover:ring-1 hover:ring-blue-500/20"}`}
+            onClick={() => handleLevelClick("PLATINUM")}
+          >
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Platinum</CardTitle>
               <Award className="h-4 w-4 text-blue-500" />
@@ -147,7 +189,11 @@ export default function CertificationPage() {
               <p className="text-xs text-muted-foreground">Score 90+</p>
             </CardContent>
           </Card>
-          <Card data-testid="card-gold">
+          <Card
+            data-testid="card-gold"
+            className={`cursor-pointer transition-all ${levelFilter === "GOLD" ? "ring-2 ring-yellow-500/40 bg-yellow-500/5" : "hover:ring-1 hover:ring-yellow-500/20"}`}
+            onClick={() => handleLevelClick("GOLD")}
+          >
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Gold</CardTitle>
               <Award className="h-4 w-4 text-yellow-500" />
@@ -157,7 +203,11 @@ export default function CertificationPage() {
               <p className="text-xs text-muted-foreground">Score 75-89</p>
             </CardContent>
           </Card>
-          <Card data-testid="card-silver">
+          <Card
+            data-testid="card-silver"
+            className={`cursor-pointer transition-all ${levelFilter === "SILVER" ? "ring-2 ring-gray-400/40 bg-gray-400/5" : "hover:ring-1 hover:ring-gray-400/20"}`}
+            onClick={() => handleLevelClick("SILVER")}
+          >
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Silver</CardTitle>
               <Award className="h-4 w-4 text-gray-400" />
@@ -167,7 +217,11 @@ export default function CertificationPage() {
               <p className="text-xs text-muted-foreground">Score 55-74</p>
             </CardContent>
           </Card>
-          <Card data-testid="card-at-risk">
+          <Card
+            data-testid="card-at-risk"
+            className={`cursor-pointer transition-all ${levelFilter === "AT_RISK" ? "ring-2 ring-red-500/40 bg-red-500/5" : "hover:ring-1 hover:ring-red-500/20"}`}
+            onClick={() => handleLevelClick("AT_RISK")}
+          >
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">At Risk</CardTitle>
               <AlertTriangle className="h-4 w-4 text-red-500" />
@@ -182,50 +236,75 @@ export default function CertificationPage() {
 
       <Card data-testid="card-cert-list">
         <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle className="text-base">Certification Results — {quarterKey}</CardTitle>
-          <Badge variant="secondary">{certs.length} clinics</Badge>
+          <CardTitle className="text-base">
+            {levelFilter ? `${filterLabel} Clinics — ${quarterKey}` : `Certification Results — ${quarterKey}`}
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {levelFilter && (
+              <Button variant="ghost" size="sm" onClick={() => setLevelFilter("")} data-testid="button-clear-level-filter">
+                <X className="w-3 h-3 mr-1" />
+                Clear
+              </Button>
+            )}
+            <Badge variant="secondary">
+              {levelFilter ? `${filteredCerts.length} of ${certs.length} clinics` : `${certs.length} clinics`}
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent>
           {certQuery.isLoading ? (
             <div className="space-y-3">
               {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14" />)}
             </div>
-          ) : certs.length === 0 ? (
+          ) : filteredCerts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center" data-testid="text-no-certs">
               <CheckCircle2 className="h-10 w-10 text-muted-foreground mb-3" />
-              <p className="text-sm text-muted-foreground">No certification data for this quarter.</p>
-              <p className="text-xs text-muted-foreground mt-1">Click "Compute & Save" to generate certifications.</p>
+              {levelFilter ? (
+                <>
+                  <p className="text-sm text-muted-foreground">No {filterLabel.toLowerCase()} clinics for this quarter.</p>
+                  <Button variant="link" size="sm" onClick={() => setLevelFilter("")} className="mt-2">Show all clinics</Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground">No certification data for this quarter.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Click "Compute & Save" to generate certifications.</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-2">
-              {certs.map((c: any, i: number) => (
-                <div
-                  key={`${c.clinicId}-${i}`}
-                  className="flex items-center gap-3 p-3 rounded-md border flex-wrap"
-                  data-testid={`cert-row-${c.clinicId}`}
-                >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className="text-sm font-medium w-8 text-right text-muted-foreground">#{i + 1}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{c.clinicName}</p>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                        <span>TRI: {c.breakdown?.tri?.toFixed(1) ?? "—"}</span>
-                        <span>Completion: {c.breakdown?.completionRate?.toFixed(1) ?? "—"}%</span>
-                        <span>On-Time: {c.breakdown?.onTimeRate?.toFixed(1) ?? "—"}%</span>
-                        <span>Audit: {c.breakdown?.auditReadiness?.toFixed(1) ?? "—"}%</span>
+              {filteredCerts.map((c: any, i: number) => {
+                const globalIndex = certs.indexOf(c);
+                return (
+                  <button
+                    key={`${c.clinicId}-${i}`}
+                    className="flex items-center gap-3 p-3 rounded-md border flex-wrap w-full text-left transition-colors cursor-pointer hover:bg-muted/50"
+                    onClick={() => c.clinicId && navigate(`/clinics/${c.clinicId}`)}
+                    data-testid={`cert-row-${c.clinicId}`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="text-sm font-medium w-8 text-right text-muted-foreground">#{globalIndex + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{c.clinicName}</p>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                          <span>TRI: {c.breakdown?.tri?.toFixed(1) ?? "—"}</span>
+                          <span>Completion: {c.breakdown?.completionRate?.toFixed(1) ?? "—"}%</span>
+                          <span>On-Time: {c.breakdown?.onTimeRate?.toFixed(1) ?? "—"}%</span>
+                          <span>Audit: {c.breakdown?.auditReadiness?.toFixed(1) ?? "—"}%</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-lg font-bold ${certLevelColor(c.certLevel)}`}>
-                      {c.score?.toFixed(1)}
-                    </span>
-                    <Badge variant={certLevelVariant(c.certLevel) as any} data-testid={`badge-cert-level-${c.clinicId}`}>
-                      {c.certLevel}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
+                    <div className="flex items-center gap-2">
+                      <span className={`text-lg font-bold ${certLevelColor(c.certLevel)}`}>
+                        {c.score?.toFixed(1)}
+                      </span>
+                      <Badge variant={certLevelVariant(c.certLevel) as any} data-testid={`badge-cert-level-${c.clinicId}`}>
+                        {c.certLevel}
+                      </Badge>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </CardContent>
