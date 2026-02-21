@@ -44,6 +44,65 @@ const TRIP_TYPE_PRIORITY: Record<string, number> = {
   one_time: 2,
 };
 
+function buildRecurringAffinityMap(
+  priorTrips: any[],
+  recurringPatientIds: Set<number>
+): Map<number, number> {
+  const driverCounts = new Map<number, Map<number, number>>();
+
+  for (const t of priorTrips) {
+    if (!t.patientId || !t.driverId) continue;
+    if (!recurringPatientIds.has(t.patientId)) continue;
+    if (!driverCounts.has(t.patientId)) {
+      driverCounts.set(t.patientId, new Map());
+    }
+    const counts = driverCounts.get(t.patientId)!;
+    counts.set(t.driverId, (counts.get(t.driverId) || 0) + 1);
+  }
+
+  const affinityMap = new Map<number, number>();
+  for (const [patientId, counts] of driverCounts) {
+    let bestDriverId = 0;
+    let bestCount = 0;
+    for (const [driverId, count] of counts) {
+      if (count > bestCount) {
+        bestCount = count;
+        bestDriverId = driverId;
+      }
+    }
+    if (bestDriverId > 0) {
+      affinityMap.set(patientId, bestDriverId);
+    }
+  }
+
+  return affinityMap;
+}
+
+function buildGeneralHistoryMap(priorTrips: any[]): Map<number, number> {
+  const history = new Map<number, number>();
+  for (const t of priorTrips) {
+    if (t.patientId && t.driverId) {
+      history.set(t.patientId, t.driverId);
+    }
+  }
+  return history;
+}
+
+function findRoundTripPairs(activeTrips: any[]): Map<number, number> {
+  const pairMap = new Map<number, number>();
+
+  for (const t of activeTrips) {
+    if (t.parentTripId) {
+      const parent = activeTrips.find(p => p.id === t.parentTripId);
+      if (parent && parent.patientId === t.patientId) {
+        pairMap.set(t.id, parent.id);
+      }
+    }
+  }
+
+  return pairMap;
+}
+
 export async function generateAssignmentPlan(
   cityId: number,
   date: string,
@@ -66,7 +125,20 @@ export async function generateAssignmentPlan(
     t.status === "SCHEDULED" || t.status === "ASSIGNED"
   );
 
+  const roundTripChildToParent = findRoundTripPairs(activeTrips);
+
+  const parentTripIds = new Set(roundTripChildToParent.values());
+  const childTripIds = new Set(roundTripChildToParent.keys());
+
   activeTrips.sort((a, b) => {
+    const aIsParent = parentTripIds.has(a.id) ? 0 : 1;
+    const bIsParent = parentTripIds.has(b.id) ? 0 : 1;
+    if (aIsParent !== bIsParent) return aIsParent - bIsParent;
+
+    const aIsChild = childTripIds.has(a.id) ? 1 : 0;
+    const bIsChild = childTripIds.has(b.id) ? 1 : 0;
+    if (aIsChild !== bIsChild) return aIsChild - bIsChild;
+
     const pa = TRIP_TYPE_PRIORITY[a.tripType] ?? 2;
     const pb = TRIP_TYPE_PRIORITY[b.tripType] ?? 2;
     if (pa !== pb) return pa - pb;
@@ -97,19 +169,23 @@ export async function generateAssignmentPlan(
   const allPatients = await db.select().from(patients).where(eq(patients.cityId, cityId));
   const patientMap = new Map(allPatients.map(p => [p.id, p]));
 
+  const recurringPatientIds = new Set<number>();
+  for (const t of activeTrips) {
+    if (t.tripType === "recurring" || t.tripType === "dialysis") {
+      recurringPatientIds.add(t.patientId);
+    }
+  }
+
   const priorAssignments = await db.select().from(trips).where(
     and(
       eq(trips.cityId, cityId),
-      inArray(trips.status, ["COMPLETED", "IN_PROGRESS"]),
+      inArray(trips.status, ["COMPLETED", "IN_PROGRESS", "ASSIGNED"]),
       isNull(trips.deletedAt)
     )
   );
-  const patientDriverHistory = new Map<number, number>();
-  for (const t of priorAssignments) {
-    if (t.patientId && t.driverId) {
-      patientDriverHistory.set(t.patientId, t.driverId);
-    }
-  }
+
+  const recurringAffinityMap = buildRecurringAffinityMap(priorAssignments, recurringPatientIds);
+  const generalHistoryMap = buildGeneralHistoryMap(priorAssignments);
 
   const driverVehiclePairing = new Map<number, number>();
   for (const d of eligibleDrivers) {
@@ -138,6 +214,8 @@ export async function generateAssignmentPlan(
   let assignable = 0;
   let blocked = 0;
 
+  const tripAssignmentResults = new Map<number, { driverId: number; vehicleId: number | null }>();
+
   for (const trip of activeTrips) {
     const patient = patientMap.get(trip.patientId);
     const patientName = patient ? `${patient.firstName} ${patient.lastName}` : `Patient #${trip.patientId}`;
@@ -145,6 +223,9 @@ export async function generateAssignmentPlan(
     const zipKey = trip.pickupZip || "unknown";
     byZip[zipKey] = (byZip[zipKey] || 0) + 1;
     byType[trip.tripType] = (byType[trip.tripType] || 0) + 1;
+
+    const isRecurring = trip.tripType === "recurring" || trip.tripType === "dialysis";
+    const isReturnLeg = roundTripChildToParent.has(trip.id);
 
     let canAssign = true;
     let blockReason: string | null = null;
@@ -159,10 +240,33 @@ export async function generateAssignmentPlan(
     let reason = "";
 
     if (canAssign) {
-      const preferredDriverId = patientDriverHistory.get(trip.patientId);
-      if (preferredDriverId && eligibleDrivers.some(d => d.id === preferredDriverId) && !holdDriverIds.has(preferredDriverId)) {
-        bestDriverId = preferredDriverId;
-        reason = "Patient-driver history match";
+      if (isReturnLeg) {
+        const parentId = roundTripChildToParent.get(trip.id)!;
+        const parentResult = tripAssignmentResults.get(parentId);
+        if (parentResult) {
+          const pickupDriverAvailable = eligibleDrivers.some(d => d.id === parentResult.driverId) && !holdDriverIds.has(parentResult.driverId);
+          if (pickupDriverAvailable) {
+            bestDriverId = parentResult.driverId;
+            bestVehicleId = parentResult.vehicleId;
+            reason = "Round-trip pairing (same driver for pickup & return)";
+          }
+        }
+      }
+
+      if (!bestDriverId && isRecurring) {
+        const affinityDriverId = recurringAffinityMap.get(trip.patientId);
+        if (affinityDriverId && eligibleDrivers.some(d => d.id === affinityDriverId) && !holdDriverIds.has(affinityDriverId)) {
+          bestDriverId = affinityDriverId;
+          reason = "Recurring patient-driver affinity (same driver for continuity)";
+        }
+      }
+
+      if (!bestDriverId) {
+        const historyDriverId = generalHistoryMap.get(trip.patientId);
+        if (historyDriverId && eligibleDrivers.some(d => d.id === historyDriverId) && !holdDriverIds.has(historyDriverId)) {
+          bestDriverId = historyDriverId;
+          reason = "Patient-driver history match";
+        }
       }
 
       if (!bestDriverId) {
@@ -177,13 +281,12 @@ export async function generateAssignmentPlan(
         }
       }
 
-      if (bestDriverId) {
+      if (bestDriverId && !bestVehicleId) {
         const pairedVehicleId = driverVehiclePairing.get(bestDriverId);
         if (pairedVehicleId) {
           const pairedVehicle = allVehicles.find(v => v.id === pairedVehicleId);
           if (pairedVehicle && pairedVehicle.active) {
             if (needsWheelchair && !pairedVehicle.wheelchairAccessible) {
-              // skip paired vehicle
             } else {
               bestVehicleId = pairedVehicleId;
               reason += "; kept driver-vehicle pairing";
@@ -230,6 +333,7 @@ export async function generateAssignmentPlan(
         driverLoadCount.set(bestDriverId, (driverLoadCount.get(bestDriverId) || 0) + 1);
         driverUsed.add(bestDriverId);
         if (bestVehicleId) vehicleUsed.add(bestVehicleId);
+        tripAssignmentResults.set(trip.id, { driverId: bestDriverId, vehicleId: bestVehicleId });
         assignable++;
       } else {
         blocked++;
