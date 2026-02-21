@@ -224,7 +224,7 @@ export default function UsersPage() {
           </DialogTrigger>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Add User</DialogTitle></DialogHeader>
-            <UserForm cities={citiesData || []} onSubmit={(d) => createMutation.mutate(d)} loading={createMutation.isPending} />
+            <UserForm cities={citiesData || []} companies={companiesData || []} clinics={clinicsData || []} onSubmit={(d) => createMutation.mutate(d)} loading={createMutation.isPending} />
           </DialogContent>
         </Dialog>
       </div>
@@ -639,14 +639,60 @@ function DispatcherCityPermsDialog({
   );
 }
 
-function UserForm({ cities, onSubmit, loading }: { cities: any[]; onSubmit: (data: any) => void; loading: boolean }) {
+const CREATABLE_ROLES: { value: string; label: string; group: string }[] = [
+  { value: "COMPANY_ADMIN", label: "Company Admin", group: "Company" },
+  { value: "ADMIN", label: "Admin", group: "Company" },
+  { value: "DISPATCH", label: "Dispatch", group: "Company" },
+  { value: "DRIVER", label: "Driver", group: "Company" },
+  { value: "VIEWER", label: "Viewer", group: "Company" },
+  { value: "CLINIC_ADMIN", label: "Clinic Admin", group: "Clinic" },
+  { value: "CLINIC_USER", label: "Clinic User", group: "Clinic" },
+  { value: "CLINIC_VIEWER", label: "Clinic Viewer", group: "Clinic" },
+];
+
+const CLINIC_ROLES = new Set(["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"]);
+const COMPANY_ROLES = new Set(["COMPANY_ADMIN", "ADMIN", "DISPATCH", "DRIVER", "VIEWER"]);
+
+function UserForm({ cities, companies, clinics, onSubmit, loading }: { cities: any[]; companies: any[]; clinics: any[]; onSubmit: (data: any) => void; loading: boolean }) {
   const [form, setForm] = useState({
-    email: "", password: "", firstName: "", lastName: "", role: "VIEWER", phone: "", cityIds: [] as string[],
+    email: "", password: "", firstName: "", lastName: "", role: "VIEWER", phone: "", cityIds: [] as string[], companyId: "", clinicId: "",
   });
+
+  const isClinicRole = CLINIC_ROLES.has(form.role);
+  const isCompanyRole = COMPANY_ROLES.has(form.role);
+
+  const filteredClinics = form.companyId
+    ? clinics.filter((c: any) => String(c.companyId) === form.companyId)
+    : clinics;
+
+  const handleRoleChange = (role: string) => {
+    const updates: any = { role };
+    if (CLINIC_ROLES.has(role) && !CLINIC_ROLES.has(form.role)) {
+      updates.cityIds = [];
+    }
+    if (!CLINIC_ROLES.has(role)) {
+      updates.clinicId = "";
+    }
+    if (!COMPANY_ROLES.has(role) && !CLINIC_ROLES.has(role)) {
+      updates.companyId = "";
+    }
+    setForm((prev) => ({ ...prev, ...updates }));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ ...form, cityIds: form.cityIds.map(Number) });
+    const payload: any = {
+      email: form.email,
+      password: form.password,
+      firstName: form.firstName,
+      lastName: form.lastName,
+      role: form.role,
+      phone: form.phone || null,
+      cityIds: form.cityIds.map(Number),
+    };
+    if (form.companyId) payload.companyId = Number(form.companyId);
+    if (form.clinicId) payload.clinicId = Number(form.clinicId);
+    onSubmit(payload);
   };
 
   return (
@@ -670,22 +716,57 @@ function UserForm({ cities, onSubmit, loading }: { cities: any[]; onSubmit: (dat
         <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required data-testid="input-user-password" />
       </div>
       <div className="space-y-2">
-        <Label>Role</Label>
-        <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+        <Label>Role *</Label>
+        <Select value={form.role} onValueChange={handleRoleChange}>
           <SelectTrigger data-testid="select-user-role"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="ADMIN">Admin</SelectItem>
-            <SelectItem value="DISPATCH">Dispatch</SelectItem>
-            <SelectItem value="DRIVER">Driver</SelectItem>
-            <SelectItem value="VIEWER">Viewer</SelectItem>
+            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Company Roles</div>
+            {CREATABLE_ROLES.filter(r => r.group === "Company").map(r => (
+              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+            ))}
+            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-1">Clinic Roles</div>
+            {CREATABLE_ROLES.filter(r => r.group === "Clinic").map(r => (
+              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
+      {(isCompanyRole || isClinicRole) && companies.length > 0 && (
+        <div className="space-y-2">
+          <Label>Company {isCompanyRole ? "*" : ""}</Label>
+          <Select value={form.companyId} onValueChange={(v) => setForm({ ...form, companyId: v, clinicId: "" })}>
+            <SelectTrigger data-testid="select-user-company"><SelectValue placeholder="Select company" /></SelectTrigger>
+            <SelectContent>
+              {companies.map((c: any) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {isClinicRole && (
+        <div className="space-y-2">
+          <Label>Clinic *</Label>
+          <Select value={form.clinicId} onValueChange={(v) => setForm({ ...form, clinicId: v })}>
+            <SelectTrigger data-testid="select-user-clinic"><SelectValue placeholder="Select clinic" /></SelectTrigger>
+            <SelectContent>
+              {filteredClinics.length === 0 && (
+                <div className="px-2 py-2 text-xs text-muted-foreground">
+                  {form.companyId ? "No clinics for this company" : "No clinics available"}
+                </div>
+              )}
+              {filteredClinics.map((c: any) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <div className="space-y-2">
         <Label>Phone</Label>
         <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="input-user-phone" />
       </div>
-      {cities.length > 0 && (
+      {cities.length > 0 && !isClinicRole && (
         <div className="space-y-2">
           <Label>City Access</Label>
           <div className="space-y-2 max-h-32 overflow-y-auto border rounded-md p-2">
@@ -708,7 +789,7 @@ function UserForm({ cities, onSubmit, loading }: { cities: any[]; onSubmit: (dat
           </div>
         </div>
       )}
-      <Button type="submit" className="w-full" disabled={loading} data-testid="button-submit-user">
+      <Button type="submit" className="w-full" disabled={loading || (isClinicRole && !form.clinicId)} data-testid="button-submit-user">
         {loading ? "Creating..." : "Create User"}
       </Button>
     </form>
