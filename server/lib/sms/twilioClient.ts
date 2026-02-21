@@ -91,8 +91,10 @@ export function isTwilioConfigured(): boolean {
   return getBootStatus().configured;
 }
 
+const UCM_DEFAULT_DISPATCH = "+17028252273";
+
 export function getDispatchPhone(): string {
-  return process.env.DISPATCH_PHONE_NUMBER || TWILIO_FROM_NUMBER || "";
+  return process.env.DISPATCH_PHONE_NUMBER || TWILIO_FROM_NUMBER || UCM_DEFAULT_DISPATCH;
 }
 
 export function normalizePhone(phone: string): string | null {
