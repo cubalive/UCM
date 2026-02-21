@@ -732,6 +732,39 @@ export async function permanentDeleteVehicleHandler(req: AuthRequest, res: Respo
   }
 }
 
+export async function updateCompanyHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const company = await storage.getCompany(id);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+
+    const allowedFields = ["name", "dispatchPhone"] as const;
+    const updateData: Record<string, any> = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field] || null;
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: "No valid fields to update" });
+    }
+
+    const updated = await storage.updateCompany(id, updateData);
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "UPDATE",
+      entity: "company",
+      entityId: id,
+      details: JSON.stringify({ fields: Object.keys(updateData), changes: updateData }),
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 export async function archiveCompanyHandler(req: AuthRequest, res: Response) {
   try {
     const id = parseInt(String(req.params.id));

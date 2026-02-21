@@ -36,7 +36,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2, Search, Archive, RotateCcw, Trash2, MapPin } from "lucide-react";
+import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2, Search, Archive, RotateCcw, Trash2, MapPin, Phone, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import type { Company, UsState, UsCity, City } from "@shared/schema";
 
@@ -348,6 +348,91 @@ function CreateAdminDialog({ company, onCreated }: { company: Company; onCreated
             </Button>
           </div>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(company.name);
+  const [dispatchPhone, setDispatchPhone] = useState((company as any).dispatchPhone || "");
+  const { token } = useAuth();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (open) {
+      setName(company.name);
+      setDispatchPhone((company as any).dispatchPhone || "");
+    }
+  }, [open, company]);
+
+  const updateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/admin/companies/${company.id}`, {
+        name: name.trim(),
+        dispatchPhone: dispatchPhone.trim() || null,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Company updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      onUpdated();
+      setOpen(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="icon" variant="ghost" data-testid={`button-edit-company-${company.id}`}>
+          <Pencil className="w-4 h-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Company</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label htmlFor="edit-name">Company Name</Label>
+            <Input
+              id="edit-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              data-testid="input-edit-company-name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-dispatch-phone">Dispatch Phone Number</Label>
+            <div className="flex items-center gap-2">
+              <Phone className="w-4 h-4 text-muted-foreground" />
+              <Input
+                id="edit-dispatch-phone"
+                value={dispatchPhone}
+                onChange={(e) => setDispatchPhone(e.target.value)}
+                placeholder="+17025551234"
+                data-testid="input-edit-dispatch-phone"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              SMS notifications for this company will come from this number. Leave empty to use the global default.
+            </p>
+          </div>
+          <Button
+            className="w-full"
+            onClick={() => updateMutation.mutate()}
+            disabled={updateMutation.isPending || !name.trim()}
+            data-testid="button-save-company"
+          >
+            {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            Save Changes
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -751,6 +836,7 @@ export default function CompaniesPage() {
                 <TableRow>
                   <TableHead>ID</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Dispatch Phone</TableHead>
                   <TableHead>Stripe</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -775,6 +861,16 @@ export default function CompaniesPage() {
                         )}
                       </div>
                     </TableCell>
+                    <TableCell className="text-sm" data-testid={`text-dispatch-phone-${company.id}`}>
+                      {company.dispatchPhone ? (
+                        <span className="flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-muted-foreground" />
+                          {company.dispatchPhone}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <StripeConnectBadge company={company} />
                     </TableCell>
@@ -796,6 +892,7 @@ export default function CompaniesPage() {
                                 Set Scope
                               </Button>
                             )}
+                            <EditCompanyDialog company={company} onUpdated={refreshList} />
                             <CompanyCitiesDialog company={company} />
                             <CreateAdminDialog company={company} onCreated={refreshList} />
                             <Button

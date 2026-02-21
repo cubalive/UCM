@@ -193,12 +193,21 @@ export function registerSmsRoutes(app: Express) {
           } catch {}
         }
 
+        let companyDispatchPhone: string | undefined;
+        if (trip.companyId) {
+          try {
+            const company = await storage.getCompany(trip.companyId);
+            if (company?.dispatchPhone) companyDispatchPhone = company.dispatchPhone;
+          } catch {}
+        }
+        if (!companyDispatchPhone) companyDispatchPhone = getDispatchPhone() || undefined;
+
         const message = buildNotifyMessage(parsed.data.status, {
           pickup_time: `${trip.scheduledDate} ${trip.pickupTime || trip.scheduledTime}`,
           driver_name: driverName,
           vehicle_label: vehicleLabel,
           eta_minutes: etaMinutes,
-          dispatch_phone: getDispatchPhone(),
+          dispatch_phone: companyDispatchPhone,
           tracking_url: trackingUrl,
           pickup_lat: trip.pickupLat ?? null,
           pickup_lng: trip.pickupLng ?? null,
