@@ -67,6 +67,10 @@ import {
   getDriverScheduleHandler,
   getDriverMetricsWeeklyHandler,
   postDriverAccountDeletionRequestHandler,
+  getDriverSettingsHandler,
+  patchDriverSettingsHandler,
+  getDriverV3FlagsHandler,
+  getDriverPerformanceCurrentShiftHandler,
 } from "../controllers/driver-portal.controller";
 
 const router = express.Router();
@@ -155,6 +159,11 @@ router.post("/api/driver/no-show-evidence", authMiddleware, requireRole("DRIVER"
 router.post("/api/driver/signature-refused", authMiddleware, requireRole("DRIVER"), postSignatureRefusedHandler as any);
 router.get("/api/driver/geofence-check", authMiddleware, requireRole("DRIVER"), getDriverGeofenceCheckHandler as any);
 router.get("/api/driver/shift-earnings", authMiddleware, requireRole("DRIVER"), getDriverShiftEarningsHandler as any);
+
+router.get("/api/driver/settings", authMiddleware, requireRole("DRIVER"), getDriverSettingsHandler as any);
+router.patch("/api/driver/settings", authMiddleware, requireRole("DRIVER"), patchDriverSettingsHandler as any);
+router.get("/api/driver/v3/flags", authMiddleware, requireRole("DRIVER"), getDriverV3FlagsHandler as any);
+router.get("/api/driver/performance/current-shift", authMiddleware, requireRole("DRIVER"), getDriverPerformanceCurrentShiftHandler as any);
 
 export function registerDriverPortalRoutes(app: Express) {
   app.use(router);

@@ -73,6 +73,9 @@ import {
   Check,
   RefreshCw,
   Building2,
+  Gauge,
+  Volume2,
+  Vibrate,
 } from "lucide-react";
 
 type TabId = "home" | "trips" | "performance" | "bonuses" | "earnings" | "schedule" | "settings";
@@ -2154,6 +2157,66 @@ function ScheduleChangesSection({ token }: { token: string | null }) {
   );
 }
 
+function DriverV3SettingsCard({ token }: { token: string | null }) {
+  const { toast } = useToast();
+  const settingsQuery = useQuery<{ soundsOn?: boolean; hapticsOn?: boolean; promptsEnabled?: boolean; performanceVisible?: boolean }>({
+    queryKey: ["/api/driver/settings"],
+    queryFn: () => apiFetch("/api/driver/settings", token),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (body: Record<string, boolean>) =>
+      apiFetch("/api/driver/settings", token, { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/settings"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const s = settingsQuery.data;
+  if (settingsQuery.isLoading || !s) return null;
+
+  const toggles = [
+    { key: "soundsOn", label: "Sounds", icon: Volume2, value: s.soundsOn !== false },
+    { key: "hapticsOn", label: "Haptics", icon: Vibrate, value: s.hapticsOn !== false },
+    { key: "promptsEnabled", label: "Smart Prompts", icon: Bell, value: s.promptsEnabled !== false },
+    { key: "performanceVisible", label: "Show Performance", icon: Gauge, value: s.performanceVisible !== false },
+  ];
+
+  return (
+    <Card data-testid="card-driver-v3-settings">
+      <CardContent className="py-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Settings className="w-5 h-5 text-primary" />
+          <span className="font-semibold text-base">Driver Preferences</span>
+        </div>
+        <div className="space-y-2">
+          {toggles.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.key}
+                onClick={() => updateMutation.mutate({ [t.key]: !t.value })}
+                disabled={updateMutation.isPending}
+                className={`w-full flex items-center gap-3 rounded-md px-3 py-2.5 min-h-[44px] text-left border transition-colors ${
+                  t.value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"
+                }`}
+                data-testid={`toggle-${t.key}`}
+              >
+                <Icon className={`w-5 h-5 flex-shrink-0 ${t.value ? "text-primary" : "text-muted-foreground"}`} />
+                <span className="flex-1 font-medium">{t.label}</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded ${t.value ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                  {t.value ? "ON" : "OFF"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isOnShift, shiftEndMutation, disconnectMutation, geoLocation, companyName, cityName }: {
   driver: any; vehicle: any; token: string | null;
   isDriverOnline: boolean; isConnected: boolean; isOnShift: boolean;
@@ -2241,6 +2304,16 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
         <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
       </button>
 
+      <button
+        onClick={() => navigate("/driver/performance")}
+        className="w-full flex items-center gap-3 rounded-lg border border-border px-4 py-3 min-h-[48px] text-left hover:bg-muted/50 transition-colors"
+        data-testid="button-open-performance"
+      >
+        <Gauge className="w-5 h-5 text-primary flex-shrink-0" />
+        <span className="flex-1 font-medium text-base">Performance</span>
+        <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+      </button>
+
       <Card data-testid="card-nav-provider-settings">
         <CardContent className="py-4 space-y-3">
           <div className="flex items-center gap-2">
@@ -2290,6 +2363,8 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
           </div>
         </CardContent>
       </Card>
+
+      <DriverV3SettingsCard token={token} />
 
       {isOnShift && (
         <Button

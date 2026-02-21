@@ -1,0 +1,210 @@
+ROLE: Principal Engineer (NEMT enterprise)
+PROJECT: UCM Driver App v3 — B) Driver Performance + Smart Prompts + C) Premium UX (Offline + Sounds/Haptics)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only (no sub-agents)
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Zero regressions: do not break trip workflow, maps, shift, dispatch, or RLS
+- Feature-flag EVERYTHING new (global + per-company + per-driver)
+- Ship in small commits; after each commit run the checklist at bottom
+
+GOALS (deliver all):
+B1) Driver Performance (Turn Score + KPIs)
+B2) Smart Prompts (leave-now, arrive-now, late-risk)
+C1) Offline-safe outbox queue (status + location) with retry + ordering guarantees
+C2) Sounds + haptics for key events (new trip, status change, notifications, critical prompts)
+
+================================================================================
+PHASE 0 — DISCOVERY (read-only, MUST do first)
+================================================================================
+1) Identify where these live today:
+- trips statuses + timestamps (pickup/dropoff)
+- shift/clock-in tables + driver online logic
+- location ping endpoint and storage
+- real-time events: websocket/SSE/polling
+- existing driver settings storage (db or local)
+2) Confirm current endpoints and paths in code (do not rename):
+- /api/driver/location/ping (or equivalent)
+- /api/driver/trips (active)
+- /api/driver/trips/:tripId/status
+- shift start/end endpoints
+OUTPUT: list found files + endpoints before changes.
+
+================================================================================
+PHASE 1 — FEATURE FLAGS (no behavior change)
+================================================================================
+Add config flags:
+- GLOBAL: DRIVER_V3_PERFORMANCE_ENABLED, DRIVER_V3_SMART_PROMPTS_ENABLED, DRIVER_V3_OFFLINE_OUTBOX_ENABLED, DRIVER_V3_SOUNDS_ENABLED
+- COMPANY: company_settings.driverV3 (json) with overrides:
+  { performance: true, smartPrompts: true, offlineOutbox: true, sounds: true,
+    scoring: { graceMinutes: 5, weights: {...} },
+    prompts: { tMinusLeaveNow: 25, geofenceMeters: 150, cooldownMin: 10 },
+    tracking: { fgSec: 5, bgSec: 15, accuracyMaxM: 80 } }
+- DRIVER: driver_settings (db or local) with:
+  { soundsOn, hapticsOn, preferredNavApp, promptsEnabled, performanceVisible }
+Defaults: enabled for super_admin test accounts only, OFF for production until toggled.
+
+================================================================================
+PHASE 2 — C1 OFFLINE OUTBOX (foundation; must not break anything)
+================================================================================
+Implement Outbox pattern for:
+A) trip status actions
+B) location pings (batch optional)
+
+2.1 Storage:
+- Use IndexedDB (web/PWA) via a small wrapper (idb).
+- Table/outbox store fields:
+  id, type ('trip_status'|'location'),
+  createdAt, payload (json),
+  attempts, nextRetryAt, lastError,
+  orderingKey (tripId for status), sentAt nullable
+- Keep max items:
+  - trip_status: max 200
+  - location: max 2000 (drop oldest, but never drop status events)
+
+2.2 Send logic:
+- If online: try send immediately
+- If fails with network/5xx/timeout: enqueue
+- If 4xx: show error and do NOT retry (except 429 with retry)
+- Retry backoff: 2s, 5s, 15s, 45s, 2m, 5m (cap)
+- Flush loop runs when:
+  - app becomes visible
+  - connectivity restored
+  - periodic timer (every 30s) while on shift
+
+2.3 Ordering guarantees (CRITICAL):
+- Never send trip status events out of order:
+  - enforce sequential flush per tripId
+  - before sending next event, GET latest trip status and verify transition is still valid
+  - if mismatch: stop queue for that trip and show “Trip updated. Refresh.”
+
+2.4 Optional batch for location:
+- If server supports only single ping, keep single calls.
+- If needed, add POST /api/driver/location/batch (auth required) accepting up to 50 points.
+- Must be idempotent with batchId or pointIds.
+
+Deliverables:
+- UI indicator: “Offline” pill + “Queued (n)” counter in Settings.
+- Developer toggle to simulate offline (only super admin).
+
+================================================================================
+PHASE 3 — B2 SMART PROMPTS (non-spam, deterministic)
+================================================================================
+3.1 Create smartPrompts engine:
+Inputs:
+- now, trip.status, scheduled_pickup_at, pickup coords, driver latest coords, ETA
+Rules (configurable):
+- LEAVE_NOW: if pickup in <= 25min and driver not en_route yet, once per trip
+- ARRIVE_NOW: if within geofence 150m and still not marked arrived, once per trip
+- LATE_RISK: if ETA exceeds (scheduled + grace), cooldown 10min
+Anti-spam:
+- store fired prompts per trip in local storage or driver_settings cache
+- never repeat same prompt in same phase
+
+3.2 UI:
+- Banner/toast with action buttons:
+  - “Navigate to pickup”
+  - “Mark arrived”
+  - “Snooze”
+- Critical prompts trigger sound/haptic when enabled.
+
+================================================================================
+PHASE 4 — B1 DRIVER PERFORMANCE (Turn Score + KPIs)
+================================================================================
+4.1 Choose approach:
+- v1 computed (no DB table) OR v2 persisted.
+Preferred: v1 computed + optional persistence.
+Compute per active shift:
+KPIs:
+- onTimeRate (arrived_pickup <= scheduled + grace)
+- lateCount
+- acceptanceRate (if offer pipeline exists; else derived from assignments + driver acknowledgement)
+- idleMinutes (onShift time - activeTrip time)
+- cancelCount (driver-initiated if exists)
+- complianceRate (location freshness while on shift)
+
+4.2 Score 0–100:
+Default weights:
+- punctuality 45
+- acceptance 20
+- idle 15
+- cancellations 10
+- compliance 10
+Make weights configurable per company.
+
+4.3 Endpoints:
+- GET /api/driver/performance/current-shift
+- GET /api/driver/performance/shifts?limit=20 (optional)
+- GET /api/driver/performance/summary?range=week (optional)
+All must be RLS-safe: driver sees only own.
+
+4.4 UI:
+Add “Performance” screen:
+- Turn Score big number + grade badge
+- KPI list with deltas
+- “This week” mini summary (optional)
+
+================================================================================
+PHASE 5 — C2 SOUNDS + HAPTICS (premium UX)
+================================================================================
+5.1 Add NotificationManager:
+Events:
+- NEW_TRIP_ASSIGNED
+- TRIP_STATUS_CHANGED (from dispatch/server)
+- MESSAGE_RECEIVED
+- SMART_PROMPT_CRITICAL
+- SHIFT_STARTED/ENDED (optional subtle)
+Audio rules:
+- User gesture enable once (Settings “Enable sounds”)
+- If blocked, fall back to vibration/haptics only
+Haptics:
+- light for normal
+- heavy for urgent
+
+5.2 Trigger sources:
+- websocket events if present
+- else polling diff:
+  - compare previous trips snapshot to current to detect new assignment/status change
+
+5.3 Persist settings:
+driver_settings.soundsOn, hapticsOn.
+
+================================================================================
+POSTMAN + DOCS + TESTS (required)
+================================================================================
+A) Add Postman folder "60 - Driver v3 (Performance/Prompts/Outbox)":
+- GET performance endpoints
+- (optional) POST location/batch
+- basic tests for JSON shape
+
+B) Docs:
+- docs/driver-performance.md (KPIs + score formula + config)
+- docs/smart-prompts.md (rules + anti-spam)
+- docs/offline-outbox.md (ordering + retry + failure handling)
+- docs/sounds-haptics.md (events + settings + platform notes)
+
+C) Minimal automated checks:
+- Unit tests for:
+  - scoring calculation
+  - prompts firing rules
+  - outbox ordering enforcement for status events
+
+================================================================================
+FINAL CHECKLIST (must run + report results)
+================================================================================
+1) Trip workflow still works (pickup->dropoff buttons correct)
+2) Go to Pickup routes to pickup (never dropoff)
+3) Offline mode:
+   - airplane mode -> status action queued -> reconnect -> flush works
+4) Performance screen loads without errors
+5) Prompts appear once, not spammy
+6) Sounds/haptics toggle works; no autoplay errors
+7) PWA publish still updates correctly; /api/version increments
+8) No console errors in driver app
+OUTPUT:
+- Files changed
+- Endpoints added/confirmed
+- How to toggle flags
+- Postman files path + how to run

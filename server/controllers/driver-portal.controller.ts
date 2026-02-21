@@ -1,7 +1,9 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, invalidateRevocationCache, clearAuthCookie, type AuthRequest } from "../auth";
-import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests, driverShifts, companies, cities, companySettings } from "@shared/schema";
+import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests, driverShifts, companies, cities, companySettings, driverSettings } from "@shared/schema";
+import { resolveDriverV3Flags, DRIVER_V3_DEFAULTS } from "@shared/driverV3Flags";
+import { computeTurnScore, getGrade, DEFAULT_WEIGHTS, type PerformanceKPIs, type ScoringWeights } from "@shared/driverPerformance";
 import { db } from "../db";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
 import { registerPushToken, unregisterPushToken, sendPushToDriver, isPushEnabled } from "../lib/push";
@@ -2373,6 +2375,192 @@ export async function postDriverAccountDeletionRequestHandler(req: AuthRequest, 
     });
 
     res.json({ ok: true, requestId: request.id });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getDriverSettingsHandler(req: AuthRequest, res: Response) {
+  try {
+    const driverId = req.user?.driverId;
+    if (!driverId) return res.status(403).json({ message: "Not a driver" });
+
+    const [existing] = await db.select().from(driverSettings).where(eq(driverSettings.driverId, driverId));
+
+    if (!existing) {
+      const [created] = await db.insert(driverSettings).values({ driverId }).returning();
+      return res.json(created);
+    }
+
+    res.json(existing);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+const driverSettingsUpdateSchema = z.object({
+  soundsOn: z.boolean().optional(),
+  hapticsOn: z.boolean().optional(),
+  promptsEnabled: z.boolean().optional(),
+  performanceVisible: z.boolean().optional(),
+  preferredNavApp: z.enum(["google", "apple", "waze"]).optional(),
+});
+
+export async function patchDriverSettingsHandler(req: AuthRequest, res: Response) {
+  try {
+    const driverId = req.user?.driverId;
+    if (!driverId) return res.status(403).json({ message: "Not a driver" });
+
+    const parsed = driverSettingsUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid body", errors: parsed.error.flatten() });
+
+    const updates: any = { ...parsed.data, updatedAt: new Date() };
+
+    const [existing] = await db.select().from(driverSettings).where(eq(driverSettings.driverId, driverId));
+
+    if (!existing) {
+      const [created] = await db.insert(driverSettings).values({ driverId, ...parsed.data }).returning();
+      return res.json(created);
+    }
+
+    const [updated] = await db.update(driverSettings).set(updates).where(eq(driverSettings.driverId, driverId)).returning();
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getDriverPerformanceCurrentShiftHandler(req: AuthRequest, res: Response) {
+  try {
+    const driverId = req.user?.driverId;
+    if (!driverId) return res.status(403).json({ message: "Not a driver" });
+
+    const [driver] = await db.select({ companyId: drivers.companyId }).from(drivers).where(eq(drivers.id, driverId));
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+    const [cs] = await db.select({ driverV3: companySettings.driverV3 }).from(companySettings).where(eq(companySettings.companyId, driver.companyId));
+    const companyFlags = resolveDriverV3Flags(cs?.driverV3);
+    const globalEnabled = process.env.DRIVER_V3_PERFORMANCE_ENABLED === "true";
+    if (!globalEnabled || !companyFlags.performance) {
+      return res.status(403).json({ message: "Performance feature not enabled" });
+    }
+
+    const graceMinutes = companyFlags.scoring.graceMinutes;
+    const weights = companyFlags.scoring.weights as ScoringWeights;
+
+    const [activeShift] = await db.select().from(driverShifts)
+      .where(and(eq(driverShifts.driverId, driverId), eq(driverShifts.status, "ACTIVE")))
+      .orderBy(desc(driverShifts.startedAt))
+      .limit(1);
+
+    const shiftStart = activeShift?.startedAt || new Date(Date.now() - 8 * 60 * 60 * 1000);
+
+    const shiftTrips = await db.select().from(trips)
+      .where(and(
+        eq(trips.driverId, driverId),
+        gte(trips.updatedAt, shiftStart),
+      ));
+
+    const totalTrips = shiftTrips.length;
+    let onTimeCount = 0;
+    let lateCount = 0;
+    let cancelCount = 0;
+    let activeMinutes = 0;
+
+    for (const trip of shiftTrips) {
+      if (trip.status === "CANCELLED" || trip.status === "TRIP_CANCELLED") {
+        cancelCount++;
+        continue;
+      }
+
+      if (trip.arrivedPickupAt && trip.pickupTime) {
+        const scheduled = new Date(`${trip.scheduledDate}T${trip.pickupTime}`);
+        const arrived = new Date(trip.arrivedPickupAt);
+        const graceMs = graceMinutes * 60 * 1000;
+        if (arrived.getTime() <= scheduled.getTime() + graceMs) {
+          onTimeCount++;
+        } else {
+          lateCount++;
+        }
+      }
+
+      if (trip.tripStartedAt && trip.completedAt) {
+        const dur = (new Date(trip.completedAt).getTime() - new Date(trip.tripStartedAt).getTime()) / 60000;
+        activeMinutes += dur;
+      }
+    }
+
+    const shiftDuration = (Date.now() - new Date(shiftStart).getTime()) / 60000;
+    const idleMinutes = Math.max(0, shiftDuration - activeMinutes);
+
+    const assignedTrips = shiftTrips.filter(t => !["CANCELLED", "TRIP_CANCELLED", "NO_SHOW"].includes(t.status));
+    const acceptanceRate = totalTrips > 0 ? assignedTrips.length / totalTrips : 1;
+
+    const locationFreshness = 1.0;
+
+    const kpis: PerformanceKPIs = {
+      onTimeRate: totalTrips > 0 ? onTimeCount / Math.max(1, onTimeCount + lateCount) : 1,
+      lateCount,
+      totalTrips,
+      acceptanceRate,
+      idleMinutes: Math.round(idleMinutes),
+      cancelCount,
+      complianceRate: locationFreshness,
+    };
+
+    const score = computeTurnScore(kpis, weights);
+    const grade = getGrade(score);
+
+    res.json({
+      score,
+      grade,
+      kpis,
+      weights,
+      shiftStartedAt: shiftStart,
+      shiftDurationMinutes: Math.round(shiftDuration),
+      activeShiftId: activeShift?.id || null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getDriverV3FlagsHandler(req: AuthRequest, res: Response) {
+  try {
+    const driverId = req.user?.driverId;
+    if (!driverId) return res.status(403).json({ message: "Not a driver" });
+
+    const [driver] = await db.select({ companyId: drivers.companyId }).from(drivers).where(eq(drivers.id, driverId));
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+    const globalPerf = process.env.DRIVER_V3_PERFORMANCE_ENABLED === "true";
+    const globalPrompts = process.env.DRIVER_V3_SMART_PROMPTS_ENABLED === "true";
+    const globalOutbox = process.env.DRIVER_V3_OFFLINE_OUTBOX_ENABLED === "true";
+    const globalSounds = process.env.DRIVER_V3_SOUNDS_ENABLED === "true";
+
+    const [cs] = await db.select({ driverV3: companySettings.driverV3 }).from(companySettings).where(eq(companySettings.companyId, driver.companyId));
+    const companyFlags = resolveDriverV3Flags(cs?.driverV3);
+
+    const [ds] = await db.select().from(driverSettings).where(eq(driverSettings.driverId, driverId));
+
+    const effective = {
+      performanceEnabled: globalPerf && companyFlags.performance,
+      smartPromptsEnabled: globalPrompts && companyFlags.smartPrompts,
+      offlineOutboxEnabled: globalOutbox && companyFlags.offlineOutbox,
+      soundsEnabled: globalSounds && companyFlags.sounds,
+      scoring: companyFlags.scoring,
+      prompts: companyFlags.prompts,
+      tracking: companyFlags.tracking,
+      driverPrefs: {
+        soundsOn: ds?.soundsOn ?? true,
+        hapticsOn: ds?.hapticsOn ?? true,
+        promptsEnabled: ds?.promptsEnabled ?? true,
+        performanceVisible: ds?.performanceVisible ?? true,
+        preferredNavApp: ds?.preferredNavApp ?? "google",
+      },
+    };
+
+    res.json(effective);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

@@ -1644,6 +1644,18 @@ export const companySettings = pgTable("company_settings", {
   mapsRpmLimit: integer("maps_rpm_limit").notNull().default(60),
   driverProfileEnabled: boolean("driver_profile_enabled").notNull().default(true),
   lockDriverCapability: boolean("lock_driver_capability").notNull().default(false),
+  driverV3: jsonb("driver_v3").$type<{
+    performance?: boolean;
+    smartPrompts?: boolean;
+    offlineOutbox?: boolean;
+    sounds?: boolean;
+    scoring?: {
+      graceMinutes?: number;
+      weights?: { punctuality?: number; acceptance?: number; idle?: number; cancellations?: number; compliance?: number };
+    };
+    prompts?: { tMinusLeaveNow?: number; geofenceMeters?: number; cooldownMin?: number };
+    tracking?: { fgSec?: number; bgSec?: number; accuracyMaxM?: number };
+  }>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -2445,3 +2457,21 @@ export const routeCache = pgTable("route_cache", {
   uniqueIndex("rc_key_hash_idx").on(table.keyHash),
   index("rc_expires_idx").on(table.expiresAt),
 ]);
+
+export const driverSettings = pgTable("driver_settings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id).unique(),
+  soundsOn: boolean("sounds_on").notNull().default(true),
+  hapticsOn: boolean("haptics_on").notNull().default(true),
+  promptsEnabled: boolean("prompts_enabled").notNull().default(true),
+  performanceVisible: boolean("performance_visible").notNull().default(true),
+  preferredNavApp: text("preferred_nav_app").notNull().default("google"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("driver_settings_driver_idx").on(table.driverId),
+]);
+
+export const insertDriverSettingsSchema = createInsertSchema(driverSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export type DriverSettingsType = typeof driverSettings.$inferSelect;
+export type InsertDriverSettings = z.infer<typeof insertDriverSettingsSchema>;

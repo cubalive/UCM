@@ -60,6 +60,10 @@ PATIENT_LINK_TTL_HOURS = "72"
 DATABASE_URL = "postgresql://postgres.tvyzaakrcvjzpskatclc:LvpuPB2p0DpvSOyC@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require"
 VITE_NATIVE_ENABLED = "false"
 VITE_BG_TRACKING_ENABLED = "false"
+DRIVER_V3_PERFORMANCE_ENABLED = "false"
+DRIVER_V3_SMART_PROMPTS_ENABLED = "false"
+DRIVER_V3_OFFLINE_OUTBOX_ENABLED = "false"
+DRIVER_V3_SOUNDS_ENABLED = "false"
 
 [userenv.development]
 
