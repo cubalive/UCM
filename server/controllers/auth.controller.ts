@@ -99,11 +99,13 @@ export async function loginJwtHandler(req: Request, res: Response) {
     const normalizedEmail = parsed.data.email.trim().toLowerCase();
     const user = await storage.getUserByEmail(normalizedEmail);
     if (!user) {
+      console.warn(`[AUTH] login-jwt: user not found email="${normalizedEmail}"`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const valid = await comparePassword(parsed.data.password, user.password);
     if (!valid) {
+      console.warn(`[AUTH] login-jwt: password mismatch userId=${user.id} email="${normalizedEmail}" hashPrefix="${user.password?.substring(0, 7)}"`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
