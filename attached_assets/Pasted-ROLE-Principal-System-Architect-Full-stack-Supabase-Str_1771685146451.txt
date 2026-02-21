@@ -1,0 +1,265 @@
+ROLE: Principal System Architect (Full-stack + Supabase + Stripe Connect + Multi-tenant RBAC)
+PROJECT: UCM Clinic Portal — Production Grade
+EXECUTION MODE: SINGLE AGENT ONLY
+NO PARALLEL TASKS
+NO DATABASE RESET
+NO TABLE DROPS
+NO SCHEMA DESTRUCTION
+EXTEND ONLY
+ZERO REGRESSION TOLERANCE
+MULTI-TENANT SECURITY MUST REMAIN INTACT
+
+========================================================
+OBJECTIVE
+========================================================
+
+Build a production-grade Clinic Portal at:
+
+https://clinic.unitedcaremobility.com
+
+Accessible ONLY to:
+- CLINIC
+- SUPER_ADMIN
+
+Implement:
+
+- Modern intuitive UI (blue/green/white semantic color system)
+- Fully clickable interface
+- Real-time trip view
+- Weekly billing
+- Direct Clinic → Company payment using Stripe Connect
+- Secure RLS isolation
+- No “—” placeholders in billing
+- Production stability
+
+========================================================
+SECTION 1 — SUBDOMAIN & ACCESS CONTROL
+========================================================
+
+A) Host Routing
+If host starts with "clinic.":
+    load ClinicPortalLayout
+Else:
+    load normal app
+
+B) Frontend Role Gate
+On mount:
+    get session
+    if role NOT in [CLINIC, SUPER_ADMIN]:
+        force logout
+        show Access Denied
+        redirect
+
+C) Backend Middleware
+Protect:
+    /api/clinic/*
+Require:
+    valid JWT
+    role in [CLINIC, SUPER_ADMIN]
+Else:
+    return 403
+
+D) Supabase RLS (MANDATORY)
+Clinic users:
+    can only access rows where clinic_id = profile.clinic_id
+SUPER_ADMIN:
+    bypass allowed
+Do NOT disable RLS.
+
+========================================================
+SECTION 2 — MODERN CLINIC UI
+========================================================
+
+Design System:
+Dark base
+Blue = action
+Green = success
+Amber = attention
+Red = critical
+
+Requirements:
+
+1) Global SearchBar reusable component
+2) Trips Page:
+   - filter chips
+   - collapsible sections
+   - click row → Trip Drawer
+3) Trip Drawer:
+   - pickup/dropoff
+   - patient
+   - driver
+   - vehicle
+   - timeline
+   - live map preview
+   - edit pickup (if not started)
+   - edit return
+   - request early return
+4) Live View:
+   - real-time driver location (Supabase Realtime)
+   - polling fallback 10–15s
+   - show “Last updated Xs ago”
+
+========================================================
+SECTION 3 — WEEKLY BILLING SYSTEM
+========================================================
+
+Frequency: WEEKLY
+
+Create additive tables only:
+
+invoices(
+    id uuid pk,
+    clinic_id uuid,
+    company_id uuid,
+    period_start date,
+    period_end date,
+    status text check (draft, open, paid, failed, void),
+    total_cents integer,
+    stripe_payment_intent_id text,
+    created_at timestamptz default now()
+)
+
+invoice_lines(
+    id uuid pk,
+    invoice_id uuid,
+    trip_id uuid,
+    amount_cents integer,
+    snapshot_json jsonb,
+    geofence_confirmed boolean,
+    wait_time_minutes integer,
+    created_at timestamptz default now()
+)
+
+payments(
+    id uuid pk,
+    invoice_id uuid,
+    stripe_payment_intent_id text,
+    stripe_charge_id text,
+    status text,
+    created_at timestamptz default now()
+)
+
+Important:
+snapshot_json must include:
+    driver_name
+    driver_id
+    vehicle
+    pickup
+    dropoff
+    timestamps
+
+Never render “—”.
+If driver missing:
+    show explicit “Driver not assigned”
+    show “Open Trip to Fix”
+
+========================================================
+SECTION 4 — STRIPE CONNECT (DIRECT PAYMENT)
+========================================================
+
+Each company must have:
+    stripe_connected_account_id (acct_*)
+
+SUPER_ADMIN must be able to:
+    generate onboarding link (Stripe Express)
+    store stripe_connected_account_id
+    store connect status
+
+Payment Flow:
+
+1) Clinic clicks Pay Now
+2) Backend creates PaymentIntent:
+    amount = invoice.total_cents
+    currency = usd
+    customer = clinic.stripe_customer_id
+    transfer_data.destination = company.stripe_connected_account_id
+    application_fee_amount = configurable
+    metadata:
+        invoice_id
+        clinic_id
+        company_id
+        weekly_period
+
+3) Return client_secret
+4) Frontend confirms payment
+5) Webhook updates DB
+
+Webhook must handle:
+    payment_intent.succeeded
+    payment_intent.payment_failed
+Idempotent handling required.
+
+========================================================
+SECTION 5 — TRUST BILLING UI
+========================================================
+
+Invoice screen must:
+- Group by week
+- Show clear totals
+- Click invoice → open details
+- Click invoice line → open Trip Drawer
+- Show geofence badge
+- Show wait time
+- Show driver name or explicit message
+No placeholders.
+
+========================================================
+SECTION 6 — SECRET VALIDATION
+========================================================
+
+At server start validate existence of:
+
+DATABASE_URL
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+APP_BASE_URL
+CLINIC_APP_URL
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+VITE_STRIPE_PUBLISHABLE_KEY (if web)
+
+If missing:
+    fail fast with descriptive error.
+
+System must ONLY use DATABASE_URL.
+Remove any Neon configuration.
+
+========================================================
+SECTION 7 — STABILITY GUARANTEE
+========================================================
+
+Do NOT:
+- Modify driver portal
+- Modify dispatch portal
+- Change existing trip lifecycle
+- Break existing RLS
+
+Additive changes only.
+
+========================================================
+SECTION 8 — SMOKE TESTS (MANDATORY)
+========================================================
+
+1) Clinic login works
+2) Non-clinic roles denied
+3) Trip Drawer opens
+4) Live map updates
+5) Weekly invoice generates
+6) Stripe test payment routes to connected account
+7) Webhook updates invoice to paid
+8) No “—” displayed anywhere
+9) Dispatch + Driver unaffected
+
+========================================================
+REPORT FORMAT
+========================================================
+
+Return:
+- Files changed
+- Tables added
+- Policies touched
+- Endpoints added
+- Stripe verification steps
+- Smoke test results
+
+Maintain production stability at all times.

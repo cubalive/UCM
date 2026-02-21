@@ -15,7 +15,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { can, type Resource } from "@shared/permissions";
 import { useTranslation } from "react-i18next";
 import "@/i18n";
-import { isDriverHost, getTokenKey } from "@/lib/hostDetection";
+import { isDriverHost, isClinicHost, getTokenKey } from "@/lib/hostDetection";
 import { pushError } from "@/lib/errorLog";
 import { CitySelectionModal } from "@/components/city-selection-modal";
 import LoginPage from "@/pages/login";
@@ -79,6 +79,7 @@ import PayrollDetailPage from "@/pages/payroll-detail";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
 import { DriverAppV4 } from "@/driver-v4/DriverAppV4";
+import { ClinicPortalLayout } from "@/clinic-portal/ClinicPortalLayout";
 import SystemStatusPage from "@/pages/system-status";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -490,7 +491,7 @@ class AppErrorBoundary extends React.Component<
 }
 
 function AuthenticatedApp() {
-  const { user, loading, error, retry, mustChangePassword, cityRequired } = useAuth();
+  const { user, loading, error, retry, mustChangePassword, cityRequired, logout } = useAuth();
 
   if (loading) {
     return (
@@ -514,6 +515,27 @@ function AuthenticatedApp() {
 
   if (mustChangePassword) {
     return <ChangePasswordPage />;
+  }
+
+  if (isClinicHost) {
+    const role = user.role.toUpperCase();
+    const clinicAllowed = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER", "CLINIC", "SUPER_ADMIN"];
+    if (!clinicAllowed.includes(role)) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 max-w-md text-center space-y-4">
+            <h2 className="text-xl font-semibold text-white">Access Denied</h2>
+            <p className="text-gray-400">This portal is restricted to clinic users only.</p>
+            <button onClick={() => logout()} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Sign Out</button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <AppErrorBoundary label="Clinic">
+        <ClinicPortalLayout />
+      </AppErrorBoundary>
+    );
   }
 
   if (isDriverHost) {

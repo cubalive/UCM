@@ -2,9 +2,10 @@ const hostname = window.location.hostname;
 const isProdDomain = hostname.endsWith("unitedcaremobility.com");
 
 export const isDriverHost = isProdDomain && hostname.startsWith("driver.");
+export const isClinicHost = isProdDomain && hostname.startsWith("clinic.");
 export const isAdminHost = isProdDomain && hostname.startsWith("admin.");
 export const isAppHost = isProdDomain && (hostname.startsWith("app.") || hostname === "app.unitedcaremobility.com");
-export const isProductionSubdomain = isDriverHost || isAdminHost || isAppHost;
+export const isProductionSubdomain = isDriverHost || isClinicHost || isAdminHost || isAppHost;
 export { isProdDomain };
 
 export const isNativePlatform =

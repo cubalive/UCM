@@ -470,19 +470,102 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
       .then(r => r[0]);
 
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
-    if (invoice.paymentStatus === "paid") return res.status(400).json({ message: "Already paid" });
+    if (invoice.paymentStatus === "paid") {
+      return res.json({ alreadyPaid: true, receiptUrl: invoice.receiptUrl });
+    }
 
-    const [updated] = await db.update(billingCycleInvoices).set({
-      paymentStatus: "paid",
-      amountPaidCents: invoice.totalCents,
-      balanceDueCents: 0,
-      lastPaymentAt: new Date(),
-      locked: true,
+    const amountCents = invoice.totalCents;
+    if (!amountCents || amountCents <= 0) {
+      return res.status(400).json({ message: "Invoice has no billable amount" });
+    }
+
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(503).json({ message: "Payment processing is not configured. Please contact support." });
+    }
+
+    const companyId = invoice.companyId || ctx.companyId;
+    if (!companyId) {
+      return res.status(409).json({ message: "Company billing not configured" });
+    }
+
+    const stripeAccount = await storage.getCompanyStripeAccount(companyId);
+    if (!stripeAccount || stripeAccount.onboardingStatus !== "ACTIVE") {
+      return res.status(409).json({ message: "Company payment account not ready. Contact your provider." });
+    }
+
+    const Stripe = require("stripe").default;
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+    const [clinic] = await db.select().from(clinics).where(eq(clinics.id, ctx.clinicId));
+    const clinicName = clinic?.name || "Clinic";
+
+    const actor = await getActorContext(req);
+    const user = actor ? await storage.getUser(actor.userId) : null;
+
+    const { getEffectivePlatformFee, computeApplicationFee } = await import("../services/platformFee");
+    const effectiveFee = await getEffectivePlatformFee(companyId);
+    const applicationFeeAmount = effectiveFee.enabled ? computeApplicationFee(amountCents, effectiveFee) : 0;
+
+    const paymentMetadata: Record<string, string> = {
+      billing_cycle_invoice_id: String(invoice.id),
+      company_id: String(companyId),
+      clinic_id: String(ctx.clinicId),
+      type: "billing_cycle_invoice",
+      period: `${invoice.periodStart}_${invoice.periodEnd}`,
+    };
+
+    if (effectiveFee.enabled && applicationFeeAmount > 0) {
+      paymentMetadata.platform_fee_cents = String(applicationFeeAmount);
+      paymentMetadata.platform_fee_type = effectiveFee.type;
+      paymentMetadata.platform_fee_rate = effectiveFee.type === "PERCENT" ? String(effectiveFee.percent) : String(effectiveFee.cents);
+    }
+
+    const baseUrl = process.env.APP_PUBLIC_URL || process.env.PUBLIC_BASE_URL || process.env.APP_URL || "https://clinic.unitedcaremobility.com";
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price_data: {
+            currency: invoice.currency?.toLowerCase() || "usd",
+            product_data: {
+              name: `Invoice ${invoice.invoiceNumber || `#${invoice.id}`} — ${clinicName}`,
+              description: `Billing period: ${invoice.periodStart} to ${invoice.periodEnd}`,
+            },
+            unit_amount: amountCents,
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      customer_email: user?.email || undefined,
+      success_url: `${baseUrl}/billing?paid=1&invoice=${invoice.id}`,
+      cancel_url: `${baseUrl}/billing?canceled=1&invoice=${invoice.id}`,
+      payment_intent_data: {
+        transfer_data: {
+          destination: stripeAccount.stripeAccountId,
+        },
+        application_fee_amount: applicationFeeAmount,
+        metadata: paymentMetadata,
+      },
+      metadata: paymentMetadata,
+    });
+
+    await db.update(billingCycleInvoices).set({
+      stripeCheckoutSessionId: session.id,
+      stripeCheckoutUrl: session.url,
+      platformFeeCents: applicationFeeAmount,
+      platformFeeType: effectiveFee.enabled ? effectiveFee.type : null,
+      platformFeeRate: effectiveFee.enabled
+        ? String(effectiveFee.type === "PERCENT" ? effectiveFee.percent : effectiveFee.cents)
+        : null,
+      netToCompanyCents: amountCents - applicationFeeAmount,
       updatedAt: new Date(),
-    }).where(eq(billingCycleInvoices.id, invoiceId)).returning();
+    }).where(eq(billingCycleInvoices.id, invoiceId));
 
-    res.json(updated);
+    res.json({ checkoutUrl: session.url, sessionId: session.id });
   } catch (err: any) {
+    console.error("[ClinicBilling] Pay error:", err.message);
     res.status(500).json({ message: err.message });
   }
 }

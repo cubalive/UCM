@@ -1,0 +1,307 @@
+ROLE: Principal payments/compliance architect (Stripe Connect + Ledger + Reconciliation) + full-stack engineer
+PROJECT: UCM — Enterprise Billing vNext (Clinic→Company direct pay) + Compliance-grade audit + Reconciliation + Disputes
+EXECUTION MODE: SINGLE AGENT ONLY
+NO PARALLEL TASKS
+DO NOT RESET DATABASE
+DO NOT DROP TABLES
+EXTEND ONLY (additive schema changes ok)
+ZERO REGRESSION TOLERANCE
+KEEP DRIVER/DISPATCH FLOWS UNCHANGED
+MULTI-TENANT SECURITY MUST REMAIN INTACT
+
+========================================================
+OBJECTIVES (ENTERPRISE LEVEL)
+========================================================
+1) Add compliance-grade billing infrastructure on top of existing Clinic Portal billing:
+   - Immutable audit trail for billing events
+   - Double-entry ledger (platform-level) for reconciliation
+   - Automated weekly invoicing + scheduling
+   - Stripe Connect direct payments (clinic→company) with configurable platform fee
+   - Payment method save + 1-click pay
+   - Failed payment handling + retries + dunning
+   - Disputes visibility and workflow
+   - Payout reconciliation (Stripe balance transactions) and variance detection
+   - Executive reporting (monthly statements, CSV/PDF export)
+2) SUPER_ADMIN has full control; clinics/companies only see their scope.
+3) Everything remains clickable and trustworthy (no “—” placeholders).
+
+========================================================
+SECTION 1 — DATA MODEL (ADD ONLY)
+========================================================
+
+A) Connect / Merchant profiles
+Add/ensure columns:
+companies:
+  stripe_connected_account_id text null
+  stripe_connect_status text default 'pending'  -- pending|active|restricted|rejected
+  stripe_connect_details_submitted boolean default false
+  stripe_connect_charges_enabled boolean default false
+  stripe_connect_payouts_enabled boolean default false
+  stripe_connect_onboarded_at timestamptz null
+
+clinics:
+  stripe_customer_id text null
+  stripe_default_payment_method_id text null
+
+B) Enterprise invoicing
+Create/extend tables:
+
+billing_periods(
+  id uuid pk,
+  clinic_id uuid,
+  company_id uuid,
+  period_start date,
+  period_end date,
+  status text check (draft, open, paid, failed, void, partially_paid),
+  subtotal_cents int,
+  adjustments_cents int default 0,
+  total_cents int,
+  currency text default 'usd',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+)
+
+billing_lines(
+  id uuid pk,
+  billing_period_id uuid,
+  trip_id uuid,
+  amount_cents int,
+  fee_cents int default 0,   -- platform fee allocated for reporting
+  snapshot_json jsonb,       -- driver/vehicle/pickup/dropoff/wait/geofence/timestamps
+  integrity_flags text[] default '{}',  -- e.g. ['MISSING_DRIVER','MISSING_GEOFENCE']
+  created_at timestamptz default now()
+)
+
+billing_adjustments(
+  id uuid pk,
+  billing_period_id uuid,
+  kind text check (credit, debit, refund, fee_override),
+  reason text,
+  amount_cents int,
+  created_by uuid,           -- super_admin user id
+  created_at timestamptz default now()
+)
+
+payments(
+  id uuid pk,
+  billing_period_id uuid,
+  stripe_payment_intent_id text,
+  stripe_charge_id text,
+  status text,
+  amount_cents int,
+  currency text default 'usd',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+)
+
+payout_reconciliation(
+  id uuid pk,
+  company_id uuid,
+  stripe_account_id text,
+  stripe_balance_transaction_id text,
+  stripe_transfer_id text null,
+  stripe_payout_id text null,
+  amount_cents int,
+  fee_cents int,
+  net_cents int,
+  currency text,
+  available_on timestamptz null,
+  created_at timestamptz default now()
+)
+
+ledger_entries(  -- double-entry ledger (platform view)
+  id uuid pk,
+  ref_type text,             -- 'payment_intent'|'charge'|'refund'|'dispute'|'adjustment'
+  ref_id text,               -- stripe id or internal
+  clinic_id uuid null,
+  company_id uuid null,
+  account text,              -- e.g. 'AR_CLINIC','AP_COMPANY','PLATFORM_REVENUE','STRIPE_FEES'
+  direction text check (debit, credit),
+  amount_cents int,
+  currency text default 'usd',
+  created_at timestamptz default now()
+)
+
+audit_events(  -- immutable audit trail
+  id uuid pk,
+  actor_user_id uuid null,
+  actor_role text null,
+  scope_clinic_id uuid null,
+  scope_company_id uuid null,
+  action text,               -- e.g. 'BILLING_PERIOD_CREATED','PAYMENT_SUCCEEDED','ADJUSTMENT_ADDED'
+  entity_type text,
+  entity_id text,
+  details jsonb,
+  ip text null,
+  user_agent text null,
+  created_at timestamptz default now()
+)
+
+C) Feature flags / entitlements
+If not already present, ensure:
+subscriptions + entitlements tables exist as described previously.
+The enterprise billing screens can be gated by entitlements if desired.
+
+========================================================
+SECTION 2 — STRIPE CONNECT PAYMENT ENGINE (DIRECT PAY)
+========================================================
+
+A) Connected account onboarding
+- SUPER_ADMIN endpoint to create Express account if missing.
+- Create AccountLink for onboarding; store status flags.
+- Add SUPER_ADMIN “Companies → Stripe Status” screen with:
+  pending/active/restricted + “Resume onboarding” button.
+
+B) PaymentIntent creation (weekly billing period pay)
+Endpoint: POST /api/clinic/billing/:billingPeriodId/pay
+Rules:
+- Verify requester is CLINIC for that clinic_id or SUPER_ADMIN.
+- Verify company has stripe_connected_account_id and charges_enabled.
+- Create or fetch clinic stripe_customer_id.
+- Ensure a default payment method is attached and set.
+- Create PaymentIntent:
+    amount = total_cents
+    currency = usd
+    customer = clinic.stripe_customer_id
+    payment_method = clinic.stripe_default_payment_method_id (if exists)
+    off_session = optional (if saved and permitted)
+    confirm = true when off_session, else return client_secret for confirmation
+    transfer_data.destination = company.stripe_connected_account_id
+    application_fee_amount = configurable per company/clinic (fee rules)
+    metadata includes billing_period_id, clinic_id, company_id, period_start/end
+- Persist payments row in DB.
+- Write audit_events + ledger_entries.
+
+C) Webhooks (idempotent)
+Handle:
+- payment_intent.succeeded
+- payment_intent.payment_failed
+- charge.refunded
+- charge.dispute.created / updated / closed
+- transfer.created / paid / reversed (if used)
+- account.updated (connect status)
+Requirements:
+- Idempotency table or store processed event ids.
+- Update billing_periods status accordingly.
+- Insert audit_events and ledger_entries.
+- For reconciliation: fetch balance transactions and persist payout_reconciliation.
+
+========================================================
+SECTION 3 — AUTOMATED WEEKLY INVOICE GENERATION
+========================================================
+
+Implement a scheduler:
+- If the platform already has a cron/job runner, use it.
+- Otherwise implement a server-side job triggered by SUPER_ADMIN button + optional nightly run.
+
+Weekly cycle:
+- For each clinic-company pair:
+  gather completed trips within period
+  compute line amounts
+  generate billing_period + billing_lines + integrity flags
+  mark status = open
+
+Integrity rules:
+- If trip billed but missing driver -> add flag MISSING_DRIVER and show “Needs Review” in UI
+- If missing geofence -> flag MISSING_GEOFENCE
+- Never hide issues; surface them.
+
+========================================================
+SECTION 4 — DUNNING / RETRIES / PAYMENT FAILURES
+========================================================
+
+When payment fails:
+- status -> failed
+- show “Retry payment” button
+- send notification (in-app + optional email)
+- allow SUPER_ADMIN to:
+  - add adjustment/credit
+  - override fee
+  - mark as void (audit event required)
+
+========================================================
+SECTION 5 — UI (ENTERPRISE SCREENS)
+========================================================
+
+A) Clinic Portal Billing (fast & simple)
+- Weekly billing list
+- “Pay now” + payment method management
+- Invoice detail is clickable and opens trip drawer
+- Show trust badges: geofence, wait time, timeline
+
+B) Company Portal (read-only for payments received)
+- weekly statements
+- paid periods
+- payout reconciliation list
+- disputes list
+
+C) SUPER_ADMIN Finance Console (command center)
+- Search: clinic/company/invoice/payment
+- Filters: status, date, amount, failures
+- Actions:
+  - trigger weekly generation
+  - add adjustments
+  - set fee rules
+  - export CSV/PDF statements
+  - view audit trail for any entity
+
+Design:
+- Modern dark base with brand blue/green/white
+- Fully clickable tables with drawers
+- Collapsible sections everywhere
+- Global search in every list
+
+========================================================
+SECTION 6 — SECURITY (RLS + RBAC)
+========================================================
+
+- Enforce clinic access only to their clinic_id.
+- Enforce company access only to their company_id.
+- SUPER_ADMIN sees all.
+- Ensure audit_events is readable only by SUPER_ADMIN (and maybe company/clinic scoped views if needed).
+- Never expose secret keys to frontend.
+
+========================================================
+SECTION 7 — STARTUP CONFIG VALIDATION (FAIL FAST)
+========================================================
+
+Validate at server startup:
+DATABASE_URL (Supabase)
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+CLINIC_APP_URL
+APP_BASE_URL
+
+If any missing: throw descriptive error and refuse to boot.
+
+========================================================
+SECTION 8 — SMOKE TESTS (MUST RUN & REPORT)
+========================================================
+
+1) Create a connected account in test mode and complete onboarding -> charges_enabled true
+2) Generate weekly billing period for a clinic-company
+3) Pay successfully (test card) -> payment_intent.succeeded webhook -> status paid
+4) Verify ledger entries were created (debit/credit)
+5) Verify audit_events recorded for create/pay
+6) Simulate failed payment -> dunning retry works
+7) Verify reconciliation pulls balance transactions for the company account
+8) UI: no “—” placeholders; missing data shows explicit flags + fix path
+9) No regressions to driver/dispatch
+
+========================================================
+DELIVERABLES
+========================================================
+
+Return:
+- Files changed list
+- New tables/columns migrations
+- Endpoints list
+- Webhook events handled list
+- Fee rule implementation details
+- Smoke test results
+- How to verify in Stripe Dashboard (test mode): payments, connected accounts, disputes, balance transactions
+
+DO NOT change unrelated flows.
+Keep the app stable and production-ready.

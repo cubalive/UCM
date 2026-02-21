@@ -3,7 +3,7 @@ import { authMiddleware, requireRole, getActorContext, type AuthRequest } from "
 import { storage } from "../storage";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
-import { invoices, companies } from "@shared/schema";
+import { invoices, companies, billingCycleInvoices } from "@shared/schema";
 
 function getStripe() {
   const Stripe = require("stripe").default;
@@ -317,6 +317,65 @@ export function registerStripeConnectRoutes(app: Express) {
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
         const metadata = session.metadata || {};
+
+        if (metadata.type === "billing_cycle_invoice") {
+          const bciId = parseInt(metadata.billing_cycle_invoice_id);
+          if (isNaN(bciId)) {
+            await storage.updateStripeWebhookEvent(event.id, "IGNORED", "Invalid billing_cycle_invoice_id");
+            return res.status(200).json({ received: true });
+          }
+
+          const [bci] = await db.select().from(billingCycleInvoices).where(eq(billingCycleInvoices.id, bciId));
+          if (!bci) {
+            await storage.updateStripeWebhookEvent(event.id, "IGNORED", `BCI ${bciId} not found`);
+            return res.status(200).json({ received: true });
+          }
+          if (bci.paymentStatus === "paid") {
+            await storage.updateStripeWebhookEvent(event.id, "IGNORED", "Already paid");
+            return res.status(200).json({ received: true });
+          }
+
+          if (metadata.clinic_id && String(bci.clinicId) !== metadata.clinic_id) {
+            await storage.updateStripeWebhookEvent(event.id, "IGNORED", "BCI clinic mismatch");
+            return res.status(200).json({ received: true });
+          }
+          if (metadata.company_id && bci.companyId && String(bci.companyId) !== metadata.company_id) {
+            await storage.updateStripeWebhookEvent(event.id, "IGNORED", "BCI company mismatch");
+            return res.status(200).json({ received: true });
+          }
+
+          let bciReceiptUrl: string | null = null;
+          const bciPaymentIntentId = session.payment_intent || null;
+          if (bciPaymentIntentId) {
+            try {
+              const pi = await stripe.paymentIntents.retrieve(bciPaymentIntentId);
+              const latestCharge = pi.latest_charge;
+              if (latestCharge) {
+                const charge = typeof latestCharge === "string"
+                  ? await stripe.charges.retrieve(latestCharge)
+                  : latestCharge;
+                bciReceiptUrl = charge.receipt_url || null;
+              }
+            } catch (e: any) {
+              console.warn("[StripeWebhook] Could not retrieve BCI charge:", e.message);
+            }
+          }
+
+          await db.update(billingCycleInvoices).set({
+            paymentStatus: "paid",
+            amountPaidCents: bci.totalCents,
+            balanceDueCents: 0,
+            lastPaymentAt: new Date(),
+            locked: true,
+            stripePaymentIntentId: bciPaymentIntentId,
+            receiptUrl: bciReceiptUrl,
+            updatedAt: new Date(),
+          }).where(eq(billingCycleInvoices.id, bciId));
+
+          await storage.updateStripeWebhookEvent(event.id, "PROCESSED");
+          console.log(`[StripeWebhook] BillingCycleInvoice ${bciId} marked PAID`);
+          return res.status(200).json({ received: true, invoiceId: bciId, status: "paid" });
+        }
 
         if (metadata.type !== "clinic_invoice") {
           await storage.updateStripeWebhookEvent(event.id, "IGNORED");
