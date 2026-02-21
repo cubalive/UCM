@@ -1081,6 +1081,20 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
     const updated = await db.update(trips).set(updateData).where(eq(trips.id, id)).returning();
     const updatedTrip = updated[0];
 
+    if (updatedTrip.driverId) {
+      const activeStatuses = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "ARRIVED_DROPOFF"];
+      const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+      if (activeStatuses.includes(parsed.data.status)) {
+        db.update(drivers).set({ dispatchStatus: "enroute" }).where(eq(drivers.id, updatedTrip.driverId)).catch((err: any) => {
+          console.error(`[DISPATCH] Failed to set driver ${updatedTrip.driverId} to enroute:`, err.message);
+        });
+      } else if (terminalStatuses.includes(parsed.data.status)) {
+        db.update(drivers).set({ dispatchStatus: "available" }).where(eq(drivers.id, updatedTrip.driverId)).catch((err: any) => {
+          console.error(`[DISPATCH] Failed to set driver ${updatedTrip.driverId} to available:`, err.message);
+        });
+      }
+    }
+
     import("../lib/realtime").then(({ broadcastToTrip }) => {
       broadcastToTrip(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
     }).catch(() => {});

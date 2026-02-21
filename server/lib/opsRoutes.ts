@@ -1448,7 +1448,9 @@ export function registerOpsRoutes(app: Express) {
             }
           }
         }
-      } catch {}
+      } catch (err: any) {
+        console.error("[LIVE-MAP] Failed to fetch active trips:", err?.message || err);
+      }
 
       const statusMap: Record<string, string> = {
         available: "available",
