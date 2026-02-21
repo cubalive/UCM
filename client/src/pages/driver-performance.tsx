@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, TrendingUp, Clock, CheckCircle, XCircle, AlertTriangle, Gauge } from "lucide-react";
 import { useLocation } from "wouter";
 import { getGrade, getGradeColor } from "@shared/driverPerformance";
-import { apiFetch } from "@/lib/api";
+import { rawAuthFetch } from "@/lib/api";
 
 export default function DriverPerformancePage() {
   const [, setLocation] = useLocation();
@@ -15,15 +15,13 @@ export default function DriverPerformancePage() {
   const performanceQuery = useQuery({
     queryKey: ["/api/driver/performance/current-shift"],
     queryFn: async () => {
-      const res = await apiFetch("/api/driver/performance/current-shift", token);
-      if (!res.ok) {
-        if (res.status === 403) return null;
-        throw new Error("Failed to fetch performance");
-      }
+      const res = await rawAuthFetch("/api/driver/performance/current-shift");
+      if (!res.ok) return null;
       return res.json();
     },
     refetchInterval: 60000,
     enabled: !!token,
+    retry: false,
   });
 
   const data = performanceQuery.data;
