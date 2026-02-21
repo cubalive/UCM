@@ -137,6 +137,54 @@ router.post("/api/admin/archive-trips", authMiddleware, requireRole("SUPER_ADMIN
 router.post("/api/admin/unarchive-trip/:id", authMiddleware, requireRole("SUPER_ADMIN"), unarchiveTripHandler as any);
 router.get("/api/admin/archive-stats", authMiddleware, requireRole("SUPER_ADMIN"), archiveStatsHandler as any);
 
+router.get("/api/audit", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+  try {
+    const { db } = await import("../db");
+    const { auditLog, users } = await import("@shared/schema");
+    const { eq, desc } = await import("drizzle-orm");
+    const cityId = req.query.cityId ? parseInt(String(req.query.cityId)) : undefined;
+
+    const conditions: any[] = [];
+    if (cityId) conditions.push(eq(auditLog.cityId, cityId));
+
+    const query = db
+      .select({
+        id: auditLog.id,
+        userId: auditLog.userId,
+        action: auditLog.action,
+        entity: auditLog.entity,
+        entityId: auditLog.entityId,
+        details: auditLog.details,
+        cityId: auditLog.cityId,
+        actorRole: auditLog.actorRole,
+        companyId: auditLog.companyId,
+        createdAt: auditLog.createdAt,
+        actorName: users.firstName,
+        actorLastName: users.lastName,
+        actorEmail: users.email,
+      })
+      .from(auditLog)
+      .leftJoin(users, eq(auditLog.userId, users.id))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(200);
+
+    const rows = conditions.length
+      ? await query.where(conditions[0])
+      : await query;
+
+    const logs = rows.map((r: any) => ({
+      ...r,
+      actorName: r.actorName && r.actorLastName
+        ? `${r.actorName} ${r.actorLastName}`
+        : r.actorEmail || null,
+    }));
+
+    res.json(logs);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 export function registerAdminRoutes(app: Express) {
   app.use(router);
 }
