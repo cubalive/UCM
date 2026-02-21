@@ -1,8 +1,5 @@
-import { db } from "../db";
-import { trips } from "@shared/schema";
-import { eq, and, inArray } from "drizzle-orm";
 import { storage } from "../storage";
-import { cache, cacheKeys } from "./cache";
+import { cache } from "./cache";
 
 const PICKUP_RADIUS_M = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
 const DROPOFF_RADIUS_M = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
@@ -41,43 +38,12 @@ export async function evaluateGeofence(driverId: number, lat: number, lng: numbe
 
           console.log(`[GEOFENCE] Driver ${driverId} entered pickup radius (${Math.round(dist)}m) for trip ${trip.id}, auto-transitioning to ARRIVED_PICKUP`);
 
-          await db.update(trips).set({
-            status: "ARRIVED_PICKUP",
-            arrivedPickupAt: new Date(),
-          }).where(
-            and(
-              eq(trips.id, trip.id),
-              eq(trips.status, "EN_ROUTE_TO_PICKUP")
-            )
-          );
-
-          import("./realtime").then(({ broadcastToTrip }) => {
-            broadcastToTrip(trip.id, { type: "status_change", data: { status: "ARRIVED_PICKUP", tripId: trip.id } });
-          }).catch(() => {});
-
-          import("./supabaseRealtime").then(({ broadcastTripSupabase }) => {
-            broadcastTripSupabase(trip.id, { type: "status_change", data: { status: "ARRIVED_PICKUP", tripId: trip.id } });
-          }).catch(() => {});
-
-          import("./dispatchAutoSms").then(({ autoNotifyPatient }) => {
-            autoNotifyPatient(trip.id, "arrived");
-          }).catch(() => {});
-
-          storage.createAuditLog({
+          const { transitionTripStatus } = await import("./tripTransitionHelper");
+          await transitionTripStatus(trip.id, "ARRIVED_PICKUP", {
             userId: 0,
-            action: "GEOFENCE_AUTO_TRANSITION",
-            entity: "trip",
-            entityId: trip.id,
-            details: JSON.stringify({
-              oldStatus: "EN_ROUTE_TO_PICKUP",
-              newStatus: "ARRIVED_PICKUP",
-              distanceMeters: Math.round(dist),
-              radiusMeters: PICKUP_RADIUS_M,
-              driverLat: lat,
-              driverLng: lng,
-            }),
-            cityId: trip.cityId,
-          }).catch(() => {});
+            role: "SYSTEM",
+            source: "geofence_auto",
+          });
         }
       }
 
@@ -90,39 +56,12 @@ export async function evaluateGeofence(driverId: number, lat: number, lng: numbe
 
           console.log(`[GEOFENCE] Driver ${driverId} entered dropoff radius (${Math.round(dist)}m) for trip ${trip.id}, auto-transitioning to ARRIVED_DROPOFF`);
 
-          await db.update(trips).set({
-            status: "ARRIVED_DROPOFF",
-            arrivedDropoffAt: new Date(),
-          }).where(
-            and(
-              eq(trips.id, trip.id),
-              eq(trips.status, "EN_ROUTE_TO_DROPOFF")
-            )
-          );
-
-          import("./realtime").then(({ broadcastToTrip }) => {
-            broadcastToTrip(trip.id, { type: "status_change", data: { status: "ARRIVED_DROPOFF", tripId: trip.id } });
-          }).catch(() => {});
-
-          import("./supabaseRealtime").then(({ broadcastTripSupabase }) => {
-            broadcastTripSupabase(trip.id, { type: "status_change", data: { status: "ARRIVED_DROPOFF", tripId: trip.id } });
-          }).catch(() => {});
-
-          storage.createAuditLog({
+          const { transitionTripStatus } = await import("./tripTransitionHelper");
+          await transitionTripStatus(trip.id, "ARRIVED_DROPOFF", {
             userId: 0,
-            action: "GEOFENCE_AUTO_TRANSITION",
-            entity: "trip",
-            entityId: trip.id,
-            details: JSON.stringify({
-              oldStatus: "EN_ROUTE_TO_DROPOFF",
-              newStatus: "ARRIVED_DROPOFF",
-              distanceMeters: Math.round(dist),
-              radiusMeters: DROPOFF_RADIUS_M,
-              driverLat: lat,
-              driverLng: lng,
-            }),
-            cityId: trip.cityId,
-          }).catch(() => {});
+            role: "SYSTEM",
+            source: "geofence_auto",
+          });
         }
       }
     }

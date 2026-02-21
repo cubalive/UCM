@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, MapPin, RefreshCw, Users } from "lucide-react";
+import { MapLegend } from "@/components/map-legend";
 
 interface DriverLocation {
   driver_id: number;
@@ -885,6 +886,7 @@ function DispatchMapView({ token, localCityId, cities, setSelectedCity, setLocal
               </Badge>
             </div>
           )}
+          <MapLegend />
         </div>
       </div>
 

@@ -87,6 +87,10 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
           unsubscribeFromTrip(ws, tripId);
         }
       }
+      try {
+        const { cleanupChannelSubscriptions } = require("./tripTransitionHelper");
+        cleanupChannelSubscriptions(ws);
+      } catch {}
     });
 
     ws.send(JSON.stringify({ type: "connected", ts: Date.now() }));
@@ -123,6 +127,58 @@ function handleMessage(ws: WebSocket, msg: any): void {
       if (isNaN(tripId)) return;
       unsubscribeFromTrip(ws, tripId);
       ws.send(JSON.stringify({ type: "unsubscribed", tripId }));
+      break;
+    }
+    case "subscribe_company": {
+      const user = (ws as any)._user;
+      if (!user) return;
+      const companyId = msg.companyId ? parseInt(msg.companyId) : user.companyId;
+      if (!companyId) return;
+      if (user.role !== "SUPER_ADMIN" && user.companyId !== companyId) {
+        ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+        return;
+      }
+      const { subscribeToCompanyChannel } = require("./tripTransitionHelper");
+      subscribeToCompanyChannel(ws, companyId);
+      ws.send(JSON.stringify({ type: "subscribed_company", companyId }));
+      break;
+    }
+    case "unsubscribe_company": {
+      const companyId = parseInt(msg.companyId);
+      if (isNaN(companyId)) return;
+      const { unsubscribeFromCompanyChannel } = require("./tripTransitionHelper");
+      unsubscribeFromCompanyChannel(ws, companyId);
+      ws.send(JSON.stringify({ type: "unsubscribed_company", companyId }));
+      break;
+    }
+    case "subscribe_clinic": {
+      const user = (ws as any)._user;
+      if (!user) return;
+      const clinicId = parseInt(msg.clinicId);
+      if (isNaN(clinicId)) return;
+      if (user.role !== "SUPER_ADMIN") {
+        const isClinicUser = user.clinicId != null;
+        const isCompanyUser = ["ADMIN", "DISPATCHER", "COMPANY_ADMIN"].includes(user.role);
+        if (isClinicUser && user.clinicId !== clinicId) {
+          ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+          return;
+        }
+        if (!isClinicUser && !isCompanyUser) {
+          ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+          return;
+        }
+      }
+      const { subscribeToClinicChannel } = require("./tripTransitionHelper");
+      subscribeToClinicChannel(ws, clinicId);
+      ws.send(JSON.stringify({ type: "subscribed_clinic", clinicId }));
+      break;
+    }
+    case "unsubscribe_clinic": {
+      const clinicId = parseInt(msg.clinicId);
+      if (isNaN(clinicId)) return;
+      const { unsubscribeFromClinicChannel } = require("./tripTransitionHelper");
+      unsubscribeFromClinicChannel(ws, clinicId);
+      ws.send(JSON.stringify({ type: "unsubscribed_clinic", clinicId }));
       break;
     }
     case "ping": {

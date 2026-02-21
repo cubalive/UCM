@@ -508,6 +508,11 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS ae_company_idx ON automation_events(company_id)`);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS ae_created_idx ON automation_events(created_at)`);
 
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS trips_driver_status_idx ON trips(driver_id, status) WHERE driver_id IS NOT NULL AND status IN ('ASSIGNED','EN_ROUTE_TO_PICKUP','ARRIVED_PICKUP','PICKED_UP','EN_ROUTE_TO_DROPOFF','IN_PROGRESS','ARRIVED_DROPOFF')`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS trips_company_status_idx ON trips(company_id, status)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS trips_clinic_status_idx ON trips(clinic_id, status) WHERE clinic_id IS NOT NULL`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS trips_city_status_idx ON trips(city_id, status)`);
+
     try {
       await bootDb.execute(bootSql`
         CREATE UNIQUE INDEX IF NOT EXISTS cities_state_name_unique_idx ON cities(state, lower(name))

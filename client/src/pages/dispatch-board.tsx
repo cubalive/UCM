@@ -6,6 +6,7 @@ import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
 import { TripRef } from "@/components/trip-ref";
 import { useSoundNotifications } from "@/hooks/use-sound-notifications";
+import { useRealtimeTrips } from "@/hooks/use-realtime-trips";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -177,7 +178,7 @@ interface ClinicGroup {
 }
 
 export default function DispatchBoardPage() {
-  const { token, selectedCity } = useAuth();
+  const { user, token, selectedCity } = useAuth();
   const { toast } = useToast();
   const { play: playSound, enabled: soundEnabled, toggle: soundToggle } = useSoundNotifications();
   const prevTripIdsRef = useRef<Set<number> | null>(null);
@@ -202,6 +203,12 @@ export default function DispatchBoardPage() {
   const offerPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const cityId = selectedCity?.id;
+
+  useRealtimeTrips({
+    companyId: user?.companyId || null,
+    enabled: !!token,
+    invalidateKeys: ["/api/dispatch/trips"],
+  });
 
   const tripsQuery = useQuery<any>({
     queryKey: ["/api/dispatch/trips", activeTab, cityId, search, originFilter],

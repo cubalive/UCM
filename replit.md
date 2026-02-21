@@ -31,6 +31,7 @@ The application follows a client-server architecture.
 - **Dispatcher City Permissions**: Granular access control for dispatchers based on city, enforced via middleware and configurable through an admin interface.
 - **Automation & Operational Features**: A 7-Phase Automation System for routing, auto-assignment, anti-no-show, driver scoring, and operational health monitoring.
 - **Portals & APIs**: Public Booking API, Clinic Portal, and multi-company isolation.
+- **Realtime Trip State Management**: Centralized `transitionTripStatus()` helper for consistent status transitions, driver dispatch sync, audit logging, and multi-channel broadcasts. WebSocket company/clinic channels with tenant-isolated subscriptions, auto-reconnecting frontend hook (`useRealtimeTrips`), shared trip status color/label mapping (`tripStatusMapping.ts`), map legend component, and instant dispatch board updates replacing 15s polling. DB indexes on `trips(driver_id, status)`, `trips(company_id, status)`, `trips(clinic_id, status)`, `trips(city_id, status)` for fast active trip lookups.
 - **Realtime & Performance Hardening**: WebSocket server, Supabase Realtime, Upstash Redis for caching, rate-limited data ingestion, and ETA throttling.
 - **Enterprise Multi-Tenant + Async Engine**: Hard multi-tenant enforcement, Redis-backed background job queue, idempotency, company quotas, and system event streams.
 - **Production Scale Hardening**: Structured JSON logging, adaptive backpressure, circuit breakers, graceful shutdown, and HTTP timeouts.
