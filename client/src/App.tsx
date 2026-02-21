@@ -83,6 +83,8 @@ import { ClinicPortalLayout } from "@/clinic-portal/ClinicPortalLayout";
 import SystemStatusPage from "@/pages/system-status";
 import FinanceConsolePage from "@/pages/finance-console";
 import FeeRulesPage from "@/pages/fee-rules";
+import EtaEscalationsPage from "@/pages/eta-escalations";
+import ZeroTouchDialysisPage from "@/pages/zero-touch-dialysis";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState as useStateHook } from "react";
@@ -356,6 +358,8 @@ function Router() {
       <Route path="/system-status">{() => <SuperAdminRoute component={SystemStatusPage} />}</Route>
       <Route path="/finance-console">{() => <SuperAdminRoute component={FinanceConsolePage} />}</Route>
       <Route path="/fee-rules">{() => <SuperAdminRoute component={FeeRulesPage} />}</Route>
+      <Route path="/eta-escalations">{() => <ProtectedRoute resource="dispatch" component={EtaEscalationsPage} />}</Route>
+      <Route path="/zero-touch-dialysis">{() => <ProtectedRoute resource="dispatch" component={ZeroTouchDialysisPage} />}</Route>
       <Route path="/timecards">{() => <ProtectedRoute resource="time_entries" component={TimecardsPage} />}</Route>
       <Route path="/tp-payroll">{() => <ProtectedRoute resource="payroll" component={TpPayrollPage} />}</Route>
       <Route path="/payroll/runs/:id">{() => <ProtectedRoute resource="payroll" component={PayrollDetailPage} />}</Route>

@@ -80,6 +80,8 @@
     "billingConfig": "Billing Config",
     "platformFees": "Platform Fees",
     "feeRules": "Fee Rules",
+    "etaEscalations": "ETA Escalations",
+    "dialysisMode": "Dialysis Mode",
     "subscriptions": "Subscriptions",
     "clinicBillingV2": "Clinic Invoices",
     "supportChat": "Support Chat",
@@ -87,6 +89,7 @@
     "group": {
       "dispatch": "Dispatch & Maps",
       "fleet": "Fleet & Scheduling",
+      "automation": "Automation",
       "health": "Operations Health",
       "tripsPatients": "Trips & Patients",
       "resources": "Resources",

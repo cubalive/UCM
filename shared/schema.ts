@@ -21,6 +21,15 @@ export const companies = pgTable("companies", {
   dispatchPhone: text("dispatch_phone"),
   dispatchChatEnabled: boolean("dispatch_chat_enabled").notNull().default(true),
   dispatchCallEnabled: boolean("dispatch_call_enabled").notNull().default(true),
+  autoAssignV2Enabled: boolean("auto_assign_v2_enabled").notNull().default(false),
+  autoAssignOfferTimeoutSeconds: integer("auto_assign_offer_timeout_seconds").notNull().default(120),
+  autoAssignMaxRounds: integer("auto_assign_max_rounds").notNull().default(6),
+  autoAssignMaxDistanceMeters: integer("auto_assign_max_distance_meters").notNull().default(20000),
+  autoAssignWeightDistance: integer("auto_assign_weight_distance").notNull().default(45),
+  autoAssignWeightReliability: integer("auto_assign_weight_reliability").notNull().default(25),
+  autoAssignWeightLoad: integer("auto_assign_weight_load").notNull().default(20),
+  autoAssignWeightFatigue: integer("auto_assign_weight_fatigue").notNull().default(10),
+  zeroTouchDialysisEnabled: boolean("zero_touch_dialysis_enabled").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
@@ -398,6 +407,16 @@ export const trips = pgTable("trips", {
   archivedAt: timestamp("archived_at"),
   archivedBy: integer("archived_by"),
   archiveReason: text("archive_reason"),
+  autoAssignStatus: text("auto_assign_status").notNull().default("IDLE"),
+  autoAssignLastRunAt: timestamp("auto_assign_last_run_at"),
+  autoAssignFailureReason: text("auto_assign_failure_reason"),
+  autoAssignSelectedDriverId: integer("auto_assign_selected_driver_id"),
+  autoAssignRunId: integer("auto_assign_run_id"),
+  originalEtaSeconds: integer("original_eta_seconds"),
+  etaLastCheckedAt: timestamp("eta_last_checked_at"),
+  etaVarianceSeconds: integer("eta_variance_seconds"),
+  etaEscalationLevel: text("eta_escalation_level").notNull().default("NONE"),
+  etaEscalationLastAt: timestamp("eta_escalation_last_at"),
 });
 
 export const tripSignatures = pgTable("trip_signatures", {
@@ -2733,6 +2752,78 @@ export const alertAcknowledgments = pgTable("alert_acknowledgments", {
 export const insertAlertAckSchema = createInsertSchema(alertAcknowledgments).omit({ id: true, createdAt: true, dismissed: true, dismissedById: true, dismissedByName: true, dismissedAt: true });
 export type AlertAcknowledgment = typeof alertAcknowledgments.$inferSelect;
 export type InsertAlertAck = z.infer<typeof insertAlertAckSchema>;
+
+export const autoAssignRuns = pgTable("auto_assign_runs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  round: integer("round").notNull().default(1),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  endedAt: timestamp("ended_at"),
+  result: text("result").notNull().default("RUNNING"),
+  selectedDriverId: integer("selected_driver_id"),
+  reason: text("reason"),
+  configSnapshot: jsonb("config_snapshot"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("aar_trip_idx").on(table.tripId),
+  index("aar_company_idx").on(table.companyId),
+  index("aar_result_idx").on(table.result),
+]);
+
+export const autoAssignRunCandidates = pgTable("auto_assign_run_candidates", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  runId: integer("run_id").notNull().references(() => autoAssignRuns.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  distanceMeters: integer("distance_meters"),
+  distanceScore: doublePrecision("distance_score").notNull().default(0),
+  reliabilityScore: doublePrecision("reliability_score").notNull().default(0),
+  loadScore: doublePrecision("load_score").notNull().default(0),
+  fatigueScore: doublePrecision("fatigue_score").notNull().default(0),
+  finalScore: doublePrecision("final_score").notNull().default(0),
+  rank: integer("rank").notNull().default(0),
+  eligible: boolean("eligible").notNull().default(true),
+  ineligibleReason: text("ineligible_reason"),
+  offeredAt: timestamp("offered_at"),
+  response: text("response"),
+  respondedAt: timestamp("responded_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("aarc_run_idx").on(table.runId),
+  index("aarc_driver_idx").on(table.driverId),
+  index("aarc_rank_idx").on(table.rank),
+]);
+
+export const insertAutoAssignRunSchema = createInsertSchema(autoAssignRuns).omit({ id: true, createdAt: true });
+export type AutoAssignRun = typeof autoAssignRuns.$inferSelect;
+export type InsertAutoAssignRun = z.infer<typeof insertAutoAssignRunSchema>;
+
+export const insertAutoAssignRunCandidateSchema = createInsertSchema(autoAssignRunCandidates).omit({ id: true, createdAt: true });
+export type AutoAssignRunCandidate = typeof autoAssignRunCandidates.$inferSelect;
+export type InsertAutoAssignRunCandidate = z.infer<typeof insertAutoAssignRunCandidateSchema>;
+
+export const automationEvents = pgTable("automation_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  eventType: text("event_type").notNull(),
+  tripId: integer("trip_id").references(() => trips.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  companyId: integer("company_id").references(() => companies.id),
+  runId: integer("run_id").references(() => autoAssignRuns.id),
+  payload: jsonb("payload"),
+  actorUserId: integer("actor_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("ae_event_type_idx").on(table.eventType),
+  index("ae_trip_idx").on(table.tripId),
+  index("ae_company_idx").on(table.companyId),
+  index("ae_created_idx").on(table.createdAt),
+]);
+
+export const insertAutomationEventSchema = createInsertSchema(automationEvents).omit({ id: true, createdAt: true });
+export type AutomationEvent = typeof automationEvents.$inferSelect;
+export type InsertAutomationEvent = z.infer<typeof insertAutomationEventSchema>;
 
 export const driverRiskScores = pgTable("driver_risk_scores", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

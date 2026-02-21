@@ -79,6 +79,8 @@ import {
   Settings2,
   CreditCard,
   ChevronRight,
+  AlertTriangle,
+  Heart,
 } from "lucide-react";
 
 interface NavItem {
@@ -114,9 +116,17 @@ const operationGroups: NavGroup[] = [
     items: [
       { titleKey: "nav.fleet", url: "/fleet", icon: Gauge, resource: "dispatch" },
       { titleKey: "nav.assignments", url: "/assignments", icon: CalendarCheck, resource: "dispatch" },
-      { titleKey: "nav.autoAssign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
       { titleKey: "nav.schedule", url: "/schedule", icon: Calendar, resource: "dispatch" },
       { titleKey: "nav.shiftSwaps", url: "/dispatch-swaps", icon: ArrowLeftRight, resource: "dispatch" },
+    ],
+  },
+  {
+    labelKey: "nav.group.automation",
+    icon: Zap,
+    items: [
+      { titleKey: "nav.autoAssign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
+      { titleKey: "nav.etaEscalations", url: "/eta-escalations", icon: AlertTriangle, resource: "dispatch" },
+      { titleKey: "nav.dialysisMode", url: "/zero-touch-dialysis", icon: Heart, resource: "dispatch" },
     ],
   },
   {

@@ -424,6 +424,90 @@ app.use((req, res, next) => {
     `);
     await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS spc_company_driver_idx ON staff_pay_configs(company_id, driver_id)`);
 
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_assign_v2_enabled BOOLEAN NOT NULL DEFAULT false`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_assign_offer_timeout_seconds INTEGER NOT NULL DEFAULT 120`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_assign_max_rounds INTEGER NOT NULL DEFAULT 6`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_assign_max_distance_meters INTEGER NOT NULL DEFAULT 20000`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_assign_weight_distance INTEGER NOT NULL DEFAULT 45`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_assign_weight_reliability INTEGER NOT NULL DEFAULT 25`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_assign_weight_load INTEGER NOT NULL DEFAULT 20`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_assign_weight_fatigue INTEGER NOT NULL DEFAULT 10`);
+    await bootDb.execute(bootSql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS zero_touch_dialysis_enabled BOOLEAN NOT NULL DEFAULT false`);
+
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS auto_assign_status TEXT NOT NULL DEFAULT 'IDLE'`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS auto_assign_last_run_at TIMESTAMPTZ`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS auto_assign_failure_reason TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS auto_assign_selected_driver_id INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS auto_assign_run_id INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS original_eta_seconds INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS eta_last_checked_at TIMESTAMPTZ`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS eta_variance_seconds INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS eta_escalation_level TEXT NOT NULL DEFAULT 'NONE'`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS eta_escalation_last_at TIMESTAMPTZ`);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS auto_assign_runs (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES trips(id),
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        city_id INTEGER NOT NULL REFERENCES cities(id),
+        round INTEGER NOT NULL DEFAULT 1,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ended_at TIMESTAMPTZ,
+        result TEXT NOT NULL DEFAULT 'RUNNING',
+        selected_driver_id INTEGER,
+        reason TEXT,
+        config_snapshot JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS aar_trip_idx ON auto_assign_runs(trip_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS aar_company_idx ON auto_assign_runs(company_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS aar_result_idx ON auto_assign_runs(result)`);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS auto_assign_run_candidates (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        run_id INTEGER NOT NULL REFERENCES auto_assign_runs(id),
+        driver_id INTEGER NOT NULL REFERENCES drivers(id),
+        distance_meters INTEGER,
+        distance_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+        reliability_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+        load_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+        fatigue_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+        final_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+        rank INTEGER NOT NULL DEFAULT 0,
+        eligible BOOLEAN NOT NULL DEFAULT true,
+        ineligible_reason TEXT,
+        offered_at TIMESTAMPTZ,
+        response TEXT,
+        responded_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS aarc_run_idx ON auto_assign_run_candidates(run_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS aarc_driver_idx ON auto_assign_run_candidates(driver_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS aarc_rank_idx ON auto_assign_run_candidates(rank)`);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS automation_events (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        trip_id INTEGER REFERENCES trips(id),
+        driver_id INTEGER REFERENCES drivers(id),
+        clinic_id INTEGER REFERENCES clinics(id),
+        company_id INTEGER REFERENCES companies(id),
+        run_id INTEGER REFERENCES auto_assign_runs(id),
+        payload JSONB,
+        actor_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS ae_event_type_idx ON automation_events(event_type)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS ae_trip_idx ON automation_events(trip_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS ae_company_idx ON automation_events(company_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS ae_created_idx ON automation_events(created_at)`);
+
     try {
       await bootDb.execute(bootSql`
         CREATE UNIQUE INDEX IF NOT EXISTS cities_state_name_unique_idx ON cities(state, lower(name))

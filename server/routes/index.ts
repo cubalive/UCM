@@ -48,6 +48,10 @@ import { startNoShowScheduler } from "../lib/noShowEngine";
 import { startRecurringScheduleScheduler } from "../lib/recurringScheduleEngine";
 import { startAiEngine } from "../lib/aiEngine";
 import { startOpsScheduler } from "../lib/opsScheduler";
+import { registerAutoAssignV2Routes } from "../lib/autoAssignV2Routes";
+import { registerEtaVarianceRoutes } from "../lib/etaVarianceRoutes";
+import { registerZeroTouchDialysisRoutes } from "../lib/zeroTouchDialysisRoutes";
+import { startDialysisScheduler } from "../lib/zeroTouchDialysisEngine";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -103,6 +107,9 @@ export async function registerRoutes(
   registerSubscriptionWebhook(app);
   registerEnterpriseFinanceRoutes(app);
   registerFeeRulesRoutes(app);
+  registerAutoAssignV2Routes(app);
+  registerEtaVarianceRoutes(app);
+  registerZeroTouchDialysisRoutes(app);
 
   startOpsAlertScheduler();
   startRouteScheduler();
@@ -112,6 +119,7 @@ export async function registerRoutes(
   startOpsScheduler();
   startPayrollScheduler();
   startDunningScheduler();
+  startDialysisScheduler();
 
   return httpServer;
 }
