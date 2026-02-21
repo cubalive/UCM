@@ -80,8 +80,8 @@ export default function TimecardsPage() {
   });
 
   const driversQuery = useQuery({
-    queryKey: ["/api/drivers"],
-    queryFn: () => apiFetch("/api/drivers", token),
+    queryKey: ["/api/company/time/drivers"],
+    queryFn: () => apiFetch("/api/company/time/drivers", token),
   });
 
   const batchesQuery = useQuery({

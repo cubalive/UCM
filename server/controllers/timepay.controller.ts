@@ -31,6 +31,21 @@ function requireCompanyOrFail(req: AuthRequest, res: Response): number | null {
   }
 }
 
+export async function listCompanyDriversHandler(req: AuthRequest, res: Response) {
+  const companyId = requireCompanyOrFail(req, res);
+  if (!companyId) return;
+  try {
+    const { isNull } = await import("drizzle-orm");
+    const result = await db
+      .select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName })
+      .from(drivers)
+      .where(and(eq(drivers.companyId, companyId), eq(drivers.active, true), isNull(drivers.deletedAt)));
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 async function auditDenied(req: AuthRequest, reason: string) {
   try {
     await storage.createAuditLog({

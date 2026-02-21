@@ -18,6 +18,7 @@ import {
   getPayrollRunHandler,
   finalizePayrollHandler,
   payPayrollHandler,
+  listCompanyDriversHandler,
 } from "../controllers/timepay.controller";
 
 const router = Router();
@@ -31,6 +32,7 @@ router.post("/api/company/time/:id/reject", authMiddleware, requirePermission("t
 router.post("/api/company/time/import", authMiddleware, requirePermission("time_entries", "write"), requireTenantScope, csvUploadMiddleware as any, csvImportHandler as any);
 router.get("/api/company/time/import-batches", authMiddleware, requirePermission("time_entries", "read"), requireTenantScope, listImportBatchesHandler as any);
 router.get("/api/company/time/csv-template", authMiddleware, csvTemplateHandler as any);
+router.get("/api/company/time/drivers", authMiddleware, requirePermission("time_entries", "read"), requireTenantScope, listCompanyDriversHandler as any);
 
 router.get("/api/driver/time", authMiddleware, requireRole("DRIVER") as any, driverTimeEntriesHandler as any);
 
