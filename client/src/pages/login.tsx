@@ -33,13 +33,15 @@ export default function LoginPage() {
     const token = params.get("token");
     if (!token) return;
 
+    const type = params.get("type") || "magiclink";
+
     setTokenLoading(true);
     setTokenError(null);
 
     fetch("/api/auth/token-login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, type }),
       credentials: getCredentials(),
     })
       .then(async (res) => {

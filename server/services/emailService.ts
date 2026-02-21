@@ -20,6 +20,25 @@ export function getPortalBaseUrl(role?: string): string {
   return APP_PUBLIC_URL;
 }
 
+function buildPortalLoginLink(actionLink: string, portalUrl: string, extraParams?: Record<string, string>): string {
+  try {
+    const url = new URL(actionLink);
+    const tokenHash = url.searchParams.get("token");
+    const type = url.searchParams.get("type") || "magiclink";
+    const loginUrl = new URL(`${portalUrl}/login`);
+    if (tokenHash) loginUrl.searchParams.set("token", tokenHash);
+    loginUrl.searchParams.set("type", type);
+    if (extraParams) {
+      for (const [k, v] of Object.entries(extraParams)) {
+        loginUrl.searchParams.set(k, v);
+      }
+    }
+    return loginUrl.toString();
+  } catch {
+    return `${portalUrl}/login`;
+  }
+}
+
 function brandedHtml(bodyContent: string): string {
   return `<!DOCTYPE html>
 <html>
@@ -66,12 +85,8 @@ export async function sendClinicLoginLink(email: string, clinicName?: string): P
       return { success: false, error: "No magic link returned from Supabase" };
     }
 
-    console.log(`[emailService] Clinic magic link generated — role=CLINIC, portalUrl=${portalUrl}, redirectTo=${portalUrl}/`);
-
-    const productionLink = magicLink.replace(
-      /^https?:\/\/[^/]+/,
-      portalUrl
-    );
+    const productionLink = buildPortalLoginLink(magicLink, portalUrl);
+    console.log(`[emailService] Clinic magic link generated — role=CLINIC, portalUrl=${portalUrl}, link=${productionLink}`);
 
     const name = clinicName || "Clinic User";
     const html = brandedHtml(`
@@ -173,12 +188,8 @@ export async function sendDispatchLoginLink(email: string, userName?: string): P
       return { success: false, error: "No magic link returned from Supabase" };
     }
 
-    console.log(`[emailService] Dispatch magic link generated — role=DISPATCH, portalUrl=${portalUrl}, redirectTo=${portalUrl}/`);
-
-    const productionLink = magicLink.replace(
-      /^https?:\/\/[^/]+/,
-      portalUrl
-    );
+    const productionLink = buildPortalLoginLink(magicLink, portalUrl);
+    console.log(`[emailService] Dispatch magic link generated — role=DISPATCH, portalUrl=${portalUrl}, link=${productionLink}`);
 
     const name = userName || "Team Member";
     const html = brandedHtml(`
@@ -282,10 +293,7 @@ export async function sendForgotPasswordLink(email: string, role?: string): Prom
       return { success: false, error: "No recovery link returned from Supabase" };
     }
 
-    const productionLink = recoveryLink.replace(
-      /^https?:\/\/[^/]+/,
-      portalUrl
-    );
+    const productionLink = buildPortalLoginLink(recoveryLink, portalUrl, { reset: "true" });
 
     const html = brandedHtml(`
     <p>Hello,</p>

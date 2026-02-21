@@ -449,6 +449,84 @@ export async function changePasswordHandler(req: Request, res: Response) {
   }
 }
 
+export async function tokenLoginHandler(req: Request, res: Response) {
+  try {
+    const { token, type } = req.body;
+    if (!token || typeof token !== "string") {
+      return res.status(400).json({ message: "Token is required" });
+    }
+
+    const supabase = getSupabaseServer();
+    if (!supabase) {
+      return res.status(500).json({ message: "Authentication service not configured" });
+    }
+
+    const otpType = type === "recovery" ? "recovery" : "magiclink";
+
+    const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+      token_hash: token,
+      type: otpType,
+    });
+
+    if (verifyError || !verifyData?.user?.email) {
+      console.error("[tokenLogin] Supabase verifyOtp failed:", verifyError?.message || "No user email returned");
+      return res.status(401).json({ message: "Invalid or expired login link. Please request a new one." });
+    }
+
+    const email = verifyData.user.email.trim().toLowerCase();
+    const user = await storage.getUserByEmail(email);
+
+    if (!user) {
+      console.log(`[tokenLogin] No local user found for email=${email}`);
+      return res.status(401).json({ message: "No account found for this email. Contact your administrator." });
+    }
+
+    if (!user.active) {
+      return res.status(403).json({ message: "Account disabled. Contact your administrator." });
+    }
+
+    const jwtToken = signToken({
+      userId: user.id,
+      role: user.role,
+      companyId: user.companyId || null,
+      clinicId: user.clinicId || null,
+      driverId: user.driverId || null,
+    });
+
+    const cityAccess = await storage.getUserCityAccess(user.id);
+    const allCities = await storage.getCities();
+    const accessibleCities = user.role === "SUPER_ADMIN"
+      ? allCities
+      : user.role === "COMPANY_ADMIN" && cityAccess.length === 0
+      ? allCities
+      : allCities.filter((c) => cityAccess.includes(c.id));
+
+    const { password, ...safeUser } = user;
+
+    await storage.createAuditLog({
+      userId: user.id,
+      action: "LOGIN_MAGIC_LINK",
+      entity: "user",
+      entityId: user.id,
+      details: `User ${user.email} logged in via ${otpType} link`,
+      cityId: null,
+    });
+
+    setAuthCookie(res, jwtToken, req);
+
+    const isRecovery = type === "recovery";
+    return res.json({
+      token: jwtToken,
+      user: { ...safeUser, cityAccess },
+      cities: accessibleCities,
+      mustChangePassword: isRecovery || user.mustChangePassword || false,
+    });
+  } catch (err: any) {
+    console.error("[tokenLogin] Error:", err.message);
+    return res.status(500).json({ message: "Login failed. Please try again." });
+  }
+}
+
 export async function forgotPasswordHandler(req: Request, res: Response) {
   try {
     const { email } = req.body;
