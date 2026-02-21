@@ -331,3 +331,35 @@ export async function getClinicByIdHandler(req: AuthRequest, res: Response) {
     res.status(500).json({ message: err.message });
   }
 }
+
+export async function sendClinicInviteHandler(req: AuthRequest, res: Response) {
+  try {
+    const clinicId = parseInt(req.params.id);
+    if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+
+    const clinic = await db.select().from(clinics).where(and(eq(clinics.id, clinicId), isNull(clinics.deletedAt))).then(r => r[0]);
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+    if (!clinic.email) return res.status(400).json({ message: "Clinic has no email address" });
+
+    const { sendClinicLoginLink } = await import("../services/emailService");
+    const result = await sendClinicLoginLink(clinic.email, clinic.name);
+
+    if (!result.success) {
+      return res.status(500).json({ message: result.error || "Failed to send login link" });
+    }
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "SEND_INVITE",
+      entity: "clinic",
+      entityId: clinic.id,
+      details: `Sent login link to ${clinic.email}`,
+      cityId: clinic.cityId,
+    });
+
+    res.json({ message: `Login link sent to ${clinic.email}` });
+  } catch (err: any) {
+    console.error("[clinics] sendClinicInviteHandler error:", err.message);
+    res.status(500).json({ message: err.message });
+  }
+}

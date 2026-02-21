@@ -63,6 +63,7 @@ import {
   unarchiveTripHandler,
   archiveStatsHandler,
 } from "../controllers/admin.controller";
+import { sendClinicInviteHandler } from "../controllers/clinics.controller";
 
 const router = express.Router();
 
@@ -81,6 +82,7 @@ router.patch("/api/admin/users/:id/restore", authMiddleware, requireRole("SUPER_
 router.delete("/api/admin/users/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteUserHandler as any);
 router.post("/api/admin/users/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), resetUserPasswordHandler as any);
 router.post("/api/admin/clinics/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), resetClinicPasswordHandler as any);
+router.post("/api/admin/clinics/:id/send-invite", authMiddleware, requireRole("SUPER_ADMIN"), sendClinicInviteHandler as any);
 router.post("/api/admin/drivers/:id/reset-password", authMiddleware, requireRole("SUPER_ADMIN"), resetDriverPasswordHandler as any);
 router.patch("/api/admin/vehicles/:id/archive", authMiddleware, requirePermission("vehicles", "write"), archiveVehicleHandler as any);
 router.patch("/api/admin/vehicles/:id/restore", authMiddleware, requirePermission("vehicles", "write"), restoreVehicleHandler as any);
