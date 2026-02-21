@@ -57,6 +57,18 @@ The application follows a client-server architecture.
 - **Production run**: `node ./dist/index.cjs` (correct production command)
 - Always run `npm run build` before using the production command to ensure latest changes are compiled.
 
+## Capacitor (Native Mobile)
+- **Config**: `capacitor.config.ts` — appId: `com.unitedcaremobility.driver`, webDir: `dist/public`
+- **Platforms**: `android/` and `ios/` scaffolded via `@capacitor/android` and `@capacitor/ios`
+- **Build & Sync**: `npm run build && npx cap sync`
+- **Open Android Studio**: `npx cap open android`
+- **Open Xcode**: `npx cap open ios`
+- **Feature Flags**: `VITE_NATIVE_ENABLED` (default false), `VITE_BG_TRACKING_ENABLED` (default false)
+- **Runtime Detection**: `isNative()` from `client/src/lib/hostDetection.ts` — true only when running inside Capacitor AND `VITE_NATIVE_ENABLED=true`
+- **Native Mode Badge**: Shown in Driver Settings tab only when native + flag enabled
+- **Permission Placeholders**: Android has location + foregroundService; iOS has NSLocation* + NSMotion descriptions. Background modes NOT enabled yet.
+- **PWA unchanged**: All flags default false, no behavior change in web/PWA mode.
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database, specifically Supabase pooler.
 - **Supabase**: User authentication profiles, city management, Row-Level Security (RLS), and private requests storage.

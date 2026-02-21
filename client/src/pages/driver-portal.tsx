@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { NATIVE_ENABLED } from "@/lib/hostDetection";
 import { useSoundNotifications } from "@/hooks/use-sound-notifications";
 import {
   Home,
@@ -2333,6 +2334,14 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
       >
         <LogOut className="w-5 h-5 mr-2" /> Log Out
       </Button>
+
+      {isNativePlatform && NATIVE_ENABLED && (
+        <div className="flex items-center justify-center gap-2 pt-2" data-testid="div-native-mode-badge">
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800">
+            <Sparkles className="w-3 h-3 mr-1" /> Native Mode
+          </Badge>
+        </div>
+      )}
 
       <div className="text-center text-xs text-muted-foreground pt-4" data-testid="text-app-version">
         UCM Driver Portal v{versionQuery.data?.version || "2.0"}

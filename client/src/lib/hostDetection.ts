@@ -7,6 +7,22 @@ export const isAppHost = isProdDomain && (hostname.startsWith("app.") || hostnam
 export const isProductionSubdomain = isDriverHost || isAdminHost || isAppHost;
 export { isProdDomain };
 
+export const isNativePlatform =
+  typeof (window as any).Capacitor !== "undefined" &&
+  (window as any).Capacitor.isNativePlatform?.() === true;
+
+export const isStandalone =
+  typeof window !== "undefined" &&
+  (window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as any).standalone === true);
+
+export const NATIVE_ENABLED = import.meta.env.VITE_NATIVE_ENABLED === "true";
+export const BG_TRACKING_ENABLED = import.meta.env.VITE_BG_TRACKING_ENABLED === "true";
+
+export function isNative(): boolean {
+  return isNativePlatform && NATIVE_ENABLED;
+}
+
 export const DRIVER_TOKEN_KEY = "ucm_driver_token";
 export const APP_TOKEN_KEY = "ucm_token";
 
