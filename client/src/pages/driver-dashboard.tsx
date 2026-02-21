@@ -64,7 +64,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
 import SignaturePad from "@/components/SignaturePad";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Area, AreaChart } from "recharts";
-import { getNavTarget as smGetNavTarget } from "@shared/tripStateMachine";
+import { getNavTarget as smGetNavTarget, uiActions as smUiActions } from "@shared/tripStateMachine";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];

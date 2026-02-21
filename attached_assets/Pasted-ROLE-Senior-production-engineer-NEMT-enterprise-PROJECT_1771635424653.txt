@@ -1,0 +1,85 @@
+ROLE: Senior production engineer (NEMT enterprise)
+PROJECT: United Care Mobility (UCM) — Driver App v3 hardening + Postman + QA
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Zero regressions: do not change working behavior unless explicitly required
+- Every change must be covered by: (a) unit/contract tests or (b) Postman request + example response
+- After publish, changes must be visible immediately (cache-busting + versioning)
+
+GOALS (deliver ALL):
+A) Driver Trip Workflow “enterprise-grade” (deterministic):
+1) Implement a single source of truth for trip phase:
+   - Derive phase ONLY from trip.status (and timestamps if already used) via getTripPhase(trip)
+   - Phases: PICKUP, DROPOFF, DONE, CANCELED (no hidden/implicit phases)
+2) Enforce strict transitions (no auto-skips):
+   - SCHEDULED/ASSIGNED -> EN_ROUTE_TO_PICKUP -> ARRIVED_PICKUP -> PICKED_UP -> IN_ROUTE_TO_DROPOFF -> ARRIVED_DROPOFF -> COMPLETED
+   - Invalid transitions must be rejected both client-side and server-side with clear error.
+3) Fix navigation target bug:
+   - When phase is PICKUP: navigation uses pickup address/coords only
+   - When phase is DROPOFF: navigation uses dropoff address/coords only
+   - Never route to dropoff while still in pickup phase
+4) UI buttons MUST match phase (and never disappear incorrectly):
+   - Show “Go to Pickup” in pickup phase
+   - After geofence arrival (or manual) show “Mark Arrived at Pickup”
+   - After arrived show “Picked Up Patient”
+   - After picked up show “Start Trip to Dropoff”
+   - Then “Mark Arrived at Dropoff”
+   - Then “Complete Trip”
+5) Navigation chooser MUST support Google Maps / Apple Maps / Waze and allow “remember my choice”:
+   - Store preference in local storage (web) / persistent storage (mobile) as nav_provider
+   - Provide “Change default” in Settings
+   - If provider not installed, gracefully fallback to available providers
+
+B) Shift + GPS presence must be unbreakable:
+1) Driver can be CONNECTED (socket/session) AND ON SHIFT (clocked in) — both states must coexist, not replace each other.
+2) Restore correct Start Shift / End Shift behavior while keeping Connected indicator.
+3) Live location updates:
+   - When ON SHIFT: send location pings on interval (existing) and mark driver “online”
+   - When OFF SHIFT: stop pings and mark “offline”
+4) Ensure dispatch live map + driver status panel use the same definition of online:
+   - online := last_location_at within threshold AND on_shift = true
+   - show “GPS Paused” only when on_shift=true but location stale
+
+C) Postman + contract testing deliverables:
+1) Create a Postman collection under /docs/postman/UCM-DriverApp-v3.postman_collection.json with requests:
+   - Health/version, Auth (optional), Shift start/end, Location ping, Trips list, Trip detail, Trip status transition endpoints
+2) Create Postman environment /docs/postman/UCM-DriverApp-v3.postman_environment.json with baseUrl + tokens placeholders
+3) Add minimal automated checks in Postman tests (status code, JSON shape, and that navigation target fields match phase)
+4) Add a CI-like script (npm) e.g. "test:contract" that can run Newman (if available) OR at least a node script that hits endpoints and validates schema.
+
+D) Publish must reflect changes immediately:
+1) Add build/version stamping:
+   - expose GET /api/version returning { version, gitShaOrBuildId, builtAt }
+   - show version in Driver app Settings and in footer (small)
+2) Fix caching / service worker issues:
+   - ensure SW update logic prompts refresh OR auto-refresh for non-critical UI changes
+   - set proper cache headers for index.html (no-cache) and hashed assets (immutable)
+   - on publish, clients must receive new index.html
+
+E) Documentation:
+1) Update or create /docs/driver-trip-workflow.md with:
+   - state machine table
+   - button mapping by phase
+   - navigation provider logic
+   - geofence rules (if used) and manual fallback
+   - smoke test checklist
+2) Add /docs/release-checklist.md:
+   - steps to verify version changed after publish
+   - steps to confirm SW updated
+   - quick manual test plan for pickup->dropoff flow
+
+CONSTRAINTS:
+- Do not remove existing working features.
+- If you must refactor, do it behind stable interfaces and keep existing API routes stable.
+- No UI regressions for dispatch/admin/clinic.
+- Provide a final summary: files changed, endpoints added/confirmed, and how to run checks.
+
+START BY:
+1) Locate current trip workflow code (TripDetailModal/TripsPage/Home active trip card).
+2) Locate navigation helper that builds URLs and fix pickup vs dropoff selection.
+3) Locate shift/online presence code and ensure CONNECTED + ON SHIFT both present.
+4) Generate the Postman files in /docs/postman and ensure they match actual endpoints.
