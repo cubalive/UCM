@@ -18,12 +18,14 @@ interface PromptConfig {
   tMinusLeaveNow: number;
   geofenceMeters: number;
   cooldownMin: number;
+  graceMin: number;
 }
 
 const DEFAULT_CONFIG: PromptConfig = {
   tMinusLeaveNow: 25,
   geofenceMeters: 150,
   cooldownMin: 10,
+  graceMin: 5,
 };
 
 const FIRED_KEY = "ucm_smart_prompts_fired";
@@ -151,7 +153,7 @@ export function evaluatePrompts(
   }
 
   if (etaMinutes != null && trip.scheduledPickupAt) {
-    const graceMs = (cfg.cooldownMin || 5) * 60000;
+    const graceMs = cfg.graceMin * 60000;
     const lateThresholdMs = scheduledMs + graceMs;
     const etaMs = now + etaMinutes * 60000;
     if (etaMs > lateThresholdMs && !isInCooldown(trip.id, "LATE_RISK", cfg.cooldownMin)) {

@@ -29,6 +29,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { NATIVE_ENABLED } from "@/lib/hostDetection";
 import { useSoundNotifications } from "@/hooks/use-sound-notifications";
+import { evaluatePrompts, acknowledgePrompt, cleanOldPromptRecords, type SmartPrompt } from "@/lib/smartPrompts";
+import { notify, enableSoundsOnUserGesture, initAudioContext, type NotificationEvent } from "@/lib/notificationManager";
 import {
   Home,
   Car,
@@ -833,12 +835,156 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigatio
   );
 }
 
+function SmartPromptsBanner({
+  trips,
+  driverLocation,
+  etaMinutes,
+  onNavigate,
+  onMarkArrived,
+  driverPrefs,
+}: {
+  trips: any[];
+  driverLocation: { lat: number; lng: number } | null;
+  etaMinutes: number | null;
+  onNavigate: (tripId: number) => void;
+  onMarkArrived: (tripId: number) => void;
+  driverPrefs: { soundsOn: boolean; hapticsOn: boolean } | null;
+}) {
+  const [prompts, setPrompts] = useState<SmartPrompt[]>([]);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const notifiedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const allPrompts: SmartPrompt[] = [];
+    for (const trip of trips) {
+      const tripPrompts = evaluatePrompts(
+        {
+          id: trip.id,
+          status: trip.status,
+          scheduledPickupAt: trip.scheduledPickupAt || trip.scheduled_pickup_at || null,
+          pickupLat: trip.pickupLat ?? trip.pickup_lat ?? null,
+          pickupLng: trip.pickupLng ?? trip.pickup_lng ?? null,
+          dropoffLat: trip.dropoffLat ?? trip.dropoff_lat ?? null,
+          dropoffLng: trip.dropoffLng ?? trip.dropoff_lng ?? null,
+        },
+        driverLocation,
+        etaMinutes,
+      );
+      allPrompts.push(...tripPrompts);
+    }
+    setPrompts(allPrompts);
+
+    for (const p of allPrompts) {
+      const key = `${p.tripId}-${p.type}`;
+      if (!notifiedRef.current.has(key) && driverPrefs) {
+        const event: NotificationEvent = p.priority === "critical" ? "SMART_PROMPT_CRITICAL" : "SMART_PROMPT_NORMAL";
+        notify(event, { soundsOn: driverPrefs.soundsOn, hapticsOn: driverPrefs.hapticsOn });
+        notifiedRef.current.add(key);
+      }
+    }
+
+    const activeTripIds = trips.map((t: any) => t.id);
+    cleanOldPromptRecords(activeTripIds);
+  }, [trips, driverLocation, etaMinutes, driverPrefs]);
+
+  const handleAction = (prompt: SmartPrompt, action: string) => {
+    acknowledgePrompt(prompt.tripId, prompt.type);
+    if (action === "navigate") onNavigate(prompt.tripId);
+    else if (action === "mark_arrived") onMarkArrived(prompt.tripId);
+    setDismissed((prev) => new Set(prev).add(`${prompt.tripId}-${prompt.type}`));
+  };
+
+  const visible = prompts.filter((p) => !dismissed.has(`${p.tripId}-${p.type}`));
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="space-y-2" data-testid="smart-prompts-banner">
+      {visible.map((p) => (
+        <div
+          key={`${p.tripId}-${p.type}`}
+          className={`rounded-lg border px-4 py-3 flex flex-col gap-2 ${
+            p.priority === "critical"
+              ? "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800"
+              : "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800"
+          }`}
+          data-testid={`prompt-${p.type.toLowerCase()}-${p.tripId}`}
+        >
+          <div className="flex items-start gap-2">
+            <Bell className={`w-5 h-5 mt-0.5 flex-shrink-0 ${p.priority === "critical" ? "text-red-600" : "text-amber-600"}`} />
+            <span className="text-sm font-medium flex-1">{p.message}</span>
+          </div>
+          <div className="flex gap-2 ml-7">
+            {p.actions.map((a) => (
+              <Button
+                key={a.action}
+                size="sm"
+                variant={a.action === "navigate" || a.action === "mark_arrived" ? "default" : "outline"}
+                className="text-xs min-h-[32px]"
+                onClick={() => handleAction(p, a.action)}
+                data-testid={`prompt-action-${a.action}-${p.tripId}`}
+              >
+                {a.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function useDriverV3Notifications(
+  token: string | null,
+  todayTrips: any[],
+) {
+  const prevTripsRef = useRef<Map<number, string>>(new Map());
+  const settingsQuery = useQuery<{ soundsOn?: boolean; hapticsOn?: boolean; promptsEnabled?: boolean }>({
+    queryKey: ["/api/driver/settings"],
+    queryFn: () => apiFetch("/api/driver/settings", token),
+    enabled: !!token,
+    staleTime: 300000,
+  });
+
+  const prefs = settingsQuery.data;
+  const soundsOn = prefs?.soundsOn !== false;
+  const hapticsOn = prefs?.hapticsOn !== false;
+
+  useEffect(() => {
+    enableSoundsOnUserGesture();
+  }, []);
+
+  useEffect(() => {
+    const prevMap = prevTripsRef.current;
+    const newMap = new Map<number, string>();
+
+    for (const trip of todayTrips) {
+      newMap.set(trip.id, trip.status);
+      const prevStatus = prevMap.get(trip.id);
+
+      if (prevMap.size > 0) {
+        if (!prevStatus && trip.status) {
+          notify("NEW_TRIP_ASSIGNED", { soundsOn, hapticsOn });
+        } else if (prevStatus && prevStatus !== trip.status) {
+          notify("TRIP_STATUS_CHANGED", { soundsOn, hapticsOn });
+        }
+      }
+    }
+
+    prevTripsRef.current = newMap;
+  }, [todayTrips, soundsOn, hapticsOn]);
+
+  return {
+    driverPrefs: prefs ? { soundsOn, hapticsOn, promptsEnabled: prefs.promptsEnabled !== false } : null,
+  };
+}
+
 function HomePage({
   driver, vehicle, token, gpsStatus, lastSentTime, requestPermission,
   isDriverActive, isOnBreak, isDriverOnline, hasActiveTrip, activeTrip,
   todayTrips, connectMutation, disconnectMutation, shiftStartMutation, shiftEndMutation, activeShift,
   breakMutation, onStatusChange, statusIsPending,
   onOpenNavigation, isNetworkOnline, isConnected, isOnShift,
+  driverPrefs, geoLocation,
 }: {
   driver: any; vehicle: any; token: string | null;
   gpsStatus: GpsStatus; lastSentTime: number | null; requestPermission: () => void;
@@ -849,6 +995,8 @@ function HomePage({
   onStatusChange: (tripId: number, currentStatus: string) => void; statusIsPending: boolean;
   onOpenNavigation: (trip: ActiveTripData) => void; isNetworkOnline: boolean;
   isConnected: boolean; isOnShift: boolean;
+  driverPrefs: { soundsOn: boolean; hapticsOn: boolean; promptsEnabled: boolean } | null;
+  geoLocation: { lat: number; lng: number } | null;
 }) {
   const { toast } = useToast();
   const [showChecklist, setShowChecklist] = useState(false);
@@ -947,6 +1095,20 @@ function HomePage({
           <WifiOff className="w-5 h-5" />
           <span className="text-sm font-medium">You are offline</span>
         </div>
+      )}
+
+      {driverPrefs?.promptsEnabled && isOnShift && todayTrips.length > 0 && (
+        <SmartPromptsBanner
+          trips={todayTrips}
+          driverLocation={geoLocation}
+          etaMinutes={null}
+          onNavigate={(tripId) => {
+            const trip = todayTrips.find((t: any) => t.id === tripId);
+            if (trip) onOpenNavigation(trip);
+          }}
+          onMarkArrived={(tripId) => onStatusChange(tripId, "EN_ROUTE_TO_PICKUP")}
+          driverPrefs={driverPrefs}
+        />
       )}
 
       <Card data-testid="card-connect-status">
@@ -2538,6 +2700,7 @@ export default function DriverPortal() {
   const { permission: geoPermission, location: geoLocation, watchError: geoWatchError, requestPermission } = useGeolocation(isOnShift || hasActiveTrip);
   const isNetworkOnline = useNetworkStatus();
   const { tracking: bgTracking, startTracking: bgStart, stopTracking: bgStop } = useNativeBackgroundTracking(token);
+  const { driverPrefs } = useDriverV3Notifications(token, todayTrips);
 
   const lastSentRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
   const [lastSentTime, setLastSentTime] = useState<number | null>(null);
@@ -2894,6 +3057,8 @@ export default function DriverPortal() {
             isNetworkOnline={isNetworkOnline}
             isConnected={isConnected}
             isOnShift={isOnShift}
+            driverPrefs={driverPrefs}
+            geoLocation={geoLocation}
           />
         )}
         {activeTab === "trips" && (

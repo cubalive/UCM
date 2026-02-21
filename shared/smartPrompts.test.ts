@@ -165,7 +165,7 @@ describe("smartPrompts", () => {
         status: "EN_ROUTE_TO_PICKUP",
         scheduledPickupAt: new Date(Date.now() + 5 * 60000).toISOString(),
       });
-      const prompts = evaluatePrompts(trip, null, 30, { cooldownMin: 10 });
+      const prompts = evaluatePrompts(trip, null, 30, { cooldownMin: 10, graceMin: 5 });
       expect(prompts.filter((p) => p.type === "LATE_RISK").length).toBe(1);
     });
 
@@ -183,7 +183,7 @@ describe("smartPrompts", () => {
         status: "EN_ROUTE_TO_PICKUP",
         scheduledPickupAt: new Date(Date.now() + 5 * 60000).toISOString(),
       });
-      const prompts = evaluatePrompts(trip, null, 30, { cooldownMin: 10 });
+      const prompts = evaluatePrompts(trip, null, 30, { cooldownMin: 10, graceMin: 5 });
       const lateRisk = prompts.find((p) => p.type === "LATE_RISK");
       expect(lateRisk?.priority).toBe("critical");
     });
