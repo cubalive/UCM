@@ -1,9 +1,9 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { hashPassword, type AuthRequest } from "../auth";
-import { insertClinicSchema, users, clinics } from "@shared/schema";
+import { insertClinicSchema, users, clinics, cities, companies } from "@shared/schema";
 import { db } from "../db";
-import { eq, and, isNull, ilike, or } from "drizzle-orm";
+import { eq, and, isNull, ilike, or, sql } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
 import { getScope, requireScope, buildScopeFilters, forceCompanyOnCreate } from "../middleware/scopeContext";
 
@@ -18,6 +18,11 @@ export async function getClinicsHandler(req: AuthRequest, res: Response) {
     if (filters.companyId) conditions.push(eq(clinics.companyId, filters.companyId));
     if (filters.cityId) conditions.push(eq(clinics.cityId, filters.cityId));
 
+    const includeArchived = req.query.includeArchived === "true" && scope.role === "SUPER_ADMIN";
+    if (includeArchived) {
+      conditions.length = 0;
+    }
+
     const q = (req.query.q as string)?.trim();
     if (q) {
       const pattern = `%${q}%`;
@@ -30,9 +35,35 @@ export async function getClinicsHandler(req: AuthRequest, res: Response) {
     }
 
     const result = await db
-      .select()
+      .select({
+        id: clinics.id,
+        publicId: clinics.publicId,
+        name: clinics.name,
+        email: clinics.email,
+        phone: clinics.phone,
+        address: clinics.address,
+        addressStreet: clinics.addressStreet,
+        addressCity: clinics.addressCity,
+        addressState: clinics.addressState,
+        addressZip: clinics.addressZip,
+        addressPlaceId: clinics.addressPlaceId,
+        lat: clinics.lat,
+        lng: clinics.lng,
+        cityId: clinics.cityId,
+        companyId: clinics.companyId,
+        facilityType: clinics.facilityType,
+        contactName: clinics.contactName,
+        active: clinics.active,
+        deletedAt: clinics.deletedAt,
+        authUserId: clinics.authUserId,
+        createdAt: clinics.createdAt,
+        cityName: sql<string>`CONCAT(${cities.name}, ', ', ${cities.state})`.as("city_name"),
+        companyName: companies.name,
+      })
       .from(clinics)
-      .where(and(...conditions))
+      .leftJoin(cities, eq(clinics.cityId, cities.id))
+      .leftJoin(companies, eq(clinics.companyId, companies.id))
+      .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(clinics.name);
 
     res.json(result);

@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key, Archive, RotateCcw, Trash2, Link2 } from "lucide-react";
+import { Plus, Building2, Search, Pencil, AlertTriangle, Mail, ShieldCheck, ShieldAlert, Copy, Key, Archive, RotateCcw, Trash2, Link2, Filter, MapPin, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
 import { GlobalSearchInput } from "@/components/GlobalSearchInput";
@@ -37,17 +37,35 @@ export default function ClinicsPage() {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const canManageAuth = user?.role === "SUPER_ADMIN" || user?.role === "DISPATCH";
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
   const [open, setOpen] = useState(false);
   const [editClinic, setEditClinic] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
+  const [filterCity, setFilterCity] = useState<string>("all");
+  const [filterCompany, setFilterCompany] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
+  const includeArchivedParam = isSuperAdmin ? `${cityParam ? "&" : "?"}includeArchived=true` : "";
 
   const { data: clinics, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/clinics", selectedCity?.id],
-    queryFn: () => apiFetch(`/api/clinics${cityParam}`, token),
+    queryKey: ["/api/clinics", selectedCity?.id, isSuperAdmin],
+    queryFn: () => apiFetch(`/api/clinics${cityParam}${includeArchivedParam}`, token),
     enabled: !!token,
+  });
+
+  const { data: citiesList } = useQuery<any[]>({
+    queryKey: ["/api/cities"],
+    queryFn: () => apiFetch("/api/cities", token),
+    enabled: !!token,
+  });
+
+  const { data: companiesList } = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch("/api/companies", token),
+    enabled: !!token && isSuperAdmin,
   });
 
   const createMutation = useMutation({
@@ -150,13 +168,30 @@ export default function ClinicsPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const activeFilterCount = [filterCity, filterCompany, filterStatus].filter(f => f !== "all").length;
+
+  const clearFilters = () => {
+    setFilterCity("all");
+    setFilterCompany("all");
+    setFilterStatus("all");
+  };
+
   const filtered = clinics?.filter((c: any) => {
     const isArchived = !!c.deletedAt || !c.active;
     if (!showArchived && isArchived) return false;
     if (showArchived && !isArchived) return false;
+    if (filterCity !== "all" && String(c.cityId) !== filterCity) return false;
+    if (filterCompany !== "all" && String(c.companyId) !== filterCompany) return false;
+    if (filterStatus !== "all") {
+      if (filterStatus === "active" && (!c.active || c.deletedAt)) return false;
+      if (filterStatus === "inactive" && (c.active && !c.deletedAt)) return false;
+    }
     const q = search.toLowerCase();
     return !q || c.name?.toLowerCase().includes(q) || c.address?.toLowerCase().includes(q) || c.phone?.toLowerCase().includes(q) || c.publicId?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q);
   });
+
+  const uniqueCities = clinics ? [...new Map(clinics.map((c: any) => [c.cityId, { id: c.cityId, name: c.cityName }])).values()].filter((c: any) => c.id) : [];
+  const uniqueCompanies = clinics ? [...new Map(clinics.map((c: any) => [c.companyId, { id: c.companyId, name: c.companyName }])).values()].filter((c: any) => c.id && c.name) : [];
 
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
@@ -182,14 +217,65 @@ export default function ClinicsPage() {
 
       <div className="flex items-center gap-3 flex-wrap">
         <GlobalSearchInput entity="clinics" placeholder="Search clinics..." onQueryChange={setSearch} className="max-w-sm" />
-        {user?.role === "SUPER_ADMIN" && (
-          <div className="flex items-center gap-2">
+
+        {uniqueCities.length > 1 && (
+          <Select value={filterCity} onValueChange={setFilterCity}>
+            <SelectTrigger className="w-[180px]" data-testid="select-filter-city">
+              <MapPin className="w-3 h-3 mr-1 text-muted-foreground" />
+              <SelectValue placeholder="City" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Cities</SelectItem>
+              {uniqueCities.map((c: any) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {uniqueCompanies.length > 1 && (
+          <Select value={filterCompany} onValueChange={setFilterCompany}>
+            <SelectTrigger className="w-[180px]" data-testid="select-filter-company">
+              <Building2 className="w-3 h-3 mr-1 text-muted-foreground" />
+              <SelectValue placeholder="Company" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Companies</SelectItem>
+              {uniqueCompanies.map((c: any) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {isSuperAdmin && (
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-[140px]" data-testid="select-filter-status">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="inactive">Archived</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+
+        {activeFilterCount > 0 && (
+          <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-clinic-filters">
+            <X className="w-3 h-3 mr-1" />
+            Clear ({activeFilterCount})
+          </Button>
+        )}
+
+        {isSuperAdmin && (
+          <div className="flex items-center gap-2 ml-auto">
             <Switch
               checked={showArchived}
               onCheckedChange={setShowArchived}
               data-testid="switch-show-archived-clinics"
             />
-            <Label className="text-sm text-muted-foreground">Show Archived</Label>
+            <Label className="text-sm text-muted-foreground">Archived Only</Label>
           </div>
         )}
       </div>
@@ -225,6 +311,18 @@ export default function ClinicsPage() {
                     <p className="text-sm text-muted-foreground truncate">{c.address}</p>
                     {c.phone && <p className="text-sm text-muted-foreground">{c.phone}</p>}
                     {c.contactName && <p className="text-xs text-muted-foreground">Contact: {c.contactName}</p>}
+                    <div className="flex items-center gap-2 flex-wrap mt-1">
+                      {c.cityName && (
+                        <Badge variant="outline" className="text-[10px] py-0" data-testid={`badge-clinic-city-${c.id}`}>
+                          <MapPin className="w-2.5 h-2.5 mr-0.5" />{c.cityName}
+                        </Badge>
+                      )}
+                      {c.companyName && (
+                        <Badge variant="outline" className="text-[10px] py-0" data-testid={`badge-clinic-company-${c.id}`}>
+                          <Building2 className="w-2.5 h-2.5 mr-0.5" />{c.companyName}
+                        </Badge>
+                      )}
+                    </div>
                     {!c.email && (
                       <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 mt-1">
                         <AlertTriangle className="w-3 h-3" />
