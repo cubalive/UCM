@@ -11,11 +11,8 @@ export function getPortalBaseUrl(role?: string): string {
   if (upper === "CLINIC" || upper === "CLINIC_ADMIN" || upper === "CLINIC_STAFF") {
     return CLINIC_APP_URL;
   }
-  if (upper === "DISPATCH" || upper === "DISPATCHER") {
-    return process.env.DISPATCH_APP_URL || APP_PUBLIC_URL;
-  }
-  if (upper === "SUPER_ADMIN") {
-    return process.env.ADMIN_APP_URL || APP_PUBLIC_URL;
+  if (upper === "DRIVER") {
+    return process.env.DRIVER_APP_URL || APP_PUBLIC_URL;
   }
   return APP_PUBLIC_URL;
 }
