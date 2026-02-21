@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 import {
   TrendingUp,
   Download,
@@ -16,6 +17,9 @@ import {
   Clock,
   Users,
   CheckCircle2,
+  ExternalLink,
+  ChevronRight,
+  CalendarDays,
 } from "lucide-react";
 
 function getDefaultDates() {
@@ -34,9 +38,18 @@ function riskBadgeVariant(risk: string): "default" | "secondary" | "destructive"
   }
 }
 
+function riskBorderColor(level: string) {
+  switch (level) {
+    case "red": return "border-red-500/40 hover:border-red-500/70";
+    case "yellow": return "border-yellow-500/40 hover:border-yellow-500/70";
+    default: return "border-green-500/40 hover:border-green-500/70";
+  }
+}
+
 export default function PredictionPage() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const defaults = getDefaultDates();
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
@@ -60,6 +73,10 @@ export default function PredictionPage() {
       (msg) => toast({ title: "Error", description: msg, variant: "destructive" }),
     );
   };
+
+  const goToTrip = (tripId: number) => navigate(`/trips/${tripId}`);
+  const goToSchedule = (date: string) => navigate(`/schedule?date=${date}`);
+  const goToDispatch = () => navigate(`/dispatch`);
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="prediction-page">
@@ -116,27 +133,40 @@ export default function PredictionPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-3 gap-3">
-                <div className="text-center p-3 rounded-md border" data-testid="late-risk-red">
+                <button
+                  className="text-center p-3 rounded-md border border-red-500/30 hover:border-red-500/60 hover:bg-red-500/5 transition-colors cursor-pointer"
+                  onClick={goToDispatch}
+                  data-testid="late-risk-red"
+                >
                   <div className="text-2xl font-bold text-red-600 dark:text-red-400">{lateRisk?.summaryRed ?? 0}</div>
                   <p className="text-xs text-muted-foreground mt-1">High Risk</p>
-                </div>
-                <div className="text-center p-3 rounded-md border" data-testid="late-risk-yellow">
+                </button>
+                <button
+                  className="text-center p-3 rounded-md border border-yellow-500/30 hover:border-yellow-500/60 hover:bg-yellow-500/5 transition-colors cursor-pointer"
+                  onClick={goToDispatch}
+                  data-testid="late-risk-yellow"
+                >
                   <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{lateRisk?.summaryYellow ?? 0}</div>
                   <p className="text-xs text-muted-foreground mt-1">Moderate</p>
-                </div>
-                <div className="text-center p-3 rounded-md border" data-testid="late-risk-green">
+                </button>
+                <button
+                  className="text-center p-3 rounded-md border border-green-500/30 hover:border-green-500/60 hover:bg-green-500/5 transition-colors cursor-pointer"
+                  onClick={goToDispatch}
+                  data-testid="late-risk-green"
+                >
                   <div className="text-2xl font-bold text-green-600 dark:text-green-400">{lateRisk?.summaryGreen ?? 0}</div>
                   <p className="text-xs text-muted-foreground mt-1">Low Risk</p>
-                </div>
+                </button>
               </div>
 
               {lateRisk?.riskyTrips && lateRisk.riskyTrips.length > 0 ? (
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   <p className="text-xs font-medium text-muted-foreground">Risky Trips</p>
                   {lateRisk.riskyTrips.slice(0, 20).map((t: any) => (
-                    <div
+                    <button
                       key={t.tripId}
-                      className="flex items-center gap-2 p-2 rounded-md border text-sm flex-wrap"
+                      className={`flex items-center gap-2 p-2 rounded-md border text-sm flex-wrap w-full text-left transition-colors cursor-pointer hover:bg-muted/50 ${riskBorderColor(t.riskLevel)}`}
+                      onClick={() => goToTrip(t.tripId)}
                       data-testid={`risky-trip-${t.tripId}`}
                     >
                       <Badge
@@ -144,13 +174,14 @@ export default function PredictionPage() {
                       >
                         {t.riskLevel}
                       </Badge>
-                      <span className="flex-1 min-w-0 truncate">Trip #{t.tripId}</span>
+                      <span className="flex-1 min-w-0 truncate font-medium">Trip #{t.tripId}</span>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
                         {t.reasons?.map((r: string, i: number) => (
                           <Badge key={i} variant="outline" className="text-xs">{r}</Badge>
                         ))}
                       </div>
-                    </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    </button>
                   ))}
                 </div>
               ) : (
@@ -189,11 +220,13 @@ export default function PredictionPage() {
                     <div className="space-y-2 max-h-[300px] overflow-y-auto">
                       <p className="text-xs font-medium text-muted-foreground">Daily Breakdown</p>
                       {staffingRisk.days.map((d: any) => (
-                        <div
+                        <button
                           key={d.date}
-                          className="flex items-center gap-3 p-2 rounded-md border text-sm flex-wrap"
+                          className={`flex items-center gap-3 p-2 rounded-md border text-sm flex-wrap w-full text-left transition-colors cursor-pointer hover:bg-muted/50 ${d.shortage ? "border-red-500/40 hover:border-red-500/70" : "hover:border-primary/40"}`}
+                          onClick={() => goToSchedule(d.date)}
                           data-testid={`staffing-day-${d.date}`}
                         >
+                          <CalendarDays className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                           <span className="text-xs text-muted-foreground w-20">{d.date}</span>
                           <div className="flex items-center gap-2 flex-1 flex-wrap">
                             <span className="text-xs">Trips: {d.tripCount}</span>
@@ -203,7 +236,8 @@ export default function PredictionPage() {
                           <Badge variant={d.shortage ? "destructive" : "default"}>
                             {d.shortage ? "Shortage" : "OK"}
                           </Badge>
-                        </div>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        </button>
                       ))}
                     </div>
                   )}

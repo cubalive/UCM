@@ -1,0 +1,58 @@
+Eres un experto en frontend moderno con React (o el framework que usa la app: Next.js / React / Vue / etc. — adáptalo si sabes cuál es). Tu tarea es MODERNIZAR COMPLETAMENTE la interfaz estética de TODA la aplicación web sin tocar NI UNA LÍNEA de lógica de negocio, llamadas a API, manejo de base de datos, autenticación, validaciones ni ninguna funcionalidad existente.
+
+Solo modifica:
+- Estilos (CSS / Tailwind / styled-components / etc.)
+- Estructura visual (layouts, spacing, sombras, bordes redondeados)
+- Componentes UI (botones, cards, inputs, tablas, modales, navbar, sidebar)
+- Colores, tipografía y micro-interacciones
+
+Requisitos de diseño obligatorios:
+
+1. Paleta de colores estricta (basada en el logo de United Care Mobility):
+   - Azul principal (tecnológico, confianza): #0A5CFF o #0066CC (azul vibrante medio-oscuro) → primary
+   - Azul más claro (hover, acentos): #3B82F6 o #60A5FA
+   - Verde (éxito, movilidad/salud): #10B981 o #22C55E (verde esmeralda moderno)
+   - Blanco/grises claros: #FFFFFF fondo principal, #F8FAFC o #F1F5F9 para cards/fondos secundarios
+   - Gris oscuro para texto: #1F2937 o #111827
+   - Negro suave para contraste alto: #0F172A
+
+   Gradientes permitidos: azul → azul claro o azul con sutil verde en botones principales/hovers.
+
+2. Estilo general:
+   - Muy moderno 2025-2026: glassmorphism sutil o neomorfismo ligero + minimalismo
+   - Mucho espacio en blanco (padding generoso, gap 1-2rem)
+   - Bordes redondeados: border-radius 12px–20px en cards, botones, inputs
+   - Sombras suaves modernas: shadow-md / shadow-lg con opacity baja (no sombras duras)
+   - Tipografía: sistema moderno sans-serif (Inter, Manrope, Poppins, Roboto) — usa Google Fonts o tailwind default
+   - Todo lo más clickeable posible: botones grandes, hover effects fuertes (scale 1.03-1.05, shadow más fuerte, color shift), cursor pointer en filas de tablas, iconos con hover, cards con hover lift
+
+3. Interactividad alta:
+   - Animaciones sutiles con framer-motion o tailwind transitions (fade-in, scale on hover, slide en modales)
+   - Loading skeletons en todas las tablas/listas
+   - Tooltips en iconos importantes
+   - Botones con ripple effect o gradient shift on hover
+   - Navbar sticky con blur sutil (backdrop-filter: blur(10px))
+   - Sidebar (si existe) colapsable con animación suave
+   - Dark mode opcional pero bienvenido (toggle si ya existe)
+
+4. Aplicar cambios consistentes en TODAS las páginas y componentes de las 3 apps:
+   - app.unitedcaremobility.com
+   - clinic.unitedcaremobility.com
+   - driver.unitedcaremobility.com
+
+   Usa un sistema de diseño centralizado (ThemeProvider, tailwind config global, CSS variables, etc.) para que los 3 subdominios compartan la misma estética.
+
+5. Resultado deseado:
+   - Sensación tecnológica + IA + confianza médica + movilidad
+   - Aspecto premium, limpio, futurista pero accesible
+   - WCAG AA accesibilidad (contrastes altos)
+   - Mobile-first responsive (usa tailwind responsive classes)
+
+Instrucciones finales:
+- NO elimines ningún componente funcional ni cambies nombres de props ni lógica
+- Solo reemplaza clases CSS / estilos inline / componentes de UI por versiones modernas
+- Si usas Tailwind, actualiza todo a clases tailwind modernas (preferido)
+- Si usas Material-UI / Ant Design / Bootstrap, migra suavemente a componentes más modernos o custom con tailwind
+- Mantén toda la funcionalidad 100% intacta
+
+Genera el código modificado o las instrucciones precisas para aplicar estos cambios en toda la aplicación. Si es muy grande, empieza por los componentes globales: Layout, Navbar, Button, Card, Input, Table, etc.
