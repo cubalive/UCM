@@ -63,6 +63,7 @@ DRIVER_V3_PERFORMANCE_ENABLED = "false"
 DRIVER_V3_SMART_PROMPTS_ENABLED = "false"
 DRIVER_V3_OFFLINE_OUTBOX_ENABLED = "false"
 DRIVER_V3_SOUNDS_ENABLED = "false"
+CLINIC_APP_URL = "https://clinic.unitedcaremobility.com"
 
 [userenv.development]
 

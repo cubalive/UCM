@@ -119,19 +119,28 @@ async function upsertProfile(
   }
 }
 
-export async function generateInviteLink(email: string): Promise<{ success: boolean; error?: string }> {
+export async function generateInviteLink(email: string, role?: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseServer();
   if (!supabase) {
     return { success: false, error: "Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Replit deployment secrets." };
   }
 
+  const { getPortalBaseUrl } = await import("../services/emailService");
+  const portalUrl = getPortalBaseUrl(role || "DRIVER");
+  console.log(`[driverAuth] generateInviteLink — role=${role || "DRIVER"}, portalUrl=${portalUrl}`);
+
   const { data, error } = await supabase.auth.admin.generateLink({
     type: "magiclink",
     email,
+    options: {
+      redirectTo: `${portalUrl}/`,
+    },
   });
 
   if (error) {
-    const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email);
+    const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${portalUrl}/`,
+    });
     if (inviteError) {
       return { success: false, error: `Failed to send invite: ${inviteError.message}` };
     }

@@ -2,7 +2,23 @@ import { getSupabaseServer } from "../../lib/supabaseClient";
 import { sendEmail } from "../lib/email";
 
 const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL || "https://app.unitedcaremobility.com";
+const CLINIC_APP_URL = process.env.CLINIC_APP_URL || "https://clinic.unitedcaremobility.com";
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || "United Care Mobility";
+
+export function getPortalBaseUrl(role?: string): string {
+  if (!role) return APP_PUBLIC_URL;
+  const upper = role.toUpperCase();
+  if (upper === "CLINIC" || upper === "CLINIC_ADMIN" || upper === "CLINIC_STAFF") {
+    return CLINIC_APP_URL;
+  }
+  if (upper === "DISPATCH" || upper === "DISPATCHER") {
+    return process.env.DISPATCH_APP_URL || APP_PUBLIC_URL;
+  }
+  if (upper === "SUPER_ADMIN") {
+    return process.env.ADMIN_APP_URL || APP_PUBLIC_URL;
+  }
+  return APP_PUBLIC_URL;
+}
 
 function brandedHtml(bodyContent: string): string {
   return `<!DOCTYPE html>
@@ -29,12 +45,14 @@ export async function sendClinicLoginLink(email: string, clinicName?: string): P
     return { success: false, error: "Supabase is not configured." };
   }
 
+  const portalUrl = getPortalBaseUrl("CLINIC");
+
   try {
     const { data, error } = await supabase.auth.admin.generateLink({
       type: "magiclink",
       email,
       options: {
-        redirectTo: `${APP_PUBLIC_URL}/`,
+        redirectTo: `${portalUrl}/`,
       },
     });
 
@@ -48,9 +66,11 @@ export async function sendClinicLoginLink(email: string, clinicName?: string): P
       return { success: false, error: "No magic link returned from Supabase" };
     }
 
+    console.log(`[emailService] Clinic magic link generated — role=CLINIC, portalUrl=${portalUrl}, redirectTo=${portalUrl}/`);
+
     const productionLink = magicLink.replace(
       /^https?:\/\/[^/]+/,
-      APP_PUBLIC_URL
+      portalUrl
     );
 
     const name = clinicName || "Clinic User";
@@ -132,12 +152,14 @@ export async function sendDispatchLoginLink(email: string, userName?: string): P
     return { success: false, error: "Supabase is not configured." };
   }
 
+  const portalUrl = getPortalBaseUrl("DISPATCH");
+
   try {
     const { data, error } = await supabase.auth.admin.generateLink({
       type: "magiclink",
       email,
       options: {
-        redirectTo: `${APP_PUBLIC_URL}/`,
+        redirectTo: `${portalUrl}/`,
       },
     });
 
@@ -151,9 +173,11 @@ export async function sendDispatchLoginLink(email: string, userName?: string): P
       return { success: false, error: "No magic link returned from Supabase" };
     }
 
+    console.log(`[emailService] Dispatch magic link generated — role=DISPATCH, portalUrl=${portalUrl}, redirectTo=${portalUrl}/`);
+
     const productionLink = magicLink.replace(
       /^https?:\/\/[^/]+/,
-      APP_PUBLIC_URL
+      portalUrl
     );
 
     const name = userName || "Team Member";
@@ -229,20 +253,24 @@ export async function sendResetPasswordEmail(
   }
 }
 
-export async function sendForgotPasswordLink(email: string): Promise<{ success: boolean; error?: string }> {
+export async function sendForgotPasswordLink(email: string, role?: string): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseServer();
   if (!supabase) {
     return { success: false, error: "Supabase is not configured." };
   }
+
+  const portalUrl = getPortalBaseUrl(role);
 
   try {
     const { data, error } = await supabase.auth.admin.generateLink({
       type: "recovery",
       email,
       options: {
-        redirectTo: `${APP_PUBLIC_URL}/login?reset=true`,
+        redirectTo: `${portalUrl}/login?reset=true`,
       },
     });
+
+    console.log(`[emailService] Recovery link generated — role=${role || "unknown"}, portalUrl=${portalUrl}, redirectTo=${portalUrl}/login?reset=true`);
 
     if (error) {
       console.error("[emailService] Supabase recovery link failed:", error.message);
@@ -256,7 +284,7 @@ export async function sendForgotPasswordLink(email: string): Promise<{ success: 
 
     const productionLink = recoveryLink.replace(
       /^https?:\/\/[^/]+/,
-      APP_PUBLIC_URL
+      portalUrl
     );
 
     const html = brandedHtml(`
