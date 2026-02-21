@@ -5,6 +5,7 @@ import { loginSchema, driverDevices, users, companies } from "@shared/schema";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { getSupabaseServer } from "../../lib/supabaseClient";
+import { sendForgotPasswordLink } from "../services/emailService";
 
 export async function loginHandler(req: Request, res: Response) {
   try {
@@ -445,5 +446,28 @@ export async function changePasswordHandler(req: Request, res: Response) {
   } catch (err: any) {
     console.error("[changePassword] Error:", err.message);
     return res.status(500).json({ message: "Failed to change password" });
+  }
+}
+
+export async function forgotPasswordHandler(req: Request, res: Response) {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const user = await storage.getUserByEmail(email.trim().toLowerCase());
+    const role = user?.role;
+
+    const result = await sendForgotPasswordLink(email.trim().toLowerCase(), role);
+
+    if (!result.success) {
+      return res.status(500).json({ message: result.error || "Failed to send reset link" });
+    }
+
+    return res.json({ success: true, message: "If an account exists with this email, a reset link has been sent." });
+  } catch (err: any) {
+    console.error("[forgotPassword] Error:", err.message);
+    return res.status(500).json({ message: "Failed to send reset link" });
   }
 }
