@@ -573,10 +573,33 @@ function PatientForm({ onSubmit, loading, initialData, isEdit, patientSource }: 
   isEdit?: boolean;
   patientSource?: string;
 }) {
-  const { token } = useAuth();
+  const { token, user, selectedCity } = useAuth();
   const { toast } = useToast();
   const emailRequired = patientSource === "private";
   const parsed = parseStructuredNotes(initialData?.notes || "");
+
+  const isClinicRole = (user?.role === "VIEWER" || user?.role === "CLINIC_USER" || user?.role === "CLINIC_ADMIN" || user?.role === "CLINIC_VIEWER") && !!(user as any)?.clinicId;
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const showClinicDropdown = !isClinicRole;
+  const showCompanyDropdown = isSuperAdmin;
+
+  const clinicsQuery = useQuery<any[]>({
+    queryKey: ["/api/clinics", selectedCity?.id],
+    queryFn: () => {
+      const params = selectedCity?.id ? `?cityId=${selectedCity.id}` : "";
+      return apiFetch(`/api/clinics${params}`, token);
+    },
+    enabled: !!token && showClinicDropdown,
+  });
+
+  const companiesQuery = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch("/api/companies", token),
+    enabled: !!token && showCompanyDropdown,
+  });
+
+  const availableClinics = (clinicsQuery.data || []).filter((c: any) => c.active && !c.deletedAt);
+  const availableCompanies = companiesQuery.data || [];
 
   const parsedDays = parsed.recurringSchedule
     ? parseDaysFromScheduleString(parsed.recurringSchedule)
@@ -612,7 +635,13 @@ function PatientForm({ onSubmit, loading, initialData, isEdit, patientSource }: 
     scheduleEndDate: initialData?.scheduleEndDate || "",
     mobilityType: initialData?.wheelchairRequired ? "wheelchair" : "ambulatory",
     active: initialData?.active ?? true,
+    clinicId: initialData?.clinicId?.toString() || "",
+    companyId: initialData?.companyId?.toString() || "",
   });
+
+  const filteredClinics = form.companyId
+    ? availableClinics.filter((c: any) => c.companyId?.toString() === form.companyId)
+    : availableClinics;
 
   const [addressData, setAddressData] = useState<StructuredAddress | null>(initialAddress);
 
@@ -642,6 +671,14 @@ function PatientForm({ onSubmit, loading, initialData, isEdit, patientSource }: 
       ? `${form.scheduleDays.join("/")} ${form.scheduleTime}`
       : "";
     const combinedNotes = buildStructuredNotes(form.notes, scheduleStr);
+    if (showClinicDropdown && !form.clinicId && patientSource !== "private") {
+      toast({ title: "Clinic required", description: "Please select which clinic this patient belongs to.", variant: "destructive" });
+      return;
+    }
+    if (showCompanyDropdown && !form.companyId) {
+      toast({ title: "Company required", description: "Please select which transport company handles this patient.", variant: "destructive" });
+      return;
+    }
     onSubmit({
       firstName: form.firstName,
       lastName: form.lastName,
@@ -664,6 +701,8 @@ function PatientForm({ onSubmit, loading, initialData, isEdit, patientSource }: 
       scheduleTime: form.scheduleTime,
       scheduleStartDate: form.scheduleStartDate,
       scheduleEndDate: form.scheduleEndDate || null,
+      ...(showClinicDropdown && form.clinicId ? { clinicId: parseInt(form.clinicId) } : {}),
+      ...(showCompanyDropdown && form.companyId ? { companyId: parseInt(form.companyId) } : {}),
     });
   };
 
@@ -679,6 +718,42 @@ function PatientForm({ onSubmit, loading, initialData, isEdit, patientSource }: 
           <Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} required data-testid="input-patient-last" />
         </div>
       </div>
+      {showCompanyDropdown && (
+        <div className="space-y-2">
+          <Label>Transport Company *</Label>
+          <Select
+            value={form.companyId}
+            onValueChange={(v) => setForm({ ...form, companyId: v, clinicId: "" })}
+          >
+            <SelectTrigger data-testid="select-patient-company">
+              <SelectValue placeholder="Select company" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableCompanies.map((c: any) => (
+                <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {showClinicDropdown && patientSource !== "private" && (
+        <div className="space-y-2">
+          <Label>Clinic *</Label>
+          <Select value={form.clinicId} onValueChange={(v) => setForm({ ...form, clinicId: v })}>
+            <SelectTrigger data-testid="select-patient-clinic">
+              <SelectValue placeholder={showCompanyDropdown && !form.companyId ? "Select a company first" : "Select clinic"} />
+            </SelectTrigger>
+            <SelectContent>
+              {filteredClinics.map((c: any) => (
+                <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {showCompanyDropdown && !form.companyId && (
+            <p className="text-[11px] text-muted-foreground">Select a company first to filter available clinics.</p>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Phone</Label>

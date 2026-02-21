@@ -1235,6 +1235,7 @@ function ManualDriverSection({
   selectedTrip,
   onAssign,
   assignPending,
+  defaultCollapsed = false,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -1243,20 +1244,29 @@ function ManualDriverSection({
   selectedTrip: any | null;
   onAssign?: (driver: DriverStatusInfo) => void;
   assignPending?: boolean;
+  defaultCollapsed?: boolean;
 }) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const isLoggedOut = variant === "logged_out";
   const canAssign = (variant === "available" || variant === "paused") && !!onAssign && !!selectedTrip;
 
   return (
     <Card data-testid={`manual-section-${variant}`}>
-      <CardHeader className="py-2 px-3 flex flex-row items-center justify-between gap-2 space-y-0">
+      <CardHeader
+        className="py-2 px-3 flex flex-row items-center justify-between gap-2 space-y-0 cursor-pointer select-none hover:bg-muted/50 transition-colors rounded-t-lg"
+        onClick={() => setCollapsed(!collapsed)}
+        data-testid={`toggle-section-${variant}`}
+      >
         <div className="flex items-center gap-2">
           {icon}
           <CardTitle className="text-sm font-medium">{title}</CardTitle>
         </div>
-        <Badge variant="secondary" className="text-xs">{drivers.length}</Badge>
+        <div className="flex items-center gap-1.5">
+          <Badge variant="secondary" className="text-xs">{drivers.length}</Badge>
+          {collapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
+        </div>
       </CardHeader>
-      {drivers.length > 0 && (
+      {!collapsed && drivers.length > 0 && (
         <CardContent className="px-3 pb-2 pt-0">
           <div className="space-y-1">
             {drivers.map((d) => (
