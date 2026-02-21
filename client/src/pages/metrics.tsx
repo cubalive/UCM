@@ -9,6 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { downloadWithAuth, buildTimestamp } from "@/lib/export";
 import { rawAuthFetch } from "@/lib/api";
@@ -42,6 +49,14 @@ import {
   Cpu,
   HardDrive,
   Gauge,
+  CheckCircle,
+  EyeOff,
+  Eye,
+  Play,
+  Send,
+  ExternalLink,
+  ChevronRight,
+  Wrench,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -273,6 +288,513 @@ function LoadingSkeleton() {
   );
 }
 
+const DISMISS_STORAGE_KEY = "ucm_dismissed_health_issues";
+
+function getDismissedIssues(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(DISMISS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    const now = Date.now();
+    const filtered: Record<string, number> = {};
+    for (const [key, ts] of Object.entries(parsed)) {
+      if (typeof ts === "number" && now - ts < 24 * 60 * 60 * 1000) {
+        filtered[key] = ts as number;
+      }
+    }
+    return filtered;
+  } catch {
+    return {};
+  }
+}
+
+function dismissIssue(key: string) {
+  const current = getDismissedIssues();
+  current[key] = Date.now();
+  localStorage.setItem(DISMISS_STORAGE_KEY, JSON.stringify(current));
+}
+
+function undismissIssue(key: string) {
+  const current = getDismissedIssues();
+  delete current[key];
+  localStorage.setItem(DISMISS_STORAGE_KEY, JSON.stringify(current));
+}
+
+function isIssueDismissed(key: string): boolean {
+  return key in getDismissedIssues();
+}
+
+interface RemediationConfig {
+  key: string;
+  label: string;
+  icon: typeof Activity;
+  state: "HEALTHY" | "GOOD" | "CRITICAL";
+  reason: string;
+  details: string;
+  actions: Array<{
+    label: string;
+    icon: typeof Activity;
+    variant?: "default" | "outline" | "destructive";
+    action: "api" | "link" | "navigate";
+    target: string;
+    method?: string;
+  }>;
+  tips: string[];
+}
+
+function buildHealthRemediations(platformHealth: any, adminSummary: any): RemediationConfig[] {
+  const configs: RemediationConfig[] = [];
+
+  if (platformHealth?.db) {
+    configs.push({
+      key: "db",
+      label: "Database",
+      icon: DatabaseIcon,
+      state: platformHealth.db.state,
+      reason: platformHealth.db.reason,
+      details: `Latency: ${platformHealth.db.latencyMs ?? "N/A"}ms. Threshold: ≤400ms (GOOD), >400ms (CRITICAL).`,
+      actions: [
+        { label: "Run Health Check", icon: RefreshCw, action: "api", target: "/api/admin/health/deep" },
+        { label: "View System Status", icon: Server, variant: "outline", action: "navigate", target: "/system-status" },
+      ],
+      tips: [
+        "High latency may indicate connection pool exhaustion or heavy queries",
+        "Check Supabase dashboard for active connections and query performance",
+        "Consider optimizing queries if latency consistently exceeds 400ms",
+      ],
+    });
+  }
+
+  if (platformHealth?.api) {
+    configs.push({
+      key: "api",
+      label: "API",
+      icon: Activity,
+      state: platformHealth.api.state,
+      reason: platformHealth.api.reason,
+      details: `p95: ${platformHealth.api.p95Ms ?? "N/A"}ms. Error rate: ${platformHealth.api.errorRatePct ?? "N/A"}%. Threshold: p95 ≤1500ms, errors ≤3%.`,
+      actions: [
+        { label: "View Route Metrics", icon: BarChart3, action: "navigate", target: "/metrics" },
+        { label: "Run Smoke Test", icon: Play, action: "api", target: "/api/ops/smoke-run", method: "POST" },
+      ],
+      tips: [
+        "High p95 latency often caused by specific slow routes",
+        "Check the route-level metrics table below for hot spots",
+        "Error rate spikes may indicate external service failures (Google, Twilio)",
+      ],
+    });
+  }
+
+  if (platformHealth?.imports) {
+    configs.push({
+      key: "imports",
+      label: "Imports",
+      icon: ListChecks,
+      state: platformHealth.imports.state,
+      reason: platformHealth.imports.reason,
+      details: `Jobs in last 24h: ${platformHealth.imports.last24hJobs ?? 0}.`,
+      actions: [
+        { label: "View Import Runs", icon: FileSpreadsheet, action: "navigate", target: "/system-status" },
+      ],
+      tips: [
+        "No recent imports is normal if no CSV uploads were scheduled",
+        "Failed imports will show error details in System Status → Import Runs",
+      ],
+    });
+  }
+
+  if (platformHealth?.trips) {
+    configs.push({
+      key: "trips",
+      label: "Trips",
+      icon: Car,
+      state: platformHealth.trips.state,
+      reason: platformHealth.trips.reason,
+      details: `Active trips: ${platformHealth.trips.activeTrips ?? 0}. Late pickups and no-shows require attention.`,
+      actions: [
+        { label: "Open Dispatch Board", icon: MapPin, action: "navigate", target: "/dispatch" },
+        { label: "View All Trips", icon: Car, variant: "outline", action: "navigate", target: "/trips" },
+        { label: "Run Alert Check", icon: Zap, variant: "outline", action: "api", target: "/api/ops/alerts/run-once", method: "POST" },
+      ],
+      tips: [
+        "Late pickups signal driver scheduling or traffic issues",
+        "No-shows may need patient confirmation workflow review",
+        "Use the Dispatch Board for real-time trip monitoring",
+      ],
+    });
+  }
+
+  if (platformHealth?.drivers) {
+    configs.push({
+      key: "drivers",
+      label: "Drivers",
+      icon: Users,
+      state: platformHealth.drivers.state,
+      reason: platformHealth.drivers.reason,
+      details: `Active drivers: ${platformHealth.drivers.activeDrivers ?? 0}.`,
+      actions: [
+        { label: "View Driver List", icon: Users, action: "navigate", target: "/drivers" },
+        { label: "Fleet Operations", icon: Car, variant: "outline", action: "navigate", target: "/fleet-ops" },
+      ],
+      tips: [
+        "No active drivers is expected outside operating hours",
+        "If drivers should be online, check the driver app status",
+        "GPS signal issues may cause drivers to appear offline",
+      ],
+    });
+  }
+
+  if (platformHealth?.notifications) {
+    configs.push({
+      key: "notifications",
+      label: "SMS / Notifications",
+      icon: Radio,
+      state: platformHealth.notifications.state,
+      reason: platformHealth.notifications.reason,
+      details: `Sent: ${platformHealth.notifications.smsSent24h ?? 0}/24h. Fail rate: ${platformHealth.notifications.failRatePct ?? "0.0"}%.`,
+      actions: [
+        { label: "Test SMS Delivery", icon: Send, action: "api", target: "/api/sms/test" },
+        { label: "SMS Health Details", icon: Shield, variant: "outline", action: "navigate", target: "/ops-health?section=system" },
+        { label: "Twilio Console", icon: ExternalLink, variant: "outline", action: "link", target: "https://console.twilio.com/" },
+      ],
+      tips: [
+        "High fail rates may indicate Twilio account issues or blocked numbers",
+        "If Twilio is blocked/suspended, dismiss this alert and contact Twilio support",
+        "Check for carrier-level blocks if messages fail to specific numbers",
+      ],
+    });
+  }
+
+  return configs;
+}
+
+function buildStatusRemediations(adminSummary: any): RemediationConfig[] {
+  if (!adminSummary) return [];
+  const configs: RemediationConfig[] = [];
+
+  configs.push({
+    key: "status-api",
+    label: "API Server",
+    icon: CheckCircle2,
+    state: adminSummary.ok ? "HEALTHY" : "CRITICAL",
+    reason: adminSummary.ok ? "API server is responding normally" : "API server is not responding",
+    details: `RPM: ${adminSummary.requests.rpm}. p50: ${adminSummary.requests.p50ms}ms. p95: ${adminSummary.requests.p95ms}ms.`,
+    actions: [
+      { label: "Run Smoke Test", icon: Play, action: "api", target: "/api/ops/smoke-run", method: "POST" },
+      { label: "View System Status", icon: Server, variant: "outline", action: "navigate", target: "/system-status" },
+    ],
+    tips: [
+      "If API is down, check server logs for crashes or memory issues",
+      "High error rates may indicate database connectivity problems",
+    ],
+  });
+
+  configs.push({
+    key: "status-db",
+    label: "Database",
+    icon: DatabaseIcon,
+    state: adminSummary.db.ok ? "HEALTHY" : "CRITICAL",
+    reason: adminSummary.db.ok ? `Database connected. Latency: ${adminSummary.db.latencyMs}ms` : "Database connection failed",
+    details: `Latency: ${adminSummary.db.latencyMs}ms.`,
+    actions: [
+      { label: "Deep Health Check", icon: RefreshCw, action: "api", target: "/api/admin/health/deep" },
+      { label: "Supabase Dashboard", icon: ExternalLink, variant: "outline", action: "link", target: "https://supabase.com/dashboard" },
+    ],
+    tips: [
+      "Connection failures may indicate Supabase pooler issues",
+      "High latency during peak hours is normal up to ~500ms",
+    ],
+  });
+
+  configs.push({
+    key: "status-ws",
+    label: "WebSocket",
+    icon: Wifi,
+    state: adminSummary.ws.ok ? "HEALTHY" : "CRITICAL",
+    reason: adminSummary.ws.ok ? `${adminSummary.ws.clients} connected clients` : "WebSocket server is down",
+    details: `Clients: ${adminSummary.ws.clients}. Subscriptions: ${adminSummary.ws.subscriptions}.`,
+    actions: [
+      { label: "View Realtime Metrics", icon: Radio, action: "navigate", target: "/metrics" },
+    ],
+    tips: [
+      "0 clients is normal if no users have the app open",
+      "WebSocket restarts automatically when the server restarts",
+    ],
+  });
+
+  configs.push({
+    key: "status-eta",
+    label: "ETA Engine",
+    icon: Cog,
+    state: adminSummary.jobs.eta.ok ? "HEALTHY" : "CRITICAL",
+    reason: adminSummary.jobs.eta.ok
+      ? `Running. ${adminSummary.jobs.eta.tickCount} ticks. Last: ${adminSummary.jobs.eta.lastTickAt ? new Date(adminSummary.jobs.eta.lastTickAt).toLocaleTimeString() : "N/A"}`
+      : adminSummary.jobs.eta.lastError || "ETA engine is stopped",
+    details: `Tick count: ${adminSummary.jobs.eta.tickCount}. Last error: ${adminSummary.jobs.eta.lastError || "None"}.`,
+    actions: [
+      { label: "Check ETA Health", icon: RefreshCw, action: "api", target: "/api/eta/health" },
+      { label: "View Ops Health", icon: Shield, variant: "outline", action: "navigate", target: "/ops-health?section=automation" },
+    ],
+    tips: [
+      "ETA engine stops if no trips are in progress",
+      "Restart the application if the engine is stuck",
+      "Google Maps quota exhaustion will cause ETA failures",
+    ],
+  });
+
+  configs.push({
+    key: "status-autoassign",
+    label: "Auto-Assign",
+    icon: Car,
+    state: adminSummary.jobs.autoAssign.ok ? "HEALTHY" : "CRITICAL",
+    reason: adminSummary.jobs.autoAssign.ok
+      ? `Running. ${adminSummary.jobs.autoAssign.tickCount} ticks.`
+      : adminSummary.jobs.autoAssign.lastError || "Auto-assign is stopped",
+    details: `Tick count: ${adminSummary.jobs.autoAssign.tickCount}. Last: ${adminSummary.jobs.autoAssign.lastTickAt ? new Date(adminSummary.jobs.autoAssign.lastTickAt).toLocaleTimeString() : "N/A"}.`,
+    actions: [
+      { label: "View Ops Health", icon: Shield, action: "navigate", target: "/ops-health?section=automation" },
+      { label: "View Assignments", icon: Car, variant: "outline", action: "navigate", target: "/fleet-ops" },
+    ],
+    tips: [
+      "Auto-assign runs on schedule (6:00 AM Mon-Sat)",
+      "Stopped status outside scheduled hours is normal",
+      "Manual assignment is always available via Dispatch Board",
+    ],
+  });
+
+  const hasErrors = adminSummary.requests.errors5xx > 0;
+  configs.push({
+    key: "status-rpm",
+    label: "Request Rate (RPM)",
+    icon: BarChart3,
+    state: hasErrors ? "CRITICAL" : "HEALTHY",
+    reason: `RPM: ${adminSummary.requests.rpm}. 5xx: ${adminSummary.requests.errors5xx}. 4xx: ${adminSummary.requests.errors4xx}.`,
+    details: `Current rate: ${adminSummary.requests.rpm} requests/min. p50: ${adminSummary.requests.p50ms}ms. p95: ${adminSummary.requests.p95ms}ms.`,
+    actions: [
+      { label: "View Route Metrics", icon: BarChart3, action: "navigate", target: "/metrics" },
+      { label: "Run Smoke Test", icon: Play, variant: "outline", action: "api", target: "/api/ops/smoke-run", method: "POST" },
+    ],
+    tips: [
+      "5xx errors indicate server-side failures — check logs for stack traces",
+      "4xx errors are client-side (bad requests, not found, unauthorized)",
+      "High RPM with low errors is healthy — focus on error ratio, not raw RPM",
+    ],
+  });
+
+  const uptimeHrs = adminSummary.uptimeSec / 3600;
+  configs.push({
+    key: "status-uptime",
+    label: "Server Uptime",
+    icon: Server,
+    state: uptimeHrs < 0.05 ? "CRITICAL" : "HEALTHY",
+    reason: uptimeHrs >= 1
+      ? `Server running for ${Math.floor(uptimeHrs)}h ${Math.floor((adminSummary.uptimeSec % 3600) / 60)}m`
+      : `Server running for ${Math.floor(adminSummary.uptimeSec / 60)}m`,
+    details: `Environment: ${adminSummary.env}. Version: ${adminSummary.version || "dev"}.`,
+    actions: [
+      { label: "View System Status", icon: Server, action: "navigate", target: "/system-status" },
+      { label: "Deep Health Check", icon: RefreshCw, variant: "outline", action: "api", target: "/api/admin/health/deep" },
+    ],
+    tips: [
+      "Very low uptime means the server recently restarted",
+      "Frequent restarts may indicate memory leaks or crash loops",
+      "All schedulers and jobs restart automatically with the server",
+    ],
+  });
+
+  return configs;
+}
+
+function HealthRemediationSheet({
+  open,
+  onClose,
+  config,
+  token,
+  onDismissChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  config: RemediationConfig | null;
+  token: string;
+  onDismissChange: () => void;
+}) {
+  const { toast } = useToast();
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (config) setDismissed(isIssueDismissed(config.key));
+  }, [config]);
+
+  if (!config) return null;
+
+  const Icon = config.icon;
+  const stateColor = config.state === "CRITICAL" ? "text-red-600 dark:text-red-400" : config.state === "GOOD" ? "text-blue-600 dark:text-blue-400" : "text-emerald-600 dark:text-emerald-400";
+  const bgColor = config.state === "CRITICAL"
+    ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900"
+    : config.state === "GOOD"
+    ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900"
+    : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900";
+
+  const handleAction = async (act: RemediationConfig["actions"][0]) => {
+    if (act.action === "link") {
+      window.open(act.target, "_blank");
+      return;
+    }
+    if (act.action === "navigate") {
+      onClose();
+      window.location.href = act.target;
+      return;
+    }
+    setActionLoading(act.label);
+    try {
+      const res = await fetch(act.target, {
+        method: act.method || "GET",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Request failed");
+      toast({ title: `${act.label} completed`, description: data.message || JSON.stringify(data).slice(0, 100) });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/metrics/health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/metrics/summary"] });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDismissToggle = () => {
+    if (dismissed) {
+      undismissIssue(config.key);
+      setDismissed(false);
+      toast({ title: "Issue restored", description: `${config.label} will show its actual status again.` });
+    } else {
+      dismissIssue(config.key);
+      setDismissed(true);
+      toast({ title: "Issue acknowledged", description: `${config.label} marked as reviewed. It will show as a warning instead of critical for 24 hours.` });
+    }
+    onDismissChange();
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+      <SheetContent className="sm:max-w-md overflow-y-auto" data-testid={`sheet-remediation-${config.key}`}>
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2" data-testid={`text-remediation-title-${config.key}`}>
+            <Icon className={`w-5 h-5 ${stateColor}`} />
+            {config.label}
+          </SheetTitle>
+          <SheetDescription>
+            Diagnostics & remediation actions
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="space-y-4 mt-4">
+          <div className={`p-4 rounded-lg border ${bgColor}`}>
+            <div className="flex items-center justify-between mb-2">
+              <Badge
+                variant={config.state === "CRITICAL" && !dismissed ? "destructive" : config.state === "GOOD" ? "secondary" : "default"}
+                className={config.state === "HEALTHY" ? "bg-emerald-600 text-white" : dismissed ? "bg-amber-500 text-white" : ""}
+                data-testid={`badge-remediation-state-${config.key}`}
+              >
+                {dismissed ? "ACKNOWLEDGED" : config.state}
+              </Badge>
+              {dismissed && (
+                <Badge variant="outline" className="text-xs" data-testid={`badge-dismissed-${config.key}`}>
+                  <EyeOff className="w-3 h-3 mr-1" />
+                  Reviewed
+                </Badge>
+              )}
+            </div>
+            <p className={`text-sm font-medium ${stateColor}`}>{config.reason}</p>
+            <p className="text-xs text-muted-foreground mt-1">{config.details}</p>
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold flex items-center gap-1.5">
+              <Wrench className="w-4 h-4" />
+              Actions
+            </h4>
+            <div className="space-y-2">
+              {config.actions.map((act) => (
+                <Button
+                  key={act.label}
+                  variant={act.variant || "default"}
+                  className="w-full justify-start"
+                  onClick={() => handleAction(act)}
+                  disabled={actionLoading === act.label}
+                  data-testid={`button-action-${act.label.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  {actionLoading === act.label ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <act.icon className="w-4 h-4 mr-2" />
+                  )}
+                  {act.label}
+                  {act.action === "link" && <ExternalLink className="w-3 h-3 ml-auto opacity-50" />}
+                  {act.action === "navigate" && <ChevronRight className="w-3 h-3 ml-auto opacity-50" />}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {config.state === "CRITICAL" && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                {dismissed ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                {dismissed ? "Issue Acknowledged" : "Can't fix right now?"}
+              </h4>
+              <p className="text-xs text-muted-foreground">
+                {dismissed
+                  ? "This issue has been reviewed. It will appear as a warning (yellow) instead of critical (red) for 24 hours."
+                  : "If this issue is caused by an external service (e.g., Twilio suspended), you can acknowledge it. It will show as a warning instead of critical."}
+              </p>
+              <Button
+                variant={dismissed ? "outline" : "secondary"}
+                className="w-full"
+                onClick={handleDismissToggle}
+                data-testid={`button-dismiss-${config.key}`}
+              >
+                {dismissed ? (
+                  <>
+                    <Eye className="w-4 h-4 mr-2" />
+                    Restore to Critical
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="w-4 h-4 mr-2" />
+                    Acknowledge & Dismiss
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4" />
+              Troubleshooting Tips
+            </h4>
+            <ul className="space-y-1.5">
+              {config.tips.map((tip, i) => (
+                <li key={i} className="text-xs text-muted-foreground flex items-start gap-2">
+                  <span className="text-muted-foreground/50 mt-0.5">•</span>
+                  {tip}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <Button variant="outline" className="w-full" onClick={onClose} data-testid={`button-close-remediation-${config.key}`}>
+            Close
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 export default function MetricsPage() {
   const { user, selectedCity } = useAuth();
   const [latencyHistory, setLatencyHistory] = useState<HistoryPoint[]>([]);
@@ -280,6 +802,8 @@ export default function MetricsPage() {
   const [exportLoading, setExportLoading] = useState<string | null>(null);
   const prevMetricsRef = useRef<string>("");
   const prevGoogleRef = useRef<string>("");
+  const [openRemediation, setOpenRemediation] = useState<RemediationConfig | null>(null);
+  const [dismissVersion, setDismissVersion] = useState(0);
 
   const token = localStorage.getItem("auth_token") || "";
 
@@ -587,175 +1111,245 @@ export default function MetricsPage() {
         />
       </div>
 
-      {platformHealth && (
-        <Card data-testid="card-platform-health">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-medium" data-testid="text-platform-health-title">Platform Health</CardTitle>
-              <Badge
-                variant={platformHealth.overallState === "CRITICAL" ? "destructive" : "default"}
-                className={platformHealth.overallState === "HEALTHY" ? "bg-emerald-600 text-white" : platformHealth.overallState === "GOOD" ? "bg-blue-600 text-white" : ""}
-                data-testid="badge-overall-health"
-              >
-                {platformHealth.overallState}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              {([
-                { key: "db", label: "Database", icon: DatabaseIcon, extra: (d: any) => d.latencyMs != null ? `${d.latencyMs}ms` : "" },
-                { key: "api", label: "API", icon: Activity, extra: (d: any) => d.p95Ms != null ? `p95: ${d.p95Ms}ms` : "" },
-                { key: "imports", label: "Imports", icon: ListChecks, extra: (d: any) => d.last24hJobs != null ? `${d.last24hJobs} jobs/24h` : "" },
-                { key: "trips", label: "Trips", icon: Car, extra: (d: any) => d.activeTrips != null ? `${d.activeTrips} active` : "" },
-                { key: "drivers", label: "Drivers", icon: Users, extra: (d: any) => d.activeDrivers != null ? `${d.activeDrivers} active` : "" },
-                { key: "notifications", label: "SMS", icon: Radio, extra: (d: any) => d.smsSent24h != null ? `${d.smsSent24h} sent/24h` : "" },
-              ] as const).map(({ key, label, icon: Ic, extra }) => {
-                const metric = (platformHealth as any)[key] as HealthMetric | undefined;
-                if (!metric) return null;
-                const stateColor = metric.state === "CRITICAL" ? "text-red-600 dark:text-red-400" : metric.state === "GOOD" ? "text-blue-600 dark:text-blue-400" : "text-emerald-600 dark:text-emerald-400";
-                const bgColor = metric.state === "CRITICAL" ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900" : metric.state === "GOOD" ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900" : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900";
-                return (
-                  <div key={key} className={`rounded-md border p-3 ${bgColor}`} data-testid={`health-card-${key}`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <Ic className={`h-3.5 w-3.5 ${stateColor}`} />
-                      <span className="text-xs font-medium">{label}</span>
+      {platformHealth && (() => {
+        const healthRemediations = buildHealthRemediations(platformHealth, adminSummary);
+        return (
+          <Card data-testid="card-platform-health">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-medium" data-testid="text-platform-health-title">Platform Health</CardTitle>
+                <Badge
+                  variant={platformHealth.overallState === "CRITICAL" ? "destructive" : "default"}
+                  className={platformHealth.overallState === "HEALTHY" ? "bg-emerald-600 text-white" : platformHealth.overallState === "GOOD" ? "bg-blue-600 text-white" : ""}
+                  data-testid="badge-overall-health"
+                >
+                  {platformHealth.overallState}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {([
+                  { key: "db", label: "Database", icon: DatabaseIcon, extra: (d: any) => d.latencyMs != null ? `${d.latencyMs}ms` : "" },
+                  { key: "api", label: "API", icon: Activity, extra: (d: any) => d.p95Ms != null ? `p95: ${d.p95Ms}ms` : "" },
+                  { key: "imports", label: "Imports", icon: ListChecks, extra: (d: any) => d.last24hJobs != null ? `${d.last24hJobs} jobs/24h` : "" },
+                  { key: "trips", label: "Trips", icon: Car, extra: (d: any) => d.activeTrips != null ? `${d.activeTrips} active` : "" },
+                  { key: "drivers", label: "Drivers", icon: Users, extra: (d: any) => d.activeDrivers != null ? `${d.activeDrivers} active` : "" },
+                  { key: "notifications", label: "SMS", icon: Radio, extra: (d: any) => d.smsSent24h != null ? `${d.smsSent24h} sent/24h` : "" },
+                ] as const).map(({ key, label, icon: Ic, extra }) => {
+                  const metric = (platformHealth as any)[key] as HealthMetric | undefined;
+                  if (!metric) return null;
+                  const isDismissed = isIssueDismissed(key);
+                  const effectiveState = isDismissed && metric.state === "CRITICAL" ? "GOOD" : metric.state;
+                  const stateColor = effectiveState === "CRITICAL" ? "text-red-600 dark:text-red-400" : effectiveState === "GOOD" ? "text-blue-600 dark:text-blue-400" : "text-emerald-600 dark:text-emerald-400";
+                  const bgColor = effectiveState === "CRITICAL" ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900" : effectiveState === "GOOD" ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900" : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900";
+                  const remediation = healthRemediations.find(r => r.key === key);
+                  return (
+                    <button
+                      type="button"
+                      key={key}
+                      className={`rounded-md border p-3 ${bgColor} text-left cursor-pointer hover:shadow-md hover:brightness-95 dark:hover:brightness-110 transition-all relative group`}
+                      onClick={() => remediation && setOpenRemediation(remediation)}
+                      data-testid={`health-card-${key}`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Ic className={`h-3.5 w-3.5 ${stateColor}`} />
+                        <span className="text-xs font-medium">{label}</span>
+                        <ChevronRight className="w-3 h-3 ml-auto text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-sm font-semibold ${stateColor}`} data-testid={`health-state-${key}`}>
+                          {isDismissed && metric.state === "CRITICAL" ? "REVIEWED" : metric.state}
+                        </span>
+                        {isDismissed && metric.state === "CRITICAL" && (
+                          <EyeOff className="w-3 h-3 text-amber-500" />
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight" data-testid={`health-reason-${key}`}>{metric.reason}</p>
+                      {extra(metric) && <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">{extra(metric)}</p>}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {adminSummary && (() => {
+        const statusRemediations = buildStatusRemediations(adminSummary);
+        const openStatusRemediation = (key: string) => {
+          const r = statusRemediations.find(s => s.key === key);
+          if (r) setOpenRemediation(r);
+        };
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            <button type="button" className="text-left" onClick={() => openStatusRemediation("status-api")} data-testid="card-api-status">
+              <Card className="cursor-pointer hover:shadow-md transition-all group h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                      <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
                     </div>
-                    <div className={`text-sm font-semibold ${stateColor}`} data-testid={`health-state-${key}`}>{metric.state}</div>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight" data-testid={`health-reason-${key}`}>{metric.reason}</p>
-                    {extra(metric) && <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">{extra(metric)}</p>}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">API</p>
+                        <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <Badge variant={adminSummary.ok ? "default" : "destructive"}>
+                        {adminSummary.ok ? "OK" : "ERROR"}
+                      </Badge>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                </CardContent>
+              </Card>
+            </button>
 
-      {adminSummary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-          <Card data-testid="card-api-status">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-muted flex-shrink-0">
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-muted-foreground">API</p>
-                  <Badge variant={adminSummary.ok ? "default" : "destructive"}>
-                    {adminSummary.ok ? "OK" : "ERROR"}
-                  </Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            <button type="button" className="text-left" onClick={() => openStatusRemediation("status-db")} data-testid="card-db-status">
+              <Card className="cursor-pointer hover:shadow-md transition-all group h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                      <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">Database</p>
+                        <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <Badge variant={adminSummary.db.ok ? "default" : "destructive"}>
+                        {adminSummary.db.ok ? "OK" : "DOWN"}
+                      </Badge>
+                      <p className="text-xs text-muted-foreground tabular-nums mt-0.5" data-testid="text-db-latency">{adminSummary.db.latencyMs}ms</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </button>
 
-          <Card data-testid="card-db-status">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-muted flex-shrink-0">
-                  <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-muted-foreground">Database</p>
-                  <Badge variant={adminSummary.db.ok ? "default" : "destructive"}>
-                    {adminSummary.db.ok ? "OK" : "DOWN"}
-                  </Badge>
-                  <p className="text-xs text-muted-foreground tabular-nums mt-0.5" data-testid="text-db-latency">{adminSummary.db.latencyMs}ms</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            <button type="button" className="text-left" onClick={() => openStatusRemediation("status-ws")} data-testid="card-ws-status">
+              <Card className="cursor-pointer hover:shadow-md transition-all group h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                      <Wifi className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">WebSocket</p>
+                        <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <Badge variant={adminSummary.ws.ok ? "default" : "destructive"}>
+                        {adminSummary.ws.ok ? "OK" : "DOWN"}
+                      </Badge>
+                      <p className="text-xs text-muted-foreground tabular-nums mt-0.5" data-testid="text-ws-clients">{adminSummary.ws.clients} clients</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </button>
 
-          <Card data-testid="card-ws-status">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-muted flex-shrink-0">
-                  <Wifi className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-muted-foreground">WebSocket</p>
-                  <Badge variant={adminSummary.ws.ok ? "default" : "destructive"}>
-                    {adminSummary.ws.ok ? "OK" : "DOWN"}
-                  </Badge>
-                  <p className="text-xs text-muted-foreground tabular-nums mt-0.5" data-testid="text-ws-clients">{adminSummary.ws.clients} clients</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            <button type="button" className="text-left" onClick={() => openStatusRemediation("status-eta")} data-testid="card-eta-job">
+              <Card className="cursor-pointer hover:shadow-md transition-all group h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                      <Cog className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">ETA Engine</p>
+                        <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <Badge variant={adminSummary.jobs.eta.ok ? "default" : "destructive"}>
+                        {adminSummary.jobs.eta.ok ? "RUNNING" : "STOPPED"}
+                      </Badge>
+                      {adminSummary.jobs.eta.lastTickAt && (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-eta-tick">
+                          {formatTime(adminSummary.jobs.eta.lastTickAt)}
+                        </p>
+                      )}
+                      {adminSummary.jobs.eta.lastError && (
+                        <p className="text-xs text-destructive truncate mt-0.5">{adminSummary.jobs.eta.lastError}</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </button>
 
-          <Card data-testid="card-eta-job">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-muted flex-shrink-0">
-                  <Cog className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-muted-foreground">ETA Engine</p>
-                  <Badge variant={adminSummary.jobs.eta.ok ? "default" : "destructive"}>
-                    {adminSummary.jobs.eta.ok ? "RUNNING" : "STOPPED"}
-                  </Badge>
-                  {adminSummary.jobs.eta.lastTickAt && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-eta-tick">
-                      {formatTime(adminSummary.jobs.eta.lastTickAt)}
-                    </p>
-                  )}
-                  {adminSummary.jobs.eta.lastError && (
-                    <p className="text-xs text-destructive truncate mt-0.5">{adminSummary.jobs.eta.lastError}</p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            <button type="button" className="text-left" onClick={() => openStatusRemediation("status-autoassign")} data-testid="card-autoassign-job">
+              <Card className="cursor-pointer hover:shadow-md transition-all group h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                      <Car className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">Auto-Assign</p>
+                        <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <Badge variant={adminSummary.jobs.autoAssign.ok ? "default" : "destructive"}>
+                        {adminSummary.jobs.autoAssign.ok ? "RUNNING" : "STOPPED"}
+                      </Badge>
+                      {adminSummary.jobs.autoAssign.lastTickAt && (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-assign-tick">
+                          {formatTime(adminSummary.jobs.autoAssign.lastTickAt)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </button>
 
-          <Card data-testid="card-autoassign-job">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-muted flex-shrink-0">
-                  <Car className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-muted-foreground">Auto-Assign</p>
-                  <Badge variant={adminSummary.jobs.autoAssign.ok ? "default" : "destructive"}>
-                    {adminSummary.jobs.autoAssign.ok ? "RUNNING" : "STOPPED"}
-                  </Badge>
-                  {adminSummary.jobs.autoAssign.lastTickAt && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-assign-tick">
-                      {formatTime(adminSummary.jobs.autoAssign.lastTickAt)}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            <button type="button" className="text-left" onClick={() => openStatusRemediation("status-rpm")} data-testid="card-rpm-status">
+              <Card className="cursor-pointer hover:shadow-md transition-all group h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                      <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">RPM</p>
+                        <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <p className="text-lg font-semibold tabular-nums" data-testid="text-metric-rpm">{adminSummary.requests.rpm}</p>
+                      <p className="text-xs text-muted-foreground truncate">5xx: {adminSummary.requests.errors5xx} / 4xx: {adminSummary.requests.errors4xx}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </button>
 
-          <MetricCard
-            title="RPM"
-            value={adminSummary.requests.rpm}
-            subtitle={`5xx: ${adminSummary.requests.errors5xx} / 4xx: ${adminSummary.requests.errors4xx}`}
-            icon={BarChart3}
-          />
-
-          <Card data-testid="card-uptime">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-muted flex-shrink-0">
-                  <Server className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-muted-foreground">Uptime</p>
-                  <p className="text-lg font-semibold tabular-nums" data-testid="text-uptime">
-                    {adminSummary.uptimeSec >= 3600
-                      ? `${Math.floor(adminSummary.uptimeSec / 3600)}h ${Math.floor((adminSummary.uptimeSec % 3600) / 60)}m`
-                      : `${Math.floor(adminSummary.uptimeSec / 60)}m`}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{adminSummary.env} v{adminSummary.version}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            <button type="button" className="text-left" onClick={() => openStatusRemediation("status-uptime")} data-testid="card-uptime">
+              <Card className="cursor-pointer hover:shadow-md transition-all group h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-muted flex-shrink-0">
+                      <Server className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">Uptime</p>
+                        <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <p className="text-lg font-semibold tabular-nums" data-testid="text-uptime">
+                        {adminSummary.uptimeSec >= 3600
+                          ? `${Math.floor(adminSummary.uptimeSec / 3600)}h ${Math.floor((adminSummary.uptimeSec % 3600) / 60)}m`
+                          : `${Math.floor(adminSummary.uptimeSec / 60)}m`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{adminSummary.env} v{adminSummary.version}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </button>
+          </div>
+        );
+      })()}
 
       {adminCounts && (
         <Card data-testid="card-counts">
@@ -1130,6 +1724,14 @@ export default function MetricsPage() {
         <DriverIntelSection />
         <JobDashboardSection />
       </div>
+
+      <HealthRemediationSheet
+        open={!!openRemediation}
+        onClose={() => setOpenRemediation(null)}
+        config={openRemediation}
+        token={token}
+        onDismissChange={() => setDismissVersion(v => v + 1)}
+      />
     </div>
   );
 }
