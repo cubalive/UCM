@@ -221,6 +221,8 @@ export const drivers = pgTable("drivers", {
   connected: boolean("connected").notNull().default(false),
   connectedAt: timestamp("connected_at"),
   companyId: integer("company_id").notNull().references(() => companies.id),
+  vehicleCapability: text("vehicle_capability").notNull().default("sedan"),
+  photoUrl: text("photo_url"),
   active: boolean("active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
@@ -1640,6 +1642,8 @@ export const companySettings = pgTable("company_settings", {
   rpmLimit: integer("rpm_limit").notNull().default(300),
   pdfRpmLimit: integer("pdf_rpm_limit").notNull().default(30),
   mapsRpmLimit: integer("maps_rpm_limit").notNull().default(60),
+  driverProfileEnabled: boolean("driver_profile_enabled").notNull().default(true),
+  lockDriverCapability: boolean("lock_driver_capability").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

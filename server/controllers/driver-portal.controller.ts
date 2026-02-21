@@ -62,6 +62,136 @@ export async function getDriverMyTripsHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export async function getDriverMeHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+    const driver = await storage.getDriver(user.driverId);
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+    const [company] = driver.companyId
+      ? await db.select({ id: companies.id, name: companies.name, dispatchPhone: companies.dispatchPhone })
+          .from(companies).where(eq(companies.id, driver.companyId))
+      : [null as any];
+
+    let cityName: string | null = null;
+    let stateCode: string | null = null;
+    if (driver.cityId) {
+      const [city] = await db.select({ name: cities.name, state: cities.state }).from(cities).where(eq(cities.id, driver.cityId));
+      if (city) { cityName = city.name; stateCode = city.state; }
+    }
+
+    const vehicle = driver.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
+
+    const [activeShift] = await db.select()
+      .from(driverShifts)
+      .where(and(eq(driverShifts.driverId, driver.id), eq(driverShifts.status, "ACTIVE")))
+      .limit(1);
+
+    let settings: any = null;
+    if (driver.companyId) {
+      const [s] = await db.select().from(companySettings).where(eq(companySettings.companyId, driver.companyId));
+      settings = s || null;
+    }
+
+    res.json({
+      user: { id: user.id, email: user.email },
+      driver: {
+        id: driver.id,
+        publicId: driver.publicId,
+        displayName: `${driver.firstName} ${driver.lastName}`,
+        firstName: driver.firstName,
+        lastName: driver.lastName,
+        phone: driver.phone,
+        email: driver.email,
+        photoUrl: driver.photoUrl || null,
+        vehicleCapability: driver.vehicleCapability || "sedan",
+        status: driver.status,
+        dispatchStatus: driver.dispatchStatus,
+        connected: driver.connected,
+        company: company ? {
+          id: company.id,
+          name: company.name,
+          cityName,
+          stateCode,
+          dispatchPhone: company.dispatchPhone,
+        } : null,
+        assignedVehicle: vehicle ? {
+          id: vehicle.id,
+          publicId: vehicle.publicId,
+          name: vehicle.name,
+          plate: vehicle.licensePlate,
+          category: vehicle.capability,
+          color: vehicle.colorHex,
+          wheelchairAccessible: vehicle.wheelchairAccessible,
+          make: vehicle.makeText || vehicle.make,
+          model: vehicle.modelText || vehicle.model,
+          year: vehicle.year,
+        } : null,
+        shift: activeShift ? {
+          status: "ON_SHIFT",
+          startedAt: activeShift.startedAt,
+        } : { status: "OFF_SHIFT", startedAt: null },
+      },
+      settings: {
+        driverProfileEnabled: settings?.driverProfileEnabled ?? true,
+        lockDriverCapability: settings?.lockDriverCapability ?? false,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function patchDriverMeHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+    const driver = await storage.getDriver(user.driverId);
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+    const schema = z.object({
+      firstName: z.string().min(1).max(100).optional(),
+      lastName: z.string().min(1).max(100).optional(),
+      phone: z.string().min(5).max(20).optional(),
+      photoUrl: z.string().url().max(1000).optional().nullable(),
+      vehicleCapability: z.enum(["sedan", "wheelchair", "both"]).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid fields", errors: parsed.error.flatten().fieldErrors });
+
+    const data = parsed.data;
+    const updateData: any = { updatedAt: new Date() };
+
+    if (data.firstName !== undefined) updateData.firstName = data.firstName;
+    if (data.lastName !== undefined) updateData.lastName = data.lastName;
+    if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.photoUrl !== undefined) updateData.photoUrl = data.photoUrl;
+
+    if (data.vehicleCapability !== undefined) {
+      let locked = false;
+      if (driver.companyId) {
+        const [settings] = await db.select({ lockDriverCapability: companySettings.lockDriverCapability })
+          .from(companySettings).where(eq(companySettings.companyId, driver.companyId));
+        locked = settings?.lockDriverCapability ?? false;
+      }
+      if (locked) {
+        return res.status(403).json({ message: "Vehicle capability is locked by your company. Contact dispatch to request a change." });
+      }
+      updateData.vehicleCapability = data.vehicleCapability;
+    }
+
+    await db.update(drivers).set(updateData).where(eq(drivers.id, user.driverId));
+    const updated = await storage.getDriver(user.driverId);
+    res.json({ driver: updated });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 export async function getDriverProfileHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
