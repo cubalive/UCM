@@ -1,0 +1,72 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Senior full-stack engineer (React + Node/Express + Supabase/Postgres).
+GOAL: Verify clinic subdomain live trip tracking is correctly implemented:
+- Clinic users can open a specific trip and see live status/location updates (near real-time).
+- Clinic users can ONLY see trips belonging to their clinic/company/city scope (per current multi-tenant rules).
+- All other trips remain closed/inaccessible (no leakage by ID, list, search, or API).
+- Admin/Dispatcher retain broader access as designed.
+NO FEATURE CHANGES unless a critical security bug is found.
+If changes are required, propose minimal diffs only.
+
+HARD RULES
+- Do NOT reset DB, do NOT drop tables.
+- Do NOT change secrets/env vars.
+- Do NOT change unrelated features/UI.
+- Use existing RBAC/tenant helpers and existing realtime/refresh mechanisms.
+- Prefer returning 404 (not 403) when clinic is not allowed to access a trip (avoid ID probing).
+
+A) WHAT TO VERIFY (Clinic)
+1) Clinic trip listing:
+   - Which endpoint supplies trips to clinic UI?
+   - Confirm it filters by clinic scope (clinic_id and/or company_id + city_id, whichever is the current design).
+   - Confirm server-side filter exists (not only front-end).
+
+2) Clinic trip detail:
+   - When clinic clicks a trip, which endpoint is called (e.g., GET /api/trips/:id)?
+   - Confirm server verifies tenant + clinic scope.
+   - Attempt to fetch a trip from another clinic using direct URL /api/trips/:id and confirm 404.
+
+3) Live tracking behavior:
+   - Identify how “live” is implemented:
+     a) Supabase Realtime subscriptions, OR
+     b) polling refresh interval, OR
+     c) server-sent events/websocket.
+   - Confirm clinic view receives updates when:
+     - dispatcher assigns driver
+     - driver accepts
+     - driver starts trip
+     - driver arrives pickup/dropoff
+     - trip completes
+     - driver location updates (lat/lng)
+   - Document where the UI subscribes/polls and what table/fields it listens to.
+
+4) Map + ETA for clinic:
+   - Confirm clinic trip detail shows route (polyline if implemented) and driver marker.
+   - Confirm ETA is computed/updated from driver->pickup and/or driver->dropoff according to current logic.
+   - Confirm no excessive Google API calls from clinic frontend (Directions must be backend-only; routes should be cached if implemented).
+
+B) SECURITY / ISOLATION TESTS (must perform)
+Run these tests with real accounts/data in Las Vegas:
+1) Create 2 clinics under different scopes (Clinic A and Clinic B).
+2) Create trips for each.
+3) Log in to clinic subdomain as Clinic A:
+   - Trips list shows ONLY Clinic A trips.
+   - Opening a Clinic B trip by ID in URL or API returns 404.
+4) Validate search:
+   - Any “search trips/patients” in clinic UI must be scoped and not return other clinics.
+5) Verify completed trip immutability for clinic:
+   - If policy says completed trips are locked, confirm clinic cannot send messages/update anything after completion.
+
+C) DELIVERABLES (reply with proof, not assumptions)
+1) List the exact file paths + functions where:
+   - clinic scope is enforced (backend)
+   - clinic trip list query is built
+   - clinic trip detail access is checked
+   - realtime subscription/polling is implemented
+2) Provide screenshots or log evidence (console/server logs) showing:
+   - clinic receives live updates during a trip
+   - unauthorized trip access returns 404
+3) If any gap found:
+   - explain severity (SECURITY vs UX)
+   - propose minimal patch plan (no broad refactors)
+   - include exact diffs/patch steps and how you will verify fix.
