@@ -39,8 +39,9 @@ import {
   Loader2,
   Pencil,
   AlertTriangle,
+  Building2,
 } from "lucide-react";
-import { getStoredCompanyScopeId } from "@/lib/api";
+import { getStoredCompanyScopeId, setStoredCompanyScopeId } from "@/lib/api";
 
 function cents(v: number): string {
   return (v / 100).toFixed(2);
@@ -59,16 +60,48 @@ export default function BillingTariffsPage() {
   const [invoiceTo, setInvoiceTo] = useState("");
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
-  const hasCompanyScope = isSuperAdmin ? !!getStoredCompanyScopeId() : true;
+  const [companyScopeId, setCompanyScopeId] = useState<string | null>(getStoredCompanyScopeId());
+  const hasCompanyScope = isSuperAdmin ? !!companyScopeId : true;
+
+  const companiesQuery = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch("/api/companies", token),
+    enabled: !!token && isSuperAdmin,
+  });
+
+  const handleCompanyChange = (value: string) => {
+    setStoredCompanyScopeId(value);
+    setCompanyScopeId(value);
+    queryClient.invalidateQueries();
+  };
 
   if (isSuperAdmin && !hasCompanyScope) {
+    const companies = companiesQuery.data || [];
     return (
       <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="billing-no-company">
-        <AlertTriangle className="w-10 h-10 text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Company Scope Required</h2>
+        <Building2 className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Select a Company</h2>
         <p className="text-sm text-muted-foreground text-center max-w-md">
-          As a Super Admin, please select a company from the Companies page first to access billing configuration.
+          As a Super Admin, select a company to access its billing configuration.
         </p>
+        <div className="w-full max-w-xs">
+          {companiesQuery.isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
+            <Select onValueChange={handleCompanyChange}>
+              <SelectTrigger data-testid="select-company-scope">
+                <SelectValue placeholder="Choose a company..." />
+              </SelectTrigger>
+              <SelectContent>
+                {companies.map((c: any) => (
+                  <SelectItem key={c.id} value={String(c.id)} data-testid={`option-company-${c.id}`}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
     );
   }
@@ -175,7 +208,22 @@ export default function BillingTariffsPage() {
   return (
     <div className="p-4 space-y-6 max-w-7xl mx-auto" data-testid="billing-tariffs-page">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">Billing Configuration</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">Billing Configuration</h1>
+          {isSuperAdmin && (
+            <Select value={companyScopeId || ""} onValueChange={handleCompanyChange}>
+              <SelectTrigger className="w-52" data-testid="select-company-switch">
+                <Building2 className="w-4 h-4 mr-1 text-muted-foreground shrink-0" />
+                <SelectValue placeholder="Switch company..." />
+              </SelectTrigger>
+              <SelectContent>
+                {(companiesQuery.data || []).map((c: any) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
         <Button onClick={() => setShowCreate(true)} data-testid="button-create-tariff">
           <Plus className="w-4 h-4 mr-2" />
           New Tariff
