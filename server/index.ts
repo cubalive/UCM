@@ -523,6 +523,55 @@ app.use((req, res, next) => {
       }
     }
 
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        CREATE TYPE on_time_bonus_mode AS ENUM ('PER_TRIP','WEEKLY');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    `);
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        CREATE TYPE earnings_adjustment_type AS ENUM ('DAILY_MIN_TOPUP','ON_TIME_BONUS','NO_SHOW_PENALTY','MANUAL_ADJUSTMENT');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    `);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS driver_pay_rules (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        company_id INTEGER NOT NULL UNIQUE REFERENCES companies(id),
+        daily_min_enabled BOOLEAN NOT NULL DEFAULT false,
+        daily_min_cents INTEGER,
+        daily_min_applies_days TEXT[],
+        on_time_bonus_enabled BOOLEAN NOT NULL DEFAULT false,
+        on_time_bonus_mode on_time_bonus_mode,
+        on_time_bonus_cents INTEGER,
+        on_time_threshold_minutes INTEGER DEFAULT 5,
+        on_time_requires_confirmed_pickup BOOLEAN NOT NULL DEFAULT true,
+        no_show_penalty_enabled BOOLEAN NOT NULL DEFAULT false,
+        no_show_penalty_cents INTEGER,
+        no_show_penalty_reason_codes TEXT[],
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS driver_earnings_adjustments (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        driver_id INTEGER NOT NULL REFERENCES drivers(id),
+        related_trip_id INTEGER REFERENCES trips(id),
+        period_date TEXT,
+        week_start TEXT,
+        type earnings_adjustment_type NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        metadata JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS dea_company_driver_created_idx ON driver_earnings_adjustments(company_id, driver_id, created_at)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS dea_company_driver_week_idx ON driver_earnings_adjustments(company_id, driver_id, week_start)`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);

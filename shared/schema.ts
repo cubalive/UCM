@@ -2223,6 +2223,55 @@ export const insertPayrollPayrunItemSchema = createInsertSchema(payrollPayrunIte
 export type PayrollPayrunItem = typeof payrollPayrunItems.$inferSelect;
 export type InsertPayrollPayrunItem = z.infer<typeof insertPayrollPayrunItemSchema>;
 
+export const onTimeBonusModeEnum = pgEnum("on_time_bonus_mode", ["PER_TRIP", "WEEKLY"]);
+export const earningsAdjustmentTypeEnum = pgEnum("earnings_adjustment_type", [
+  "DAILY_MIN_TOPUP", "ON_TIME_BONUS", "NO_SHOW_PENALTY", "MANUAL_ADJUSTMENT"
+]);
+
+export const driverPayRules = pgTable("driver_pay_rules", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().unique().references(() => companies.id),
+  dailyMinEnabled: boolean("daily_min_enabled").notNull().default(false),
+  dailyMinCents: integer("daily_min_cents"),
+  dailyMinAppliesDays: text("daily_min_applies_days").array(),
+  onTimeBonusEnabled: boolean("on_time_bonus_enabled").notNull().default(false),
+  onTimeBonusMode: onTimeBonusModeEnum("on_time_bonus_mode"),
+  onTimeBonusCents: integer("on_time_bonus_cents"),
+  onTimeThresholdMinutes: integer("on_time_threshold_minutes").default(5),
+  onTimeRequiresConfirmedPickup: boolean("on_time_requires_confirmed_pickup").notNull().default(true),
+  noShowPenaltyEnabled: boolean("no_show_penalty_enabled").notNull().default(false),
+  noShowPenaltyCents: integer("no_show_penalty_cents"),
+  noShowPenaltyReasonCodes: text("no_show_penalty_reason_codes").array(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertDriverPayRulesSchema = createInsertSchema(driverPayRules).omit({ id: true, createdAt: true, updatedAt: true });
+export type DriverPayRules = typeof driverPayRules.$inferSelect;
+export type InsertDriverPayRules = z.infer<typeof insertDriverPayRulesSchema>;
+
+export const driverEarningsAdjustments = pgTable("driver_earnings_adjustments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  relatedTripId: integer("related_trip_id").references(() => trips.id),
+  periodDate: text("period_date"),
+  weekStart: text("week_start"),
+  type: earningsAdjustmentTypeEnum("type").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  metadata: jsonb("metadata").notNull().default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("dea_company_driver_created_idx").on(table.companyId, table.driverId, table.createdAt),
+  index("dea_company_driver_week_idx").on(table.companyId, table.driverId, table.weekStart),
+  index("dea_idempotency_idx").on(table.idempotencyKey),
+]);
+
+export const insertDriverEarningsAdjustmentSchema = createInsertSchema(driverEarningsAdjustments).omit({ id: true, createdAt: true });
+export type DriverEarningsAdjustment = typeof driverEarningsAdjustments.$inferSelect;
+export type InsertDriverEarningsAdjustment = z.infer<typeof insertDriverEarningsAdjustmentSchema>;
+
 export const timeEntryStatusEnum = pgEnum("time_entry_status", ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "PAID"]);
 export const timeEntrySourceEnum = pgEnum("time_entry_source", ["MANUAL", "CSV"]);
 export const timeImportStatusEnum = pgEnum("time_import_status", ["DRAFT", "PROCESSED", "FAILED"]);

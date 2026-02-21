@@ -85,6 +85,8 @@ import FinanceConsolePage from "@/pages/finance-console";
 import FeeRulesPage from "@/pages/fee-rules";
 import EtaEscalationsPage from "@/pages/eta-escalations";
 import ZeroTouchDialysisPage from "@/pages/zero-touch-dialysis";
+import PayrollSettingsPage from "@/pages/payroll-settings";
+import DriverEarningsPage from "@/pages/driver-earnings";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState as useStateHook } from "react";
@@ -363,6 +365,8 @@ function Router() {
       <Route path="/timecards">{() => <ProtectedRoute resource="time_entries" component={TimecardsPage} />}</Route>
       <Route path="/tp-payroll">{() => <ProtectedRoute resource="payroll" component={TpPayrollPage} />}</Route>
       <Route path="/payroll/runs/:id">{() => <ProtectedRoute resource="payroll" component={PayrollDetailPage} />}</Route>
+      <Route path="/payroll-settings">{() => <ProtectedRoute resource="payroll" component={PayrollSettingsPage} />}</Route>
+      <Route path="/driver-earnings">{() => <ProtectedRoute resource="payroll" component={DriverEarningsPage} />}</Route>
       <Route path="/billing-config">{() => <ProtectedRoute resource="billing" component={BillingTariffsPage} />}</Route>
       <Route path="/platform-fees">{() => <ProtectedRoute resource="billing" component={PlatformFeesPage} />}</Route>
       <Route path="/admin/subscriptions">{() => { window.location.href = "/platform-fees?tab=subscription"; return null; }}</Route>

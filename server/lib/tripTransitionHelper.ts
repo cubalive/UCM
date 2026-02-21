@@ -174,6 +174,21 @@ export async function transitionTripStatus(
         await computeTripBilling(tripId);
       } catch {}
     }
+
+    try {
+      const { computeTripModifiers } = await import("../services/payroll/modifiersEngine");
+      const adjustments = await computeTripModifiers(tripId);
+      if (adjustments.length > 0 && updatedTrip.driverId) {
+        broadcastCompanyTripUpdate(updatedTrip.companyId, {
+          tripId,
+          type: "EARNINGS_UPDATED",
+          driverId: updatedTrip.driverId,
+          adjustments: adjustments.map(a => ({ type: a.type, amountCents: a.amountCents })),
+        });
+      }
+    } catch (err: any) {
+      console.error("[TRANSITION] Modifiers computation failed:", err.message);
+    }
   }
 
   await storage.createAuditLog({

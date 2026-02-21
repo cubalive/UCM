@@ -33,6 +33,7 @@ import { registerPublicApiRoutes } from "../lib/publicApiRoutes";
 import { registerClinicBillingRoutes } from "../lib/clinicBillingRoutes";
 import { registerStripeConnectRoutes } from "../lib/stripeConnectRoutes";
 import { registerPayrollRoutes, startPayrollScheduler } from "../lib/payrollRoutes";
+import { registerPayrollModifierRoutes } from "../controllers/payroll.controller";
 import { registerIntelligenceRoutes } from "./intelligence.routes";
 import { registerImportRoutes } from "./imports.routes";
 import { registerTimePayRoutes } from "./timepay.routes";
@@ -83,6 +84,7 @@ export async function registerRoutes(
   registerClinicBillingRoutes(app);
   registerStripeConnectRoutes(app);
   registerPayrollRoutes(app);
+  registerPayrollModifierRoutes(app);
 
   registerAuthRoutes(app);
   registerCityRoutes(app);

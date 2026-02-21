@@ -163,6 +163,7 @@ const operationGroups: NavGroup[] = [
       { titleKey: "nav.clinicBilling", url: "/clinic-billing", icon: DollarSign, resource: "invoices" },
       { titleKey: "nav.timecards", url: "/timecards", icon: Clock, resource: "time_entries" },
       { titleKey: "nav.tpPayroll", url: "/tp-payroll", icon: Banknote, resource: "payroll" },
+      { titleKey: "nav.payrollSettings", url: "/payroll-settings", icon: Settings2, resource: "payroll" },
       { titleKey: "nav.billingConfig", url: "/billing-config", icon: Settings2, resource: "billing" },
       { titleKey: "nav.platformFees", url: "/platform-fees", icon: DollarSign, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.feeRules", url: "/fee-rules", icon: Settings2, resource: "billing", superAdminOnly: true },
