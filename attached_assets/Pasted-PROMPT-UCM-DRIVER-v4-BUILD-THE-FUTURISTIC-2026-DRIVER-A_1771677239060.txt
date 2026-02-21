@@ -1,0 +1,274 @@
+PROMPT (UCM DRIVER v4) — BUILD THE FUTURISTIC 2026 DRIVER APP (EXPO RN + TS + NATIVEWIND + REANIMATED/MOTI)
+ROLE: Staff Mobile Engineer + Design Systems Lead (2026 premium UI)
+PROJECT: UCM Driver v4 (ridesharing/delivery driver app) — ultra intuitive + futuristic
+EXECUTION MODE: SINGLE AGENT ONLY
+NO PARALLEL TASKS
+DO NOT TOUCH BACKEND OR DATABASE
+FRONTEND APP ONLY
+OUTPUT MUST COMPILE AND RUN
+
+PRIMARY GOAL
+Create a modern, premium-futuristic 2026 driver app with maximum intuitiveness for drivers in motion:
+- glanceable in 1 second
+- one-hand friendly
+- minimal taps
+- contextual UI based on state (offline/online/active trip steps)
+- performance-first and accessible (WCAG 2.2, reduced motion)
+
+TECH STACK
+- Expo (preferred) + React Native 0.76+
+- TypeScript strict (interfaces, generics)
+- NativeWind (Tailwind) for styling
+- Reanimated 3 + Moti for animations
+- Zustand (preferred) for lightweight state
+- React Navigation 7 with custom transitions
+- expo-location, expo-secure-store, expo-haptics
+- Lucide-react-native icons
+- Zod for validation
+- Error boundaries + offline basic support
+
+VISUAL STYLE (2026 premium futurist: cyberpunk elegant + liquid glass)
+- Dark mode only
+- Background: #000000 → #0a0015 subtle nebula gradient
+- Glassmorphism 2.0: blur 20–40px, opacity 0.12–0.25, subtle neon borders (#00f0ff, #a855f7, #ff00aa)
+- Neon accents: cyan/magenta/purple with gentle glow pulse on interactions
+- Typography: Space Grotesk or Orbitron for titles, Inter for body
+- Radius: 24–32px on cards/buttons
+- Animations: scale+fade+blur transitions, glow pulse on buttons, liquid morph toggles, haptics
+- Depth: layered overlays, subtle parallax on map background
+- Accessibility: contrast 7:1+ where text overlays; VoiceOver labels; dynamic type; reduced motion support
+
+DELIVERABLES (DO IN THIS ORDER)
+A) Create the DESIGN SYSTEM FIRST (theme, tokens, reusable components)
+B) Then build main screens (start with Dashboard), wired to a mocked state machine store
+C) Provide a clean folder structure, code must be modular
+D) Ensure app runs with `npx expo start`
+
+==================================================
+PHASE 1 — PROJECT SETUP + FOLDER STRUCTURE
+==================================================
+1) Initialize an Expo app with TypeScript (strict).
+2) Install dependencies:
+   - nativewind + tailwind config
+   - react-navigation stack + bottom tabs + required peers
+   - react-native-reanimated, moti
+   - zustand
+   - expo-location, expo-secure-store, expo-haptics
+   - lucide-react-native
+   - zod
+3) Configure Reanimated correctly (babel plugin).
+4) Configure NativeWind correctly.
+5) Add a simple error boundary wrapper.
+
+Required folders:
+src/
+  app/
+    navigation/
+    screens/
+    components/
+    design/
+    store/
+    utils/
+    assets/
+  types/
+  test/
+app.config.ts (or app.json)
+tailwind.config.js
+babel.config.js
+
+==================================================
+PHASE 2 — DESIGN SYSTEM (MUST BE FIRST OUTPUT)
+==================================================
+Create design tokens and utilities:
+
+1) src/design/tokens.ts
+- colors:
+  bg0 #000000, bg1 #0a0015
+  neonCyan #00f0ff
+  neonMagenta #ff00aa
+  neonPurple #a855f7
+  textPrimary #ffffff
+  textSecondary rgba(255,255,255,0.72)
+  glassFill rgba(255,255,255,0.10 to 0.18)
+  glassStroke rgba(255,255,255,0.12)
+  dangerNeon #ff3355
+- radii: 16, 24, 32
+- spacing scale
+- shadows/glow presets
+- blur presets (20/30/40)
+- typography scale (title/body/caption)
+
+2) src/design/theme.ts
+- typed theme object
+- helper functions: glowColor(alpha), glassStyle(opacity, blur)
+
+3) src/design/accessibility.ts
+- reduced motion hook
+- accessible text color helper for overlays
+- standard accessibility labels patterns
+
+4) Tailwind tokens in tailwind.config.js
+- map custom colors and radii to tailwind utilities
+- ensure consistent class names
+
+==================================================
+PHASE 3 — REUSABLE COMPONENTS (REQUIRED)
+==================================================
+Implement these components in src/components/ui/ with 100% TS + props interfaces:
+
+1) GlassCard.tsx
+- blur layer + translucent fill + subtle neon border
+- props: variant, radius, padding, glowColor, children
+- accessible: allow testID, accessibilityLabel
+
+2) NeonButton.tsx (primary CTA)
+- large bottom-centered button style
+- press animations: scale + glow pulse
+- haptic on press
+- props: title, icon, onPress, disabled, variant (primary/secondary/danger)
+
+3) GlassButton.tsx (secondary actions)
+- smaller floating button with glass style + icon glow on active
+
+4) StatusToggle.tsx (Online/Offline)
+- liquid morph animation using Moti
+- haptic on toggle
+- props: value boolean, onChange, labels
+
+5) GlowProgressCircle.tsx
+- circular ETA/timer indicator with neon glow ring
+- props: progress 0..1, label, size
+
+6) MapOverlay.tsx
+- top/bottom overlay container with glass styling
+- used on Dashboard and Active Trip screen
+
+All components must support reduced motion (skip heavy animation if enabled).
+
+==================================================
+PHASE 4 — STATE MANAGEMENT (ZUSTAND) + MOCK STATE MACHINE
+==================================================
+Create a lightweight state store in src/store/driverStore.ts
+
+Types:
+- DriverStatus: 'offline' | 'online'
+- ShiftStatus: 'offShift' | 'onShift'
+- TripPhase: 'none' | 'offer' | 'toPickup' | 'arrivedPickup' | 'waiting' | 'pickedUp' | 'toDropoff' | 'arrivedDropoff' | 'complete'
+- ActiveTrip object:
+  id, pickupAddress, dropoffAddress, pickupLatLng, dropoffLatLng, passengerName, notes, etaMinutes
+
+Store state:
+- driverStatus, shiftStatus, activeTrip, tripPhase
+- earningsToday, earningsWeek, rating, completedRides
+- navPreference: 'ask'|'google'|'apple'|'waze'
+Actions:
+- setOnline/offline
+- startShift/endShift (only if online)
+- acceptTrip
+- goToPickup/goToDropoff (purely UI)
+- markArrivedPickup
+- startWaiting
+- confirmPickup
+- markArrivedDropoff
+- completeTrip
+- setNavPreference
+- simulateTripOffer() for demo
+
+Add a selector helper getNextAction() that returns:
+{ label, actionKey, disabled, hint }
+This must be deterministic and used by the Dashboard.
+
+==================================================
+PHASE 5 — NAVIGATION (React Navigation 7)
+==================================================
+Create:
+- Auth stack mock (Onboarding -> Main)
+- Main tabs: Dashboard, Trips, Earnings, Profile
+- Custom transitions with subtle fade/blur (respect reduced motion).
+
+==================================================
+PHASE 6 — SCREENS (BUILD DASHBOARD FIRST)
+==================================================
+1) Splash / Onboarding (src/screens/Onboarding)
+- Nebula gradient background + particles effect (lightweight, no heavy libs)
+- Logo glow reveal (Moti)
+- Quick login options UI:
+  - “Scan QR” (mock button)
+  - “Biometric” (mock button)
+  - “Continue” -> enters app
+- Use zod for any form input if present.
+
+2) Home Dashboard (STAR SCREEN) — build this first fully polished
+- Full-bleed map background (use a placeholder view if map key not available; keep map container ready)
+- Parallax subtle overlay
+- Center glass card:
+  - StatusToggle Online/Offline (neon ripple + haptic)
+  - Shift button (Start Shift / End Shift)
+  - Availability chip:
+     AVAILABLE if online+onShift+no activeTrip
+     BUSY if activeTrip exists
+     OFFLINE if offline
+     OFF SHIFT if online but offShift
+- Glanceable stats row:
+  - Earnings today + week (sparkline placeholder)
+  - Rating (glow ring)
+  - Completed rides
+- Bottom primary “Next Action” NeonButton (bottom-centered)
+- Floating quick actions: Support chat, Notifications
+- Top bar minimal: avatar ring glow, wallet balance, bell icon with glow
+- Performance: memoize heavy components, lazy load map
+
+3) Active Ride/Delivery Screen
+- Map with polyline glow + pulsing markers (mock polyline)
+- Draggable glass bottom sheet:
+  - passenger info, pickup/dropoff, notes
+  - ETA GlowProgressCircle
+- Big action buttons in order (driven by tripPhase): Arrived -> Start Wait -> Confirm Pickup -> Arrived Dropoff -> Complete
+- “Issue” button (opens glass modal)
+- Emergency neon red button visible
+
+4) Earnings & History
+- Neon line chart (simple custom SVG-based or placeholder)
+- Virtualized list of rides (FlashList optional; if not, FlatList optimized)
+- Segmented filters (day/week/month) with futuristic control
+
+5) Profile & Settings
+- 3D-like avatar header with neon ring
+- Settings cards:
+  - nav preference
+  - sounds/haptics
+  - reduced motion
+  - vehicle info (mock)
+  - documents upload (placeholder)
+- Build/version info visible
+
+==================================================
+PHASE 7 — ACCESSIBILITY + PERFORMANCE REQUIREMENTS
+==================================================
+- Every interactive element must have accessibilityLabel and hitSlop where needed
+- Ensure text contrast on glass overlays; increase opacity behind text if needed
+- Provide Reduced Motion support: disable glow pulses / parallax if enabled
+- Avoid unnecessary re-renders: Zustand selectors, React.memo, useCallback
+- Offline basics:
+  - store navPreference and last known status in SecureStore
+  - load on app start
+
+==================================================
+PHASE 8 — OUTPUT FORMAT
+==================================================
+Return:
+1) Folder tree
+2) Key files content for:
+   - design tokens/theme
+   - all required UI components
+   - Dashboard screen (fully implemented)
+   - store (with getNextAction)
+   - navigation setup
+3) Exact commands to run
+4) Notes for integrating real backend later (but do NOT implement backend calls now)
+
+START NOW
+- Implement PHASE 1–4 quickly
+- Then implement Dashboard first (PHASE 6.2) with polished visuals and interactions
+- After Dashboard, scaffold remaining screens with consistent design system usage
+- Make sure it builds and runs.
