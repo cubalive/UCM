@@ -678,7 +678,8 @@ export function buildStaticMapUrls(
   pickupLat: number,
   pickupLng: number,
   dropoffLat: number,
-  dropoffLng: number
+  dropoffLng: number,
+  encodedPolyline?: string
 ): StaticMapUrls | null {
   if (!GOOGLE_MAPS_KEY) return null;
 
@@ -687,7 +688,9 @@ export function buildStaticMapUrls(
     `markers=color:red|label:B|${dropoffLat},${dropoffLng}`,
   ].join("&");
 
-  const path = `path=weight:3|color:0x4285F4|${pickupLat},${pickupLng}|${dropoffLat},${dropoffLng}`;
+  const path = encodedPolyline
+    ? `path=weight:4|color:0x4285F4CC|enc:${encodedPolyline}`
+    : `path=weight:3|color:0x4285F4|${pickupLat},${pickupLng}|${dropoffLat},${dropoffLng}`;
 
   const base = `https://maps.googleapis.com/maps/api/staticmap`;
 
@@ -695,4 +698,22 @@ export function buildStaticMapUrls(
   const fullUrl = `${base}?size=640x320&scale=2&${markers}&${path}&key=${GOOGLE_MAPS_KEY}`;
 
   return { thumbUrl, fullUrl };
+}
+
+export async function getRoutePolyline(
+  pickupLat: number,
+  pickupLng: number,
+  dropoffLat: number,
+  dropoffLng: number
+): Promise<string | null> {
+  try {
+    const route = await buildRoute(
+      { lat: pickupLat, lng: pickupLng },
+      { lat: dropoffLat, lng: dropoffLng }
+    );
+    return route.polyline || null;
+  } catch (err: any) {
+    console.warn("[STATIC-MAP] Failed to get route polyline, will use straight line:", err.message);
+    return null;
+  }
 }

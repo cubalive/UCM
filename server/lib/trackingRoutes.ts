@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
 import { tripLockedGuard } from "./tripLockGuard";
-import { etaMinutes, buildStaticMapUrls } from "./googleMaps";
+import { etaMinutes, buildStaticMapUrls, getRoutePolyline } from "./googleMaps";
 import { GOOGLE_MAPS_SERVER_KEY, GOOGLE_MAPS_BROWSER_KEY } from "../../lib/mapsConfig";
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_SERVER_KEY;
 
@@ -130,14 +130,17 @@ export function registerTrackingRoutes(app: Express) {
     }
   );
 
-  async function ensureStaticMap(trip: any): Promise<{ thumbUrl: string | null; fullUrl: string | null }> {
-    if (trip.staticMapThumbUrl && trip.staticMapFullUrl) {
+  async function ensureStaticMap(trip: any, forceRefresh = false): Promise<{ thumbUrl: string | null; fullUrl: string | null }> {
+    if (!forceRefresh && trip.staticMapThumbUrl && trip.staticMapFullUrl) {
       return { thumbUrl: trip.staticMapThumbUrl, fullUrl: trip.staticMapFullUrl };
     }
     if (!trip.pickupLat || !trip.pickupLng || !trip.dropoffLat || !trip.dropoffLng) {
       return { thumbUrl: null, fullUrl: null };
     }
-    const urls = buildStaticMapUrls(trip.pickupLat, trip.pickupLng, trip.dropoffLat, trip.dropoffLng);
+
+    const polyline = await getRoutePolyline(trip.pickupLat, trip.pickupLng, trip.dropoffLat, trip.dropoffLng);
+
+    const urls = buildStaticMapUrls(trip.pickupLat, trip.pickupLng, trip.dropoffLat, trip.dropoffLng, polyline ?? undefined);
     if (!urls) return { thumbUrl: null, fullUrl: null };
 
     try {
@@ -228,7 +231,8 @@ export function registerTrackingRoutes(app: Express) {
           }
         }
 
-        const { thumbUrl, fullUrl } = await ensureStaticMap(trip);
+        const forceRefresh = req.query.refresh === "true";
+        const { thumbUrl, fullUrl } = await ensureStaticMap(trip, forceRefresh);
         const targetUrl = size === "thumb" ? thumbUrl : fullUrl;
 
         if (!targetUrl) {
@@ -241,7 +245,7 @@ export function registerTrackingRoutes(app: Express) {
         }
 
         res.setHeader("Content-Type", imgRes.headers.get("content-type") || "image/png");
-        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.setHeader("Cache-Control", forceRefresh ? "no-cache" : "public, max-age=86400");
         const buffer = Buffer.from(await imgRes.arrayBuffer());
         res.send(buffer);
       } catch (err: any) {
