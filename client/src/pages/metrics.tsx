@@ -434,7 +434,7 @@ function buildHealthRemediations(platformHealth: any, adminSummary: any): Remedi
       details: `Active drivers: ${platformHealth.drivers.activeDrivers ?? 0}.`,
       actions: [
         { label: "View Driver List", icon: Users, action: "navigate", target: "/drivers" },
-        { label: "Fleet Operations", icon: Car, variant: "outline", action: "navigate", target: "/fleet-ops" },
+        { label: "Fleet Operations", icon: Car, variant: "outline", action: "navigate", target: "/fleet" },
       ],
       tips: [
         "No active drivers is expected outside operating hours",
@@ -553,7 +553,7 @@ function buildStatusRemediations(adminSummary: any): RemediationConfig[] {
     details: `Tick count: ${adminSummary.jobs.autoAssign.tickCount}. Last: ${adminSummary.jobs.autoAssign.lastTickAt ? new Date(adminSummary.jobs.autoAssign.lastTickAt).toLocaleTimeString() : "N/A"}.`,
     actions: [
       { label: "View Ops Health", icon: Shield, action: "navigate", target: "/ops-health?section=automation" },
-      { label: "View Assignments", icon: Car, variant: "outline", action: "navigate", target: "/fleet-ops" },
+      { label: "View Assignments", icon: Car, variant: "outline", action: "navigate", target: "/fleet" },
     ],
     tips: [
       "Auto-assign runs on schedule (6:00 AM Mon-Sat)",

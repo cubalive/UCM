@@ -100,6 +100,7 @@ interface AlertCodeMeta {
   filterKey?: string;
   filterValue?: string;
   description: string;
+  isExternal?: boolean;
 }
 
 const ALERT_CODE_META: Record<string, AlertCodeMeta> = {
@@ -111,15 +112,43 @@ const ALERT_CODE_META: Record<string, AlertCodeMeta> = {
   UPCOMING_PICKUPS_60_MIN: { icon: Clock, module: "Trips", route: "/trips", filterKey: "upcoming", filterValue: "60min", description: "Trips with pickups in the next 60 minutes. Overview of near-term workload." },
   DB_CONNECTION_ERROR: { icon: Database, module: "System Status", route: "/ops-health", filterKey: "section", filterValue: "system", description: "The database connection has failed. This is a critical infrastructure issue. Check Supabase status and connection pooler." },
   REDIS_CONNECTION_ERROR: { icon: Wifi, module: "System Status", route: "/ops-health", filterKey: "section", filterValue: "system", description: "Redis (Upstash) connection error. Caching, job queues, and rate limiting may be degraded. The system will fall back to in-memory cache." },
-  STALE_DRIVER_GPS: { icon: Radio, module: "Fleet Ops", route: "/fleet-ops", description: "Active drivers whose GPS location hasn't updated in over 5 minutes. Their app may be offline or experiencing connectivity issues." },
+  STALE_DRIVER_GPS: { icon: Radio, module: "Fleet Ops", route: "/fleet", description: "Active drivers whose GPS location hasn't updated in over 5 minutes. Their app may be offline or experiencing connectivity issues.", isExternal: true },
   PATIENT_NO_SHOW_RECENT: { icon: Users, module: "Trips", route: "/trips", filterKey: "status", filterValue: "NO_SHOW", description: "Recent patient no-shows. Patterns may indicate scheduling or communication issues." },
   SYSTEM_STATUS: { icon: Shield, module: "System Status", route: "/ops-health", filterKey: "section", filterValue: "system", description: "System infrastructure component status." },
+  SMS_DELIVERY_FAILURE: { icon: Send, module: "System Status", route: "/ops-health", filterKey: "section", filterValue: "system", description: "Twilio SMS delivery failures detected. This is an external service issue — check Twilio status page or account balance.", isExternal: true },
+  GOOGLE_MAPS_ERROR: { icon: MapPin, module: "System Status", route: "/ops-health", filterKey: "section", filterValue: "system", description: "Google Maps API errors detected. This is an external service issue — check API key quota or Google Cloud status.", isExternal: true },
 };
 
 const DEFAULT_META: AlertCodeMeta = { icon: AlertTriangle, module: "Ops Health", route: "/ops-health", description: "Operational alert requiring attention." };
 
 function getAlertMeta(code: string): AlertCodeMeta {
   return ALERT_CODE_META[code] || DEFAULT_META;
+}
+
+function getResolvedAlerts(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem("ucm_resolved_alerts") || "{}");
+  } catch { return {}; }
+}
+
+function markAlertResolved(code: string) {
+  const resolved = getResolvedAlerts();
+  resolved[code] = new Date().toISOString();
+  localStorage.setItem("ucm_resolved_alerts", JSON.stringify(resolved));
+}
+
+function unmarkAlertResolved(code: string) {
+  const resolved = getResolvedAlerts();
+  delete resolved[code];
+  localStorage.setItem("ucm_resolved_alerts", JSON.stringify(resolved));
+}
+
+function isAlertResolved(code: string): boolean {
+  const resolved = getResolvedAlerts();
+  if (!resolved[code]) return false;
+  const resolvedAt = new Date(resolved[code]);
+  const hoursSince = (Date.now() - resolvedAt.getTime()) / (1000 * 60 * 60);
+  return hoursSince < 24;
 }
 
 function readQueryParams() {
@@ -136,23 +165,35 @@ function ErrorDetailsDrawer({
   open,
   onClose,
   alert,
+  onResolve,
+  onUnresolve,
 }: {
   open: boolean;
   onClose: () => void;
   alert: OpsAlert | null;
+  onResolve?: (code: string) => void;
+  onUnresolve?: (code: string) => void;
 }) {
   const [, navigate] = useLocation();
 
   if (!alert) return null;
   const meta = getAlertMeta(alert.code);
   const Icon = meta.icon;
+  const resolved = isAlertResolved(alert.code);
+
+  const isExt = meta.isExternal === true;
 
   const severityConfig = {
     critical: { bg: "bg-red-50 dark:bg-red-950/30", border: "border-red-200 dark:border-red-800", text: "text-red-700 dark:text-red-300", badge: "destructive" as const },
     warning: { bg: "bg-yellow-50 dark:bg-yellow-950/30", border: "border-yellow-200 dark:border-yellow-800", text: "text-yellow-700 dark:text-yellow-300", badge: "secondary" as const },
     info: { bg: "bg-blue-50 dark:bg-blue-950/30", border: "border-blue-200 dark:border-blue-800", text: "text-blue-700 dark:text-blue-300", badge: "outline" as const },
   };
-  const sc = severityConfig[alert.severity];
+
+  const sc = isExt && !resolved
+    ? { bg: "bg-amber-50 dark:bg-amber-950/30", border: "border-amber-200 dark:border-amber-800", text: "text-amber-700 dark:text-amber-300", badge: "secondary" as const }
+    : resolved
+      ? { bg: "bg-green-50 dark:bg-green-950/30", border: "border-green-200 dark:border-green-800", text: "text-green-700 dark:text-green-300", badge: "outline" as const }
+      : severityConfig[alert.severity];
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
@@ -160,7 +201,7 @@ function ErrorDetailsDrawer({
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2" data-testid="text-drawer-title">
             <Icon className="w-5 h-5" />
-            Error Details
+            {resolved ? "Resolved Alert" : "Alert Details"}
           </SheetTitle>
           <SheetDescription data-testid="text-drawer-subtitle">
             {alert.title}
@@ -168,9 +209,29 @@ function ErrorDetailsDrawer({
         </SheetHeader>
 
         <div className="space-y-4 mt-4">
+          {isExt && (
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30" data-testid="div-external-badge">
+              <ExternalLink className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-xs text-amber-700 dark:text-amber-300">
+                External Service — This issue originates outside the UCM system. You can acknowledge and mark it as resolved once addressed.
+              </span>
+            </div>
+          )}
+
+          {resolved && (
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30" data-testid="div-resolved-badge">
+              <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+              <span className="text-xs text-green-700 dark:text-green-300">
+                Marked as resolved. This acknowledgment expires after 24 hours.
+              </span>
+            </div>
+          )}
+
           <div className={`p-4 rounded-lg border ${sc.bg} ${sc.border}`} data-testid="div-drawer-severity-box">
             <div className="flex items-center justify-between mb-3">
-              <Badge variant={sc.badge} data-testid="badge-drawer-severity">{alert.severity.toUpperCase()}</Badge>
+              <Badge variant={sc.badge} data-testid="badge-drawer-severity">
+                {resolved ? "RESOLVED" : isExt ? "EXTERNAL" : alert.severity.toUpperCase()}
+              </Badge>
               <Badge variant="outline" data-testid="badge-drawer-count">{alert.count} affected</Badge>
             </div>
             <p className={`text-sm font-medium ${sc.text}`} data-testid="text-drawer-alert-title">{alert.title}</p>
@@ -187,12 +248,49 @@ function ErrorDetailsDrawer({
           </div>
 
           <div className="space-y-2">
-            <h4 className="text-sm font-medium">Target Module</h4>
-            <p className="text-sm" data-testid="text-drawer-module">{meta.module}</p>
+            <h4 className="text-sm font-medium">Source</h4>
+            <div className="flex items-center gap-2">
+              <Badge variant={isExt ? "secondary" : "outline"} data-testid="badge-drawer-source">
+                {isExt ? "External Service" : "System"}
+              </Badge>
+              <span className="text-sm" data-testid="text-drawer-module">{meta.module}</span>
+            </div>
           </div>
+
+          {isExt && !resolved && (
+            <Button
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={() => {
+                markAlertResolved(alert.code);
+                onResolve?.(alert.code);
+                onClose();
+              }}
+              data-testid="button-drawer-resolve"
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Mark as Resolved
+            </Button>
+          )}
+
+          {isExt && resolved && (
+            <Button
+              variant="outline"
+              className="w-full border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+              onClick={() => {
+                unmarkAlertResolved(alert.code);
+                onUnresolve?.(alert.code);
+                onClose();
+              }}
+              data-testid="button-drawer-unresolve"
+            >
+              <XCircle className="w-4 h-4 mr-2" />
+              Reopen Alert
+            </Button>
+          )}
 
           {meta.route !== "/ops-health" && (
             <Button
+              variant={isExt ? "outline" : "default"}
               className="w-full"
               onClick={() => {
                 onClose();
@@ -273,22 +371,38 @@ function StatusBanner({
 function AlertCard({
   alert,
   onClickDrawer,
+  resolvedCodes,
 }: {
   alert: OpsAlert;
   onClickDrawer: (alert: OpsAlert) => void;
+  resolvedCodes?: Set<string>;
 }) {
   const [, navigate] = useLocation();
+  const meta = getAlertMeta(alert.code);
+  const Icon = meta.icon;
+  const isExt = meta.isExternal === true;
+  const resolved = resolvedCodes?.has(alert.code) || isAlertResolved(alert.code);
+
   const severityStyles = {
     critical: "border-red-200 dark:border-red-800 hover:border-red-300 dark:hover:border-red-700",
     warning: "border-yellow-200 dark:border-yellow-800 hover:border-yellow-300 dark:hover:border-yellow-700",
     info: "border-blue-200 dark:border-blue-800 hover:border-blue-300 dark:hover:border-blue-700",
   };
-  const badgeVariant = alert.severity === "critical" ? "destructive" : alert.severity === "warning" ? "secondary" : "outline";
-  const meta = getAlertMeta(alert.code);
-  const Icon = meta.icon;
+
+  const cardStyle = resolved
+    ? "border-green-200 dark:border-green-800 hover:border-green-300 dark:hover:border-green-700 opacity-70"
+    : isExt
+      ? "border-amber-200 dark:border-amber-800 hover:border-amber-300 dark:hover:border-amber-700"
+      : severityStyles[alert.severity];
+
+  const badgeVariant = resolved
+    ? "outline" as const
+    : isExt
+      ? "secondary" as const
+      : alert.severity === "critical" ? "destructive" as const : alert.severity === "warning" ? "secondary" as const : "outline" as const;
 
   const handleClick = () => {
-    if (alert.severity === "critical") {
+    if (alert.severity === "critical" || isExt) {
       onClickDrawer(alert);
     } else {
       const targetUrl = meta.filterKey && meta.filterValue
@@ -305,22 +419,38 @@ function AlertCard({
       className="w-full text-left"
       data-testid={`button-alert-${alert.code}`}
     >
-      <Card className={`${severityStyles[alert.severity]} transition-colors cursor-pointer hover:shadow-sm`} data-testid={`card-alert-${alert.code}`}>
+      <Card className={`${cardStyle} transition-colors cursor-pointer hover:shadow-sm`} data-testid={`card-alert-${alert.code}`}>
         <CardContent className="p-4">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
-              {alert.severity === "critical" ? (
+              {resolved ? (
+                <CheckCircle className="w-4 h-4 text-green-500" />
+              ) : isExt ? (
+                <ExternalLink className="w-4 h-4 text-amber-500" />
+              ) : alert.severity === "critical" ? (
                 <Siren className="w-4 h-4 text-red-500" />
               ) : (
                 <AlertTriangle className="w-4 h-4 text-yellow-500" />
               )}
-              <span className="font-medium" data-testid={`text-alert-title-${alert.code}`}>{alert.title}</span>
+              <span className={`font-medium ${resolved ? "line-through opacity-70" : ""}`} data-testid={`text-alert-title-${alert.code}`}>{alert.title}</span>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant={badgeVariant} data-testid={`badge-alert-count-${alert.code}`}>
                 {alert.count}
               </Badge>
-              <Badge variant="outline" data-testid={`badge-alert-severity-${alert.code}`}>{alert.severity}</Badge>
+              {isExt && !resolved && (
+                <Badge variant="secondary" className="bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700" data-testid={`badge-alert-external-${alert.code}`}>
+                  External
+                </Badge>
+              )}
+              {resolved && (
+                <Badge variant="outline" className="bg-green-50 dark:bg-green-950/30 text-green-600 dark:text-green-400 border-green-200 dark:border-green-700" data-testid={`badge-alert-resolved-${alert.code}`}>
+                  Resolved
+                </Badge>
+              )}
+              {!isExt && !resolved && (
+                <Badge variant="outline" data-testid={`badge-alert-severity-${alert.code}`}>{alert.severity}</Badge>
+              )}
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </div>
           </div>
@@ -328,8 +458,8 @@ function AlertCard({
             <Icon className="w-3 h-3" />
             <span data-testid={`text-alert-module-${alert.code}`}>{meta.module}</span>
             <span>&rarr;</span>
-            <span className="text-blue-600 dark:text-blue-400">
-              {alert.severity === "critical" ? "View details" : `Go to ${meta.module}`}
+            <span className={isExt ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}>
+              {resolved ? "View resolved alert" : isExt ? "View external issue" : alert.severity === "critical" ? "View details" : `Go to ${meta.module}`}
             </span>
           </div>
         </CardContent>
@@ -408,7 +538,7 @@ function ClickableSystemRow({
   );
 }
 
-function CityHealthTab({ autoAlertCode }: { autoAlertCode?: string | null }) {
+function CityHealthTab({ autoAlertCode, resolvedCodes, onResolve, onUnresolve }: { autoAlertCode?: string | null; resolvedCodes: Set<string>; onResolve: (code: string) => void; onUnresolve: (code: string) => void }) {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -538,7 +668,7 @@ function CityHealthTab({ autoAlertCode }: { autoAlertCode?: string | null }) {
       ) : (
         <div className="space-y-3" data-testid="list-alerts">
           {health.alerts.map((alert) => (
-            <AlertCard key={alert.code} alert={alert} onClickDrawer={setDrawerAlert} />
+            <AlertCard key={alert.code} alert={alert} onClickDrawer={setDrawerAlert} resolvedCodes={resolvedCodes} />
           ))}
         </div>
       )}
@@ -578,12 +708,14 @@ function CityHealthTab({ autoAlertCode }: { autoAlertCode?: string | null }) {
         open={!!drawerAlert}
         onClose={() => setDrawerAlert(null)}
         alert={drawerAlert}
+        onResolve={onResolve}
+        onUnresolve={onUnresolve}
       />
     </div>
   );
 }
 
-function ClinicHealthTab({ autoAlertCode }: { autoAlertCode?: string | null }) {
+function ClinicHealthTab({ autoAlertCode, resolvedCodes, onResolve, onUnresolve }: { autoAlertCode?: string | null; resolvedCodes: Set<string>; onResolve: (code: string) => void; onUnresolve: (code: string) => void }) {
   const { token, selectedCity } = useAuth();
   const [, navigate] = useLocation();
   const [selectedClinicId, setSelectedClinicId] = useState<string>("");
@@ -703,7 +835,7 @@ function ClinicHealthTab({ autoAlertCode }: { autoAlertCode?: string | null }) {
           ) : (
             <div className="space-y-3" data-testid="list-clinic-alerts">
               {clinicHealthQuery.data.alerts.map((alert: OpsAlert) => (
-                <AlertCard key={alert.code} alert={alert} onClickDrawer={setDrawerAlert} />
+                <AlertCard key={alert.code} alert={alert} onClickDrawer={setDrawerAlert} resolvedCodes={resolvedCodes} />
               ))}
             </div>
           )}
@@ -714,12 +846,14 @@ function ClinicHealthTab({ autoAlertCode }: { autoAlertCode?: string | null }) {
         open={!!drawerAlert}
         onClose={() => setDrawerAlert(null)}
         alert={drawerAlert}
+        onResolve={onResolve}
+        onUnresolve={onUnresolve}
       />
     </div>
   );
 }
 
-function SystemStatusTab({ autoAlertCode }: { autoAlertCode?: string | null }) {
+function SystemStatusTab({ autoAlertCode, resolvedCodes, onResolve, onUnresolve }: { autoAlertCode?: string | null; resolvedCodes: Set<string>; onResolve: (code: string) => void; onUnresolve: (code: string) => void }) {
   const { token, user } = useAuth();
   const { toast } = useToast();
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
@@ -1028,12 +1162,14 @@ function SystemStatusTab({ autoAlertCode }: { autoAlertCode?: string | null }) {
         open={!!drawerAlert}
         onClose={() => setDrawerAlert(null)}
         alert={drawerAlert}
+        onResolve={onResolve}
+        onUnresolve={onUnresolve}
       />
     </div>
   );
 }
 
-function AutomationTab() {
+function AutomationTab({ resolvedCodes, onResolve, onUnresolve }: { resolvedCodes: Set<string>; onResolve: (code: string) => void; onUnresolve: (code: string) => void }) {
   const { token, selectedCity } = useAuth();
   const [, navigate] = useLocation();
   const [drawerAlert, setDrawerAlert] = useState<OpsAlert | null>(null);
@@ -1065,7 +1201,7 @@ function AutomationTab() {
   }
 
   const schedulers = [
-    { name: "Route Engine", schedule: "5:30 AM (Mon-Sat)", desc: "Groups trips into route batches by city, time window, and ZIP cluster", route: "/fleet-ops", code: "SCHEDULER_ROUTE_ENGINE" },
+    { name: "Route Engine", schedule: "5:30 AM (Mon-Sat)", desc: "Groups trips into route batches by city, time window, and ZIP cluster", route: "/fleet", code: "SCHEDULER_ROUTE_ENGINE" },
     { name: "Vehicle Auto-Assign", schedule: "6:00 AM (Mon-Sat)", desc: "Assigns vehicles and drivers to scheduled trips", route: "/assignments", code: "SCHEDULER_VEHICLE_AUTO_ASSIGN" },
     { name: "No-Show Monitor", schedule: "Every 5 min", desc: "Sends T-24h/T-2h confirmations, flags at-risk unconfirmed trips", route: "/trips", code: "SCHEDULER_NO_SHOW_MONITOR" },
     { name: "ETA Engine", schedule: "Every 2 min", desc: "Calculates live ETAs for en-route trips", route: "/dispatch", code: "SCHEDULER_ETA_ENGINE" },
@@ -1081,7 +1217,7 @@ function AutomationTab() {
           label="Route Batches Today"
           value={batches?.length || 0}
           isLoading={batchesLoading}
-          onClick={() => navigate("/fleet-ops")}
+          onClick={() => navigate("/fleet")}
           testId="button-metric-batches"
         />
         <ClickableMetricCard
@@ -1206,6 +1342,8 @@ function AutomationTab() {
         open={!!drawerAlert}
         onClose={() => setDrawerAlert(null)}
         alert={drawerAlert}
+        onResolve={onResolve}
+        onUnresolve={onUnresolve}
       />
     </div>
   );
@@ -1217,6 +1355,20 @@ export default function OpsHealthPage() {
   const qp = readQueryParams();
   const initialTab = (qp.section && ["city", "clinic", "automation", "system"].includes(qp.section)) ? qp.section : "city";
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [resolvedCodes, setResolvedCodes] = useState<Set<string>>(() => {
+    const all = getResolvedAlerts();
+    return new Set(Object.keys(all).filter(k => isAlertResolved(k)));
+  });
+
+  const handleResolve = (code: string) => {
+    markAlertResolved(code);
+    setResolvedCodes(prev => new Set([...prev, code]));
+  };
+
+  const handleUnresolve = (code: string) => {
+    unmarkAlertResolved(code);
+    setResolvedCodes(prev => { const next = new Set(prev); next.delete(code); return next; });
+  };
 
   useEffect(() => {
     const handlePopState = () => {
@@ -1251,22 +1403,22 @@ export default function OpsHealthPage() {
         </TabsList>
 
         <TabsContent value="city">
-          <CityHealthTab autoAlertCode={activeTab === "city" ? alertCodeForTab : null} />
+          <CityHealthTab autoAlertCode={activeTab === "city" ? alertCodeForTab : null} resolvedCodes={resolvedCodes} onResolve={handleResolve} onUnresolve={handleUnresolve} />
         </TabsContent>
 
         <TabsContent value="clinic">
-          <ClinicHealthTab autoAlertCode={activeTab === "clinic" ? alertCodeForTab : null} />
+          <ClinicHealthTab autoAlertCode={activeTab === "clinic" ? alertCodeForTab : null} resolvedCodes={resolvedCodes} onResolve={handleResolve} onUnresolve={handleUnresolve} />
         </TabsContent>
 
         {isAdmin && (
           <TabsContent value="automation">
-            <AutomationTab />
+            <AutomationTab resolvedCodes={resolvedCodes} onResolve={handleResolve} onUnresolve={handleUnresolve} />
           </TabsContent>
         )}
 
         {isAdmin && (
           <TabsContent value="system">
-            <SystemStatusTab autoAlertCode={activeTab === "system" ? alertCodeForTab : null} />
+            <SystemStatusTab autoAlertCode={activeTab === "system" ? alertCodeForTab : null} resolvedCodes={resolvedCodes} onResolve={handleResolve} onUnresolve={handleUnresolve} />
           </TabsContent>
         )}
       </Tabs>
