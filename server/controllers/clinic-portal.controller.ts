@@ -757,7 +757,7 @@ export async function clinicTripByIdHandler(req: AuthRequest, res: Response) {
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
-    if (trip.clinicId !== user.clinicId) return res.status(403).json({ message: "Access denied" });
+    if (trip.clinicId !== user.clinicId) return res.status(404).json({ message: "Trip not found" });
 
     const [enriched] = await enrichTripsWithRelations([trip]);
 
@@ -851,7 +851,7 @@ export async function clinicTripPdfHandler(req: AuthRequest, res: Response) {
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
-    if (trip.clinicId !== user.clinicId) return res.status(403).json({ message: "Access denied" });
+    if (trip.clinicId !== user.clinicId) return res.status(404).json({ message: "Trip not found" });
 
     const [enriched] = await enrichTripsWithRelations([trip]);
     const clinic = trip.clinicId ? await storage.getClinic(trip.clinicId) : null;
@@ -884,7 +884,7 @@ export async function clinicTripTrackingHandler(req: AuthRequest, res: Response)
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
     if (trip.clinicId !== user.clinicId) {
-      return res.status(403).json({ message: "You can only track your clinic's trips" });
+      return res.status(404).json({ message: "Trip not found" });
     }
 
     const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];

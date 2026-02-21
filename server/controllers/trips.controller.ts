@@ -554,15 +554,15 @@ export async function getTripByIdHandler(req: AuthRequest, res: Response) {
     if (!scope) return res.status(401).json({ message: "Unauthorized" });
 
     if (scope.companyId && trip.companyId !== scope.companyId) {
-      return res.status(403).json({ message: "Access denied" });
+      return res.status(404).json({ message: "Trip not found" });
     }
 
     if (scope.cityId && scope.allowedCityIds.length > 0 && !scope.allowedCityIds.includes(trip.cityId)) {
-      return res.status(403).json({ message: "Access denied" });
+      return res.status(404).json({ message: "Trip not found" });
     }
 
     if (scope.clinicId && trip.clinicId !== scope.clinicId) {
-      return res.status(403).json({ message: "Access denied" });
+      return res.status(404).json({ message: "Trip not found" });
     }
 
     const [enriched] = await enrichTripsWithRelations([trip]);
