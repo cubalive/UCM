@@ -16,8 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, MapPin, Pencil } from "lucide-react";
+import { Plus, MapPin, Pencil, Power, Trash2, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 const FALLBACK_TIMEZONES = [
@@ -32,10 +33,13 @@ const FALLBACK_TIMEZONES = [
 ];
 
 export default function CitiesPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [editCity, setEditCity] = useState<any>(null);
+  const [showInactive, setShowInactive] = useState(false);
+
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
 
   const { data: cities, isLoading } = useQuery<any[]>({
     queryKey: ["/api/cities"],
@@ -71,6 +75,37 @@ export default function CitiesPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const toggleActiveMutation = useMutation({
+    mutationFn: ({ id, active }: { id: number; active: boolean }) =>
+      apiFetch(`/api/cities/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ active }),
+      }),
+    onSuccess: (_data: any, variables: { id: number; active: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cities"] });
+      toast({ title: variables.active ? "City activated" : "City deactivated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/cities/${id}`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cities"] });
+      toast({ title: "City deleted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const filteredCities = cities?.filter((c: any) => {
+    if (showInactive) return true;
+    return c.active !== false;
+  });
+
+  const activeCount = cities?.filter((c: any) => c.active !== false).length || 0;
+  const inactiveCount = cities?.filter((c: any) => c.active === false).length || 0;
+
   return (
     <div className="p-6 space-y-4 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -89,11 +124,28 @@ export default function CitiesPage() {
         </Dialog>
       </div>
 
+      {isSuperAdmin && (
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={showInactive}
+              onCheckedChange={setShowInactive}
+              data-testid="switch-show-inactive-cities"
+            />
+            <Label className="text-sm text-muted-foreground">Show inactive cities</Label>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Badge variant="secondary">{activeCount} active</Badge>
+            {inactiveCount > 0 && <Badge variant="destructive">{inactiveCount} inactive</Badge>}
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
-      ) : !cities?.length ? (
+      ) : !filteredCities?.length ? (
         <Card>
           <CardContent className="py-12 text-center">
             <MapPin className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
@@ -102,8 +154,8 @@ export default function CitiesPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {cities.map((c: any) => (
-            <Card key={c.id}>
+          {filteredCities.map((c: any) => (
+            <Card key={c.id} className={c.active === false ? "opacity-60" : ""}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
@@ -112,17 +164,52 @@ export default function CitiesPage() {
                     <p className="text-xs text-muted-foreground" data-testid={`text-city-timezone-${c.id}`}>{c.timezone}</p>
                   </div>
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                    <Badge variant={c.active ? "secondary" : "destructive"}>
-                      {c.active ? "Active" : "Inactive"}
+                    <Badge variant={c.active !== false ? "secondary" : "destructive"} data-testid={`badge-city-status-${c.id}`}>
+                      {c.active !== false ? "Active" : "Inactive"}
                     </Badge>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setEditCity(c)}
-                      data-testid={`button-edit-city-${c.id}`}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setEditCity(c)}
+                        data-testid={`button-edit-city-${c.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      {isSuperAdmin && (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => toggleActiveMutation.mutate({ id: c.id, active: c.active === false })}
+                            disabled={toggleActiveMutation.isPending}
+                            title={c.active !== false ? "Deactivate city" : "Activate city"}
+                            data-testid={`button-toggle-city-${c.id}`}
+                          >
+                            {toggleActiveMutation.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Power className={`w-4 h-4 ${c.active !== false ? "text-green-500" : "text-destructive"}`} />
+                            )}
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive"
+                            onClick={() => {
+                              if (window.confirm(`Permanently delete city "${c.name}, ${c.state}"? This cannot be undone.`)) {
+                                deleteMutation.mutate(c.id);
+                              }
+                            }}
+                            disabled={deleteMutation.isPending}
+                            title="Delete city"
+                            data-testid={`button-delete-city-${c.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </CardContent>

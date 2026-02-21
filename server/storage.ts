@@ -46,7 +46,7 @@ export interface IStorage {
   createCity(data: InsertCity): Promise<City>;
   updateCity(id: number, data: Partial<City>): Promise<City | undefined>;
 
-  getUsers(): Promise<Omit<User, "password">[]>;
+  getUsers(includeInactive?: boolean): Promise<Omit<User, "password">[]>;
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByClinicId(clinicId: number): Promise<User | undefined>;
@@ -316,9 +316,13 @@ export class DatabaseStorage implements IStorage {
     return city;
   }
 
-  async getUsers(): Promise<Omit<User, "password">[]> {
+  async getUsers(includeInactive?: boolean): Promise<Omit<User, "password">[]> {
+    const conditions = [isNull(users.deletedAt)];
+    if (!includeInactive) {
+      conditions.push(eq(users.active, true));
+    }
     const rows = await db.select().from(users).where(
-      and(eq(users.active, true), isNull(users.deletedAt))
+      and(...conditions)
     ).orderBy(users.firstName);
     return rows.map(({ password, ...rest }) => rest) as any;
   }

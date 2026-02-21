@@ -223,6 +223,34 @@ export async function createCityHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export async function deleteCityHandler(req: AuthRequest, res: Response) {
+  try {
+    const cityId = parseInt(String(req.params.id));
+    if (isNaN(cityId)) return res.status(400).json({ message: "Invalid city ID" });
+
+    const city = await storage.getCity(cityId);
+    if (!city) return res.status(404).json({ message: "City not found" });
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "DELETE",
+      entity: "city",
+      entityId: cityId,
+      details: `Deleted city ${city.name}, ${city.state}`,
+      cityId: cityId,
+    });
+
+    const { db } = await import("../db");
+    const { cities } = await import("@shared/schema");
+    const { eq } = await import("drizzle-orm");
+    await db.delete(cities).where(eq(cities.id, cityId));
+
+    res.json({ ok: true, message: `City ${city.name} deleted` });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 export async function updateCityHandler(req: AuthRequest, res: Response) {
   try {
     const cityId = parseInt(String(req.params.id));

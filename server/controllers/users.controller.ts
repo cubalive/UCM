@@ -19,7 +19,9 @@ const createUserSchema = z.object({
 export async function getUsersHandler(req: AuthRequest, res: Response) {
   try {
     const companyId = getCompanyIdFromAuth(req);
-    const allUsers = await storage.getUsers();
+    const isSuperAdmin = req.user?.role === "SUPER_ADMIN";
+    const includeInactive = isSuperAdmin && req.query.includeInactive === "true";
+    const allUsers = await storage.getUsers(includeInactive);
     res.json(applyCompanyFilter(allUsers as any[], companyId));
   } catch (err: any) {
     res.status(500).json({ message: err.message });

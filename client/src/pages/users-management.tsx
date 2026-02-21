@@ -8,12 +8,26 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Users, Search, Key, Mail, Copy, Archive, MapPin } from "lucide-react";
+import { Plus, Users, Search, Key, Mail, Copy, Archive, MapPin, Power, RotateCcw, Filter, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiFetch } from "@/lib/api";
+
+const ALL_ROLES = [
+  "SUPER_ADMIN",
+  "COMPANY_ADMIN",
+  "ADMIN",
+  "DISPATCH",
+  "DRIVER",
+  "VIEWER",
+  "CLINIC_USER",
+  "CLINIC_ADMIN",
+  "CLINIC_VIEWER",
+  "CLINIC_STAFF",
+];
 
 export default function UsersPage() {
   const { token, user: currentUser } = useAuth();
@@ -23,15 +37,42 @@ export default function UsersPage() {
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
   const [cityPermsUser, setCityPermsUser] = useState<any | null>(null);
 
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [companyFilter, setCompanyFilter] = useState("all");
+  const [cityFilter, setCityFilter] = useState("all");
+  const [clinicFilter, setClinicFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
+  const [showFilters, setShowFilters] = useState(false);
+
+  const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
+
   const { data: usersData, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/users"],
-    queryFn: () => apiFetch("/api/users", token),
+    queryKey: ["/api/users", isSuperAdmin],
+    queryFn: () => apiFetch(`/api/users${isSuperAdmin ? "?includeInactive=true" : ""}`, token),
     enabled: !!token,
   });
 
   const { data: citiesData } = useQuery<any[]>({
     queryKey: ["/api/cities"],
     queryFn: () => apiFetch("/api/cities", token),
+    enabled: !!token,
+  });
+
+  const { data: companiesData } = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch("/api/companies", token),
+    enabled: !!token && isSuperAdmin,
+  });
+
+  const { data: clinicsData } = useQuery<any[]>({
+    queryKey: ["/api/clinics"],
+    queryFn: async () => {
+      try {
+        return await apiFetch("/api/clinics", token);
+      } catch {
+        return [];
+      }
+    },
     enabled: !!token,
   });
 
@@ -86,19 +127,88 @@ export default function UsersPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const filtered = usersData?.filter(
-    (u: any) =>
-      `${u.firstName} ${u.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
-      u.email?.toLowerCase().includes(search.toLowerCase()) ||
-      u.publicId?.toLowerCase().includes(search.toLowerCase())
-  );
+  const companiesMap = new Map<number, string>();
+  (companiesData || []).forEach((c: any) => {
+    companiesMap.set(c.id, c.name);
+  });
+
+  const citiesMap = new Map<number, string>();
+  (citiesData || []).forEach((c: any) => {
+    citiesMap.set(c.id, `${c.name}, ${c.state}`);
+  });
+
+  const clinicsMap = new Map<number, string>();
+  (clinicsData || []).forEach((c: any) => {
+    clinicsMap.set(c.id, c.name);
+  });
+
+  const uniqueRoles = [...new Set((usersData || []).map((u: any) => u.role))].sort();
+  const uniqueCompanyIds = [...new Set((usersData || []).filter((u: any) => u.companyId).map((u: any) => u.companyId))];
+  const uniqueClinicIds = [...new Set((usersData || []).filter((u: any) => u.clinicId).map((u: any) => u.clinicId))];
+
+  const filtered = usersData?.filter((u: any) => {
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const nameMatch = `${u.firstName} ${u.lastName}`.toLowerCase().includes(q);
+      const emailMatch = u.email?.toLowerCase().includes(q);
+      const idMatch = u.publicId?.toLowerCase().includes(q);
+      if (!nameMatch && !emailMatch && !idMatch) return false;
+    }
+
+    if (roleFilter !== "all" && u.role !== roleFilter) return false;
+
+    if (companyFilter !== "all") {
+      if (companyFilter === "none") {
+        if (u.companyId) return false;
+      } else {
+        if (String(u.companyId) !== companyFilter) return false;
+      }
+    }
+
+    if (cityFilter !== "all" && String(u.workingCityId) !== cityFilter) return false;
+
+    if (clinicFilter !== "all") {
+      if (clinicFilter === "none") {
+        if (u.clinicId) return false;
+      } else {
+        if (String(u.clinicId) !== clinicFilter) return false;
+      }
+    }
+
+    if (statusFilter === "active" && !u.active) return false;
+    if (statusFilter === "inactive" && u.active) return false;
+
+    return true;
+  });
+
+  const activeFilterCount = [
+    roleFilter !== "all" ? 1 : 0,
+    companyFilter !== "all" ? 1 : 0,
+    cityFilter !== "all" ? 1 : 0,
+    clinicFilter !== "all" ? 1 : 0,
+    statusFilter !== "active" ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
+
+  function clearFilters() {
+    setRoleFilter("all");
+    setCompanyFilter("all");
+    setCityFilter("all");
+    setClinicFilter("all");
+    setStatusFilter("active");
+    setSearch("");
+  }
 
   const roleColors: Record<string, string> = {
     SUPER_ADMIN: "default",
     ADMIN: "default",
+    COMPANY_ADMIN: "default",
     DISPATCH: "secondary",
     DRIVER: "secondary",
     VIEWER: "secondary",
+    CLINIC_USER: "secondary",
+    CLINIC_ADMIN: "default",
+    CLINIC_VIEWER: "secondary",
+    CLINIC_STAFF: "secondary",
   };
 
   return (
@@ -119,10 +229,125 @@ export default function UsersPage() {
         </Dialog>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Search users..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-users" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search by name, email, or ID..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" data-testid="input-search-users" />
+        </div>
+        <Button
+          variant={showFilters ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowFilters(!showFilters)}
+          data-testid="button-toggle-filters"
+        >
+          <Filter className="w-4 h-4 mr-1" />
+          Filters
+          {activeFilterCount > 0 && (
+            <Badge variant="secondary" className="ml-1 text-xs">{activeFilterCount}</Badge>
+          )}
+        </Button>
+        {activeFilterCount > 0 && (
+          <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-filters">
+            <X className="w-4 h-4 mr-1" />
+            Clear
+          </Button>
+        )}
+        <div className="text-sm text-muted-foreground">
+          {filtered?.length || 0} users
+        </div>
       </div>
+
+      {showFilters && (
+        <Card>
+          <CardContent className="py-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Role</Label>
+                <Select value={roleFilter} onValueChange={setRoleFilter}>
+                  <SelectTrigger className="h-9" data-testid="select-filter-role">
+                    <SelectValue placeholder="All roles" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Roles</SelectItem>
+                    {uniqueRoles.map((role: string) => (
+                      <SelectItem key={role} value={role}>{role.replace(/_/g, " ")}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {isSuperAdmin && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Company</Label>
+                  <Select value={companyFilter} onValueChange={setCompanyFilter}>
+                    <SelectTrigger className="h-9" data-testid="select-filter-company">
+                      <SelectValue placeholder="All companies" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Companies</SelectItem>
+                      <SelectItem value="none">No Company</SelectItem>
+                      {uniqueCompanyIds.map((cid: number) => (
+                        <SelectItem key={cid} value={String(cid)}>
+                          {companiesMap.get(cid) || `Company #${cid}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">City</Label>
+                <Select value={cityFilter} onValueChange={setCityFilter}>
+                  <SelectTrigger className="h-9" data-testid="select-filter-city">
+                    <SelectValue placeholder="All cities" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Cities</SelectItem>
+                    {(citiesData || []).filter((c: any) => c.active !== false).map((c: any) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.name}, {c.state}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {uniqueClinicIds.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Clinic</Label>
+                  <Select value={clinicFilter} onValueChange={setClinicFilter}>
+                    <SelectTrigger className="h-9" data-testid="select-filter-clinic">
+                      <SelectValue placeholder="All clinics" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Clinics</SelectItem>
+                      <SelectItem value="none">No Clinic</SelectItem>
+                      {uniqueClinicIds.map((cid: number) => (
+                        <SelectItem key={cid} value={String(cid)}>
+                          {clinicsMap.get(cid) || `Clinic #${cid}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Status</Label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="h-9" data-testid="select-filter-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active Only</SelectItem>
+                    <SelectItem value="inactive">Inactive Only</SelectItem>
+                    <SelectItem value="all">All</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -133,29 +358,45 @@ export default function UsersPage() {
           <CardContent className="py-12 text-center">
             <Users className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
             <p className="text-muted-foreground">No users found</p>
+            {activeFilterCount > 0 && (
+              <Button variant="link" onClick={clearFilters} className="mt-2">Clear filters</Button>
+            )}
           </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {filtered.map((u: any) => (
-            <Card key={u.id}>
+            <Card key={u.id} className={!u.active ? "opacity-60" : ""}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0">
                     <p className="font-medium" data-testid={`text-user-fullname-${u.id}`}>{u.firstName} {u.lastName}</p>
                     <p className="text-xs font-mono text-muted-foreground">{u.publicId}</p>
                     <p className="text-sm text-muted-foreground">{u.email}</p>
+                    {isSuperAdmin && u.companyId && (
+                      <p className="text-xs text-muted-foreground">
+                        {companiesMap.get(u.companyId) || `Company #${u.companyId}`}
+                      </p>
+                    )}
+                    {u.workingCityId && (
+                      <p className="text-xs text-muted-foreground">
+                        <MapPin className="w-3 h-3 inline mr-1" />
+                        {citiesMap.get(u.workingCityId) || `City #${u.workingCityId}`}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <Badge variant={roleColors[u.role] as any || "secondary"}>{u.role.replace("_", " ")}</Badge>
-                    <Badge variant={u.active ? "secondary" : "destructive"}>
+                    <Badge variant={roleColors[u.role] as any || "secondary"} data-testid={`badge-user-role-${u.id}`}>
+                      {u.role.replace(/_/g, " ")}
+                    </Badge>
+                    <Badge variant={u.active ? "secondary" : "destructive"} data-testid={`badge-user-status-${u.id}`}>
                       {u.active ? "Active" : "Inactive"}
                     </Badge>
                   </div>
                 </div>
                 {currentUser?.role === "SUPER_ADMIN" && u.email && u.role !== "SUPER_ADMIN" && (
                   <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
-                    {(u.role === "DISPATCH" || u.role === "ADMIN") && (
+                    {(u.role === "DISPATCH" || u.role === "ADMIN" || u.role === "COMPANY_ADMIN") && (
                       <Button
                         variant="outline"
                         size="sm"

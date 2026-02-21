@@ -8,6 +8,7 @@ import {
   getCitiesHandler,
   createCityHandler,
   updateCityHandler,
+  deleteCityHandler,
 } from "../controllers/cities.controller";
 import {
   getStatesHandler,
@@ -25,6 +26,7 @@ router.post("/api/companies/:id/admin", authMiddleware, requireRole("SUPER_ADMIN
 router.get("/api/cities", authMiddleware, getCitiesHandler as any);
 router.post("/api/cities", authMiddleware, requireRole("ADMIN"), createCityHandler as any);
 router.patch("/api/cities/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), updateCityHandler as any);
+router.delete("/api/cities/:id", authMiddleware, requireRole("SUPER_ADMIN"), deleteCityHandler as any);
 
 router.get("/api/locations/states", authMiddleware, getStatesHandler as any);
 router.get("/api/locations/cities", authMiddleware, getCitiesByStateHandler as any);
