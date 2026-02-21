@@ -533,6 +533,8 @@ app.use((req, res, next) => {
         CREATE TYPE earnings_adjustment_type AS ENUM ('DAILY_MIN_TOPUP','ON_TIME_BONUS','NO_SHOW_PENALTY','MANUAL_ADJUSTMENT');
       EXCEPTION WHEN duplicate_object THEN NULL; END $$
     `);
+    await bootDb.execute(bootSql`ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'CLINIC_ADMIN'`);
+    await bootDb.execute(bootSql`ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'CLINIC_VIEWER'`);
 
     await bootDb.execute(bootSql`
       CREATE TABLE IF NOT EXISTS driver_pay_rules (
