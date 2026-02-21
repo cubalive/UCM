@@ -85,7 +85,7 @@ const createSeriesSchema = z.object({
   endDate: z.string().nullable().optional(),
   occurrences: z.number().nullable().optional(),
   pickupTime: z.string(),
-  estimatedArrivalTime: z.string(),
+  estimatedArrivalTime: z.string().optional().default("TBD"),
   pickupAddress: z.string(),
   pickupStreet: z.string().nullable().optional(),
   pickupCity: z.string().nullable().optional(),
@@ -173,7 +173,32 @@ export function registerTripSeriesRoutes(app: Express) {
           return res.status(400).json({ message: "Number of occurrences must be at least 1" });
         }
 
-        if (data.pickupTime >= data.estimatedArrivalTime) {
+        if (!data.estimatedArrivalTime || data.estimatedArrivalTime === "TBD") {
+          if (data.pickupLat != null && data.pickupLng != null &&
+              data.dropoffLat != null && data.dropoffLng != null && data.pickupTime) {
+            try {
+              const { etaMinutes: getEtaMinutes } = await import("./googleMaps");
+              const eta = await getEtaMinutes(
+                { lat: Number(data.pickupLat), lng: Number(data.pickupLng) },
+                { lat: Number(data.dropoffLat), lng: Number(data.dropoffLng) }
+              );
+              const totalMin = eta.minutes + 5;
+              const [h, m] = data.pickupTime.split(":").map(Number);
+              const arr = new Date(2000, 0, 1, h, m + totalMin);
+              data.estimatedArrivalTime = `${String(arr.getHours()).padStart(2, "0")}:${String(arr.getMinutes()).padStart(2, "0")}`;
+            } catch {
+              const [h, m] = data.pickupTime.split(":").map(Number);
+              const arr = new Date(2000, 0, 1, h, m + 30);
+              data.estimatedArrivalTime = `${String(arr.getHours()).padStart(2, "0")}:${String(arr.getMinutes()).padStart(2, "0")}`;
+            }
+          } else if (data.pickupTime) {
+            const [h, m] = data.pickupTime.split(":").map(Number);
+            const arr = new Date(2000, 0, 1, h, m + 30);
+            data.estimatedArrivalTime = `${String(arr.getHours()).padStart(2, "0")}:${String(arr.getMinutes()).padStart(2, "0")}`;
+          }
+        }
+
+        if (data.estimatedArrivalTime && data.estimatedArrivalTime !== "TBD" && data.pickupTime >= data.estimatedArrivalTime) {
           return res.status(400).json({ message: "Pickup time must be before estimated arrival time" });
         }
 

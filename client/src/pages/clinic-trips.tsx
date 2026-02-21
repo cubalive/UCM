@@ -2457,7 +2457,7 @@ function CreateTripForm({ patients, clinic, loading, onSubmit, token }: {
     patientId: "",
     scheduledDate: todayStr(),
     pickupTime: "09:00",
-    estimatedArrivalTime: "10:00",
+    estimatedArrivalTime: "",
     tripType: "one_time",
     notes: "",
     direction: "" as "" | "to_clinic" | "from_clinic",
@@ -2600,15 +2600,10 @@ function CreateTripForm({ patients, clinic, loading, onSubmit, token }: {
         </Select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label>Pickup Time *</Label>
-          <Input type="time" value={form.pickupTime} onChange={e => setForm({ ...form, pickupTime: e.target.value })} required data-testid="input-trip-pickup-time" />
-        </div>
-        <div className="space-y-2">
-          <Label>Arrival Time *</Label>
-          <Input type="time" value={form.estimatedArrivalTime} onChange={e => setForm({ ...form, estimatedArrivalTime: e.target.value })} required data-testid="input-trip-arrival-time" />
-        </div>
+      <div className="space-y-2">
+        <Label>Pickup Time *</Label>
+        <Input type="time" value={form.pickupTime} onChange={e => setForm({ ...form, pickupTime: e.target.value })} required data-testid="input-trip-pickup-time" />
+        <p className="text-xs text-muted-foreground">Estimated arrival will be calculated automatically based on the route.</p>
       </div>
 
       <AddressAutocomplete
@@ -3014,7 +3009,7 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
 
   const FULL_TIMELINE: { label: string; value: string; reason?: string }[] = [
     { label: "Scheduled Pickup", value: fmtPickupTime(trip.pickupTime) },
-    { label: "Scheduled Dropoff (ETA)", value: fmtPickupTime(trip.estimatedArrivalTime) },
+    { label: "Scheduled Dropoff (ETA)", value: trip.estimatedArrivalTime && trip.estimatedArrivalTime !== "TBD" ? fmtPickupTime(trip.estimatedArrivalTime) : "—" },
     { label: "Created", value: fmtTimestamp(trip.createdAt) },
     { label: "Approved", value: fmtTimestamp(trip.approvedAt) },
     { label: "Assigned to Driver", value: fmtTimestamp(trip.assignedAt) },

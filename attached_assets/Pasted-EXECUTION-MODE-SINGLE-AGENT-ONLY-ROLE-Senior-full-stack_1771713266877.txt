@@ -1,0 +1,283 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Senior full-stack engineer (React + Node/Express + Supabase/Postgres).
+PROJECT: United Care Mobility (UCM)
+
+OBJECTIVE:
+Implement these 3 modules in strict priority order, PLUS make the whole experience CLICKABLE, INTERACTIVE, and EASY TO FIND/UNDERSTAND:
+
+1) Auto-Assign Inteligente v2
+2) ETA Variance Escalation Engine
+3) Zero-Touch Dialysis Mode
++ UX/Interaction layer: every alert, score, and decision is clickable, drill-down capable, and visually obvious.
+
+HARD RULES
+- Do NOT reset or drop tables.
+- Do NOT change DB connection, secrets, or environment variables.
+- Do NOT modify unrelated features.
+- Maintain strict multi-tenant isolation (company + city).
+- Manual dispatch must remain as fallback.
+- All new features must be feature-flagged per company.
+- Do NOT add heavy dependencies.
+
+=========================================================
+GLOBAL UX REQUIREMENTS (APPLIES TO ALL PHASES)
+=========================================================
+GOAL: “If it’s important, it must be visible, clickable, and explain itself.”
+
+A) CLICKABLE PANELS + DRILLDOWNS
+1) Every dashboard card (Auto-Assign, ETA Alerts, Dialysis) must open a detail drawer/modal on click.
+2) Every list row must be clickable and open a trip/driver/clinic detail view.
+3) Every alert badge must be clickable and route to a filtered “Alerts” page with pre-applied filters.
+4) Every score must be clickable and show: inputs, weights, formula, and why this driver won.
+
+B) INTERACTIVE EXPLANATIONS
+Add an “Explain” icon (ⓘ) next to:
+- Auto-Assign status
+- Driver score
+- ETA variance alert
+- Dialysis automation decisions
+Click shows a short plain-language explanation + raw numbers.
+
+C) FAST FINDING / NAVIGATION
+Add a left-nav section “Automation” with:
+- Auto-Assign
+- ETA Escalations
+- Zero-Touch Dialysis
+Add a top global search support: “Search trips, patients, drivers” must deep-link results.
+
+D) VISUAL CLARITY
+- Use clear status chips: RUNNING / NEEDS ATTENTION / OFF / FAILED
+- Use color + icons, but also text (no color-only meaning).
+- Add “Last updated Xs ago” to live panels.
+- Add empty states with “How to fix” steps.
+
+E) ONE-CLICK ACTIONS (SUPER ADMIN + COMPANY ADMIN WHERE ALLOWED)
+- “Retry Auto-Assign”
+- “Override & Assign manually”
+- “Mute alert for 30 min”
+- “Mark resolved”
+All actions must show confirmation + write audit log.
+
+F) AUDIT + TRACEABILITY
+Every automated decision writes a log event with clickable trace:
+- Which drivers evaluated
+- Sorted scores
+- Offer attempts (rounds)
+- Escalation thresholds crossed
+- Dialysis automation decisions
+
+=========================================================
+PHASE 1 — AUTO-ASSIGN INTELIGENTE V2
+=========================================================
+GOAL:
+Fully automated score-based driver assignment with escalation, plus interactive UI to understand and control it.
+
+STEP 1 — DATABASE (Idempotent Migration)
+If companies table exists, add:
+
+auto_assign_enabled BOOLEAN DEFAULT true
+auto_assign_offer_timeout_seconds INTEGER DEFAULT 120
+auto_assign_max_rounds INTEGER DEFAULT 6
+auto_assign_max_distance_meters INTEGER DEFAULT 20000
+auto_assign_weight_distance INTEGER DEFAULT 45
+auto_assign_weight_reliability INTEGER DEFAULT 25
+auto_assign_weight_load INTEGER DEFAULT 20
+auto_assign_weight_fatigue INTEGER DEFAULT 10
+
+If columns exist → do nothing.
+
+Also add to trips table (if not exists):
+auto_assign_status TEXT DEFAULT 'IDLE'  -- IDLE|RUNNING|SUCCESS|FAILED|PAUSED
+auto_assign_last_run_at TIMESTAMPTZ
+auto_assign_failure_reason TEXT
+auto_assign_selected_driver_id UUID NULL
+
+Also add table (if not exists) auto_assign_runs:
+id UUID PK
+trip_id UUID
+company_id UUID
+city_id UUID
+started_at TIMESTAMPTZ
+ended_at TIMESTAMPTZ
+result TEXT  -- SUCCESS|FAILED|CANCELLED
+selected_driver_id UUID NULL
+reason TEXT NULL
+
+Also add table (if not exists) auto_assign_run_candidates:
+id UUID PK
+run_id UUID
+driver_id UUID
+distance_meters INTEGER
+reliability_score NUMERIC
+load_score NUMERIC
+fatigue_score NUMERIC
+final_score NUMERIC
+rank INTEGER
+eligible BOOLEAN
+ineligible_reason TEXT NULL
+
+(Keep it minimal but traceable.)
+
+STEP 2 — DRIVER CANDIDATE POOL
+When trip becomes READY_TO_ASSIGN:
+Select drivers:
+- same company_id + same city_id
+- active shift
+- no conflicting trip
+- within auto_assign_max_distance_meters
+- last GPS < 120 seconds
+
+STEP 3 — SCORING FORMULA (0–100 normalized)
+DistanceScore = 1 - (distance_to_pickup / max_distance)
+ReliabilityScore = driver_on_time_rate (0–1)
+LoadScore = 1 - (active_trips / max_allowed_trips)
+FatigueScore = 1 - (hours_worked_today / shift_limit)
+
+FinalScore =
+(w_distance*DistanceScore) +
+(w_reliability*ReliabilityScore) +
+(w_load*LoadScore) +
+(w_fatigue*FatigueScore)
+
+Normalize weights from company config.
+Store all candidate scores in auto_assign_run_candidates.
+
+STEP 4 — OFFER FLOW
+Offer to top driver:
+- create offer row
+- TTL = auto_assign_offer_timeout_seconds
+- accept → assign trip + mark run SUCCESS
+- decline/timeout → next driver
+- max rounds = auto_assign_max_rounds
+
+If exhausted → set trip AUTO_ASSIGN_FAILED + show clickable “Why failed” + notify dispatcher.
+
+Add per-trip in-memory cooldown (30s) to prevent loops.
+
+STEP 5 — UI/INTERACTION FOR AUTO-ASSIGN
+Create an “Auto-Assign” panel with:
+- Status chip (RUNNING/SUCCESS/FAILED/OFF)
+- “Explain” link: shows last run summary
+- “View candidates” link: opens ranked list (click driver to open driver profile)
+- “Retry” button (if failed)
+- “Override” button (assign manually)
+- “Settings” link (company config)
+
+Trip detail page:
+- Show “Auto-Assign Timeline” (click any event to see payload)
+- Show selected driver + score breakdown
+
+=========================================================
+PHASE 2 — ETA VARIANCE ESCALATION ENGINE
+=========================================================
+GOAL:
+Detect lateness early + interactive escalation center.
+
+STEP 1 — Trip fields (idempotent)
+original_eta_seconds INTEGER NULL
+eta_last_checked_at TIMESTAMPTZ NULL
+eta_variance_seconds INTEGER NULL
+eta_escalation_level TEXT DEFAULT 'NONE' -- NONE|WARN|CLINIC|DISPATCH
+
+STEP 2 — Recalc on GPS (throttle 60s)
+Recalculate ETA using stored route_polyline (DO NOT call Directions).
+variance = current_eta - original_eta
+
+Thresholds:
+> 300s → WARN
+> 600s → CLINIC
+> 900s → DISPATCH
+
+No duplicate escalation per threshold; store last escalation timestamp.
+
+STEP 3 — UI/INTERACTION
+Create “ETA Escalations” page:
+- Filter pills: WARN / CLINIC / DISPATCH
+- Each row clickable → trip detail with “why late” breakdown:
+   * driver distance trend
+   * stop time / wait time
+   * last GPS timestamp
+   * original vs current ETA
+- Quick actions: “mute 30 min”, “reassign driver”, “notify clinic”
+
+=========================================================
+PHASE 3 — ZERO-TOUCH DIALYSIS MODE
+=========================================================
+GOAL:
+Dialysis recurring trips that run on autopilot.
+
+STEP 1 — Company config
+zero_touch_dialysis_enabled BOOLEAN DEFAULT false
+
+STEP 2 — Automation Flow
+- Auto-generate weekly trips
+- Pre-assign 60 min before pickup
+- Re-check 15 min before pickup
+- If driver distance increasing → auto-reassign using Auto-Assign scoring
+
+Arrival detection:
+- geofence within 150m → auto ARRIVED_PICKUP
+
+Return trips:
+- Clinic marks READY → auto assign return
+- Dispatcher only involved on failure/escalation
+
+STEP 3 — UI/INTERACTION
+Create “Zero-Touch Dialysis” page:
+- “Today’s dialysis runs” list (clickable)
+- Automation status per trip (AUTO / NEEDS HELP)
+- “Reason codes” (why it reassigned / why it escalated)
+- One-click “pause automation for this clinic/company” (admin only)
+
+=========================================================
+LOGGING / AUDIT / CLICKABLE TRACE
+=========================================================
+Log events (all clickable in UI):
+AUTO_ASSIGN_ATTEMPT
+AUTO_ASSIGN_SUCCESS
+AUTO_ASSIGN_FAIL
+ETA_VARIANCE_WARNING
+ETA_ESCALATION
+DIALYSIS_AUTO_CREATE
+DIALYSIS_AUTO_ASSIGN
+DIALYSIS_AUTO_REASSIGN
+
+Every log entry must deep-link to:
+- trip detail
+- run detail
+- driver detail
+- clinic detail
+and show raw numbers used.
+
+=========================================================
+VERIFICATION CHECKLIST (Manual)
+=========================================================
+Auto-Assign:
+1) Create trip → Auto-Assign runs, assigns driver.
+2) Driver ignores → next driver offered.
+3) Click “Explain” → see weights + scores.
+4) Click candidate list → ranks and inputs visible.
+5) Retry works and logs run history.
+
+ETA Escalations:
+6) Simulate delay → WARN/CLINIC/DISPATCH triggers once each.
+7) Alerts page filters work; rows open trip detail.
+8) “Mute” prevents spam; logs the action.
+
+Dialysis:
+9) Weekly generation works; pre-assign + re-check works.
+10) Reassign triggers if driver trend is bad.
+11) UI shows reason codes and one-click pause.
+
+Security:
+12) Cross-tenant fetch blocked (403/404 per existing pattern).
+13) Only authorized roles see automation pages.
+
+DELIVERABLES
+- SQL migration snippet (idempotent)
+- Backend services + endpoints
+- Frontend pages/components + deep-links
+- Minimal diffs with file paths
+- No breaking changes
+
+END.

@@ -289,6 +289,28 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
     if (vehicleId) updateData.vehicleId = vehicleId;
     else if (driver.vehicleId) updateData.vehicleId = driver.vehicleId;
 
+    if ((!trip.estimatedArrivalTime || trip.estimatedArrivalTime === "TBD") && trip.pickupTime) {
+      const origin = (trip.pickupLat && trip.pickupLng)
+        ? { lat: Number(trip.pickupLat), lng: Number(trip.pickupLng) }
+        : trip.pickupAddress;
+      const dest = (trip.dropoffLat && trip.dropoffLng)
+        ? { lat: Number(trip.dropoffLat), lng: Number(trip.dropoffLng) }
+        : trip.dropoffAddress;
+      try {
+        const { etaMinutes: getEtaMinutes } = await import("../lib/googleMaps");
+        const routeEta = await getEtaMinutes(origin, dest);
+        const bufferMinutes = 5;
+        const totalMin = routeEta.minutes + bufferMinutes;
+        const [h, m] = trip.pickupTime.split(":").map(Number);
+        const arr = new Date(2000, 0, 1, h, m + totalMin);
+        updateData.estimatedArrivalTime = `${String(arr.getHours()).padStart(2, "0")}:${String(arr.getMinutes()).padStart(2, "0")}`;
+        updateData.lastEtaMinutes = routeEta.minutes;
+        updateData.distanceMiles = String(routeEta.distanceMiles);
+      } catch (etaErr: any) {
+        console.warn(`[ASSIGN] Route ETA calc failed for trip ${id}: ${etaErr.message}`);
+      }
+    }
+
     const [updatedTrip] = await db.update(trips).set(updateData).where(eq(trips.id, id)).returning();
 
     import("../lib/realtime").then(({ broadcastToTrip }) => {
@@ -629,7 +651,43 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
         return res.status(400).json({ message: "Dropoff address must be selected from autocomplete (lat/lng required)" });
       }
     }
-    if (parsed.data.pickupTime && parsed.data.estimatedArrivalTime && parsed.data.pickupTime >= parsed.data.estimatedArrivalTime) {
+    if (!parsed.data.estimatedArrivalTime || parsed.data.estimatedArrivalTime === "TBD") {
+      if (parsed.data.pickupLat != null && parsed.data.pickupLng != null &&
+          parsed.data.dropoffLat != null && parsed.data.dropoffLng != null &&
+          parsed.data.pickupTime) {
+        try {
+          const { etaMinutes: getEtaMinutes } = await import("../lib/googleMaps");
+          const eta = await getEtaMinutes(
+            { lat: Number(parsed.data.pickupLat), lng: Number(parsed.data.pickupLng) },
+            { lat: Number(parsed.data.dropoffLat), lng: Number(parsed.data.dropoffLng) }
+          );
+          const bufferMinutes = 5;
+          const totalMinutes = eta.minutes + bufferMinutes;
+          const [h, m] = parsed.data.pickupTime.split(":").map(Number);
+          const arrivalDate = new Date(2000, 0, 1, h, m + totalMinutes);
+          const arrH = String(arrivalDate.getHours()).padStart(2, "0");
+          const arrM = String(arrivalDate.getMinutes()).padStart(2, "0");
+          (parsed.data as any).estimatedArrivalTime = `${arrH}:${arrM}`;
+          (parsed.data as any).lastEtaMinutes = eta.minutes;
+          (parsed.data as any).distanceMiles = String(eta.distanceMiles);
+        } catch (etaErr: any) {
+          console.warn(`[TRIP-CREATE] ETA auto-calc failed: ${etaErr.message}`);
+          const [h, m] = parsed.data.pickupTime.split(":").map(Number);
+          const fallback = new Date(2000, 0, 1, h, m + 30);
+          const fH = String(fallback.getHours()).padStart(2, "0");
+          const fM = String(fallback.getMinutes()).padStart(2, "0");
+          (parsed.data as any).estimatedArrivalTime = `${fH}:${fM}`;
+        }
+      } else if (parsed.data.pickupTime) {
+        const [h, m] = parsed.data.pickupTime.split(":").map(Number);
+        const fallback = new Date(2000, 0, 1, h, m + 30);
+        const fH = String(fallback.getHours()).padStart(2, "0");
+        const fM = String(fallback.getMinutes()).padStart(2, "0");
+        (parsed.data as any).estimatedArrivalTime = `${fH}:${fM}`;
+      }
+    }
+
+    if (parsed.data.pickupTime && parsed.data.estimatedArrivalTime && parsed.data.estimatedArrivalTime !== "TBD" && parsed.data.pickupTime >= parsed.data.estimatedArrivalTime) {
       return res.status(400).json({ message: "Pickup time must be before estimated arrival time" });
     }
     if (!(await checkCityAccess(req, parsed.data.cityId))) {
@@ -902,7 +960,7 @@ export async function updateTripHandler(req: AuthRequest, res: Response) {
 
     const effectivePickup = updateData.pickupTime ?? existing.pickupTime;
     const effectiveArrival = updateData.estimatedArrivalTime ?? existing.estimatedArrivalTime;
-    if (effectivePickup && effectiveArrival && effectivePickup >= effectiveArrival) {
+    if (effectivePickup && effectiveArrival && effectiveArrival !== "TBD" && effectivePickup >= effectiveArrival) {
       return res.status(400).json({ message: "Pickup time must be before estimated arrival time" });
     }
 

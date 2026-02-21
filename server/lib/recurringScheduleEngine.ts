@@ -87,7 +87,7 @@ export async function generateTripsForSchedule(
       scheduledDate: date,
       scheduledTime: schedule.pickupTime,
       pickupTime: schedule.pickupTime,
-      estimatedArrivalTime: schedule.pickupTime,
+      estimatedArrivalTime: (schedule as any).estimatedArrivalTime || "TBD",
       tripType: "recurring",
       recurringDays: schedule.days,
       status: "SCHEDULED",

@@ -550,7 +550,7 @@ export default function TripsPage() {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {trip.scheduledDate} | Pickup: {trip.pickupTime} | ETA: {trip.estimatedArrivalTime}
+                      {trip.scheduledDate} | Pickup: {trip.pickupTime}{trip.estimatedArrivalTime && trip.estimatedArrivalTime !== "TBD" ? ` | ETA: ${trip.estimatedArrivalTime}` : ""}
                     </p>
                     <p className="text-sm">
                       <span className="text-muted-foreground">From:</span> {trip.pickupAddress}
@@ -1694,16 +1694,18 @@ function TripDetailDialog({
                       data-testid="input-edit-trip-pickup-time"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Est. Arrival Time *</Label>
-                    <Input
-                      type="time"
-                      value={editEstArrival}
-                      onChange={(e) => setEditEstArrival(e.target.value)}
-                      required
-                      data-testid="input-edit-trip-est-arrival"
-                    />
-                  </div>
+                  {editEstArrival && editEstArrival !== "TBD" && (
+                    <div className="space-y-2">
+                      <Label>Est. Arrival (auto-calculated)</Label>
+                      <Input
+                        type="time"
+                        value={editEstArrival}
+                        disabled
+                        className="opacity-60"
+                        data-testid="input-edit-trip-est-arrival"
+                      />
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -1748,7 +1750,9 @@ function TripDetailDialog({
             <div className="space-y-1">
               <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                 <span data-testid="text-trip-pickup-time">Pickup: {trip.pickupTime}</span>
-                <span data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</span>
+                {trip.estimatedArrivalTime && trip.estimatedArrivalTime !== "TBD" && (
+                  <span data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</span>
+                )}
               </div>
               {trip.recurringDays?.length > 0 && (
                 <p className="text-sm text-muted-foreground" data-testid="text-trip-recurring-days">Recurring: {trip.recurringDays.join(", ")}</p>
@@ -2177,7 +2181,6 @@ function TripForm({
   const [tripSource, setTripSource] = useState<"clinic" | "private">("clinic");
   const [scheduledDate, setScheduledDate] = useState("");
   const [pickupTime, setPickupTime] = useState("");
-  const [estimatedArrivalTime, setEstimatedArrivalTime] = useState("");
   const [notes, setNotes] = useState("");
   const [tripType, setTripType] = useState<TripType>("one_time");
   const [mobilityRequirement, setMobilityRequirement] = useState("STANDARD");
@@ -2214,10 +2217,6 @@ function TripForm({
     }
     if (dateIsPast) {
       toast({ title: "Trip date cannot be in the past", variant: "destructive" });
-      return;
-    }
-    if (pickupTime >= estimatedArrivalTime) {
-      toast({ title: "Pickup time must be before estimated arrival time", variant: "destructive" });
       return;
     }
     if (tripType === "recurring" && recurringDays.length === 0) {
@@ -2274,7 +2273,6 @@ function TripForm({
         endDate: seriesEndType === "end_date" ? endDate : null,
         occurrences: seriesEndType === "occurrences" ? parseInt(occurrencesStr) : null,
         pickupTime,
-        estimatedArrivalTime,
         notes: notes || null,
         ...(effectiveRequestSource ? { requestSource: effectiveRequestSource } : {}),
         ...addressFields,
@@ -2288,7 +2286,6 @@ function TripForm({
         scheduledDate,
         scheduledTime: pickupTime,
         pickupTime,
-        estimatedArrivalTime,
         tripType,
         mobilityRequirement,
         recurringDays: null,
@@ -2367,15 +2364,10 @@ function TripForm({
           )}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label>Pickup Time *</Label>
-          <Input type="time" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} required data-testid="input-trip-pickup-time" />
-        </div>
-        <div className="space-y-2">
-          <Label>Est. Arrival Time *</Label>
-          <Input type="time" value={estimatedArrivalTime} onChange={(e) => setEstimatedArrivalTime(e.target.value)} required data-testid="input-trip-est-arrival" />
-        </div>
+      <div className="space-y-2">
+        <Label>Pickup Time *</Label>
+        <Input type="time" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} required data-testid="input-trip-pickup-time" />
+        <p className="text-xs text-muted-foreground">Estimated arrival will be calculated automatically based on the route.</p>
       </div>
 
       <AddressAutocomplete
@@ -2474,7 +2466,7 @@ function TripForm({
       <Button
         type="submit"
         className="w-full"
-        disabled={loading || !patientId || !pickupAddr || !dropoffAddr || !scheduledDate || !pickupTime || !estimatedArrivalTime || !!dateIsPast}
+        disabled={loading || !patientId || !pickupAddr || !dropoffAddr || !scheduledDate || !pickupTime || !!dateIsPast}
         data-testid="button-submit-trip"
       >
         {loading ? "Creating..." : tripType === "recurring" ? "Create Trip Series" : "Schedule Trip"}

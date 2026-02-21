@@ -354,7 +354,9 @@ export default function TripDetailPage() {
 
             <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
               <span data-testid="text-detail-pickup-time">Pickup: {trip.pickupTime}</span>
-              <span data-testid="text-detail-est-arrival">ETA: {trip.estimatedArrivalTime}</span>
+              {trip.estimatedArrivalTime && trip.estimatedArrivalTime !== "TBD" && (
+                <span data-testid="text-detail-est-arrival">ETA: {trip.estimatedArrivalTime}</span>
+              )}
             </div>
             {trip.recurringDays?.length > 0 && (
               <p className="text-sm text-muted-foreground">Recurring: {trip.recurringDays.join(", ")}</p>

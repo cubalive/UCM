@@ -154,41 +154,68 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 
 async function calculateAndStoreEta(tripId: number, driverLat: number | null, driverLng: number | null, pickupLat: number | null, pickupLng: number | null, pickupAddress: string, dropoffAddress: string) {
   try {
+    const trip = await storage.getTrip(tripId);
+    const updateFields: any = {};
+
     if (pickupLat && pickupLng) {
       const { getThrottledEta } = await import("./etaThrottle");
       const driverId = await getDriverIdForTrip(tripId);
       if (driverId) {
         const eta = await getThrottledEta(driverId, { lat: pickupLat, lng: pickupLng }, tripId);
         if (eta) {
-          await storage.updateTrip(tripId, {
-            lastEtaMinutes: eta.minutes,
-            distanceMiles: eta.distanceMiles.toString(),
-            durationMinutes: eta.minutes,
-            lastEtaUpdatedAt: new Date(),
-          } as any);
-          return { minutes: eta.minutes, distanceMiles: eta.distanceMiles };
+          updateFields.lastEtaMinutes = eta.minutes;
+          updateFields.distanceMiles = eta.distanceMiles.toString();
+          updateFields.durationMinutes = eta.minutes;
+          updateFields.lastEtaUpdatedAt = new Date();
         }
       }
     }
 
-    if (!GOOGLE_MAPS_KEY) return null;
+    if (trip && (!trip.estimatedArrivalTime || trip.estimatedArrivalTime === "TBD") && trip.pickupTime) {
+      const origin = (pickupLat && pickupLng)
+        ? { lat: pickupLat, lng: pickupLng }
+        : (trip.pickupLat && trip.pickupLng)
+          ? { lat: Number(trip.pickupLat), lng: Number(trip.pickupLng) }
+          : pickupAddress;
+      const dest = (trip.dropoffLat && trip.dropoffLng)
+        ? { lat: Number(trip.dropoffLat), lng: Number(trip.dropoffLng) }
+        : dropoffAddress;
+      try {
+        const routeEta = await etaMinutes(origin, dest);
+        const bufferMinutes = 5;
+        const totalMin = routeEta.minutes + bufferMinutes;
+        const [h, m] = trip.pickupTime.split(":").map(Number);
+        const arr = new Date(2000, 0, 1, h, m + totalMin);
+        updateFields.estimatedArrivalTime = `${String(arr.getHours()).padStart(2, "0")}:${String(arr.getMinutes()).padStart(2, "0")}`;
+        if (!updateFields.distanceMiles) updateFields.distanceMiles = routeEta.distanceMiles.toString();
+        if (!updateFields.durationMinutes) updateFields.durationMinutes = routeEta.minutes;
+      } catch (etaErr: any) {
+        console.warn(`[DISPATCH] Route ETA calc failed for trip ${tripId}: ${etaErr.message}`);
+      }
+    }
 
-    const origin = (driverLat && driverLng)
-      ? { lat: driverLat, lng: driverLng }
-      : pickupAddress;
+    if (!GOOGLE_MAPS_KEY && Object.keys(updateFields).length === 0) return null;
 
-    const destination = dropoffAddress;
+    if (Object.keys(updateFields).length === 0) {
+      const origin = (driverLat && driverLng)
+        ? { lat: driverLat, lng: driverLng }
+        : pickupAddress;
 
-    const eta = await etaMinutes(origin, destination);
+      const destination = dropoffAddress;
 
-    await storage.updateTrip(tripId, {
-      lastEtaMinutes: eta.minutes,
-      distanceMiles: eta.distanceMiles.toString(),
-      durationMinutes: eta.minutes,
-      lastEtaUpdatedAt: new Date(),
-    } as any);
+      const eta = await etaMinutes(origin, destination);
 
-    return eta;
+      updateFields.lastEtaMinutes = eta.minutes;
+      updateFields.distanceMiles = eta.distanceMiles.toString();
+      updateFields.durationMinutes = eta.minutes;
+      updateFields.lastEtaUpdatedAt = new Date();
+    }
+
+    if (Object.keys(updateFields).length > 0) {
+      await storage.updateTrip(tripId, updateFields);
+    }
+
+    return updateFields.lastEtaMinutes ? { minutes: updateFields.lastEtaMinutes, distanceMiles: parseFloat(updateFields.distanceMiles || "0") } : null;
   } catch (err: any) {
     console.warn(`ETA calculation failed for trip ${tripId}: ${err.message}`);
     return null;
