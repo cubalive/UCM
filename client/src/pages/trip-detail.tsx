@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin, Download, Loader2, Ban, Archive, Trash2, RotateCcw } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { TripStaticMap } from "@/components/trip-static-map";
+import { TripRouteMap } from "@/components/trip-route-map";
 import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
 import { queryClient } from "@/lib/queryClient";
 import { downloadWithAuth } from "@/lib/export";
@@ -333,13 +334,17 @@ export default function TripDetailPage() {
         </div>
       </div>
 
-      <TripStaticMap
+      <TripRouteMap
         tripId={trip.id}
         pickupLat={trip.pickupLat}
+        pickupLng={trip.pickupLng}
         dropoffLat={trip.dropoffLat}
-        size="full"
+        dropoffLng={trip.dropoffLng}
+        pickupAddress={trip.pickupAddress}
+        dropoffAddress={trip.dropoffAddress}
         token={token}
-        className="w-full h-56 md:h-72 rounded-md"
+        className="w-full rounded-md"
+        style={{ minHeight: "280px" }}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

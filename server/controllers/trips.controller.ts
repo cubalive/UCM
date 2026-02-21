@@ -754,6 +754,10 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
       console.error(`[SMS-AUTO] Failed to send scheduled SMS for trip ${trip.id}:`, err.message);
     });
 
+    import("../lib/tripRouteService").then(({ ensureTripRouteNonBlocking }) => {
+      ensureTripRouteNonBlocking(trip.id);
+    }).catch(() => {});
+
     res.json(trip);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -912,6 +916,13 @@ export async function updateTripHandler(req: AuthRequest, res: Response) {
       updateData.staticMapGeneratedAt = null;
     }
 
+    if (addressChanged) {
+      updateData.routePolyline = null;
+      updateData.routeFingerprint = null;
+      updateData.routeDistanceMeters = null;
+      updateData.routeDurationSeconds = null;
+    }
+
     const trip = await storage.updateTrip(id, updateData);
     await storage.createAuditLog({
       userId: req.user!.userId,
@@ -921,6 +932,13 @@ export async function updateTripHandler(req: AuthRequest, res: Response) {
       details: `Updated trip fields: ${Object.keys(updateData).join(", ")}`,
       cityId: existing.cityId,
     });
+
+    if (addressChanged) {
+      import("../lib/tripRouteService").then(({ ensureTripRouteNonBlocking }) => {
+        ensureTripRouteNonBlocking(id);
+      }).catch(() => {});
+    }
+
     res.json(trip);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -1907,6 +1925,40 @@ export async function createReturnTripHandler(req: AuthRequest, res: Response) {
     res.json(finalTrip);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getTripRouteHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+    const trip = await storage.getTrip(id);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+    const { ensureTripRoute } = await import("../lib/tripRouteService");
+    const result = await ensureTripRoute(id);
+
+    if (!result) {
+      return res.json({
+        routePolyline: null,
+        distanceMeters: null,
+        durationSeconds: null,
+      });
+    }
+
+    return res.json({
+      routePolyline: result.routePolyline,
+      distanceMeters: result.routeDistanceMeters,
+      durationSeconds: result.routeDurationSeconds,
+    });
+  } catch (err: any) {
+    console.warn(`[TRIP-ROUTE] Error for trip ${req.params.id}: ${err.message}`);
+    return res.json({
+      routePolyline: null,
+      distanceMeters: null,
+      durationSeconds: null,
+      error: err.message,
+    });
   }
 }
 

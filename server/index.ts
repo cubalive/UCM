@@ -217,6 +217,9 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS delete_reason TEXT`);
     await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS deleted_by INTEGER`);
     await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS delete_reason TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS route_distance_meters INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS route_duration_seconds INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS route_fingerprint TEXT`);
 
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS working_city_id INTEGER REFERENCES cities(id)`);
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS working_city_scope TEXT DEFAULT 'CITY'`);
