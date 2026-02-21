@@ -180,6 +180,14 @@ export default function AutoAssignmentPage() {
     if (!zipGroups[key]) zipGroups[key] = [];
     zipGroups[key].push(p);
   }
+  const parseTimeMinutes = (t: string | null): number => {
+    if (!t) return 9999;
+    const parts = t.split(":");
+    return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+  };
+  for (const key of Object.keys(zipGroups)) {
+    zipGroups[key].sort((a, b) => parseTimeMinutes(a.pickupTime) - parseTimeMinutes(b.pickupTime));
+  }
 
   return (
     <div className="p-4 space-y-6 max-w-7xl mx-auto">
@@ -363,10 +371,11 @@ export default function AutoAssignmentPage() {
                             {p.blockReason || p.assignmentReason || ""}
                           </td>
                           <td className="py-2 pl-2 text-right">
-                            {p.canAssign && batch.status === "proposed" && (
+                            {batch.status === "proposed" && (
                               <Button
-                                size="icon"
-                                variant="ghost"
+                                size="sm"
+                                variant="outline"
+                                className="gap-1"
                                 onClick={() => {
                                   setOverrideTrip(p);
                                   setOverrideDriverId(p.proposedDriverId?.toString() || "");
@@ -374,7 +383,8 @@ export default function AutoAssignmentPage() {
                                 }}
                                 data-testid={`button-override-${p.tripId}`}
                               >
-                                <Edit className="w-4 h-4" />
+                                <Edit className="w-3 h-3" />
+                                Edit
                               </Button>
                             )}
                           </td>
@@ -401,14 +411,34 @@ export default function AutoAssignmentPage() {
       <Dialog open={!!overrideTrip} onOpenChange={(open) => !open && setOverrideTrip(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Override Assignment - {overrideTrip?.tripPublicId}</DialogTitle>
+            <DialogTitle>Edit Assignment - {overrideTrip?.tripPublicId}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label>Patient</Label>
-              <p className="text-sm text-muted-foreground">{overrideTrip?.patientName}</p>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <Label className="text-xs text-muted-foreground">Patient</Label>
+                <p className="font-medium">{overrideTrip?.patientName}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Pickup Time</Label>
+                <p className="font-medium">{overrideTrip?.pickupTime || "—"}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Type</Label>
+                <p className="capitalize">{overrideTrip?.tripType?.replace("_", " ")}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">ZIP</Label>
+                <p>{overrideTrip?.pickupZip || "—"}</p>
+              </div>
             </div>
-            <div>
+            {overrideTrip?.assignmentReason && (
+              <div className="rounded-md bg-muted/50 px-3 py-2">
+                <Label className="text-xs text-muted-foreground">Auto-assign reason</Label>
+                <p className="text-sm">{overrideTrip.assignmentReason}</p>
+              </div>
+            )}
+            <div className="space-y-2">
               <Label>Driver</Label>
               <Select value={overrideDriverId} onValueChange={setOverrideDriverId}>
                 <SelectTrigger data-testid="select-override-driver">
@@ -426,7 +456,7 @@ export default function AutoAssignmentPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
+            <div className="space-y-2">
               <Label>Vehicle</Label>
               <Select value={overrideVehicleId} onValueChange={setOverrideVehicleId}>
                 <SelectTrigger data-testid="select-override-vehicle">
@@ -458,7 +488,7 @@ export default function AutoAssignmentPage() {
               disabled={overrideMutation.isPending}
               data-testid="button-save-override"
             >
-              {overrideMutation.isPending ? "Saving..." : "Save Override"}
+              {overrideMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

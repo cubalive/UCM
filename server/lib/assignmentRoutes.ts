@@ -190,6 +190,13 @@ export function registerAssignmentRoutes(app: Express, authMiddleware: any) {
             canAssign: t.approvalStatus === "approved",
             blockReason: t.approvalStatus !== "approved" ? "Needs dispatch approval" : null,
           };
+        }).sort((a, b) => {
+          const parseMin = (t: string | null): number => {
+            if (!t) return 9999;
+            const parts = t.split(":");
+            return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+          };
+          return parseMin(a.pickupTime) - parseMin(b.pickupTime);
         });
 
         res.json({

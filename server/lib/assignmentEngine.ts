@@ -79,13 +79,33 @@ function buildRecurringAffinityMap(
 }
 
 function buildGeneralHistoryMap(priorTrips: any[]): Map<number, number> {
-  const history = new Map<number, number>();
+  const driverCounts = new Map<number, Map<number, number>>();
+
   for (const t of priorTrips) {
-    if (t.patientId && t.driverId) {
-      history.set(t.patientId, t.driverId);
+    if (!t.patientId || !t.driverId) continue;
+    if (!driverCounts.has(t.patientId)) {
+      driverCounts.set(t.patientId, new Map());
+    }
+    const counts = driverCounts.get(t.patientId)!;
+    counts.set(t.driverId, (counts.get(t.driverId) || 0) + 1);
+  }
+
+  const historyMap = new Map<number, number>();
+  for (const [patientId, counts] of driverCounts) {
+    let bestDriverId = 0;
+    let bestCount = 0;
+    for (const [driverId, count] of counts) {
+      if (count > bestCount) {
+        bestCount = count;
+        bestDriverId = driverId;
+      }
+    }
+    if (bestDriverId > 0) {
+      historyMap.set(patientId, bestDriverId);
     }
   }
-  return history;
+
+  return historyMap;
 }
 
 function findRoundTripPairs(activeTrips: any[]): Map<number, number> {
@@ -265,7 +285,7 @@ export async function generateAssignmentPlan(
         const historyDriverId = generalHistoryMap.get(trip.patientId);
         if (historyDriverId && eligibleDrivers.some(d => d.id === historyDriverId) && !holdDriverIds.has(historyDriverId)) {
           bestDriverId = historyDriverId;
-          reason = "Patient-driver history match";
+          reason = "Patient-driver history match (same driver prioritized)";
         }
       }
 
