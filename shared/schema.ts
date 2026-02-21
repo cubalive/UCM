@@ -2705,6 +2705,32 @@ export const insertFeeRuleAuditSchema = createInsertSchema(feeRuleAudit).omit({ 
 export type FeeRuleAudit = typeof feeRuleAudit.$inferSelect;
 export type InsertFeeRuleAudit = z.infer<typeof insertFeeRuleAuditSchema>;
 
+export const alertAcknowledgments = pgTable("alert_acknowledgments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  alertCode: text("alert_code").notNull(),
+  note: text("note"),
+  acknowledgedById: integer("acknowledged_by_id").notNull().references(() => users.id),
+  acknowledgedByName: text("acknowledged_by_name").notNull(),
+  acknowledgedByRole: text("acknowledged_by_role").notNull(),
+  originSubdomain: text("origin_subdomain"),
+  expiresAt: timestamp("expires_at").notNull(),
+  dismissed: boolean("dismissed").notNull().default(false),
+  dismissedById: integer("dismissed_by_id").references(() => users.id),
+  dismissedByName: text("dismissed_by_name"),
+  dismissedAt: timestamp("dismissed_at"),
+  companyId: integer("company_id").references(() => companies.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("aa_alert_code_idx").on(table.alertCode),
+  index("aa_ack_by_idx").on(table.acknowledgedById),
+  index("aa_expires_idx").on(table.expiresAt),
+  index("aa_dismissed_idx").on(table.dismissed),
+]);
+
+export const insertAlertAckSchema = createInsertSchema(alertAcknowledgments).omit({ id: true, createdAt: true, dismissed: true, dismissedById: true, dismissedByName: true, dismissedAt: true });
+export type AlertAcknowledgment = typeof alertAcknowledgments.$inferSelect;
+export type InsertAlertAck = z.infer<typeof insertAlertAckSchema>;
+
 export const driverRiskScores = pgTable("driver_risk_scores", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   driverId: integer("driver_id").notNull().references(() => drivers.id),

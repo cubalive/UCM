@@ -215,6 +215,16 @@ import {
   getSystemMap, getSystemStatus, runSmokeTest, getSmokeRuns,
   getCompanyDataOverview, getImportRuns, getImportRunEvents,
 } from "../controllers/systemStatus.controller";
+import { alertAcknowledgments, auditLog, users } from "@shared/schema";
+import { eq, and, gt, desc } from "drizzle-orm";
+
+async function resolveUserName(userId: number): Promise<string> {
+  try {
+    const [u] = await db.select({ firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users).where(eq(users.id, userId));
+    if (u?.firstName || u?.lastName) return `${u.firstName || ""} ${u.lastName || ""}`.trim();
+    return u?.email || `User #${userId}`;
+  } catch { return `User #${userId}`; }
+}
 
 router.get("/api/ops/system-map", authMiddleware, requireRole("SUPER_ADMIN"), getSystemMap);
 router.get("/api/ops/system-status", authMiddleware, requireRole("SUPER_ADMIN"), getSystemStatus);
@@ -223,6 +233,151 @@ router.get("/api/ops/smoke-runs", authMiddleware, requireRole("SUPER_ADMIN"), ge
 router.get("/api/ops/company/:id/overview", authMiddleware, requireRole("SUPER_ADMIN"), getCompanyDataOverview);
 router.get("/api/ops/import-runs", authMiddleware, requireRole("SUPER_ADMIN"), getImportRuns);
 router.get("/api/ops/import-runs/:id/events", authMiddleware, requireRole("SUPER_ADMIN"), getImportRunEvents);
+
+router.get("/api/ops/alert-acks", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res: Response) => {
+  try {
+    const rows = await db
+      .select()
+      .from(alertAcknowledgments)
+      .where(and(
+        eq(alertAcknowledgments.dismissed, false),
+        gt(alertAcknowledgments.expiresAt, new Date())
+      ))
+      .orderBy(desc(alertAcknowledgments.createdAt))
+      .limit(200);
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/api/ops/alert-acks/history", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res: Response) => {
+  try {
+    const alertCode = req.query.alertCode as string | undefined;
+    const where = alertCode
+      ? eq(alertAcknowledgments.alertCode, alertCode)
+      : undefined;
+    const rows = await db
+      .select()
+      .from(alertAcknowledgments)
+      .where(where)
+      .orderBy(desc(alertAcknowledgments.createdAt))
+      .limit(50);
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/api/ops/alert-acks", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res: Response) => {
+  try {
+    const { alertCode, note, originSubdomain, expiryHours } = req.body;
+    if (!alertCode) return res.status(400).json({ error: "alertCode required" });
+
+    const hours = typeof expiryHours === "number" && expiryHours > 0 ? expiryHours : 6;
+    const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
+    const userId = req.user!.userId;
+    const userName = await resolveUserName(userId);
+    const userRole = req.user!.role || "UNKNOWN";
+
+    const [ack] = await db.insert(alertAcknowledgments).values({
+      alertCode,
+      note: note || null,
+      acknowledgedById: userId,
+      acknowledgedByName: userName,
+      acknowledgedByRole: userRole,
+      originSubdomain: originSubdomain || null,
+      expiresAt,
+      companyId: req.user!.companyId || null,
+    }).returning();
+
+    await db.insert(auditLog).values({
+      userId,
+      action: "ALERT_ACKNOWLEDGED",
+      entity: "alert_acknowledgment",
+      entityId: ack.id,
+      details: `Alert "${alertCode}" acknowledged${note ? `: ${note}` : ""}. Expires at ${expiresAt.toISOString()}`,
+      actorRole: userRole,
+      companyId: req.user!.companyId || null,
+      metadataJson: { alertCode, note, originSubdomain, expiryHours: hours },
+    });
+
+    res.json(ack);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/api/ops/alert-acks/:id/dismiss", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+
+    const userId = req.user!.userId;
+    const userName = await resolveUserName(userId);
+    const userRole = req.user!.role || "UNKNOWN";
+    const { note } = req.body || {};
+
+    const [updated] = await db
+      .update(alertAcknowledgments)
+      .set({
+        dismissed: true,
+        dismissedById: userId,
+        dismissedByName: userName,
+        dismissedAt: new Date(),
+      })
+      .where(eq(alertAcknowledgments.id, id))
+      .returning();
+
+    if (!updated) return res.status(404).json({ error: "Acknowledgment not found" });
+
+    await db.insert(auditLog).values({
+      userId,
+      action: "ALERT_DISMISSED",
+      entity: "alert_acknowledgment",
+      entityId: id,
+      details: `Alert "${updated.alertCode}" dismissed/hidden by ${userName}${note ? `: ${note}` : ""}`,
+      actorRole: userRole,
+      companyId: req.user!.companyId || null,
+      metadataJson: { alertCode: updated.alertCode, dismissNote: note, originSubdomain: req.body?.originSubdomain },
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete("/api/ops/alert-acks/:id", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+
+    const userId = req.user!.userId;
+    const userRole = req.user!.role || "UNKNOWN";
+    const userName = await resolveUserName(userId);
+
+    const [existing] = await db.select().from(alertAcknowledgments).where(eq(alertAcknowledgments.id, id));
+    if (!existing) return res.status(404).json({ error: "Not found" });
+
+    await db.delete(alertAcknowledgments).where(eq(alertAcknowledgments.id, id));
+
+    await db.insert(auditLog).values({
+      userId,
+      action: "ALERT_ACK_DELETED",
+      entity: "alert_acknowledgment",
+      entityId: id,
+      details: `Alert acknowledgment "${existing.alertCode}" deleted by ${userName}`,
+      actorRole: userRole,
+      companyId: req.user!.companyId || null,
+      metadataJson: { alertCode: existing.alertCode, deletedAck: existing },
+    });
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export function registerInfraOpsRoutes(app: Express) {
   app.use(router);

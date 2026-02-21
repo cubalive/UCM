@@ -2,11 +2,13 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { isDriverHost } from "@/lib/hostDetection";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -50,6 +52,10 @@ import {
   Truck,
   FileText,
   Eye,
+  Trash2,
+  MessageSquare,
+  History,
+  EyeOff,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useLocation } from "wouter";
@@ -125,30 +131,27 @@ function getAlertMeta(code: string): AlertCodeMeta {
   return ALERT_CODE_META[code] || DEFAULT_META;
 }
 
-function getResolvedAlerts(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem("ucm_resolved_alerts") || "{}");
-  } catch { return {}; }
+interface AlertAck {
+  id: number;
+  alertCode: string;
+  note: string | null;
+  acknowledgedById: number;
+  acknowledgedByName: string;
+  acknowledgedByRole: string;
+  originSubdomain: string | null;
+  expiresAt: string;
+  dismissed: boolean;
+  dismissedById: number | null;
+  dismissedByName: string | null;
+  dismissedAt: string | null;
+  companyId: number | null;
+  createdAt: string;
 }
 
-function markAlertResolved(code: string) {
-  const resolved = getResolvedAlerts();
-  resolved[code] = new Date().toISOString();
-  localStorage.setItem("ucm_resolved_alerts", JSON.stringify(resolved));
-}
-
-function unmarkAlertResolved(code: string) {
-  const resolved = getResolvedAlerts();
-  delete resolved[code];
-  localStorage.setItem("ucm_resolved_alerts", JSON.stringify(resolved));
-}
-
-function isAlertResolved(code: string): boolean {
-  const resolved = getResolvedAlerts();
-  if (!resolved[code]) return false;
-  const resolvedAt = new Date(resolved[code]);
-  const hoursSince = (Date.now() - resolvedAt.getTime()) / (1000 * 60 * 60);
-  return hoursSince < 24;
+function getSubdomain(): string {
+  const host = window.location.hostname;
+  const parts = host.split(".");
+  return parts.length > 2 ? parts[0] : "app";
 }
 
 function readQueryParams() {
@@ -165,23 +168,86 @@ function ErrorDetailsDrawer({
   open,
   onClose,
   alert,
-  onResolve,
-  onUnresolve,
+  resolvedCodes,
+  activeAcks,
+  onAckCreated,
 }: {
   open: boolean;
   onClose: () => void;
   alert: OpsAlert | null;
-  onResolve?: (code: string) => void;
-  onUnresolve?: (code: string) => void;
+  resolvedCodes: Set<string>;
+  activeAcks: AlertAck[];
+  onAckCreated: () => void;
 }) {
   const [, navigate] = useLocation();
+  const { token, user } = useAuth();
+  const { toast } = useToast();
+  const [note, setNote] = useState("");
+  const [expiryHours, setExpiryHours] = useState("6");
+  const [showHistory, setShowHistory] = useState(false);
+  const canManage = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
+
+  const historyQuery = useQuery<AlertAck[]>({
+    queryKey: ["/api/ops/alert-acks/history", alert?.code],
+    queryFn: () => apiFetch(`/api/ops/alert-acks/history?alertCode=${alert?.code}`, token),
+    enabled: showHistory && !!alert?.code,
+  });
+
+  const ackMutation = useMutation({
+    mutationFn: async (data: { alertCode: string; note: string; expiryHours: number }) => {
+      const res = await apiRequest("POST", "/api/ops/alert-acks", {
+        ...data,
+        originSubdomain: getSubdomain(),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Alert acknowledged", description: "Your note has been logged." });
+      queryClient.invalidateQueries({ queryKey: ["/api/ops/alert-acks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ops/alert-acks/history"] });
+      onAckCreated();
+      setNote("");
+      onClose();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const dismissMutation = useMutation({
+    mutationFn: async (ackId: number) => {
+      const res = await apiRequest("POST", `/api/ops/alert-acks/${ackId}/dismiss`, {
+        originSubdomain: getSubdomain(),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Alert hidden", description: "Notification dismissed." });
+      queryClient.invalidateQueries({ queryKey: ["/api/ops/alert-acks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ops/alert-acks/history"] });
+      onAckCreated();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (ackId: number) => {
+      const res = await apiRequest("DELETE", `/api/ops/alert-acks/${ackId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Acknowledgment removed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/ops/alert-acks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ops/alert-acks/history"] });
+      onAckCreated();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
 
   if (!alert) return null;
   const meta = getAlertMeta(alert.code);
   const Icon = meta.icon;
-  const resolved = isAlertResolved(alert.code);
-
+  const resolved = resolvedCodes.has(alert.code);
   const isExt = meta.isExternal === true;
+  const currentAck = activeAcks.find(a => a.alertCode === alert.code);
 
   const severityConfig = {
     critical: { bg: "bg-red-50 dark:bg-red-950/30", border: "border-red-200 dark:border-red-800", text: "text-red-700 dark:text-red-300", badge: "destructive" as const },
@@ -201,7 +267,7 @@ function ErrorDetailsDrawer({
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2" data-testid="text-drawer-title">
             <Icon className="w-5 h-5" />
-            {resolved ? "Resolved Alert" : "Alert Details"}
+            {resolved ? "Acknowledged Alert" : "Alert Details"}
           </SheetTitle>
           <SheetDescription data-testid="text-drawer-subtitle">
             {alert.title}
@@ -213,24 +279,68 @@ function ErrorDetailsDrawer({
             <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30" data-testid="div-external-badge">
               <ExternalLink className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span className="text-xs text-amber-700 dark:text-amber-300">
-                External Service — This issue originates outside the UCM system. You can acknowledge and mark it as resolved once addressed.
+                External Service — This issue originates outside the UCM system.
               </span>
             </div>
           )}
 
-          {resolved && (
-            <div className="flex items-center gap-2 p-3 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30" data-testid="div-resolved-badge">
-              <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
-              <span className="text-xs text-green-700 dark:text-green-300">
-                Marked as resolved. This acknowledgment expires after 24 hours.
-              </span>
+          {currentAck && (
+            <div className="p-3 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 space-y-2" data-testid="div-current-ack">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+                <span className="text-xs font-medium text-green-700 dark:text-green-300">
+                  Acknowledged by {currentAck.acknowledgedByName} ({currentAck.acknowledgedByRole})
+                </span>
+              </div>
+              {currentAck.note && (
+                <div className="flex items-start gap-2 pl-6">
+                  <MessageSquare className="w-3 h-3 text-green-500 mt-0.5 shrink-0" />
+                  <span className="text-xs text-green-600 dark:text-green-400 italic">{currentAck.note}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 pl-6 text-xs text-muted-foreground">
+                <Clock className="w-3 h-3" />
+                <span>Expires: {new Date(currentAck.expiresAt).toLocaleString()}</span>
+                {currentAck.originSubdomain && (
+                  <>
+                    <span>•</span>
+                    <span>from {currentAck.originSubdomain}.*</span>
+                  </>
+                )}
+              </div>
+              {canManage && (
+                <div className="flex gap-2 pl-6 pt-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+                    onClick={() => dismissMutation.mutate(currentAck.id)}
+                    disabled={dismissMutation.isPending}
+                    data-testid="button-dismiss-ack"
+                  >
+                    <EyeOff className="w-3 h-3 mr-1" />
+                    Hide Notification
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-red-300 dark:border-red-700 text-red-700 dark:text-red-300"
+                    onClick={() => deleteMutation.mutate(currentAck.id)}
+                    disabled={deleteMutation.isPending}
+                    data-testid="button-delete-ack"
+                  >
+                    <Trash2 className="w-3 h-3 mr-1" />
+                    Remove
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
           <div className={`p-4 rounded-lg border ${sc.bg} ${sc.border}`} data-testid="div-drawer-severity-box">
             <div className="flex items-center justify-between mb-3">
               <Badge variant={sc.badge} data-testid="badge-drawer-severity">
-                {resolved ? "RESOLVED" : isExt ? "EXTERNAL" : alert.severity.toUpperCase()}
+                {resolved ? "ACKNOWLEDGED" : isExt ? "EXTERNAL" : alert.severity.toUpperCase()}
               </Badge>
               <Badge variant="outline" data-testid="badge-drawer-count">{alert.count} affected</Badge>
             </div>
@@ -257,36 +367,89 @@ function ErrorDetailsDrawer({
             </div>
           </div>
 
-          {isExt && !resolved && (
-            <Button
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={() => {
-                markAlertResolved(alert.code);
-                onResolve?.(alert.code);
-                onClose();
-              }}
-              data-testid="button-drawer-resolve"
-            >
-              <CheckCircle className="w-4 h-4 mr-2" />
-              Mark as Resolved
-            </Button>
+          {canManage && !currentAck && (
+            <div className="space-y-3 p-4 rounded-lg border bg-muted/30" data-testid="div-ack-form">
+              <h4 className="text-sm font-medium flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" />
+                Acknowledge & Leave Note
+              </h4>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Note (optional)</Label>
+                <Textarea
+                  placeholder="Checked Twilio dashboard, issue with carrier..."
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  className="text-sm min-h-[60px]"
+                  data-testid="textarea-ack-note"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Re-check after</Label>
+                <Select value={expiryHours} onValueChange={setExpiryHours}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-expiry-hours">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 hour</SelectItem>
+                    <SelectItem value="3">3 hours</SelectItem>
+                    <SelectItem value="6">6 hours</SelectItem>
+                    <SelectItem value="12">12 hours</SelectItem>
+                    <SelectItem value="24">24 hours</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={() => ackMutation.mutate({ alertCode: alert.code, note, expiryHours: parseInt(expiryHours) })}
+                disabled={ackMutation.isPending}
+                data-testid="button-submit-ack"
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                {ackMutation.isPending ? "Saving..." : "Acknowledge Alert"}
+              </Button>
+            </div>
           )}
 
-          {isExt && resolved && (
+          <div className="space-y-2">
             <Button
-              variant="outline"
-              className="w-full border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-              onClick={() => {
-                unmarkAlertResolved(alert.code);
-                onUnresolve?.(alert.code);
-                onClose();
-              }}
-              data-testid="button-drawer-unresolve"
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground w-full justify-start"
+              onClick={() => setShowHistory(!showHistory)}
+              data-testid="button-toggle-history"
             >
-              <XCircle className="w-4 h-4 mr-2" />
-              Reopen Alert
+              <History className="w-3 h-3 mr-1" />
+              {showHistory ? "Hide" : "Show"} Acknowledgment History
             </Button>
-          )}
+
+            {showHistory && (
+              <div className="space-y-2 max-h-48 overflow-y-auto" data-testid="div-ack-history">
+                {historyQuery.isLoading && <Skeleton className="h-16" />}
+                {historyQuery.data && historyQuery.data.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-3">No previous acknowledgments</p>
+                )}
+                {historyQuery.data?.map((h) => (
+                  <div key={h.id} className={`p-2 rounded border text-xs space-y-1 ${h.dismissed ? "opacity-50 border-muted" : "border-green-200 dark:border-green-800"}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{h.acknowledgedByName}</span>
+                      <div className="flex items-center gap-1">
+                        <Badge variant="outline" className="text-[10px] h-4">{h.acknowledgedByRole}</Badge>
+                        {h.dismissed && <Badge variant="outline" className="text-[10px] h-4 text-red-500">Dismissed</Badge>}
+                      </div>
+                    </div>
+                    {h.note && <p className="text-muted-foreground italic">{h.note}</p>}
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <span>{new Date(h.createdAt).toLocaleString()}</span>
+                      {h.originSubdomain && <span>• {h.originSubdomain}.*</span>}
+                    </div>
+                    {h.dismissed && h.dismissedByName && (
+                      <p className="text-muted-foreground">Dismissed by {h.dismissedByName} at {new Date(h.dismissedAt!).toLocaleString()}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {meta.route !== "/ops-health" && (
             <Button
@@ -381,7 +544,7 @@ function AlertCard({
   const meta = getAlertMeta(alert.code);
   const Icon = meta.icon;
   const isExt = meta.isExternal === true;
-  const resolved = resolvedCodes?.has(alert.code) || isAlertResolved(alert.code);
+  const resolved = resolvedCodes?.has(alert.code) || false;
 
   const severityStyles = {
     critical: "border-red-200 dark:border-red-800 hover:border-red-300 dark:hover:border-red-700",
@@ -538,7 +701,7 @@ function ClickableSystemRow({
   );
 }
 
-function CityHealthTab({ autoAlertCode, resolvedCodes, onResolve, onUnresolve }: { autoAlertCode?: string | null; resolvedCodes: Set<string>; onResolve: (code: string) => void; onUnresolve: (code: string) => void }) {
+function CityHealthTab({ autoAlertCode, resolvedCodes, activeAcks, onAckCreated }: { autoAlertCode?: string | null; resolvedCodes: Set<string>; activeAcks: AlertAck[]; onAckCreated: () => void }) {
   const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -708,14 +871,15 @@ function CityHealthTab({ autoAlertCode, resolvedCodes, onResolve, onUnresolve }:
         open={!!drawerAlert}
         onClose={() => setDrawerAlert(null)}
         alert={drawerAlert}
-        onResolve={onResolve}
-        onUnresolve={onUnresolve}
+        resolvedCodes={resolvedCodes}
+        activeAcks={activeAcks}
+        onAckCreated={onAckCreated}
       />
     </div>
   );
 }
 
-function ClinicHealthTab({ autoAlertCode, resolvedCodes, onResolve, onUnresolve }: { autoAlertCode?: string | null; resolvedCodes: Set<string>; onResolve: (code: string) => void; onUnresolve: (code: string) => void }) {
+function ClinicHealthTab({ autoAlertCode, resolvedCodes, activeAcks, onAckCreated }: { autoAlertCode?: string | null; resolvedCodes: Set<string>; activeAcks: AlertAck[]; onAckCreated: () => void }) {
   const { token, selectedCity } = useAuth();
   const [, navigate] = useLocation();
   const [selectedClinicId, setSelectedClinicId] = useState<string>("");
@@ -846,14 +1010,15 @@ function ClinicHealthTab({ autoAlertCode, resolvedCodes, onResolve, onUnresolve 
         open={!!drawerAlert}
         onClose={() => setDrawerAlert(null)}
         alert={drawerAlert}
-        onResolve={onResolve}
-        onUnresolve={onUnresolve}
+        resolvedCodes={resolvedCodes}
+        activeAcks={activeAcks}
+        onAckCreated={onAckCreated}
       />
     </div>
   );
 }
 
-function SystemStatusTab({ autoAlertCode, resolvedCodes, onResolve, onUnresolve }: { autoAlertCode?: string | null; resolvedCodes: Set<string>; onResolve: (code: string) => void; onUnresolve: (code: string) => void }) {
+function SystemStatusTab({ autoAlertCode, resolvedCodes, activeAcks, onAckCreated }: { autoAlertCode?: string | null; resolvedCodes: Set<string>; activeAcks: AlertAck[]; onAckCreated: () => void }) {
   const { token, user } = useAuth();
   const { toast } = useToast();
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
@@ -1162,14 +1327,15 @@ function SystemStatusTab({ autoAlertCode, resolvedCodes, onResolve, onUnresolve 
         open={!!drawerAlert}
         onClose={() => setDrawerAlert(null)}
         alert={drawerAlert}
-        onResolve={onResolve}
-        onUnresolve={onUnresolve}
+        resolvedCodes={resolvedCodes}
+        activeAcks={activeAcks}
+        onAckCreated={onAckCreated}
       />
     </div>
   );
 }
 
-function AutomationTab({ resolvedCodes, onResolve, onUnresolve }: { resolvedCodes: Set<string>; onResolve: (code: string) => void; onUnresolve: (code: string) => void }) {
+function AutomationTab({ resolvedCodes, activeAcks, onAckCreated }: { resolvedCodes: Set<string>; activeAcks: AlertAck[]; onAckCreated: () => void }) {
   const { token, selectedCity } = useAuth();
   const [, navigate] = useLocation();
   const [drawerAlert, setDrawerAlert] = useState<OpsAlert | null>(null);
@@ -1342,32 +1508,34 @@ function AutomationTab({ resolvedCodes, onResolve, onUnresolve }: { resolvedCode
         open={!!drawerAlert}
         onClose={() => setDrawerAlert(null)}
         alert={drawerAlert}
-        onResolve={onResolve}
-        onUnresolve={onUnresolve}
+        resolvedCodes={resolvedCodes}
+        activeAcks={activeAcks}
+        onAckCreated={onAckCreated}
       />
     </div>
   );
 }
 
 export default function OpsHealthPage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const canManage = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "DISPATCH";
   const qp = readQueryParams();
   const initialTab = (qp.section && ["city", "clinic", "automation", "system"].includes(qp.section)) ? qp.section : "city";
   const [activeTab, setActiveTab] = useState(initialTab);
-  const [resolvedCodes, setResolvedCodes] = useState<Set<string>>(() => {
-    const all = getResolvedAlerts();
-    return new Set(Object.keys(all).filter(k => isAlertResolved(k)));
+
+  const acksQuery = useQuery<AlertAck[]>({
+    queryKey: ["/api/ops/alert-acks"],
+    queryFn: () => apiFetch("/api/ops/alert-acks", token),
+    enabled: !!token && canManage,
+    refetchInterval: 60_000,
   });
 
-  const handleResolve = (code: string) => {
-    markAlertResolved(code);
-    setResolvedCodes(prev => new Set([...prev, code]));
-  };
+  const activeAcks = acksQuery.data || [];
+  const resolvedCodes = new Set(activeAcks.map(a => a.alertCode));
 
-  const handleUnresolve = (code: string) => {
-    unmarkAlertResolved(code);
-    setResolvedCodes(prev => { const next = new Set(prev); next.delete(code); return next; });
+  const handleAckCreated = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/ops/alert-acks"] });
   };
 
   useEffect(() => {
@@ -1403,22 +1571,22 @@ export default function OpsHealthPage() {
         </TabsList>
 
         <TabsContent value="city">
-          <CityHealthTab autoAlertCode={activeTab === "city" ? alertCodeForTab : null} resolvedCodes={resolvedCodes} onResolve={handleResolve} onUnresolve={handleUnresolve} />
+          <CityHealthTab autoAlertCode={activeTab === "city" ? alertCodeForTab : null} resolvedCodes={resolvedCodes} activeAcks={activeAcks} onAckCreated={handleAckCreated} />
         </TabsContent>
 
         <TabsContent value="clinic">
-          <ClinicHealthTab autoAlertCode={activeTab === "clinic" ? alertCodeForTab : null} resolvedCodes={resolvedCodes} onResolve={handleResolve} onUnresolve={handleUnresolve} />
+          <ClinicHealthTab autoAlertCode={activeTab === "clinic" ? alertCodeForTab : null} resolvedCodes={resolvedCodes} activeAcks={activeAcks} onAckCreated={handleAckCreated} />
         </TabsContent>
 
         {isAdmin && (
           <TabsContent value="automation">
-            <AutomationTab resolvedCodes={resolvedCodes} onResolve={handleResolve} onUnresolve={handleUnresolve} />
+            <AutomationTab resolvedCodes={resolvedCodes} activeAcks={activeAcks} onAckCreated={handleAckCreated} />
           </TabsContent>
         )}
 
         {isAdmin && (
           <TabsContent value="system">
-            <SystemStatusTab autoAlertCode={activeTab === "system" ? alertCodeForTab : null} resolvedCodes={resolvedCodes} onResolve={handleResolve} onUnresolve={handleUnresolve} />
+            <SystemStatusTab autoAlertCode={activeTab === "system" ? alertCodeForTab : null} resolvedCodes={resolvedCodes} activeAcks={activeAcks} onAckCreated={handleAckCreated} />
           </TabsContent>
         )}
       </Tabs>
