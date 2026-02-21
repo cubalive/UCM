@@ -163,8 +163,8 @@ export async function healthDbDetails(_req: AuthRequest, res: Response) {
       latencyMs,
     },
     flags: {
-      hasDatabaseUrl: !!process.env.DATABASE_URL,
-      source: "DATABASE_URL",
+      hasDatabaseUrl: !!(process.env.SUPABASE_DB_URL || process.env.DATABASE_URL),
+      source: process.env.SUPABASE_DB_URL ? "SUPABASE_DB_URL" : "DATABASE_URL",
     },
     timestamp: new Date().toISOString(),
   });

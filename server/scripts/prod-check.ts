@@ -32,7 +32,8 @@ async function main() {
   console.log("");
 
   console.log("[1] Database Connection");
-  const connStr = process.env.DATABASE_URL || "";
+  const connStr = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || "";
+  const dbEnvSource = process.env.SUPABASE_DB_URL ? "SUPABASE_DB_URL" : "DATABASE_URL";
   let dbHost = "unknown", dbPort = 0, dbName = "unknown";
   try {
     const u = new URL(connStr);
@@ -40,7 +41,7 @@ async function main() {
     dbPort = parseInt(u.port || "5432", 10);
     dbName = u.pathname.replace(/^\//, "") || "unknown";
   } catch {
-    fail("DATABASE_URL parse", "Cannot parse DATABASE_URL");
+    fail(`${dbEnvSource} parse`, `Cannot parse ${dbEnvSource}`);
   }
 
   const redacted = dbHost.length > 12
@@ -143,7 +144,7 @@ async function main() {
 
   console.log("");
   console.log("[4] Required Env Vars");
-  const required = ["DATABASE_URL", "JWT_SECRET", "SESSION_SECRET"];
+  const required = ["SUPABASE_DB_URL", "JWT_SECRET", "SESSION_SECRET"];
   for (const key of required) {
     if (process.env[key]) {
       pass(key, "set");

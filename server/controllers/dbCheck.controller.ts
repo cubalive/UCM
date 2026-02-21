@@ -11,6 +11,7 @@ export async function dbCheckHandler(req: AuthRequest, res: Response) {
     port: 0,
     source: "",
     env_present: {
+      SUPABASE_DB_URL: !!process.env.SUPABASE_DB_URL,
       DATABASE_URL: !!process.env.DATABASE_URL,
     },
     timestamp_from_db: null,

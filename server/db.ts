@@ -2,30 +2,31 @@ import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
 
-if (!process.env.DATABASE_URL) {
-  console.error("[DB-FATAL] DATABASE_URL is required. Supabase connection missing.");
+const connStr = (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || "").trim();
+
+if (!connStr) {
+  console.error("[DB-FATAL] No database connection string found. Set SUPABASE_DB_URL.");
   process.exit(1);
 }
 
-const connStr = process.env.DATABASE_URL.trim();
+const envSource = process.env.SUPABASE_DB_URL ? "SUPABASE_DB_URL" : "DATABASE_URL";
+
+if (process.env.SUPABASE_DB_URL && process.env.DATABASE_URL) {
+  console.log("[DB] SUPABASE_DB_URL found — ignoring DATABASE_URL");
+}
 
 let parsedUrl: URL;
 try {
   parsedUrl = new URL(connStr);
 } catch {
-  console.error("[DB-FATAL] DATABASE_URL is not a valid URL. Exiting.");
+  console.error(`[DB-FATAL] ${envSource} is not a valid URL. Exiting.`);
   process.exit(1);
 }
 
 const host = parsedUrl.hostname.toLowerCase();
 
-if (host.includes("neon.tech") || host.includes("neon-") || host.endsWith(".neon.fl0.io")) {
-  console.error("[DB-FATAL] Neon connection detected. Only Supabase is allowed.");
-  process.exit(1);
-}
-
-if (host.includes("localhost") || host.includes("replit")) {
-  console.error(`[DB-FATAL] Invalid host "${host}". Only Supabase is allowed.`);
+if (!host.includes("supabase")) {
+  console.error(`[DB-FATAL] Only Supabase connections are supported. Got host: "${host}"`);
   process.exit(1);
 }
 
@@ -76,17 +77,17 @@ const dbReady = (async () => {
     const client = await pool.connect();
     await client.query("SELECT 1");
     client.release();
-    console.log(`[DB] Connected — source: DATABASE_URL`);
+    console.log(`[DB] Connected — source: ${envSource}`);
     console.log(`[DB] Host: ${redacted}, port: ${port}, ssl: true, pooler: ${isPooler}`);
   } catch (err: any) {
     console.error(`[DB-FATAL] Cannot connect to PostgreSQL at ${redacted}:${port}`);
     console.error(`[DB-FATAL] Error: ${err.message}`);
-    console.error(`[DB-FATAL] Check that DATABASE_URL has the correct password and the Supabase project is active.`);
+    console.error(`[DB-FATAL] Check that ${envSource} has the correct password and the Supabase project is active.`);
     process.exit(1);
   }
 })();
 
-function getDbSource(): string { return "DATABASE_URL"; }
+function getDbSource(): string { return envSource; }
 function getDbHost(): string { return host; }
 function getDbPort(): number { return port; }
 

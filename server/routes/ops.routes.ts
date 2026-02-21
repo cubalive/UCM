@@ -13,7 +13,7 @@ const router = express.Router();
 
 router.get("/api/ops/db-info", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: AuthRequest, res: Response) => {
   try {
-    const connStr = process.env.DATABASE_URL || "";
+    const connStr = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || "";
     let host = "unknown";
     let port = 0;
     let dbName = "unknown";
