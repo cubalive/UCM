@@ -71,6 +71,7 @@ const BUILTIN_APP_ORIGINS = new Set([
   "https://unitedcaremobility.com",
   "https://www.unitedcaremobility.com",
   "https://app.unitedcaremobility.com",
+  "https://clinic.unitedcaremobility.com",
   "https://driver.unitedcaremobility.com",
   "https://admin.unitedcaremobility.com",
 ]);

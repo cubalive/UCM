@@ -5,6 +5,7 @@ import { db } from "../db";
 import { trips, patients, recurringSchedules, driverOffers } from "@shared/schema";
 import { eq, and, isNull, inArray, desc, gte, sql, or } from "drizzle-orm";
 import { generateTripPdf } from "../lib/tripPdfGenerator";
+import { denyAsNotFound } from "../lib/denyAsNotFound";
 
 const clinicEtaCache = new Map<number, { eta: number | null; stale: boolean; updatedAt: string; }>();
 const CLINIC_ETA_CACHE_TTL = 60_000;
@@ -998,7 +999,7 @@ export async function clinicInvoiceByIdHandler(req: AuthRequest, res: Response) 
     }
 
     if (!user.clinicId || user.clinicId !== invoice.clinicId) {
-      return res.status(404).json({ message: "Invoice not found" });
+      return denyAsNotFound(res, "Invoice");
     }
 
     res.json(invoice);
@@ -1018,7 +1019,7 @@ export async function clinicDeletePatientHandler(req: AuthRequest, res: Response
     const patient = await storage.getPatient(id);
     if (!patient) return res.status(404).json({ message: "Patient not found" });
     if (patient.clinicId !== user.clinicId) {
-      return res.status(404).json({ message: "Patient not found" });
+      return denyAsNotFound(res, "Patient");
     }
     const hasActive = await storage.hasActiveTripsForPatient(id);
     if (hasActive) return res.status(409).json({ message: "Cannot delete patient with active trips" });
@@ -1049,7 +1050,7 @@ export async function clinicDeleteTripHandler(req: AuthRequest, res: Response) {
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
     if (trip.clinicId !== user.clinicId) {
-      return res.status(404).json({ message: "Trip not found" });
+      return denyAsNotFound(res, "Trip");
     }
     if (trip.approvalStatus !== "pending") {
       return res.status(400).json({ message: "Can only delete trips with pending approval status" });

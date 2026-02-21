@@ -92,12 +92,12 @@ export interface IStorage {
   getStats(cityId?: number): Promise<Record<string, number>>;
   getTripStatusSummary(cityId?: number): Promise<Record<string, number>>;
 
-  getInvoices(clinicId?: number): Promise<Invoice[]>;
+  getInvoices(clinicId?: number, clinicIds?: number[]): Promise<Invoice[]>;
   getInvoice(id: number): Promise<Invoice | undefined>;
   getInvoiceByTripId(tripId: number): Promise<Invoice | undefined>;
   createInvoice(data: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice>;
-  getWeeklyInvoices(clinicId?: number): Promise<Invoice[]>;
+  getWeeklyInvoices(clinicId?: number, clinicIds?: number[]): Promise<Invoice[]>;
   getUninvoicedCompletedTrips(clinicId: number, startDate: string, endDate: string, companyId?: number | null): Promise<Trip[]>;
   linkTripsToInvoice(tripIds: number[], invoiceId: number): Promise<void>;
   getTripsByInvoiceId(invoiceId: number): Promise<Trip[]>;
@@ -620,9 +620,12 @@ export class DatabaseStorage implements IStorage {
     }
     return summary;
   }
-  async getInvoices(clinicId?: number): Promise<Invoice[]> {
+  async getInvoices(clinicId?: number, clinicIds?: number[]): Promise<Invoice[]> {
     if (clinicId) {
       return db.select().from(invoices).where(eq(invoices.clinicId, clinicId)).orderBy(desc(invoices.createdAt));
+    }
+    if (clinicIds && clinicIds.length > 0) {
+      return db.select().from(invoices).where(inArray(invoices.clinicId, clinicIds)).orderBy(desc(invoices.createdAt));
     }
     return db.select().from(invoices).orderBy(desc(invoices.createdAt));
   }
@@ -647,9 +650,12 @@ export class DatabaseStorage implements IStorage {
     return invoice;
   }
 
-  async getWeeklyInvoices(clinicId?: number): Promise<Invoice[]> {
+  async getWeeklyInvoices(clinicId?: number, clinicIds?: number[]): Promise<Invoice[]> {
     if (clinicId) {
       return db.select().from(invoices).where(and(isNull(invoices.tripId), eq(invoices.clinicId, clinicId))).orderBy(desc(invoices.createdAt));
+    }
+    if (clinicIds && clinicIds.length > 0) {
+      return db.select().from(invoices).where(and(isNull(invoices.tripId), inArray(invoices.clinicId, clinicIds))).orderBy(desc(invoices.createdAt));
     }
     return db.select().from(invoices).where(isNull(invoices.tripId)).orderBy(desc(invoices.createdAt));
   }

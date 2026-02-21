@@ -3,21 +3,21 @@ import PDFDocument from "pdfkit";
 import { storage } from "../storage";
 import { getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
+import { eq, inArray, desc } from "drizzle-orm";
 import { trips, invoices, clinics as clinicsTable } from "@shared/schema";
 
 export async function getInvoicesHandler(req: AuthRequest, res: Response) {
   try {
     const companyId = getCompanyIdFromAuth(req);
-    const all = await storage.getInvoices();
-    if (!companyId) return res.json(all);
+    if (!companyId) {
+      return res.json(await storage.getInvoices());
+    }
 
-    const allClinics = await storage.getClinics();
-    const companyClinicIds = new Set(
-      allClinics.filter(c => c.companyId === companyId).map(c => c.id)
-    );
-    const filtered = all.filter((inv: any) => companyClinicIds.has(inv.clinicId));
-    res.json(filtered);
+    const companyClinicRows = await db.select({ id: clinicsTable.id }).from(clinicsTable).where(eq(clinicsTable.companyId, companyId));
+    const clinicIds = companyClinicRows.map(c => c.id);
+    if (clinicIds.length === 0) return res.json([]);
+
+    res.json(await storage.getInvoices(undefined, clinicIds));
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -322,9 +322,14 @@ export async function getWeeklyBillingHandler(req: AuthRequest, res: Response) {
     const companyId = getCompanyIdFromAuth(req);
     let result: any[];
     if (companyId) {
-      const allWeekly = await storage.getWeeklyInvoices(clinicId);
-      const clinicIds = (await storage.getClinics()).filter((c: any) => c.companyId === companyId).map((c: any) => c.id);
-      result = allWeekly.filter((inv: any) => clinicIds.includes(inv.clinicId));
+      const companyClinicRows = await db.select({ id: clinicsTable.id }).from(clinicsTable).where(eq(clinicsTable.companyId, companyId));
+      const allowedClinicIds = companyClinicRows.map(c => c.id);
+      if (allowedClinicIds.length === 0) return res.json([]);
+      if (clinicId && allowedClinicIds.includes(clinicId)) {
+        result = await storage.getWeeklyInvoices(clinicId);
+      } else {
+        result = await storage.getWeeklyInvoices(undefined, allowedClinicIds);
+      }
     } else {
       result = await storage.getWeeklyInvoices(clinicId);
     }
