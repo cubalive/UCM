@@ -65,20 +65,31 @@ import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/com
 import SignaturePad from "@/components/SignaturePad";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Area, AreaChart } from "recharts";
 import { getNavTarget as smGetNavTarget, uiActions as smUiActions } from "@shared/tripStateMachine";
+import { useSoundNotifications } from "@/hooks/use-sound-notifications";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-const STATUS_FLOW: Record<string, { next: string; label: string; icon: any }> = {
-  ASSIGNED: { next: "EN_ROUTE_TO_PICKUP", label: "Start Trip", icon: PlayCircle },
-  EN_ROUTE_TO_PICKUP: { next: "ARRIVED_PICKUP", label: "Arrived at Pickup", icon: MapPin },
-  ARRIVED_PICKUP: { next: "PICKED_UP", label: "Picked Up Patient", icon: User },
-  PICKED_UP: { next: "EN_ROUTE_TO_DROPOFF", label: "En Route to Dropoff", icon: Navigation },
-  EN_ROUTE_TO_DROPOFF: { next: "ARRIVED_DROPOFF", label: "Arrived at Dropoff", icon: MapPin },
-  ARRIVED_DROPOFF: { next: "COMPLETED", label: "Complete Trip", icon: CheckCircle },
-  IN_PROGRESS: { next: "COMPLETED", label: "Complete Trip", icon: CheckCircle },
+const STATUS_ACTION_ICONS: Record<string, any> = {
+  ASSIGNED: PlayCircle,
+  EN_ROUTE_TO_PICKUP: MapPin,
+  ARRIVED_PICKUP: User,
+  PICKED_UP: Navigation,
+  EN_ROUTE_TO_DROPOFF: MapPin,
+  ARRIVED_DROPOFF: CheckCircle,
+  IN_PROGRESS: CheckCircle,
 };
+
+function getStatusFlow(status: string): { next: string; label: string; icon: any } | null {
+  const { statusAction } = smUiActions(status);
+  if (!statusAction) return null;
+  return {
+    next: statusAction.targetStatus,
+    label: statusAction.label,
+    icon: STATUS_ACTION_ICONS[status] || CheckCircle,
+  };
+}
 
 const STATUS_COLORS: Record<string, string> = {
   SCHEDULED: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -932,6 +943,7 @@ function FullScreenMap({
 export default function DriverDashboard() {
   const { token, user, logout } = useAuth();
   const { toast } = useToast();
+  const { play: playSound } = useSoundNotifications();
   const [selectedDate, setSelectedDate] = useState(getToday());
   const [chatTripId, setChatTripId] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1301,8 +1313,9 @@ export default function DriverDashboard() {
         method: "PATCH",
         body: JSON.stringify({ status }),
       }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast({ title: "Trip status updated" });
+      playSound(variables.status === "COMPLETED" ? "trip_completed" : "trip_assigned");
       queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
     },
@@ -1521,7 +1534,7 @@ export default function DriverDashboard() {
   const nextPickup = todayTrips.find((t: any) => t.status === "SCHEDULED" || t.status === "ASSIGNED");
 
   const handleStatusWithConfirm = useCallback((tripId: number, currentStatus: string) => {
-    const flow = STATUS_FLOW[currentStatus];
+    const flow = getStatusFlow(currentStatus);
     if (!flow) return;
     setConfirmDialog({ tripId, nextStatus: flow.next, label: flow.label });
     setConfirmNote("");
@@ -1969,17 +1982,17 @@ export default function DriverDashboard() {
                 )}
 
                 <div className="flex gap-2 flex-wrap">
-                  {STATUS_FLOW[activeTrip.status] && (
+                  {(() => { const flow = getStatusFlow(activeTrip.status); return flow ? (
                     <Button
                       onClick={() => handleStatusWithConfirm(activeTrip.id, activeTrip.status)}
                       disabled={statusMutation.isPending}
                       className="flex-1 min-h-[48px] text-base font-semibold"
                       data-testid="button-active-trip-action"
                     >
-                      {(() => { const Icon = STATUS_FLOW[activeTrip.status].icon; return <Icon className="w-5 h-5 mr-2" />; })()}
-                      {STATUS_FLOW[activeTrip.status].label}
+                      {(() => { const Icon = flow.icon; return <Icon className="w-5 h-5 mr-2" />; })()}
+                      {flow.label}
                     </Button>
-                  )}
+                  ) : null; })()}
                   <Button
                     variant="outline"
                     onClick={() => openNavigation(activeTrip)}
@@ -2153,16 +2166,16 @@ export default function DriverDashboard() {
                           <span className="truncate" data-testid={`text-dropoff-${trip.id}`}>{trip.dropoffAddress || "N/A"}</span>
                         </div>
                       </div>
-                      {ACTIVE_STATUSES.includes(trip.status) && STATUS_FLOW[trip.status] && (
+                      {(() => { const flow = ACTIVE_STATUSES.includes(trip.status) ? getStatusFlow(trip.status) : null; return flow ? (
                         <Button
                           onClick={() => handleStatusWithConfirm(trip.id, trip.status)}
                           disabled={statusMutation.isPending}
                           className="min-h-[44px] text-sm whitespace-nowrap"
                           data-testid={`button-trip-action-${trip.id}`}
                         >
-                          {STATUS_FLOW[trip.status].label}
+                          {flow.label}
                         </Button>
-                      )}
+                      ) : null; })()}
                     </div>
                   ))}
                 </div>
@@ -2504,6 +2517,9 @@ export default function DriverDashboard() {
                       <LogOut className="w-5 h-5 mr-2" />
                       Log Out
                     </Button>
+                  </div>
+                  <div className="text-center text-xs text-muted-foreground pt-4" data-testid="text-app-version">
+                    UCM Driver v{(typeof import.meta !== "undefined" && import.meta.env?.VITE_APP_VERSION) || "dev"}
                   </div>
                 </>
               )}
@@ -3453,7 +3469,7 @@ function TripCard({
   onOpenChat?: () => void;
   token?: string | null;
 }) {
-  const statusAction = STATUS_FLOW[trip.status];
+  const statusFlow = getStatusFlow(trip.status);
   const statusColorClass = STATUS_COLORS[trip.status] || "";
   const isCompleted = trip.status === "COMPLETED";
   const isCancelled = trip.status === "CANCELLED" || trip.status === "NO_SHOW";
@@ -3498,15 +3514,15 @@ function TripCard({
           </div>
 
           <div className="flex flex-col gap-2 items-end">
-            {!readonly && !isLocked && statusAction && onStatusChange && (
+            {!readonly && !isLocked && statusFlow && onStatusChange && (
               <Button
-                onClick={() => onStatusChange(statusAction.next)}
+                onClick={() => onStatusChange(statusFlow.next)}
                 disabled={isPending}
                 className="min-h-[44px] text-base"
                 data-testid={`button-trip-action-${trip.id}`}
               >
-                <statusAction.icon className="w-5 h-5 mr-2" />
-                {statusAction.label}
+                {(() => { const Icon = statusFlow.icon; return <Icon className="w-5 h-5 mr-2" />; })()}
+                {statusFlow.label}
               </Button>
             )}
             {!isLocked && onOpenChat && ACTIVE_STATUSES.includes(trip.status) && (

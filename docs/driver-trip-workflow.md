@@ -116,6 +116,7 @@ When `GEOFENCE_ENABLED=true`:
 
 ## Smoke Test Checklist
 
+### Trip State Flow (Driver)
 1. Assigned trip shows "Go to Pickup" as primary action
 2. After Go to Pickup -> shows "Mark Arrived at Pickup"
 3. After Arrived Pickup -> shows "Picked Up Patient"
@@ -124,10 +125,30 @@ When `GEOFENCE_ENABLED=true`:
 6. After Arrived Dropoff -> shows "Complete Trip"
 7. Navigation button shows "Go to Pickup" during pickup phases
 8. Navigation button shows "Go to Dropoff" during dropoff phases
-9. NavChooser modal shows Google Maps, Apple Maps, Waze
-10. "Remember my choice" persists and auto-opens preferred app
-11. "Change" link clears saved preference
-12. Completed/Cancelled trips show no action buttons
+9. Completed/Cancelled trips show no action buttons
+
+### Navigation Provider
+10. NavChooser modal shows Google Maps, Apple Maps, Waze
+11. "Remember my choice" persists and auto-opens preferred app
+12. "Change" link clears saved preference
+13. Settings page shows Navigation Provider card with all 3 options
+
+### Connectivity + Shift
+14. Connected and On Shift both appear simultaneously
+15. Connected badge visible during ON_SHIFT and ON_BREAK states
+16. Shift timer runs while on shift
+
+### Sound Notifications
+17. Sound plays on status change success (ascending for non-completion)
+18. Completion sound plays on trip complete (descending)
+19. Sound toggle in dispatch board mutes/unmutes
+20. Sound preference persists across page reload
+
+### Publish Reliability
+21. Version number shows in driver Settings
+22. After publish: version.json changes, "Update available" banner appears
+23. Tapping banner refreshes and loads new version
+24. No stale cached build after refresh
 
 ## Architecture: Single Source of Truth
 
@@ -145,6 +166,43 @@ Server imports `VALID_TRANSITIONS` and `STATUS_TIMESTAMP_MAP` from this module.
 UI imports `uiActions`, `derivePhase`, `getNavLabel`, `getNavTarget` from this module.
 Navigation destination (pickup vs dropoff) is derived exclusively via `getNavTarget(status)`.
 No other code decides state transitions or navigation targets.
+
+## Sound Notifications
+
+### Sound Types
+| Event | Sound | Description |
+|---|---|---|
+| `trip_assigned` | Ascending tones (D5→G5→A5) | Played on trip phase change (non-completion) |
+| `trip_completed` | Descending tones (A5→G5→E5) | Played when trip reaches COMPLETED |
+| `notification` | Two-tone chime (E5→A5) | Played on dispatch board when new trips appear |
+
+### Implementation
+- **Engine**: Web Audio API (AudioContext oscillator tones, no audio files)
+- **Fallback**: `navigator.vibrate([100, 50, 100])` when audio is unavailable
+- **Toggle**: `ucm_sound_enabled` in localStorage (default: `true`)
+- **Dispatch UI**: Volume icon button in dispatch board header bar
+- **Audio unlock**: Requires user gesture (click/touch) to unlock AudioContext per browser policy
+
+### Integration Points
+- Driver portal: Sound plays on status mutation success
+- Driver dashboard: Sound plays on status mutation success
+- Dispatch board: Sound plays when new trips appear in current filtered view (scope-aware, no false positives on tab switch)
+
+## Version & Publish Reliability
+
+### Version Check
+- `client/public/version.json` — contains `{ version, builtAt, env }`
+- `client/src/main.tsx` polls `/version.json` every 60s
+- On mismatch: shows fixed blue "Update available — Tap to refresh" banner
+- `VITE_APP_VERSION` env var shown in driver Settings
+
+### Service Worker (`client/public/sw.js`)
+- `skipWaiting()` on install + `clients.claim()` on activate
+- Network-first for JS/CSS, navigation, manifests, version.json
+- Stale-while-revalidate for static assets
+- Cache cleanup: deletes old `ucm-cache-*` caches on activate
+- Message handlers: `SKIP_WAITING`, `FORCE_ACTIVATE`, `CHECK_VERSION`
+- Controller change triggers page reload
 
 ## Navigation is Decoupled from State
 

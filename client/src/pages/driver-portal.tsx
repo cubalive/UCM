@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { useSoundNotifications } from "@/hooks/use-sound-notifications";
 import {
   Home,
   Car,
@@ -2392,6 +2393,7 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
 export default function DriverPortal() {
   const { token, logout } = useAuth();
   const { toast } = useToast();
+  const { play: playSound } = useSoundNotifications();
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [confirmDialog, setConfirmDialog] = useState<{ tripId: number; nextStatus: string; label: string } | null>(null);
   const [navChooserTrip, setNavChooserTrip] = useState<ActiveTripData | null>(null);
@@ -2620,8 +2622,9 @@ export default function DriverPortal() {
   const statusMutation = useMutation({
     mutationFn: ({ tripId, status }: { tripId: number; status: string }) =>
       apiFetch(`/api/trips/${tripId}/status`, token, { method: "PATCH", body: JSON.stringify({ status }) }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast({ title: "Trip status updated" });
+      playSound(variables.status === "COMPLETED" ? "trip_completed" : "trip_assigned");
       queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/trips"] });
