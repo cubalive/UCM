@@ -15,9 +15,7 @@ export default function DriverPerformancePage() {
   const performanceQuery = useQuery({
     queryKey: ["/api/driver/performance/current-shift"],
     queryFn: async () => {
-      const res = await apiFetch("/api/driver/performance/current-shift", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/driver/performance/current-shift", token);
       if (!res.ok) {
         if (res.status === 403) return null;
         throw new Error("Failed to fetch performance");
