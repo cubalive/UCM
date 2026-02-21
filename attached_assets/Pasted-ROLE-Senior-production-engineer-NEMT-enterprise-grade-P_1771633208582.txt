@@ -1,0 +1,212 @@
+ROLE: Senior production engineer (NEMT enterprise-grade)
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only (NO sub-agents, NO parallel tasks)
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT break existing flows that already work
+- Keep backward compatibility (migrations only if strictly necessary)
+- Every change must be covered by smoke tests + screenshots/log proof
+- If you are unsure, STOP and inspect current code paths before changing anything
+
+CONTEXT (problem statement)
+Everything worked days ago. Recent changes broke critical driver workflow + navigation.
+Current issues observed:
+1) Driver App: "Go to Pickup" opens navigation to DROPOFF instead of PICKUP, even though UI shows pickup/dropoff correctly.
+2) Driver App: Buttons are not phase-correct (sometimes missing “Arrived Pickup / Picked Up / Start Trip / Arrived Dropoff / Complete”).
+3) Driver App: Map chooser (Google Maps / Apple Maps / Waze) disappeared. Needs to return AND allow saving default provider for future trips.
+4) Shift: Must show BOTH "Connected" status AND "Start Shift / End Shift (Clock Out)" correctly. Do not replace one with the other.
+5) Admin/Super Admin: Need ability to delete a trip (Super Admin hard delete), and non-admin roles should archive/cancel (soft delete) with audit logging.
+6) Publish reliability: changes sometimes don’t appear after publish (likely caching/service worker/build artifact mismatch). Must ensure publish reliably reflects latest code.
+
+GOAL
+Implement a deterministic, enterprise-grade trip/shift state engine with:
+- One source of truth for trip phase
+- Strict transitions (no automatic skipping)
+- UI buttons derived ONLY from phase
+- Navigation destination derived ONLY from phase (Pickup vs Dropoff)
+- Navigation provider chooser (Google/Apple/Waze) with saved preference
+- Documented workflow + tests so this doesn’t regress again
+
+HARD ACCEPTANCE CRITERIA (must all pass)
+A) Driver App navigation correctness:
+- When trip is Scheduled / Assigned (before Arrived Pickup), pressing “Go to Pickup” MUST navigate to pickup coordinates/address.
+- After “Arrived Pickup” but before “Picked Up”, still navigate to pickup.
+- Only after “Picked Up” / “Start Trip” should navigation target switch to dropoff.
+- After “Arrived Dropoff”, still allow navigate to dropoff.
+B) Buttons correctness:
+- Exactly one primary action button at a time (phase-aware), plus secondary navigation button.
+- Buttons and labels must match real-world NEMT timeline.
+C) Map chooser restored + default saved:
+- Tapping Navigate opens a chooser: Google Maps, Apple Maps (iOS), Waze (if installed; fallback if not).
+- Add “Remember my choice” and save provider in localStorage (web) + device storage if applicable (Capacitor/React Native: use Preferences).
+- Add Settings screen option to change default navigation provider.
+D) Shift UI:
+- “CONNECTED” indicates socket/session connected (live location channel).
+- “ON SHIFT” indicates clocked in.
+- If Connected = true and OnShift = false -> show “Start Shift (Clock In)” button.
+- If OnShift = true -> show “End Shift (Clock Out)” + Break.
+- Never remove Connected indicator.
+E) Trip deletion:
+- Super Admin: hard delete (DB delete) only when trip is NOT in active execution (or require confirmation + admin override).
+- Company Admin/Dispatch: cancel/archive (soft delete) with reason.
+- Add audit log entry for delete/cancel with actor + timestamp.
+F) Publish reliability:
+- After publish, production must show latest UI within 1 refresh (no stale service worker).
+- Implement build/version stamp shown in UI footer or /health endpoint and confirm it increments.
+
+STEP 1 — CODE DISCOVERY (do this before editing)
+Search and list the exact files/functions currently responsible for:
+1) Trip phase derivation (e.g., getTripPhase, status mapping, trip.status usage)
+2) The “Navigate / Go to Pickup” click handler (where destination lat/lng or address is chosen)
+3) The TripDetail modal/page component that shows pickup/dropoff and buttons
+4) Any existing status flow constants (STATUS_FLOW, TRIP_STATUS, etc.)
+5) Shift/clock-in state + connected/socket state
+6) Navigation provider integration (if it exists, it may have been removed or partially reverted)
+
+Output in agent notes:
+- File paths + function names + current behavior summary (no changes yet)
+
+STEP 2 — ENTERPRISE STATE ENGINE (single source of truth)
+Implement a small deterministic state machine module (no heavy library required unless already used).
+Create or update a single module, e.g.:
+- src/lib/tripPhase.ts (or equivalent)
+Exports:
+- deriveTripPhase(trip): 'PICKUP' | 'AT_PICKUP' | 'IN_TRANSIT' | 'AT_DROPOFF' | 'DONE' | 'CANCELLED'
+- getPrimaryActionForPhase(phase): {id,label,enabled}
+- getNavTargetForPhase(trip, phase): {type:'pickup'|'dropoff', lat,lng,address,label}
+Rules (strict):
+- Scheduled/Assigned -> PICKUP
+- Arrived Pickup -> AT_PICKUP
+- Picked Up / Start Trip -> IN_TRANSIT (target dropoff)
+- Arrived Dropoff -> AT_DROPOFF
+- Completed -> DONE
+- Cancelled -> CANCELLED
+NO skipping: phase changes only via explicit driver action buttons.
+
+STEP 3 — FIX THE NAVIGATION BUG (root cause likely swapped coords or wrong target selection)
+In the navigate handler, replace any ad-hoc “if/else” picking destination with:
+- phase = deriveTripPhase(trip)
+- target = getNavTargetForPhase(trip, phase)
+- openNavigation(target, preferredProvider)
+Also add a guard:
+- If pickup coords missing, geocode pickup address (if you already have geocoding). If not, fallback to address-only navigation.
+- Same for dropoff.
+
+Add unit-level checks (simple):
+- If phase in ['PICKUP','AT_PICKUP'] then target.type must be 'pickup'
+- If phase in ['IN_TRANSIT','AT_DROPOFF','DONE'] then target.type must be 'dropoff'
+
+STEP 4 — RESTORE NAV PROVIDER CHOOSER + SAVED DEFAULT
+Implement openNavigation(target, provider?) that supports:
+- Google Maps deep link
+- Apple Maps deep link (iOS)
+- Waze deep link
+Add UI:
+- When no default provider saved: show modal chooser with 3 options + “Remember my choice”.
+- When default saved: use it directly, but allow long-press or small “change” icon to reopen chooser.
+Persist key:
+- localStorage: 'ucm_nav_provider' = 'google'|'apple'|'waze'
+Add Settings toggle:
+- Settings -> Navigation -> Default provider
+Document behavior + fallbacks if app not installed.
+
+STEP 5 — DRIVER TRIP ACTION BUTTONS (phase-aware, strict transitions)
+In TripDetail and ActiveTrip card:
+Primary button changes by phase:
+- PICKUP: “Mark Arrived at Pickup”
+- AT_PICKUP: “Picked Up Patient”
+- IN_TRANSIT: “Mark Arrived at Dropoff”
+- AT_DROPOFF: “Complete Trip”
+Secondary:
+- “Go to Pickup” when phase in PICKUP/AT_PICKUP
+- “Go to Dropoff” when phase in IN_TRANSIT/AT_DROPOFF/DONE
+Ensure these actions call server endpoints that update trip.status deterministically.
+If endpoints are missing/loose:
+- Add/adjust API routes to enforce allowed transitions (server-side validation):
+  - reject invalid jumps (e.g., Scheduled -> ArrivedDropoff)
+Return meaningful errors.
+
+STEP 6 — SHIFT UI (Connected vs On Shift must both exist)
+Audit current driver home:
+- Connected is socket/session
+- On Shift is clock-in state
+Ensure UI shows:
+- Connected badge always (green)
+- If !onShift: show Start Shift button
+- If onShift: show Break + End Shift
+Do not remove Connected indicator ever.
+Make sure map tracking uses:
+- Must be Connected AND On Shift to appear on live map
+- Update driver location heartbeat continues while on shift
+
+STEP 7 — TRIP DELETION / CANCELLATION
+Add capabilities:
+- Super Admin: Hard delete trip (DB delete) behind a confirmation modal:
+  - show trip id, patient, pickup/dropoff, date/time
+  - require typing DELETE to confirm
+  - only if status not active OR allow override with second confirm
+- Company Admin/Dispatch: Cancel trip (soft delete):
+  - set trip.status = 'CANCELLED' (or archived flag)
+  - require reason
+- Log to audit table: actor_id, role, trip_id, action, timestamp, reason
+
+STEP 8 — PUBLISH RELIABILITY (stop “I published but changes don’t appear”)
+1) Add a visible build/version string:
+- backend /health returns version + git sha + buildTime
+- frontend footer shows version
+2) Service worker / PWA:
+- If using SW, ensure update flow:
+  - skipWaiting + clientsClaim
+  - show “Update available” toast
+  - or disable SW in production until stable
+3) Cache bust:
+- Ensure assets are fingerprinted (Vite already does). Confirm the hosting is not serving stale index.html.
+- If Replit deploy uses a proxy cache, force no-store for index.html.
+Deliver proof:
+- Screenshot showing version changed after publish.
+
+STEP 9 — DOCUMENTATION (must be committed)
+Create/Update:
+docs/driver-trip-workflow.md
+Include:
+- Phase table
+- Allowed transitions (server enforced)
+- Button mapping
+- Navigation target rules
+- Provider deep links
+- Shift vs Connected definitions
+- Smoke test checklist
+
+SMOKE TEST CHECKLIST (must run and report results)
+1) Driver connected, not on shift -> Start Shift visible + Connected badge visible
+2) Start Shift -> driver appears on live map within 30s
+3) Assigned trip (Scheduled):
+   - Active Trip shows pickup+dropoff + “Go to Pickup”
+   - Tapping “Go to Pickup” opens PICKUP location (not dropoff)
+4) Mark Arrived Pickup -> phase updates, still navigates to pickup
+5) Picked Up -> navigation now targets dropoff
+6) Arrived Dropoff -> can complete trip
+7) Complete -> trip removed from active list, shows in completed
+8) Map chooser appears when no preference, and respects saved preference later
+9) Super Admin can hard delete eligible trip; Dispatch can cancel with reason
+10) Publish: version increments and UI reflects changes immediately
+
+IMPORTANT: GOOGLE MAPS KEY (do not break)
+- Frontend expects env var prefixed with VITE_:
+  - VITE_GOOGLE_MAPS_API_KEY (this is the same Google Maps JavaScript API key)
+- Backend may also use:
+  - GOOGLE_MAPS_API_KEY (server-side geocoding/directions if used)
+Do NOT rename without updating all references.
+
+DELIVERABLES (what you must output)
+1) List of changed files with brief purpose
+2) docs/driver-trip-workflow.md created/updated
+3) Screenshots or logs proving:
+   - “Go to Pickup” navigates to pickup
+   - chooser works
+   - shift/connected UI correct
+   - version changed after publish
+4) Confirmation all smoke tests passed
+
+NOW DO IT: start with STEP 1 discovery, then implement steps in order, test, and only then finalize.

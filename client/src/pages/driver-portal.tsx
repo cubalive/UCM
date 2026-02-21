@@ -6,6 +6,7 @@ import {
   uiActions as getUiActions,
   derivePhase,
   getNavLabel as smGetNavLabel,
+  getNavTarget as smGetNavTarget,
   deriveStateFromTrip,
   type TripPhase,
 } from "@shared/tripStateMachine";
@@ -217,17 +218,18 @@ function copyToClipboard(text: string): Promise<boolean> {
 }
 
 function getDestinationAddress(trip: ActiveTripData): string {
-  const isPickupPhase = PICKUP_STAGES.includes(trip.status);
-  return isPickupPhase ? trip.pickupAddress : trip.dropoffAddress;
+  const target = smGetNavTarget(trip.status);
+  return target === "pickup" ? trip.pickupAddress : trip.dropoffAddress;
 }
 
 type NavApp = "google" | "waze" | "apple";
 
 function getNavUrlForApp(trip: ActiveTripData, app: NavApp): string {
-  const isPickupPhase = PICKUP_STAGES.includes(trip.status);
-  const destLat = isPickupPhase ? trip.pickupLat : trip.dropoffLat;
-  const destLng = isPickupPhase ? trip.pickupLng : trip.dropoffLng;
-  const destAddr = isPickupPhase ? trip.pickupAddress : trip.dropoffAddress;
+  const target = smGetNavTarget(trip.status);
+  const isPickup = target === "pickup";
+  const destLat = isPickup ? trip.pickupLat : trip.dropoffLat;
+  const destLng = isPickup ? trip.pickupLng : trip.dropoffLng;
+  const destAddr = isPickup ? trip.pickupAddress : trip.dropoffAddress;
 
   switch (app) {
     case "google":
@@ -996,6 +998,11 @@ function HomePage({
               <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30 mx-auto flex items-center justify-center">
                 <Satellite className="w-10 h-10 text-green-600" />
               </div>
+              <div className="flex items-center justify-center gap-2">
+                <Badge variant="outline" className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-blue-300" data-testid="badge-connected-on-shift">
+                  <Power className="w-3 h-3 mr-1" /> Connected
+                </Badge>
+              </div>
               <p className="text-lg font-semibold text-green-600" data-testid="text-status-on-shift">ON SHIFT</p>
               {activeShift && (
                 <p className="text-xs text-muted-foreground" data-testid="text-shift-timer">
@@ -1021,6 +1028,11 @@ function HomePage({
             <div className="text-center space-y-4">
               <div className="w-20 h-20 rounded-full bg-amber-100 dark:bg-amber-900/30 mx-auto flex items-center justify-center">
                 <Coffee className="w-10 h-10 text-amber-600" />
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <Badge variant="outline" className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-blue-300" data-testid="badge-connected-on-break">
+                  <Power className="w-3 h-3 mr-1" /> Connected
+                </Badge>
               </div>
               <p className="text-lg font-semibold text-amber-600" data-testid="text-status-break">ON BREAK</p>
               {activeShift && (
@@ -2211,6 +2223,56 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
                 </p>
               )}
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-nav-provider-settings">
+        <CardContent className="py-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Navigation className="w-5 h-5 text-primary" />
+            <span className="font-semibold text-base">Navigation Provider</span>
+          </div>
+          <p className="text-sm text-muted-foreground">Choose your default navigation app for driving directions.</p>
+          <div className="space-y-2">
+            {([
+              { id: "google" as NavApp, label: "Google Maps", icon: MapPin, color: "text-blue-500" },
+              { id: "waze" as NavApp, label: "Waze", icon: Navigation, color: "text-cyan-500" },
+              { id: "apple" as NavApp, label: "Apple Maps", icon: MapPinned, color: "text-green-500" },
+            ]).map((opt) => {
+              const Icon = opt.icon;
+              const currentNav = getSavedNavApp();
+              const isSelected = currentNav === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => {
+                    setSavedNavApp(opt.id);
+                    toast({ title: `Default navigation set to ${opt.label}` });
+                  }}
+                  className={`w-full flex items-center gap-3 rounded-md px-3 py-2.5 min-h-[44px] text-left border transition-colors ${
+                    isSelected ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"
+                  }`}
+                  data-testid={`button-nav-provider-${opt.id}`}
+                >
+                  <Icon className={`w-5 h-5 ${opt.color}`} />
+                  <span className="flex-1 text-sm font-medium">{opt.label}</span>
+                  {isSelected && <Check className="w-4 h-4 text-primary" />}
+                </button>
+              );
+            })}
+            {getSavedNavApp() && (
+              <button
+                onClick={() => {
+                  setSavedNavApp(null);
+                  toast({ title: "Navigation preference cleared — chooser will appear next time" });
+                }}
+                className="text-xs text-muted-foreground underline mt-1"
+                data-testid="button-clear-nav-provider"
+              >
+                Clear preference (show chooser each time)
+              </button>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -12,6 +12,7 @@ import {
   InvalidTransitionError,
   VALID_TRANSITIONS,
   STATUS_TIMESTAMP_MAP,
+  getNavTarget,
 } from "./tripStateMachine";
 
 describe("TripStateMachine", () => {
@@ -219,10 +220,10 @@ describe("TripStateMachine", () => {
       expect(navAction!.target).toBe("pickup");
     });
 
-    it("ARRIVED_PICKUP has Picked Up Patient, no nav", () => {
+    it("ARRIVED_PICKUP has Picked Up Patient + nav to pickup", () => {
       const { statusAction, navAction } = uiActions(TripState.ARRIVED_PICKUP);
       expect(statusAction!.label).toBe("Picked Up Patient");
-      expect(navAction).toBeNull();
+      expect(navAction!.target).toBe("pickup");
     });
 
     it("PICKED_UP has Start Trip to Dropoff + nav to dropoff", () => {
@@ -237,10 +238,10 @@ describe("TripStateMachine", () => {
       expect(navAction!.target).toBe("dropoff");
     });
 
-    it("ARRIVED_DROPOFF has Complete Trip, no nav", () => {
+    it("ARRIVED_DROPOFF has Complete Trip + nav to dropoff", () => {
       const { statusAction, navAction } = uiActions(TripState.ARRIVED_DROPOFF);
       expect(statusAction!.label).toBe("Complete Trip");
-      expect(navAction).toBeNull();
+      expect(navAction!.target).toBe("dropoff");
     });
 
     it("COMPLETED has no actions", () => {
@@ -352,6 +353,26 @@ describe("TripStateMachine", () => {
       state = transition(state, TripEvent.CANCEL_TRIP);
       expect(state).toBe(TripState.CANCELLED);
       expect(isTerminal(state)).toBe(true);
+    });
+  });
+
+  describe("getNavTarget()", () => {
+    it("returns pickup for pickup-phase statuses", () => {
+      expect(getNavTarget(TripState.ASSIGNED)).toBe("pickup");
+      expect(getNavTarget(TripState.EN_ROUTE_TO_PICKUP)).toBe("pickup");
+      expect(getNavTarget(TripState.ARRIVED_PICKUP)).toBe("pickup");
+    });
+
+    it("returns dropoff for dropoff-phase statuses", () => {
+      expect(getNavTarget(TripState.PICKED_UP)).toBe("dropoff");
+      expect(getNavTarget(TripState.EN_ROUTE_TO_DROPOFF)).toBe("dropoff");
+      expect(getNavTarget(TripState.ARRIVED_DROPOFF)).toBe("dropoff");
+    });
+
+    it("returns null for terminal/done statuses", () => {
+      expect(getNavTarget(TripState.COMPLETED)).toBeNull();
+      expect(getNavTarget(TripState.CANCELLED)).toBeNull();
+      expect(getNavTarget(TripState.NO_SHOW)).toBeNull();
     });
   });
 });

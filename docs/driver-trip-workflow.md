@@ -66,6 +66,7 @@ The `getTripPhase(trip)` function derives the current phase:
 - Values: `"google"`, `"apple"`, or `"waze"`
 - Behavior: If saved, opens directly; if not saved, shows NavChooser modal with "Remember my choice" toggle
 - Clear: "Change" link below navigate button resets saved preference
+- Settings page: Navigation Provider card lets driver select/change default at any time
 
 ### Coordinate Priority
 1. Use lat/lng from trip record if available
@@ -141,8 +142,9 @@ All trip state logic lives in `shared/tripStateMachine.ts`:
 - `STATUS_TIMESTAMP_MAP` - maps status to timestamp column name
 
 Server imports `VALID_TRANSITIONS` and `STATUS_TIMESTAMP_MAP` from this module.
-UI imports `uiActions`, `derivePhase`, `getNavLabel` from this module.
-No other code decides state transitions.
+UI imports `uiActions`, `derivePhase`, `getNavLabel`, `getNavTarget` from this module.
+Navigation destination (pickup vs dropoff) is derived exclusively via `getNavTarget(status)`.
+No other code decides state transitions or navigation targets.
 
 ## Navigation is Decoupled from State
 
@@ -159,6 +161,7 @@ Driver home shows four independent states:
 - ON_BREAK: on shift but temporarily on break
 
 Both connection state and shift state are always visible simultaneously.
+A "Connected" badge is shown on ON_SHIFT and ON_BREAK states so it never disappears.
 
 ## Trip Delete/Cancel RBAC
 

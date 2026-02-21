@@ -174,6 +174,7 @@ const DRIVER_UI_ACTIONS: Record<string, { statusAction?: UiAction; navAction?: N
       type: "status_change",
       enabled: true,
     },
+    navAction: { label: "Navigate to Pickup", type: "navigation", target: "pickup" },
   },
   [TripState.PICKED_UP]: {
     statusAction: {
@@ -213,6 +214,7 @@ const DRIVER_UI_ACTIONS: Record<string, { statusAction?: UiAction; navAction?: N
       type: "status_change",
       enabled: true,
     },
+    navAction: { label: "Navigate to Dropoff", type: "navigation", target: "dropoff" },
   },
 };
 
@@ -230,6 +232,13 @@ export function getNavLabel(state: string): string {
   if (phase === "PICKUP") return "Go to Pickup";
   if (phase === "DROPOFF") return "Go to Dropoff";
   return "";
+}
+
+export function getNavTarget(state: string): "pickup" | "dropoff" | null {
+  const phase = derivePhase(state);
+  if (phase === "PICKUP") return "pickup";
+  if (phase === "DROPOFF") return "dropoff";
+  return null;
 }
 
 export function eventToTargetStatus(event: string, currentState: string): string | null {
