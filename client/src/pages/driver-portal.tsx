@@ -723,6 +723,99 @@ function ArrivalGeofenceInfo({ gate, targetStatus }: { gate: GeofenceResult; tar
   );
 }
 
+function WaitingTimer({ trip, token, onStatusChange }: {
+  trip: ActiveTripData;
+  token: string | null;
+  onStatusChange: (tripId: number, currentStatus: string) => void;
+}) {
+  const { toast } = useToast();
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const extendMutation = useMutation({
+    mutationFn: () => apiFetch(`/api/driver/trips/${trip.id}/extend-wait`, token, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      toast({ title: "Wait time extended" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/trips"] });
+    },
+    onError: (err: any) => toast({ title: "Could not extend", description: err.message, variant: "destructive" }),
+  });
+
+  if (trip.status !== "ARRIVED_PICKUP" || !trip.waitingStartedAt || trip.waitingEndedAt) {
+    return null;
+  }
+
+  const startedAt = new Date(trip.waitingStartedAt).getTime();
+  const waitMs = (trip.waitingMinutes ?? 10) * 60 * 1000;
+  const endTime = startedAt + waitMs;
+  const remainingSec = Math.max(0, Math.ceil((endTime - now) / 1000));
+  const totalSec = (trip.waitingMinutes ?? 10) * 60;
+  const progressPct = Math.min(100, ((totalSec - remainingSec) / totalSec) * 100);
+  const isExpired = remainingSec <= 0;
+
+  const mins = Math.floor(remainingSec / 60);
+  const secs = remainingSec % 60;
+  const timeStr = `${mins}:${secs.toString().padStart(2, "0")}`;
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 space-y-2 ${isExpired ? "bg-green-50 dark:bg-green-950/30 border-green-300 dark:border-green-800" : "bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-800"}`} data-testid="waiting-timer">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Clock className={`w-5 h-5 flex-shrink-0 ${isExpired ? "text-green-600" : "text-blue-600"}`} />
+          <span className="text-sm font-semibold" data-testid="waiting-timer-label">
+            {isExpired ? "Waiting time reached" : "Waiting for patient"}
+          </span>
+        </div>
+        <span className={`text-lg font-mono font-bold tabular-nums ${isExpired ? "text-green-700 dark:text-green-400" : "text-blue-700 dark:text-blue-400"}`} data-testid="waiting-timer-countdown">
+          {isExpired ? "0:00" : timeStr}
+        </span>
+      </div>
+
+      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-1000 ${isExpired ? "bg-green-500" : "bg-blue-500"}`}
+          style={{ width: `${progressPct}%` }}
+          data-testid="waiting-timer-progress"
+        />
+      </div>
+
+      {isExpired && (
+        <div className="flex gap-2 pt-1">
+          <Button
+            onClick={() => onStatusChange(trip.id, trip.status)}
+            className="flex-1 min-h-[44px] bg-green-600 hover:bg-green-700 text-white"
+            data-testid="button-waiting-pickup"
+          >
+            Mark Picked Up
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => extendMutation.mutate()}
+            disabled={extendMutation.isPending}
+            className="min-h-[44px]"
+            data-testid="button-waiting-extend"
+          >
+            Extend Wait
+          </Button>
+        </div>
+      )}
+
+      {!isExpired && (
+        <p className="text-xs text-muted-foreground" data-testid="waiting-timer-hint">
+          Patient has {trip.waitingMinutes ?? 10} min to arrive. Timer started at {new Date(trip.waitingStartedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+          {(trip.waitingExtendCount ?? 0) > 0 && ` Extended ${trip.waitingExtendCount}x.`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ConfirmStatusDialog({ label, onConfirm, onCancel }: { label: string; onConfirm: (note: string) => void; onCancel: () => void }) {
   const [note, setNote] = useState("");
   return (
@@ -775,7 +868,7 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigatio
   trip: any;
   token: string | null;
   onClose: () => void;
-  onStatusChange: (tripId: number, status: string) => void;
+  onStatusChange: (tripId: number, status: string, manualOverride?: boolean) => void;
   onOpenNavigation: (trip: ActiveTripData) => void;
   isPending: boolean;
   geoLocation: { lat: number; lng: number; accuracy: number; timestamp: number } | null;
@@ -890,6 +983,8 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigatio
             </div>
           )}
 
+          <WaitingTimer trip={trip} token={token} onStatusChange={onStatusChange} />
+
           {!isLocked && statusAction && (
             <div className="space-y-2">
               {arrivalGate && (
@@ -907,7 +1002,7 @@ function TripDetailModal({ trip, token, onClose, onStatusChange, onOpenNavigatio
               {arrivalGate && !arrivalGate.withinRadius && arrivalGate.withinFallbackRadius && (
                 <Button
                   variant="outline"
-                  onClick={() => onStatusChange(trip.id, trip.status)}
+                  onClick={() => onStatusChange(trip.id, trip.status, true)}
                   disabled={isPending}
                   className="w-full min-h-[44px] text-sm border-amber-500/50 text-amber-700 dark:text-amber-400"
                   data-testid="button-detail-manual-arrive"
@@ -1394,6 +1489,7 @@ function HomePage({
                 <ClipboardCopy className="w-5 h-5" />
               </Button>
             </div>
+            <WaitingTimer trip={activeTrip} token={token} onStatusChange={onStatusChange} />
             {(() => {
               const action = getStatusAction(activeTrip.status);
               if (!action) return null;

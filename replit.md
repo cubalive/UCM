@@ -17,63 +17,40 @@ The application follows a client-server architecture.
 
 **Technical Implementations & Feature Specifications:**
 - **Authentication**: JWT-based with `bcryptjs` and Magic Link Login, supporting dual-auth (Bearer token + httpOnly session cookie).
-- **Authorization**: Centralized Permission-Based Access Control using a `ROLE_PERMISSIONS` matrix. Three clinic-scoped roles: CLINIC_ADMIN (full clinic access + user management), CLINIC_USER (trips/patients read-write), CLINIC_VIEWER (read-only). clinicId embedded in JWT for scope enforcement via `requireClinicScope` and `requireClinicAdmin` middleware. Clinic user management at `/api/clinic/users` (CRUD + password reset). Frontend admin console at `/clinic-users` with role-gated sidebar navigation.
-- **Data Management**: PostgreSQL with Drizzle ORM, multi-city data segregation, and a public ID system. US States/Cities master reference tables (`us_states`, `us_cities`) with cascading State→City dropdowns, "City, ST" display format, and city deduplication via `us_city_id` linking.
+- **Authorization**: Centralized Permission-Based Access Control using a `ROLE_PERMISSIONS` matrix, enforcing clinic-scoped roles and user management.
+- **Data Management**: PostgreSQL with Drizzle ORM, multi-city data segregation, and a public ID system. US States/Cities master reference tables with cascading dropdowns and deduplication.
 - **Dispatch Engine**: Automated driver-vehicle and trip assignment, real-time tracking, ETA, and safety rule enforcement.
 - **Communication**: SMS notifications and branded email services.
 - **Location Services**: Google Maps integration for geocoding, autocomplete, ETA, route optimization, and live maps.
 - **Audit Logging**: Comprehensive logging of key system actions.
-- **Trip Management**: Includes public tracking links, clinic address enforcement, trip approval workflow, recurring trip series, no-show/late tracking, and driver offer acceptance. Driver trip accept endpoint (`POST /api/trips/:id/accept`) transitions ASSIGNED→EN_ROUTE_TO_PICKUP with SMS notification. Trip assignment (`PATCH /api/trips/:id/assign`) defaults to **direct assignment** (sets driverId, status→ASSIGNED immediately); optional `useOffer: true` body param enables the driver offer workflow with 30s TTL. Cross-company validation enforced on trip/driver/vehicle assignment.
-- **Trip State Machine** (`shared/tripStateMachine.ts`): Enterprise-grade deterministic state engine. Single source of truth for trip phases (PICKUP/DROPOFF/DONE), valid transitions, UI actions, and navigation labels. Server imports `VALID_TRANSITIONS` and `STATUS_TIMESTAMP_MAP`; UI imports `uiActions()`, `derivePhase()`, `getNavLabel()`. Invalid transitions return 409. Navigation is fully decoupled from state (never triggers status changes). 55 unit tests covering all transitions, edge cases, and lifecycle paths.
-- **Patient Communication System**: Automated SMS notifications for driver assignment, en-route with tracking links, T-24H reminders (background scheduler), geofence auto-arrival, picked-up, completed, and proper base URL routing. Feature flags: `GEOFENCE_ENABLED`, `SMS_REMINDER_ENABLED`.
-- **Server-Side Geofence Gating**: When `GEOFENCE_ENABLED=true`, driver status transitions to `ARRIVED_PICKUP`/`ARRIVED_DROPOFF` are gated by proximity check (haversine distance vs configurable radius). Dispatch/SUPER_ADMIN can override via `/api/trips/:id/status/override`. Configurable radii: `GEOFENCE_PICKUP_RADIUS_METERS` (default 120), `GEOFENCE_DROPOFF_RADIUS_METERS` (default 160).
-- **Cross-Company Tenant Isolation**: All entity write operations (trips, patients, drivers, vehicles, clinics) enforce company_id ownership checks. Cross-company driver/vehicle assignment to trips is blocked server-side. SUPER_ADMIN can operate across companies. Multi-tenant scope isolation via composite keys (company_id + city_id + clinic_id) with SQL-level filtering, composite indexes on all entity tables, NOT NULL company_id constraints, and integrity reporting endpoint.
-- **Dispatcher City Permissions**: Company-scoped city access control for DISPATCH role via `dispatcher_city_permissions` table (user_id, company_id, city_id). Default-DENY: dispatchers with no permissions get 403. ScopeContext middleware enforces city restrictions on all data endpoints. Admin API at `/api/company/dispatchers/:id/permissions` (GET/PUT). Company cities API at `/api/company/cities`. Admin UI: "City Access" button on dispatcher user cards with multi-select city dialog. `company_cities` reference table links companies to their operational cities.
-- **Automation & Operational Features**: A 7-Phase Automation System covering routing, auto-assignment, anti-no-show, driver scoring, financial dashboards, map status badges, and an operational health automation tab.
+- **Trip Management**: Public tracking links, clinic address enforcement, approval workflow, recurring trips, no-show/late tracking, and driver offer acceptance. Utilizes a deterministic state machine for robust trip status transitions.
+- **Patient Communication System**: Automated SMS notifications for various trip events with configurable geofencing and reminders.
+- **Server-Side Geofence Gating**: Proximity checks for driver status transitions (e.g., `ARRIVED_PICKUP`) with configurable radii and manual override capabilities.
+- **Waiting Timer**: Automatic patient waiting countdown, configurable per company, with driver extension options and audit logging.
+- **Cross-Company Tenant Isolation**: Strict enforcement of company_id ownership for all entities, preventing cross-company data access, with SUPER_ADMIN override capabilities.
+- **Dispatcher City Permissions**: Granular access control for dispatchers based on city, enforced via middleware and configurable through an admin interface.
+- **Automation & Operational Features**: A 7-Phase Automation System for routing, auto-assignment, anti-no-show, driver scoring, and operational health monitoring.
 - **Portals & APIs**: Public Booking API, Clinic Portal, and multi-company isolation.
-- **Realtime & Performance Hardening**: WebSocket server, Supabase Realtime, Upstash Redis for distributed caching, in-memory cache, rate-limited driver location ingest, and ETA throttling.
-- **Enterprise Multi-Tenant + Async Engine**: Hard multi-tenant enforcement, Redis-backed background job queue, worker process, idempotency layer, company quotas, system event stream, and job status API.
-- **Production Scale Hardening**: Structured JSON logging, 3-Tier Adaptive Backpressure, Google Directions Circuit Breaker, Ops Metrics Dashboard, graceful shutdown, and HTTP timeouts.
-- **Platform Pricing Settings**: Configurable platform tariffs, discount precedence logic, clinic memberships, and an admin API for managing pricing.
-- **Financial & Billing**: Automatic invoice email sending with Stripe integration and detailed clinic cancel/billing workflow.
-- **Company-to-Driver Payroll**: Per-company payroll settings, idempotent earnings ledger, payrun management with Stripe transfers, and scheduled/manual triggers.
-- **Time & Pay v1 (Hourly Timesheets)**: Manual and CSV import of time entries with a DRAFT→PAID workflow, payroll generation, and driver self-service views.
-- **Driver App Experience**: Today Dashboard, status confirmations, support events, offline queue, heartbeat, navigation UX, score trend chart, and GPS security.
-- **Mobile Driver App (Capacitor)**: Background GPS, secure token bridge, native UI, and Firebase Push Notifications.
-- **Distributed Job Engine + Locking**: Replaces in-process schedulers with a Redis-backed enqueue scheduler using distributed locks.
+- **Realtime & Performance Hardening**: WebSocket server, Supabase Realtime, Upstash Redis for caching, rate-limited data ingestion, and ETA throttling.
+- **Enterprise Multi-Tenant + Async Engine**: Hard multi-tenant enforcement, Redis-backed background job queue, idempotency, company quotas, and system event streams.
+- **Production Scale Hardening**: Structured JSON logging, adaptive backpressure, circuit breakers, graceful shutdown, and HTTP timeouts.
+- **Platform Pricing Settings**: Configurable tariffs, discount logic, clinic memberships, and an admin API.
+- **Financial & Billing**: Automatic invoice email sending, Stripe integration, and detailed clinic cancellation/billing workflows.
+- **Company-to-Driver Payroll**: Per-company payroll settings, idempotent earnings ledger, payrun management with Stripe transfers.
+- **Time & Pay v1 (Hourly Timesheets)**: Manual and CSV import of time entries with a DRAFT→PAID workflow and driver self-service views.
+- **Driver App Experience**: Today Dashboard, status confirmations, support events, offline queue, heartbeat, navigation UX, and score trend chart.
+- **Mobile Driver App (Capacitor)**: Background GPS, secure token bridge, native UI, and Firebase Push Notifications, with feature flags for native functionalities.
+- **Distributed Job Engine + Locking**: Redis-backed enqueue scheduler with distributed locks replacing in-process schedulers.
 - **UCM Intelligence Core**: Integrates daily/weekly metrics, TRI scores, cost leak alerts, and certifications with corresponding API endpoints and a frontend dashboard.
-- **Driver Intelligence Engine**: Driver performance scoring based on various metrics, anomaly detection, and background score recomputation.
-- **Platform Billing Fees**: Application fees collected on clinic invoice payments via Stripe Connect, with global and company-specific overrides.
-- **Company Subscriptions**: Stripe-powered monthly subscription billing for companies. Configurable via `platform_billing_settings` (monthly_subscription_enabled, price_id, subscription_required_for_access, grace_period_days). Tables: `stripe_customers`, `company_subscriptions`. Webhook at `/api/webhooks/stripe/subscription`. Admin API at `/api/admin/subscriptions/*`. Admin UI at `/admin/subscriptions`.
-- **Production Ops & Observability**: Boot config logging, pooler enforcement, Redis startup diagnostic, SUPER_ADMIN-only ops endpoints (`/api/ops/*`), graceful shutdown, HTTP timeouts, access-denied logging, WebSocket hardening, and DB-backed route cache.
-- **Entity Detail Pages & Click-Through Navigation**: Dedicated detail pages for patients (`/patients/:id`), drivers (`/drivers/:id`), vehicles (`/vehicles/:id`), clinics (`/clinics/:id`), invoices (`/invoices/:id`), and payroll runs (`/payroll/runs/:id`). All EntityRef components (PatientRef, DriverRef, VehicleRef, ClinicRef, InvoiceRef, TripRef) navigate to corresponding detail pages with back button navigation.
-- **URL-Based Filter Persistence**: FilterBar's `usePersistedFilters` hook syncs active filters to URL query params (bidirectional). Filters are preserved in URLs for shareability and browser history, with localStorage fallback.
-- **Server-Side Search**: All major list endpoints (patients, drivers, clinics, trips) support `?q=` query parameter for ILIKE text search across name, phone, publicId, and address fields. Search respects RBAC scope for all roles including clinic users.
-- **Driver Portal Upgrade (Shift Mode + Trip Center)**: Formal shift session tracking via `driver_shifts` table (ACTIVE→COMPLETED→AUTO_ENDED). APIs: `POST /api/driver/shift/start`, `POST /api/driver/shift/end`, `GET /api/driver/shift/active`, `GET /api/driver/shift/history`. UI: "Start Shift"/"End Shift" replaces "Go Online"/"Go Offline" with shift timer banner. In-app foreground geofence distance display (pickup/dropoff meters) via `GET /api/driver/geofence-check`. No-show evidence capture via `POST /api/driver/no-show-evidence` with `no_show_evidence` table. Digital signature "refused to sign" option via `POST /api/driver/signature-refused` with `signature_refused`/`refused_reason` columns on `trip_signatures`. Earnings drawer tab with today/week/month range, shift hours, trip earnings via `GET /api/driver/shift-earnings`. Search + status filter chips on driver trips list. Controller: `server/controllers/driver-shift.controller.ts`.
-- **Driver App v3 (Feature-Flagged)**: Triple-gated features (env + company + driver settings), all disabled by default. Flag resolver: `shared/driverV3Flags.ts`. Company config via `company_settings.driverV3` JSON column. Driver preferences via `driver_settings` table. APIs: `GET/PATCH /api/driver/settings`, `GET /api/driver/v3/flags`, `GET /api/driver/performance/current-shift`.
-  - **Performance Scoring** (`shared/driverPerformance.ts`): Weighted KPI formula (punctuality 45%, acceptance 20%, idle 15%, cancellations 10%, compliance 10%). Server-computed per shift. UI at `/driver/performance` with grade (A-F), KPI breakdown, and navigation from Settings. 17 unit tests.
-  - **Smart Prompts** (`client/src/lib/smartPrompts.ts`): Rule engine with LEAVE_NOW (T-25min, pre-en-route statuses), ARRIVE_NOW (geofence proximity), LATE_RISK (ETA vs scheduled). Anti-spam via localStorage fired tracking + configurable cooldowns. 21 unit tests.
-  - **Offline Outbox** (`client/src/lib/offlineOutbox.ts`): IndexedDB queue with ordering (trip_status before location), exponential backoff retry (2s→5min), max limits (200 status / 2000 location), periodic flush on online/visibility events.
-  - **Sounds & Haptics** (`client/src/lib/notificationManager.ts`): AudioContext tones + navigator.vibrate, event mapping for trip/prompt events, respects driver settings toggles.
-  - **Driver Preferences UI**: Settings card in driver portal with toggles for Sounds, Haptics, Smart Prompts, and Show Performance. Performance nav link in Settings tab.
-
-## Running the Project
-- **Development**: `npm run dev` (uses tsx for hot reload)
-- **Production build**: `npm run build` (outputs to `dist/`)
-- **Production run**: `node ./dist/index.cjs` (correct production command)
-- Always run `npm run build` before using the production command to ensure latest changes are compiled.
-
-## Capacitor (Native Mobile)
-- **Config**: `capacitor.config.ts` — appId: `com.unitedcaremobility.driver`, webDir: `dist/public`
-- **Platforms**: `android/` and `ios/` scaffolded via `@capacitor/android` and `@capacitor/ios`
-- **Build & Sync**: `npm run build && npx cap sync`
-- **Open Android Studio**: `npx cap open android`
-- **Open Xcode**: `npx cap open ios`
-- **Feature Flags**: `VITE_NATIVE_ENABLED` (default false), `VITE_BG_TRACKING_ENABLED` (default false)
-- **Runtime Detection**: `isNative()` from `client/src/lib/hostDetection.ts` — true only when running inside Capacitor AND `VITE_NATIVE_ENABLED=true`
-- **Native Mode Badge**: Shown in Driver Settings tab only when native + flag enabled
-- **Permission Placeholders**: Android has location + foregroundService; iOS has NSLocation* + NSMotion descriptions. Background modes NOT enabled yet.
-- **PWA unchanged**: All flags default false, no behavior change in web/PWA mode.
+- **Driver Intelligence Engine**: Driver performance scoring based on KPIs, anomaly detection, and background recomputation.
+- **Platform Billing Fees**: Application fees collected via Stripe Connect, with global and company-specific overrides.
+- **Company Subscriptions**: Stripe-powered monthly subscription billing for companies, configurable via platform settings and managed through admin interfaces.
+- **Production Ops & Observability**: Boot config logging, pooler enforcement, Redis diagnostics, SUPER_ADMIN ops endpoints, graceful shutdown, HTTP timeouts, access-denied logging, WebSocket hardening, and DB-backed route cache.
+- **Entity Detail Pages & Click-Through Navigation**: Dedicated detail pages for key entities (patients, drivers, vehicles, clinics, invoices, payroll runs) with consistent navigation.
+- **URL-Based Filter Persistence**: Filter states persisted in URL query parameters for shareability and browser history.
+- **Server-Side Search**: ILIKE text search across major list endpoints, respecting RBAC scope.
+- **Driver Portal Upgrade (Shift Mode + Trip Center)**: Formal shift session tracking, in-app foreground geofence distance display, no-show evidence capture, digital signature options, and earnings summaries.
+- **Driver App v3 (Feature-Flagged)**: Triple-gated features (env + company + driver settings) including performance scoring, smart prompts, offline outbox, and sounds/haptics.
 
 ## External Dependencies
 - **PostgreSQL**: Primary relational database, specifically Supabase pooler.

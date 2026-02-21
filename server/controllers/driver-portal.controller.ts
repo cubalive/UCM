@@ -547,6 +547,10 @@ export async function getDriverActiveTripHandler(req: AuthRequest, res: Response
         scheduledDate: trip.scheduledDate,
         pickupTime: trip.pickupTime,
         patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
+        waitingStartedAt: trip.waitingStartedAt,
+        waitingMinutes: trip.waitingMinutes,
+        waitingEndedAt: trip.waitingEndedAt,
+        waitingExtendCount: trip.waitingExtendCount,
       },
     });
   } catch (err: any) {
