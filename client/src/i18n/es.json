@@ -82,7 +82,21 @@
     "feeRules": "Reglas de Tarifas",
     "clinicBillingV2": "Facturas Clínica",
     "supportChat": "Chat de Soporte",
-    "systemStatus": "Estado del Sistema"
+    "systemStatus": "Estado del Sistema",
+    "group": {
+      "dispatch": "Despacho y Mapas",
+      "fleet": "Flota y Horarios",
+      "health": "Salud Operativa",
+      "tripsPatients": "Viajes y Pacientes",
+      "resources": "Recursos",
+      "billing": "Facturación y Finanzas",
+      "support": "Soporte",
+      "management": "Gestión",
+      "analytics": "Análisis y Reportes",
+      "audit": "Auditoría y Cumplimiento",
+      "intelligence": "Inteligencia",
+      "system": "Sistema"
+    }
   },
   "dashboard": {
     "title": "Panel Principal",
