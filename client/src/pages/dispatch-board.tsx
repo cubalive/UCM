@@ -110,6 +110,8 @@ interface DriverInfo {
   active_trip_status: string | null;
   cityId: number;
   group: string;
+  today_trip_count: number;
+  performance_score: number | null;
 }
 
 function formatTimeAgo(dateStr: string | null): string {
@@ -1378,9 +1380,13 @@ function AssignDriverPanel({
   const sortedAvailable = sortByEta(availableDrivers);
   const sortedBusy = sortByEta(busyDrivers);
 
+  const bestAvailableId = sortedAvailable.length > 0 && etaMap.get(sortedAvailable[0].id)?.eta != null
+    ? sortedAvailable[0].id : null;
+
   const renderDriverRow = (d: DriverInfo) => {
     const etaInfo = etaMap.get(d.id);
     const isOffline = d.group === "logged_out";
+    const isBest = d.id === bestAvailableId;
     return (
       <button
         key={d.id}
@@ -1390,15 +1396,22 @@ function AssignDriverPanel({
         disabled={loading}
         className={`w-full text-left rounded-md border p-2.5 transition-colors hover-elevate ${
           isOffline ? "opacity-50" : ""
-        }`}
+        } ${isBest ? "border-green-500 bg-green-50 dark:bg-green-950/30" : ""}`}
         data-testid={`assign-driver-row-${d.id}`}
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <CircleDot className={`w-3.5 h-3.5 flex-shrink-0 ${getDriverDotColor(d)}`} />
             <div className="min-w-0">
-              <div className="text-sm font-medium truncate" data-testid={`text-assign-driver-name-${d.id}`}>
-                {d.name}
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-medium truncate" data-testid={`text-assign-driver-name-${d.id}`}>
+                  {d.name}
+                </span>
+                {isBest && (
+                  <Badge variant="default" className="text-[10px] px-1.5 py-0 bg-green-600" data-testid={`badge-best-pick-${d.id}`}>
+                    Best Pick
+                  </Badge>
+                )}
               </div>
               <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
                 {d.vehicle_name ? (
@@ -1412,16 +1425,33 @@ function AssignDriverPanel({
                 {d.active_trip_public_id && (
                   <Badge variant="outline" className="text-[10px] px-1.5 py-0">{d.active_trip_public_id}</Badge>
                 )}
+                {d.today_trip_count > 0 && (
+                  <span className="text-[10px]" data-testid={`text-driver-workload-${d.id}`}>
+                    {d.today_trip_count} trip{d.today_trip_count > 1 ? "s" : ""} today
+                  </span>
+                )}
+                {d.performance_score != null && (
+                  <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${d.performance_score >= 80 ? "border-green-500 text-green-700" : d.performance_score >= 60 ? "border-yellow-500 text-yellow-700" : "border-red-500 text-red-700"}`} data-testid={`badge-driver-score-${d.id}`}>
+                    Score: {d.performance_score}
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {etaInfo?.eta != null && (
-              <span className="text-xs font-medium text-muted-foreground" data-testid={`text-driver-eta-${d.id}`}>
-                {etaInfo.eta} min
+          <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+            <div className="flex items-center gap-1.5">
+              {etaInfo?.eta != null && (
+                <span className="text-xs font-medium text-muted-foreground" data-testid={`text-driver-eta-${d.id}`}>
+                  {etaInfo.eta} min
+                </span>
+              )}
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">{getDriverStatusLabel(d)}</Badge>
+            </div>
+            {etaInfo?.dist != null && (
+              <span className="text-[10px] text-muted-foreground" data-testid={`text-driver-dist-${d.id}`}>
+                {etaInfo.dist.toFixed(1)} mi away
               </span>
             )}
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0">{getDriverStatusLabel(d)}</Badge>
           </div>
         </div>
       </button>

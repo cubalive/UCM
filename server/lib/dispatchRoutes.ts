@@ -629,7 +629,36 @@ export function registerDispatchRoutes(app: Express) {
         const rawVehicles = await storage.getVehicles(cityId);
         const vehicleMap = new Map(rawVehicles.map((v) => [v.id, v]));
 
-        const groups = classifyDrivers(allDrivers, activeTripsMap, vehicleMap);
+        const todayStr = new Date().toISOString().split("T")[0];
+        const todayTripCounts = new Map<number, number>();
+        for (const t of allTrips) {
+          if (t.driverId && t.scheduledDate === todayStr) {
+            todayTripCounts.set(t.driverId, (todayTripCounts.get(t.driverId) || 0) + 1);
+          }
+        }
+
+        let performanceScores = new Map<number, number>();
+        try {
+          const driverIds = allDrivers.map((d: any) => d.id);
+          if (driverIds.length > 0) {
+            const { driverScores } = await import("@shared/schema");
+            const { desc, inArray } = await import("drizzle-orm");
+            const { db } = await import("../db");
+            const scores = await db.select({ driverId: driverScores.driverId, overallScore: driverScores.overallScore })
+              .from(driverScores)
+              .where(inArray(driverScores.driverId, driverIds.slice(0, 200)))
+              .orderBy(desc(driverScores.computedAt));
+            const seen = new Set<number>();
+            for (const s of scores) {
+              if (!seen.has(s.driverId)) {
+                seen.add(s.driverId);
+                performanceScores.set(s.driverId, Number(s.overallScore));
+              }
+            }
+          }
+        } catch {}
+
+        const groups = classifyDrivers(allDrivers, activeTripsMap, vehicleMap, todayTripCounts, performanceScores);
 
         res.json(groups);
       } catch (err: any) {

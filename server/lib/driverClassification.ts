@@ -20,6 +20,8 @@ export interface ClassifiedDriver {
   active_trip_status: string | null;
   cityId: number;
   group: DriverGroup;
+  today_trip_count: number;
+  performance_score: number | null;
 }
 
 export interface DriverStatusGroups {
@@ -66,7 +68,9 @@ export function classifyDriverGroup(
 export function classifyDrivers(
   drivers: any[],
   activeTripsMap: Map<number, any>,
-  vehicleMap: Map<number, any>
+  vehicleMap: Map<number, any>,
+  todayTripCounts?: Map<number, number>,
+  performanceScores?: Map<number, number>,
 ): DriverStatusGroups {
   const groups: DriverStatusGroups = { on_trip: [], available: [], paused: [], hold: [], logged_out: [] };
 
@@ -94,6 +98,8 @@ export function classifyDrivers(
       active_trip_status: activeTrip?.status || null,
       cityId: d.cityId,
       group,
+      today_trip_count: todayTripCounts?.get(d.id) ?? 0,
+      performance_score: performanceScores?.get(d.id) ?? null,
     };
 
     groups[group].push(driverObj);
