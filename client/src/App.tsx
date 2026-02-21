@@ -48,6 +48,7 @@ import AutoAssignmentPage from "@/pages/auto-assignment";
 import DispatchBoardPage from "@/pages/dispatch-board";
 import ClinicTripsPage from "@/pages/clinic-trips";
 import DriverDashboard from "@/pages/driver-portal";
+import DriverProfilePage from "@/pages/driver-profile";
 import BillingPage from "@/pages/billing";
 import ClinicBillingPage from "@/pages/clinic-billing";
 import SchedulePage from "@/pages/schedule";
@@ -280,6 +281,7 @@ function DriverSubdomainRouter() {
   return (
     <Switch>
       <Route path="/">{() => <DriverRoute component={DriverDashboard} />}</Route>
+      <Route path="/driver/profile">{() => <DriverRoute component={DriverProfilePage} />}</Route>
       <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/login" component={LoginPage} />
@@ -326,6 +328,7 @@ function Router() {
       <Route path="/clinic-trip/:id">{() => <ClinicRoute component={ClinicTripDetailsPage} />}</Route>
       <Route path="/clinic-trips">{() => <ClinicRoute component={ClinicTripsPage} />}</Route>
       <Route path="/clinic-users">{() => <ClinicAdminRoute component={ClinicUsersPage} />}</Route>
+      <Route path="/driver/profile">{() => <DriverRoute component={DriverProfilePage} />}</Route>
       <Route path="/driver">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/:rest*">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/invoices/:id">{() => <ClinicOrPermissionRoute resource="invoices" component={InvoiceDetailPage} />}</Route>

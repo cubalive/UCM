@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -2162,6 +2163,7 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
 }) {
   const { toast } = useToast();
   const { logout } = useAuth();
+  const [, navigate] = useLocation();
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   const [emergencyNote, setEmergencyNote] = useState("");
 
@@ -2227,6 +2229,16 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
           </div>
         </CardContent>
       </Card>
+
+      <button
+        onClick={() => navigate("/driver/profile")}
+        className="w-full flex items-center gap-3 rounded-lg border border-border px-4 py-3 min-h-[48px] text-left hover:bg-muted/50 transition-colors"
+        data-testid="button-open-profile"
+      >
+        <User className="w-5 h-5 text-primary flex-shrink-0" />
+        <span className="flex-1 font-medium text-base">My Profile</span>
+        <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+      </button>
 
       <Card data-testid="card-nav-provider-settings">
         <CardContent className="py-4 space-y-3">

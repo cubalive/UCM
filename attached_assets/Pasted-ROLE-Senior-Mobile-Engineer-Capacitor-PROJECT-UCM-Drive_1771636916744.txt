@@ -1,0 +1,62 @@
+ROLE: Senior Mobile Engineer (Capacitor)
+PROJECT: UCM Driver App (PWA -> Android + iOS Store builds)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT break current web PWA behavior
+- Do NOT change backend contracts unless required
+- Do NOT delete/rename existing UI flows
+- All new behavior behind feature flags
+
+GOAL:
+Wrap the existing web app with Capacitor and generate Android/iOS projects that run on devices, while keeping the PWA web deploy unchanged.
+
+STEP 0 — READ FIRST:
+- Identify frontend framework/build output folder (dist/ build/ out/ etc).
+- Confirm the production build command and where the files are emitted.
+- Confirm existing routing mode (SPA) and ensure refresh fallback works.
+
+TASKS:
+1) Add Capacitor:
+   - npm i @capacitor/core @capacitor/cli
+   - npx cap init "UCM Driver" "com.unitedcaremobility.driver"
+   - Set webDir to the real build output folder.
+   - Add platforms:
+     - npx cap add android
+     - npx cap add ios
+
+2) Make SPA refresh safe inside native:
+   - Ensure the app handles deep links and browser refresh without 404.
+   - If needed, add a lightweight server fallback for SPA routes ONLY (do not affect API routes).
+
+3) Add runtime detection + feature flags:
+   - Add helper: isNative() (Capacitor.isNativePlatform()).
+   - Add flags:
+     - VITE_NATIVE_ENABLED (or NEXT_PUBLIC_... etc)
+     - VITE_BG_TRACKING_ENABLED
+   - Add a small “Native Mode” badge in Driver Settings (only when isNative and NATIVE_ENABLED).
+
+4) Store scaffolding (no tracking yet):
+   iOS:
+   - Add placeholders in Info.plist for:
+     - NSLocationWhenInUseUsageDescription
+     - NSLocationAlwaysAndWhenInUseUsageDescription
+     - NSMotionUsageDescription (optional if future)
+   - DO NOT enable background modes yet (only placeholders).
+   Android:
+   - Ensure AndroidManifest has fine/coarse location placeholders.
+   - Add foregroundService permission placeholder (will be used in Part 2).
+
+5) Deliverables:
+   - List files changed
+   - Exact commands:
+     - build web -> npx cap sync
+     - open Android Studio
+     - open Xcode
+   - Confirm PWA deploy remains unchanged and still publishes normally.
+
+ACCEPTANCE CRITERIA:
+- Web/PWA runs exactly as before.
+- Android project builds and launches.
+- iOS project opens and runs on simulator/device.
+- No trip workflow changes.

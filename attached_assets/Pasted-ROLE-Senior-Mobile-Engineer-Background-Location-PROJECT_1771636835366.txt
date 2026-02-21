@@ -1,0 +1,47 @@
+ROLE: Senior Mobile Engineer (Background Location)
+PROJECT: UCM Driver App - Elite GPS Tracking
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT break trip workflow
+- Do NOT change DB schema
+- Add only necessary endpoints if missing
+- Provide test checklist + proof
+
+GOAL:
+Implement reliable background GPS tracking for Android+iOS (Capacitor), with offline-safe queue and minimal battery drain.
+
+TASKS:
+1) Implement Tracking State + UI:
+   - Add a Driver Setting: "Live Tracking" (ON/OFF)
+   - Show persistent indicator when ON.
+   - Add “Start Tracking / Stop Tracking” controls.
+
+2) Background GPS implementation:
+   - Android: use a Foreground Service approach via Capacitor-compatible background location solution.
+   - iOS: enable background location updates and request “Always” permission; add required Info.plist keys and background mode.
+   - Tracking cadence:
+     - Foreground: 3-5s
+     - Background: 10-15s (configurable)
+   - Store last good point; filter bad accuracy > 80m.
+
+3) Offline-safe event queue:
+   - Persist location samples and trip status events in local storage (IndexedDB/SQLite if available).
+   - On reconnect: batch upload with retries + idempotency key per sample batch.
+   - Never drop events silently: log + mark as “sent”.
+
+4) Server ingest compatibility:
+   - Reuse existing /api/driver/location endpoint if present.
+   - If missing batch support, add /api/driver/location/batch (POST) accepting array of points with driver auth.
+   - Add rate limit / size limit protection.
+
+5) Compliance + Review readiness:
+   - iOS: Add user-facing explanation screen “Why we need location always” (required for review).
+   - Android: Foreground notification text: “UCM Tracking active for trip safety and ETA”
+   - Document all permissions and purpose.
+
+DELIVERABLES:
+- Working tracking on Android emulator/device + iOS device (or simulator limits explained)
+- Test checklist:
+  - start tracking -> lock screen -> move -> server receives points
+  - airplane mode -> queue -> reconnect -> batch flush
+  - battery drain sanity check (30 min run)
+- Documentation: docs/mobile-tracking.md
