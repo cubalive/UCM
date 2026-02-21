@@ -55,6 +55,10 @@ import {
   Wifi,
   WifiOff,
   Shield,
+  ChevronDown,
+  ChevronUp,
+  Info,
+  Zap,
 } from "lucide-react";
 
 interface Assignment {
@@ -588,6 +592,8 @@ function SchedulerTab({
   onSwap: (a: Assignment) => void;
   refetch: () => void;
 }) {
+  const [driversExpanded, setDriversExpanded] = useState(false);
+
   const { data: scheduleStatus } = useQuery<ScheduleStatusData>({
     queryKey: ["/api/assignments/schedule-status", cityId, selectedDate],
     queryFn: async () => {
@@ -656,41 +662,117 @@ function SchedulerTab({
 
       {scheduleStatus && scheduleStatus.hasSchedule && (
         <Card className="mb-3" data-testid="card-schedule-summary">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <CalendarCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
-              <span className="text-sm font-medium">Schedule Active</span>
-              <Badge variant="outline" className="text-xs">{counts?.scheduledCount || 0} scheduled</Badge>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <CardContent className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
+                <CalendarCheck className="h-4 w-4 text-green-600 dark:text-green-400" />
+                <span className="text-sm font-semibold">Schedule Active</span>
+                <Badge variant="outline" className="text-xs">{counts?.scheduledCount || 0} scheduled</Badge>
+              </div>
+              <Badge variant="secondary" className="text-[10px] gap-1">
+                <Zap className="h-3 w-3" />
+                Auto-assign runs at 5:30 AM
+              </Badge>
+            </div>
+
+            <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1.5" data-testid="text-scheduler-explanation">
+              <div className="flex items-start gap-2">
+                <Info className="h-3.5 w-3.5 mt-0.5 text-blue-500 flex-shrink-0" />
+                <p>
+                  The scheduler automatically assigns a vehicle to each scheduled driver every day at <span className="font-medium text-foreground">5:30 AM</span>.
+                  It checks which drivers are scheduled, finds available vehicles, and creates assignments.
+                  Drivers who already have a vehicle from a previous day keep the same one.
+                </p>
+              </div>
+            </div>
+
+            {(() => {
+              const scheduled = counts?.scheduledCount || 0;
+              const assigned = counts?.assignedCount || 0;
+              const eligible = counts?.eligibleCount || 0;
+              const offline = counts?.offlineScheduledCount || 0;
+              const onHold = counts?.holdCount || 0;
+              const vehicleCount = activeVehicles.length;
+
+              const allAssigned = scheduled > 0 && assigned >= eligible && eligible > 0;
+              const noVehicles = vehicleCount === 0 && scheduled > 0;
+              const moreDriversThanVehicles = eligible > vehicleCount && vehicleCount > 0;
+              const someOffline = offline > 0;
+
+              return (
+                <div className="space-y-3">
+                  {allAssigned && (
+                    <div className="flex items-start gap-2 rounded-lg bg-green-500/10 border border-green-500/20 p-3 text-xs" data-testid="text-all-assigned-info">
+                      <CheckCircle className="h-3.5 w-3.5 mt-0.5 text-green-600 dark:text-green-400 flex-shrink-0" />
+                      <p className="text-green-700 dark:text-green-300">
+                        All {assigned} eligible drivers have been auto-assigned a vehicle. The system matched each driver to an available vehicle based on their schedule.
+                      </p>
+                    </div>
+                  )}
+                  {noVehicles && (
+                    <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-xs" data-testid="text-no-vehicles-warning">
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 text-red-600 dark:text-red-400 flex-shrink-0" />
+                      <p className="text-red-700 dark:text-red-300">
+                        There are no active vehicles in this city. Drivers cannot be assigned until at least one vehicle is added and marked as active.
+                      </p>
+                    </div>
+                  )}
+                  {moreDriversThanVehicles && (
+                    <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-xs" data-testid="text-vehicle-shortage-warning">
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                      <p className="text-amber-700 dark:text-amber-300">
+                        There are {eligible} eligible drivers but only {vehicleCount} active vehicles. Some drivers may not get a vehicle assignment. Consider adding more vehicles or adjusting the schedule.
+                      </p>
+                    </div>
+                  )}
+                  {someOffline && !allAssigned && (
+                    <div className="flex items-start gap-2 rounded-lg bg-muted/60 border border-border p-3 text-xs" data-testid="text-offline-info">
+                      <WifiOff className="h-3.5 w-3.5 mt-0.5 text-muted-foreground flex-shrink-0" />
+                      <p className="text-muted-foreground">
+                        {offline} scheduled driver{offline > 1 ? "s are" : " is"} currently offline. They are scheduled to work but have not logged in yet. Once they go online, they become eligible for auto-assignment.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="flex items-center gap-2 rounded-lg bg-background p-2.5 border">
                 <Wifi className="h-3.5 w-3.5 text-green-500" />
                 <div>
                   <div className="text-lg font-bold">{counts?.eligibleCount || 0}</div>
                   <div className="text-[10px] text-muted-foreground">Eligible</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-lg bg-background p-2.5 border">
                 <UserCheck className="h-3.5 w-3.5 text-blue-500" />
                 <div>
                   <div className="text-lg font-bold">{counts?.assignedCount || 0}</div>
                   <div className="text-[10px] text-muted-foreground">Assigned</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-lg bg-background p-2.5 border">
                 <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />
                 <div>
                   <div className="text-lg font-bold">{counts?.offlineScheduledCount || 0}</div>
                   <div className="text-[10px] text-muted-foreground">Offline</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-lg bg-background p-2.5 border">
                 <Shield className="h-3.5 w-3.5 text-amber-500" />
                 <div>
                   <div className="text-lg font-bold">{counts?.holdCount || 0}</div>
                   <div className="text-[10px] text-muted-foreground">On Hold</div>
                 </div>
               </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-1 text-[10px] text-muted-foreground border-t">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> Eligible = Scheduled + Online</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> Assigned = Has vehicle</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-muted-foreground" /> Offline = Scheduled but not logged in</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> On Hold = Temporarily paused</span>
             </div>
           </CardContent>
         </Card>
@@ -751,30 +833,52 @@ function SchedulerTab({
               <CalendarCheck className="h-4 w-4" />
               Scheduled Drivers
             </CardTitle>
-            <Badge variant="outline" className="text-xs">{scheduleStatus.scheduledDrivers.length}</Badge>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="space-y-1">
-              {scheduleStatus.scheduledDrivers.map(d => (
-                <div key={d.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-xs" data-testid={`row-scheduled-driver-${d.id}`}>
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <CircleDot className={`w-3 h-3 flex-shrink-0 ${
-                      d.onHold ? "text-amber-500" :
-                      d.loggedIn ? "text-green-500" :
-                      "text-muted-foreground"
-                    }`} />
-                    <span className="font-medium">{d.firstName} {d.lastName}</span>
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">{d.publicId}</Badge>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {d.onHold && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Hold</Badge>}
-                    {!d.loggedIn && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Offline</Badge>}
-                    {d.loggedIn && !d.onHold && <Badge variant="default" className="text-[10px] px-1.5 py-0">Online</Badge>}
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">{scheduleStatus.scheduledDrivers.length}</Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => setDriversExpanded(!driversExpanded)}
+                data-testid="button-toggle-scheduled-drivers"
+              >
+                {driversExpanded ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
             </div>
-          </CardContent>
+          </CardHeader>
+          {driversExpanded && (
+            <CardContent className="p-4 pt-0">
+              <div className="text-[10px] text-muted-foreground mb-2 flex items-center gap-1.5">
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Online</span>
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> On Hold</span>
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-muted-foreground" /> Offline</span>
+              </div>
+              <div className="space-y-1">
+                {scheduleStatus.scheduledDrivers.map(d => (
+                  <div key={d.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-xs" data-testid={`row-scheduled-driver-${d.id}`}>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <CircleDot className={`w-3 h-3 flex-shrink-0 ${
+                        d.onHold ? "text-amber-500" :
+                        d.loggedIn ? "text-green-500" :
+                        "text-muted-foreground"
+                      }`} />
+                      <span className="font-medium">{d.firstName} {d.lastName}</span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">{d.publicId}</Badge>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {d.onHold && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Hold</Badge>}
+                      {!d.loggedIn && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Offline</Badge>}
+                      {d.loggedIn && !d.onHold && <Badge variant="default" className="text-[10px] px-1.5 py-0">Online</Badge>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          )}
         </Card>
       )}
 
