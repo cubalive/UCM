@@ -101,6 +101,7 @@ const TABS: { id: TabId; label: string; icon: any }[] = [
 ];
 
 const STATUS_ICON_MAP: Record<string, any> = {
+  SCHEDULED: PlayCircle,
   ASSIGNED: Navigation,
   EN_ROUTE_TO_PICKUP: MapPin,
   ARRIVED_PICKUP: User,
@@ -156,8 +157,8 @@ const STATUS_LABELS: Record<string, string> = {
   NO_SHOW: "No Show",
 };
 
-const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
-const PICKUP_STAGES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP"];
+const ACTIVE_STATUSES = ["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+const PICKUP_STAGES = ["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP"];
 
 const TIMELINE_STEPS = [
   { key: "scheduledDate", label: "Scheduled" },

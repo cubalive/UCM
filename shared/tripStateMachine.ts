@@ -34,6 +34,7 @@ export type TripPhase = "PICKUP" | "DROPOFF" | "DONE";
 const TRANSITION_TABLE: Record<string, Partial<Record<string, string>>> = {
   [TripState.SCHEDULED]: {
     [TripEvent.ASSIGN_DRIVER]: TripState.ASSIGNED,
+    [TripEvent.START_TO_PICKUP]: TripState.EN_ROUTE_TO_PICKUP,
     [TripEvent.CANCEL_TRIP]: TripState.CANCELLED,
   },
   [TripState.ASSIGNED]: {
@@ -146,6 +147,16 @@ export interface NavAction {
 }
 
 const DRIVER_UI_ACTIONS: Record<string, { statusAction?: UiAction; navAction?: NavAction }> = {
+  [TripState.SCHEDULED]: {
+    statusAction: {
+      event: TripEvent.START_TO_PICKUP,
+      targetStatus: TripState.EN_ROUTE_TO_PICKUP,
+      label: "Accept & Start Trip",
+      type: "status_change",
+      enabled: true,
+    },
+    navAction: { label: "Navigate to Pickup", type: "navigation", target: "pickup" },
+  },
   [TripState.ASSIGNED]: {
     statusAction: {
       event: TripEvent.START_TO_PICKUP,
