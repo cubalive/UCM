@@ -78,6 +78,7 @@ import InvoiceDetailPage from "@/pages/invoice-detail";
 import PayrollDetailPage from "@/pages/payroll-detail";
 import UnauthorizedPage from "@/pages/unauthorized";
 import PublicTrackingPage from "@/pages/public-tracking";
+import { DriverAppV4 } from "@/driver-v4/DriverAppV4";
 import SystemStatusPage from "@/pages/system-status";
 import NotFound from "@/pages/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -564,6 +565,7 @@ function App() {
         <TooltipProvider>
           <Switch>
             <Route path="/t/:token" component={PublicTrackingPage} />
+            <Route path="/driver-v4" component={DriverAppV4} />
             <Route>
               <AuthProvider>
                 <AuthenticatedApp />
