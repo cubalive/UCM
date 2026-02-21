@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { playSound } from "@/hooks/use-sound-notifications";
 import { downloadWithAuth } from "@/lib/export";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw, Download, RotateCcw } from "lucide-react";
@@ -186,6 +187,7 @@ export default function TripsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setOpen(false);
+      playSound("new_trip");
       if (variables._isSeries) {
         toast({ title: `Series created with ${_data?.count || "multiple"} trips` });
       } else {
@@ -201,9 +203,13 @@ export default function TripsPage() {
         method: "PATCH",
         body: JSON.stringify({ status }),
       }),
-    onSuccess: () => {
+    onSuccess: (_d: any, variables: { id: number; status: string }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      if (variables.status === "COMPLETED") playSound("trip_completed");
+      else if (variables.status === "CANCELLED") playSound("trip_cancelled");
+      else if (variables.status === "NO_SHOW") playSound("trip_no_show");
+      else playSound("status_change");
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -213,6 +219,7 @@ export default function TripsPage() {
       apiFetch(`/api/trips/${id}/approve`, token, { method: "PATCH" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      playSound("notification");
       toast({ title: "Trip approved" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -244,6 +251,7 @@ export default function TripsPage() {
       setDispatchCancelTrip(null);
       setDispatchCancelReason("");
       setDispatchCancelType("soft");
+      playSound("trip_cancelled");
       toast({ title: "Trip cancelled" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -302,6 +310,7 @@ export default function TripsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/dispatch/drivers/status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
       setAssignTrip(null);
+      playSound("trip_assigned");
       toast({ title: "Driver assigned to trip" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),

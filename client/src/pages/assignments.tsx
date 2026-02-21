@@ -28,6 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { playSound } from "@/hooks/use-sound-notifications";
 import {
   Truck,
   UserCheck,
@@ -266,6 +267,7 @@ export default function AssignmentsPage() {
       return res;
     },
     onSuccess: () => {
+      playSound("trip_assigned");
       toast({ title: "Vehicle reassigned successfully" });
       setReassignDialog(null);
       setReassignVehicleId("");
@@ -286,6 +288,7 @@ export default function AssignmentsPage() {
       return res;
     },
     onSuccess: () => {
+      playSound("notification");
       toast({ title: "Drivers swapped successfully" });
       setSwapDialog(null);
       setSwapAssignmentBId("");
@@ -309,6 +312,7 @@ export default function AssignmentsPage() {
       const summary = Object.entries(data.results || {})
         .map(([city, r]: [string, any]) => `${city}: ${r.assigned} assigned, ${r.reused} reused, ${r.skipped} skipped`)
         .join("; ");
+      playSound("trip_completed");
       toast({ title: "Auto-assign completed", description: summary || "No cities processed" });
       queryClient.invalidateQueries({ queryKey: ["/api/vehicle-assignments"] });
     },
@@ -991,6 +995,7 @@ function ManualAssignTab({ cityId, token }: { cityId: number | null; token: stri
         body: JSON.stringify({ driverId, vehicleId }),
       }),
     onSuccess: () => {
+      playSound("trip_assigned");
       toast({ title: "Driver assigned successfully" });
       setAssignDialogOpen(false);
       setSelectedTrip(null);

@@ -12,7 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LogOut, Settings, MapPin, Crosshair, X } from "lucide-react";
+import { LogOut, Settings, MapPin, Crosshair, X, Volume2, VolumeX } from "lucide-react";
+import { useSoundNotifications } from "@/hooks/use-sound-notifications";
 import { Link } from "wouter";
 import { queryClient } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
@@ -72,6 +73,7 @@ function TenantScopeBadge() {
 export function DashboardHeader() {
   const { user, selectedCity, cities, setSelectedCity, isSuperAdmin, logout } = useAuth();
   const { t } = useTranslation();
+  const { enabled: soundEnabled, toggle: soundToggle } = useSoundNotifications(user?.role);
   const roleLabel = ROLE_LABELS[user?.role?.toUpperCase() || ""] || user?.role || "";
 
   const needsCitySwitcher =
@@ -171,6 +173,19 @@ export function DashboardHeader() {
           {roleLabel}
         </Badge>
         <LanguageSwitcher />
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => soundToggle()}
+          title={soundEnabled ? "Mute sounds" : "Enable sounds"}
+          data-testid="button-header-sound-toggle"
+        >
+          {soundEnabled ? (
+            <Volume2 className="w-4 h-4" />
+          ) : (
+            <VolumeX className="w-4 h-4 text-muted-foreground" />
+          )}
+        </Button>
         <ThemeToggle />
         <Link href="/users">
           <Button size="icon" variant="ghost" data-testid="button-header-settings">

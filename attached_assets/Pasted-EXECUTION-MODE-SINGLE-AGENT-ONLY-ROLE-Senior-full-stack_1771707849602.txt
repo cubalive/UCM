@@ -1,0 +1,96 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Senior full-stack engineer (React + Node/Express + Supabase/Postgres + Google Maps JS).
+
+GOAL:
+Remove straight-line “raya recta” in trip maps and draw the real street route.
+Use Google Directions API ONLY ONCE per trip, store encoded polyline in DB, and render it for Driver/Admin/Clinic views without recalculating on refresh.
+
+HARD RULES
+- Do NOT change DB connection/secrets/environment variables.
+- Do NOT reset or drop tables.
+- Do NOT change unrelated features.
+- Do NOT call Directions API from the frontend. Backend only.
+- Never re-call Directions if route_polyline already exists AND pickup/dropoff unchanged.
+- Keep multi-tenant isolation: only allow access to trips in the current tenant/company.
+- If trip not accessible in tenant scope, return 404 (avoid ID leakage).
+
+STEP 1 — DATABASE MIGRATION (Supabase SQL)
+Add columns to trips (idempotent):
+- route_polyline TEXT
+- route_distance_meters INTEGER
+- route_duration_seconds INTEGER
+- route_fingerprint TEXT  -- required to detect pickup/dropoff changes
+(If column exists, do nothing.)
+
+Provide SQL using DO $$ BEGIN ... IF NOT EXISTS ... ALTER TABLE ... END $$; blocks.
+
+STEP 2 — BACKEND: SERVICE TO COMPUTE & STORE ROUTE POLYLINE
+Implement server function/service: ensureTripRoute(tripId)
+- Load trip pickup/dropoff lat/lng (and tenant/company scope enforced).
+- Compute fingerprint = `${pickupLat},${pickupLng}|${dropoffLat},${dropoffLng}`
+- If trip.route_polyline exists AND trip.route_fingerprint === fingerprint → return existing route fields without calling Directions.
+- Add in-process “single-flight” lock to prevent duplicate Directions calls for same trip concurrently:
+  - Map<tripId, Promise> inFlightRoutes
+  - If inFlightRoutes has tripId → await it and return.
+- Else call Google Directions API (backend only):
+  GET https://maps.googleapis.com/maps/api/directions/json
+    ?origin={pickupLat},{pickupLng}
+    &destination={dropoffLat},{dropoffLng}
+    &mode=driving
+    &key={GOOGLE_MAPS_API_KEY}
+- Validate response:
+  - if !routes[0] → throw typed error “NO_ROUTE_FOUND”
+- Extract:
+  - encoded polyline: routes[0].overview_polyline.points
+  - distance meters: routes[0].legs[0].distance.value
+  - duration seconds: routes[0].legs[0].duration.value
+- Store into trips row:
+  route_polyline, route_distance_meters, route_duration_seconds, route_fingerprint
+- Return stored values.
+Implement using existing HTTP client (fetch/axios) already in repo. No heavy deps.
+
+STEP 3 — BACKEND: ROUTE ENDPOINT
+Add:
+GET /api/trips/:id/route
+- Auth required
+- Verify tenant/company access using existing RBAC/tenant helpers (404 if not accessible)
+- Calls ensureTripRoute(tripId)
+- Returns JSON:
+  { routePolyline, distanceMeters, durationSeconds }
+
+Also: On trip creation and on driver assignment, call ensureTripRoute in a non-blocking way:
+- Do not fail the main request if Directions fails.
+- If fails, keep route_* NULL and log warning.
+- GET /route can retry later.
+
+STEP 4 — FRONTEND: DRAW POLYLINE INSTEAD OF STRAIGHT LINE
+In all trip map views (admin trip details, driver trip screen, clinic view):
+- Replace current line from [pickup, dropoff] with decoded polyline from /api/trips/:id/route.
+- Fetch once when opening trip screen.
+- Decode:
+  const path = google.maps.geometry.encoding.decodePath(routePolyline)
+- Render:
+  new google.maps.Polyline({ path, strokeOpacity: 0.9, strokeWeight: 5 }).setMap(map)
+- Ensure Maps loader includes geometry library:
+  - If script tag: &libraries=geometry
+  - If JS loader: libraries: ["geometry"]
+- If routePolyline missing (API failure), fall back to straight line so UI never breaks.
+
+STEP 5 — API COST GUARDRAILS
+Add server-side throttling per trip:
+- In-process Map TTL 10 minutes:
+  - If called within TTL AND route_polyline exists → never call Directions again.
+- Combined with single-flight lock, this prevents burst cost.
+
+STEP 6 — VERIFICATION CHECKLIST (manual)
+- Create trip with pickup/dropoff → open trip map → route follows roads.
+- Refresh page 5 times → verify Directions called only once (logs).
+- Change pickup/dropoff → route recalculates once and updates.
+- Tenant isolation: attempt /api/trips/:id/route from another tenant → 404.
+- If Directions returns no route → UI shows straight line fallback.
+
+DELIVERABLES
+- Supabase SQL snippet
+- Backend code changes with file paths and minimal diffs
+- Frontend code changes with file paths
+- Notes on required Maps geometry library loader setting

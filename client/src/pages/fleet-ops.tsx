@@ -26,6 +26,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { playSound } from "@/hooks/use-sound-notifications";
 import {
   Users,
   Truck,
@@ -203,6 +204,7 @@ export default function FleetOpsPage() {
       });
     },
     onSuccess: () => {
+      playSound("trip_assigned");
       toast({ title: "Vehicle assigned successfully" });
       setAssignDialog(null);
       setSelectedVehicleId("");
@@ -222,6 +224,7 @@ export default function FleetOpsPage() {
       });
     },
     onSuccess: () => {
+      playSound("notification");
       toast({ title: "Vehicle unassigned successfully" });
       queryClient.invalidateQueries({ queryKey: ["/api/ops/fleet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/vehicle-assignments"] });
@@ -245,6 +248,7 @@ export default function FleetOpsPage() {
       return res.json();
     },
     onSuccess: (data) => {
+      playSound("trip_assigned");
       toast({ title: "Vehicle reassigned", description: data.tripsUpdated > 0 ? `${data.tripsUpdated} trip(s) updated` : undefined });
       setReassignDialog(null);
       setReassignVehicleId("");
@@ -272,6 +276,7 @@ export default function FleetOpsPage() {
       return res.json();
     },
     onSuccess: (data) => {
+      playSound("notification");
       toast({ title: "Drivers swapped", description: data.tripsUpdated > 0 ? `${data.tripsUpdated} trip(s) updated` : undefined });
       setSwapDialog(null);
       setSwapAssignmentBId("");
