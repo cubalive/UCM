@@ -1364,11 +1364,18 @@ export function registerClinicBillingRoutes(app: Express) {
       let effectiveFee: { enabled: boolean; type: string; percent: number; cents: number } | null = null;
       let stripeAccount: any = null;
 
+      let feeResult: any = null;
       if (companyId) {
-        const { getEffectivePlatformFee, computeApplicationFee } = await import("../services/platformFee");
-        effectiveFee = await getEffectivePlatformFee(companyId);
-        if (effectiveFee.enabled) {
-          applicationFeeAmount = computeApplicationFee(invoice.balanceDueCents || invoice.totalCents, effectiveFee);
+        const { resolveFeeRule } = await import("../services/feeRules");
+        feeResult = await resolveFeeRule({
+          companyId,
+          clinicId: invoice.clinicId,
+          amountCents: invoice.balanceDueCents || invoice.totalCents,
+          serviceLevel: null,
+        });
+        applicationFeeAmount = feeResult.feeCents;
+        if (feeResult.source !== "none") {
+          effectiveFee = { enabled: true, type: feeResult.details.feeType || "percent", percent: (feeResult.details.percentBps || 0) / 100, cents: feeResult.details.fixedFeeCents || 0 };
         }
         stripeAccount = await storage.getCompanyStripeAccount(companyId);
       }

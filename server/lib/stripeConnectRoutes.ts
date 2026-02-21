@@ -222,9 +222,14 @@ export function registerStripeConnectRoutes(app: Express) {
 
         const user = await storage.getUser(actor.userId);
 
-        const { getEffectivePlatformFee, computeApplicationFee } = await import("../services/platformFee");
-        const effectiveFee = await getEffectivePlatformFee(companyId);
-        const applicationFeeAmount = effectiveFee.enabled ? computeApplicationFee(amountCents, effectiveFee) : 0;
+        const { resolveFeeRule } = await import("../services/feeRules");
+        const feeResult = await resolveFeeRule({
+          companyId,
+          clinicId: invoice.clinicId,
+          amountCents,
+          serviceLevel: null,
+        });
+        const applicationFeeAmount = feeResult.feeCents;
 
         const paymentMetadata: Record<string, string> = {
           invoice_id: String(invoice.id),
@@ -233,10 +238,12 @@ export function registerStripeConnectRoutes(app: Express) {
           type: "clinic_invoice",
         };
 
-        if (effectiveFee.enabled && applicationFeeAmount > 0) {
+        if (applicationFeeAmount > 0) {
           paymentMetadata.platform_fee_cents = String(applicationFeeAmount);
-          paymentMetadata.platform_fee_type = effectiveFee.type;
-          paymentMetadata.platform_fee_rate = effectiveFee.type === "PERCENT" ? String(effectiveFee.percent) : String(effectiveFee.cents);
+          paymentMetadata.fee_source = feeResult.source;
+          if (feeResult.details.ruleId) paymentMetadata.fee_rule_id = String(feeResult.details.ruleId);
+          if (feeResult.details.feeType) paymentMetadata.fee_type = feeResult.details.feeType;
+          if (feeResult.details.percentBps) paymentMetadata.percent_bps = String(feeResult.details.percentBps);
         }
 
         const session = await stripe.checkout.sessions.create({

@@ -340,6 +340,61 @@ app.use((req, res, next) => {
       CREATE UNIQUE INDEX IF NOT EXISTS clinic_companies_unique_idx ON clinic_companies(clinic_id, company_id)
     `);
 
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        CREATE TYPE fee_rule_scope_type AS ENUM ('global', 'company', 'clinic', 'company_clinic');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        CREATE TYPE fee_rule_fee_type AS ENUM ('percent', 'fixed', 'percent_plus_fixed');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS fee_rules (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        scope_type fee_rule_scope_type NOT NULL,
+        company_id INTEGER REFERENCES companies(id),
+        clinic_id INTEGER REFERENCES clinics(id),
+        service_level TEXT,
+        fee_type fee_rule_fee_type NOT NULL,
+        percent_bps INTEGER NOT NULL DEFAULT 0,
+        fixed_fee_cents INTEGER NOT NULL DEFAULT 0,
+        min_fee_cents INTEGER,
+        max_fee_cents INTEGER,
+        is_enabled BOOLEAN NOT NULL DEFAULT true,
+        priority INTEGER NOT NULL DEFAULT 100,
+        effective_from TIMESTAMP,
+        effective_to TIMESTAMP,
+        notes TEXT,
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS fr_scope_idx ON fee_rules(scope_type)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS fr_company_idx ON fee_rules(company_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS fr_clinic_idx ON fee_rules(clinic_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS fr_enabled_idx ON fee_rules(is_enabled)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS fr_priority_idx ON fee_rules(priority)`);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS fee_rule_audit (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        rule_id INTEGER REFERENCES fee_rules(id),
+        actor_user_id INTEGER REFERENCES users(id),
+        actor_role TEXT,
+        action TEXT NOT NULL,
+        before JSONB,
+        after JSONB,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS fra_rule_idx ON fee_rule_audit(rule_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS fra_created_idx ON fee_rule_audit(created_at)`);
+
     try {
       await bootDb.execute(bootSql`
         CREATE UNIQUE INDEX IF NOT EXISTS cities_state_name_unique_idx ON cities(state, lower(name))

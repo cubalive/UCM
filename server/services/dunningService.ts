@@ -74,9 +74,14 @@ export async function runDunningCycle(): Promise<{ attempted: number; succeeded:
     const newRetryCount = dunning.retryCount + 1;
 
     try {
-      const { getEffectivePlatformFee, computeApplicationFee } = await import("./platformFee");
-      const effectiveFee = await getEffectivePlatformFee(invoice.companyId);
-      const applicationFeeAmount = effectiveFee.enabled ? computeApplicationFee(invoice.balanceDueCents || 0, effectiveFee) : 0;
+      const { resolveFeeRule } = await import("./feeRules");
+      const feeResult = await resolveFeeRule({
+        companyId: invoice.companyId,
+        clinicId: invoice.clinicId,
+        amountCents: invoice.balanceDueCents || 0,
+        serviceLevel: null,
+      });
+      const applicationFeeAmount = feeResult.feeCents;
 
       const idempotencyKey = `dunning_${invoice.id}_${newRetryCount}`;
 

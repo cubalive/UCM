@@ -507,9 +507,14 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
     const actor = await getActorContext(req);
     const user = actor ? await storage.getUser(actor.userId) : null;
 
-    const { getEffectivePlatformFee, computeApplicationFee } = await import("../services/platformFee");
-    const effectiveFee = await getEffectivePlatformFee(companyId);
-    const applicationFeeAmount = effectiveFee.enabled ? computeApplicationFee(amountCents, effectiveFee) : 0;
+    const { resolveFeeRule } = await import("../services/feeRules");
+    const feeResult = await resolveFeeRule({
+      companyId,
+      clinicId: ctx.clinicId,
+      amountCents,
+      serviceLevel: null,
+    });
+    const applicationFeeAmount = feeResult.feeCents;
 
     const paymentMetadata: Record<string, string> = {
       billing_cycle_invoice_id: String(invoice.id),
@@ -519,10 +524,13 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
       period: `${invoice.periodStart}_${invoice.periodEnd}`,
     };
 
-    if (effectiveFee.enabled && applicationFeeAmount > 0) {
+    if (applicationFeeAmount > 0) {
       paymentMetadata.platform_fee_cents = String(applicationFeeAmount);
-      paymentMetadata.platform_fee_type = effectiveFee.type;
-      paymentMetadata.platform_fee_rate = effectiveFee.type === "PERCENT" ? String(effectiveFee.percent) : String(effectiveFee.cents);
+      paymentMetadata.fee_source = feeResult.source;
+      if (feeResult.details.ruleId) paymentMetadata.fee_rule_id = String(feeResult.details.ruleId);
+      if (feeResult.details.feeType) paymentMetadata.fee_type = feeResult.details.feeType;
+      if (feeResult.details.percentBps) paymentMetadata.percent_bps = String(feeResult.details.percentBps);
+      if (feeResult.details.fixedFeeCents) paymentMetadata.fixed_fee_cents = String(feeResult.details.fixedFeeCents);
     }
 
     const baseUrl = process.env.APP_PUBLIC_URL || process.env.PUBLIC_BASE_URL || process.env.APP_URL || "https://clinic.unitedcaremobility.com";
@@ -561,9 +569,9 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
       stripeCheckoutSessionId: session.id,
       stripeCheckoutUrl: session.url,
       platformFeeCents: applicationFeeAmount,
-      platformFeeType: effectiveFee.enabled ? effectiveFee.type : null,
-      platformFeeRate: effectiveFee.enabled
-        ? String(effectiveFee.type === "PERCENT" ? effectiveFee.percent : effectiveFee.cents)
+      platformFeeType: feeResult.source !== "none" ? (feeResult.details.feeType || null) : null,
+      platformFeeRate: feeResult.source !== "none" && feeResult.details.percentBps
+        ? String(feeResult.details.percentBps)
         : null,
       netToCompanyCents: amountCents - applicationFeeAmount,
       updatedAt: new Date(),

@@ -2616,6 +2616,71 @@ export const insertBillingAuditEventSchema = createInsertSchema(billingAuditEven
 export type BillingAuditEvent = typeof billingAuditEvents.$inferSelect;
 export type InsertBillingAuditEvent = z.infer<typeof insertBillingAuditEventSchema>;
 
+export const feeRuleScopeEnum = pgEnum("fee_rule_scope_type", [
+  "global",
+  "company",
+  "clinic",
+  "company_clinic",
+]);
+
+export const feeRuleFeeTypeEnum = pgEnum("fee_rule_fee_type", [
+  "percent",
+  "fixed",
+  "percent_plus_fixed",
+]);
+
+export const feeRules = pgTable("fee_rules", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  scopeType: feeRuleScopeEnum("scope_type").notNull(),
+  companyId: integer("company_id").references(() => companies.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  serviceLevel: text("service_level"),
+  feeType: feeRuleFeeTypeEnum("fee_type").notNull(),
+  percentBps: integer("percent_bps").notNull().default(0),
+  fixedFeeCents: integer("fixed_fee_cents").notNull().default(0),
+  minFeeCents: integer("min_fee_cents"),
+  maxFeeCents: integer("max_fee_cents"),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  priority: integer("priority").notNull().default(100),
+  effectiveFrom: timestamp("effective_from"),
+  effectiveTo: timestamp("effective_to"),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("fr_scope_idx").on(table.scopeType),
+  index("fr_company_idx").on(table.companyId),
+  index("fr_clinic_idx").on(table.clinicId),
+  index("fr_enabled_idx").on(table.isEnabled),
+  index("fr_priority_idx").on(table.priority),
+  index("fr_effective_idx").on(table.effectiveFrom, table.effectiveTo),
+]);
+
+export const insertFeeRuleSchema = createInsertSchema(feeRules).omit({ id: true, createdAt: true, updatedAt: true });
+export type FeeRule = typeof feeRules.$inferSelect;
+export type InsertFeeRule = z.infer<typeof insertFeeRuleSchema>;
+
+export const feeRuleAudit = pgTable("fee_rule_audit", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  ruleId: integer("rule_id").references(() => feeRules.id),
+  actorUserId: integer("actor_user_id").references(() => users.id),
+  actorRole: text("actor_role"),
+  action: text("action").notNull(),
+  before: jsonb("before"),
+  after: jsonb("after"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("fra_rule_idx").on(table.ruleId),
+  index("fra_actor_idx").on(table.actorUserId),
+  index("fra_action_idx").on(table.action),
+  index("fra_created_idx").on(table.createdAt),
+]);
+
+export const insertFeeRuleAuditSchema = createInsertSchema(feeRuleAudit).omit({ id: true, createdAt: true });
+export type FeeRuleAudit = typeof feeRuleAudit.$inferSelect;
+export type InsertFeeRuleAudit = z.infer<typeof insertFeeRuleAuditSchema>;
+
 export const driverRiskScores = pgTable("driver_risk_scores", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   driverId: integer("driver_id").notNull().references(() => drivers.id),

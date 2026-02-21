@@ -103,6 +103,7 @@ const navItems: NavItem[] = [
   { titleKey: "nav.tpPayroll", url: "/tp-payroll", icon: Banknote, resource: "payroll" },
   { titleKey: "nav.billingConfig", url: "/billing-config", icon: Settings2, resource: "billing" },
   { titleKey: "nav.platformFees", url: "/platform-fees", icon: DollarSign, resource: "billing", superAdminOnly: true },
+  { titleKey: "nav.feeRules", url: "/fee-rules", icon: Settings2, resource: "billing", superAdminOnly: true },
   { titleKey: "nav.clinicBillingV2", url: "/clinic-billing-v2", icon: Receipt, resource: "billing" },
   { titleKey: "nav.supportChat", url: "/support-chat", icon: MessageSquare, resource: "support" },
 ];
