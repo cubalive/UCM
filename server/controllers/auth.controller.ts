@@ -55,7 +55,7 @@ export async function loginHandler(req: Request, res: Response) {
       }
     }
 
-    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null });
+    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null });
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
 
@@ -137,7 +137,7 @@ export async function loginJwtHandler(req: Request, res: Response) {
       }
     }
 
-    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null });
+    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null });
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
     const userRole = user.role as string;
@@ -177,7 +177,7 @@ export async function devSessionHandler(_req: Request, res: Response) {
     if (!user) {
       return res.status(503).json({ message: "Dev session unavailable: admin user not found" });
     }
-    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null });
+    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null });
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
     const accessibleCities = user.role === "SUPER_ADMIN"
@@ -427,6 +427,19 @@ export async function changePasswordHandler(req: Request, res: Response) {
       cityId: null,
       userId,
     }).catch(() => {});
+
+    const freshUser = await storage.getUser(userId);
+    if (freshUser) {
+      const newToken = signToken({
+        userId: freshUser.id,
+        role: freshUser.role,
+        companyId: freshUser.companyId || null,
+        clinicId: freshUser.clinicId || null,
+        driverId: freshUser.driverId || null,
+      });
+      setAuthCookie(res, newToken, req);
+      return res.json({ success: true, token: newToken });
+    }
 
     return res.json({ success: true });
   } catch (err: any) {

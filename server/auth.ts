@@ -52,6 +52,7 @@ export interface AuthPayload {
   role: string;
   companyId?: number | null;
   clinicId?: number | null;
+  driverId?: number | null;
   iat?: number;
 }
 
