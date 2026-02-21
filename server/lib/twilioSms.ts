@@ -16,10 +16,15 @@ export interface SendSmsResult {
   error?: string;
 }
 
+let _twilioNotConfiguredLogged = false;
+
 export async function sendSms(to: string, message: string): Promise<SendSmsResult> {
   const client = getTwilioClient();
   if (!client) {
-    console.error("[SMS] Twilio client not configured");
+    if (!_twilioNotConfiguredLogged) {
+      console.warn("[SMS] Twilio not configured — SMS sending disabled. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER to enable.");
+      _twilioNotConfiguredLogged = true;
+    }
     return { success: false, error: "Twilio not configured" };
   }
   const fromNumber = getTwilioFromNumber();

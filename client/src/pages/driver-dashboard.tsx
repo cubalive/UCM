@@ -64,6 +64,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
 import SignaturePad from "@/components/SignaturePad";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Area, AreaChart } from "recharts";
+import { getNavTarget as smGetNavTarget } from "@shared/tripStateMachine";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -128,8 +129,8 @@ const SUPPORT_EVENT_TYPES = [
 ] as const;
 
 function getDestinationAddress(trip: ActiveTripData): string {
-  const isPickupPhase = PICKUP_STAGES.includes(trip.status);
-  return isPickupPhase ? trip.pickupAddress : trip.dropoffAddress;
+  const target = smGetNavTarget(trip.status);
+  return target === "pickup" ? trip.pickupAddress : trip.dropoffAddress;
 }
 
 function copyToClipboard(text: string): Promise<boolean> {
@@ -649,42 +650,42 @@ function useAutoReroute(
   }, [activeTrip?.id, activeTrip?.status, driverLocation?.lat, driverLocation?.lng, token]);
 }
 
-const PICKUP_STAGES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP"];
-
-function getNavigateUrl(trip: ActiveTripData) {
-  const isPickupPhase = PICKUP_STAGES.includes(trip.status);
-  const destLat = isPickupPhase ? trip.pickupLat : trip.dropoffLat;
-  const destLng = isPickupPhase ? trip.pickupLng : trip.dropoffLng;
-  const destAddr = isPickupPhase ? trip.pickupAddress : trip.dropoffAddress;
-
-  if (destLat && destLng) {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    if (isIOS) {
-      return `https://maps.apple.com/?daddr=${destLat},${destLng}`;
-    }
-    return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}`;
-  }
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destAddr)}`;
-}
-
 type NavApp = "google" | "waze" | "apple";
 
-function getNavUrlForApp(trip: ActiveTripData, app: NavApp): string {
-  const isPickupPhase = PICKUP_STAGES.includes(trip.status);
-  const destLat = isPickupPhase ? trip.pickupLat : trip.dropoffLat;
-  const destLng = isPickupPhase ? trip.pickupLng : trip.dropoffLng;
-  const destAddr = isPickupPhase ? trip.pickupAddress : trip.dropoffAddress;
+function getNavDestination(trip: ActiveTripData) {
+  const target = smGetNavTarget(trip.status);
+  const isPickup = target === "pickup";
+  return {
+    lat: isPickup ? trip.pickupLat : trip.dropoffLat,
+    lng: isPickup ? trip.pickupLng : trip.dropoffLng,
+    address: isPickup ? trip.pickupAddress : trip.dropoffAddress,
+  };
+}
 
+function getNavigateUrl(trip: ActiveTripData) {
+  const { lat, lng, address } = getNavDestination(trip);
+  if (lat && lng) {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      return `https://maps.apple.com/?daddr=${lat},${lng}`;
+    }
+    return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+}
+
+function getNavUrlForApp(trip: ActiveTripData, app: NavApp): string {
+  const { lat, lng, address } = getNavDestination(trip);
   switch (app) {
     case "google":
-      if (destLat && destLng) return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}`;
-      return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destAddr)}`;
+      if (lat && lng) return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+      return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
     case "waze":
-      if (destLat && destLng) return `https://waze.com/ul?ll=${destLat},${destLng}&navigate=yes`;
-      return `https://waze.com/ul?q=${encodeURIComponent(destAddr)}&navigate=yes`;
+      if (lat && lng) return `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+      return `https://waze.com/ul?q=${encodeURIComponent(address)}&navigate=yes`;
     case "apple":
-      if (destLat && destLng) return `https://maps.apple.com/?daddr=${destLat},${destLng}`;
-      return `https://maps.apple.com/?daddr=${encodeURIComponent(destAddr)}`;
+      if (lat && lng) return `https://maps.apple.com/?daddr=${lat},${lng}`;
+      return `https://maps.apple.com/?daddr=${encodeURIComponent(address)}`;
   }
 }
 
