@@ -2482,3 +2482,50 @@ export const driverSettings = pgTable("driver_settings", {
 export const insertDriverSettingsSchema = createInsertSchema(driverSettings).omit({ id: true, createdAt: true, updatedAt: true });
 export type DriverSettingsType = typeof driverSettings.$inferSelect;
 export type InsertDriverSettings = z.infer<typeof insertDriverSettingsSchema>;
+
+export const driverTelemetryEvents = pgTable("driver_telemetry_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  tripId: integer("trip_id").references(() => trips.id),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  speedMph: doublePrecision("speed_mph"),
+  heading: doublePrecision("heading"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("dte_driver_idx").on(table.driverId),
+  index("dte_company_idx").on(table.companyId),
+  index("dte_trip_idx").on(table.tripId),
+  index("dte_type_idx").on(table.eventType),
+  index("dte_created_idx").on(table.createdAt),
+]);
+
+export const insertDriverTelemetryEventSchema = createInsertSchema(driverTelemetryEvents).omit({ id: true, createdAt: true });
+export type DriverTelemetryEvent = typeof driverTelemetryEvents.$inferSelect;
+export type InsertDriverTelemetryEvent = z.infer<typeof insertDriverTelemetryEventSchema>;
+
+export const driverRiskScores = pgTable("driver_risk_scores", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  riskScore: doublePrecision("risk_score").notNull(),
+  riskLevel: text("risk_level").notNull().default("low"),
+  factors: jsonb("factors"),
+  speedingCount: integer("speeding_count").notNull().default(0),
+  hardBrakeCount: integer("hard_brake_count").notNull().default(0),
+  idlingMinutes: doublePrecision("idling_minutes").notNull().default(0),
+  totalMiles: doublePrecision("total_miles").notNull().default(0),
+  totalTrips: integer("total_trips").notNull().default(0),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("drs_driver_idx").on(table.driverId),
+  index("drs_company_idx").on(table.companyId),
+  index("drs_period_idx").on(table.periodStart, table.periodEnd),
+  index("drs_risk_level_idx").on(table.riskLevel),
+]);

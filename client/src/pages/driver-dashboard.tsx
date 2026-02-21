@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch } from "@/lib/api";
 import {
   Car,
   MapPin,
@@ -63,6 +63,7 @@ import {
   Shield,
   Pencil,
   Save,
+  Gauge,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TripDateTimeHeader, TripMetricsCard, TripProgressTimeline } from "@/components/trip-progress-timeline";
@@ -70,6 +71,7 @@ import SignaturePad from "@/components/SignaturePad";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Area, AreaChart } from "recharts";
 import { getNavTarget as smGetNavTarget, uiActions as smUiActions } from "@shared/tripStateMachine";
 import { useSoundNotifications } from "@/hooks/use-sound-notifications";
+import { getGrade, getGradeColor } from "@shared/driverPerformance";
 
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
@@ -1070,6 +1072,21 @@ export default function DriverDashboard() {
     queryFn: () => apiFetch("/api/driver/bonus-progress", token),
     enabled: !!token,
   });
+
+  const perfQuery = useQuery<any>({
+    queryKey: ["/api/driver/performance/current-shift"],
+    queryFn: async () => {
+      try {
+        const res = await rawAuthFetch("/api/driver/performance/current-shift");
+        if (!res.ok) return null;
+        return res.json();
+      } catch { return null; }
+    },
+    enabled: !!token,
+    refetchInterval: 120000,
+    retry: false,
+  });
+  const perfData = perfQuery.data;
 
   const scheduleChangeQuery = useQuery<any[]>({
     queryKey: ["/api/driver/schedule-change"],
@@ -2195,6 +2212,40 @@ export default function DriverDashboard() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Shift Score */}
+          {perfData && perfData.score != null && (
+            <Card data-testid="card-shift-score">
+              <CardContent className="py-4 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Gauge className="w-5 h-5 text-primary" />
+                    <span className="font-semibold text-base">Shift Score</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-bold" data-testid="text-shift-score">{perfData.score}</span>
+                    <Badge variant="outline" className={getGradeColor(perfData.grade)} data-testid="badge-shift-grade">
+                      {perfData.grade}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs text-muted-foreground">
+                  <div>
+                    <p className="font-medium text-foreground">{Math.round((perfData.kpis?.onTimeRate || 0) * 100)}%</p>
+                    <p>On-time</p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">{Math.round((perfData.kpis?.acceptanceRate || 0) * 100)}%</p>
+                    <p>Accepted</p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">{perfData.kpis?.totalTrips || 0}</p>
+                    <p>Trips</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* BLOCK 4: Weekly Bonus Progress (compact) */}
           {bonus?.active && (

@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, invalidateRevocationCache, clearAuthCookie, type AuthRequest } from "../auth";
-import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests, driverShifts, companies, cities, companySettings, driverSettings } from "@shared/schema";
+import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests, driverShifts, companies, cities, companySettings, driverSettings, driverTelemetryEvents } from "@shared/schema";
 import { resolveDriverV3Flags, DRIVER_V3_DEFAULTS } from "@shared/driverV3Flags";
 import { computeTurnScore, getGrade, DEFAULT_WEIGHTS, type PerformanceKPIs, type ScoringWeights } from "@shared/driverPerformance";
 import { db } from "../db";
@@ -2670,6 +2670,52 @@ export async function getDriverV3FlagsHandler(req: AuthRequest, res: Response) {
 
     res.json(effective);
   } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+const TELEMETRY_EVENT_TYPES = ["location", "speed", "hard_brake", "idle", "route_deviation", "geofence_enter", "geofence_exit", "app_background", "app_foreground"] as const;
+
+const telemetryBatchSchema = z.object({
+  events: z.array(z.object({
+    eventType: z.enum(TELEMETRY_EVENT_TYPES),
+    tripId: z.number().optional(),
+    payload: z.record(z.any()).optional(),
+    lat: z.number().optional(),
+    lng: z.number().optional(),
+    speedMph: z.number().optional(),
+    heading: z.number().optional(),
+    timestamp: z.string().optional(),
+  })).min(1).max(50),
+});
+
+export async function postDriverTelemetryHandler(req: AuthRequest, res: Response) {
+  try {
+    const driverId = req.user?.driverId;
+    if (!driverId) return res.status(403).json({ message: "Not a driver" });
+
+    const parsed = telemetryBatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid telemetry batch", errors: parsed.error.flatten() });
+
+    const [driver] = await db.select({ companyId: drivers.companyId }).from(drivers).where(eq(drivers.id, driverId));
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+    const rows = parsed.data.events.map(e => ({
+      driverId,
+      companyId: driver.companyId,
+      tripId: e.tripId ?? null,
+      eventType: e.eventType,
+      payload: e.payload ?? null,
+      lat: e.lat ?? null,
+      lng: e.lng ?? null,
+      speedMph: e.speedMph ?? null,
+      heading: e.heading ?? null,
+    }));
+
+    await db.insert(driverTelemetryEvents).values(rows);
+    res.json({ ingested: rows.length });
+  } catch (err: any) {
+    console.error("[TELEMETRY] ingestion error:", err.message);
     res.status(500).json({ message: err.message });
   }
 }

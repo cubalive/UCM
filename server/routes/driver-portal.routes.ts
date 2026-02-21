@@ -72,6 +72,7 @@ import {
   getDriverV3FlagsHandler,
   getDriverPerformanceCurrentShiftHandler,
   extendWaitingHandler,
+  postDriverTelemetryHandler,
 } from "../controllers/driver-portal.controller";
 
 const router = express.Router();
@@ -166,6 +167,7 @@ router.get("/api/driver/settings", authMiddleware, requireRole("DRIVER"), getDri
 router.patch("/api/driver/settings", authMiddleware, requireRole("DRIVER"), patchDriverSettingsHandler as any);
 router.get("/api/driver/v3/flags", authMiddleware, requireRole("DRIVER"), getDriverV3FlagsHandler as any);
 router.get("/api/driver/performance/current-shift", authMiddleware, requireRole("DRIVER"), getDriverPerformanceCurrentShiftHandler as any);
+router.post("/api/driver/telemetry", authMiddleware, requireRole("DRIVER"), postDriverTelemetryHandler as any);
 
 export function registerDriverPortalRoutes(app: Express) {
   app.use(router);

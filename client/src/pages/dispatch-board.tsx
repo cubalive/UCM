@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Search,
   UserPlus,
@@ -194,6 +195,7 @@ export default function DispatchBoardPage() {
     status: string;
     tripPublicId?: string;
   } | null>(null);
+  const [peekTrip, setPeekTrip] = useState<any | null>(null);
   const [offerCountdown, setOfferCountdown] = useState(0);
   const offerPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -491,6 +493,7 @@ export default function DispatchBoardPage() {
                   tab="unassigned"
                   onAssign={(trip) => setAssignTrip(trip)}
                   onReassign={(trip) => setReassignTrip(trip)}
+                  onPeek={setPeekTrip}
                 />
               ) : (
                 <TripList
@@ -499,28 +502,29 @@ export default function DispatchBoardPage() {
                   tab="unassigned"
                   onAssign={(trip) => setAssignTrip(trip)}
                   onReassign={(trip) => setReassignTrip(trip)}
+                  onPeek={setPeekTrip}
                 />
               )}
             </TabsContent>
             <TabsContent value="scheduled" className="mt-4">
               {isClinicGrouped ? (
-                <ClinicGroupedTripList groups={clinicGroups} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} onReassign={(trip) => setReassignTrip(trip)} />
+                <ClinicGroupedTripList groups={clinicGroups} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} onReassign={(trip) => setReassignTrip(trip)} onPeek={setPeekTrip} />
               ) : (
-                <TripList trips={trips} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} onReassign={(trip) => setReassignTrip(trip)} />
+                <TripList trips={trips} loading={tripsQuery.isLoading} tab="scheduled" onAssign={(trip) => setAssignTrip(trip)} onReassign={(trip) => setReassignTrip(trip)} onPeek={setPeekTrip} />
               )}
             </TabsContent>
             <TabsContent value="active" className="mt-4">
               {isClinicGrouped ? (
-                <ClinicGroupedTripList groups={clinicGroups} loading={tripsQuery.isLoading} tab="active" onReassign={(trip) => setReassignTrip(trip)} />
+                <ClinicGroupedTripList groups={clinicGroups} loading={tripsQuery.isLoading} tab="active" onReassign={(trip) => setReassignTrip(trip)} onPeek={setPeekTrip} />
               ) : (
-                <TripList trips={trips} loading={tripsQuery.isLoading} tab="active" onReassign={(trip) => setReassignTrip(trip)} />
+                <TripList trips={trips} loading={tripsQuery.isLoading} tab="active" onReassign={(trip) => setReassignTrip(trip)} onPeek={setPeekTrip} />
               )}
             </TabsContent>
             <TabsContent value="completed" className="mt-4">
               {isClinicGrouped ? (
-                <ClinicGroupedTripList groups={clinicGroups} loading={tripsQuery.isLoading} tab="completed" />
+                <ClinicGroupedTripList groups={clinicGroups} loading={tripsQuery.isLoading} tab="completed" onPeek={setPeekTrip} />
               ) : (
-                <TripList trips={trips} loading={tripsQuery.isLoading} tab="completed" />
+                <TripList trips={trips} loading={tripsQuery.isLoading} tab="completed" onPeek={setPeekTrip} />
               )}
             </TabsContent>
           </Tabs>
@@ -813,6 +817,87 @@ export default function DispatchBoardPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Sheet open={!!peekTrip} onOpenChange={(o) => { if (!o) setPeekTrip(null); }}>
+        <SheetContent className="w-[400px] sm:w-[450px] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              Trip {peekTrip?.publicId || `#${peekTrip?.id}`}
+              {peekTrip && <Badge className={STATUS_COLORS[peekTrip.status] || ""}>{STATUS_LABELS[peekTrip.status] || peekTrip.status}</Badge>}
+            </SheetTitle>
+          </SheetHeader>
+          {peekTrip && (
+            <div className="space-y-4 mt-4">
+              <div className="space-y-2 text-sm">
+                {peekTrip.patientName && (
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <span className="font-medium" data-testid="text-peek-patient">{peekTrip.patientName}</span>
+                  </div>
+                )}
+                {peekTrip.clinicName && (
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <span data-testid="text-peek-clinic">{peekTrip.clinicName}</span>
+                  </div>
+                )}
+                {peekTrip.pickupTime && (
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <span data-testid="text-peek-time">{peekTrip.pickupTime} on {peekTrip.scheduledDate}</span>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2 text-sm">
+                <p className="text-xs font-medium text-muted-foreground uppercase">Addresses</p>
+                <div className="flex items-start gap-2">
+                  <Navigation className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                  <span data-testid="text-peek-pickup">{peekTrip.pickupAddress}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                  <span data-testid="text-peek-dropoff">{peekTrip.dropoffAddress}</span>
+                </div>
+              </div>
+              {(peekTrip.driverName || peekTrip.vehicleLabel) && (
+                <div className="space-y-2 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground uppercase">Assignment</p>
+                  {peekTrip.driverName && (
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span data-testid="text-peek-driver">{peekTrip.driverName}</span>
+                    </div>
+                  )}
+                  {peekTrip.vehicleLabel && (
+                    <div className="flex items-center gap-2">
+                      <Car className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span data-testid="text-peek-vehicle">{peekTrip.vehicleLabel}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {peekTrip.lastEtaMinutes != null && (
+                <div className="space-y-2 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground uppercase">Live Data</p>
+                  <div className="flex items-center gap-2">
+                    <Timer className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <span className="font-medium" data-testid="text-peek-eta">ETA: {peekTrip.lastEtaMinutes} min</span>
+                  </div>
+                </div>
+              )}
+              {peekTrip.notes && (
+                <div className="space-y-1 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground uppercase">Notes</p>
+                  <p className="text-muted-foreground" data-testid="text-peek-notes">{peekTrip.notes}</p>
+                </div>
+              )}
+              <Button className="w-full" onClick={() => { setPeekTrip(null); window.location.href = `/trips/${peekTrip.id}`; }} data-testid="button-peek-view-full">
+                View Full Details
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -1000,12 +1085,14 @@ function TripList({
   tab,
   onAssign,
   onReassign,
+  onPeek,
 }: {
   trips: any[];
   loading: boolean;
   tab: string;
   onAssign?: (trip: any) => void;
   onReassign?: (trip: any) => void;
+  onPeek?: (trip: any) => void;
 }) {
   if (loading) {
     return (
@@ -1028,7 +1115,7 @@ function TripList({
   return (
     <div className="space-y-2" data-testid={`list-${tab}-trips`}>
       {trips.map((trip) => (
-        <TripCard key={trip.id} trip={trip} tab={tab} onAssign={onAssign} onReassign={onReassign} />
+        <TripCard key={trip.id} trip={trip} tab={tab} onAssign={onAssign} onReassign={onReassign} onPeek={onPeek} />
       ))}
     </div>
   );
@@ -1040,12 +1127,14 @@ function ClinicGroupedTripList({
   tab,
   onAssign,
   onReassign,
+  onPeek,
 }: {
   groups: ClinicGroup[];
   loading: boolean;
   tab: string;
   onAssign?: (trip: any) => void;
   onReassign?: (trip: any) => void;
+  onPeek?: (trip: any) => void;
 }) {
   if (loading) {
     return (
@@ -1078,7 +1167,7 @@ function ClinicGroupedTripList({
           </div>
           <div className="space-y-2">
             {group.trips.map((trip) => (
-              <TripCard key={trip.id} trip={trip} tab={tab} onAssign={onAssign} onReassign={onReassign} />
+              <TripCard key={trip.id} trip={trip} tab={tab} onAssign={onAssign} onReassign={onReassign} onPeek={onPeek} />
             ))}
           </div>
         </div>
@@ -1087,7 +1176,7 @@ function ClinicGroupedTripList({
   );
 }
 
-function TripCard({ trip, tab, onAssign, onReassign }: { trip: any; tab: string; onAssign?: (trip: any) => void; onReassign?: (trip: any) => void }) {
+function TripCard({ trip, tab, onAssign, onReassign, onPeek }: { trip: any; tab: string; onAssign?: (trip: any) => void; onReassign?: (trip: any) => void; onPeek?: (trip: any) => void }) {
   const [, navigate] = useLocation();
   const isCompleted = tab === "completed" || ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status);
   const canAssign = !isCompleted && onAssign && (tab === "unassigned" || tab === "scheduled");
@@ -1193,6 +1282,16 @@ function TripCard({ trip, tab, onAssign, onReassign }: { trip: any; tab: string;
           </div>
 
           <div className="flex flex-col gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            {onPeek && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onPeek(trip)}
+                data-testid={`button-peek-${trip.id}`}
+              >
+                <Eye className="w-3.5 h-3.5" />
+              </Button>
+            )}
             {canAssign && (
               <Button
                 size="sm"
