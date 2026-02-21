@@ -659,8 +659,9 @@ export function registerDispatchRoutes(app: Express) {
         const allVehicles = applyCompanyFilter(rawVehicles, companyId);
         const allClinics = applyCompanyFilter(rawClinics, companyId);
 
+        const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
         const activeTrips = allTrips.filter((t) =>
-          ["SCHEDULED", "ASSIGNED", "IN_PROGRESS"].includes(t.status)
+          !terminalStatuses.includes(t.status)
         );
 
         const vehicleMap = new Map(allVehicles.map((v) => [v.id, v]));

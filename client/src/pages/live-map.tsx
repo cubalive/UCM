@@ -352,10 +352,13 @@ function GoogleMapView({ drivers, center, zoom, mapsLoaded }: GoogleMapProps) {
 
           const tripStatusColors: Record<string, string> = {
             SCHEDULED: "#3b82f6",
-            EN_ROUTE_PICKUP: "#f59e0b",
-            AT_PICKUP: "#8b5cf6",
-            IN_TRANSIT: "#ef4444",
-            AT_DROPOFF: "#06b6d4",
+            ASSIGNED: "#f97316",
+            EN_ROUTE_TO_PICKUP: "#f59e0b",
+            ARRIVED_PICKUP: "#8b5cf6",
+            PICKED_UP: "#a855f7",
+            EN_ROUTE_TO_DROPOFF: "#ef4444",
+            IN_PROGRESS: "#ef4444",
+            ARRIVED_DROPOFF: "#06b6d4",
             COMPLETED: "#22c55e",
           };
           const tripBadge = d.active_trip_status

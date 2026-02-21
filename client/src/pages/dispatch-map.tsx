@@ -79,7 +79,12 @@ const DISPATCH_STATUS_LABELS: Record<string, string> = {
 const TRIP_STATUS_COLORS: Record<string, string> = {
   SCHEDULED: "hsl(217, 91%, 60%)",
   ASSIGNED: "hsl(25, 95%, 53%)",
+  EN_ROUTE_TO_PICKUP: "hsl(38, 92%, 50%)",
+  ARRIVED_PICKUP: "hsl(263, 70%, 50%)",
+  PICKED_UP: "hsl(271, 91%, 65%)",
+  EN_ROUTE_TO_DROPOFF: "hsl(0, 84%, 60%)",
   IN_PROGRESS: "hsl(142, 76%, 36%)",
+  ARRIVED_DROPOFF: "hsl(187, 85%, 43%)",
   COMPLETED: "hsl(0, 0%, 60%)",
   CANCELLED: "hsl(0, 84%, 60%)",
   NO_SHOW: "hsl(0, 0%, 40%)",
@@ -530,8 +535,8 @@ export default function DispatchMapPage() {
   const driversWithLocation = mapData?.drivers.filter((d) => d.lastLat && d.lastLng) || [];
   const driversWithoutLocation = mapData?.drivers.filter((d) => !d.lastLat || !d.lastLng) || [];
   const scheduledTrips = mapData?.trips.filter((t) => t.status === "SCHEDULED") || [];
-  const assignedTrips = mapData?.trips.filter((t) => t.status === "ASSIGNED") || [];
-  const inProgressTrips = mapData?.trips.filter((t) => t.status === "IN_PROGRESS") || [];
+  const TERMINAL_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW", "SCHEDULED"];
+  const assignedTrips = mapData?.trips.filter((t) => !TERMINAL_STATUSES.includes(t.status)) || [];
   const availableVehicles = mapData?.vehicles.filter((v) => v.status === "ACTIVE") || [];
 
   if (isLoading) {
@@ -616,7 +621,7 @@ export default function DispatchMapPage() {
             <div className="flex items-center gap-2">
               <Navigation className="w-4 h-4 flex-shrink-0" style={{ color: TRIP_STATUS_COLORS.IN_PROGRESS }} />
               <div className="min-w-0">
-                <p className="text-lg font-semibold" data-testid="text-active-count">{assignedTrips.length + inProgressTrips.length}</p>
+                <p className="text-lg font-semibold" data-testid="text-active-count">{assignedTrips.length}</p>
                 <p className="text-xs text-muted-foreground">Active Trips</p>
               </div>
             </div>
@@ -672,13 +677,13 @@ export default function DispatchMapPage() {
           <Card>
             <CardHeader className="p-3 pb-2 flex flex-row items-center justify-between gap-2">
               <CardTitle className="text-sm">Active Trips</CardTitle>
-              <Badge variant="secondary" className="text-xs">{assignedTrips.length + inProgressTrips.length}</Badge>
+              <Badge variant="secondary" className="text-xs">{assignedTrips.length}</Badge>
             </CardHeader>
             <CardContent className="p-2 space-y-2 max-h-96 overflow-y-auto">
-              {assignedTrips.length === 0 && inProgressTrips.length === 0 && (
+              {assignedTrips.length === 0 && (
                 <p className="text-xs text-muted-foreground p-2" data-testid="text-no-active-trips">No active trips</p>
               )}
-              {[...assignedTrips, ...inProgressTrips].map((trip) => {
+              {assignedTrips.map((trip) => {
                 const assignedDriver = mapData?.drivers.find((d) => d.id === trip.driverId);
                 const assignedVehicle = mapData?.vehicles.find((v) => v.id === trip.vehicleId);
                 const etaMinutes = trip.lastEtaMinutes;
@@ -887,10 +892,10 @@ export default function DispatchMapPage() {
                 </div>
                 <div>
                   <p className="text-[10px] text-muted-foreground mb-1 font-medium">Trip Status</p>
-                  {Object.entries(TRIP_STATUS_COLORS).filter(([k]) => ["SCHEDULED", "ASSIGNED", "IN_PROGRESS"].includes(k)).map(([key, color]) => (
+                  {Object.entries(TRIP_STATUS_COLORS).filter(([k]) => !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(k)).map(([key, color]) => (
                     <div key={key} className="flex items-center gap-1.5 mb-0.5">
                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                      <span className="text-[10px]">{key.replace("_", " ")}</span>
+                      <span className="text-[10px]">{key.replace(/_/g, " ")}</span>
                     </div>
                   ))}
                 </div>

@@ -1426,7 +1426,7 @@ export function registerOpsRoutes(app: Express) {
 
       const activeTripsMap = new Map<number, { tripId: number; publicId: string; status: string; patientName: string | null }>();
       try {
-        const activeStatuses = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "IN_TRANSIT", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"];
+        const activeStatuses = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "ARRIVED_DROPOFF"];
         const driverIds = rows.map(r => r.driverId);
         if (driverIds.length > 0) {
           const activeTrips = await db
