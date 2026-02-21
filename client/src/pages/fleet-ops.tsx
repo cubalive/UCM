@@ -393,6 +393,22 @@ export default function FleetOpsPage() {
               </div>
             )}
 
+            {!isLoading && !fleetData && cityId && (
+              <Card>
+                <CardContent className="py-16 text-center">
+                  <Truck className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
+                  <h3 className="text-lg font-semibold mb-2" data-testid="text-no-fleet-data">No fleet data available</h3>
+                  <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                    There are no active drivers or vehicles registered for this city yet. Add drivers and vehicles in the Fleet section to see readiness information here.
+                  </p>
+                  <Button variant="outline" className="mt-4" onClick={() => refetch()} data-testid="button-retry-fleet">
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Retry
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
             {fleetData && (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -413,6 +429,18 @@ export default function FleetOpsPage() {
                     </Card>
                   ))}
                 </div>
+
+                {summary && summary.drivers_total === 0 && summary.vehicles_total === 0 && fleetData.conflicts.length === 0 && (
+                  <Card>
+                    <CardContent className="py-12 text-center">
+                      <Truck className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
+                      <h3 className="text-base font-semibold mb-1" data-testid="text-fleet-empty">No drivers or vehicles in this city</h3>
+                      <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                        This city does not have any active drivers or vehicles registered. Go to Drivers or Vehicles to add them, then come back here to manage fleet readiness and assignments.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {fleetData.conflicts.length > 0 && (
                   <div className="space-y-3">
