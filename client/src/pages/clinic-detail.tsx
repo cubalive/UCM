@@ -6,11 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, AlertTriangle, Phone, Mail, MapPin, User, Building2, Brain, Shield, Truck, BarChart3 } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Phone, Mail, MapPin, User, Building2, Brain, Shield, Truck, BarChart3, Radar, Loader2, Save, Navigation } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { AddressAutocomplete, StructuredAddress } from "@/components/address-autocomplete";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function ClinicDetailPage() {
   const params = useParams<{ id: string }>();
@@ -44,6 +47,53 @@ export default function ClinicDetailPage() {
       toast({ title: "Error", description: err.message || "Failed to update feature", variant: "destructive" });
     },
   });
+
+  const [locationAddr, setLocationAddr] = useState<StructuredAddress | null>(null);
+  const [manualLat, setManualLat] = useState("");
+  const [manualLng, setManualLng] = useState("");
+
+  const updateLocationMutation = useMutation({
+    mutationFn: async (data: { lat: number; lng: number; address?: string; addressStreet?: string; addressCity?: string; addressState?: string; addressZip?: string; addressPlaceId?: string }) => {
+      return apiRequest("PATCH", `/api/clinics/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics", id] });
+      toast({ title: "Location updated", description: "Clinic coordinates saved. Arrival Radar is now active." });
+      setLocationAddr(null);
+      setManualLat("");
+      setManualLng("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to update location", variant: "destructive" });
+    },
+  });
+
+  function handleSaveLocationFromAutocomplete() {
+    if (!locationAddr || !locationAddr.lat || !locationAddr.lng) {
+      toast({ title: "Please select an address from suggestions", variant: "destructive" });
+      return;
+    }
+    updateLocationMutation.mutate({
+      lat: locationAddr.lat,
+      lng: locationAddr.lng,
+      address: locationAddr.formattedAddress,
+      addressStreet: locationAddr.street,
+      addressCity: locationAddr.city,
+      addressState: locationAddr.state,
+      addressZip: locationAddr.zip,
+      addressPlaceId: locationAddr.placeId,
+    });
+  }
+
+  function handleSaveManualCoords() {
+    const lat = parseFloat(manualLat);
+    const lng = parseFloat(manualLng);
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      toast({ title: "Invalid coordinates", description: "Latitude must be -90 to 90, longitude -180 to 180", variant: "destructive" });
+      return;
+    }
+    updateLocationMutation.mutate({ lat, lng });
+  }
 
   const features = (featuresData as any)?.features || [];
   const intelligenceFeature = features.find((f: any) => f.featureKey === "clinic_intelligence_pack");
@@ -162,6 +212,124 @@ export default function ClinicDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {isSuperAdmin && (
+        <Card data-testid="clinic-location-section">
+          <CardContent className="py-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-cyan-500/10 rounded-lg flex items-center justify-center">
+                  <Radar className="w-5 h-5 text-cyan-500" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">Location & Arrival Radar</h3>
+                  <p className="text-xs text-muted-foreground">Set clinic coordinates for live driver tracking map</p>
+                </div>
+              </div>
+              <Badge variant={clinic.lat && clinic.lng ? "default" : "destructive"} data-testid="badge-location-status">
+                {clinic.lat && clinic.lng ? "Configured" : "Not Set"}
+              </Badge>
+            </div>
+
+            {clinic.lat && clinic.lng ? (
+              <div className="bg-muted/50 rounded-lg p-3 space-y-2 border">
+                <div className="flex items-center gap-2 text-sm">
+                  <Navigation className="w-4 h-4 text-green-500 flex-shrink-0" />
+                  <span className="font-medium">Current Coordinates</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground text-xs">Latitude</span>
+                    <p className="font-mono text-xs" data-testid="text-clinic-lat">{clinic.lat}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Longitude</span>
+                    <p className="font-mono text-xs" data-testid="text-clinic-lng">{clinic.lng}</p>
+                  </div>
+                </div>
+                {clinic.address && (
+                  <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <MapPin className="w-3 h-3 flex-shrink-0" />
+                    {clinic.address}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-destructive">Arrival Radar inactive</p>
+                  <p className="text-xs text-muted-foreground">Set the clinic location below to enable live driver tracking on the clinic portal dashboard.</p>
+                </div>
+              </div>
+            )}
+
+            <div className="border-t pt-4 space-y-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Update Location</p>
+              <AddressAutocomplete
+                label="Search Clinic Address"
+                value={locationAddr}
+                onSelect={setLocationAddr}
+                token={token}
+                testIdPrefix="clinic-location"
+                allowManualOverride={false}
+              />
+              {locationAddr && (
+                <Button
+                  onClick={handleSaveLocationFromAutocomplete}
+                  disabled={updateLocationMutation.isPending}
+                  className="w-full"
+                  data-testid="button-save-clinic-location"
+                >
+                  {updateLocationMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  Save Location
+                </Button>
+              )}
+
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors py-1">
+                  Or enter coordinates manually
+                </summary>
+                <div className="pt-2 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Latitude</Label>
+                      <Input
+                        type="text"
+                        placeholder="e.g. 36.1699"
+                        value={manualLat}
+                        onChange={(e) => setManualLat(e.target.value)}
+                        data-testid="input-manual-lat"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Longitude</Label>
+                      <Input
+                        type="text"
+                        placeholder="e.g. -115.1398"
+                        value={manualLng}
+                        onChange={(e) => setManualLng(e.target.value)}
+                        data-testid="input-manual-lng"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveManualCoords}
+                    disabled={updateLocationMutation.isPending || !manualLat || !manualLng}
+                    className="w-full"
+                    data-testid="button-save-manual-coords"
+                  >
+                    {updateLocationMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                    Save Coordinates
+                  </Button>
+                </div>
+              </details>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {isSuperAdmin && (
         <Card data-testid="clinic-intelligence-section">
