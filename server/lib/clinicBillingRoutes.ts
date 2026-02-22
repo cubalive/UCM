@@ -619,10 +619,22 @@ export function registerClinicBillingRoutes(app: Express) {
 
   app.get("/api/clinic-billing/invoices", authMiddleware, requirePermission("invoices", "read"), async (req: AuthRequest, res) => {
     try {
-      const clinicId = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
+      const user = req.user!;
+      const clinicIdParam = req.query.clinic_id ? parseInt(req.query.clinic_id as string) : undefined;
+      const cityIdParam = req.query.city_id ? parseInt(req.query.city_id as string) : undefined;
+      const companyIdParam = req.query.company_id ? parseInt(req.query.company_id as string) : undefined;
+      const statusParam = req.query.status as string | undefined;
+
+      const conditions: any[] = [];
+      if (clinicIdParam) conditions.push(eq(clinicBillingInvoices.clinicId, clinicIdParam));
+      if (cityIdParam) conditions.push(eq(clinicBillingInvoices.cityId, cityIdParam));
+      if (statusParam && (statusParam === "draft" || statusParam === "finalized")) {
+        conditions.push(eq(clinicBillingInvoices.status, statusParam));
+      }
+
       let invoiceRows;
-      if (clinicId) {
-        invoiceRows = await db.select().from(clinicBillingInvoices).where(eq(clinicBillingInvoices.clinicId, clinicId)).orderBy(desc(clinicBillingInvoices.createdAt));
+      if (conditions.length > 0) {
+        invoiceRows = await db.select().from(clinicBillingInvoices).where(and(...conditions)).orderBy(desc(clinicBillingInvoices.createdAt));
       } else {
         invoiceRows = await db.select().from(clinicBillingInvoices).orderBy(desc(clinicBillingInvoices.createdAt));
       }
@@ -631,10 +643,18 @@ export function registerClinicBillingRoutes(app: Express) {
         const [clinic] = await db.select().from(clinics).where(eq(clinics.id, inv.clinicId));
         const [city] = await db.select().from(cities).where(eq(cities.id, inv.cityId));
         const lineCount = await db.select({ count: sql<number>`count(*)` }).from(clinicBillingInvoiceLines).where(eq(clinicBillingInvoiceLines.invoiceId, inv.id));
-        return { ...inv, clinicName: clinic?.name, cityName: city?.name, lineCount: Number(lineCount[0]?.count || 0) };
+        return { ...inv, clinicName: clinic?.name, cityName: city?.name, companyId: clinic?.companyId, lineCount: Number(lineCount[0]?.count || 0) };
       }));
 
-      res.json(enriched);
+      let filtered = enriched;
+      if (companyIdParam) {
+        filtered = filtered.filter((inv: any) => inv.companyId === companyIdParam);
+      }
+      if (user.role === "COMPANY_ADMIN" && user.companyId) {
+        filtered = filtered.filter((inv: any) => inv.companyId === user.companyId);
+      }
+
+      res.json(filtered);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

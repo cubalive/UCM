@@ -626,13 +626,17 @@ function TripsLogTab() {
 }
 
 function InvoicesTab() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { toast } = useToast();
   const [clinicId, setClinicId] = useState<string>("");
   const [cityId, setCityId] = useState<string>("");
   const [weekStart, setWeekStart] = useState(getWeekAgo());
   const [weekEnd, setWeekEnd] = useState(getToday());
   const [showDetail, setShowDetail] = useState<number | null>(null);
+  const [filterClinic, setFilterClinic] = useState<string>("all");
+  const [filterCity, setFilterCity] = useState<string>("all");
+  const [filterCompany, setFilterCompany] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
 
   const clinicsQ = useQuery<any[]>({
     queryKey: ["/api/clinics"],
@@ -646,11 +650,22 @@ function InvoicesTab() {
     enabled: !!token,
   });
 
+  const companiesQ = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch("/api/companies", token),
+    enabled: !!token,
+  });
+
   const invoicesQ = useQuery<any[]>({
-    queryKey: ["/api/clinic-billing/invoices", clinicId],
+    queryKey: ["/api/clinic-billing/invoices", filterClinic, filterCity, filterCompany, filterStatus],
     queryFn: () => {
-      const params = clinicId ? `?clinic_id=${clinicId}` : "";
-      return apiFetch(`/api/clinic-billing/invoices${params}`, token);
+      const params = new URLSearchParams();
+      if (filterClinic !== "all") params.set("clinic_id", filterClinic);
+      if (filterCity !== "all") params.set("city_id", filterCity);
+      if (filterCompany !== "all") params.set("company_id", filterCompany);
+      if (filterStatus !== "all") params.set("status", filterStatus);
+      const qs = params.toString();
+      return apiFetch(`/api/clinic-billing/invoices${qs ? `?${qs}` : ""}`, token);
     },
     enabled: !!token,
   });
@@ -770,7 +785,64 @@ function InvoicesTab() {
         <CardHeader className="py-3">
           <CardTitle className="text-sm">Clinic Billing Invoices</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="space-y-1">
+              <Label className="text-xs">Company</Label>
+              <Select value={filterCompany} onValueChange={setFilterCompany}>
+                <SelectTrigger className="w-44" data-testid="select-inv-filter-company">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Companies</SelectItem>
+                  {(companiesQ.data || []).map((c: any) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Clinic</Label>
+              <Select value={filterClinic} onValueChange={setFilterClinic}>
+                <SelectTrigger className="w-44" data-testid="select-inv-filter-clinic">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Clinics</SelectItem>
+                  {(clinicsQ.data || []).filter((c: any) => filterCompany === "all" || String(c.companyId) === filterCompany).map((c: any) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">City</Label>
+              <Select value={filterCity} onValueChange={setFilterCity}>
+                <SelectTrigger className="w-36" data-testid="select-inv-filter-city">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Cities</SelectItem>
+                  {(citiesQ.data || []).map((c: any) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Status</Label>
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="w-32" data-testid="select-inv-filter-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="finalized">Finalized</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           {invoicesQ.isLoading ? (
             <Skeleton className="h-32 w-full" />
           ) : invoices.length === 0 ? (
@@ -782,6 +854,7 @@ function InvoicesTab() {
                   <TableRow>
                     <TableHead>ID</TableHead>
                     <TableHead>Clinic</TableHead>
+                    <TableHead>City</TableHead>
                     <TableHead>Period</TableHead>
                     <TableHead>Legs</TableHead>
                     <TableHead>Total</TableHead>
@@ -794,6 +867,7 @@ function InvoicesTab() {
                     <TableRow key={inv.id} data-testid={`row-cb-invoice-${inv.id}`}>
                       <TableCell className="font-mono text-sm">#{inv.id}</TableCell>
                       <TableCell className="text-sm">{inv.clinicName}</TableCell>
+                      <TableCell className="text-sm">{inv.cityName}</TableCell>
                       <TableCell className="text-sm">{inv.weekStart} — {inv.weekEnd}</TableCell>
                       <TableCell><Badge variant="secondary">{inv.lineCount}</Badge></TableCell>
                       <TableCell className="font-medium">${parseFloat(inv.totalAmount).toFixed(2)}</TableCell>
