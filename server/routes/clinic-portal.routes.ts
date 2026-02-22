@@ -18,6 +18,8 @@ import {
   clinicPatientsHandler,
   clinicProfileHandler,
   clinicRecurringSchedulesHandler,
+  clinicInboundLiveHandler,
+  clinicAlertInputsHandler,
 } from "../controllers/clinic-portal.controller";
 import {
   getClinicUsersHandler,
@@ -43,6 +45,8 @@ export function registerClinicPortalRoutes(app: Express) {
   app.get("/api/clinic/patients", authMiddleware, requireClinicScope as any, clinicPatientsHandler as any);
   app.get("/api/clinic/profile", authMiddleware, requireClinicScope as any, clinicProfileHandler as any);
   app.get("/api/clinic/recurring-schedules", authMiddleware, requireClinicScope as any, clinicRecurringSchedulesHandler as any);
+  app.get("/api/clinic/inbound-live", authMiddleware, requireClinicScope as any, clinicInboundLiveHandler as any);
+  app.get("/api/clinic/alert-inputs", authMiddleware, requireClinicScope as any, clinicAlertInputsHandler as any);
 
   app.get("/api/clinic/users", authMiddleware, requireClinicAdmin as any, getClinicUsersHandler as any);
   app.post("/api/clinic/users", authMiddleware, requireClinicAdmin as any, createClinicUserHandler as any);

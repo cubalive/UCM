@@ -1097,6 +1097,306 @@ export async function clinicProfileHandler(req: AuthRequest, res: Response) {
   }
 }
 
+const GEOFENCE_RADIUS_METERS = 150;
+
+function haversineDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export async function clinicInboundLiveHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const clinic = await storage.getClinic(user.clinicId);
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+    const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+
+    const clinicTrips = await db.select().from(trips).where(
+      and(
+        eq(trips.clinicId, user.clinicId),
+        inArray(trips.status, ACTIVE_STATUSES as any),
+        isNull(trips.deletedAt),
+      )
+    );
+
+    const result = await Promise.all(clinicTrips.map(async (trip) => {
+      const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+      let driverLat: number | null = null;
+      let driverLng: number | null = null;
+      let driverName: string | null = null;
+      let driverPhone: string | null = null;
+      let driverLastSeenAt: string | null = null;
+
+      if (trip.driverId) {
+        const driver = await storage.getDriver(trip.driverId);
+        if (driver) {
+          driverLat = driver.lastLat ?? null;
+          driverLng = driver.lastLng ?? null;
+          driverName = `${driver.firstName} ${driver.lastName}`;
+          driverPhone = driver.phone || null;
+          driverLastSeenAt = driver.lastSeenAt ? new Date(driver.lastSeenAt).toISOString() : null;
+          try {
+            const { getDriverLocationFromCache } = await import("../lib/driverLocationIngest");
+            const cached = getDriverLocationFromCache(driver.id);
+            if (cached) { driverLat = cached.lat; driverLng = cached.lng; }
+          } catch {}
+        }
+      }
+
+      let insideGeofence = false;
+      let distanceToClinicMeters: number | null = null;
+      if (clinic.lat && clinic.lng && driverLat && driverLng) {
+        distanceToClinicMeters = Math.round(haversineDistanceMeters(driverLat, driverLng, clinic.lat, clinic.lng));
+        insideGeofence = distanceToClinicMeters <= GEOFENCE_RADIUS_METERS;
+      }
+
+      const isInbound = (() => {
+        if (!clinic.lat || !clinic.lng) return false;
+        if (trip.dropoffLat && trip.dropoffLng) {
+          const d = Math.abs(trip.dropoffLat - clinic.lat) + Math.abs(trip.dropoffLng - clinic.lng);
+          if (d < 0.01) return true;
+        }
+        return false;
+      })();
+
+      return {
+        tripId: trip.id,
+        publicId: trip.publicId,
+        phase: trip.status,
+        serviceLevel: trip.mobilityRequirement || "STANDARD",
+        wheelchairRequired: trip.mobilityRequirement === "WHEELCHAIR",
+        scheduledTime: trip.pickupTime,
+        estimatedArrivalTime: trip.estimatedArrivalTime,
+        etaMinutes: trip.lastEtaMinutes ?? null,
+        driverLastLat: driverLat,
+        driverLastLng: driverLng,
+        driverName,
+        driverPhone,
+        driverLastSeenAt,
+        insideGeofence,
+        distanceToClinicMeters,
+        isInbound,
+        pickupLat: trip.pickupLat,
+        pickupLng: trip.pickupLng,
+        dropoffLat: trip.dropoffLat,
+        dropoffLng: trip.dropoffLng,
+        pickupAddress: trip.pickupAddress,
+        dropoffAddress: trip.dropoffAddress,
+        patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
+        patientPhone: patient?.phone || null,
+      };
+    }));
+
+    res.json({
+      ok: true,
+      clinic: { id: clinic.id, name: clinic.name, lat: clinic.lat, lng: clinic.lng, address: clinic.address },
+      trips: result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function clinicAlertInputsHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const clinic = await storage.getClinic(user.clinicId);
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+    const todayDate = new Date().toISOString().split("T")[0];
+    const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+
+    const clinicTrips = await db.select().from(trips).where(
+      and(
+        eq(trips.clinicId, user.clinicId),
+        isNull(trips.deletedAt),
+      )
+    );
+
+    const todayTrips = clinicTrips.filter(t => t.scheduledDate === todayDate);
+    const activeTrips = todayTrips.filter(t => ACTIVE_STATUSES.includes(t.status));
+
+    const isToClinic = (trip: any) => {
+      if (!clinic.lat || !clinic.lng) return false;
+      if (trip.dropoffLat && trip.dropoffLng) {
+        const d = Math.abs(trip.dropoffLat - clinic.lat) + Math.abs(trip.dropoffLng - clinic.lng);
+        return d < 0.01;
+      }
+      return false;
+    };
+
+    const isFromClinic = (trip: any) => {
+      if (!clinic.lat || !clinic.lng) return false;
+      if (trip.pickupLat && trip.pickupLng) {
+        const d = Math.abs(trip.pickupLat - clinic.lat) + Math.abs(trip.pickupLng - clinic.lng);
+        return d < 0.01;
+      }
+      return false;
+    };
+
+    const now = new Date();
+    const nowMs = now.getTime();
+
+    let wheelchairInNext10 = 0;
+    let driversInsideGeofence = 0;
+
+    for (const trip of activeTrips) {
+      if (trip.mobilityRequirement === "WHEELCHAIR" && isToClinic(trip)) {
+        let arrivalWithin10 = false;
+        if (trip.lastEtaMinutes != null && trip.lastEtaMinutes <= 10) {
+          arrivalWithin10 = true;
+        } else if (trip.estimatedArrivalTime) {
+          const [h, m] = trip.estimatedArrivalTime.split(":").map(Number);
+          if (!isNaN(h) && !isNaN(m)) {
+            const target = new Date(now);
+            target.setHours(h, m, 0, 0);
+            const diffMin = (target.getTime() - nowMs) / 60000;
+            if (diffMin >= -2 && diffMin <= 10) arrivalWithin10 = true;
+          }
+        }
+        if (arrivalWithin10) wheelchairInNext10++;
+      }
+
+      if (trip.driverId && clinic.lat && clinic.lng) {
+        const driver = await storage.getDriver(trip.driverId);
+        if (driver) {
+          let lat = driver.lastLat ?? null;
+          let lng = driver.lastLng ?? null;
+          try {
+            const { getDriverLocationFromCache } = await import("../lib/driverLocationIngest");
+            const cached = getDriverLocationFromCache(driver.id);
+            if (cached) { lat = cached.lat; lng = cached.lng; }
+          } catch {}
+          if (lat && lng) {
+            const dist = haversineDistanceMeters(lat, lng, clinic.lat!, clinic.lng!);
+            if (dist <= GEOFENCE_RADIUS_METERS) driversInsideGeofence++;
+          }
+        }
+      }
+    }
+
+    const completedTrips = todayTrips.filter(t => t.status === "COMPLETED" && isToClinic(t));
+    const readyForReturn = completedTrips.filter(t => {
+      if (!t.completedAt) return false;
+      const outboundTrips = todayTrips.filter(o =>
+        isFromClinic(o) &&
+        o.patientId === t.patientId &&
+        ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "COMPLETED"].includes(o.status) &&
+        o.scheduledDate === todayDate
+      );
+      return outboundTrips.length === 0;
+    });
+
+    const outboundAssigned = todayTrips.filter(t =>
+      isFromClinic(t) && ACTIVE_STATUSES.includes(t.status) && t.driverId
+    );
+
+    let highDelayRiskCount = 0;
+    const LATE_THRESHOLD_MINUTES = 10;
+    for (const trip of activeTrips) {
+      if (trip.lastEtaMinutes != null && trip.estimatedArrivalTime) {
+        const [h, m] = trip.estimatedArrivalTime.split(":").map(Number);
+        if (!isNaN(h) && !isNaN(m)) {
+          const target = new Date(now);
+          target.setHours(h, m, 0, 0);
+          const scheduledMinFromNow = (target.getTime() - nowMs) / 60000;
+          if (trip.lastEtaMinutes > scheduledMinFromNow + LATE_THRESHOLD_MINUTES) {
+            highDelayRiskCount++;
+          }
+        }
+      }
+    }
+
+    const alerts: Array<{
+      id: string;
+      type: string;
+      title: string;
+      message: string;
+      severity: "info" | "warning" | "danger";
+      signature: string;
+      ctaLabel: string;
+      ctaHref: string;
+    }> = [];
+
+    if (wheelchairInNext10 >= 3) {
+      alerts.push({
+        id: "wheelchair_surge",
+        type: "wheelchair_surge",
+        title: "Wheelchair Surge",
+        message: `${wheelchairInNext10} wheelchair arrivals expected within the next 10 minutes. Prepare wheelchair assistance stations.`,
+        severity: "warning",
+        signature: `wheelchair_surge_${wheelchairInNext10}`,
+        ctaLabel: "View Trips",
+        ctaHref: "/trips",
+      });
+    }
+
+    if (driversInsideGeofence >= 2) {
+      alerts.push({
+        id: "at_door",
+        type: "at_door",
+        title: "Drivers At Door",
+        message: `${driversInsideGeofence} drivers are within ${GEOFENCE_RADIUS_METERS}m of the clinic. Coordinate patient handoffs.`,
+        severity: "info",
+        signature: `at_door_${driversInsideGeofence}`,
+        ctaLabel: "View Live",
+        ctaHref: "/live",
+      });
+    }
+
+    if (readyForReturn.length >= 5 && outboundAssigned.length <= 2) {
+      alerts.push({
+        id: "return_backlog",
+        type: "return_backlog",
+        title: "Return Backlog",
+        message: `${readyForReturn.length} patients may be waiting for return trips, but only ${outboundAssigned.length} outbound trips are assigned.`,
+        severity: "danger",
+        signature: `return_backlog_${readyForReturn.length}_${outboundAssigned.length}`,
+        ctaLabel: "View Trips",
+        ctaHref: "/trips",
+      });
+    }
+
+    if (highDelayRiskCount >= 2) {
+      alerts.push({
+        id: "high_delay_risk",
+        type: "high_delay_risk",
+        title: "High Delay Risk",
+        message: `${highDelayRiskCount} trips are projected to arrive ${LATE_THRESHOLD_MINUTES}+ minutes late. Consider notifying patients.`,
+        severity: "danger",
+        signature: `high_delay_${highDelayRiskCount}`,
+        ctaLabel: "View Trips",
+        ctaHref: "/trips",
+      });
+    }
+
+    res.json({
+      ok: true,
+      counts: {
+        wheelchairInNext10,
+        driversInsideGeofence,
+        readyForReturn: readyForReturn.length,
+        outboundAssigned: outboundAssigned.length,
+        highDelayRisk: highDelayRiskCount,
+        totalActiveTrips: activeTrips.length,
+      },
+      alerts,
+    });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
 export async function clinicRecurringSchedulesHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);

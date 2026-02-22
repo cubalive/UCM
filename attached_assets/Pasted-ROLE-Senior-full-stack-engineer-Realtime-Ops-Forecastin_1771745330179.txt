@@ -1,0 +1,59 @@
+ROLE: Senior full-stack engineer (Realtime Ops + Forecasting)
+PROJECT: UCM Clinic Portal — Enterprise Add-ons (Radar + Alerts + Data)
+EXECUTION MODE: SINGLE AGENT ONLY
+NO DB RESET
+NO TABLE DROPS
+EXTEND ONLY
+ZERO REGRESSION
+DO NOT CHANGE WORKING FEATURES
+
+GOAL
+Add 4 enterprise features to clinic.unitedcaremobility.com:
+1) Arrival Radar (mini live map)
+2) Smart Staff Alerts (rule-based, measurable)
+3) Dialysis Load Predictor (baseline forecast v1)
+4) Capacity Forecast (drivers needed)
+
+PART 1 DELIVERABLES (this prompt = Radar + Alerts + required data)
+A) Arrival Radar UI
+- Add a “Arrival Radar” card on clinic dashboard.
+- Include mini map (Google Maps embed if already used; otherwise Mapbox GL or simple static map with markers).
+- Show markers for inbound trips to this clinic only:
+  - driver current location (from driver location stream/table)
+  - ETA (existing ETA engine or computed from last location + distance)
+  - trip phase (ENROUTE_PICKUP / ARRIVED_PICKUP / STARTED / etc)
+- Map must update in realtime (Supabase realtime) or 15s polling fallback.
+- Clicking a marker opens the Trip Detail panel (existing) with live status.
+
+B) Smart Staff Alerts
+- Create an alerts engine that runs every 15s (client side) OR via backend endpoint (preferred).
+- Alerts must be deduplicated (no repeating spam): store last_alert_fired_at + signature in local state and optionally DB table.
+- Create these alerts (minimum):
+  1) “Wheelchair surge”: >=3 wheelchair arrivals within next 10 minutes.
+  2) “At door”: >=2 trips with driver inside clinic geofence.
+  3) “Return backlog”: READY_FOR_RETURN >=5 and outbound_assigned <=2.
+  4) “High delay risk”: derived risk score >= threshold.
+- Alerts must show:
+  - Title
+  - Explanation line (data-based): counts + time window
+  - CTA button “View” opens filtered list
+- Add sound + haptic for alerts (web: sound only; capacitor native later adds haptic).
+
+C) Data / Queries needed
+- Ensure clinic portal queries are scoped: only clinic users and super_admin can access.
+- Add/confirm endpoints or Supabase RPC/views:
+  - get_clinic_inbound_summary(clinic_id)
+  - get_clinic_outbound_summary(clinic_id)
+  - get_clinic_inbound_live(clinic_id) -> includes trip_id, service_level, scheduled_time, eta_minutes, driver_last_lat/lng, phase
+  - get_clinic_alert_inputs(clinic_id) -> returns counts per window for fast alert evaluation
+- Add geofence check for clinic “at door”:
+  - if driver location within X meters of clinic lat/lng, mark as inside_geofence (computed)
+  - do not rely on client-only calculations; compute in backend if possible.
+
+D) Testing / Safety
+- Add a smoke test checklist:
+  - Radar shows only this clinic trips.
+  - Marker click opens correct trip.
+  - Alerts fire once and dedupe.
+  - No regressions to existing trip lists and billing.
+OUTPUT: code changes + files modified + quick test commands.
