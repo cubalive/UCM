@@ -1,0 +1,97 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Senior full-stack engineer + DBA (Replit + Supabase). You will clean PRODUCTION data safely without breaking schema, RLS, roles, or app behavior. The goal is: keep the full structure intact, but remove all fake/test/demo data and reset sequences so UCM is ready for first real customers.
+
+HARD CONSTRAINTS (NON-NEGOTIABLE)
+- DO NOT drop tables, do not alter schema, do not disable RLS, do not change policies, do not change auth settings.
+- DO NOT delete “system” rows required for operation (roles, enums/status flow definitions, configuration tables, cities list).
+- Use a SINGLE transaction where possible; otherwise chunk safely with clear ordering.
+- Add a dry-run preview first: report counts per table and what will be deleted.
+- After cleanup, run integrity verification queries and provide a short “GO-LIVE READY” report.
+
+CONTEXT
+We built UCM (NEMT) with tenants/companies, cities, clinics, drivers, vehicles, patients, trips, dispatch workflow, driver state machine, live tracking points, billing/invoices, notifications, audit logs, etc.
+We need to remove test data (fake drivers/patients/trips/locations/invoices/messages) but keep the system configuration and access control intact.
+
+TASK 1 — INVENTORY (READ-ONLY)
+1) Print a table of row counts for all major tables, grouped by functional area:
+- Auth/User profile layer (app users table, user_roles, memberships)
+- Tenancy/org layer (tenants/companies, cities, clinics, clinic_company links)
+- Fleet (vehicles, driver_vehicle assignment, driver shifts)
+- Patients (patients, patient_clinic/company relationships)
+- Trips core (trips, trip_stops if any, trip_status_history, trip_assignments)
+- Tracking (driver_locations, trip_location_points, geofence_events)
+- Comms (notifications, sms_logs, in_app_messages)
+- Billing (invoices, invoice_lines, payments, adjustments)
+- Ops/Audit (audit_log, security_change_audit)
+2) Detect “test/demo” tenants/clinics/users by heuristics and list them:
+- names containing: test, demo, sample, fake, qa, staging
+- email domains: example.com, test.com
+- phone patterns: 555
+- known dummy driver IDs like 01UCM0004xx if present
+Return a list of candidate entity IDs for deletion.
+
+TASK 2 — DEFINE SAFE CLEANUP RULES
+Create a cleanup plan that:
+- Deletes only data tied to demo/test tenants/clinics/users OR created after a known cutoff date if the environment is clearly test.
+- Leaves at least ONE “platform super admin” user (my account) intact.
+- Leaves baseline configuration tables intact (status constants, pricing templates, feature flags, city master list).
+- Ensures referential integrity: delete children first, then parents.
+
+TASK 3 — IMPLEMENT CLEANUP (SQL SCRIPT)
+Write a single SQL script (Supabase SQL Editor compatible) that:
+A) Creates a TEMP table `cleanup_targets` holding IDs of entities to purge (tenant_id, clinic_id, user_id, driver_id, vehicle_id, patient_id).
+B) Deletes in correct order (children → parents). Typical order:
+   - trip_location_points / driver_locations / geofence_events
+   - trip_status_history / trip_assignments / trip_messages
+   - invoices / invoice_lines / payments
+   - trips
+   - patients
+   - driver_vehicle_assignments / driver_shifts
+   - vehicles
+   - drivers
+   - clinic_company links
+   - clinics
+   - tenant_city links if any
+   - tenants/companies (ONLY those marked test/demo)
+   - notifications/sms_logs/messages related to those targets
+C) Resets sequences where safe (Postgres `ALTER SEQUENCE ... RESTART WITH 1`) ONLY for tables that are fully cleared; do not touch sequences for config tables.
+D) Keeps audit tables (security_change_audit) intact; do not wipe security history.
+E) Outputs deleted row counts per table (use `GET DIAGNOSTICS` or `RETURNING` counts).
+F) Ends with a verification section:
+   - orphan checks (no trips without tenant_id, no assignments without trip)
+   - counts that should be zero (trip_location_points, demo trips, demo patients)
+   - counts that should remain non-zero (cities master list, role definitions, feature flags if exist)
+
+TASK 4 — APP-SIDE SAFETY
+After SQL cleanup, update the Replit backend with a guarded “seed minimal real onboarding” path:
+- A CLI or admin-only endpoint `/api/admin/onboarding/seed` (SUPER_ADMIN only) that can create:
+  - tenant/company
+  - city association
+  - one clinic
+  - one dispatcher/admin
+  - one vehicle
+  - one driver
+This MUST be optional and disabled by default behind `SEED_ONBOARDING_ENABLED=false`.
+No automatic seeding during normal runs.
+
+TASK 5 — GO-LIVE CHECKLIST OUTPUT
+Print a final checklist with PASS/FAIL from queries:
+- Login works for super admin
+- Creating tenant/company works
+- Creating clinic works
+- Creating driver + vehicle works
+- Creating trip works
+- Driver can see assigned trip
+- Admin/dispatcher/clinic can open trip detail and see pickup/dropoff data
+- Billing page loads without “—” placeholders
+
+DELIVERABLES
+1) The SQL script (copy/paste ready).
+2) The minimal backend endpoint/CLI changes (exact files + code).
+3) The verification results queries and expected outputs.
+
+IMPORTANT
+If you are unsure about table names, first introspect `information_schema.tables` and `pg_constraint` to map FK relationships, then generate the correct deletion order automatically.
+Do not guess table names; discover them.
+
+Proceed now.
