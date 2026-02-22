@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, MapPin, RefreshCw, Users } from "lucide-react";
 import { MapLegend } from "@/components/map-legend";
+import { getTripMarkerColor, TRIP_STATUS_MAP } from "@/lib/tripStatusMapping";
 
 interface DriverLocation {
   driver_id: number;
@@ -351,19 +352,8 @@ function GoogleMapView({ drivers, center, zoom, mapsLoaded }: GoogleMapProps) {
             ? `<div style="font-size:11px;color:#666;margin-top:2px;">Vehicle: ${d.vehicle_label}${vehicleMakeModel ? ` (${vehicleMakeModel})` : ""}</div>`
             : `<div style="font-size:11px;color:#999;margin-top:2px;font-style:italic;">No vehicle assigned</div>`;
 
-          const tripStatusColors: Record<string, string> = {
-            SCHEDULED: "#3b82f6",
-            ASSIGNED: "#f97316",
-            EN_ROUTE_TO_PICKUP: "#f59e0b",
-            ARRIVED_PICKUP: "#8b5cf6",
-            PICKED_UP: "#a855f7",
-            EN_ROUTE_TO_DROPOFF: "#ef4444",
-            IN_PROGRESS: "#ef4444",
-            ARRIVED_DROPOFF: "#06b6d4",
-            COMPLETED: "#22c55e",
-          };
           const tripBadge = d.active_trip_status
-            ? `<div style="margin-top:4px;padding:3px 6px;border-radius:4px;background:${tripStatusColors[d.active_trip_status] || '#6b7280'};color:#fff;font-size:10px;font-weight:600;display:inline-block;">${d.active_trip_status.replace(/_/g, ' ')}</div>
+            ? `<div style="margin-top:4px;padding:3px 6px;border-radius:4px;background:${getTripMarkerColor(d.active_trip_status)};color:#fff;font-size:10px;font-weight:600;display:inline-block;">${(TRIP_STATUS_MAP[d.active_trip_status]?.label || d.active_trip_status.replace(/_/g, ' '))}</div>
                ${d.active_trip_id ? `<div style="font-size:10px;color:#666;margin-top:2px;">Trip: ${d.active_trip_id}</div>` : ""}
                ${d.active_trip_patient ? `<div style="font-size:10px;color:#666;">Patient: ${d.active_trip_patient}</div>` : ""}`
             : `<div style="margin-top:4px;font-size:10px;color:#999;font-style:italic;">No active trip</div>`;

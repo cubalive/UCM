@@ -439,11 +439,23 @@ export function registerDispatchRoutes(app: Express) {
 
         const rawAllDrivers = await storage.getDrivers(city_id);
         const allDrivers = acf(rawAllDrivers, companyIdAA);
+
+        const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "ARRIVED_DROPOFF"];
+        const busyDriverIds = new Set<number>();
+        try {
+          const { rows } = await (await import("../db")).pool.query(
+            `SELECT DISTINCT driver_id FROM trips WHERE company_id = $1 AND driver_id IS NOT NULL AND status = ANY($2::text[])`,
+            [companyIdAA || allDrivers[0]?.companyId, ACTIVE_STATUSES]
+          );
+          for (const r of rows) busyDriverIds.add(Number(r.driver_id));
+        } catch {}
+
         const availableDrivers = allDrivers.filter(
           (d) => d.status === "ACTIVE" &&
             d.dispatchStatus === "available" &&
             d.vehicleId &&
-            d.lastLat && d.lastLng
+            d.lastLat && d.lastLng &&
+            !busyDriverIds.has(d.id)
         );
 
         if (availableDrivers.length === 0) {

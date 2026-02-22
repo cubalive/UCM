@@ -57,33 +57,18 @@ import {
   Volume2,
 } from "lucide-react";
 
-const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  ASSIGNED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-  EN_ROUTE_TO_PICKUP: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
-  ARRIVED_PICKUP: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
-  PICKED_UP: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200",
-  EN_ROUTE_TO_DROPOFF: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  ARRIVED_DROPOFF: "bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200",
-  IN_PROGRESS: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-  COMPLETED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
-  CANCELLED: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-  NO_SHOW: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-};
+import { getTripStatusStyle, getTripStatusLabel, getTripMarkerColor, TRIP_STATUS_MAP } from "@/lib/tripStatusMapping";
 
-const STATUS_LABELS: Record<string, string> = {
-  SCHEDULED: "Scheduled",
-  ASSIGNED: "Assigned",
-  EN_ROUTE_TO_PICKUP: "En Route Pickup",
-  ARRIVED_PICKUP: "Arrived Pickup",
-  PICKED_UP: "Picked Up",
-  EN_ROUTE_TO_DROPOFF: "En Route Dropoff",
-  ARRIVED_DROPOFF: "Arrived Dropoff",
-  IN_PROGRESS: "In Progress",
-  COMPLETED: "Completed",
-  CANCELLED: "Cancelled",
-  NO_SHOW: "No Show",
-};
+function getStatusBadgeClass(status: string): string {
+  const s = getTripStatusStyle(status);
+  return `${s.bgColor} ${s.color}`;
+}
+const STATUS_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(TRIP_STATUS_MAP).map(([k, v]) => [k, `${v.bgColor} ${v.color}`])
+);
+const STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(TRIP_STATUS_MAP).map(([k, v]) => [k, v.label])
+);
 
 interface DriverStatusData {
   available: DriverInfo[];
@@ -894,6 +879,50 @@ export default function DispatchBoardPage() {
                   </div>
                 </div>
               )}
+              <div className="space-y-2 text-sm" data-testid="peek-timeline">
+                <p className="text-xs font-medium text-muted-foreground uppercase">Status Timeline</p>
+                {[
+                  { label: "Scheduled", ts: peekTrip.createdAt, status: "SCHEDULED" },
+                  { label: "Assigned", ts: peekTrip.driverId ? (peekTrip.assignedAt || peekTrip.updatedAt) : null, status: "ASSIGNED" },
+                  { label: "En Route to Pickup", ts: peekTrip.startedAt, status: "EN_ROUTE_TO_PICKUP" },
+                  { label: "Arrived Pickup", ts: peekTrip.arrivedPickupAt, status: "ARRIVED_PICKUP" },
+                  { label: "Picked Up", ts: peekTrip.pickedUpAt, status: "PICKED_UP" },
+                  { label: "En Route to Dropoff", ts: peekTrip.enRouteDropoffAt, status: "EN_ROUTE_TO_DROPOFF" },
+                  { label: "Arrived Dropoff", ts: peekTrip.arrivedDropoffAt, status: "ARRIVED_DROPOFF" },
+                  { label: "Completed", ts: peekTrip.completedAt, status: "COMPLETED" },
+                ].map((step, i) => {
+                  const reached = !!step.ts;
+                  const isCurrent = step.status === peekTrip.status;
+                  const style = getTripStatusStyle(step.status);
+                  return (
+                    <div key={i} className="flex items-center gap-2" data-testid={`timeline-step-${step.status}`}>
+                      <div
+                        className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${reached ? '' : 'opacity-30'}`}
+                        style={{ backgroundColor: style.markerColor }}
+                      />
+                      <span className={`text-xs ${isCurrent ? 'font-semibold' : reached ? '' : 'text-muted-foreground'}`} data-testid={`timeline-label-${step.status}`}>
+                        {step.label}
+                      </span>
+                      {step.ts && (
+                        <span className="text-[10px] text-muted-foreground ml-auto" data-testid={`timeline-time-${step.status}`}>
+                          {new Date(step.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                {(peekTrip.status === "CANCELLED" || peekTrip.status === "NO_SHOW") && (
+                  <div className="flex items-center gap-2" data-testid={`timeline-step-${peekTrip.status}`}>
+                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getTripStatusStyle(peekTrip.status).markerColor }} />
+                    <span className="text-xs font-semibold">{peekTrip.status === "CANCELLED" ? "Cancelled" : "No-show"}</span>
+                    {peekTrip.cancelledAt && (
+                      <span className="text-[10px] text-muted-foreground ml-auto">
+                        {new Date(peekTrip.cancelledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
               {peekTrip.notes && (
                 <div className="space-y-1 text-sm">
                   <p className="text-xs font-medium text-muted-foreground uppercase">Notes</p>

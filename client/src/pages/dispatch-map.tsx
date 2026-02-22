@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, authHeaders } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useRealtimeTrips } from "@/hooks/use-realtime-trips";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -76,24 +77,17 @@ const DISPATCH_STATUS_LABELS: Record<string, string> = {
   off: "Off Duty",
 };
 
-const TRIP_STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "hsl(217, 91%, 60%)",
-  ASSIGNED: "hsl(25, 95%, 53%)",
-  EN_ROUTE_TO_PICKUP: "hsl(38, 92%, 50%)",
-  ARRIVED_PICKUP: "hsl(263, 70%, 50%)",
-  PICKED_UP: "hsl(271, 91%, 65%)",
-  EN_ROUTE_TO_DROPOFF: "hsl(0, 84%, 60%)",
-  IN_PROGRESS: "hsl(142, 76%, 36%)",
-  ARRIVED_DROPOFF: "hsl(187, 85%, 43%)",
-  COMPLETED: "hsl(0, 0%, 60%)",
-  CANCELLED: "hsl(0, 84%, 60%)",
-  NO_SHOW: "hsl(0, 0%, 40%)",
-};
+import { getTripMarkerColor, getTripStatusLabel, TRIP_STATUS_MAP, MAP_LEGEND_ITEMS, DRIVER_LEGEND_ITEMS, ACTIVE_TRIP_STATUSES } from "@/lib/tripStatusMapping";
+
+const TRIP_STATUS_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(TRIP_STATUS_MAP).map(([k, v]) => [k, v.markerColor])
+);
 
 function DriverMarker({ driver, onClick }: { driver: DriverWithVehicle; onClick: () => void }) {
   const statusColor = DISPATCH_STATUS_COLORS[driver.dispatchStatus] || DISPATCH_STATUS_COLORS.off;
   const vehicleColor = driver.vehicle?.colorHex || "#6366f1";
   const initials = `${driver.firstName[0]}${driver.lastName[0]}`;
+  const isBusy = driver.dispatchStatus === "enroute";
 
   return (
     <button
@@ -117,7 +111,14 @@ function DriverMarker({ driver, onClick }: { driver: DriverWithVehicle; onClick:
         />
       </div>
       <div className="min-w-0 text-left">
-        <p className="text-xs font-medium truncate">{driver.firstName} {driver.lastName}</p>
+        <div className="flex items-center gap-1">
+          <p className="text-xs font-medium truncate">{driver.firstName} {driver.lastName}</p>
+          {isBusy && (
+            <Badge variant="destructive" className="text-[9px] px-1 py-0 h-3.5" data-testid={`badge-busy-${driver.id}`}>
+              Busy
+            </Badge>
+          )}
+        </div>
         <p className="text-[10px] text-muted-foreground truncate">
           {driver.vehicle ? driver.vehicle.name : "No vehicle"}
         </p>
@@ -152,7 +153,7 @@ function TripMarker({ trip, onClick }: { trip: Trip; onClick: () => void }) {
 }
 
 export default function DispatchMapPage() {
-  const { token, selectedCity } = useAuth();
+  const { token, selectedCity, user } = useAuth();
   const { toast } = useToast();
   const [selectedDriver, setSelectedDriver] = useState<DriverWithVehicle | null>(null);
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
@@ -172,9 +173,15 @@ export default function DispatchMapPage() {
   const cityId = selectedCity?.id;
   const today = new Date().toLocaleDateString("en-CA");
 
+  useRealtimeTrips({
+    companyId: user?.companyId || null,
+    invalidateKeys: ["/api/dispatch/map-data", "/api/trips"],
+    enabled: !!user?.companyId,
+  });
+
   const { data: mapData, isLoading, refetch } = useQuery<MapData>({
     queryKey: ["/api/dispatch/map-data", cityId ? `?cityId=${cityId}` : ""],
-    refetchInterval: 10000,
+    refetchInterval: 30000,
     enabled: true,
   });
 
@@ -892,10 +899,10 @@ export default function DispatchMapPage() {
                 </div>
                 <div>
                   <p className="text-[10px] text-muted-foreground mb-1 font-medium">Trip Status</p>
-                  {Object.entries(TRIP_STATUS_COLORS).filter(([k]) => !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(k)).map(([key, color]) => (
-                    <div key={key} className="flex items-center gap-1.5 mb-0.5">
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                      <span className="text-[10px]">{key.replace(/_/g, " ")}</span>
+                  {MAP_LEGEND_ITEMS.filter(item => !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(item.status)).map((item) => (
+                    <div key={item.status} className="flex items-center gap-1.5 mb-0.5">
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
+                      <span className="text-[10px]">{item.label}</span>
                     </div>
                   ))}
                 </div>
