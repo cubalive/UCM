@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, Users, Search, Key, Mail, Copy, Archive, MapPin, Power, RotateCcw, Filter, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiFetch } from "@/lib/api";
+import { AddressAutocomplete, StructuredAddress } from "@/components/address-autocomplete";
 
 const ALL_ROLES = [
   "SUPER_ADMIN",
@@ -662,6 +663,7 @@ function UserForm({ cities, companies, clinics, onSubmit, loading }: { cities: a
   const [showNewClinic, setShowNewClinic] = useState(false);
   const [newClinic, setNewClinic] = useState({ name: "", address: "", cityId: "", companyId: "" });
   const [creatingClinic, setCreatingClinic] = useState(false);
+  const [newClinicAddr, setNewClinicAddr] = useState<StructuredAddress | null>(null);
 
   const isClinicRole = CLINIC_ROLES.has(form.role);
   const isCompanyRole = COMPANY_ROLES.has(form.role);
@@ -772,6 +774,7 @@ function UserForm({ cities, companies, clinics, onSubmit, loading }: { cities: a
             className="w-full mt-1"
             onClick={() => {
               setNewClinic({ name: "", address: "", cityId: "", companyId: form.companyId });
+              setNewClinicAddr(null);
               setShowNewClinic(true);
             }}
             data-testid="button-create-new-clinic"
@@ -787,11 +790,18 @@ function UserForm({ cities, companies, clinics, onSubmit, loading }: { cities: a
                 onChange={(e) => setNewClinic({ ...newClinic, name: e.target.value })}
                 data-testid="input-new-clinic-name"
               />
-              <Input
-                placeholder="Address *"
-                value={newClinic.address}
-                onChange={(e) => setNewClinic({ ...newClinic, address: e.target.value })}
-                data-testid="input-new-clinic-address"
+              <AddressAutocomplete
+                label="Address"
+                value={newClinicAddr}
+                onSelect={(addr) => {
+                  setNewClinicAddr(addr);
+                  if (addr) setNewClinic({ ...newClinic, address: addr.formattedAddress });
+                  else setNewClinic({ ...newClinic, address: "" });
+                }}
+                token={token}
+                testIdPrefix="new-clinic"
+                required
+                allowManualOverride
               />
               <Select value={newClinic.cityId} onValueChange={(v) => setNewClinic({ ...newClinic, cityId: v })}>
                 <SelectTrigger data-testid="select-new-clinic-city"><SelectValue placeholder="Select city *" /></SelectTrigger>
@@ -820,6 +830,15 @@ function UserForm({ cities, companies, clinics, onSubmit, loading }: { cities: a
                     setCreatingClinic(true);
                     try {
                       const body: any = { name: newClinic.name, address: newClinic.address, cityId: Number(newClinic.cityId) };
+                      if (newClinicAddr) {
+                        body.lat = newClinicAddr.lat;
+                        body.lng = newClinicAddr.lng;
+                        body.addressStreet = newClinicAddr.street;
+                        body.addressCity = newClinicAddr.city;
+                        body.addressState = newClinicAddr.state;
+                        body.addressZip = newClinicAddr.zip;
+                        body.addressPlaceId = newClinicAddr.placeId;
+                      }
                       const compId = form.companyId || newClinic.companyId;
                       if (compId) body.companyId = Number(compId);
                       const created = await apiFetch("/api/clinics", token, { method: "POST", body: JSON.stringify(body) });
