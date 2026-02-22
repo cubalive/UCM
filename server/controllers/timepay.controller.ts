@@ -37,10 +37,13 @@ export async function listCompanyDriversHandler(req: AuthRequest, res: Response)
   if (!companyId) return;
   try {
     const { isNull } = await import("drizzle-orm");
+    const cityIdParam = req.query.city_id ? parseInt(req.query.city_id as string) : undefined;
+    const conditions: any[] = [eq(drivers.companyId, companyId), eq(drivers.active, true), isNull(drivers.deletedAt)];
+    if (cityIdParam) conditions.push(eq(drivers.cityId, cityIdParam));
     const result = await db
-      .select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName })
+      .select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName, cityId: drivers.cityId })
       .from(drivers)
-      .where(and(eq(drivers.companyId, companyId), eq(drivers.active, true), isNull(drivers.deletedAt)));
+      .where(and(...conditions));
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ message: err.message });

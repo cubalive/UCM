@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch, getStoredCompanyScopeId, setStoredCompanyScopeId } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +47,7 @@ import {
   Save,
   RotateCcw,
   Pencil,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -70,12 +71,68 @@ function statusVariant(status: string) {
 }
 
 export default function TimecardsPage() {
+  const { token, user } = useAuth();
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
   const [activeTab, setActiveTab] = useState<"entries" | "payrates">("entries");
+  const [companyScopeId, setCompanyScopeIdLocal] = useState<string | null>(getStoredCompanyScopeId());
+  const hasCompanyScope = isSuperAdmin ? !!companyScopeId : true;
+
+  const companiesQuery = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch("/api/companies", token),
+    enabled: !!token && isSuperAdmin,
+  });
+
+  const handleCompanyChange = (value: string) => {
+    setStoredCompanyScopeId(value);
+    setCompanyScopeIdLocal(value);
+    queryClient.invalidateQueries();
+    window.dispatchEvent(new CustomEvent("ucm-scope-changed"));
+  };
+
+  if (isSuperAdmin && !hasCompanyScope) {
+    const companies = companiesQuery.data || [];
+    return (
+      <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="timecards-no-company">
+        <Building2 className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Select a Company</h2>
+        <p className="text-sm text-muted-foreground">Choose a company to manage timecards</p>
+        <Select onValueChange={handleCompanyChange}>
+          <SelectTrigger className="w-64" data-testid="select-company-scope">
+            <SelectValue placeholder="Select company..." />
+          </SelectTrigger>
+          <SelectContent>
+            {companies.map((c: any) => (
+              <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4 max-w-[1400px] mx-auto" data-testid="timecards-page">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold" data-testid="text-page-title">Timecards</h1>
+        {isSuperAdmin && companyScopeId && (
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs" data-testid="badge-company-scope">
+              <Building2 className="w-3 h-3 mr-1" />
+              {(companiesQuery.data || []).find((c: any) => String(c.id) === companyScopeId)?.name || `Company #${companyScopeId}`}
+            </Badge>
+            <Select value={companyScopeId} onValueChange={handleCompanyChange}>
+              <SelectTrigger className="w-48" data-testid="select-change-company">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(companiesQuery.data || []).map((c: any) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       <div className="flex border-b" data-testid="tab-navigation">
