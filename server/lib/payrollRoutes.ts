@@ -861,9 +861,19 @@ async function processPayrun(payrunId: number, companyId: number): Promise<void>
   }
 }
 
+import { createHarnessedTask, registerInterval, type HarnessedTask } from "./schedulerHarness";
+
+let payrollTask: HarnessedTask | null = null;
+
 export function startPayrollScheduler() {
-  setInterval(async () => {
-    try {
+  if (payrollTask) return;
+
+  payrollTask = createHarnessedTask({
+    name: "payroll",
+    lockKey: "scheduler:lock:payroll",
+    lockTtlSeconds: 30,
+    timeoutMs: 120_000,
+    fn: async () => {
       const today = new Date().toISOString().split("T")[0];
       const duePayruns = await db.select().from(payrollPayruns)
         .where(and(
@@ -879,8 +889,17 @@ export function startPayrollScheduler() {
           console.error(`[PayrollScheduler] Failed payrun ${payrun.id}:`, err.message);
         }
       }
-    } catch (err: any) {
-      console.error("[PayrollScheduler] Scheduler error:", err.message);
-    }
-  }, 60 * 60 * 1000);
+    },
+  });
+
+  registerInterval("payroll", 60 * 60 * 1000, payrollTask);
+  console.log("[PayrollScheduler] Started (interval: 1h)");
+}
+
+export function stopPayrollScheduler() {
+  if (payrollTask) {
+    payrollTask.stop();
+    payrollTask = null;
+    console.log("[PayrollScheduler] Stopped");
+  }
 }

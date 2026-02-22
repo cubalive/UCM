@@ -59,16 +59,34 @@ export function registerEnterpriseFinanceRoutes(app: Express) {
   app.use(router);
 }
 
+import { createHarnessedTask, registerInterval, type HarnessedTask } from "../lib/schedulerHarness";
+
 const DUNNING_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+let dunningTask: HarnessedTask | null = null;
+
 export function startDunningScheduler() {
-  console.log("[DUNNING] Scheduler started (interval: 6h)");
-  setInterval(async () => {
-    try {
+  if (dunningTask) return;
+
+  dunningTask = createHarnessedTask({
+    name: "dunning",
+    lockKey: "scheduler:lock:dunning",
+    lockTtlSeconds: 30,
+    timeoutMs: 120_000,
+    fn: async () => {
       const { runDunningCycle } = await import("../services/dunningService");
       await runDunningCycle();
-    } catch (err: any) {
-      console.error("[DUNNING] Scheduler error:", err.message);
-    }
-  }, DUNNING_INTERVAL_MS);
+    },
+  });
+
+  registerInterval("dunning", DUNNING_INTERVAL_MS, dunningTask);
+  console.log("[DUNNING] Scheduler started (interval: 6h)");
+}
+
+export function stopDunningScheduler() {
+  if (dunningTask) {
+    dunningTask.stop();
+    dunningTask = null;
+    console.log("[DUNNING] Stopped");
+  }
 }

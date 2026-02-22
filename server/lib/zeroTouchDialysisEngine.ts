@@ -285,13 +285,19 @@ export async function resumeDialysisAutomation(companyId: number, actorUserId?: 
   });
 }
 
-let dialysisInterval: NodeJS.Timeout | null = null;
+import { createHarnessedTask, registerInterval, type HarnessedTask } from "./schedulerHarness";
+
+let dialysisTask: HarnessedTask | null = null;
 
 export function startDialysisScheduler() {
-  if (dialysisInterval) return;
+  if (dialysisTask) return;
 
-  dialysisInterval = setInterval(async () => {
-    try {
+  dialysisTask = createHarnessedTask({
+    name: "dialysis",
+    lockKey: "scheduler:lock:dialysis",
+    lockTtlSeconds: 30,
+    timeoutMs: 60_000,
+    fn: async () => {
       const preAssign = await runDialysisPreAssign();
       if (preAssign.processed > 0) {
         console.log(`[DIALYSIS] Pre-assign: ${preAssign.assigned}/${preAssign.processed} assigned, ${preAssign.failed} failed`);
@@ -301,10 +307,17 @@ export function startDialysisScheduler() {
       if (recheck.checked > 0) {
         console.log(`[DIALYSIS] Recheck: ${recheck.reassigned}/${recheck.checked} reassigned`);
       }
-    } catch (err: any) {
-      console.error(`[DIALYSIS] Scheduler error: ${err.message}`);
-    }
-  }, 60_000);
+    },
+  });
 
+  registerInterval("dialysis", 60_000, dialysisTask);
   console.log("[DIALYSIS] Scheduler started (checks every 60s)");
+}
+
+export function stopDialysisScheduler() {
+  if (dialysisTask) {
+    dialysisTask.stop();
+    dialysisTask = null;
+    console.log("[DIALYSIS] Stopped");
+  }
 }

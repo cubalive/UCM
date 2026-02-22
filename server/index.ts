@@ -743,31 +743,88 @@ app.use((req, res, next) => {
     },
   );
 
+  const { startMemoryLogger, stopAllSchedulers, stopMemoryLogger } = await import("./lib/schedulerHarness");
+  startMemoryLogger(5 * 60 * 1000);
+
+  const bootSummary = {
+    event: "boot_complete",
+    db: "connected",
+    dbSource: getDbSource(),
+    redis: process.env.UPSTASH_REDIS_REST_URL ? "configured" : "not_configured",
+    schedulers: [
+      "ops_alert", "route_engine", "no_show", "recurring_schedule",
+      "ai_engine", "ai_sentinel", "ops_anomaly", "ops_score",
+      "payroll", "dunning", "dialysis", "sms_reminder",
+      "job_engine_eta", "job_engine_autoassign",
+    ],
+    websocket: "active",
+    memoryLogger: "active",
+    nodeEnv: process.env.NODE_ENV || "development",
+    pid: process.pid,
+    uptime: process.uptime(),
+    ts: new Date().toISOString(),
+  };
+  console.log(JSON.stringify(bootSummary));
+
   let shuttingDown = false;
   async function gracefulShutdown(signal: string) {
     if (shuttingDown) return;
     shuttingDown = true;
-    log(`${signal} received — graceful shutdown starting`);
+    console.log(JSON.stringify({ event: "shutdown_start", signal, ts: new Date().toISOString() }));
+
+    stopAllSchedulers();
+    stopMemoryLogger();
 
     const { stopJobEngine } = await import("./lib/jobEngine");
     stopJobEngine();
 
+    try {
+      const { getWss } = await import("./lib/realtime");
+      const wss = getWss();
+      if (wss) {
+        for (const client of wss.clients) {
+          client.close(1001, "Server shutting down");
+        }
+        wss.close();
+        console.log(JSON.stringify({ event: "websocket_closed", ts: new Date().toISOString() }));
+      }
+    } catch {}
+
     httpServer.close(() => {
-      log("HTTP server closed");
+      console.log(JSON.stringify({ event: "http_server_closed", ts: new Date().toISOString() }));
     });
 
     try {
       const { pool: dbPool } = await import("./db");
       await dbPool.end();
-      log("DB pool closed");
+      console.log(JSON.stringify({ event: "db_pool_closed", ts: new Date().toISOString() }));
     } catch {}
 
     setTimeout(() => {
-      log("Forced exit after timeout");
+      console.log(JSON.stringify({ event: "forced_exit", ts: new Date().toISOString() }));
       process.exit(1);
     }, 10_000).unref();
   }
 
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
   process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+  process.on("unhandledRejection", (reason: any) => {
+    console.error(JSON.stringify({
+      event: "unhandled_rejection",
+      error: reason?.message || String(reason),
+      stack: reason?.stack?.slice(0, 1000),
+      ts: new Date().toISOString(),
+    }));
+  });
+
+  process.on("uncaughtException", (err: Error) => {
+    console.error(JSON.stringify({
+      event: "uncaught_exception",
+      error: err.message,
+      stack: err.stack?.slice(0, 1000),
+      ts: new Date().toISOString(),
+    }));
+    gracefulShutdown("uncaughtException");
+  });
 })();

@@ -58,6 +58,8 @@ interface EngineSnapshot {
   };
 }
 
+import { createHarnessedTask, registerInterval, type HarnessedTask } from "./schedulerHarness";
+
 let engineInterval: ReturnType<typeof setInterval> | null = null;
 let sentinelInterval: ReturnType<typeof setInterval> | null = null;
 let engineStatus: EngineStatus = "OK";
@@ -349,25 +351,36 @@ export function getEngineStatus() {
   };
 }
 
+let aiEngineTask: HarnessedTask | null = null;
+let aiSentinelTask: HarnessedTask | null = null;
+
 export function startAiEngine() {
-  if (engineInterval) return;
+  if (aiEngineTask) return;
+
+  aiEngineTask = createHarnessedTask({
+    name: "ai_engine",
+    lockKey: "scheduler:lock:ai_engine",
+    lockTtlSeconds: 30,
+    timeoutMs: 120_000,
+    fn: runEngineCycle,
+  });
+
+  aiSentinelTask = createHarnessedTask({
+    name: "ai_sentinel",
+    lockKey: "scheduler:lock:ai_sentinel",
+    lockTtlSeconds: 30,
+    timeoutMs: 30_000,
+    fn: runSentinelCheck,
+  });
 
   console.log(`[AI-ENGINE] Starting (interval: ${ENGINE_INTERVAL_MS / 1000}s, sentinel: ${SENTINEL_INTERVAL_MS / 1000}s)`);
 
-  setTimeout(() => runEngineCycle(), 5_000);
-
-  engineInterval = setInterval(runEngineCycle, ENGINE_INTERVAL_MS);
-  sentinelInterval = setInterval(runSentinelCheck, SENTINEL_INTERVAL_MS);
+  registerInterval("ai_engine", ENGINE_INTERVAL_MS, aiEngineTask, 5_000);
+  registerInterval("ai_sentinel", SENTINEL_INTERVAL_MS, aiSentinelTask, 15_000);
 }
 
 export function stopAiEngine() {
-  if (engineInterval) {
-    clearInterval(engineInterval);
-    engineInterval = null;
-  }
-  if (sentinelInterval) {
-    clearInterval(sentinelInterval);
-    sentinelInterval = null;
-  }
+  if (aiEngineTask) { aiEngineTask.stop(); aiEngineTask = null; }
+  if (aiSentinelTask) { aiSentinelTask.stop(); aiSentinelTask = null; }
   console.log("[AI-ENGINE] Stopped");
 }

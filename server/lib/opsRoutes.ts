@@ -539,30 +539,35 @@ async function runClinicAlertCycle(): Promise<{ clinicsChecked: number; alertsSe
   return { clinicsChecked, alertsSent };
 }
 
-let schedulerInterval: ReturnType<typeof setInterval> | null = null;
+import { createHarnessedTask, registerInterval, type HarnessedTask } from "./schedulerHarness";
+
+let opsAlertTask: HarnessedTask | null = null;
 
 export function startOpsAlertScheduler() {
-  if (schedulerInterval) return;
+  if (opsAlertTask) return;
 
-  console.log(`[OPS-ALERT] Scheduler started (interval: ${SCHEDULER_INTERVAL_MS / 1000}s)`);
-
-  schedulerInterval = setInterval(async () => {
-    try {
+  opsAlertTask = createHarnessedTask({
+    name: "ops_alert",
+    lockKey: "scheduler:lock:ops_alert",
+    lockTtlSeconds: 30,
+    timeoutMs: 60_000,
+    fn: async () => {
       const opsResult = await runOpsAlertCycle();
       console.log(`[OPS-ALERT] Cycle done: ${opsResult.citiesChecked} cities, ${opsResult.alertsSent} SMS sent`);
 
       const clinicResult = await runClinicAlertCycle();
       console.log(`[CLINIC-ALERT] Cycle done: ${clinicResult.clinicsChecked} clinics, ${clinicResult.alertsSent} alerts sent`);
-    } catch (err: any) {
-      console.error(`[OPS-ALERT] Scheduler error: ${err.message}`);
-    }
-  }, SCHEDULER_INTERVAL_MS);
+    },
+  });
+
+  registerInterval("ops_alert", SCHEDULER_INTERVAL_MS, opsAlertTask);
+  console.log(`[OPS-ALERT] Scheduler started (interval: ${SCHEDULER_INTERVAL_MS / 1000}s)`);
 }
 
 export function stopOpsAlertScheduler() {
-  if (schedulerInterval) {
-    clearInterval(schedulerInterval);
-    schedulerInterval = null;
+  if (opsAlertTask) {
+    opsAlertTask.stop();
+    opsAlertTask = null;
     console.log("[OPS-ALERT] Scheduler stopped");
   }
 }
@@ -785,7 +790,7 @@ export function registerOpsRoutes(app: Express) {
       ok: true,
       dispatchPhoneConfigured: !!process.env.DISPATCH_PHONE_NUMBER,
       twilioConfigured: isTwilioConfigured(),
-      schedulerRunning: !!schedulerInterval,
+      schedulerRunning: !!opsAlertTask,
       cooldownMinutes: COOLDOWN_MINUTES,
       intervalSeconds: SCHEDULER_INTERVAL_MS / 1000,
     });

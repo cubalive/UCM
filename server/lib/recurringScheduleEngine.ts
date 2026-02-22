@@ -129,16 +129,22 @@ export async function runRecurringScheduleGenerator(): Promise<{ total: number; 
   return { total: totalCreated, schedules: processedSchedules };
 }
 
-let schedulerInterval: ReturnType<typeof setInterval> | null = null;
+import { createHarnessedTask, registerInterval, type HarnessedTask } from "./schedulerHarness";
+
+let recurringTask: HarnessedTask | null = null;
 let lastRunDate: string | null = null;
 
 export function startRecurringScheduleScheduler() {
-  if (schedulerInterval) return;
+  if (recurringTask) return;
 
   const INTERVAL = 60_000;
 
-  schedulerInterval = setInterval(async () => {
-    try {
+  recurringTask = createHarnessedTask({
+    name: "recurring_schedule",
+    lockKey: "scheduler:lock:recurring_schedule",
+    lockTtlSeconds: 30,
+    timeoutMs: 120_000,
+    fn: async () => {
       const cities = await storage.getActiveCities();
       for (const city of cities) {
         const timezone = (city as any)?.timezone || "America/Los_Angeles";
@@ -151,18 +157,17 @@ export function startRecurringScheduleScheduler() {
           break;
         }
       }
-    } catch (err: any) {
-      console.error("[RECURRING-SCHEDULE] Scheduler error:", err.message);
-    }
-  }, INTERVAL);
+    },
+  });
 
+  registerInterval("recurring_schedule", INTERVAL, recurringTask);
   console.log("[RECURRING-SCHEDULE] Scheduler started (checks every 60s for midnight window)");
 }
 
 export function stopRecurringScheduleScheduler() {
-  if (schedulerInterval) {
-    clearInterval(schedulerInterval);
-    schedulerInterval = null;
+  if (recurringTask) {
+    recurringTask.stop();
+    recurringTask = null;
     console.log("[RECURRING-SCHEDULE] Scheduler stopped");
   }
 }

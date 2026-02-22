@@ -19,18 +19,46 @@ export async function healthz(_req: Request, res: Response) {
     dbOk = true;
   } catch {}
 
+  let redisStatus: any = { status: "not_checked" };
+  try {
+    const { pingRedis, isRedisConnected } = await import("../lib/redis");
+    if (isRedisConnected()) {
+      const pingResult = await pingRedis();
+      redisStatus = { status: pingResult.ok ? "connected" : "error", latencyMs: pingResult.latencyMs };
+    } else {
+      redisStatus = { status: "not_configured" };
+    }
+  } catch (err: any) {
+    redisStatus = { status: "error", error: err.message };
+  }
+
+  let schedulers: any = {};
+  try {
+    const { getSchedulerStates } = await import("../lib/schedulerHarness");
+    schedulers = getSchedulerStates();
+  } catch {}
+
+  const mem = process.memoryUsage();
   const ok = dbOk;
   res.status(ok ? 200 : 503).json({
     ok,
     version: APP_VERSION,
     builtAt: APP_BUILD_TIME,
     env: APP_ENV,
-    uptime: process.uptime(),
+    uptime: Math.round(process.uptime()),
+    pid: process.pid,
+    memory: {
+      rss_mb: Math.round(mem.rss / 1024 / 1024),
+      heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+      heap_total_mb: Math.round(mem.heapTotal / 1024 / 1024),
+    },
     db: {
       status: dbOk ? "connected" : "disconnected",
       source: getDbSource(),
       latencyMs: dbLatencyMs,
     },
+    redis: redisStatus,
+    schedulers,
     timestamp: new Date().toISOString(),
   });
 }
@@ -178,4 +206,37 @@ export function pwaHealth(_req: Request, res: Response) {
     manifest: "/manifest.json",
     timestamp: new Date().toISOString(),
   });
+}
+
+export function crashSimulation(req: Request, res: Response) {
+  if (APP_ENV === "production") {
+    return res.status(403).json({ error: "Crash simulation disabled in production" });
+  }
+
+  const type = (req.query.type as string) || "rejection";
+
+  switch (type) {
+    case "rejection":
+      Promise.reject(new Error("[CRASH-SIM] Controlled unhandled rejection test"));
+      res.json({ triggered: "unhandledRejection", recovered: true, ts: new Date().toISOString() });
+      break;
+
+    case "throw":
+      setTimeout(() => {
+        throw new Error("[CRASH-SIM] Controlled uncaught exception test — should trigger graceful shutdown");
+      }, 100);
+      res.json({ triggered: "uncaughtException", note: "Process will attempt graceful shutdown in 100ms", ts: new Date().toISOString() });
+      break;
+
+    case "oom":
+      res.json({ error: "OOM simulation disabled for safety", ts: new Date().toISOString() });
+      break;
+
+    default:
+      res.json({
+        available: ["rejection", "throw", "oom"],
+        usage: "/api/dev/crash?type=rejection",
+        ts: new Date().toISOString(),
+      });
+  }
 }

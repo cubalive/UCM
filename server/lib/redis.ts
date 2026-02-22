@@ -152,6 +152,66 @@ export async function incr(key: string, ttlSeconds: number): Promise<number> {
   }
 }
 
+export async function getString(key: string): Promise<string | null> {
+  if (!redis) {
+    return cache.get<string>(key) ?? null;
+  }
+  try {
+    const val = await redis.get<string>(key);
+    return val ?? null;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    return cache.get<string>(key) ?? null;
+  }
+}
+
+export async function compareAndDelete(key: string, expectedValue: string): Promise<boolean> {
+  if (!redis) {
+    const current = cache.get<string>(key);
+    if (current === expectedValue) {
+      cache.delete(key);
+      return true;
+    }
+    return false;
+  }
+  try {
+    const current = await redis.get<string>(key);
+    if (current === expectedValue) {
+      await redis.del(key);
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    return false;
+  }
+}
+
+export async function compareAndRenew(key: string, expectedValue: string, ttlSeconds: number): Promise<boolean> {
+  if (!redis) {
+    const current = cache.get<string>(key);
+    if (current === expectedValue) {
+      cache.set(key, expectedValue, ttlSeconds * 1000);
+      return true;
+    }
+    return false;
+  }
+  try {
+    const current = await redis.get<string>(key);
+    if (current === expectedValue) {
+      await redis.set(key, expectedValue, { ex: ttlSeconds });
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    return false;
+  }
+}
+
 export async function setNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
   if (!redis) {
     if (cache.has(key)) return false;

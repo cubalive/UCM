@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import type { City } from "@shared/schema";
+import { createHarnessedTask, registerInterval, type HarnessedTask } from "./schedulerHarness";
 
 function getCityLocalDate(timezone: string): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: timezone });
@@ -53,28 +54,31 @@ export async function checkPatientNoShowStrikes(patientId: number, clinicId: num
   return { count, alertSent: false };
 }
 
-let noShowSchedulerInterval: ReturnType<typeof setInterval> | null = null;
+let noShowTask: HarnessedTask | null = null;
 
 export function startNoShowScheduler() {
-  if (noShowSchedulerInterval) return;
+  if (noShowTask) return;
 
-  noShowSchedulerInterval = setInterval(async () => {
-    try {
+  noShowTask = createHarnessedTask({
+    name: "no_show",
+    lockKey: "scheduler:lock:no_show",
+    lockTtlSeconds: 30,
+    timeoutMs: 60_000,
+    fn: async () => {
       const cities = await storage.getActiveCities();
       for (const city of cities) {
         await runConfirmationChecks(city);
       }
-    } catch (err: any) {
-      console.error("[NO-SHOW] Scheduler error:", err.message);
-    }
-  }, 5 * 60 * 1000);
+    },
+  });
 
+  registerInterval("no_show", 5 * 60 * 1000, noShowTask);
   console.log("[NO-SHOW] Confirmation scheduler started (checks every 5 min)");
 }
 
 export function stopNoShowScheduler() {
-  if (noShowSchedulerInterval) {
-    clearInterval(noShowSchedulerInterval);
-    noShowSchedulerInterval = null;
+  if (noShowTask) {
+    noShowTask.stop();
+    noShowTask = null;
   }
 }

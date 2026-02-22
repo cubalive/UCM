@@ -255,3 +255,7 @@ export function getActiveConnectionCount(): number {
 export function getTripSubscriberCount(tripId: number): number {
   return tripSubscriptions.get(tripId)?.size || 0;
 }
+
+export function getWss(): WebSocketServer | null {
+  return wss;
+}
