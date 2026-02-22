@@ -24,8 +24,8 @@ export async function clinicCreateTripRequest(req: AuthRequest, res: Response) {
       serviceLevel, isRoundTrip, recurrenceRule, passengerCount, notes,
       pickupLat, pickupLng, dropoffLat, dropoffLng, companyId, cityId } = req.body;
 
-    const resolvedCompanyId = companyId || clinic.companyId;
-    const resolvedCityId = cityId || clinic.cityId;
+    const resolvedCompanyId = clinic.companyId || companyId;
+    const resolvedCityId = clinic.cityId || cityId;
 
     if (!resolvedCompanyId) {
       return res.status(400).json({ message: "Company ID required" });
@@ -35,6 +35,9 @@ export async function clinicCreateTripRequest(req: AuthRequest, res: Response) {
       const patient = await storage.getPatient(patientId);
       if (!patient || patient.clinicId !== clinicId) {
         return res.status(400).json({ message: "Patient not found or not associated with this clinic" });
+      }
+      if (resolvedCompanyId && patient.companyId && patient.companyId !== resolvedCompanyId) {
+        return res.status(400).json({ message: "Patient does not belong to this company" });
       }
     }
 
@@ -419,8 +422,8 @@ export async function clinicCreatePatient(req: AuthRequest, res: Response) {
       return res.status(400).json({ message: "First name and last name are required" });
     }
 
-    const resolvedCompanyId = companyId || clinic.companyId;
-    const resolvedCityId = cityId || clinic.cityId;
+    const resolvedCompanyId = clinic.companyId || companyId;
+    const resolvedCityId = clinic.cityId || cityId;
 
     if (!resolvedCompanyId) {
       return res.status(400).json({ message: "Company ID is required" });

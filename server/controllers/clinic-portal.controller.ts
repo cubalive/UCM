@@ -968,9 +968,21 @@ export async function clinicInvoicesHandler(req: AuthRequest, res: Response) {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (user.role === "SUPER_ADMIN" || user.role === "ADMIN" || user.role === "DISPATCH") {
+    if (user.role === "SUPER_ADMIN") {
       const allInvoices = await storage.getInvoices();
       return res.json(allInvoices);
+    }
+
+    if (user.role === "ADMIN" || user.role === "DISPATCH" || user.role === "COMPANY_ADMIN") {
+      const companyId = req.user!.companyId;
+      if (!companyId) {
+        return res.status(403).json({ message: "No company assigned to your account" });
+      }
+      const allInvoices = await storage.getInvoices();
+      const companyClinics = (await storage.getClinics()).filter((c: any) => c.companyId === companyId);
+      const companyClinicIds = new Set(companyClinics.map((c: any) => c.id));
+      const filtered = allInvoices.filter((inv: any) => inv.clinicId && companyClinicIds.has(inv.clinicId));
+      return res.json(filtered);
     }
 
     if (!user.clinicId) {
@@ -995,7 +1007,23 @@ export async function clinicInvoiceByIdHandler(req: AuthRequest, res: Response) 
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (user.role === "SUPER_ADMIN" || user.role === "ADMIN" || user.role === "DISPATCH") {
+    if (user.role === "SUPER_ADMIN") {
+      return res.json(invoice);
+    }
+
+    if (user.role === "ADMIN" || user.role === "DISPATCH" || user.role === "COMPANY_ADMIN") {
+      const companyId = req.user!.companyId;
+      if (!companyId) {
+        return res.status(403).json({ message: "No company assigned to your account" });
+      }
+      if (invoice.clinicId) {
+        const invoiceClinic = await storage.getClinic(invoice.clinicId);
+        if (!invoiceClinic || invoiceClinic.companyId !== companyId) {
+          return denyAsNotFound(res, "Invoice");
+        }
+      } else {
+        return denyAsNotFound(res, "Invoice");
+      }
       return res.json(invoice);
     }
 
@@ -1020,6 +1048,10 @@ export async function clinicDeletePatientHandler(req: AuthRequest, res: Response
     const patient = await storage.getPatient(id);
     if (!patient) return res.status(404).json({ message: "Patient not found" });
     if (patient.clinicId !== user.clinicId) {
+      return denyAsNotFound(res, "Patient");
+    }
+    const clinic = await storage.getClinic(user.clinicId);
+    if (clinic?.companyId && patient.companyId !== clinic.companyId) {
       return denyAsNotFound(res, "Patient");
     }
     const hasActive = await storage.hasActiveTripsForPatient(id);
@@ -1053,6 +1085,10 @@ export async function clinicDeleteTripHandler(req: AuthRequest, res: Response) {
     if (trip.clinicId !== user.clinicId) {
       return denyAsNotFound(res, "Trip");
     }
+    const clinic = await storage.getClinic(user.clinicId);
+    if (clinic?.companyId && trip.companyId !== clinic.companyId) {
+      return denyAsNotFound(res, "Trip");
+    }
     if (trip.approvalStatus !== "pending") {
       return res.status(400).json({ message: "Can only delete trips with pending approval status" });
     }
@@ -1077,8 +1113,18 @@ export async function clinicPatientsHandler(req: AuthRequest, res: Response) {
     if (!user || (user.role !== "VIEWER" && user.role !== "CLINIC_USER") || !user.clinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
+    const clinic = await storage.getClinic(user.clinicId);
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+    const conditions: any[] = [
+      eq(patients.clinicId, user.clinicId),
+      eq(patients.active, true),
+      isNull(patients.deletedAt),
+    ];
+    if (clinic.companyId) {
+      conditions.push(eq(patients.companyId, clinic.companyId));
+    }
     const clinicPatients = await db.select().from(patients).where(
-      and(eq(patients.clinicId, user.clinicId), eq(patients.active, true), isNull(patients.deletedAt))
+      and(...conditions)
     ).orderBy(patients.firstName);
     res.json(clinicPatients);
   } catch (err: any) {
