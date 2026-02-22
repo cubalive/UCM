@@ -7,6 +7,18 @@ import { generatePublicId } from "../public-id";
 import { hashPassword } from "../auth";
 import { storage } from "../storage";
 
+const STATE_TIMEZONE: Record<string, string> = {
+  TX: "America/Chicago", LA: "America/Chicago", AR: "America/Chicago",
+  OK: "America/Chicago", KS: "America/Chicago", MO: "America/Chicago",
+  IL: "America/Chicago", WI: "America/Chicago", MN: "America/Chicago",
+  IA: "America/Chicago", NV: "America/Los_Angeles", CA: "America/Los_Angeles",
+  WA: "America/Los_Angeles", OR: "America/Los_Angeles", AZ: "America/Phoenix",
+  NY: "America/New_York", FL: "America/New_York", GA: "America/New_York",
+  NC: "America/New_York", VA: "America/New_York", PA: "America/New_York",
+  OH: "America/New_York", MI: "America/New_York", CO: "America/Denver",
+  UT: "America/Denver", NM: "America/Denver", MT: "America/Denver",
+};
+
 export async function onboardingStatusHandler(_req: AuthRequest, res: Response) {
   try {
     const [companyCount] = await db.select({ count: sql<number>`count(*)::int` }).from(companies);
@@ -60,52 +72,58 @@ export async function onboardCompanyHandler(req: AuthRequest, res: Response) {
     const existingEmail = await storage.getUserByEmail(adminEmail.trim().toLowerCase());
     if (existingEmail) return res.status(409).json({ message: "Email already in use" });
 
-    const [newCompany] = await db.insert(companies).values({
-      name: name.trim(),
-    }).returning();
-
-    let city;
-    const existingCity = await db.select().from(cities).where(
-      sql`LOWER(${cities.name}) = LOWER(${usCity.city}) AND LOWER(${cities.state}) = LOWER(${usCity.stateCode})`
-    );
-
-    if (existingCity.length) {
-      city = existingCity[0];
-    } else {
-      [city] = await db.insert(cities).values({
-        name: usCity.city,
-        state: usCity.stateCode,
-        timezone: "America/Chicago",
-        active: true,
-        usCityId: usCity.id,
-      }).returning();
-    }
-
     const adminPublicId = await generatePublicId();
     const hashedPassword = await hashPassword(adminPassword);
-    const [adminUser] = await db.insert(users).values({
-      publicId: adminPublicId,
-      email: adminEmail.trim().toLowerCase(),
-      password: hashedPassword,
-      firstName: (adminFirstName || "Company").trim(),
-      lastName: (adminLastName || "Admin").trim(),
-      role: "ADMIN",
-      companyId: newCompany.id,
-      active: true,
-    }).returning();
+    const tz = STATE_TIMEZONE[usCity.stateCode] || "America/New_York";
+
+    const result = await db.transaction(async (tx) => {
+      const [newCompany] = await tx.insert(companies).values({
+        name: name.trim(),
+      }).returning();
+
+      let city;
+      const existingCity = await tx.select().from(cities).where(
+        sql`LOWER(${cities.name}) = LOWER(${usCity.city}) AND LOWER(${cities.state}) = LOWER(${usCity.stateCode})`
+      );
+
+      if (existingCity.length) {
+        city = existingCity[0];
+      } else {
+        [city] = await tx.insert(cities).values({
+          name: usCity.city,
+          state: usCity.stateCode,
+          timezone: tz,
+          active: true,
+          usCityId: usCity.id,
+        }).returning();
+      }
+
+      const [adminUser] = await tx.insert(users).values({
+        publicId: adminPublicId,
+        email: adminEmail.trim().toLowerCase(),
+        password: hashedPassword,
+        firstName: (adminFirstName || "Company").trim(),
+        lastName: (adminLastName || "Admin").trim(),
+        role: "ADMIN",
+        companyId: newCompany.id,
+        active: true,
+      }).returning();
+
+      return { newCompany, city, adminUser };
+    });
 
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "ONBOARD_COMPANY",
       entity: "company",
-      entityId: newCompany.id,
-      details: `Onboarded company "${newCompany.name}" with admin ${adminUser.email} in ${usCity.city}, ${usCity.stateCode}`,
+      entityId: result.newCompany.id,
+      details: `Onboarded company "${result.newCompany.name}" with admin ${result.adminUser.email} in ${usCity.city}, ${usCity.stateCode}`,
     });
 
     res.json({
-      company: { id: newCompany.id, name: newCompany.name },
-      city: { id: city.id, name: city.name, state: city.state },
-      admin: { id: adminUser.id, publicId: adminUser.publicId, email: adminUser.email },
+      company: { id: result.newCompany.id, name: result.newCompany.name },
+      city: { id: result.city.id, name: result.city.name, state: result.city.state },
+      admin: { id: result.adminUser.id, publicId: result.adminUser.publicId, email: result.adminUser.email },
     });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
