@@ -520,6 +520,11 @@ function AuthenticatedApp() {
   }
 
   if (error && !user) {
+    const isSessionError = /session|expired|auth|401|403|token/i.test(error);
+    if (isSessionError) {
+      try { localStorage.removeItem(getTokenKey()); } catch {}
+      return <LoginPage />;
+    }
     return <ErrorPanel message={error} onRetry={retry} />;
   }
 
