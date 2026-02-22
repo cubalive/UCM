@@ -22,6 +22,7 @@ export default function ClinicDetailPage() {
   const { token, user } = useAuth();
   const { toast } = useToast();
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const canConfigureClinic = ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user?.role || "");
 
   const { data: clinic, isLoading, error } = useQuery<any>({
     queryKey: ["/api/clinics", id],
@@ -213,7 +214,7 @@ export default function ClinicDetailPage() {
         </Card>
       </div>
 
-      {isSuperAdmin && (
+      {canConfigureClinic && (
         <Card data-testid="clinic-location-section">
           <CardContent className="py-4 space-y-4">
             <div className="flex items-center justify-between">
