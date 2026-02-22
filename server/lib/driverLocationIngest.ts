@@ -7,6 +7,8 @@ import { broadcastToTrip } from "./realtime";
 import { broadcastTripSupabaseThrottled } from "./supabaseRealtime";
 import { getJson, setJson, incr, recordRateLimited } from "./redis";
 import { shouldPublishLocationRedis, recordLatencySample } from "./backpressure";
+import { db } from "../db";
+import { tripLocationPoints } from "@shared/schema";
 
 const RATE_LIMIT_MS = 2000;
 const MAX_SPEED_MPS = 55; // ~123 mph
@@ -274,6 +276,52 @@ async function maybePersistToDb(driverId: number, lat: number, lng: number): Pro
   return true;
 }
 
+const BREADCRUMB_INTERVAL_MS = 5_000;
+const BREADCRUMB_MIN_DISTANCE_M = 20;
+const breadcrumbLastTs = new Map<number, number>();
+
+async function storeTripBreadcrumbs(driverId: number, points: NormalizedPoint[]): Promise<void> {
+  const tripsForDriver = await storage.getActiveTripsForDriver(driverId);
+  if (tripsForDriver.length === 0) return;
+
+  for (const trip of tripsForDriver) {
+    const tripId = trip.id;
+    const lastTs = breadcrumbLastTs.get(tripId) || 0;
+    const now = Date.now();
+
+    if (now - lastTs < BREADCRUMB_INTERVAL_MS) continue;
+
+    const validPoints = points.filter(p => p.lat !== 0 && p.lng !== 0);
+    if (validPoints.length === 0) continue;
+
+    const latestPoint = validPoints[validPoints.length - 1];
+
+    try {
+      await db.insert(tripLocationPoints).values({
+        tripId,
+        driverId,
+        ts: new Date(latestPoint.timestamp),
+        lat: latestPoint.lat,
+        lng: latestPoint.lng,
+        accuracyM: latestPoint.accuracy ?? null,
+        speedMps: latestPoint.speed ?? null,
+        headingDeg: latestPoint.heading ?? null,
+        source: "gps",
+      });
+      breadcrumbLastTs.set(tripId, now);
+    } catch (err: any) {
+      console.warn(`[BREADCRUMB] Failed to store for trip ${tripId}: ${err.message}`);
+    }
+  }
+
+  if (breadcrumbLastTs.size > 5000) {
+    const cutoff = Date.now() - 3600_000;
+    for (const [id, ts] of breadcrumbLastTs) {
+      if (ts < cutoff) breadcrumbLastTs.delete(id);
+    }
+  }
+}
+
 const tripSequenceCounters = new Map<number, number>();
 
 function getNextSeq(tripId: number): number {
@@ -507,6 +555,11 @@ export function registerDriverLocationRoutes(app: Express): void {
 
           await maybePersistToDb(driverId, lastPoint.lat, lastPoint.lng);
           broadcastDriverLocation(driverId, lastPoint.lat, lastPoint.lng);
+
+          const acceptedPoints = points.filter((_, i) => results[i]?.accepted);
+          storeTripBreadcrumbs(driverId, acceptedPoints.length > 0 ? acceptedPoints : [lastPoint]).catch(err => {
+            console.warn(`[BREADCRUMB] Background store error: ${err.message}`);
+          });
         }
 
         const accepted = results.filter(r => r.accepted).length;

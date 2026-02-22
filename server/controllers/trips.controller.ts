@@ -2010,21 +2010,21 @@ export async function getTripRouteHandler(req: AuthRequest, res: Response) {
     const { ensureTripRoute } = await import("../lib/tripRouteService");
     const result = await ensureTripRoute(id);
 
-    if (!result) {
-      return res.json({
-        routePolyline: null,
-        distanceMeters: null,
-        durationSeconds: null,
-        routeVersion: null,
-      });
-    }
+    const response: any = {
+      routePolyline: result?.routePolyline || null,
+      distanceMeters: result?.routeDistanceMeters || null,
+      durationSeconds: result?.routeDurationSeconds || null,
+      routeVersion: result?.routeVersion || null,
+      actualPolyline: (trip as any).actualPolyline || null,
+      actualDistanceMeters: trip.actualDistanceMeters || null,
+      actualDurationSeconds: (trip as any).actualDurationSeconds || null,
+      waitingSeconds: (trip as any).waitingSeconds || null,
+      routeSource: (trip as any).routeSource || null,
+      routeQualityScore: (trip as any).routeQualityScore || null,
+      status: trip.status,
+    };
 
-    return res.json({
-      routePolyline: result.routePolyline,
-      distanceMeters: result.routeDistanceMeters,
-      durationSeconds: result.routeDurationSeconds,
-      routeVersion: result.routeVersion,
-    });
+    return res.json(response);
   } catch (err: any) {
     console.warn(`[TRIP-ROUTE] Error for trip ${req.params.id}: ${err.message}`);
     return res.json({

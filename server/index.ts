@@ -599,6 +599,29 @@ app.use((req, res, next) => {
     `);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS trip_routes_trip_id_idx ON trip_routes(trip_id, version)`);
 
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS actual_duration_seconds INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS waiting_seconds INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS route_source TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS route_quality_score INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS actual_polyline TEXT`);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS trip_location_points (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES trips(id),
+        driver_id INTEGER NOT NULL,
+        ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        lat DOUBLE PRECISION NOT NULL,
+        lng DOUBLE PRECISION NOT NULL,
+        accuracy_m DOUBLE PRECISION,
+        speed_mps DOUBLE PRECISION,
+        heading_deg DOUBLE PRECISION,
+        source TEXT NOT NULL DEFAULT 'gps',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trip_location_points_trip_ts ON trip_location_points(trip_id, ts)`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);

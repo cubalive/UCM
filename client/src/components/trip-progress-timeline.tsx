@@ -7,6 +7,8 @@ import {
   XCircle,
   AlertTriangle,
   Clock,
+  Hourglass,
+  Gauge,
 } from "lucide-react";
 
 interface ProgressEvent {
@@ -154,8 +156,17 @@ export function TripDateTimeHeader({ trip }: { trip: any }) {
 }
 
 export function TripMetricsCard({ trip }: { trip: any }) {
-  const miles = trip.distanceMiles ? parseFloat(trip.distanceMiles) : null;
-  const driveTimeMin = trip.durationMinutes != null ? trip.durationMinutes : (trip.routeDurationSeconds != null ? Math.round(trip.routeDurationSeconds / 60) : null);
+  const estimatedMiles = trip.distanceMiles ? parseFloat(trip.distanceMiles) : null;
+  const actualMiles = trip.actualDistanceMeters != null ? Math.round((trip.actualDistanceMeters / 1609.344) * 10) / 10 : null;
+  const displayMiles = actualMiles ?? estimatedMiles;
+  const milesSource = actualMiles != null ? (trip.actualDistanceSource === "gps" ? "GPS" : "Est.") : (estimatedMiles != null ? "Est." : null);
+
+  const driveTimeMin = trip.actualDurationSeconds != null
+    ? Math.round(trip.actualDurationSeconds / 60)
+    : (trip.durationMinutes != null ? trip.durationMinutes : (trip.routeDurationSeconds != null ? Math.round(trip.routeDurationSeconds / 60) : null));
+
+  const waitingSec = trip.waitingSeconds;
+  const waitingDisplay = waitingSec != null ? `${Math.round(waitingSec / 60)} min` : null;
 
   const onsiteMinutes = computeDurationMinutes(trip.arrivedPickupAt, trip.completedAt || trip.cancelledAt);
   const transportMinutes = computeDurationMinutes(trip.pickedUpAt, trip.arrivedDropoffAt);
@@ -188,8 +199,11 @@ export function TripMetricsCard({ trip }: { trip: any }) {
         <Route className="w-4 h-4 text-muted-foreground flex-shrink-0" />
         <span className="text-muted-foreground">Miles:</span>
         <span className="font-medium" data-testid="text-trip-miles">
-          {miles != null ? `${miles.toFixed(1)} mi` : "—"}
+          {displayMiles != null ? `${displayMiles.toFixed(1)} mi` : "—"}
         </span>
+        {milesSource && (
+          <span className="text-[10px] text-muted-foreground" data-testid="text-trip-miles-source">({milesSource})</span>
+        )}
       </div>
       <div className="flex items-center gap-1.5 text-sm">
         <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -198,6 +212,15 @@ export function TripMetricsCard({ trip }: { trip: any }) {
           {driveTimeMin != null ? `${driveTimeMin} min` : "—"}
         </span>
       </div>
+      {waitingDisplay && (
+        <div className="flex items-center gap-1.5 text-sm">
+          <Hourglass className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <span className="text-muted-foreground">Wait:</span>
+          <span className="font-medium" data-testid="text-trip-waiting">
+            {waitingDisplay}
+          </span>
+        </div>
+      )}
       <div className="flex items-center gap-1.5 text-sm">
         <Timer className="w-4 h-4 text-muted-foreground flex-shrink-0" />
         <span className="text-muted-foreground">On-site:</span>

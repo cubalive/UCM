@@ -170,6 +170,13 @@ export async function transitionTripStatus(
 
     if (nextStatus === "COMPLETED") {
       try {
+        const { finalizeTripRoute } = await import("./tripFinalizationService");
+        await finalizeTripRoute(tripId);
+      } catch (err: any) {
+        console.warn("[TRANSITION] Trip finalization failed:", err.message);
+      }
+
+      try {
         const { computeActualDistance } = await import("./actualMilesService");
         await computeActualDistance(tripId);
       } catch (err: any) {

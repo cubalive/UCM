@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import { MapPin, Loader2 } from "lucide-react";
+import { MapPin, Loader2, CheckCircle, AlertTriangle } from "lucide-react";
 
 interface TripRouteMapProps {
   tripId: number;
@@ -49,6 +49,13 @@ function parseCoord(val: number | string | null | undefined): number | null {
   return isNaN(n) ? null : n;
 }
 
+function getQualityLabel(score: number | null): { label: string; variant: "default" | "secondary" | "destructive"; icon: "good" | "ok" | "poor" } {
+  if (score === null || score === undefined) return { label: "N/A", variant: "secondary", icon: "ok" };
+  if (score >= 70) return { label: "Good", variant: "default", icon: "good" };
+  if (score >= 40) return { label: "OK", variant: "secondary", icon: "ok" };
+  return { label: "Poor", variant: "destructive", icon: "poor" };
+}
+
 export function TripRouteMap({
   tripId,
   pickupLat,
@@ -63,7 +70,8 @@ export function TripRouteMap({
 }: TripRouteMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
-  const polylineRef = useRef<google.maps.Polyline | null>(null);
+  const plannedPolylineRef = useRef<google.maps.Polyline | null>(null);
+  const actualPolylineRef = useRef<google.maps.Polyline | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
   const [mapsReady, setMapsReady] = useState(false);
   const [mapError, setMapError] = useState(false);
@@ -163,44 +171,83 @@ export function TripRouteMap({
 
     markersRef.current = [pickupMarker, dropoffMarker];
 
-    if (polylineRef.current) {
-      polylineRef.current.setMap(null);
-      polylineRef.current = null;
+    if (plannedPolylineRef.current) {
+      plannedPolylineRef.current.setMap(null);
+      plannedPolylineRef.current = null;
+    }
+    if (actualPolylineRef.current) {
+      actualPolylineRef.current.setMap(null);
+      actualPolylineRef.current = null;
     }
 
-    const routePolyline = routeQuery.data?.routePolyline;
-    let path: google.maps.LatLng[];
-
-    if (routePolyline && window.google?.maps?.geometry?.encoding) {
-      try {
-        path = google.maps.geometry.encoding.decodePath(routePolyline);
-      } catch {
-        path = [new google.maps.LatLng(pLat, pLng), new google.maps.LatLng(dLat, dLng)];
-      }
-    } else {
-      path = [new google.maps.LatLng(pLat, pLng), new google.maps.LatLng(dLat, dLng)];
-    }
-
-    polylineRef.current = new google.maps.Polyline({
-      path,
-      strokeColor: routePolyline ? "#3b82f6" : "#94a3b8",
-      strokeOpacity: routePolyline ? 0.9 : 0.6,
-      strokeWeight: routePolyline ? 5 : 3,
-      geodesic: !routePolyline,
-      map: mapRef.current,
-    });
+    const routeData = routeQuery.data;
+    const plannedPolyline = routeData?.routePolyline;
+    const actualPolyline = routeData?.actualPolyline;
+    const hasActual = !!actualPolyline;
+    const hasPlanned = !!plannedPolyline;
 
     const bounds = new google.maps.LatLngBounds();
-    path.forEach((p) => bounds.extend(p));
     bounds.extend({ lat: pLat, lng: pLng });
     bounds.extend({ lat: dLat, lng: dLng });
+
+    if (hasPlanned && window.google?.maps?.geometry?.encoding) {
+      try {
+        const plannedPath = google.maps.geometry.encoding.decodePath(plannedPolyline);
+        plannedPolylineRef.current = new google.maps.Polyline({
+          path: plannedPath,
+          strokeColor: "#94a3b8",
+          strokeOpacity: hasActual ? 0.5 : 0.8,
+          strokeWeight: hasActual ? 3 : 4,
+          geodesic: false,
+          map: mapRef.current,
+          zIndex: 1,
+        });
+        plannedPath.forEach((p) => bounds.extend(p));
+      } catch {
+        // fallback below
+      }
+    }
+
+    if (hasActual && window.google?.maps?.geometry?.encoding) {
+      try {
+        const actualPath = google.maps.geometry.encoding.decodePath(actualPolyline);
+        actualPolylineRef.current = new google.maps.Polyline({
+          path: actualPath,
+          strokeColor: "#8b5cf6",
+          strokeOpacity: 0.9,
+          strokeWeight: 5,
+          geodesic: false,
+          map: mapRef.current,
+          zIndex: 2,
+        });
+        actualPath.forEach((p) => bounds.extend(p));
+      } catch {
+        // ignore decode errors
+      }
+    }
+
+    if (!hasPlanned && !hasActual) {
+      const straightPath = [new google.maps.LatLng(pLat, pLng), new google.maps.LatLng(dLat, dLng)];
+      plannedPolylineRef.current = new google.maps.Polyline({
+        path: straightPath,
+        strokeColor: "#94a3b8",
+        strokeOpacity: 0.6,
+        strokeWeight: 3,
+        geodesic: true,
+        map: mapRef.current,
+        zIndex: 1,
+      });
+    }
+
     mapRef.current.fitBounds(bounds, 40);
-  }, [mapsReady, pLat, pLng, dLat, dLng, routeQuery.data?.routePolyline]);
+  }, [mapsReady, pLat, pLng, dLat, dLng, routeQuery.data?.routePolyline, routeQuery.data?.actualPolyline]);
 
   useEffect(() => {
     return () => {
-      polylineRef.current?.setMap(null);
-      polylineRef.current = null;
+      plannedPolylineRef.current?.setMap(null);
+      plannedPolylineRef.current = null;
+      actualPolylineRef.current?.setMap(null);
+      actualPolylineRef.current = null;
       markersRef.current.forEach((m) => m.setMap(null));
       markersRef.current = [];
       mapRef.current = null;
@@ -219,6 +266,11 @@ export function TripRouteMap({
     );
   }
 
+  const routeData = routeQuery.data;
+  const hasActual = !!routeData?.actualPolyline;
+  const hasPlanned = !!routeData?.routePolyline;
+  const quality = getQualityLabel(routeData?.routeQualityScore ?? null);
+
   return (
     <div className={`relative rounded-md overflow-hidden ${className}`} style={style} data-testid={`div-route-map-${tripId}`}>
       <div ref={mapContainerRef} className="w-full h-full" style={{ minHeight: "inherit" }} />
@@ -228,7 +280,33 @@ export function TripRouteMap({
           Loading route...
         </div>
       )}
-      {routeQuery.data && !routeQuery.data.routePolyline && !routeQuery.isLoading && (
+      {routeData && !routeQuery.isLoading && (
+        <div className="absolute top-2 left-2 flex flex-col gap-1">
+          {hasActual && hasPlanned && (
+            <div className="flex gap-1">
+              <div className="bg-background/90 rounded px-1.5 py-0.5 flex items-center gap-1 text-[10px]">
+                <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "#94a3b8", display: "inline-block" }} />
+                Planned
+              </div>
+              <div className="bg-background/90 rounded px-1.5 py-0.5 flex items-center gap-1 text-[10px]">
+                <span className="w-3 h-0.5 rounded" style={{ backgroundColor: "#8b5cf6", display: "inline-block" }} />
+                Actual
+              </div>
+            </div>
+          )}
+          {routeData.routeQualityScore != null && (
+            <div className="bg-background/90 rounded px-1.5 py-0.5 flex items-center gap-1 text-[10px]" data-testid="badge-route-quality">
+              {quality.icon === "good" ? (
+                <CheckCircle className="w-3 h-3 text-green-500" />
+              ) : quality.icon === "poor" ? (
+                <AlertTriangle className="w-3 h-3 text-red-500" />
+              ) : null}
+              Route: {quality.label}
+            </div>
+          )}
+        </div>
+      )}
+      {routeData && !hasPlanned && !hasActual && !routeQuery.isLoading && (
         <div className="absolute bottom-2 left-2 bg-background/80 rounded-md px-2 py-1 text-xs text-muted-foreground">
           Straight line (road route unavailable)
         </div>

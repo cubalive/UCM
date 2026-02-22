@@ -423,7 +423,32 @@ export const trips = pgTable("trips", {
   etaVarianceSeconds: integer("eta_variance_seconds"),
   etaEscalationLevel: text("eta_escalation_level").notNull().default("NONE"),
   etaEscalationLastAt: timestamp("eta_escalation_last_at"),
+  actualDurationSeconds: integer("actual_duration_seconds"),
+  waitingSeconds: integer("waiting_seconds"),
+  routeSource: text("route_source"),
+  routeQualityScore: integer("route_quality_score"),
+  actualPolyline: text("actual_polyline"),
 });
+
+export const tripLocationPoints = pgTable("trip_location_points", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  driverId: integer("driver_id").notNull(),
+  ts: timestamp("ts").notNull().defaultNow(),
+  lat: doublePrecision("lat").notNull(),
+  lng: doublePrecision("lng").notNull(),
+  accuracyM: doublePrecision("accuracy_m"),
+  speedMps: doublePrecision("speed_mps"),
+  headingDeg: doublePrecision("heading_deg"),
+  source: text("source").notNull().default("gps"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_trip_location_points_trip_ts").on(table.tripId, table.ts),
+]);
+
+export const insertTripLocationPointSchema = createInsertSchema(tripLocationPoints).omit({ id: true, createdAt: true });
+export type TripLocationPoint = typeof tripLocationPoints.$inferSelect;
+export type InsertTripLocationPoint = typeof tripLocationPoints.$inferInsert;
 
 export const tripSignatures = pgTable("trip_signatures", {
   tripId: integer("trip_id").primaryKey().references(() => trips.id),
