@@ -387,6 +387,56 @@ function PricesTab() {
   );
 }
 
+function downloadTripsLogPdf(grouped: Record<string, any>, tripsList: any[], totalAmount: number, clinicName: string, startDate: string, endDate: string) {
+  import("jspdf").then(({ default: jsPDF }) => {
+    import("jspdf-autotable").then(() => {
+      const doc = new jsPDF({ orientation: "landscape" });
+      doc.setFontSize(16);
+      doc.text(`Trips Log — ${clinicName}`, 14, 18);
+      doc.setFontSize(10);
+      doc.text(`Period: ${startDate} to ${endDate}  |  ${tripsList.length} trip legs  |  Total: $${totalAmount.toFixed(2)}`, 14, 26);
+
+      let yPos = 32;
+      const dates = Object.keys(grouped).sort();
+      for (const date of dates) {
+        const patients = grouped[date] as Record<string, any[]>;
+        for (const [pKey, legs] of Object.entries(patients)) {
+          const [, patientName] = pKey.split("-");
+          const rows = legs.map((l: any) => [
+            l.pickupTime || "",
+            l.publicId || "",
+            l.legType || "",
+            `${(l.pickupAddress || "").substring(0, 30)} → ${(l.dropoffAddress || "").substring(0, 30)}`,
+            l.miles || "",
+            l.passengerCount || "1",
+            l.outcome || "",
+            `$${l.unitRate || "0"}`,
+            `$${l.lineTotal || "0"}`,
+          ]);
+
+          (doc as any).autoTable({
+            startY: yPos,
+            head: [[{ content: `${date}  —  ${patientName}`, colSpan: 9, styles: { fillColor: [40, 40, 60], textColor: 255, fontStyle: "bold", fontSize: 9 } }],
+              ["Time", "ID", "Leg", "Pickup → Dropoff", "Mi", "Pax", "Outcome", "Rate", "Price"]],
+            body: rows,
+            theme: "grid",
+            styles: { fontSize: 7, cellPadding: 2 },
+            headStyles: { fillColor: [60, 60, 80], textColor: 255, fontSize: 7 },
+            margin: { left: 14, right: 14 },
+          });
+          yPos = (doc as any).lastAutoTable.finalY + 4;
+          if (yPos > 170) {
+            doc.addPage();
+            yPos = 14;
+          }
+        }
+      }
+
+      doc.save(`trips-log-${clinicName.replace(/\s+/g, "_")}-${startDate}-to-${endDate}.pdf`);
+    });
+  });
+}
+
 function TripsLogTab() {
   const { token } = useAuth();
   const [clinicId, setClinicId] = useState<string>("");
@@ -494,7 +544,20 @@ function TripsLogTab() {
       {Object.keys(grouped).length > 0 && (
         <>
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <Badge variant="secondary" data-testid="badge-trips-log-count">{tripsList.length} trip legs</Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" data-testid="badge-trips-log-count">{tripsList.length} trip legs</Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const clinicName = (clinicsQ.data || []).find((c: any) => String(c.id) === clinicId)?.name || "Clinic";
+                  downloadTripsLogPdf(grouped, tripsList, totalAmount, clinicName, startDate, endDate);
+                }}
+                data-testid="button-download-trips-pdf"
+              >
+                <Download className="w-4 h-4 mr-1" /> Download PDF
+              </Button>
+            </div>
             <span className="text-sm font-medium" data-testid="text-trips-log-total">Total: ${totalAmount.toFixed(2)}</span>
           </div>
 
