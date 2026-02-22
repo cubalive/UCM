@@ -572,6 +572,40 @@ export async function generatePayrollHandler(req: AuthRequest, res: Response) {
       return res.status(400).json({ message: "Invalid date format" });
     }
 
+    const existingDraftRuns = await db
+      .select()
+      .from(tpPayrollRuns)
+      .where(and(
+        eq(tpPayrollRuns.companyId, companyId),
+        eq(tpPayrollRuns.periodStart, periodStart),
+        eq(tpPayrollRuns.periodEnd, periodEnd),
+        eq(tpPayrollRuns.status, "DRAFT"),
+      ));
+
+    if (existingDraftRuns.length > 0) {
+      return res.status(409).json({
+        message: `A DRAFT payroll run already exists for period ${periodStart} to ${periodEnd}. Finalize or delete it before generating a new one.`,
+        existingRunId: existingDraftRuns[0].id,
+      });
+    }
+
+    const existingFinalizedRuns = await db
+      .select()
+      .from(tpPayrollRuns)
+      .where(and(
+        eq(tpPayrollRuns.companyId, companyId),
+        eq(tpPayrollRuns.periodStart, periodStart),
+        eq(tpPayrollRuns.periodEnd, periodEnd),
+        eq(tpPayrollRuns.status, "FINALIZED"),
+      ));
+
+    if (existingFinalizedRuns.length > 0) {
+      return res.status(409).json({
+        message: `A FINALIZED payroll run already exists for period ${periodStart} to ${periodEnd}. Pay it or delete it before generating a new one.`,
+        existingRunId: existingFinalizedRuns[0].id,
+      });
+    }
+
     const approved = await db
       .select()
       .from(timeEntries)
@@ -659,7 +693,20 @@ export async function listPayrollRunsHandler(req: AuthRequest, res: Response) {
       .where(eq(tpPayrollRuns.companyId, companyId))
       .orderBy(desc(tpPayrollRuns.createdAt));
 
-    res.json(runs);
+    const enrichedRuns = [];
+    for (const run of runs) {
+      const items = await db.select().from(tpPayrollItems).where(eq(tpPayrollItems.runId, run.id));
+      const totalCents = items.reduce((sum, i) => sum + (i.totalCents || 0), 0);
+      const totalHours = items.reduce((sum, i) => sum + (parseFloat(i.totalHours as string) || 0), 0);
+      enrichedRuns.push({
+        ...run,
+        driverCount: items.length,
+        totalCents,
+        totalHours: totalHours.toFixed(2),
+      });
+    }
+
+    res.json(enrichedRuns);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -685,12 +732,34 @@ export async function getPayrollRunHandler(req: AuthRequest, res: Response) {
       if (d) driverMap.set(did, d);
     }
 
+    const { users } = await import("@shared/schema");
+    const driverUserMap = new Map<number, number | null>();
+    for (const did of driverIds) {
+      const [userRow] = await db.select({ id: users.id }).from(users).where(eq(users.driverId, did)).limit(1);
+      driverUserMap.set(did, userRow?.id || null);
+    }
+
+    let stripeStatuses: Record<number, { status: string; payoutsEnabled: boolean }> = {};
+    const stripeAccounts = await db.select().from(driverStripeAccounts)
+      .where(eq(driverStripeAccounts.companyId, companyId));
+    for (const sa of stripeAccounts) {
+      stripeStatuses[sa.driverId] = { status: sa.status || "PENDING", payoutsEnabled: sa.payoutsEnabled || false };
+    }
+
     const enrichedItems = items.map((i) => {
       const d = driverMap.get(i.driverId);
-      return { ...i, driverName: d ? `${d.firstName} ${d.lastName}` : "Unknown" };
+      const userId = driverUserMap.get(i.driverId);
+      const stripe = stripeStatuses[i.driverId];
+      return {
+        ...i,
+        driverName: d ? `${d.firstName} ${d.lastName}` : "Unknown",
+        driverUserId: userId,
+        stripeStatus: stripe?.status || null,
+        stripePayoutsEnabled: stripe?.payoutsEnabled || false,
+      };
     });
 
-    res.json({ run, items: enrichedItems });
+    res.json({ run, items: enrichedItems, stripeConfigured: !!process.env.STRIPE_SECRET_KEY });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
@@ -832,6 +901,36 @@ export async function payPayrollHandler(req: AuthRequest, res: Response) {
         ? (failCount > 0 ? `${transferCount} transferred, ${failCount} failed` : `${transferCount} drivers paid via Stripe`)
         : "Stripe not configured. Entries marked PAID for manual payment.",
     });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function deletePayrollRunHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = requireCompanyOrFail(req, res);
+    if (!companyId) return;
+
+    const runId = parseInt(req.params.runId);
+    if (isNaN(runId)) return res.status(400).json({ message: "Invalid run ID" });
+
+    const [run] = await db.select().from(tpPayrollRuns).where(and(eq(tpPayrollRuns.id, runId), eq(tpPayrollRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ message: "Payroll run not found" });
+    if (run.status !== "DRAFT") return res.status(400).json({ message: "Only DRAFT runs can be deleted" });
+
+    await db.delete(tpPayrollItems).where(eq(tpPayrollItems.runId, runId));
+    await db.delete(tpPayrollRuns).where(eq(tpPayrollRuns.id, runId));
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "DELETE_TP_PAYROLL",
+      entity: "tp_payroll_run",
+      entityId: runId,
+      details: `Deleted DRAFT payroll run ${run.periodStart} to ${run.periodEnd}`,
+      cityId: null,
+    });
+
+    res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

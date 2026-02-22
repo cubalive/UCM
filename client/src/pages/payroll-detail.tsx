@@ -152,10 +152,20 @@ export default function PayrollDetailPage() {
                   data-testid={`row-payout-${item.id || idx}`}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
+                    {item.driverUserId && (
+                      <span className="text-xs font-mono text-muted-foreground" data-testid={`text-user-id-${item.id}`}>
+                        #{item.driverUserId}
+                      </span>
+                    )}
                     <DriverRef id={item.driverId} label={item.driverName} />
                     <Badge variant={(ITEM_STATUS_VARIANTS[item.status] as any) || "secondary"} data-testid={`badge-payout-status-${item.id}`}>
                       {item.status}
                     </Badge>
+                    {item.stripePayoutsEnabled ? (
+                      <Badge variant="default" className="text-[10px]">Stripe Active</Badge>
+                    ) : item.stripeStatus ? (
+                      <Badge variant="secondary" className="text-[10px]">{item.stripeStatus}</Badge>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-xs text-muted-foreground" data-testid={`text-payout-hours-${item.id}`}>
