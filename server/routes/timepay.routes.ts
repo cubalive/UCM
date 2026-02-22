@@ -9,6 +9,7 @@ import {
   submitTimeEntryHandler,
   approveTimeEntryHandler,
   rejectTimeEntryHandler,
+  markPaidTimeEntryHandler,
   csvImportHandler,
   csvUploadMiddleware,
   listImportBatchesHandler,
@@ -32,6 +33,7 @@ router.patch("/api/company/time/:id/edit", authMiddleware, requirePermission("ti
 router.post("/api/company/time/:id/submit", authMiddleware, requirePermission("time_entries", "write"), requireTenantScope, submitTimeEntryHandler as any);
 router.post("/api/company/time/:id/approve", authMiddleware, requirePermission("time_entries", "write"), requireTenantScope, approveTimeEntryHandler as any);
 router.post("/api/company/time/:id/reject", authMiddleware, requirePermission("time_entries", "write"), requireTenantScope, rejectTimeEntryHandler as any);
+router.post("/api/company/time/:id/mark-paid", authMiddleware, requirePermission("time_entries", "write"), requireTenantScope, markPaidTimeEntryHandler as any);
 router.post("/api/company/time/import", authMiddleware, requirePermission("time_entries", "write"), requireTenantScope, csvUploadMiddleware as any, csvImportHandler as any);
 router.get("/api/company/time/import-batches", authMiddleware, requirePermission("time_entries", "read"), requireTenantScope, listImportBatchesHandler as any);
 router.get("/api/company/time/csv-template", authMiddleware, csvTemplateHandler as any);

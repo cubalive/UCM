@@ -336,6 +336,39 @@ export async function rejectTimeEntryHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export async function markPaidTimeEntryHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = requireCompanyOrFail(req, res);
+    if (!companyId) return;
+
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const [entry] = await db.select().from(timeEntries).where(and(eq(timeEntries.id, id), eq(timeEntries.companyId, companyId)));
+    if (!entry) return res.status(404).json({ message: "Time entry not found" });
+    if (entry.status !== "APPROVED") return res.status(400).json({ message: "Can only mark APPROVED entries as paid" });
+
+    const [updated] = await db.update(timeEntries).set({
+      status: "PAID",
+      paidAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(timeEntries.id, id)).returning();
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "MARK_PAID_TIME_ENTRY",
+      entity: "time_entry",
+      entityId: id,
+      details: `Marked as paid: driver ${entry.driverId}, date ${entry.workDate}, hours ${entry.hoursNumeric}`,
+      cityId: null,
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 export async function csvImportHandler(req: AuthRequest, res: Response) {
   try {
     const companyId = requireCompanyOrFail(req, res);

@@ -178,20 +178,26 @@ function TimeEntriesTab() {
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editEntry, setEditEntry] = useState<any>(null);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+
+  const driverParam = driverFilter && driverFilter !== "all" ? `&driver_id=${driverFilter}` : "";
 
   const entriesQuery = useQuery({
     queryKey: ["/api/company/time/entries", from, to, driverFilter],
-    queryFn: () => apiFetch(`/api/company/time/entries?from=${from}&to=${to}${driverFilter ? `&driver_id=${driverFilter}` : ""}`, token),
+    queryFn: () => apiFetch(`/api/company/time/entries?from=${from}&to=${to}${driverParam}`, token),
+    enabled: !!token,
   });
 
   const driversQuery = useQuery({
     queryKey: ["/api/company/time/drivers"],
     queryFn: () => apiFetch("/api/company/time/drivers", token),
+    enabled: !!token,
   });
 
   const batchesQuery = useQuery({
     queryKey: ["/api/company/time/import-batches"],
     queryFn: () => apiFetch("/api/company/time/import-batches?limit=10", token),
+    enabled: !!token,
   });
 
   const approveMut = useMutation({
@@ -221,16 +227,39 @@ function TimeEntriesTab() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const markPaidMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/company/time/${id}/mark-paid`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/time/entries"] });
+      toast({ title: "Marked as paid" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const entries: any[] = entriesQuery.data || [];
   const driversList: any[] = driversQuery.data || [];
 
   const totalHours = entries.reduce((s, e) => s + (parseFloat(e.hoursNumeric) || 0), 0);
   const approvedCount = entries.filter((e) => e.status === "APPROVED").length;
   const pendingCount = entries.filter((e) => e.status === "DRAFT" || e.status === "SUBMITTED").length;
+  const totalEstimatedCost = entries.reduce((s, e) => {
+    const hrs = parseFloat(e.hoursNumeric) || 0;
+    const rateCents = e.hourlyRateCents || 0;
+    return s + (hrs * rateCents);
+  }, 0);
+  const paidCount = entries.filter((e) => e.status === "PAID").length;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/company/time/entries"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/company/time/drivers"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/company/time/import-batches"] });
+          toast({ title: "Refreshed" });
+        }} data-testid="button-refresh-entries">
+          <RotateCcw className="mr-1 h-4 w-4" /> Refresh
+        </Button>
         <Button onClick={() => setShowCreate(true)} data-testid="button-create-entry">
           <Plus className="mr-1 h-4 w-4" /> Manual Entry
         </Button>
@@ -244,7 +273,7 @@ function TimeEntriesTab() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Hours</CardTitle>
@@ -252,6 +281,16 @@ function TimeEntriesTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-total-hours">{totalHours.toFixed(1)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Est. Cost</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-estimated-cost">${(totalEstimatedCost / 100).toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{paidCount} paid / {approvedCount} approved</p>
           </CardContent>
         </Card>
         <Card>
@@ -300,6 +339,42 @@ function TimeEntriesTab() {
               </Select>
             </div>
           </div>
+          {entries.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t">
+              {entries.some((e: any) => e.status === "DRAFT" || e.status === "SUBMITTED") && (
+                <Button size="sm" disabled={bulkProcessing} onClick={async () => {
+                  setBulkProcessing(true);
+                  const toApprove = entries.filter((e: any) => e.status === "DRAFT" || e.status === "SUBMITTED");
+                  let ok = 0, fail = 0;
+                  for (const e of toApprove) {
+                    try { await apiRequest("POST", `/api/company/time/${e.id}/approve`); ok++; } catch { fail++; }
+                  }
+                  queryClient.invalidateQueries({ queryKey: ["/api/company/time/entries"] });
+                  setBulkProcessing(false);
+                  toast({ title: fail > 0 ? `${ok} approved, ${fail} failed` : `${ok} entries approved` });
+                }} data-testid="button-approve-all">
+                  {bulkProcessing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-1 h-4 w-4" />}
+                  Approve All ({entries.filter((e: any) => e.status === "DRAFT" || e.status === "SUBMITTED").length})
+                </Button>
+              )}
+              {entries.some((e: any) => e.status === "APPROVED") && (
+                <Button size="sm" variant="outline" disabled={bulkProcessing} onClick={async () => {
+                  setBulkProcessing(true);
+                  const toMark = entries.filter((e: any) => e.status === "APPROVED");
+                  let ok = 0, fail = 0;
+                  for (const e of toMark) {
+                    try { await apiRequest("POST", `/api/company/time/${e.id}/mark-paid`); ok++; } catch { fail++; }
+                  }
+                  queryClient.invalidateQueries({ queryKey: ["/api/company/time/entries"] });
+                  setBulkProcessing(false);
+                  toast({ title: fail > 0 ? `${ok} marked paid, ${fail} failed` : `${ok} entries marked as paid` });
+                }} data-testid="button-mark-paid-all">
+                  {bulkProcessing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <DollarSign className="mr-1 h-4 w-4" />}
+                  Mark All Paid ({entries.filter((e: any) => e.status === "APPROVED").length})
+                </Button>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {entriesQuery.isLoading ? (
@@ -341,6 +416,11 @@ function TimeEntriesTab() {
                           {(e.status === "DRAFT" || e.status === "SUBMITTED") && (
                             <Button size="sm" onClick={() => approveMut.mutate(e.id)} data-testid={`button-approve-${e.id}`}>
                               <CheckCircle className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {e.status === "APPROVED" && (
+                            <Button size="sm" variant="outline" onClick={() => markPaidMut.mutate(e.id)} data-testid={`button-mark-paid-${e.id}`}>
+                              <DollarSign className="h-3 w-3" />
                             </Button>
                           )}
                           {(e.status !== "PAID" && e.status !== "REJECTED") && (
