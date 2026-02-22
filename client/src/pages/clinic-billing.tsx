@@ -57,6 +57,8 @@ import {
   CheckCircle,
   Clock,
   XCircle,
+  ChevronUp,
+  X,
   RefreshCw,
 } from "lucide-react";
 
@@ -1587,6 +1589,9 @@ function CycleInvoicesTab() {
               <span className="text-sm font-normal text-muted-foreground">
                 {inv.periodStart} to {inv.periodEnd}
               </span>
+              <Button size="icon" variant="ghost" className="ml-auto h-7 w-7" onClick={() => setViewInvoice(null)} data-testid="button-close-invoice-detail">
+                <X className="w-4 h-4" />
+              </Button>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1793,8 +1798,8 @@ function CycleInvoicesTab() {
                     <TableCell className="text-right text-sm">{formatCents(inv.totalCents)}</TableCell>
                     <TableCell className="text-right text-sm">{inv.status === "finalized" ? formatCents(inv.balanceDueCents || 0) : "\u2014"}</TableCell>
                     <TableCell>
-                      <Button size="icon" variant="ghost" onClick={() => loadInvoice(inv.id)} data-testid={`button-view-invoice-${inv.id}`}>
-                        <Eye className="w-4 h-4" />
+                      <Button size="icon" variant="ghost" onClick={() => viewInvoice?.invoice?.id === inv.id ? setViewInvoice(null) : loadInvoice(inv.id)} data-testid={`button-view-invoice-${inv.id}`}>
+                        {viewInvoice?.invoice?.id === inv.id ? <ChevronUp className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </Button>
                     </TableCell>
                   </TableRow>
