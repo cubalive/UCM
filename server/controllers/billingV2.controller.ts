@@ -596,6 +596,250 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export async function batchGenerateInvoicesHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = requireCompanyOrFail(req, res);
+    if (!companyId) return;
+
+    const { periodStart, periodEnd } = req.body;
+    if (!periodStart || !periodEnd) {
+      return res.status(400).json({ message: "periodStart and periodEnd required (YYYY-MM-DD)" });
+    }
+
+    const allClinics = await db
+      .select({ id: clinics.id, name: clinics.name })
+      .from(clinics)
+      .where(eq(clinics.companyId, companyId));
+
+    const generated: any[] = [];
+    const skipped: any[] = [];
+    const errors: any[] = [];
+
+    for (const clinic of allClinics) {
+      try {
+        const existingInvoice = await db
+          .select({ id: billingCycleInvoices.id })
+          .from(billingCycleInvoices)
+          .where(
+            and(
+              eq(billingCycleInvoices.clinicId, clinic.id),
+              lte(billingCycleInvoices.periodStart, periodEnd),
+              gte(billingCycleInvoices.periodEnd, periodStart),
+              sql`${billingCycleInvoices.status} != 'void'`
+            )
+          )
+          .then((r) => r[0]);
+
+        if (existingInvoice) {
+          skipped.push({ clinicId: clinic.id, clinicName: clinic.name, reason: "invoice_exists" });
+          continue;
+        }
+
+        const billingRows = await db
+          .select()
+          .from(tripBilling)
+          .where(
+            and(
+              eq(tripBilling.companyId, companyId),
+              eq(tripBilling.clinicId, clinic.id),
+              gte(tripBilling.serviceDate, periodStart),
+              lte(tripBilling.serviceDate, periodEnd)
+            )
+          );
+
+        if (billingRows.length === 0) {
+          skipped.push({ clinicId: clinic.id, clinicName: clinic.name, reason: "no_billing_rows" });
+          continue;
+        }
+
+        const totalCents = billingRows.reduce((sum, r) => sum + r.totalCents, 0);
+        const invoiceNumber = `INV-${companyId}-${clinic.id}-${periodStart.replace(/-/g, "")}`;
+
+        const settings = await db
+          .select()
+          .from(clinicBillingSettings)
+          .where(eq(clinicBillingSettings.clinicId, clinic.id))
+          .then((r) => r[0]);
+        const graceDays = settings?.graceDays || 7;
+
+        const dueDate = new Date(periodEnd);
+        dueDate.setDate(dueDate.getDate() + graceDays);
+
+        const [invoice] = await db.insert(billingCycleInvoices).values({
+          companyId,
+          clinicId: clinic.id,
+          periodStart,
+          periodEnd,
+          status: "draft",
+          paymentStatus: "unpaid",
+          currency: "USD",
+          subtotalCents: totalCents,
+          totalCents,
+          invoiceNumber,
+          dueDate,
+          createdBy: req.user!.userId,
+        }).returning();
+
+        for (const row of billingRows) {
+          const patient = row.patientId
+            ? await db
+                .select({ firstName: patients.firstName, lastName: patients.lastName })
+                .from(patients)
+                .where(eq(patients.id, row.patientId))
+                .then((r) => r[0])
+            : null;
+          const patientName = patient ? `${patient.firstName} ${patient.lastName}` : "Unknown";
+          const description = `${patientName} - ${row.serviceDate} - ${row.statusAtBill} (${row.pricingMode})`;
+
+          await db.insert(billingCycleInvoiceItems).values({
+            invoiceId: invoice.id,
+            tripId: row.tripId,
+            patientId: row.patientId,
+            description,
+            amountCents: row.totalCents,
+            metadata: row.components,
+          });
+        }
+
+        generated.push({
+          clinicId: clinic.id,
+          clinicName: clinic.name,
+          invoiceId: invoice.id,
+          invoiceNumber,
+          totalCents,
+          lineItems: billingRows.length,
+        });
+      } catch (err: any) {
+        errors.push({ clinicId: clinic.id, clinicName: clinic.name, error: err.message });
+      }
+    }
+
+    res.json({ generated, skipped, errors, total: allClinics.length });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function finalizeInvoiceHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = requireCompanyOrFail(req, res);
+    if (!companyId) return;
+
+    const invoiceId = parseInt(req.params.id);
+    if (isNaN(invoiceId)) {
+      return res.status(400).json({ message: "Invalid invoice ID" });
+    }
+
+    const invoice = await db
+      .select()
+      .from(billingCycleInvoices)
+      .where(
+        and(
+          eq(billingCycleInvoices.id, invoiceId),
+          eq(billingCycleInvoices.companyId, companyId)
+        )
+      )
+      .then((r) => r[0]);
+
+    if (!invoice) {
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    if (invoice.status !== "draft") {
+      return res.status(400).json({ message: `Invoice is already ${invoice.status}, cannot finalize` });
+    }
+
+    const [updated] = await db
+      .update(billingCycleInvoices)
+      .set({
+        status: "finalized",
+        finalizedAt: new Date(),
+        locked: true,
+        balanceDueCents: invoice.totalCents,
+        updatedAt: new Date(),
+      })
+      .where(eq(billingCycleInvoices.id, invoiceId))
+      .returning();
+
+    const { writeBillingAudit } = await import("../services/billingAuditService");
+    await writeBillingAudit({
+      actorUserId: req.user!.userId,
+      actorRole: (req.user as any)?.role || null,
+      scopeCompanyId: companyId,
+      scopeClinicId: invoice.clinicId,
+      action: "invoice_finalized",
+      entityType: "invoice",
+      entityId: invoiceId,
+      details: { invoiceNumber: invoice.invoiceNumber, totalCents: invoice.totalCents },
+      req,
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function batchFinalizeInvoicesHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = requireCompanyOrFail(req, res);
+    if (!companyId) return;
+
+    const { clinicId, periodStart, periodEnd } = req.body;
+
+    const conditions: any[] = [
+      eq(billingCycleInvoices.companyId, companyId),
+      eq(billingCycleInvoices.status, "draft"),
+    ];
+
+    if (clinicId) conditions.push(eq(billingCycleInvoices.clinicId, clinicId));
+    if (periodStart) conditions.push(gte(billingCycleInvoices.periodStart, periodStart));
+    if (periodEnd) conditions.push(lte(billingCycleInvoices.periodEnd, periodEnd));
+
+    const draftInvoices = await db
+      .select()
+      .from(billingCycleInvoices)
+      .where(and(...conditions));
+
+    if (draftInvoices.length === 0) {
+      return res.json({ finalized: 0, message: "No draft invoices found matching filters" });
+    }
+
+    const now = new Date();
+    const invoiceIds = draftInvoices.map((inv) => inv.id);
+
+    await db
+      .update(billingCycleInvoices)
+      .set({
+        status: "finalized",
+        finalizedAt: now,
+        locked: true,
+        balanceDueCents: sql`${billingCycleInvoices.totalCents}`,
+        updatedAt: now,
+      })
+      .where(inArray(billingCycleInvoices.id, invoiceIds));
+
+    const { writeBillingAudit } = await import("../services/billingAuditService");
+    for (const inv of draftInvoices) {
+      await writeBillingAudit({
+        actorUserId: req.user!.userId,
+        actorRole: (req.user as any)?.role || null,
+        scopeCompanyId: companyId,
+        scopeClinicId: inv.clinicId,
+        action: "invoice_finalized",
+        entityType: "invoice",
+        entityId: inv.id,
+        details: { invoiceNumber: inv.invoiceNumber, totalCents: inv.totalCents, batch: true },
+        req,
+      });
+    }
+
+    res.json({ finalized: draftInvoices.length, invoiceIds });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 export async function companyListInvoicesHandler(req: AuthRequest, res: Response) {
   try {
     const companyId = requireCompanyOrFail(req, res);

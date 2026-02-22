@@ -129,6 +129,14 @@ export default function ClinicBillingV2Page() {
   const detail = detailQuery.data;
   const dispatch = dispatchQuery.data;
 
+  const totalOutstanding = invoices
+    .filter((inv: any) => inv.paymentStatus !== "paid")
+    .reduce((sum: number, inv: any) => sum + (inv.balanceDueCents || inv.totalCents || 0), 0);
+  const totalPaid = invoices
+    .filter((inv: any) => inv.paymentStatus === "paid")
+    .reduce((sum: number, inv: any) => sum + (inv.totalCents || 0), 0);
+  const unpaidCount = invoices.filter((inv: any) => inv.paymentStatus !== "paid").length;
+
   return (
     <div className="p-4 space-y-6 max-w-5xl mx-auto" data-testid="clinic-billing-v2-page">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -144,6 +152,30 @@ export default function ClinicBillingV2Page() {
           </div>
         )}
       </div>
+
+      {invoices.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide">Outstanding Balance</p>
+              <p className="text-2xl font-bold text-orange-600" data-testid="text-outstanding-balance">${cents(totalOutstanding)}</p>
+              <p className="text-xs text-muted-foreground">{unpaidCount} unpaid invoice{unpaidCount !== 1 ? "s" : ""}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Paid</p>
+              <p className="text-2xl font-bold text-green-600" data-testid="text-total-paid">${cents(totalPaid)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Invoices</p>
+              <p className="text-2xl font-bold" data-testid="text-total-invoices">{invoices.length}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
@@ -163,6 +195,7 @@ export default function ClinicBillingV2Page() {
                     <TableHead>Invoice #</TableHead>
                     <TableHead>Period</TableHead>
                     <TableHead>Total</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead>Payment</TableHead>
                     <TableHead>Due</TableHead>
                     <TableHead></TableHead>
@@ -174,6 +207,11 @@ export default function ClinicBillingV2Page() {
                       <TableCell className="font-medium">{inv.invoiceNumber}</TableCell>
                       <TableCell>{inv.periodStart} - {inv.periodEnd}</TableCell>
                       <TableCell>${cents(inv.totalCents)}</TableCell>
+                      <TableCell>
+                        <Badge variant={inv.status === "finalized" ? "secondary" : inv.status === "void" ? "destructive" : "outline"} data-testid={`badge-status-${inv.id}`}>
+                          {inv.status}
+                        </Badge>
+                      </TableCell>
                       <TableCell>
                         <Badge variant={paymentBadgeVariant(inv.paymentStatus || "unpaid")} data-testid={`badge-payment-${inv.id}`}>
                           {inv.paymentStatus || "unpaid"}
@@ -239,6 +277,30 @@ export default function ClinicBillingV2Page() {
                       {detail.invoice.paymentStatus || "unpaid"}
                     </Badge>
                   </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Invoice Status</p>
+                    <Badge variant={detail.invoice.status === "finalized" ? "secondary" : "outline"} data-testid="badge-detail-status">
+                      {detail.invoice.status}
+                    </Badge>
+                  </div>
+                  {detail.invoice.dueDate && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Due Date</p>
+                      <p>{new Date(detail.invoice.dueDate).toLocaleDateString()}</p>
+                    </div>
+                  )}
+                  {detail.invoice.amountPaidCents > 0 && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Amount Paid</p>
+                      <p className="font-medium text-green-600">${cents(detail.invoice.amountPaidCents)}</p>
+                    </div>
+                  )}
+                  {detail.invoice.balanceDueCents > 0 && detail.invoice.paymentStatus !== "paid" && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Balance Due</p>
+                      <p className="font-medium text-orange-600">${cents(detail.invoice.balanceDueCents)}</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto">

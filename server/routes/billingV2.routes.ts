@@ -10,6 +10,9 @@ import {
   getClinicBillingSettingsHandler,
   backfillBillingHandler,
   generateInvoiceHandler,
+  batchGenerateInvoicesHandler,
+  finalizeInvoiceHandler,
+  batchFinalizeInvoicesHandler,
   companyListInvoicesHandler,
   clinicListInvoicesHandler,
   clinicGetInvoiceHandler,
@@ -38,6 +41,9 @@ router.post("/api/company/billing/settings/clinic/:clinicId", authMiddleware, re
 
 router.post("/api/company/billing/backfill", authMiddleware, requirePermission("billing", "write"), requireTenantScope, backfillBillingHandler as any);
 router.post("/api/company/billing/invoices/generate", authMiddleware, requirePermission("billing", "write"), requireTenantScope, requireSubscription, generateInvoiceHandler as any);
+router.post("/api/company/billing/invoices/batch-generate", authMiddleware, requirePermission("billing", "write"), requireTenantScope, requireSubscription, batchGenerateInvoicesHandler as any);
+router.post("/api/company/billing/invoices/batch-finalize", authMiddleware, requirePermission("billing", "write"), requireTenantScope, batchFinalizeInvoicesHandler as any);
+router.post("/api/company/billing/invoices/:id/finalize", authMiddleware, requirePermission("billing", "write"), requireTenantScope, finalizeInvoiceHandler as any);
 router.get("/api/company/billing/invoices", authMiddleware, requirePermission("billing", "read"), requireTenantScope, companyListInvoicesHandler as any);
 
 router.get("/api/clinic/billing/invoices", authMiddleware, requirePermission("billing", "read"), clinicListInvoicesHandler as any);
