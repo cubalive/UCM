@@ -57,6 +57,7 @@ import {
   CheckCircle,
   Clock,
   XCircle,
+  RefreshCw,
 } from "lucide-react";
 
 function getToday(): string {
@@ -1388,6 +1389,20 @@ function CycleInvoicesTab() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const syncStripeMutation = useMutation({
+    mutationFn: (invoiceId: number) =>
+      apiFetch(`/api/cycle-invoices/${invoiceId}/sync-stripe`, token, { method: "POST" }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics", selectedClinicId, "cycle-invoices"] });
+      if (data.invoice) {
+        setViewInvoice((prev: any) => prev ? { ...prev, invoice: data.invoice } : prev);
+        if (showPayments && data.invoice.id) loadPayments(data.invoice.id);
+      }
+      toast({ title: "Stripe Sync", description: data.message });
+    },
+    onError: (err: any) => toast({ title: "Sync Error", description: err.message, variant: "destructive" }),
+  });
+
   const manualPaymentMutation = useMutation({
     mutationFn: (data: { invoiceId: number; amountCents: number; reference: string }) =>
       apiFetch(`/api/cycle-invoices/${data.invoiceId}/register-manual-payment`, token, {
@@ -1628,6 +1643,12 @@ function CycleInvoicesTab() {
                         <span className="ml-1.5">Record Payment</span>
                       </Button>
                     </>
+                  )}
+                  {inv.stripeCheckoutSessionId && (
+                    <Button size="sm" variant="outline" onClick={() => syncStripeMutation.mutate(inv.id)} disabled={syncStripeMutation.isPending} data-testid="button-sync-stripe">
+                      {syncStripeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                      <span className="ml-1.5">Sync from Stripe</span>
+                    </Button>
                   )}
                   <Button size="sm" variant="ghost" onClick={() => loadPayments(inv.id)} data-testid="button-view-payments">
                     <Eye className="w-4 h-4" />

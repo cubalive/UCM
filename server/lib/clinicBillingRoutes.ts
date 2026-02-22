@@ -1469,6 +1469,71 @@ export function registerClinicBillingRoutes(app: Express) {
     }
   });
 
+  app.post("/api/cycle-invoices/:invoiceId/sync-stripe", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const invoiceId = parseInt(String(req.params.invoiceId));
+      if (isNaN(invoiceId)) return res.status(400).json({ message: "Invalid invoice ID" });
+
+      const invoice = await storage.getBillingCycleInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+      if (!invoice.stripeCheckoutSessionId) return res.status(400).json({ message: "No Stripe checkout session associated with this invoice" });
+
+      if (!process.env.STRIPE_SECRET_KEY) return res.status(500).json({ message: "Stripe not configured" });
+
+      const Stripe = (await import("stripe")).default;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+      const session = await stripe.checkout.sessions.retrieve(invoice.stripeCheckoutSessionId);
+
+      if (session.payment_status === "paid") {
+        const existingByRef = await storage.findPaymentByReference(session.id);
+        if (existingByRef) {
+          await updateInvoicePaymentStatus(invoiceId);
+          const updated = await storage.getBillingCycleInvoice(invoiceId);
+          return res.json({ message: "Payment already recorded, status synced", invoice: updated });
+        }
+
+        if (session.payment_intent) {
+          const existingByPI = await storage.findPaymentByStripePI(session.payment_intent as string);
+          if (existingByPI) {
+            await updateInvoicePaymentStatus(invoiceId);
+            const updated = await storage.getBillingCycleInvoice(invoiceId);
+            return res.json({ message: "Payment already recorded (by PI), status synced", invoice: updated });
+          }
+        }
+
+        const amountCents = session.amount_total || 0;
+        const paymentMethodTypes: string[] = session.payment_method_types || [];
+        const isAch = paymentMethodTypes.includes("us_bank_account");
+
+        await storage.createInvoicePayment({
+          invoiceId,
+          amountCents,
+          method: isAch ? "ach" : "stripe",
+          reference: session.id,
+          stripePaymentIntentId: (session.payment_intent as string) || null,
+          paidAt: new Date(),
+        });
+
+        await storage.updateBillingCycleInvoice(invoiceId, {
+          stripePaymentIntentId: (session.payment_intent as string) || null,
+          updatedAt: new Date(),
+        } as any);
+
+        await updateInvoicePaymentStatus(invoiceId);
+        const updated = await storage.getBillingCycleInvoice(invoiceId);
+
+        console.log(`[StripeSyncPayment] Payment recorded for invoice ${invoiceId}: ${amountCents} cents`);
+        return res.json({ message: "Payment synced from Stripe", invoice: updated });
+      } else {
+        return res.json({ message: `Stripe session status: ${session.payment_status}. No payment to record yet.`, stripeStatus: session.payment_status });
+      }
+    } catch (err: any) {
+      console.error("[StripeSyncPayment] Error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/cycle-invoices/:invoiceId/register-manual-payment", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
     try {
       const invoiceId = parseInt(String(req.params.invoiceId));
