@@ -126,6 +126,29 @@ export async function transitionTripStatus(
   try { broadcastToTrip(tripId, broadcastPayload); } catch {}
   try { await broadcastTripSupabase(tripId, broadcastPayload); } catch {}
 
+  try {
+    const { emitEvent } = await import("./eventBus");
+    const eventPayload: Record<string, any> = {
+      tripId,
+      from: previousStatus,
+      to: nextStatus,
+      driverId: updatedTrip.driverId,
+      companyId: updatedTrip.companyId,
+      clinicId: updatedTrip.clinicId,
+      cityId: updatedTrip.cityId,
+      ts: Date.now(),
+    };
+    if (nextStatus === "ASSIGNED" && updatedTrip.driverId) {
+      eventPayload.vehicleId = updatedTrip.vehicleId;
+      eventPayload.pickupLat = updatedTrip.pickupLat;
+      eventPayload.pickupLng = updatedTrip.pickupLng;
+      eventPayload.dropoffLat = updatedTrip.dropoffLat;
+      eventPayload.dropoffLng = updatedTrip.dropoffLng;
+      await emitEvent("trip.assigned", eventPayload, `trip.assigned:${tripId}:${updatedTrip.driverId}`);
+    }
+    await emitEvent("trip.status_changed", eventPayload, `trip.status:${tripId}:${previousStatus}:${nextStatus}:${Date.now()}`);
+  } catch {}
+
   broadcastCompanyTripUpdate(updatedTrip.companyId, {
     tripId,
     status: nextStatus,

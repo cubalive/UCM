@@ -383,6 +383,19 @@ async function broadcastDriverLocation(driverId: number, lat: number, lng: numbe
       coalesceAndPublish(trip.id, driverId, lat, lng);
     }
 
+    if (allTrips.length > 0) {
+      import("./eventBus").then(({ emitEvent }) => {
+        const activeTripId = allTrips[0].id;
+        emitEvent("driver.location", {
+          driverId,
+          tripId: activeTripId,
+          lat,
+          lng,
+          ts: Date.now(),
+        });
+      }).catch(() => {});
+    }
+
     import("./geofenceEvaluator").then(({ evaluateGeofence }) => {
       evaluateGeofence(driverId, lat, lng);
     }).catch(() => {});
@@ -560,6 +573,17 @@ export function registerDriverLocationRoutes(app: Express): void {
           storeTripBreadcrumbs(driverId, acceptedPoints.length > 0 ? acceptedPoints : [lastPoint]).catch(err => {
             console.warn(`[BREADCRUMB] Background store error: ${err.message}`);
           });
+
+          import("./breadcrumbBuffer").then(({ addBreadcrumb }) => {
+            const activePoints = acceptedPoints.length > 0 ? acceptedPoints : [lastPoint];
+            storage.getActiveTripsForDriver(driverId).then(activeTrips => {
+              for (const trip of activeTrips) {
+                for (const pt of activePoints) {
+                  addBreadcrumb(trip.id, pt.lat, pt.lng, pt.timestamp);
+                }
+              }
+            }).catch(() => {});
+          }).catch(() => {});
         }
 
         const accepted = results.filter(r => r.accepted).length;

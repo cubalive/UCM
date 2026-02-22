@@ -52,6 +52,13 @@ async function startAllSchedulerLoops(): Promise<void> {
   const { startJobProcessor } = await import("./jobProcessor");
   startJobProcessor();
 
+  const { startOrchestrator } = await import("../orchestrator/index");
+  const { startRoutesWorker } = await import("../workers/routesWorker");
+  const { startBreadcrumbFlusher } = await import("./breadcrumbBuffer");
+  startOrchestrator().catch(err => console.warn(`[INIT] Orchestrator start error: ${err.message}`));
+  startRoutesWorker().catch(err => console.warn(`[INIT] Routes worker start error: ${err.message}`));
+  startBreadcrumbFlusher();
+
   console.log(JSON.stringify({
     event: "schedulers_initialized",
     role: getRoleMode(),
@@ -60,6 +67,7 @@ async function startAllSchedulerLoops(): Promise<void> {
       "ai_engine", "ai_sentinel", "ops_anomaly", "ops_score",
       "payroll", "dunning", "dialysis", "sms_reminder",
       "job_engine_eta", "job_engine_autoassign",
+      "orchestrator", "routes_worker", "breadcrumb_flusher",
     ],
     ts: new Date().toISOString(),
   }));
@@ -139,6 +147,15 @@ export async function stopSchedulers(): Promise<void> {
   stopMemoryLogger();
 
   await stopAllSchedulerLoops();
+
+  try {
+    const { stopOrchestrator } = await import("../orchestrator/index");
+    const { stopRoutesWorker } = await import("../workers/routesWorker");
+    const { stopBreadcrumbFlusher } = await import("./breadcrumbBuffer");
+    stopOrchestrator();
+    stopRoutesWorker();
+    stopBreadcrumbFlusher();
+  } catch {}
 
   try {
     const { stopLeaderElection } = await import("./leaderElection");

@@ -3177,3 +3177,72 @@ export const clinicForecastSnapshots = pgTable("clinic_forecast_snapshots", {
 export const insertClinicForecastSnapshotSchema = createInsertSchema(clinicForecastSnapshots).omit({ id: true, createdAt: true });
 export type ClinicForecastSnapshot = typeof clinicForecastSnapshots.$inferSelect;
 export type InsertClinicForecastSnapshot = z.infer<typeof insertClinicForecastSnapshotSchema>;
+
+export const tripRoutePlans = pgTable("trip_route_plans", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  provider: text("provider").notNull().default("google"),
+  originPlaceId: text("origin_place_id"),
+  destinationPlaceId: text("destination_place_id"),
+  polyline: text("polyline").notNull(),
+  distanceMeters: integer("distance_meters").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  boundsJson: jsonb("bounds_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_trip_route_plans_trip").on(table.tripId),
+]);
+
+export const insertTripRoutePlanSchema = createInsertSchema(tripRoutePlans).omit({ id: true, createdAt: true });
+export type TripRoutePlan = typeof tripRoutePlans.$inferSelect;
+export type InsertTripRoutePlan = z.infer<typeof insertTripRoutePlanSchema>;
+
+export const tripRoutePointChunks = pgTable("trip_route_point_chunks", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  chunkIndex: integer("chunk_index").notNull(),
+  polylineChunk: text("polyline_chunk").notNull(),
+  pointCount: integer("point_count").notNull(),
+  startedAt: timestamp("started_at"),
+  endedAt: timestamp("ended_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_trip_route_point_chunks_trip").on(table.tripId, table.chunkIndex),
+]);
+
+export const insertTripRoutePointChunkSchema = createInsertSchema(tripRoutePointChunks).omit({ id: true, createdAt: true });
+export type TripRoutePointChunk = typeof tripRoutePointChunks.$inferSelect;
+export type InsertTripRoutePointChunk = z.infer<typeof insertTripRoutePointChunkSchema>;
+
+export const tripRouteSummary = pgTable("trip_route_summary", {
+  tripId: integer("trip_id").primaryKey().references(() => trips.id),
+  plannedDistanceMeters: integer("planned_distance_meters"),
+  plannedDurationSeconds: integer("planned_duration_seconds"),
+  actualDistanceMeters: integer("actual_distance_meters"),
+  actualDurationSeconds: integer("actual_duration_seconds"),
+  pointsTotal: integer("points_total"),
+  gpsQualityScore: numeric("gps_quality_score"),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+});
+
+export const insertTripRouteSummarySchema = createInsertSchema(tripRouteSummary);
+export type TripRouteSummary = typeof tripRouteSummary.$inferSelect;
+export type InsertTripRouteSummary = z.infer<typeof insertTripRouteSummarySchema>;
+
+export const opsAuditLedger = pgTable("ops_audit_ledger", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  eventType: text("event_type").notNull(),
+  inputsJson: jsonb("inputs_json"),
+  decisionJson: jsonb("decision_json"),
+  actionsJson: jsonb("actions_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_ops_audit_ledger_entity").on(table.entityType, table.entityId),
+  index("idx_ops_audit_ledger_event").on(table.eventType),
+]);
+
+export const insertOpsAuditLedgerSchema = createInsertSchema(opsAuditLedger).omit({ id: true, createdAt: true });
+export type OpsAuditLedgerEntry = typeof opsAuditLedger.$inferSelect;
+export type InsertOpsAuditLedgerEntry = z.infer<typeof insertOpsAuditLedgerSchema>;

@@ -830,6 +830,23 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
       ensureTripRouteNonBlocking(trip.id);
     }).catch(() => {});
 
+    import("../lib/eventBus").then(({ emitEvent }) => {
+      emitEvent("trip.created", {
+        tripId: trip.id,
+        cityId: trip.cityId,
+        companyId: trip.companyId,
+        clinicId: trip.clinicId,
+        scheduledDate: trip.scheduledDate,
+        scheduledTime: trip.scheduledTime,
+        pickupLat: trip.pickupLat,
+        pickupLng: trip.pickupLng,
+        dropoffLat: trip.dropoffLat,
+        dropoffLng: trip.dropoffLng,
+        pickupPlaceId: trip.pickupPlaceId,
+        dropoffPlaceId: trip.dropoffPlaceId,
+      }, `trip.created:${trip.id}`);
+    }).catch(() => {});
+
     res.json(trip);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -2483,5 +2500,58 @@ export async function createTripInvoiceHandler(req: AuthRequest, res: Response) 
     res.status(201).json(updatedInvoice || invoice);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getTripRouteProofHandler(req: AuthRequest, res: any) {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const trip = await storage.getTrip(id);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+    const { db } = await import("../db");
+    const { tripRoutePlans, tripRouteSummary, tripRoutePointChunks } = await import("@shared/schema");
+    const { eq, asc } = await import("drizzle-orm");
+    const { decodePolyline } = await import("../lib/polylineCodec");
+
+    const [plan] = await db.select().from(tripRoutePlans).where(eq(tripRoutePlans.tripId, id)).limit(1);
+    const [summary] = await db.select().from(tripRouteSummary).where(eq(tripRouteSummary.tripId, id)).limit(1);
+    const chunks = await db.select().from(tripRoutePointChunks).where(eq(tripRoutePointChunks.tripId, id)).orderBy(asc(tripRoutePointChunks.chunkIndex));
+
+    let actualPoints: Array<{ lat: number; lng: number }> = [];
+    for (const chunk of chunks) {
+      actualPoints = actualPoints.concat(decodePolyline(chunk.polylineChunk));
+    }
+
+    res.json({
+      ok: true,
+      tripId: id,
+      plan: plan ? {
+        provider: plan.provider,
+        polyline: plan.polyline,
+        distanceMeters: plan.distanceMeters,
+        durationSeconds: plan.durationSeconds,
+        createdAt: plan.createdAt,
+      } : null,
+      summary: summary ? {
+        plannedDistanceMeters: summary.plannedDistanceMeters,
+        plannedDurationSeconds: summary.plannedDurationSeconds,
+        actualDistanceMeters: summary.actualDistanceMeters,
+        actualDurationSeconds: summary.actualDurationSeconds,
+        pointsTotal: summary.pointsTotal,
+        gpsQualityScore: summary.gpsQualityScore,
+        computedAt: summary.computedAt,
+      } : null,
+      actualPath: {
+        chunkCount: chunks.length,
+        totalPoints: actualPoints.length,
+        points: actualPoints.length <= 500 ? actualPoints : [],
+      },
+    });
+  } catch (err: any) {
+    console.error("[ROUTE-PROOF] Error:", err.message);
+    res.status(500).json({ message: "Failed to load route proof data" });
   }
 }

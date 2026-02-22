@@ -36,6 +36,7 @@ import {
   getTripInvoiceHandler,
   createTripInvoiceHandler,
   dispatchOverrideStatusHandler,
+  getTripRouteProofHandler,
 } from "../controllers/trips.controller";
 import { archiveTripHandler, permanentDeleteTripHandler } from "../controllers/admin.controller";
 
@@ -78,6 +79,7 @@ router.post("/api/trips/:id/return-trip", authMiddleware, requirePermission("tri
 router.get("/api/trips/:id/route", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripRouteHandler as any);
 router.get("/api/trips/:id/route/history", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripRouteHistoryHandler as any);
 router.post("/api/trips/:id/route/recompute", authMiddleware, requirePermission("dispatch", "write"), requireTenantScope, recomputeRouteHandler as any);
+router.get("/api/trips/:id/route/proof", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripRouteProofHandler as any);
 
 router.post("/api/trips/:id/signature/driver", authMiddleware, requireRole("DRIVER", "SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireTenantScope, driverSignatureHandler as any);
 router.post("/api/trips/:id/signature/clinic", authMiddleware, requireRole("CLINIC_USER", "CLINIC_ADMIN", "SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireTenantScope, clinicSignatureHandler as any);
