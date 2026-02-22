@@ -574,6 +574,31 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS dea_company_driver_created_idx ON driver_earnings_adjustments(company_id, driver_id, created_at)`);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS dea_company_driver_week_idx ON driver_earnings_adjustments(company_id, driver_id, week_start)`);
 
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS route_provider TEXT DEFAULT 'google'`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS route_status TEXT DEFAULT 'missing'`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS route_version INTEGER DEFAULT 1`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS route_updated_at TIMESTAMPTZ`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS actual_distance_meters INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS actual_distance_source TEXT DEFAULT 'estimated'`);
+    await bootDb.execute(bootSql`ALTER TABLE trip_events ADD COLUMN IF NOT EXISTS payload JSONB`);
+
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS trip_routes (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES trips(id),
+        version INTEGER NOT NULL DEFAULT 1,
+        polyline TEXT NOT NULL,
+        distance_meters INTEGER,
+        duration_seconds INTEGER,
+        provider TEXT DEFAULT 'google',
+        reason TEXT,
+        fingerprint TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_by INTEGER REFERENCES users(id)
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS trip_routes_trip_id_idx ON trip_routes(trip_id, version)`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);

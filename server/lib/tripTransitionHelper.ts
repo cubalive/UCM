@@ -168,6 +168,15 @@ export async function transitionTripStatus(
       } catch {}
     }
 
+    if (nextStatus === "COMPLETED") {
+      try {
+        const { computeActualDistance } = await import("./actualMilesService");
+        await computeActualDistance(tripId);
+      } catch (err: any) {
+        console.warn("[TRANSITION] Actual distance computation failed:", err.message);
+      }
+    }
+
     if (nextStatus === "COMPLETED" && updatedTrip.clinicId) {
       try {
         const { computeTripBilling } = await import("./clinicBillingRoutes");

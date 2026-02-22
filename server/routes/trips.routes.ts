@@ -27,6 +27,7 @@ import {
   createReturnTripHandler,
   recomputeRouteHandler,
   getTripRouteHandler,
+  getTripRouteHistoryHandler,
   driverSignatureHandler,
   clinicSignatureHandler,
   getSignatureHandler,
@@ -75,6 +76,7 @@ router.delete("/api/trips/:id", authMiddleware, requireRole("SUPER_ADMIN"), requ
 
 router.post("/api/trips/:id/return-trip", authMiddleware, requirePermission("trips", "write"), requireTenantScope, createReturnTripHandler as any);
 router.get("/api/trips/:id/route", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripRouteHandler as any);
+router.get("/api/trips/:id/route/history", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripRouteHistoryHandler as any);
 router.post("/api/trips/:id/route/recompute", authMiddleware, requirePermission("dispatch", "write"), requireTenantScope, recomputeRouteHandler as any);
 
 router.post("/api/trips/:id/signature/driver", authMiddleware, requireRole("DRIVER", "SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireTenantScope, driverSignatureHandler as any);

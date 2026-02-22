@@ -28,7 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import { playSound } from "@/hooks/use-sound-notifications";
 import { downloadWithAuth } from "@/lib/export";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw, Download, RotateCcw } from "lucide-react";
+import { Plus, Route, Search, MessageSquare, Eye, AlertTriangle, Phone, User, Pencil, Clock, Navigation, Link2, LinkIcon, Copy, XCircle, CheckCircle, Ban, Archive, ShieldCheck, Trash2, Flag, UserX, ClockAlert, UserCheck, Lock, Send, DollarSign, FileText, CreditCard, Building2, Globe, Users, Mail, RefreshCw, Download, RotateCcw, ChevronDown } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { GlobalSearchInput } from "@/components/GlobalSearchInput";
 import { FilterBar, type ActiveFilter, type FilterOption, usePersistedFilters } from "@/components/filter-bar";
@@ -548,6 +548,11 @@ export default function TripsPage() {
                       )}
                       {trip.archivedAt && (
                         <Badge variant="outline" className="text-xs border-amber-500 text-amber-600" data-testid={`badge-archived-${trip.id}`}><Archive className="w-3 h-3 mr-1" />Archived</Badge>
+                      )}
+                      {trip.routeVersion != null && trip.routeVersion > 1 && (
+                        <Badge variant="outline" className="text-xs border-orange-400 text-orange-600" data-testid={`badge-rerouted-${trip.id}`}>
+                          <Route className="w-3 h-3 mr-1" />{trip.routeVersion - 1} reroute{trip.routeVersion > 2 ? "s" : ""}
+                        </Badge>
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
@@ -1469,6 +1474,62 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
   );
 }
 
+function RouteVersionHistory({ tripId, token }: { tripId: number; token: string | null }) {
+  const [open, setOpen] = useState(false);
+  const { data: routeHistory, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/trips", tripId, "route-history"],
+    queryFn: async () => {
+      const res = await fetch(`/api/trips/${tripId}/route/history`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.routes || [];
+    },
+    enabled: open,
+  });
+
+  return (
+    <div className="space-y-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        data-testid="button-toggle-route-history"
+      >
+        <ChevronDown className={`w-4 h-4 transition-transform ${open ? "rotate-0" : "-rotate-90"}`} />
+        Route Version History
+      </button>
+      {open && (
+        <div className="ml-5 space-y-2 text-sm">
+          {isLoading && <p className="text-muted-foreground">Loading...</p>}
+          {routeHistory?.map((r: any, i: number) => (
+            <div key={r.id || i} className="flex items-center gap-2 text-xs border-l-2 border-muted pl-2 py-1" data-testid={`route-version-${r.version}`}>
+              <Badge variant={r.reason === "reroute" ? "destructive" : "outline"} className="text-xs">
+                v{r.version}
+              </Badge>
+              <span className="text-muted-foreground">
+                {(r.distanceMeters / 1609.344).toFixed(1)} mi
+              </span>
+              <span className="text-muted-foreground">
+                {Math.round(r.durationSeconds / 60)} min
+              </span>
+              <Badge variant="secondary" className="text-xs">
+                {r.reason}
+              </Badge>
+              {r.createdAt && (
+                <span className="text-muted-foreground text-[10px]">
+                  {new Date(r.createdAt).toLocaleTimeString()}
+                </span>
+              )}
+            </div>
+          ))}
+          {routeHistory?.length === 0 && <p className="text-muted-foreground">No route versions found</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TripDetailDialog({
   trip,
   patient,
@@ -1762,6 +1823,39 @@ function TripDetailDialog({
 
             <TripMetricsCard trip={trip} />
 
+            {(trip.actualDistanceMeters || (trip.routeVersion && trip.routeVersion > 1)) && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {trip.actualDistanceMeters != null && (
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Actual:</span>
+                      <span className="font-medium" data-testid="text-actual-miles">
+                        {(trip.actualDistanceMeters / 1609.344).toFixed(1)} mi
+                      </span>
+                      {trip.distanceMiles && Math.abs(trip.actualDistanceMeters / 1609.344 - parseFloat(trip.distanceMiles)) > 0.5 && (
+                        <span className="text-xs text-amber-600" data-testid="text-miles-diff">
+                          ({((trip.actualDistanceMeters / 1609.344 - parseFloat(trip.distanceMiles)) > 0 ? "+" : "")}{((trip.actualDistanceMeters / 1609.344 - parseFloat(trip.distanceMiles))).toFixed(1)} vs est.)
+                        </span>
+                      )}
+                      <Badge variant="outline" className="text-xs" data-testid="badge-distance-source">
+                        {trip.actualDistanceSource === "gps" ? "GPS" : "Est."}
+                      </Badge>
+                    </div>
+                  )}
+                  {trip.routeVersion != null && trip.routeVersion > 1 && (
+                    <Badge variant="secondary" className="text-xs" data-testid="badge-reroute-count">
+                      {trip.routeVersion - 1} reroute{trip.routeVersion > 2 ? "s" : ""}
+                    </Badge>
+                  )}
+                  {trip.routeStatus && trip.routeStatus !== "missing" && (
+                    <Badge variant={trip.routeStatus === "computed" ? "outline" : "destructive"} className="text-xs" data-testid="badge-route-status">
+                      Route: {trip.routeStatus}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-muted-foreground">Pickup</h3>
               <p className="text-sm" data-testid="text-trip-pickup">{trip.pickupAddress}</p>
@@ -1790,6 +1884,10 @@ function TripDetailDialog({
               className="w-full"
               style={{ minHeight: "200px" }}
             />
+
+            {trip.routeVersion > 1 && (
+              <RouteVersionHistory tripId={trip.id} token={token} />
+            )}
 
             {driver && (
               <div className="space-y-2">

@@ -337,6 +337,12 @@ export const trips = pgTable("trips", {
   routeDistanceMeters: integer("route_distance_meters"),
   routeDurationSeconds: integer("route_duration_seconds"),
   routeFingerprint: text("route_fingerprint"),
+  routeProvider: text("route_provider").default("google"),
+  routeStatus: text("route_status").default("missing"),
+  routeVersion: integer("route_version").default(1),
+  routeUpdatedAt: timestamp("route_updated_at"),
+  actualDistanceMeters: integer("actual_distance_meters"),
+  actualDistanceSource: text("actual_distance_source").default("estimated"),
   lastEtaUpdatedAt: timestamp("last_eta_updated_at"),
   fiveMinAlertSent: boolean("five_min_alert_sent").notNull().default(false),
   staticMapThumbUrl: text("static_map_thumb_url"),
@@ -656,6 +662,14 @@ export const tripEventTypeEnum = pgEnum("trip_event_type", [
   "no_show_patient",
   "complaint",
   "incident",
+  "assigned",
+  "enroute_pickup",
+  "arrived_pickup",
+  "start_trip",
+  "enroute_dropoff",
+  "arrived_dropoff",
+  "complete",
+  "reroute",
 ]);
 
 export const tripEvents = pgTable("trip_events", {
@@ -664,9 +678,28 @@ export const tripEvents = pgTable("trip_events", {
   eventType: tripEventTypeEnum("event_type").notNull(),
   minutesLate: integer("minutes_late"),
   notes: text("notes"),
+  payload: jsonb("payload"),
   createdBy: integer("created_by").references(() => users.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+export const tripRoutes = pgTable("trip_routes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  version: integer("version").notNull().default(1),
+  polyline: text("polyline").notNull(),
+  distanceMeters: integer("distance_meters"),
+  durationSeconds: integer("duration_seconds"),
+  provider: text("provider").default("google"),
+  reason: text("reason"),
+  fingerprint: text("fingerprint"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdBy: integer("created_by").references(() => users.id),
+});
+
+export const insertTripRouteSchema = createInsertSchema(tripRoutes).omit({ createdAt: true });
+export type TripRoute = typeof tripRoutes.$inferSelect;
+export type InsertTripRoute = typeof tripRoutes.$inferInsert;
 
 export const driverBonusRules = pgTable("driver_bonus_rules", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

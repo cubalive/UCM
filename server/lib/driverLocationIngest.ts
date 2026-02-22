@@ -338,6 +338,10 @@ async function broadcastDriverLocation(driverId: number, lat: number, lng: numbe
     import("./geofenceEvaluator").then(({ evaluateGeofence }) => {
       evaluateGeofence(driverId, lat, lng);
     }).catch(() => {});
+
+    import("./rerouteDetector").then(({ evaluateReroute }) => {
+      evaluateReroute(driverId, lat, lng);
+    }).catch(() => {});
   } catch (err: any) {
     console.warn(`[LOCATION-INGEST] Broadcast error for driver ${driverId}: ${err.message}`);
   }

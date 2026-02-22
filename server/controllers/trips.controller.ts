@@ -2015,6 +2015,7 @@ export async function getTripRouteHandler(req: AuthRequest, res: Response) {
         routePolyline: null,
         distanceMeters: null,
         durationSeconds: null,
+        routeVersion: null,
       });
     }
 
@@ -2022,6 +2023,7 @@ export async function getTripRouteHandler(req: AuthRequest, res: Response) {
       routePolyline: result.routePolyline,
       distanceMeters: result.routeDistanceMeters,
       durationSeconds: result.routeDurationSeconds,
+      routeVersion: result.routeVersion,
     });
   } catch (err: any) {
     console.warn(`[TRIP-ROUTE] Error for trip ${req.params.id}: ${err.message}`);
@@ -2031,6 +2033,21 @@ export async function getTripRouteHandler(req: AuthRequest, res: Response) {
       durationSeconds: null,
       error: err.message,
     });
+  }
+}
+
+export async function getTripRouteHistoryHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
+    const trip = await storage.getTrip(id);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+    const { getTripRouteHistory } = await import("../lib/tripRouteService");
+    const routes = await getTripRouteHistory(id);
+    return res.json({ routes });
+  } catch (err: any) {
+    return res.status(500).json({ message: err.message });
   }
 }
 
@@ -2088,31 +2105,31 @@ export async function recomputeRouteHandler(req: AuthRequest, res: Response) {
     }
 
     try {
-      const { buildRoute } = await import("../lib/googleMaps");
-      const route = await buildRoute(
-        { lat: originLat, lng: originLng },
-        { lat: Number(targetLat), lng: Number(targetLng) }
+      const { computeRouteFromCoords } = await import("../lib/tripRouteService");
+      const result = await computeRouteFromCoords(
+        id, originLat, originLng, Number(targetLat), Number(targetLng), "reroute"
       );
 
-      const updateData: any = {
-        routePolyline: route.polyline,
-        lastEtaMinutes: route.totalMinutes,
-        durationMinutes: route.totalMinutes,
-        distanceMiles: String(route.totalMiles),
-        lastEtaUpdatedAt: new Date(),
-      };
+      if (result) {
+        const now = new Date();
+        await storage.updateTrip(id, {
+          lastEtaMinutes: Math.round(result.routeDurationSeconds / 60),
+          lastEtaUpdatedAt: now,
+        });
+        cache.set(routeCacheKey, Date.now(), 50_000);
 
-      await storage.updateTrip(id, updateData);
-      cache.set(routeCacheKey, Date.now(), 50_000);
-
-      res.json({
-        ok: true,
-        polyline: route.polyline,
-        etaMinutes: route.totalMinutes,
-        distanceMiles: route.totalMiles,
-        updatedAt: updateData.lastEtaUpdatedAt.toISOString(),
-        source: "google",
-      });
+        res.json({
+          ok: true,
+          polyline: result.routePolyline,
+          etaMinutes: Math.round(result.routeDurationSeconds / 60),
+          distanceMiles: result.routeDistanceMeters / 1609.344,
+          updatedAt: now.toISOString(),
+          source: "google",
+          routeVersion: result.routeVersion,
+        });
+      } else {
+        throw new Error("Route computation returned null");
+      }
     } catch (routeErr: any) {
       const { haversineEta } = await import("../lib/etaThrottle");
       const fallback = haversineEta(

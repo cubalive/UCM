@@ -1,0 +1,113 @@
+ROLE: Principal engineer (routing + maps + trip state + audit)
+PROJECT: UCM — Build “UCM Routing Engine v1” (Uber-like UX, external routing)
+EXECUTION MODE: SINGLE AGENT ONLY
+NO PARALLEL TASKS
+NO DB RESET
+NO TABLE DROPS
+EXTEND ONLY
+ZERO REGRESSION TOLERANCE
+
+GOAL
+Create a “UCM Route” experience like Uber:
+- Route is computed server-side and stored (polyline + distance + duration)
+- Driver sees “Go to Pickup” then “Start Trip” then “Go to Dropoff”
+- Re-route supported if driver deviates (route_versioning)
+- Admin/Dispatcher/Clinic see the same route + trip proof and can replay
+- Miles saved (estimated + actual)
+
+STEP 1 — DATA MODEL (additive)
+Add to trips:
+- route_provider text default 'google'
+- route_polyline text null
+- route_distance_meters int null
+- route_duration_seconds int null
+- route_status text default 'missing'
+- route_version int default 1
+- route_updated_at timestamptz null
+- actual_distance_meters int null
+- actual_distance_source text default 'estimated'  -- gps|estimated
+
+Create trip_routes (versioning):
+trip_routes(
+  id uuid pk,
+  trip_id uuid not null,
+  version int not null,
+  polyline text not null,
+  distance_meters int,
+  duration_seconds int,
+  reason text, -- initial|reroute|pickup_changed|dropoff_changed
+  created_at timestamptz default now()
+)
+
+Create trip_events if not present:
+trip_events(
+  id uuid pk,
+  trip_id uuid not null,
+  type text, -- assigned|enroute_pickup|arrived_pickup|start_trip|arrived_dropoff|complete|reroute
+  payload jsonb,
+  created_at timestamptz default now()
+)
+
+STEP 2 — SERVER ROUTE COMPUTATION
+Implement computeRoute({origin,destination}) using Directions API server-side.
+Store:
+- trips.route_* fields
+- insert into trip_routes with version increment
+Never compute routes on the client.
+
+STEP 3 — REROUTE
+In driver tracking loop:
+- Compare driver location to current route corridor (simple distance-to-polyline threshold)
+- If off-route for N seconds OR distance exceeds threshold:
+   compute new route from current location to current target (pickup or dropoff)
+   save trip_routes new version
+   emit trip_event 'reroute'
+Must be rate-limited.
+
+STEP 4 — DRIVER UX (Uber-like)
+Driver trip screen must show:
+- Big primary CTA based on trip state:
+   Assigned -> “Go to Pickup”
+   Enroute Pickup -> “Arrived at Pickup”
+   At Pickup -> “Start Trip”
+   Enroute Dropoff -> “Arrived at Dropoff”
+   At Dropoff -> “Complete Trip”
+No skipping.
+Navigation buttons:
+- Google Maps
+- Apple Maps
+- Waze
+User can set default and it persists.
+
+STEP 5 — ADMIN/DISPATCH/CLINIC VIEW
+Trip detail shows:
+- Route polyline (latest version)
+- Route version history dropdown
+- Distance/ETA
+- Trip timeline (events)
+- Proof badges (geofence/wait)
+No straight line when polyline exists.
+
+STEP 6 — ACTUAL MILES
+If GPS points exist:
+- compute haversine sum with outlier filtering
+Else:
+- fallback to route_distance_meters
+Persist actual_distance_meters and source.
+
+STEP 7 — SECURITY
+RLS must allow:
+- clinic sees only their trips
+- company/dispatch sees only their tenant
+- admin sees all
+Route polylines must be readable by relevant roles.
+
+STEP 8 — SMOKE TESTS
+- Create trip -> route saved + rendered
+- Driver -> Go to Pickup opens pickup coords (not dropoff)
+- Complete trip -> actual miles saved
+- Admin/clinic sees route + miles
+- Reroute triggers only when off-route, rate-limited
+
+OUTPUT
+List files changed, SQL migration, and proof queries showing route_polyline and trip_routes rows.
