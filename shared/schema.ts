@@ -2986,3 +2986,83 @@ export const financialLedger = pgTable("financial_ledger", {
 export const insertFinancialLedgerSchema = createInsertSchema(financialLedger).omit({ id: true, createdAt: true });
 export type FinancialLedgerEntry = typeof financialLedger.$inferSelect;
 export type InsertFinancialLedgerEntry = z.infer<typeof insertFinancialLedgerSchema>;
+
+export const tripRequestStatusEnum = pgEnum("trip_request_status", [
+  "PENDING",
+  "NEEDS_INFO",
+  "APPROVED",
+  "REJECTED",
+  "CANCELLED",
+]);
+
+export const tripRequests = pgTable("trip_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  patientId: integer("patient_id").references(() => patients.id),
+  requestedByUserId: integer("requested_by_user_id").references(() => users.id),
+  status: tripRequestStatusEnum("status").notNull().default("PENDING"),
+  pickupAddress: text("pickup_address").notNull(),
+  pickupLat: doublePrecision("pickup_lat"),
+  pickupLng: doublePrecision("pickup_lng"),
+  dropoffAddress: text("dropoff_address").notNull(),
+  dropoffLat: doublePrecision("dropoff_lat"),
+  dropoffLng: doublePrecision("dropoff_lng"),
+  scheduledDate: text("scheduled_date").notNull(),
+  scheduledTime: text("scheduled_time").notNull(),
+  serviceLevel: text("service_level").notNull().default("ambulatory"),
+  isRoundTrip: boolean("is_round_trip").notNull().default(false),
+  recurrenceRule: text("recurrence_rule"),
+  passengerCount: integer("passenger_count").notNull().default(1),
+  notes: text("notes"),
+  dispatchNotes: text("dispatch_notes"),
+  approvedTripId: integer("approved_trip_id").references(() => trips.id),
+  rejectedReason: text("rejected_reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("tr_company_idx").on(table.companyId),
+  index("tr_clinic_idx").on(table.clinicId),
+  index("tr_status_idx").on(table.status),
+  index("tr_created_idx").on(table.createdAt),
+  index("tr_patient_idx").on(table.patientId),
+]);
+
+export const insertTripRequestSchema = createInsertSchema(tripRequests).omit({ id: true, createdAt: true, updatedAt: true, approvedTripId: true });
+export type TripRequest = typeof tripRequests.$inferSelect;
+export type InsertTripRequest = z.infer<typeof insertTripRequestSchema>;
+
+export const chatThreads = pgTable("chat_threads", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  scopeType: text("scope_type").notNull(),
+  scopeId: integer("scope_id").notNull(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  lastMessageAt: timestamp("last_message_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("ct_scope_unique").on(table.scopeType, table.scopeId),
+  index("ct_company_idx").on(table.companyId),
+  index("ct_clinic_idx").on(table.clinicId),
+]);
+
+export const chatMessages = pgTable("chat_messages", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  threadId: integer("thread_id").notNull().references(() => chatThreads.id),
+  senderUserId: integer("sender_user_id").references(() => users.id),
+  senderRole: text("sender_role").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("cm_thread_idx").on(table.threadId),
+  index("cm_created_idx").on(table.createdAt),
+]);
+
+export const insertChatThreadSchema = createInsertSchema(chatThreads).omit({ id: true, createdAt: true });
+export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({ id: true, createdAt: true });
+export type ChatThread = typeof chatThreads.$inferSelect;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type InsertChatThread = z.infer<typeof insertChatThreadSchema>;
+export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;

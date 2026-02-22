@@ -6,6 +6,9 @@ import ClinicTrips from "./pages/ClinicTrips";
 import ClinicLiveView from "./pages/ClinicLiveView";
 import ClinicBilling from "./pages/ClinicBilling";
 import ClinicProfile from "./pages/ClinicProfile";
+import ClinicTripRequests from "./pages/ClinicTripRequests";
+import ClinicTripRequestNew from "./pages/ClinicTripRequestNew";
+import ClinicTripRequestDetail from "./pages/ClinicTripRequestDetail";
 import LoginPage from "@/pages/login";
 import UnauthorizedPage from "@/pages/unauthorized";
 import { useState } from "react";
@@ -17,6 +20,9 @@ function ClinicPortalRoutes() {
   return (
     <Switch>
       <Route path="/" component={ClinicDashboard} />
+      <Route path="/requests/new" component={ClinicTripRequestNew} />
+      <Route path="/requests/:id" component={ClinicTripRequestDetail} />
+      <Route path="/requests" component={ClinicTripRequests} />
       <Route path="/trips" component={ClinicTrips} />
       <Route path="/live" component={ClinicLiveView} />
       <Route path="/billing" component={ClinicBilling} />

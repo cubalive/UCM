@@ -46,6 +46,7 @@ import LiveMapPage from "@/pages/live-map";
 import ArchivePage from "@/pages/archive";
 import AutoAssignmentPage from "@/pages/auto-assignment";
 import DispatchBoardPage from "@/pages/dispatch-board";
+import TripRequestsQueuePage from "@/pages/trip-requests-queue";
 import ClinicTripsPage from "@/pages/clinic-trips";
 import DriverDashboard from "@/pages/driver-portal";
 import DriverProfilePage from "@/pages/driver-profile";
@@ -333,6 +334,7 @@ function Router() {
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>
       <Route path="/auto-assignment">{() => <ProtectedRoute resource="dispatch" component={AutoAssignmentPage} />}</Route>
       <Route path="/dispatch-board">{() => <ProtectedRoute resource="dispatch" component={DispatchBoardPage} />}</Route>
+      <Route path="/trip-requests-queue">{() => <ProtectedRoute resource="dispatch" component={TripRequestsQueuePage} />}</Route>
       <Route path="/schedule">{() => <ProtectedRoute resource="dispatch" component={SchedulePage} />}</Route>
       <Route path="/dispatch-swaps">{() => <ProtectedRoute resource="dispatch" component={DispatchSwapsPage} />}</Route>
       <Route path="/clinic-trip/:id">{() => <ClinicRoute component={ClinicTripDetailsPage} />}</Route>

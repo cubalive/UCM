@@ -46,6 +46,7 @@
     "clinics": "Clinics",
     "invoices": "Invoices",
     "dispatchBoard": "Dispatch Board",
+    "tripRequestsQueue": "Trip Requests",
     "opsHealth": "Ops Health",
     "opsChecks": "Ops Checks",
     "autoAssign": "Auto Assign",

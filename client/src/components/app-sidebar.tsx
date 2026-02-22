@@ -107,6 +107,7 @@ const operationGroups: NavGroup[] = [
       { titleKey: "nav.dashboard", url: "/", icon: LayoutDashboard, resource: "dashboard" },
       { titleKey: "nav.dispatch", url: "/dispatch", icon: Radio, resource: "dispatch" },
       { titleKey: "nav.dispatchBoard", url: "/dispatch-board", icon: ClipboardCheck, resource: "dispatch" },
+      { titleKey: "nav.tripRequestsQueue", url: "/trip-requests-queue", icon: ClipboardCheck, resource: "dispatch" },
       { titleKey: "nav.liveMap", url: "/live-map", icon: Map, resource: "dispatch" },
     ],
   },

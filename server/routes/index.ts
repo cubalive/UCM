@@ -44,6 +44,7 @@ import { registerInfraOpsRoutes } from "./ops.routes";
 import { registerSubscriptionRoutes, registerSubscriptionWebhook } from "./subscription.routes";
 import { registerEnterpriseFinanceRoutes, startDunningScheduler } from "./enterpriseFinance.routes";
 import { registerFeeRulesRoutes } from "./feeRules.routes";
+import { registerTripRequestRoutes } from "./trip-requests.routes";
 import { startRouteScheduler } from "../lib/routeEngine";
 import { startNoShowScheduler } from "../lib/noShowEngine";
 import { startRecurringScheduleScheduler } from "../lib/recurringScheduleEngine";
@@ -109,6 +110,7 @@ export async function registerRoutes(
   registerSubscriptionWebhook(app);
   registerEnterpriseFinanceRoutes(app);
   registerFeeRulesRoutes(app);
+  registerTripRequestRoutes(app);
   registerAutoAssignV2Routes(app);
   registerEtaVarianceRoutes(app);
   registerZeroTouchDialysisRoutes(app);
