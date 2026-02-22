@@ -612,10 +612,24 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
     if (!scope) return res.status(401).json({ message: "Unauthorized" });
     forceCompanyOnCreate(scope, req.body);
 
+    if (!req.body.companyId && scope.isSuperAdmin) {
+      if (req.body.clinicId) {
+        const clinic = await storage.getClinic(req.body.clinicId);
+        if (clinic) req.body.companyId = clinic.companyId;
+      }
+      if (!req.body.companyId && req.body.patientId) {
+        const patient = await storage.getPatient(req.body.patientId);
+        if (patient) req.body.companyId = patient.companyId;
+      }
+    }
+
     const parsed = createTripSchema.safeParse(req.body);
     if (!parsed.success) {
       const firstIssue = parsed.error.issues[0];
-      return res.status(400).json({ message: firstIssue?.message || "Invalid trip data" });
+      const fieldPath = firstIssue?.path?.join(".") || "unknown";
+      const msg = firstIssue?.message || "Invalid trip data";
+      console.warn(`[TRIP-CREATE] Validation failed: field=${fieldPath}, message=${msg}`, JSON.stringify(parsed.error.issues.slice(0, 5)));
+      return res.status(400).json({ message: `${msg} (field: ${fieldPath})` });
     }
     if (parsed.data.pickupAddress && !parsed.data.pickupZip) {
       return res.status(400).json({ message: "Pickup ZIP code is required" });
