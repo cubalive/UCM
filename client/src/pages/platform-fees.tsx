@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -48,6 +49,9 @@ import {
   Play,
   ShieldCheck,
   ShieldOff,
+  Sliders,
+  Plus,
+  Ban,
 } from "lucide-react";
 
 interface GlobalSettings {
@@ -107,6 +111,103 @@ interface CompanyDetail {
   access: { allowed: boolean; reason?: string };
 }
 
+interface FeeRule {
+  id: number;
+  scopeType: "global" | "company" | "clinic" | "company_clinic";
+  companyId: number | null;
+  clinicId: number | null;
+  serviceLevel: string | null;
+  feeType: "percent" | "fixed" | "percent_plus_fixed";
+  percentBps: number;
+  fixedFeeCents: number;
+  minFeeCents: number | null;
+  maxFeeCents: number | null;
+  isEnabled: boolean;
+  priority: number;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  notes: string | null;
+  calculationBase: string | null;
+  feeDirection: string | null;
+  beneficiary: string | null;
+  settlementStage: string | null;
+  createdBy: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type ScopeType = "global" | "company" | "clinic" | "company_clinic";
+type FeeType = "percent" | "fixed" | "percent_plus_fixed";
+
+const SCOPE_LABELS: Record<ScopeType, string> = {
+  global: "Global",
+  company: "Company",
+  clinic: "Clinic",
+  company_clinic: "Company + Clinic",
+};
+
+const FEE_TYPE_LABELS: Record<FeeType, string> = {
+  percent: "Percentage",
+  fixed: "Fixed",
+  percent_plus_fixed: "Percent + Fixed",
+};
+
+function feeRuleScopeBadge(scope: ScopeType) {
+  const variants: Record<ScopeType, string> = {
+    global: "bg-blue-600",
+    company: "bg-emerald-600",
+    clinic: "bg-purple-600",
+    company_clinic: "bg-orange-600",
+  };
+  return (
+    <Badge className={variants[scope]} data-testid={`badge-fr-scope-${scope}`}>
+      {SCOPE_LABELS[scope]}
+    </Badge>
+  );
+}
+
+function formatRuleRate(rule: FeeRule): string {
+  const pct = (rule.percentBps / 100).toFixed(2);
+  const fixed = (rule.fixedFeeCents / 100).toFixed(2);
+  switch (rule.feeType) {
+    case "percent":
+      return `${pct}%`;
+    case "fixed":
+      return `$${fixed}`;
+    case "percent_plus_fixed":
+      return `${pct}% + $${fixed}`;
+    default:
+      return "-";
+  }
+}
+
+function formatCentsVal(cents: number | null): string {
+  if (cents == null) return "-";
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatDateVal(d: string | null): string {
+  if (!d) return "-";
+  return new Date(d).toLocaleDateString();
+}
+
+const emptyFeeRuleForm = {
+  scopeType: "global" as ScopeType,
+  companyId: "",
+  clinicId: "",
+  serviceLevel: "",
+  feeType: "percent" as FeeType,
+  percentInput: "0",
+  fixedInput: "0",
+  minFeeInput: "",
+  maxFeeInput: "",
+  isEnabled: true,
+  priority: "0",
+  effectiveFrom: "",
+  effectiveTo: "",
+  notes: "",
+};
+
 function formatFee(type: string, percent: string | number, cents: number): string {
   if (type === "PERCENT") return `${percent}%`;
   return `$${(cents / 100).toFixed(2)} flat`;
@@ -148,11 +249,17 @@ export default function PlatformFeesPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const [activeTab, setActiveTab] = useState("fees");
 
+  const [frDialogOpen, setFrDialogOpen] = useState(false);
+  const [frEditingId, setFrEditingId] = useState<number | null>(null);
+  const [frForm, setFrForm] = useState({ ...emptyFeeRuleForm });
+  const [frFilterScope, setFrFilterScope] = useState("all");
+  const [frFilterEnabled, setFrFilterEnabled] = useState("all");
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("tab") === "subscription") {
-      setActiveTab("subscription");
-    }
+    const tab = params.get("tab");
+    if (tab === "subscription") setActiveTab("subscription");
+    else if (tab === "fee-rules") setActiveTab("fee-rules");
   }, []);
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
@@ -272,6 +379,131 @@ export default function PlatformFeesPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const frBuildQuery = () => {
+    const params = new URLSearchParams();
+    if (frFilterScope !== "all") params.set("scopeType", frFilterScope);
+    if (frFilterEnabled !== "all") params.set("isEnabled", frFilterEnabled);
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  };
+
+  const feeRulesQuery = useQuery<{ rules: FeeRule[] }>({
+    queryKey: ["/api/admin/fee-rules", frFilterScope, frFilterEnabled],
+    queryFn: () => apiFetch(`/api/admin/fee-rules${frBuildQuery()}`, token),
+    enabled: !!token && activeTab === "fee-rules",
+  });
+
+  const frCreateMutation = useMutation({
+    mutationFn: (data: any) =>
+      apiFetch("/api/admin/fee-rules", token, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/fee-rules"] });
+      setFrDialogOpen(false);
+      setFrEditingId(null);
+      toast({ title: "Fee rule created" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const frUpdateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) =>
+      apiFetch(`/api/admin/fee-rules/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/fee-rules"] });
+      setFrDialogOpen(false);
+      setFrEditingId(null);
+      toast({ title: "Fee rule updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const frDisableMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/admin/fee-rules/${id}/disable`, token, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/fee-rules"] });
+      toast({ title: "Fee rule disabled" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const frToggleMutation = useMutation({
+    mutationFn: ({ id, isEnabled }: { id: number; isEnabled: boolean }) =>
+      apiFetch(`/api/admin/fee-rules/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ isEnabled }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/fee-rules"] });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const frOpenCreate = () => {
+    setFrEditingId(null);
+    setFrForm({ ...emptyFeeRuleForm });
+    setFrDialogOpen(true);
+  };
+
+  const frOpenEdit = (rule: FeeRule) => {
+    setFrEditingId(rule.id);
+    setFrForm({
+      scopeType: rule.scopeType,
+      companyId: rule.companyId != null ? String(rule.companyId) : "",
+      clinicId: rule.clinicId != null ? String(rule.clinicId) : "",
+      serviceLevel: rule.serviceLevel || "",
+      feeType: rule.feeType,
+      percentInput: (rule.percentBps / 100).toFixed(2),
+      fixedInput: (rule.fixedFeeCents / 100).toFixed(2),
+      minFeeInput: rule.minFeeCents != null ? (rule.minFeeCents / 100).toFixed(2) : "",
+      maxFeeInput: rule.maxFeeCents != null ? (rule.maxFeeCents / 100).toFixed(2) : "",
+      isEnabled: rule.isEnabled,
+      priority: String(rule.priority),
+      effectiveFrom: rule.effectiveFrom ? rule.effectiveFrom.split("T")[0] : "",
+      effectiveTo: rule.effectiveTo ? rule.effectiveTo.split("T")[0] : "",
+      notes: rule.notes || "",
+    });
+    setFrDialogOpen(true);
+  };
+
+  const frHandleSubmit = () => {
+    const payload: any = {
+      scopeType: frForm.scopeType,
+      feeType: frForm.feeType,
+      percentBps: Math.round(parseFloat(frForm.percentInput || "0") * 100),
+      fixedFeeCents: Math.round(parseFloat(frForm.fixedInput || "0") * 100),
+      minFeeCents: frForm.minFeeInput ? Math.round(parseFloat(frForm.minFeeInput) * 100) : null,
+      maxFeeCents: frForm.maxFeeInput ? Math.round(parseFloat(frForm.maxFeeInput) * 100) : null,
+      isEnabled: frForm.isEnabled,
+      priority: parseInt(frForm.priority || "0", 10),
+      effectiveFrom: frForm.effectiveFrom || null,
+      effectiveTo: frForm.effectiveTo || null,
+      notes: frForm.notes || null,
+      companyId: frForm.companyId ? parseInt(frForm.companyId, 10) : null,
+      clinicId: frForm.clinicId ? parseInt(frForm.clinicId, 10) : null,
+      serviceLevel: frForm.serviceLevel || null,
+    };
+
+    if (frEditingId) {
+      frUpdateMutation.mutate({ id: frEditingId, data: payload });
+    } else {
+      frCreateMutation.mutate(payload);
+    }
+  };
+
+  const feeRulesList = feeRulesQuery.data?.rules || [];
+  const frIsSaving = frCreateMutation.isPending || frUpdateMutation.isPending;
+  const frShowCompanyField = frForm.scopeType === "company" || frForm.scopeType === "company_clinic";
+  const frShowClinicField = frForm.scopeType === "clinic" || frForm.scopeType === "company_clinic";
+  const frShowPercentField = frForm.feeType === "percent" || frForm.feeType === "percent_plus_fixed";
+  const frShowFixedField = frForm.feeType === "fixed" || frForm.feeType === "percent_plus_fixed";
+
   const settings = settingsQuery.data;
 
   const openEditOverride = (c: CompanyOverride) => {
@@ -313,6 +545,10 @@ export default function PlatformFeesPage() {
           <TabsTrigger value="subscription" data-testid="tab-subscription">
             <CreditCard className="h-4 w-4 mr-1" />
             Subscription
+          </TabsTrigger>
+          <TabsTrigger value="fee-rules" data-testid="tab-fee-rules">
+            <Sliders className="h-4 w-4 mr-1" />
+            Fee Rules
           </TabsTrigger>
         </TabsList>
 
@@ -776,7 +1012,353 @@ export default function PlatformFeesPage() {
             </Card>
           </div>
         </TabsContent>
+
+        <TabsContent value="fee-rules">
+          <div className="space-y-4">
+            <Card data-testid="card-fr-filters">
+              <CardContent className="pt-4">
+                <div className="flex items-end gap-4 flex-wrap">
+                  <div className="space-y-1">
+                    <Label>Scope Type</Label>
+                    <Select value={frFilterScope} onValueChange={setFrFilterScope}>
+                      <SelectTrigger data-testid="select-fr-filter-scope" className="w-40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Scopes</SelectItem>
+                        <SelectItem value="global">Global</SelectItem>
+                        <SelectItem value="company">Company</SelectItem>
+                        <SelectItem value="clinic">Clinic</SelectItem>
+                        <SelectItem value="company_clinic">Company + Clinic</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Status</Label>
+                    <Select value={frFilterEnabled} onValueChange={setFrFilterEnabled}>
+                      <SelectTrigger data-testid="select-fr-filter-enabled" className="w-40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="true">Enabled</SelectItem>
+                        <SelectItem value="false">Disabled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button onClick={frOpenCreate} data-testid="button-fr-create-rule">
+                    <Plus className="h-4 w-4 mr-1" />
+                    New Fee Rule
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card data-testid="card-fr-rules-list">
+              <CardContent className="pt-4">
+                {feeRulesQuery.isLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </div>
+                ) : feeRulesList.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Scope</TableHead>
+                          <TableHead>Company/Clinic</TableHead>
+                          <TableHead>Fee Type</TableHead>
+                          <TableHead>Rate</TableHead>
+                          <TableHead>Min/Max</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Priority</TableHead>
+                          <TableHead>Dates</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {feeRulesList.map((rule) => (
+                          <TableRow key={rule.id} data-testid={`row-fr-rule-${rule.id}`}>
+                            <TableCell>{feeRuleScopeBadge(rule.scopeType)}</TableCell>
+                            <TableCell data-testid={`text-fr-scope-target-${rule.id}`}>
+                              {rule.companyId && <span className="text-sm">Co: {rule.companyId}</span>}
+                              {rule.companyId && rule.clinicId && <span className="text-muted-foreground mx-1">/</span>}
+                              {rule.clinicId && <span className="text-sm">Cl: {rule.clinicId}</span>}
+                              {!rule.companyId && !rule.clinicId && <span className="text-muted-foreground">-</span>}
+                              {rule.serviceLevel && (
+                                <Badge variant="outline" className="ml-1">{rule.serviceLevel}</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell data-testid={`text-fr-fee-type-${rule.id}`}>
+                              {FEE_TYPE_LABELS[rule.feeType]}
+                            </TableCell>
+                            <TableCell data-testid={`text-fr-rate-${rule.id}`}>
+                              {formatRuleRate(rule)}
+                            </TableCell>
+                            <TableCell data-testid={`text-fr-minmax-${rule.id}`}>
+                              {formatCentsVal(rule.minFeeCents)} / {formatCentsVal(rule.maxFeeCents)}
+                            </TableCell>
+                            <TableCell>
+                              <Switch
+                                data-testid={`switch-fr-enabled-${rule.id}`}
+                                checked={rule.isEnabled}
+                                onCheckedChange={(val) =>
+                                  frToggleMutation.mutate({ id: rule.id, isEnabled: val })
+                                }
+                              />
+                            </TableCell>
+                            <TableCell data-testid={`text-fr-priority-${rule.id}`}>
+                              {rule.priority}
+                            </TableCell>
+                            <TableCell data-testid={`text-fr-dates-${rule.id}`}>
+                              <span className="text-xs text-muted-foreground">
+                                {formatDateVal(rule.effectiveFrom)} — {formatDateVal(rule.effectiveTo)}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  data-testid={`button-fr-edit-rule-${rule.id}`}
+                                  onClick={() => frOpenEdit(rule)}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                {rule.isEnabled && (
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    data-testid={`button-fr-disable-rule-${rule.id}`}
+                                    onClick={() => frDisableMutation.mutate(rule.id)}
+                                  >
+                                    <Ban className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8" data-testid="text-fr-no-rules">
+                    No fee rules found. Create one to get started.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
       </Tabs>
+
+      <Dialog open={frDialogOpen} onOpenChange={(v) => { if (!v) { setFrDialogOpen(false); setFrEditingId(null); } }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-fr-rule">
+          <DialogHeader>
+            <DialogTitle>{frEditingId ? "Edit Fee Rule" : "New Fee Rule"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label>Scope Type</Label>
+              <Select
+                value={frForm.scopeType}
+                onValueChange={(val: ScopeType) => setFrForm((f) => ({ ...f, scopeType: val }))}
+              >
+                <SelectTrigger data-testid="select-fr-scope-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="global">Global</SelectItem>
+                  <SelectItem value="company">Company</SelectItem>
+                  <SelectItem value="clinic">Clinic</SelectItem>
+                  <SelectItem value="company_clinic">Company + Clinic</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {frShowCompanyField && (
+              <div className="space-y-1">
+                <Label>Company ID</Label>
+                <Input
+                  type="number"
+                  data-testid="input-fr-company-id"
+                  value={frForm.companyId}
+                  onChange={(e) => setFrForm((f) => ({ ...f, companyId: e.target.value }))}
+                />
+              </div>
+            )}
+
+            {frShowClinicField && (
+              <div className="space-y-1">
+                <Label>Clinic ID</Label>
+                <Input
+                  type="number"
+                  data-testid="input-fr-clinic-id"
+                  value={frForm.clinicId}
+                  onChange={(e) => setFrForm((f) => ({ ...f, clinicId: e.target.value }))}
+                />
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <Label>Service Level</Label>
+              <Input
+                placeholder="e.g. wheelchair, ambulatory, stretcher"
+                data-testid="input-fr-service-level"
+                value={frForm.serviceLevel}
+                onChange={(e) => setFrForm((f) => ({ ...f, serviceLevel: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Fee Type</Label>
+              <Select
+                value={frForm.feeType}
+                onValueChange={(val: FeeType) => setFrForm((f) => ({ ...f, feeType: val }))}
+              >
+                <SelectTrigger data-testid="select-fr-fee-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percent">Percentage</SelectItem>
+                  <SelectItem value="fixed">Fixed</SelectItem>
+                  <SelectItem value="percent_plus_fixed">Percent + Fixed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {frShowPercentField && (
+              <div className="space-y-1">
+                <Label>Percent (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  data-testid="input-fr-percent"
+                  value={frForm.percentInput}
+                  onChange={(e) => setFrForm((f) => ({ ...f, percentInput: e.target.value }))}
+                />
+              </div>
+            )}
+
+            {frShowFixedField && (
+              <div className="space-y-1">
+                <Label>Fixed Fee ($)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  data-testid="input-fr-fixed"
+                  value={frForm.fixedInput}
+                  onChange={(e) => setFrForm((f) => ({ ...f, fixedInput: e.target.value }))}
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label>Min Fee ($)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Optional floor"
+                  data-testid="input-fr-min-fee"
+                  value={frForm.minFeeInput}
+                  onChange={(e) => setFrForm((f) => ({ ...f, minFeeInput: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Max Fee ($)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Optional cap"
+                  data-testid="input-fr-max-fee"
+                  value={frForm.maxFeeInput}
+                  onChange={(e) => setFrForm((f) => ({ ...f, maxFeeInput: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Priority</Label>
+              <Input
+                type="number"
+                min="0"
+                data-testid="input-fr-priority"
+                value={frForm.priority}
+                onChange={(e) => setFrForm((f) => ({ ...f, priority: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">Lower number = higher priority</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label>Effective From</Label>
+                <Input
+                  type="date"
+                  data-testid="input-fr-effective-from"
+                  value={frForm.effectiveFrom}
+                  onChange={(e) => setFrForm((f) => ({ ...f, effectiveFrom: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Effective To</Label>
+                <Input
+                  type="date"
+                  data-testid="input-fr-effective-to"
+                  value={frForm.effectiveTo}
+                  onChange={(e) => setFrForm((f) => ({ ...f, effectiveTo: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Label htmlFor="fr-enabled">Enabled</Label>
+              <Switch
+                id="fr-enabled"
+                data-testid="switch-fr-form-enabled"
+                checked={frForm.isEnabled}
+                onCheckedChange={(val) => setFrForm((f) => ({ ...f, isEnabled: val }))}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Notes</Label>
+              <Textarea
+                placeholder="Optional notes about this rule"
+                data-testid="input-fr-notes"
+                value={frForm.notes}
+                onChange={(e) => setFrForm((f) => ({ ...f, notes: e.target.value }))}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => { setFrDialogOpen(false); setFrEditingId(null); }}
+                data-testid="button-fr-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                data-testid="button-fr-save"
+                disabled={frIsSaving}
+                onClick={frHandleSubmit}
+              >
+                {frIsSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {frEditingId ? "Update Rule" : "Create Rule"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editCompanyId !== null} onOpenChange={(v) => !v && setEditCompanyId(null)}>
         <DialogContent data-testid="dialog-edit-override">

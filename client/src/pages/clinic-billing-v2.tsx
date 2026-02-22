@@ -69,13 +69,28 @@ export default function ClinicBillingV2Page() {
   });
 
   const payMutation = useMutation({
-    mutationFn: (invoiceId: number) =>
-      apiFetch(`/api/clinic/billing/invoices/${invoiceId}/pay`, token, { method: "POST" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/clinic/billing/invoices"] });
-      toast({ title: "Payment recorded" });
+    mutationFn: async (invoiceId: number) => {
+      const result = await apiFetch(`/api/clinic/billing/invoices/${invoiceId}/pay`, token, { method: "POST" });
+      return result;
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onSuccess: (data: any) => {
+      if (data.alreadyPaid) {
+        toast({ title: "Already paid", description: "This invoice has already been paid." });
+        if (data.receiptUrl) {
+          window.open(data.receiptUrl, "_blank");
+        }
+        queryClient.invalidateQueries({ queryKey: ["/api/clinic/billing/invoices"] });
+        return;
+      }
+      if (data.checkoutUrl) {
+        toast({ title: "Redirecting to payment...", description: "You will be redirected to the secure payment page." });
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/billing/invoices"] });
+      toast({ title: "Payment initiated" });
+    },
+    onError: (err: any) => toast({ title: "Payment Error", description: err.message, variant: "destructive" }),
   });
 
   const handleDownloadCsv = async (invoiceId: number, invoiceNumber: string) => {
@@ -176,13 +191,12 @@ export default function ClinicBillingV2Page() {
                           {inv.paymentStatus !== "paid" && (
                             <Button
                               size="sm"
-                              variant="outline"
                               onClick={() => payMutation.mutate(inv.id)}
                               disabled={payMutation.isPending}
                               data-testid={`button-pay-invoice-${inv.id}`}
                             >
-                              {payMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}
-                              Pay
+                              {payMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4 mr-1" />}
+                              Pay Now
                             </Button>
                           )}
                         </div>
@@ -271,7 +285,15 @@ export default function ClinicBillingV2Page() {
                     <Button onClick={() => payMutation.mutate(detail.invoice.id)} disabled={payMutation.isPending} data-testid="button-detail-pay">
                       {payMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                       <DollarSign className="w-4 h-4 mr-1" />
-                      Mark as Paid
+                      Pay Now
+                    </Button>
+                  )}
+                  {detail.invoice.paymentStatus === "paid" && detail.invoice.receiptUrl && (
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={detail.invoice.receiptUrl} target="_blank" rel="noopener noreferrer">
+                        <CheckCircle className="w-4 h-4 mr-1" />
+                        View Receipt
+                      </a>
                     </Button>
                   )}
                 </div>

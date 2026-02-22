@@ -906,6 +906,102 @@ export async function payPayrollHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export async function payPayrollItemHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = requireCompanyOrFail(req, res);
+    if (!companyId) return;
+
+    const runId = parseInt(req.params.runId);
+    const itemId = parseInt(req.params.itemId);
+    if (isNaN(runId) || isNaN(itemId)) return res.status(400).json({ message: "Invalid run or item ID" });
+
+    const [run] = await db.select().from(tpPayrollRuns).where(and(eq(tpPayrollRuns.id, runId), eq(tpPayrollRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ message: "Payroll run not found" });
+    if (run.status !== "FINALIZED" && run.status !== "PAID") {
+      return res.status(400).json({ message: "Run must be FINALIZED or partially PAID to pay individual drivers" });
+    }
+
+    const [item] = await db.select().from(tpPayrollItems).where(and(eq(tpPayrollItems.id, itemId), eq(tpPayrollItems.runId, runId)));
+    if (!item) return res.status(404).json({ message: "Payroll item not found" });
+    if (item.status === "PAID") return res.json({ alreadyPaid: true, message: "This driver has already been paid" });
+
+    const stripeConfigured = !!process.env.STRIPE_SECRET_KEY;
+    let transferResult: { driverId: number; status: string; transferId?: string; error?: string; amountCents: number };
+
+    if (stripeConfigured) {
+      const [driverAccount] = await db.select().from(driverStripeAccounts)
+        .where(and(eq(driverStripeAccounts.driverId, item.driverId), eq(driverStripeAccounts.companyId, companyId)));
+
+      if (!driverAccount || driverAccount.status !== "ACTIVE" || !driverAccount.payoutsEnabled) {
+        transferResult = { driverId: item.driverId, status: "no_stripe", amountCents: item.totalCents, error: "Driver Stripe account not active" };
+      } else {
+        try {
+          const Stripe = (await import("stripe")).default;
+          const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+          const idempotencyKey = `tp_payroll_${runId}_driver_${item.driverId}_item_${itemId}`;
+
+          const transfer = await stripe.transfers.create({
+            amount: item.totalCents,
+            currency: "usd",
+            destination: driverAccount.stripeAccountId,
+            transfer_group: `tp_payroll_${runId}`,
+            metadata: {
+              tp_payroll_run_id: String(runId),
+              tp_payroll_item_id: String(itemId),
+              driver_id: String(item.driverId),
+              company_id: String(companyId),
+              period: `${run.periodStart} to ${run.periodEnd}`,
+              payment_type: "individual",
+            },
+          }, { idempotencyKey });
+
+          transferResult = { driverId: item.driverId, status: "transferred", transferId: transfer.id, amountCents: item.totalCents };
+        } catch (err: any) {
+          console.error(`[TP-Payroll] Individual Stripe transfer failed for driver ${item.driverId}:`, err.message);
+          transferResult = { driverId: item.driverId, status: "failed", error: err.message, amountCents: item.totalCents };
+        }
+      }
+    } else {
+      transferResult = { driverId: item.driverId, status: "manual", amountCents: item.totalCents };
+    }
+
+    if (transferResult.status === "transferred" || transferResult.status === "manual") {
+      await db.update(tpPayrollItems).set({ status: "PAID" }).where(eq(tpPayrollItems.id, itemId));
+
+      const now = new Date();
+      await db.update(timeEntries).set({ status: "PAID", paidAt: now, updatedAt: now })
+        .where(and(
+          eq(timeEntries.companyId, companyId),
+          eq(timeEntries.driverId, item.driverId),
+          eq(timeEntries.status, "APPROVED"),
+          gte(timeEntries.workDate, run.periodStart),
+          lte(timeEntries.workDate, run.periodEnd),
+        ));
+
+      const allItems = await db.select().from(tpPayrollItems).where(eq(tpPayrollItems.runId, runId));
+      const allPaid = allItems.every(i => i.status === "PAID");
+      if (allPaid) {
+        await db.update(tpPayrollRuns).set({ status: "PAID" }).where(eq(tpPayrollRuns.id, runId));
+      } else if (run.status === "FINALIZED") {
+        await db.update(tpPayrollRuns).set({ status: "PAID" }).where(eq(tpPayrollRuns.id, runId));
+      }
+    }
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "PAY_TP_PAYROLL_ITEM",
+      entity: "tp_payroll_item",
+      entityId: itemId,
+      details: `Individual payment for driver ${item.driverId}: ${transferResult.status} (${(item.totalCents / 100).toFixed(2)} USD)`,
+      cityId: null,
+    });
+
+    res.json({ transfer: transferResult, stripeEnabled: stripeConfigured });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 export async function deletePayrollRunHandler(req: AuthRequest, res: Response) {
   try {
     const companyId = requireCompanyOrFail(req, res);

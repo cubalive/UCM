@@ -301,6 +301,30 @@ function RunDetailDialog({ runId, onClose }: { runId: number; onClose: () => voi
     },
   });
 
+  const payItemMut = useMutation({
+    mutationFn: ({ rId, itemId }: { rId: number; itemId: number }) =>
+      apiRequest("POST", `/api/company/payroll/${rId}/items/${itemId}/pay`),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      if (data.alreadyPaid) {
+        toast({ title: "Already paid", description: "This driver has already been paid." });
+      } else {
+        const t = data.transfer;
+        if (t?.status === "transferred") {
+          toast({ title: "Payment sent", description: `$${(t.amountCents / 100).toFixed(2)} transferred to driver` });
+        } else if (t?.status === "manual") {
+          toast({ title: "Marked as paid", description: `$${(t.amountCents / 100).toFixed(2)} marked for manual payment` });
+        } else {
+          toast({ title: "Payment issue", description: t?.error || "Transfer could not be completed", variant: "destructive" });
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/company/payroll/runs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/company/payroll/runs", runId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/company/time/entries"] });
+    },
+    onError: (e: any) => toast({ title: "Payment failed", description: e.message, variant: "destructive" }),
+  });
+
   const finalizeMut = useMutation({
     mutationFn: (rId: number) => apiRequest("POST", `/api/company/payroll/${rId}/finalize`),
     onSuccess: () => {
@@ -399,6 +423,7 @@ function RunDetailDialog({ runId, onClose }: { runId: number; onClose: () => voi
                     <TableHead>Amount</TableHead>
                     <TableHead>Stripe</TableHead>
                     <TableHead>Status</TableHead>
+                    {(run.status === "FINALIZED" || run.status === "PAID") && <TableHead className="text-right">Action</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -420,6 +445,24 @@ function RunDetailDialog({ runId, onClose }: { runId: number; onClose: () => voi
                         )}
                       </TableCell>
                       <TableCell><Badge variant={item.status === "PAID" ? "default" : "outline"} data-testid={`badge-item-status-${item.id}`}>{item.status}</Badge></TableCell>
+                      {(run.status === "FINALIZED" || run.status === "PAID") && (
+                        <TableCell className="text-right">
+                          {item.status === "PAID" ? (
+                            <Badge variant="default" className="text-[10px]"><CheckCircle2 className="h-3 w-3 mr-1" />Paid</Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => payItemMut.mutate({ rId: runId, itemId: item.id })}
+                              disabled={payItemMut.isPending}
+                              data-testid={`button-pay-driver-${item.id}`}
+                            >
+                              {payItemMut.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <DollarSign className="h-3 w-3 mr-1" />}
+                              Pay
+                            </Button>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
