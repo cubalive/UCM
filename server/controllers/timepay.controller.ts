@@ -982,8 +982,6 @@ export async function payPayrollItemHandler(req: AuthRequest, res: Response) {
       const allPaid = allItems.every(i => i.status === "PAID");
       if (allPaid) {
         await db.update(tpPayrollRuns).set({ status: "PAID" }).where(eq(tpPayrollRuns.id, runId));
-      } else if (run.status === "FINALIZED") {
-        await db.update(tpPayrollRuns).set({ status: "PAID" }).where(eq(tpPayrollRuns.id, runId));
       }
     }
 
