@@ -97,6 +97,7 @@ interface CompanySubSettings {
   companyId: number;
   subscriptionEnabled: boolean;
   subscriptionRequiredForAccess: boolean;
+  monthlyFeeCents: number;
   updatedAt: string;
 }
 
@@ -573,6 +574,39 @@ export default function PlatformFeesPage() {
                           />
                         </div>
 
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label htmlFor="monthly-fee">Monthly Fee</Label>
+                            <p className="text-xs text-muted-foreground">Set the monthly subscription amount for this company</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">$</span>
+                            <Input
+                              id="monthly-fee"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="w-28 text-right"
+                              data-testid="input-monthly-fee"
+                              defaultValue={((detail?.settings?.monthlyFeeCents ?? 120000) / 100).toFixed(2)}
+                              key={`fee-${selectedCompanyId}-${detail?.settings?.monthlyFeeCents}`}
+                              onBlur={(e) => {
+                                const val = parseFloat(e.target.value);
+                                if (!isNaN(val) && val >= 0) {
+                                  const cents = Math.round(val * 100);
+                                  if (cents !== (detail?.settings?.monthlyFeeCents ?? 120000)) {
+                                    updateSubSettingsMutation.mutate({
+                                      companyId: parseInt(selectedCompanyId),
+                                      data: { monthlyFeeCents: cents },
+                                    });
+                                  }
+                                }
+                              }}
+                            />
+                            <span className="text-sm text-muted-foreground">/mo</span>
+                          </div>
+                        </div>
+
                         {detail?.subscription ? (
                           <Card className="bg-muted/50" data-testid="card-subscription-detail">
                             <CardContent className="p-4 space-y-3">
@@ -664,7 +698,7 @@ export default function PlatformFeesPage() {
                               ) : (
                                 <Play className="h-4 w-4 mr-2" />
                               )}
-                              Start Subscription ($1,200/mo)
+                              Start Subscription (${((detail?.settings?.monthlyFeeCents ?? 120000) / 100).toLocaleString()}/mo)
                             </Button>
                           </div>
                         )}

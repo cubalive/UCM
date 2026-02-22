@@ -35,13 +35,14 @@ export async function getCompanySubSettings(companyId: number): Promise<CompanyS
 
 export async function upsertCompanySubSettings(
   companyId: number,
-  data: { subscriptionEnabled?: boolean; subscriptionRequiredForAccess?: boolean }
+  data: { subscriptionEnabled?: boolean; subscriptionRequiredForAccess?: boolean; monthlyFeeCents?: number }
 ): Promise<CompanySubscriptionSettings> {
   const existing = await getCompanySubSettings(companyId);
   if (existing) {
     const setData: Record<string, any> = { updatedAt: new Date() };
     if (data.subscriptionEnabled !== undefined) setData.subscriptionEnabled = data.subscriptionEnabled;
     if (data.subscriptionRequiredForAccess !== undefined) setData.subscriptionRequiredForAccess = data.subscriptionRequiredForAccess;
+    if (data.monthlyFeeCents !== undefined) setData.monthlyFeeCents = data.monthlyFeeCents;
     const [updated] = await db
       .update(companySubscriptionSettings)
       .set(setData)
@@ -55,6 +56,7 @@ export async function upsertCompanySubSettings(
       companyId,
       subscriptionEnabled: data.subscriptionEnabled ?? false,
       subscriptionRequiredForAccess: data.subscriptionRequiredForAccess ?? true,
+      monthlyFeeCents: data.monthlyFeeCents ?? 120000,
     })
     .returning();
   return created;
@@ -102,21 +104,37 @@ export async function getAllSubscriptions() {
 }
 
 export async function createSubscription(companyId: number): Promise<string> {
-  const priceId = PRICE_ID();
-  if (!priceId) throw new Error("STRIPE_PRICE_ID_PLATFORM_1200 is not configured");
-
   const existing = await getCompanySubscription(companyId);
   if (existing && ["active", "trialing"].includes(existing.status)) {
     throw new Error("Company already has an active subscription");
   }
 
+  const settings = await getCompanySubSettings(companyId);
+  const monthlyFeeCents = settings?.monthlyFeeCents ?? 120000;
+
   const stripeCustomer = await getOrCreateStripeCustomer(companyId);
   const stripe = getStripe();
+
+  const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
+  const companyName = company?.name || `Company #${companyId}`;
+
+  const priceId = PRICE_ID();
+  const lineItems: any[] = priceId
+    ? [{ price: priceId, quantity: 1 }]
+    : [{
+        price_data: {
+          currency: "usd",
+          product_data: { name: `UCM Platform Subscription – ${companyName}` },
+          unit_amount: monthlyFeeCents,
+          recurring: { interval: "month" as const },
+        },
+        quantity: 1,
+      }];
 
   const session = await stripe.checkout.sessions.create({
     customer: stripeCustomer.stripeCustomerId,
     mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: lineItems,
     success_url: `${APP_URL()}/platform-fees?tab=subscription&success=true&company=${companyId}`,
     cancel_url: `${APP_URL()}/platform-fees?tab=subscription&canceled=true&company=${companyId}`,
     metadata: { ucm_company_id: String(companyId) },

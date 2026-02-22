@@ -2496,6 +2496,7 @@ export const companySubscriptionSettings = pgTable("company_subscription_setting
   companyId: integer("company_id").primaryKey().references(() => companies.id),
   subscriptionEnabled: boolean("subscription_enabled").notNull().default(false),
   subscriptionRequiredForAccess: boolean("subscription_required_for_access").notNull().default(true),
+  monthlyFeeCents: integer("monthly_fee_cents").notNull().default(120000),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

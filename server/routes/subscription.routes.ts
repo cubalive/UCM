@@ -57,10 +57,11 @@ router.post(
     try {
       const companyId = parseInt(String(req.params.companyId));
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
-      const { subscriptionEnabled, subscriptionRequiredForAccess } = req.body;
+      const { subscriptionEnabled, subscriptionRequiredForAccess, monthlyFeeCents } = req.body;
       const result = await upsertCompanySubSettings(companyId, {
         subscriptionEnabled,
         subscriptionRequiredForAccess,
+        monthlyFeeCents,
       });
       res.json(result);
     } catch (err: any) {
