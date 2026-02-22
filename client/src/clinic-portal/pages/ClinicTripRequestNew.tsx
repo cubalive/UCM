@@ -14,13 +14,20 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
+import { AddressAutocomplete, StructuredAddress } from "@/components/address-autocomplete";
 
 export default function ClinicTripRequestNew() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { token } = useAuth();
   const [showNewPatient, setShowNewPatient] = useState(false);
   const [patientSearch, setPatientSearch] = useState("");
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
+
+  const [pickupAddr, setPickupAddr] = useState<StructuredAddress | null>(null);
+  const [dropoffAddr, setDropoffAddr] = useState<StructuredAddress | null>(null);
+  const [patientAddr, setPatientAddr] = useState<StructuredAddress | null>(null);
 
   const [form, setForm] = useState({
     pickupAddress: "",
@@ -90,13 +97,21 @@ export default function ClinicTripRequestNew() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.pickupAddress || !form.dropoffAddress || !form.scheduledDate || !form.scheduledTime) {
+    const pickupAddress = pickupAddr?.formattedAddress || form.pickupAddress;
+    const dropoffAddress = dropoffAddr?.formattedAddress || form.dropoffAddress;
+    if (!pickupAddress || !dropoffAddress || !form.scheduledDate || !form.scheduledTime) {
       toast({ title: "Please fill all required fields", variant: "destructive" });
       return;
     }
 
     createRequestMutation.mutate({
       ...form,
+      pickupAddress,
+      dropoffAddress,
+      pickupLat: pickupAddr?.lat || null,
+      pickupLng: pickupAddr?.lng || null,
+      dropoffLat: dropoffAddr?.lat || null,
+      dropoffLng: dropoffAddr?.lng || null,
       patientId: selectedPatient?.id || null,
     });
   }
@@ -106,7 +121,10 @@ export default function ClinicTripRequestNew() {
       toast({ title: "First and last name are required", variant: "destructive" });
       return;
     }
-    createPatientMutation.mutate(newPatientForm);
+    createPatientMutation.mutate({
+      ...newPatientForm,
+      address: patientAddr?.formattedAddress || newPatientForm.address,
+    });
   }
 
   return (
@@ -232,13 +250,16 @@ export default function ClinicTripRequestNew() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Address</label>
-                    <input
-                      type="text"
-                      value={newPatientForm.address}
-                      onChange={(e) => setNewPatientForm({ ...newPatientForm, address: e.target.value })}
-                      className="w-full px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
-                      data-testid="input-patient-address"
+                    <AddressAutocomplete
+                      label="Address"
+                      value={patientAddr}
+                      onSelect={(addr) => {
+                        setPatientAddr(addr);
+                        if (addr) setNewPatientForm({ ...newPatientForm, address: addr.formattedAddress });
+                      }}
+                      token={token}
+                      testIdPrefix="patient"
+                      allowManualOverride
                     />
                   </div>
                   <div className="flex items-center gap-2">
@@ -272,29 +293,33 @@ export default function ClinicTripRequestNew() {
             <MapPin className="w-4 h-4" /> Trip Details
           </h2>
 
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Pickup Address *</label>
-            <input
-              type="text"
-              value={form.pickupAddress}
-              onChange={(e) => setForm({ ...form, pickupAddress: e.target.value })}
-              placeholder="Enter pickup address"
-              className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none"
-              data-testid="input-pickup-address"
-            />
-          </div>
+          <AddressAutocomplete
+            label="Pickup Address"
+            value={pickupAddr}
+            onSelect={(addr) => {
+              setPickupAddr(addr);
+              if (addr) setForm({ ...form, pickupAddress: addr.formattedAddress });
+              else setForm({ ...form, pickupAddress: "" });
+            }}
+            token={token}
+            testIdPrefix="pickup"
+            required
+            allowManualOverride
+          />
 
-          <div>
-            <label className="text-xs text-gray-400 mb-1 block">Dropoff Address *</label>
-            <input
-              type="text"
-              value={form.dropoffAddress}
-              onChange={(e) => setForm({ ...form, dropoffAddress: e.target.value })}
-              placeholder="Enter dropoff address"
-              className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none"
-              data-testid="input-dropoff-address"
-            />
-          </div>
+          <AddressAutocomplete
+            label="Dropoff Address"
+            value={dropoffAddr}
+            onSelect={(addr) => {
+              setDropoffAddr(addr);
+              if (addr) setForm({ ...form, dropoffAddress: addr.formattedAddress });
+              else setForm({ ...form, dropoffAddress: "" });
+            }}
+            token={token}
+            testIdPrefix="dropoff"
+            required
+            allowManualOverride
+          />
 
           <div className="grid grid-cols-2 gap-4">
             <div>
