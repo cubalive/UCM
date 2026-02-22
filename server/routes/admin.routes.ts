@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import { storage } from "../storage";
+import { onboardingStatusHandler, onboardCompanyHandler } from "../controllers/onboarding.controller";
 import {
   getCityMismatchHandler,
   archiveClinicHandler,
@@ -239,6 +240,9 @@ router.get("/api/audit", authMiddleware, async (req: AuthRequest, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+router.get("/api/admin/onboard/status", authMiddleware, requireRole("SUPER_ADMIN"), onboardingStatusHandler as any);
+router.post("/api/admin/onboard/company", authMiddleware, requireRole("SUPER_ADMIN"), onboardCompanyHandler as any);
 
 export function registerAdminRoutes(app: Express) {
   app.use(router);
