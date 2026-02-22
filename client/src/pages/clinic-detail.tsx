@@ -1,24 +1,53 @@
 import { useParams, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, AlertTriangle, Phone, Mail, MapPin, User, Building2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { ArrowLeft, AlertTriangle, Phone, Mail, MapPin, User, Building2, Brain, Shield, Truck, BarChart3 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function ClinicDetailPage() {
   const params = useParams<{ id: string }>();
   const id = parseInt(params.id || "0");
   const [, navigate] = useLocation();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const { toast } = useToast();
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
 
   const { data: clinic, isLoading, error } = useQuery<any>({
     queryKey: ["/api/clinics", id],
     queryFn: () => apiFetch(`/api/clinics/${id}`, token),
     enabled: !!token && id > 0,
   });
+
+  const { data: featuresData } = useQuery<any>({
+    queryKey: ["/api/admin/clinic-features", id],
+    queryFn: () => apiFetch(`/api/admin/clinic-features/${id}`, token),
+    enabled: !!token && id > 0 && isSuperAdmin,
+  });
+
+  const featureToggleMutation = useMutation({
+    mutationFn: async (params: { featureKey: string; enabled: boolean; plan?: string; priceCents?: number }) => {
+      return apiRequest("POST", `/api/admin/clinic-features/${id}`, params);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/clinic-features", id] });
+      toast({ title: "Feature updated", description: "Clinic feature configuration saved." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to update feature", variant: "destructive" });
+    },
+  });
+
+  const features = (featuresData as any)?.features || [];
+  const intelligenceFeature = features.find((f: any) => f.featureKey === "clinic_intelligence_pack");
+  const intelligenceEnabled = intelligenceFeature?.enabled === true;
 
   if (isLoading) {
     return (
@@ -133,6 +162,74 @@ export default function ClinicDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {isSuperAdmin && (
+        <Card data-testid="clinic-intelligence-section">
+          <CardContent className="py-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-purple-500/10 rounded-lg flex items-center justify-center">
+                  <Brain className="w-5 h-5 text-purple-500" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">Clinic Intelligence Pack</h3>
+                  <p className="text-xs text-muted-foreground">Predictive load forecasting, capacity planning & analytics</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge variant={intelligenceEnabled ? "default" : "secondary"} data-testid="badge-intelligence-status">
+                  {intelligenceEnabled ? "Active" : "Disabled"}
+                </Badge>
+                <Switch
+                  checked={intelligenceEnabled}
+                  onCheckedChange={(checked) => {
+                    featureToggleMutation.mutate({
+                      featureKey: "clinic_intelligence_pack",
+                      enabled: checked,
+                      plan: checked ? "active" : "none",
+                      priceCents: 9900,
+                    });
+                  }}
+                  disabled={featureToggleMutation.isPending}
+                  data-testid="switch-intelligence-toggle"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t">
+              <div className="flex items-start gap-2 text-xs">
+                <Brain className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium">Dialysis Load Predictor</p>
+                  <p className="text-muted-foreground">15-min bucket forecasts with confidence scoring</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2 text-xs">
+                <Truck className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium">Capacity Forecast</p>
+                  <p className="text-muted-foreground">Driver needs + shortage risk detection</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2 text-xs">
+                <BarChart3 className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium">Audit Trail</p>
+                  <p className="text-muted-foreground">Daily snapshots for accuracy evaluation</p>
+                </div>
+              </div>
+            </div>
+
+            {intelligenceEnabled && intelligenceFeature?.activatedAt && (
+              <div className="text-xs text-muted-foreground pt-2 border-t flex items-center gap-2">
+                <Shield className="w-3.5 h-3.5" />
+                Activated {new Date(intelligenceFeature.activatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                {intelligenceFeature.priceCents && ` — $${(intelligenceFeature.priceCents / 100).toFixed(2)}/mo`}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

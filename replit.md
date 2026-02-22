@@ -54,6 +54,8 @@ The application follows a client-server architecture.
 - **Server-Side Search**: ILIKE text search across major list endpoints, respecting RBAC scope.
 - **Driver Portal Upgrade (Shift Mode + Trip Center)**: Formal shift session tracking, in-app foreground geofence distance display, no-show evidence capture, digital signature options, and earnings summaries.
 - **Driver App v3 (Feature-Flagged)**: Triple-gated features (env + company + driver settings) including performance scoring, smart prompts, offline outbox, and sounds/haptics.
+- **Clinic Intelligence Pack (Paywalled)**: Dialysis Load Predictor (V1) with 15-min bucket forecasts using historical baseline + 7-day rolling adjustment + confidence scoring (LOW/MEDIUM/HIGH). Capacity Forecast engine converting demand to drivers-needed with shortage detection. Feature-flagged via `clinic_features` table with SUPER_ADMIN toggle on clinic detail page. Paywall card shown when disabled. Forecast snapshots stored daily in `clinic_forecast_snapshots` for audit trail. Endpoints: `/api/clinic/forecast`, `/api/clinic/capacity-forecast`, `/api/clinic/features`, admin CRUD at `/api/admin/clinic-features/:clinicId` and `/api/admin/clinic-capacity/:clinicId`.
+- **Clinic Portal Arrival Radar + Smart Staff Alerts**: Real-time mini Google Map on clinic dashboard with driver markers (phase-colored), ETA tooltips, geofence detection. Smart Staff Alerts panel with 4 alert types (wheelchair_surge, at_door, return_backlog, high_delay_risk), client-side dedup, and sound notifications. Endpoints: `/api/clinic/inbound-live`, `/api/clinic/alert-inputs`.
 
 ## External Dependencies
 - **PostgreSQL**: Primary relational database, specifically Supabase pooler.

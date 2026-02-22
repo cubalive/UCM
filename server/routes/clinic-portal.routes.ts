@@ -20,6 +20,13 @@ import {
   clinicRecurringSchedulesHandler,
   clinicInboundLiveHandler,
   clinicAlertInputsHandler,
+  clinicForecastHandler,
+  clinicCapacityForecastHandler,
+  clinicFeatureStatusHandler,
+  adminClinicFeaturesListHandler,
+  adminClinicFeatureToggleHandler,
+  adminClinicCapacityConfigHandler,
+  adminAllClinicFeaturesHandler,
 } from "../controllers/clinic-portal.controller";
 import {
   getClinicUsersHandler,
@@ -48,8 +55,18 @@ export function registerClinicPortalRoutes(app: Express) {
   app.get("/api/clinic/inbound-live", authMiddleware, requireClinicScope as any, clinicInboundLiveHandler as any);
   app.get("/api/clinic/alert-inputs", authMiddleware, requireClinicScope as any, clinicAlertInputsHandler as any);
 
+  app.get("/api/clinic/forecast", authMiddleware, requireClinicScope as any, clinicForecastHandler as any);
+  app.get("/api/clinic/capacity-forecast", authMiddleware, requireClinicScope as any, clinicCapacityForecastHandler as any);
+  app.get("/api/clinic/features", authMiddleware, requireClinicScope as any, clinicFeatureStatusHandler as any);
+
   app.get("/api/clinic/users", authMiddleware, requireClinicAdmin as any, getClinicUsersHandler as any);
   app.post("/api/clinic/users", authMiddleware, requireClinicAdmin as any, createClinicUserHandler as any);
   app.patch("/api/clinic/users/:id", authMiddleware, requireClinicAdmin as any, updateClinicUserHandler as any);
   app.post("/api/clinic/users/:id/reset", authMiddleware, requireClinicAdmin as any, resetClinicUserPasswordHandler as any);
+
+  app.get("/api/admin/clinic-features", authMiddleware, requireRole("SUPER_ADMIN") as any, adminAllClinicFeaturesHandler as any);
+  app.get("/api/admin/clinic-features/:clinicId", authMiddleware, requireRole("SUPER_ADMIN") as any, adminClinicFeaturesListHandler as any);
+  app.post("/api/admin/clinic-features/:clinicId", authMiddleware, requireRole("SUPER_ADMIN") as any, adminClinicFeatureToggleHandler as any);
+  app.get("/api/admin/clinic-capacity/:clinicId", authMiddleware, requireRole("SUPER_ADMIN") as any, adminClinicCapacityConfigHandler as any);
+  app.post("/api/admin/clinic-capacity/:clinicId", authMiddleware, requireRole("SUPER_ADMIN") as any, adminClinicCapacityConfigHandler as any);
 }

@@ -1,0 +1,141 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Senior full-stack engineer (React + Node/Express + Supabase/Postgres + Realtime/WebSocket).
+PROJECT: United Care Mobility (UCM)
+
+GOAL
+Make trip state updates fully real-time and unambiguous across Dispatcher + Clinic dashboards + Maps.
+- Map icons/colors must reflect trip phase instantly.
+- Busy drivers must not appear as “available”.
+- Clinic and Dispatcher dashboards must update live without refresh.
+- Everything must be clickable and consistent (trip card ↔ map marker ↔ timeline).
+
+HARD RULES
+- Do NOT reset/drop tables.
+- Do NOT change DB connection/secrets/env vars.
+- Do NOT change unrelated features.
+- Keep multi-tenant isolation: company/tenant/clinic scoping everywhere.
+- No frontend polling loops that spam API; use existing Supabase Realtime and/or WebSocket channels already in repo.
+
+DEFINITIONS (single source of truth)
+Trip phases (must map to visual + availability):
+A) SCHEDULED / ASSIGNED (future trip, not started)
+B) EN_ROUTE_TO_PICKUP
+C) ARRIVED_PICKUP (geofence or driver confirm)
+D) PICKED_UP / EN_ROUTE_TO_DROPOFF
+E) ARRIVED_DROPOFF
+F) COMPLETED
+G) CANCELLED / NO_SHOW
+
+Driver availability:
+A driver is AVAILABLE for assignment only if:
+- on_shift = true
+- last_seen_at within ACTIVE_WINDOW_MINUTES (default 5)
+- NOT currently engaged in an active trip whose status is in:
+  { EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, PICKED_UP, EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF }
+- gps_status='ENABLED'
+- is_test_driver=false (unless SUPER_ADMIN includeTest)
+
+STEP 1 — DATABASE (idempotent migration)
+1) Ensure trips table has these columns (add if missing):
+- status TEXT (if not already)
+- assigned_driver_id UUID (or existing)
+- started_at TIMESTAMPTZ
+- arrived_pickup_at TIMESTAMPTZ
+- picked_up_at TIMESTAMPTZ
+- arrived_dropoff_at TIMESTAMPTZ
+- completed_at TIMESTAMPTZ
+2) Add/ensure a computed busy flag is not stored; compute from active trips.
+3) Add indexes for fast busy checks:
+- trips(company_id, assigned_driver_id, status)
+- trips(company_id, clinic_id, status)
+Use IF NOT EXISTS patterns.
+
+STEP 2 — BACKEND: NORMALIZE STATUS TRANSITIONS (no ambiguity)
+Create a shared transition helper:
+transitionTripStatus(tripId, nextStatus, actor)
+- Validates tenant/company access
+- Enforces allowed transitions (state machine)
+- Sets the corresponding timestamp (e.g., ARRIVED_PICKUP sets arrived_pickup_at=now)
+- Writes an audit log event
+- Emits a realtime event (Supabase Realtime / WebSocket) with payload:
+  { tripId, status, timestamps, assignedDriverId, companyId, clinicId, cityId }
+
+Ensure geofence auto-transitions call this helper too (so all UIs update the same way).
+
+STEP 3 — REALTIME: BROADCAST TRIP UPDATES TO DISPATCH + CLINIC + DRIVER
+Use the existing broadcast mechanism in repo (Supabase Realtime and/or WebSocket).
+Requirements:
+- Dispatcher channel receives all company trip updates.
+- Clinic channel receives ONLY trips belonging to that clinic.
+- Driver channel receives ONLY trips assigned to that driver.
+No cross-tenant leakage.
+
+If you already use Supabase Realtime:
+- subscribe to trips changes filtered by company_id / clinic_id / assigned_driver_id
+OR keep a server-side event router that publishes to scoped channels.
+
+STEP 4 — FRONTEND: DASHBOARDS UPDATE LIVE (no refresh)
+Dispatcher dashboard:
+- Listen to realtime trip update events
+- Update trip list + counters + timeline immediately
+Clinic dashboard:
+- Same, but scoped to clinic’s trips only
+Driver app:
+- Same, only assigned trip(s)
+
+No repeated refetch on every event; update local store by tripId.
+
+STEP 5 — MAP ICONS/COLORS + LEGEND (avoid confusion)
+Implement a single mapping table used by ALL apps:
+status -> { color, icon, label, priority }
+Example mapping (implement exactly or equivalent):
+- SCHEDULED/ASSIGNED: Blue "Scheduled"
+- EN_ROUTE_TO_PICKUP: Orange "En route to pickup"
+- ARRIVED_PICKUP: Yellow "Arrived pickup"
+- PICKED_UP/EN_ROUTE_TO_DROPOFF: Purple "On trip"
+- ARRIVED_DROPOFF: Teal "Arrived dropoff"
+- COMPLETED: Green "Completed"
+- CANCELLED/NO_SHOW: Gray/Red "Cancelled/No-show"
+
+Map requirements:
+- Trip markers: colored by status
+- Driver markers:
+   - AVAILABLE: normal color
+   - BUSY: distinct color + “Busy” badge
+   - OFFLINE: hidden by default (admin toggle)
+Add a small legend card on map screen.
+
+STEP 6 — “CLICKABLE EVERYTHING” UX
+Dispatcher:
+- Click trip card -> focuses map on pickup/dropoff + opens Trip Side Panel
+- Click trip marker -> opens same Trip Side Panel
+- Click driver marker -> opens Driver Side Panel (shows busy/available + assigned trip link)
+Clinic:
+- Click trip card/marker -> opens Trip Side Panel (read-only plus allowed actions)
+Panels must show:
+- status timeline (live)
+- ETA if available
+- driver identity (if assigned)
+- key actions (dispatcher: reassign/cancel; clinic: view/share link; driver: navigate/start/complete)
+
+STEP 7 — EXCLUDE BUSY DRIVERS FROM “AVAILABLE” LIST + AUTO-ASSIGN
+Update any endpoint/UI that lists “available drivers” to use:
+active driver filter AND not busy (no active trip in progress statuses).
+
+Update auto-assign candidate pool to use the same helper.
+
+STEP 8 — VERIFICATION CHECKLIST (manual)
+1) Assign trip -> dispatcher + clinic see status ASSIGNED and marker turns Blue.
+2) Driver accepts -> status EN_ROUTE_TO_PICKUP -> marker Orange + driver becomes BUSY (not available).
+3) Driver enters pickup geofence -> ARRIVED_PICKUP -> marker Yellow + dashboards update instantly.
+4) Driver taps Picked Up/Start -> marker Purple.
+5) Driver arrives dropoff -> marker Teal.
+6) Complete -> marker Green + driver becomes AVAILABLE again.
+7) Clinic must never see other clinics’ trips; try to open another clinic tripId -> 404.
+8) No refresh needed; verify updates via realtime.
+
+DELIVERABLES
+- SQL migration snippet (idempotent)
+- Backend transition helper + emit logic (file paths + minimal diffs)
+- Frontend changes for realtime store updates + map icon mapping + panels
+- Confirm which realtime method is used (Supabase Realtime vs WebSocket) and keep consistent.

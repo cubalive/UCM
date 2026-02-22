@@ -2,8 +2,9 @@ import type { Response } from "express";
 import { storage } from "../storage";
 import { type AuthRequest } from "../auth";
 import { db } from "../db";
-import { trips, patients, recurringSchedules, driverOffers } from "@shared/schema";
+import { trips, patients, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig } from "@shared/schema";
 import { eq, and, isNull, inArray, desc, gte, sql, or } from "drizzle-orm";
+import { getClinicForecast, getClinicCapacityForecast, saveClinicForecastSnapshot } from "../lib/clinicForecastEngine";
 import { generateTripPdf } from "../lib/tripPdfGenerator";
 import { denyAsNotFound } from "../lib/denyAsNotFound";
 
@@ -1414,5 +1415,200 @@ export async function clinicRecurringSchedulesHandler(req: AuthRequest, res: Res
     res.json(schedules);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
+  }
+}
+
+async function checkClinicFeatureEnabled(clinicId: number, featureKey: string): Promise<boolean> {
+  const [feature] = await db.select().from(clinicFeatures).where(
+    and(eq(clinicFeatures.clinicId, clinicId), eq(clinicFeatures.featureKey, featureKey))
+  );
+  return feature?.enabled === true;
+}
+
+export async function clinicForecastHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.clinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const enabled = await checkClinicFeatureEnabled(user.clinicId, "clinic_intelligence_pack");
+    if (!enabled) {
+      return res.status(403).json({
+        ok: false,
+        paywalled: true,
+        message: "Clinic Intelligence Pack is not enabled for this clinic. Contact your administrator.",
+      });
+    }
+
+    const horizon = Math.min(parseInt(req.query.horizon as string) || 180, 360);
+    const forecast = await getClinicForecast(user.clinicId, horizon);
+
+    const next60 = forecast.filter(b => {
+      const [h, m] = b.bucketStart.split(":").map(Number);
+      const now = new Date();
+      const bucketMin = h * 60 + m;
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+      return bucketMin - nowMin <= 60;
+    });
+    const next180 = forecast;
+
+    const peakBucket = forecast.reduce((max, b) => b.totalDemand > max.totalDemand ? b : max, forecast[0]);
+
+    res.json({
+      ok: true,
+      forecast,
+      summary: {
+        next60Total: next60.reduce((s, b) => s + b.totalDemand, 0),
+        next180Total: next180.reduce((s, b) => s + b.totalDemand, 0),
+        peakWindow: peakBucket ? `${peakBucket.bucketStart}–${peakBucket.bucketEnd}` : null,
+        peakDemand: peakBucket?.totalDemand || 0,
+        peakConfidence: peakBucket?.confidence || "LOW",
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function clinicCapacityForecastHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.clinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const enabled = await checkClinicFeatureEnabled(user.clinicId, "clinic_intelligence_pack");
+    if (!enabled) {
+      return res.status(403).json({
+        ok: false,
+        paywalled: true,
+        message: "Clinic Intelligence Pack is not enabled for this clinic. Contact your administrator.",
+      });
+    }
+
+    const forecast = await getClinicForecast(user.clinicId);
+    const capacity = await getClinicCapacityForecast(user.clinicId, forecast);
+
+    try { await saveClinicForecastSnapshot(user.clinicId); } catch (_) {}
+
+    res.json({ ok: true, ...capacity });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function clinicFeatureStatusHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.clinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const features = await db.select().from(clinicFeatures).where(eq(clinicFeatures.clinicId, user.clinicId));
+    const featureMap: Record<string, { enabled: boolean; plan: string | null; priceCents: number | null }> = {};
+    for (const f of features) {
+      featureMap[f.featureKey] = { enabled: f.enabled, plan: f.plan, priceCents: f.priceCents };
+    }
+
+    if (!featureMap["clinic_intelligence_pack"]) {
+      featureMap["clinic_intelligence_pack"] = { enabled: false, plan: "none", priceCents: null };
+    }
+
+    res.json({ ok: true, features: featureMap });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function adminClinicFeaturesListHandler(req: AuthRequest, res: Response) {
+  try {
+    const clinicId = parseInt(req.params.clinicId as string);
+    if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+
+    const features = await db.select().from(clinicFeatures).where(eq(clinicFeatures.clinicId, clinicId));
+    res.json({ ok: true, clinicId, features });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function adminClinicFeatureToggleHandler(req: AuthRequest, res: Response) {
+  try {
+    const clinicId = parseInt(req.params.clinicId as string);
+    if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+
+    const { featureKey, enabled, plan, priceCents } = req.body;
+    if (!featureKey) return res.status(400).json({ message: "featureKey required" });
+
+    const existing = await db.select().from(clinicFeatures).where(
+      and(eq(clinicFeatures.clinicId, clinicId), eq(clinicFeatures.featureKey, featureKey))
+    );
+
+    if (existing.length > 0) {
+      await db.update(clinicFeatures).set({
+        enabled: enabled !== undefined ? enabled : existing[0].enabled,
+        plan: plan !== undefined ? plan : existing[0].plan,
+        priceCents: priceCents !== undefined ? priceCents : existing[0].priceCents,
+        activatedAt: enabled ? new Date() : existing[0].activatedAt,
+        activatedBy: enabled ? req.user!.userId : existing[0].activatedBy,
+      }).where(eq(clinicFeatures.id, existing[0].id));
+    } else {
+      await db.insert(clinicFeatures).values({
+        clinicId,
+        featureKey,
+        enabled: enabled || false,
+        plan: plan || "none",
+        priceCents: priceCents || null,
+        activatedAt: enabled ? new Date() : null,
+        activatedBy: enabled ? req.user!.userId : null,
+      });
+    }
+
+    res.json({ ok: true, message: `Feature '${featureKey}' ${enabled ? "enabled" : "disabled"} for clinic ${clinicId}` });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function adminClinicCapacityConfigHandler(req: AuthRequest, res: Response) {
+  try {
+    const clinicId = parseInt(req.params.clinicId as string);
+    if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
+
+    if (req.method === "GET") {
+      const configs = await db.select().from(clinicCapacityConfig).where(eq(clinicCapacityConfig.clinicId, clinicId));
+      return res.json({ ok: true, configs });
+    }
+
+    const { serviceLevel, avgCycleMinutes } = req.body;
+    if (!serviceLevel || !avgCycleMinutes) return res.status(400).json({ message: "serviceLevel and avgCycleMinutes required" });
+
+    const existing = await db.select().from(clinicCapacityConfig).where(
+      and(eq(clinicCapacityConfig.clinicId, clinicId), eq(clinicCapacityConfig.serviceLevel, serviceLevel))
+    );
+
+    if (existing.length > 0) {
+      await db.update(clinicCapacityConfig).set({
+        avgCycleMinutes,
+        updatedAt: new Date(),
+      }).where(eq(clinicCapacityConfig.id, existing[0].id));
+    } else {
+      await db.insert(clinicCapacityConfig).values({ clinicId, serviceLevel, avgCycleMinutes });
+    }
+
+    res.json({ ok: true, message: "Capacity config updated" });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function adminAllClinicFeaturesHandler(req: AuthRequest, res: Response) {
+  try {
+    const allFeatures = await db.select().from(clinicFeatures);
+    const clinicIds = [...new Set(allFeatures.map(f => f.clinicId))];
+    const clinicData: any[] = [];
+    for (const cid of clinicIds) {
+      const clinic = await storage.getClinic(cid);
+      const features = allFeatures.filter(f => f.clinicId === cid);
+      clinicData.push({ clinicId: cid, clinicName: clinic?.name || "Unknown", features });
+    }
+    res.json({ ok: true, clinics: clinicData });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
   }
 }

@@ -23,6 +23,12 @@ import {
   Eye,
   Volume2,
   VolumeX,
+  Brain,
+  Truck,
+  Lock,
+  BarChart3,
+  AlertCircle,
+  Shield,
 } from "lucide-react";
 
 declare global {
@@ -285,6 +291,212 @@ function SmartAlerts({ alerts, soundEnabled, onToggleSound }: { alerts: any[]; s
   );
 }
 
+const CONFIDENCE_COLORS: Record<string, { bg: string; text: string }> = {
+  HIGH: { bg: "bg-green-500/10", text: "text-green-400" },
+  MEDIUM: { bg: "bg-amber-500/10", text: "text-amber-400" },
+  LOW: { bg: "bg-gray-500/10", text: "text-gray-400" },
+};
+
+function PaywallCard() {
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 relative overflow-hidden" data-testid="paywall-card">
+      <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5" />
+      <div className="relative">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-purple-500/10 rounded-lg flex items-center justify-center">
+            <Lock className="w-5 h-5 text-purple-400" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white">Clinic Intelligence Pack</h3>
+            <p className="text-xs text-gray-500">Predictive analytics & capacity planning</p>
+          </div>
+        </div>
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <Brain className="w-3.5 h-3.5 text-purple-400" />
+            <span>Dialysis Load Predictor with 15-min buckets</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <Truck className="w-3.5 h-3.5 text-purple-400" />
+            <span>Driver capacity forecast & shortage alerts</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <BarChart3 className="w-3.5 h-3.5 text-purple-400" />
+            <span>Confidence scoring & audit trail</span>
+          </div>
+        </div>
+        <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3 text-center">
+          <p className="text-xs text-purple-300 mb-1">Contact your administrator to enable</p>
+          <p className="text-[10px] text-gray-500">Premium feature — available on Intelligence plan</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PredictiveLoadCard({ forecast, summary }: { forecast: any[]; summary: any }) {
+  if (!forecast?.length) {
+    return (
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5" data-testid="predictive-load-card">
+        <div className="flex items-center gap-2 mb-3">
+          <Brain className="w-4 h-4 text-purple-400" />
+          <h3 className="text-sm font-semibold text-white">Predictive Load</h3>
+        </div>
+        <p className="text-xs text-gray-500">No forecast data available yet</p>
+      </div>
+    );
+  }
+
+  const peakConf = CONFIDENCE_COLORS[summary?.peakConfidence] || CONFIDENCE_COLORS.LOW;
+
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden" data-testid="predictive-load-card">
+      <div className="px-5 py-4 border-b border-[#1e293b] flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Brain className="w-4 h-4 text-purple-400" />
+          Predictive Load
+        </h3>
+        <span className={`text-[10px] px-2 py-0.5 rounded-full ${peakConf.bg} ${peakConf.text} font-medium`} data-testid="forecast-confidence">
+          {summary?.peakConfidence || "LOW"} confidence
+        </span>
+      </div>
+      <div className="p-5">
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="bg-[#0a0f1e] rounded-lg p-3" data-testid="forecast-next60">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Next 60 min</p>
+            <p className="text-2xl font-bold text-white">{summary?.next60Total ?? 0}</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">expected trips</p>
+          </div>
+          <div className="bg-[#0a0f1e] rounded-lg p-3" data-testid="forecast-next180">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Next 3 hours</p>
+            <p className="text-2xl font-bold text-white">{summary?.next180Total ?? 0}</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">expected trips</p>
+          </div>
+        </div>
+
+        {summary?.peakWindow && (
+          <div className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 mb-4" data-testid="forecast-peak">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 text-purple-400" />
+                <span className="text-xs text-purple-300 font-medium">Peak Window</span>
+              </div>
+              <span className="text-xs font-bold text-white">{summary.peakWindow}</span>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">
+              {summary.peakDemand} trips expected ({summary.peakConfidence} confidence)
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+          {forecast.map((bucket: any, i: number) => {
+            const maxDemand = Math.max(...forecast.map((b: any) => b.totalDemand), 1);
+            const pct = (bucket.totalDemand / maxDemand) * 100;
+            const confColor = CONFIDENCE_COLORS[bucket.confidence] || CONFIDENCE_COLORS.LOW;
+            return (
+              <div key={i} className="flex items-center gap-2 text-xs" data-testid={`forecast-bucket-${i}`}>
+                <span className="text-gray-500 w-[80px] shrink-0 font-mono text-[10px]">
+                  {bucket.bucketStart}–{bucket.bucketEnd}
+                </span>
+                <div className="flex-1 h-4 bg-[#0a0f1e] rounded-sm overflow-hidden relative">
+                  <div
+                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500/40 to-blue-500/40 rounded-sm"
+                    style={{ width: `${pct}%` }}
+                  />
+                  <div className="absolute inset-0 flex items-center px-1.5 justify-between">
+                    <span className="text-[9px] text-white/70">
+                      {bucket.inboundAmb + bucket.inboundWc > 0 && `↓${bucket.inboundAmb + bucket.inboundWc}`}
+                      {bucket.outboundAmb + bucket.outboundWc > 0 && ` ↑${bucket.outboundAmb + bucket.outboundWc}`}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-white font-medium w-5 text-right">{bucket.totalDemand}</span>
+                <div className={`w-1.5 h-1.5 rounded-full ${confColor.bg.replace("/10", "")}`} title={bucket.confidence} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CapacityForecastCard({ capacity }: { capacity: any }) {
+  if (!capacity?.buckets?.length) return null;
+
+  const shortages = capacity.shortages || [];
+  const nonZeroBuckets = capacity.buckets.filter((b: any) => b.driversNeededTotal > 0);
+  const peakBucket = nonZeroBuckets.reduce((max: any, b: any) =>
+    b.driversNeededTotal > (max?.driversNeededTotal || 0) ? b : max, null);
+
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden" data-testid="capacity-forecast-card">
+      <div className="px-5 py-4 border-b border-[#1e293b] flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Truck className="w-4 h-4 text-cyan-400" />
+          Capacity Forecast
+        </h3>
+        {shortages.length > 0 && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 font-medium" data-testid="shortage-badge">
+            {shortages.length} shortage{shortages.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+      <div className="p-5">
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Peak Drivers</p>
+            <p className="text-xl font-bold text-white">{peakBucket?.driversNeededTotal || 0}</p>
+          </div>
+          <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Amb Cycle</p>
+            <p className="text-xl font-bold text-white">{capacity.config?.ambCycleMin || 30}m</p>
+          </div>
+          <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">WC Cycle</p>
+            <p className="text-xl font-bold text-white">{capacity.config?.wcCycleMin || 45}m</p>
+          </div>
+        </div>
+
+        {shortages.length > 0 && (
+          <div className="space-y-2 mb-4">
+            {shortages.slice(0, 3).map((s: any, i: number) => (
+              <div key={i} className="bg-red-500/5 border border-red-500/20 rounded-lg px-3 py-2 flex items-start gap-2" data-testid={`shortage-${i}`}>
+                <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs text-red-300 font-medium">{s.message}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    Shortage risk: Need {s.needed} {s.type} driver{s.needed > 1 ? "s" : ""}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="space-y-1">
+          {nonZeroBuckets.slice(0, 8).map((bucket: any, i: number) => (
+            <div key={i} className="flex items-center justify-between text-xs py-1 border-b border-[#1e293b]/50 last:border-0">
+              <span className="text-gray-500 font-mono text-[10px]">{bucket.bucketStart}–{bucket.bucketEnd}</span>
+              <div className="flex items-center gap-3">
+                {bucket.driversNeededAmb > 0 && (
+                  <span className="text-blue-400">{bucket.driversNeededAmb} amb</span>
+                )}
+                {bucket.driversNeededWc > 0 && (
+                  <span className="text-amber-400">{bucket.driversNeededWc} wc</span>
+                )}
+                <span className="text-white font-medium">{bucket.driversNeededTotal} total</span>
+                {bucket.shortageRisk && <AlertTriangle className="w-3 h-3 text-red-400" />}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ClinicDashboard() {
   const { user } = useAuth();
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -315,6 +527,25 @@ export default function ClinicDashboard() {
     queryKey: ["/api/clinic/alert-inputs"],
     enabled: !!user?.clinicId,
     refetchInterval: 15000,
+  });
+
+  const { data: featureData } = useQuery<any>({
+    queryKey: ["/api/clinic/features"],
+    enabled: !!user?.clinicId,
+  });
+
+  const intelligenceEnabled = (featureData as any)?.features?.clinic_intelligence_pack?.enabled === true;
+
+  const { data: forecastData } = useQuery<any>({
+    queryKey: ["/api/clinic/forecast"],
+    enabled: !!user?.clinicId && intelligenceEnabled,
+    refetchInterval: 60000,
+  });
+
+  const { data: capacityData } = useQuery<any>({
+    queryKey: ["/api/clinic/capacity-forecast"],
+    enabled: !!user?.clinicId && intelligenceEnabled,
+    refetchInterval: 60000,
   });
 
   const alerts = (alertData as any)?.alerts ?? [];
@@ -482,6 +713,22 @@ export default function ClinicDashboard() {
             onToggleSound={() => setSoundEnabled(!soundEnabled)}
           />
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" data-testid="intelligence-section">
+        {intelligenceEnabled ? (
+          <>
+            <PredictiveLoadCard
+              forecast={(forecastData as any)?.forecast || []}
+              summary={(forecastData as any)?.summary}
+            />
+            <CapacityForecastCard capacity={capacityData as any} />
+          </>
+        ) : (
+          <div className="lg:col-span-2">
+            <PaywallCard />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

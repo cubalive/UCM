@@ -3099,3 +3099,56 @@ export type ChatThread = typeof chatThreads.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type InsertChatThread = z.infer<typeof insertChatThreadSchema>;
 export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
+
+export const clinicFeatures = pgTable("clinic_features", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  featureKey: text("feature_key").notNull(),
+  enabled: boolean("enabled").notNull().default(false),
+  plan: text("plan").default("none"),
+  priceCents: integer("price_cents"),
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  activatedAt: timestamp("activated_at"),
+  activatedBy: integer("activated_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cf_clinic_feature_unique").on(table.clinicId, table.featureKey),
+  index("cf_clinic_idx").on(table.clinicId),
+]);
+
+export const insertClinicFeatureSchema = createInsertSchema(clinicFeatures).omit({ id: true, createdAt: true });
+export type ClinicFeature = typeof clinicFeatures.$inferSelect;
+export type InsertClinicFeature = z.infer<typeof insertClinicFeatureSchema>;
+
+export const clinicCapacityConfig = pgTable("clinic_capacity_config", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  serviceLevel: text("service_level").notNull(),
+  avgCycleMinutes: integer("avg_cycle_minutes").notNull().default(45),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ccc_clinic_service_unique").on(table.clinicId, table.serviceLevel),
+]);
+
+export const insertClinicCapacityConfigSchema = createInsertSchema(clinicCapacityConfig).omit({ id: true, createdAt: true, updatedAt: true });
+export type ClinicCapacityConfig = typeof clinicCapacityConfig.$inferSelect;
+export type InsertClinicCapacityConfig = z.infer<typeof insertClinicCapacityConfigSchema>;
+
+export const clinicForecastSnapshots = pgTable("clinic_forecast_snapshots", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  snapshotDate: text("snapshot_date").notNull(),
+  forecastData: jsonb("forecast_data").notNull(),
+  capacityData: jsonb("capacity_data"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("cfs_clinic_date_idx").on(table.clinicId, table.snapshotDate),
+]);
+
+export const insertClinicForecastSnapshotSchema = createInsertSchema(clinicForecastSnapshots).omit({ id: true, createdAt: true });
+export type ClinicForecastSnapshot = typeof clinicForecastSnapshots.$inferSelect;
+export type InsertClinicForecastSnapshot = z.infer<typeof insertClinicForecastSnapshotSchema>;
