@@ -6,6 +6,7 @@ import {
   Truck,
   XCircle,
   AlertTriangle,
+  Clock,
 } from "lucide-react";
 
 interface ProgressEvent {
@@ -154,6 +155,7 @@ export function TripDateTimeHeader({ trip }: { trip: any }) {
 
 export function TripMetricsCard({ trip }: { trip: any }) {
   const miles = trip.distanceMiles ? parseFloat(trip.distanceMiles) : null;
+  const driveTimeMin = trip.durationMinutes != null ? trip.durationMinutes : (trip.routeDurationSeconds != null ? Math.round(trip.routeDurationSeconds / 60) : null);
 
   const onsiteMinutes = computeDurationMinutes(trip.arrivedPickupAt, trip.completedAt || trip.cancelledAt);
   const transportMinutes = computeDurationMinutes(trip.pickedUpAt, trip.arrivedDropoffAt);
@@ -187,6 +189,13 @@ export function TripMetricsCard({ trip }: { trip: any }) {
         <span className="text-muted-foreground">Miles:</span>
         <span className="font-medium" data-testid="text-trip-miles">
           {miles != null ? `${miles.toFixed(1)} mi` : "—"}
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 text-sm">
+        <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+        <span className="text-muted-foreground">Drive:</span>
+        <span className="font-medium" data-testid="text-trip-drive-time">
+          {driveTimeMin != null ? `${driveTimeMin} min` : "—"}
         </span>
       </div>
       <div className="flex items-center gap-1.5 text-sm">

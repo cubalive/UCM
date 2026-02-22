@@ -36,6 +36,7 @@ import { AddressAutocomplete, type StructuredAddress } from "@/components/addres
 import { useTranslation } from "react-i18next";
 import { RecurringSchedule, type TripType, type SeriesPattern, type SeriesEndType } from "@/components/recurring-schedule";
 import { TripStaticMap } from "@/components/trip-static-map";
+import { TripRouteMap } from "@/components/trip-route-map";
 import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
 import { PatientRef, DriverRef, VehicleRef, ClinicRef } from "@/components/entity-ref";
 import { SearchableCombobox } from "@/components/searchable-combobox";
@@ -1777,13 +1778,17 @@ function TripDetailDialog({
               )}
             </div>
 
-            <TripStaticMap
+            <TripRouteMap
               tripId={trip.id}
               pickupLat={trip.pickupLat}
+              pickupLng={trip.pickupLng}
               dropoffLat={trip.dropoffLat}
-              size="full"
+              dropoffLng={trip.dropoffLng}
+              pickupAddress={trip.pickupAddress}
+              dropoffAddress={trip.dropoffAddress}
               token={token}
-              className="w-full h-40"
+              className="w-full"
+              style={{ minHeight: "200px" }}
             />
 
             {driver && (

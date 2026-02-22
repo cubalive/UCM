@@ -76,7 +76,7 @@ export function TripRouteMap({
 
   const routeQuery = useQuery<any>({
     queryKey: ["/api/trips", tripId, "route"],
-    queryFn: () => apiFetch(`/api/trips/${tripId}/route`, token),
+    queryFn: () => apiFetch(`/api/trips/${tripId}/route`, token ?? null),
     enabled: !!token && tripId > 0 && hasCoords,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
