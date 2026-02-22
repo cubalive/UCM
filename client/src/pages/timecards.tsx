@@ -403,7 +403,7 @@ function TimeEntriesTab() {
                       <TableCell>{e.workDate}</TableCell>
                       <TableCell>{parseFloat(e.hoursNumeric).toFixed(1)}</TableCell>
                       <TableCell>{e.hourlyRateCents ? `$${(e.hourlyRateCents / 100).toFixed(2)}` : "-"}</TableCell>
-                      <TableCell><Badge variant="outline">{e.sourceType}</Badge></TableCell>
+                      <TableCell><Badge variant={e.sourceType === "SHIFT" ? "secondary" : "outline"} data-testid={`badge-source-type-${e.id}`}>{e.sourceType === "SHIFT" ? "Auto (Shift)" : e.sourceType}</Badge></TableCell>
                       <TableCell><Badge variant={statusVariant(e.status)} data-testid={`badge-status-${e.id}`}>{e.status}</Badge></TableCell>
                       <TableCell className="max-w-[200px] truncate">{e.notes || "-"}</TableCell>
                       <TableCell>
@@ -532,10 +532,34 @@ function StaffPayRatesTab() {
   const [editPerTripPercent, setEditPerTripPercent] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [searchFilter, setSearchFilter] = useState("");
+  const [onboardingDriverId, setOnboardingDriverId] = useState<number | null>(null);
 
   const payConfigsQuery = useQuery({
     queryKey: ["/api/company/staff-pay-configs"],
     queryFn: () => apiFetch("/api/company/staff-pay-configs", token),
+  });
+
+  const stripeStatusesQuery = useQuery<{ statuses: Record<string, { stripeAccountId: string; status: string; payoutsEnabled: boolean; detailsSubmitted: boolean }> }>({
+    queryKey: ["/api/company/driver-stripe-statuses"],
+    queryFn: () => apiFetch("/api/company/driver-stripe-statuses", token),
+  });
+
+  const stripeStatuses = stripeStatusesQuery.data?.statuses || {};
+
+  const onboardMut = useMutation({
+    mutationFn: (driverId: number) => apiRequest("POST", `/api/company/driver/${driverId}/stripe-onboarding`),
+    onSuccess: (data: any) => {
+      if (data.url) {
+        window.open(data.url, "_blank");
+        toast({ title: "Stripe onboarding link opened in new tab" });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/company/driver-stripe-statuses"] });
+      setOnboardingDriverId(null);
+    },
+    onError: (e: any) => {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+      setOnboardingDriverId(null);
+    },
   });
 
   const upsertMut = useMutation({
@@ -684,6 +708,7 @@ function StaffPayRatesTab() {
                     <TableHead>Status</TableHead>
                     <TableHead>Pay Type</TableHead>
                     <TableHead>Rate</TableHead>
+                    <TableHead>Stripe</TableHead>
                     <TableHead>Source</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -786,6 +811,7 @@ function StaffPayRatesTab() {
                               )}
                             </div>
                           </TableCell>
+                          <TableCell>-</TableCell>
                           <TableCell>
                             <Badge variant="outline">Custom</Badge>
                           </TableCell>
@@ -822,6 +848,29 @@ function StaffPayRatesTab() {
                         </TableCell>
                         <TableCell data-testid={`text-effective-rate-${row.driver.id}`}>
                           {renderEffectiveRate(row)}
+                        </TableCell>
+                        <TableCell data-testid={`cell-stripe-${row.driver.id}`}>
+                          {(() => {
+                            const ss = stripeStatuses[String(row.driver.id)];
+                            if (!ss) return (
+                              <Button size="sm" variant="outline" onClick={() => { setOnboardingDriverId(row.driver.id); onboardMut.mutate(row.driver.id); }}
+                                disabled={onboardMut.isPending && onboardingDriverId === row.driver.id}
+                                data-testid={`button-stripe-setup-${row.driver.id}`}>
+                                {onboardMut.isPending && onboardingDriverId === row.driver.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <DollarSign className="h-3 w-3 mr-1" />}
+                                Setup
+                              </Button>
+                            );
+                            if (ss.status === "ACTIVE" && ss.payoutsEnabled) return <Badge variant="default" data-testid={`badge-stripe-status-${row.driver.id}`}>Active</Badge>;
+                            if (ss.detailsSubmitted) return <Badge variant="secondary" data-testid={`badge-stripe-status-${row.driver.id}`}>Restricted</Badge>;
+                            return (
+                              <Button size="sm" variant="outline" onClick={() => { setOnboardingDriverId(row.driver.id); onboardMut.mutate(row.driver.id); }}
+                                disabled={onboardMut.isPending && onboardingDriverId === row.driver.id}
+                                data-testid={`button-stripe-continue-${row.driver.id}`}>
+                                {onboardMut.isPending && onboardingDriverId === row.driver.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                                Pending
+                              </Button>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell>
                           {row.hasOverride ? (

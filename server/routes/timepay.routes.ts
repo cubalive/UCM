@@ -23,6 +23,8 @@ import {
   listStaffPayConfigsHandler,
   upsertStaffPayConfigHandler,
   deleteStaffPayConfigHandler,
+  getDriverStripeStatusesHandler,
+  createDriverStripeOnboardingHandler,
 } from "../controllers/timepay.controller";
 
 const router = Router();
@@ -50,6 +52,9 @@ router.post("/api/company/payroll/:runId/pay", authMiddleware, requirePermission
 router.get("/api/company/staff-pay-configs", authMiddleware, requirePermission("payroll", "read"), requireTenantScope, listStaffPayConfigsHandler as any);
 router.post("/api/company/staff-pay-configs", authMiddleware, requirePermission("payroll", "write"), requireTenantScope, upsertStaffPayConfigHandler as any);
 router.delete("/api/company/staff-pay-configs/:id", authMiddleware, requirePermission("payroll", "write"), requireTenantScope, deleteStaffPayConfigHandler as any);
+
+router.get("/api/company/driver-stripe-statuses", authMiddleware, requirePermission("payroll", "read"), requireTenantScope, getDriverStripeStatusesHandler as any);
+router.post("/api/company/driver/:driverId/stripe-onboarding", authMiddleware, requirePermission("payroll", "write"), requireTenantScope, createDriverStripeOnboardingHandler as any);
 
 export function registerTimePayRoutes(app: Express) {
   app.use(router);

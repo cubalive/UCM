@@ -990,3 +990,80 @@ export async function deleteStaffPayConfigHandler(req: AuthRequest, res: Respons
     res.status(500).json({ message: err.message });
   }
 }
+
+export async function getDriverStripeStatusesHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = requireCompanyOrFail(req, res);
+    if (!companyId) return;
+
+    const accounts = await db.select().from(driverStripeAccounts)
+      .where(eq(driverStripeAccounts.companyId, companyId));
+
+    const statusMap: Record<number, { stripeAccountId: string; status: string; payoutsEnabled: boolean; detailsSubmitted: boolean }> = {};
+    for (const a of accounts) {
+      statusMap[a.driverId] = {
+        stripeAccountId: a.stripeAccountId,
+        status: a.status || "PENDING",
+        payoutsEnabled: a.payoutsEnabled || false,
+        detailsSubmitted: a.detailsSubmitted || false,
+      };
+    }
+
+    res.json({ statuses: statusMap });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function createDriverStripeOnboardingHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = requireCompanyOrFail(req, res);
+    if (!companyId) return;
+
+    const driverId = parseInt(req.params.driverId);
+    if (isNaN(driverId)) return res.status(400).json({ message: "Invalid driver ID" });
+
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(500).json({ message: "Stripe not configured" });
+    }
+
+    const [driver] = await db.select().from(drivers).where(and(eq(drivers.id, driverId), eq(drivers.companyId, companyId)));
+    if (!driver) return res.status(404).json({ message: "Driver not found in this company" });
+
+    const Stripe = (await import("stripe")).default;
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+    let [existing] = await db.select().from(driverStripeAccounts)
+      .where(and(eq(driverStripeAccounts.driverId, driverId), eq(driverStripeAccounts.companyId, companyId)));
+
+    if (!existing) {
+      const account = await stripe.accounts.create({
+        type: "express",
+        metadata: { ucm_driver_id: String(driverId), ucm_company_id: String(companyId) },
+        business_profile: { name: `${driver.firstName} ${driver.lastName}` },
+      });
+
+      const [row] = await db.insert(driverStripeAccounts).values({
+        companyId,
+        driverId,
+        stripeAccountId: account.id,
+        status: "PENDING",
+        payoutsEnabled: false,
+        detailsSubmitted: false,
+      }).returning();
+      existing = row;
+    }
+
+    const baseUrl = process.env.APP_PUBLIC_URL || process.env.PUBLIC_BASE_URL || process.env.APP_URL || "https://app.unitedcaremobility.com";
+    const accountLink = await stripe.accountLinks.create({
+      account: existing.stripeAccountId,
+      refresh_url: `${baseUrl}/timecards?stripe=refresh`,
+      return_url: `${baseUrl}/timecards?stripe=return`,
+      type: "account_onboarding",
+    });
+
+    res.json({ url: accountLink.url, stripeAccountId: existing.stripeAccountId });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
