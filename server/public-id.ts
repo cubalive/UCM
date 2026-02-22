@@ -10,8 +10,8 @@ async function ensureSequence() {
   const result = await db.execute(
     sql`SELECT COALESCE(MAX(global_seq), 0) as max_num FROM (
       SELECT CASE WHEN public_id ~ '^[0-9]{2}UCM[0-9]+$'
-        THEN (CAST(SUBSTRING(public_id FROM 1 FOR 2) AS INTEGER) - 1) * 1000000
-             + CAST(SUBSTRING(public_id FROM 6) AS INTEGER)
+        THEN (CAST(SUBSTRING(public_id FROM 1 FOR 2) AS INTEGER) - 1) * 100000000
+             + CAST(SUBSTRING(public_id FROM 6) AS BIGINT)
         ELSE 0
       END as global_seq FROM (
         SELECT public_id FROM users
@@ -35,10 +35,10 @@ export async function generatePublicId(): Promise<string> {
   await ensureSequence();
   const result = await db.execute(sql`SELECT nextval('public_id_seq') as val`);
   const val = parseInt((result as any).rows[0].val);
-  const maxPerPrefix = 999999;
+  const maxPerPrefix = 99999999;
   const prefixNum = Math.floor(val / (maxPerPrefix + 1)) + 1;
   const seqInPrefix = val % (maxPerPrefix + 1);
   const prefix = String(prefixNum).padStart(2, "0");
-  const padded = String(seqInPrefix).padStart(6, "0");
+  const padded = String(seqInPrefix).padStart(8, "0");
   return `${prefix}UCM${padded}`;
 }
