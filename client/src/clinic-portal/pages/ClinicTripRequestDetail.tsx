@@ -270,7 +270,7 @@ export default function ClinicTripRequestDetail() {
               </div>
             ) : (
               messages.map((msg: any) => {
-                const isOwnMessage = msg.senderUserId === user?.userId;
+                const isOwnMessage = msg.senderUserId === user?.id;
                 const isClinicSide = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"].includes(msg.senderRole);
                 return (
                   <div

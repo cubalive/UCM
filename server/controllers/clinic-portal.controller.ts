@@ -694,11 +694,24 @@ export async function clinicTripsHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+    let clinicId = user.clinicId;
+    if (!clinicId && req.query.clinicId) {
+      const qClinicId = parseInt(req.query.clinicId as string);
+      if (!isNaN(qClinicId)) {
+        const clinic = await storage.getClinic(qClinicId);
+        if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+        if (user.companyId && clinic.companyId !== user.companyId && req.user!.role !== "SUPER_ADMIN") {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        clinicId = qClinicId;
+      }
+    }
+    if (!clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
     const statusFilter = (req.query.status as string || "active").toLowerCase();
     const conditions: any[] = [
-      eq(trips.clinicId, user.clinicId),
+      eq(trips.clinicId, clinicId),
       isNull(trips.deletedAt),
     ];
 
@@ -753,13 +766,26 @@ export async function clinicTripByIdHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+
+    let clinicId = user.clinicId;
+    if (!clinicId && req.query.clinicId) {
+      const qClinicId = parseInt(req.query.clinicId as string);
+      if (!isNaN(qClinicId)) {
+        const clinic = await storage.getClinic(qClinicId);
+        if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+        if (user.companyId && clinic.companyId !== user.companyId && req.user!.role !== "SUPER_ADMIN") {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        clinicId = qClinicId;
+      }
+    }
+    if (!clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
     const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
-    if (trip.clinicId !== user.clinicId) return res.status(404).json({ message: "Trip not found" });
+    if (trip.clinicId !== clinicId) return res.status(404).json({ message: "Trip not found" });
 
     const [enriched] = await enrichTripsWithRelations([trip]);
 

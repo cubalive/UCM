@@ -229,7 +229,7 @@ export default function ClinicTrips() {
       if (!res.ok) throw new Error("Failed to fetch trips");
       return res.json();
     },
-    enabled: !!user?.clinicId || user?.role === "SUPER_ADMIN",
+    enabled: !!user?.clinicId || user?.role === "SUPER_ADMIN" || user?.role === "COMPANY_ADMIN" || user?.role === "ADMIN",
   });
 
   const tripsList = Array.isArray(trips) ? trips : [];

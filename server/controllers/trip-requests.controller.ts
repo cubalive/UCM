@@ -82,7 +82,19 @@ export async function clinicCreateTripRequest(req: AuthRequest, res: Response) {
 
 export async function clinicListTripRequests(req: AuthRequest, res: Response) {
   try {
-    const clinicId = getClinicScopeId(req);
+    let clinicId = getClinicScopeId(req);
+    if (!clinicId && req.query.clinicId) {
+      const qClinicId = parseInt(req.query.clinicId as string);
+      if (!isNaN(qClinicId)) {
+        const clinic = await storage.getClinic(qClinicId);
+        if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+        const user = await storage.getUser(req.user!.userId);
+        if (user?.companyId && clinic.companyId !== user.companyId && req.user!.role !== "SUPER_ADMIN") {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        clinicId = qClinicId;
+      }
+    }
     if (!clinicId) return res.status(403).json({ message: "Clinic scope required" });
 
     const status = req.query.status as string | undefined;
@@ -106,7 +118,19 @@ export async function clinicListTripRequests(req: AuthRequest, res: Response) {
 
 export async function clinicGetTripRequest(req: AuthRequest, res: Response) {
   try {
-    const clinicId = getClinicScopeId(req);
+    let clinicId = getClinicScopeId(req);
+    if (!clinicId && req.query.clinicId) {
+      const qClinicId = parseInt(req.query.clinicId as string);
+      if (!isNaN(qClinicId)) {
+        const clinic = await storage.getClinic(qClinicId);
+        if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+        const user = await storage.getUser(req.user!.userId);
+        if (user?.companyId && clinic.companyId !== user.companyId && req.user!.role !== "SUPER_ADMIN") {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        clinicId = qClinicId;
+      }
+    }
     if (!clinicId) return res.status(403).json({ message: "Clinic scope required" });
 
     const id = parseInt(req.params.id);

@@ -114,12 +114,13 @@ export async function createPatientHandler(req: AuthRequest, res: Response) {
     if (!scope) return res.status(401).json({ message: "Unauthorized" });
 
     const user = await storage.getUser(req.user!.userId);
-    if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER") && user.clinicId) {
+    if ((user?.role === "VIEWER" || user?.role === "CLINIC_USER" || user?.role === "CLINIC_ADMIN" || user?.role === "CLINIC_VIEWER") && user.clinicId) {
       const clinic = await storage.getClinic(user.clinicId);
       if (!clinic) return res.status(403).json({ message: "No clinic linked" });
       req.body.clinicId = user.clinicId;
       req.body.cityId = clinic.cityId;
       req.body.companyId = clinic.companyId;
+      req.body.source = "clinic";
     } else {
       forceCompanyOnCreate(scope, req.body);
     }
