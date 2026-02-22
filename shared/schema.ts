@@ -2273,7 +2273,7 @@ export type DriverEarningsAdjustment = typeof driverEarningsAdjustments.$inferSe
 export type InsertDriverEarningsAdjustment = z.infer<typeof insertDriverEarningsAdjustmentSchema>;
 
 export const timeEntryStatusEnum = pgEnum("time_entry_status", ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "PAID"]);
-export const timeEntrySourceEnum = pgEnum("time_entry_source", ["MANUAL", "CSV"]);
+export const timeEntrySourceEnum = pgEnum("time_entry_source", ["MANUAL", "CSV", "SHIFT"]);
 export const timeImportStatusEnum = pgEnum("time_import_status", ["DRAFT", "PROCESSED", "FAILED"]);
 export const tpPayrollRunStatusEnum = pgEnum("tp_payroll_run_status", ["DRAFT", "FINALIZED", "PAID"]);
 export const tpPayrollItemStatusEnum = pgEnum("tp_payroll_item_status", ["DRAFT", "PAID"]);

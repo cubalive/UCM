@@ -10,6 +10,7 @@ import {
   drivers,
   companyPayrollSettings,
   staffPayConfigs,
+  driverStripeAccounts,
 } from "@shared/schema";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import multer from "multer";
@@ -736,34 +737,101 @@ export async function payPayrollHandler(req: AuthRequest, res: Response) {
     if (!run) return res.status(404).json({ message: "Payroll run not found" });
     if (run.status !== "FINALIZED") return res.status(400).json({ message: "Only FINALIZED runs can be paid" });
 
-    const [updated] = await db.update(tpPayrollRuns).set({ status: "PAID" }).where(eq(tpPayrollRuns.id, runId)).returning();
-
-    await db.update(tpPayrollItems).set({ status: "PAID" }).where(eq(tpPayrollItems.runId, runId));
-
     const items = await db.select().from(tpPayrollItems).where(eq(tpPayrollItems.runId, runId));
+    const transferResults: { driverId: number; status: string; transferId?: string; error?: string; amountCents: number }[] = [];
+    let stripeConfigured = !!process.env.STRIPE_SECRET_KEY;
+    let allSuccess = true;
+
+    if (stripeConfigured) {
+      const Stripe = (await import("stripe")).default;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+      const idempotencyBase = `tp_payroll_${runId}`;
+
+      for (const item of items) {
+        try {
+          const [driverAccount] = await db.select().from(driverStripeAccounts)
+            .where(and(
+              eq(driverStripeAccounts.driverId, item.driverId),
+              eq(driverStripeAccounts.companyId, companyId)
+            ));
+
+          if (!driverAccount || driverAccount.status !== "ACTIVE" || !driverAccount.payoutsEnabled) {
+            transferResults.push({ driverId: item.driverId, status: "no_stripe", amountCents: item.totalCents, error: "Driver Stripe account not active" });
+            allSuccess = false;
+            continue;
+          }
+
+          const transfer = await stripe.transfers.create({
+            amount: item.totalCents,
+            currency: "usd",
+            destination: driverAccount.stripeAccountId,
+            transfer_group: idempotencyBase,
+            metadata: {
+              tp_payroll_run_id: String(runId),
+              driver_id: String(item.driverId),
+              company_id: String(companyId),
+              period: `${run.periodStart} to ${run.periodEnd}`,
+            },
+          }, {
+            idempotencyKey: `${idempotencyBase}_driver_${item.driverId}`,
+          });
+
+          await db.update(tpPayrollItems).set({ status: "PAID" }).where(eq(tpPayrollItems.id, item.id));
+          transferResults.push({ driverId: item.driverId, status: "transferred", transferId: transfer.id, amountCents: item.totalCents });
+        } catch (err: any) {
+          console.error(`[TP-Payroll] Stripe transfer failed for driver ${item.driverId}:`, err.message);
+          transferResults.push({ driverId: item.driverId, status: "failed", error: err.message, amountCents: item.totalCents });
+          allSuccess = false;
+        }
+      }
+    } else {
+      await db.update(tpPayrollItems).set({ status: "PAID" }).where(eq(tpPayrollItems.runId, runId));
+      for (const item of items) {
+        transferResults.push({ driverId: item.driverId, status: "manual", amountCents: item.totalCents });
+      }
+    }
+
+    const finalStatus = allSuccess ? "PAID" : "PAID";
+    const [updated] = await db.update(tpPayrollRuns).set({ status: finalStatus }).where(eq(tpPayrollRuns.id, runId)).returning();
 
     const now = new Date();
-    for (const item of items) {
+    const paidDriverIds = transferResults
+      .filter(r => r.status === "transferred" || r.status === "manual")
+      .map(r => r.driverId);
+
+    for (const driverId of paidDriverIds) {
       await db.update(timeEntries).set({ status: "PAID", paidAt: now, updatedAt: now })
         .where(and(
           eq(timeEntries.companyId, companyId),
-          eq(timeEntries.driverId, item.driverId),
+          eq(timeEntries.driverId, driverId),
           eq(timeEntries.status, "APPROVED"),
           gte(timeEntries.workDate, run.periodStart),
           lte(timeEntries.workDate, run.periodEnd),
         ));
     }
 
+    const transferCount = transferResults.filter(r => r.status === "transferred").length;
+    const failCount = transferResults.filter(r => r.status === "failed" || r.status === "no_stripe").length;
+
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "PAY_TP_PAYROLL",
       entity: "tp_payroll_run",
       entityId: runId,
-      details: `Marked payroll run PAID: ${run.periodStart} to ${run.periodEnd}. Stripe payout not configured - manual payment required.`,
+      details: stripeConfigured
+        ? `Payroll run PAID: ${run.periodStart} to ${run.periodEnd}. Transferred: ${transferCount}, Failed: ${failCount}`
+        : `Payroll run marked PAID (manual): ${run.periodStart} to ${run.periodEnd}`,
       cityId: null,
     });
 
-    res.json({ ...updated, note: "Stripe Connect payout not yet configured. Entries marked PAID for record-keeping." });
+    res.json({
+      ...updated,
+      transfers: transferResults,
+      stripeEnabled: stripeConfigured,
+      note: stripeConfigured
+        ? (failCount > 0 ? `${transferCount} transferred, ${failCount} failed` : `${transferCount} drivers paid via Stripe`)
+        : "Stripe not configured. Entries marked PAID for manual payment.",
+    });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

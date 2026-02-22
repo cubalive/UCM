@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import type { AuthRequest } from "../auth";
-import { drivers, driverShifts, noShowEvidence, trips, tripSignatures, tripBilling } from "@shared/schema";
+import { drivers, driverShifts, noShowEvidence, trips, tripSignatures, tripBilling, timeEntries, staffPayConfigs, companyPayrollSettings, users } from "@shared/schema";
 import { db } from "../db";
 import { eq, and, sql, desc, gte, isNull, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -48,6 +48,9 @@ export async function postDriverShiftEndHandler(req: AuthRequest, res: Response)
     const user = await storage.getUser(req.user!.userId);
     if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
 
+    const driver = await storage.getDriver(user.driverId);
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+
     const [activeShift] = await db.select().from(driverShifts)
       .where(and(eq(driverShifts.driverId, user.driverId), eq(driverShifts.status, "ACTIVE")))
       .limit(1);
@@ -76,8 +79,62 @@ export async function postDriverShiftEndHandler(req: AuthRequest, res: Response)
       lastLng: null,
     }).where(eq(drivers.id, user.driverId));
 
+    let timeEntry = null;
+    try {
+      const workDate = startedAt.toISOString().split("T")[0];
+      const startH = String(startedAt.getHours()).padStart(2, "0");
+      const startM = String(startedAt.getMinutes()).padStart(2, "0");
+      const endH = String(now.getHours()).padStart(2, "0");
+      const endM = String(now.getMinutes()).padStart(2, "0");
+      const hours = Math.round((totalMinutes / 60) * 100) / 100;
+
+      let rateCents: number | null = null;
+      if (driver.companyId) {
+        const [staffConfig] = await db.select().from(staffPayConfigs)
+          .where(and(eq(staffPayConfigs.companyId, driver.companyId), eq(staffPayConfigs.driverId, user.driverId), eq(staffPayConfigs.active, true)))
+          .limit(1);
+        if (staffConfig?.hourlyRateCents) {
+          rateCents = staffConfig.hourlyRateCents;
+        } else {
+          const [compSettings] = await db.select().from(companyPayrollSettings)
+            .where(eq(companyPayrollSettings.companyId, driver.companyId)).limit(1);
+          if (compSettings?.hourlyRateCents) rateCents = compSettings.hourlyRateCents;
+        }
+      }
+
+      if (driver.companyId && hours > 0) {
+        [timeEntry] = await db.insert(timeEntries).values({
+          companyId: driver.companyId,
+          driverId: user.driverId,
+          workDate,
+          startTime: `${startH}:${startM}`,
+          endTime: `${endH}:${endM}`,
+          breakMinutes: Math.round(ended.breakMinutes || 0),
+          hoursNumeric: String(hours),
+          payType: "HOURLY",
+          hourlyRateCents: rateCents,
+          notes: `Auto from shift #${ended.id}`,
+          sourceType: "SHIFT",
+          sourceRef: `shift:${ended.id}`,
+          status: "SUBMITTED",
+          createdBy: req.user!.userId,
+        }).returning();
+
+        await storage.createAuditLog({
+          userId: req.user!.userId,
+          action: "AUTO_CREATE_TIME_ENTRY",
+          entity: "time_entry",
+          entityId: timeEntry.id,
+          details: `Auto-created from shift #${ended.id}: ${hours}h on ${workDate}`,
+          cityId: null,
+        });
+      }
+    } catch (err: any) {
+      console.error("[SHIFT→TIME] Failed to auto-create time entry:", err.message);
+    }
+
     const updatedDriver = await storage.getDriver(user.driverId);
-    res.json({ shift: ended, driver: updatedDriver });
+    res.json({ shift: ended, driver: updatedDriver, timeEntry });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
