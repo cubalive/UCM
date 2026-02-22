@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import { authMiddleware, opsRouteGuard } from "../auth";
-import { healthz, healthLegacy, pwaHealth, healthDetailedHandler, healthDbDetails, versionHandler, crashSimulation } from "../controllers/health.controller";
+import { healthz, healthLegacy, pwaHealth, healthDetailedHandler, healthDbDetails, versionHandler, crashSimulation, readyz } from "../controllers/health.controller";
 import { dbCheckHandler } from "../controllers/dbCheck.controller";
 import { requireRole } from "../auth";
 import { registerAuthRoutes } from "./auth.routes";
@@ -23,7 +23,7 @@ import { registerVehicleAssignRoutes } from "../lib/vehicleAssignRoutes";
 import { registerTrackingRoutes } from "../lib/trackingRoutes";
 import { registerTripSeriesRoutes } from "../lib/tripSeriesRoutes";
 import { registerReportRoutes } from "../lib/reportRoutes";
-import { registerOpsRoutes, startOpsAlertScheduler } from "../lib/opsRoutes";
+import { registerOpsRoutes } from "../lib/opsRoutes";
 import { registerAutomationRoutes } from "../lib/automationRoutes";
 import { registerScheduleRoutes } from "../lib/scheduleRoutes";
 import { registerPricingRoutes } from "../lib/pricingRoutes";
@@ -32,7 +32,7 @@ import { registerAssignmentRoutes } from "../lib/assignmentRoutes";
 import { registerPublicApiRoutes } from "../lib/publicApiRoutes";
 import { registerClinicBillingRoutes } from "../lib/clinicBillingRoutes";
 import { registerStripeConnectRoutes } from "../lib/stripeConnectRoutes";
-import { registerPayrollRoutes, startPayrollScheduler } from "../lib/payrollRoutes";
+import { registerPayrollRoutes } from "../lib/payrollRoutes";
 import { registerPayrollModifierRoutes } from "../controllers/payroll.controller";
 import { registerIntelligenceRoutes } from "./intelligence.routes";
 import { registerImportRoutes } from "./imports.routes";
@@ -42,24 +42,20 @@ import { registerPlatformFeeRoutes } from "./platformFee.routes";
 import { registerDispatcherPermissionsRoutes } from "./dispatcherPermissions.routes";
 import { registerInfraOpsRoutes } from "./ops.routes";
 import { registerSubscriptionRoutes, registerSubscriptionWebhook } from "./subscription.routes";
-import { registerEnterpriseFinanceRoutes, startDunningScheduler } from "./enterpriseFinance.routes";
+import { registerEnterpriseFinanceRoutes } from "./enterpriseFinance.routes";
 import { registerFeeRulesRoutes } from "./feeRules.routes";
 import { registerTripRequestRoutes } from "./trip-requests.routes";
-import { startRouteScheduler } from "../lib/routeEngine";
-import { startNoShowScheduler } from "../lib/noShowEngine";
-import { startRecurringScheduleScheduler } from "../lib/recurringScheduleEngine";
-import { startAiEngine } from "../lib/aiEngine";
-import { startOpsScheduler } from "../lib/opsScheduler";
+import { registerQueueRoutes } from "./queue.routes";
 import { registerAutoAssignV2Routes } from "../lib/autoAssignV2Routes";
 import { registerEtaVarianceRoutes } from "../lib/etaVarianceRoutes";
 import { registerZeroTouchDialysisRoutes } from "../lib/zeroTouchDialysisRoutes";
-import { startDialysisScheduler } from "../lib/zeroTouchDialysisEngine";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   app.get("/api/healthz", healthz);
+  app.get("/api/readyz", readyz);
   app.get("/api/health", healthLegacy);
   app.get("/api/version", versionHandler);
   app.get("/api/health/detailed", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), healthDetailedHandler as any);
@@ -115,16 +111,7 @@ export async function registerRoutes(
   registerAutoAssignV2Routes(app);
   registerEtaVarianceRoutes(app);
   registerZeroTouchDialysisRoutes(app);
-
-  startOpsAlertScheduler();
-  startRouteScheduler();
-  startNoShowScheduler();
-  startRecurringScheduleScheduler();
-  startAiEngine();
-  startOpsScheduler();
-  startPayrollScheduler();
-  startDunningScheduler();
-  startDialysisScheduler();
+  registerQueueRoutes(app);
 
   return httpServer;
 }

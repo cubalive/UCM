@@ -15,6 +15,8 @@ let wss: WebSocketServer | null = null;
 const WS_MAX_MESSAGES_PER_MIN = 60;
 const WS_HEARTBEAT_INTERVAL_MS = 30_000;
 const WS_HEARTBEAT_TIMEOUT_MS = 10_000;
+const WS_MAX_CONNECTIONS = parseInt(process.env.WS_MAX_CONNECTIONS || "500", 10);
+const WS_MAX_PAYLOAD_BYTES = 4096;
 
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -41,9 +43,14 @@ function checkRateLimit(ws: WebSocket): boolean {
 }
 
 export function initWebSocket(httpServer: Server): WebSocketServer {
-  wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  wss = new WebSocketServer({ server: httpServer, path: "/ws", maxPayload: WS_MAX_PAYLOAD_BYTES });
 
   wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
+    if (wss && wss.clients.size > WS_MAX_CONNECTIONS) {
+      ws.close(4503, "Too many connections");
+      return;
+    }
+
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
     const token = url.searchParams.get("token");
 

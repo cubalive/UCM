@@ -33,9 +33,18 @@ export async function healthz(_req: Request, res: Response) {
   }
 
   let schedulers: any = {};
+  let roleMode = "all";
+  let leader: any = {};
+  let circuitBreakers: any = {};
   try {
     const { getSchedulerStates } = await import("../lib/schedulerHarness");
     schedulers = getSchedulerStates();
+    const { getRoleMode } = await import("../lib/schedulerInit");
+    roleMode = getRoleMode();
+    const { getLeaderInfo } = await import("../lib/leaderElection");
+    leader = await getLeaderInfo();
+    const { getCircuitBreakerStates } = await import("../lib/circuitBreaker");
+    circuitBreakers = getCircuitBreakerStates();
   } catch {}
 
   const mem = process.memoryUsage();
@@ -45,6 +54,7 @@ export async function healthz(_req: Request, res: Response) {
     version: APP_VERSION,
     builtAt: APP_BUILD_TIME,
     env: APP_ENV,
+    roleMode,
     uptime: Math.round(process.uptime()),
     pid: process.pid,
     memory: {
@@ -58,8 +68,32 @@ export async function healthz(_req: Request, res: Response) {
       latencyMs: dbLatencyMs,
     },
     redis: redisStatus,
+    leader,
     schedulers,
+    circuitBreakers,
     timestamp: new Date().toISOString(),
+  });
+}
+
+export async function readyz(_req: Request, res: Response) {
+  let dbOk = false;
+  try {
+    await db.execute(sql`SELECT 1`);
+    dbOk = true;
+  } catch {}
+
+  let redisOk = false;
+  try {
+    const { isRedisConnected } = await import("../lib/redis");
+    redisOk = isRedisConnected();
+  } catch {}
+
+  const ready = dbOk;
+  res.status(ready ? 200 : 503).json({
+    ready,
+    db: dbOk,
+    redis: redisOk,
+    uptime: Math.round(process.uptime()),
   });
 }
 

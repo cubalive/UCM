@@ -1,0 +1,214 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Principal Production Engineer (Healthcare logistics / NEMT) — Enterprise hardening for Fresenius/DaVita scale
+SINGLE AGENT ONLY. NO SUB-AGENTS. NO PARALLEL.
+
+MISSION
+Upgrade UCM from a single-process Node monolith with in-process schedulers/WebSocket into an enterprise-ready, multi-instance-safe architecture WITHOUT rewriting the app and WITHOUT breaking working features. Target: safe scaling to multiple instances, deterministic schedulers, durable jobs, auditable operations, and zero regression.
+
+NON-NEGOTIABLES
+- NO DB RESET. NO DROPS. NO destructive migrations.
+- Preserve all working routes, driver state machine, auto-assign, billing, clinic portal, driver app.
+- Keep existing RBAC/RLS/tenant/city isolation intact.
+- Every change must be additive + behind flags where risky.
+- Provide a step-by-step runbook and verification checklist.
+- All configs must be driven by env vars + safe defaults.
+
+CURRENT STATE (CONFIRMED)
+- Express 5 + React 18/Vite monorepo
+- WebSocket via ws mounted on same HTTP server (/ws) with JWT auth
+- 11 schedulers implemented with setInterval in same Node process
+- Upstash Redis REST used for cache/locks/queue (fallback to in-memory)
+- No separate worker process; “background jobs” run inside the main server
+- Production must be always-on, not serverless
+
+ENTERPRISE TARGET OUTCOMES
+1) Multi-instance safe (2–N instances) WITHOUT duplicate schedulers or duplicate jobs.
+2) Durable job queue with retries, backoff, DLQ, and idempotency.
+3) Leader election for schedulers + single source of truth for job state.
+4) WebSocket resilient: reconnect, presence, and backpressure control.
+5) Observability: structured logs, metrics, tracing hooks, error reporting.
+6) Operational controls: feature flags, kill switches, maintenance mode.
+7) Release safety: build versioning, cache busting, and predictable deployments.
+
+========================
+PHASE 1 — RUNTIME SPLIT (SERVER vs WORKER)
+========================
+Create TWO entrypoints:
+A) Server (API + WebSocket + static)
+B) Worker (Schedulers + job processors ONLY)
+
+Rule: In production, schedulers must NEVER run inside the API server.
+
+Implementation:
+- Add env var ROLE_MODE = "server" | "worker" | "all"
+- Default dev: "all" (for speed)
+- Default prod: "server" for web deployment and a separate deployment "worker"
+
+Changes:
+- server/index.ts starts Express + WS ONLY when ROLE_MODE includes server
+- worker/index.ts starts schedulers/job loops ONLY when ROLE_MODE includes worker
+
+Deliver:
+- new files: worker/index.ts, worker/bootstrap.ts
+- refactor scheduler init to a single function initSchedulers() called only by worker
+
+========================
+PHASE 2 — LEADER ELECTION + SCHEDULER LOCKS
+========================
+Even with a worker, we must be safe if multiple workers run.
+
+Implement a Redis-based leader lock:
+- key: ucm:worker:leader
+- value: instanceId
+- SET NX EX 30
+- renew every 10s while alive
+- if lock lost, STOP all schedulers immediately
+
+Per-scheduler lock as defense-in-depth:
+- key: ucm:scheduler:<name>
+- SET NX EX <interval-5>
+- prevents double-execution if leader glitch happens
+
+MUST:
+- If Redis not configured -> schedulers run in SINGLE instance only with loud warning
+- In prod, require Redis (fail fast if missing) unless ALLOW_NO_REDIS=true
+
+========================
+PHASE 3 — REAL JOB QUEUE (DURABLE) ON REDIS
+========================
+Your current jobQueue.ts exists; harden it to enterprise:
+- Queue lists per type: ucm:queue:<type>
+- In-flight set: ucm:inflight:<type>
+- DLQ: ucm:dlq:<type>
+- Job payload includes:
+  jobId (uuid)
+  type
+  tenantId/cityId scope
+  dedupeKey
+  createdAt
+  runAt
+  attempts
+  maxAttempts
+  backoffMs
+  traceId
+
+Processing:
+- Pop -> move to inflight (atomic)
+- Ack on success (remove inflight)
+- On fail: attempts++ and requeue with exponential backoff
+- After maxAttempts -> DLQ
+- Add admin endpoint to inspect queues (SUPER_ADMIN only)
+
+Idempotency:
+- Use Redis SETNX ucm:dedupe:<dedupeKey> EX 86400 before enqueue/execute
+- If dedupe exists -> skip duplicate
+
+Convert every scheduler loop into enqueue-only:
+- Scheduler does NOT perform heavy work.
+- Scheduler enqueues jobs (e.g., ETA_RECALC, AUTO_ASSIGN, NO_SHOW_SCAN, ROUTE_REFRESH, PAYROLL_RUN, DUNNING_RUN, DIALYSIS_GEN, SMS_REMINDER)
+- Worker processors execute jobs.
+
+========================
+PHASE 4 — SAFE TIME WINDOWS + LOAD SHEDDING
+========================
+Add global controls:
+- MAX_JOBS_PER_TICK (e.g., 200)
+- MAX_JOB_RUNTIME_MS (e.g., 60_000)
+- RATE LIMITS per tenant
+- CIRCUIT BREAKERS:
+  - if DB latency high or error rate high -> pause non-critical jobs (AI/forecast) first
+
+Add priority levels:
+- P0: trip state, ETA updates, assignments, driver status, billing finalize
+- P1: reminders, no-show, dunning
+- P2: AI scoring, forecasting
+
+If overloaded:
+- process P0 always
+- delay P1/P2
+
+========================
+PHASE 5 — WEBSOCKET HARDENING (ENTERPRISE)
+========================
+WebSocket must be robust across deploys:
+- Add exponential reconnect guidance in client
+- Heartbeat already exists; add:
+  - per-connection message backpressure (drop if queue too large)
+  - server-side topic ACL enforcement (tenant/city/trip subscriptions)
+  - presence keys in Redis (ucm:ws:online:<driverId>) with TTL for “who is online”
+- Add broadcast via Redis Pub/Sub-like pattern using Upstash (if available) OR:
+  - If multi-instance, WS broadcast must be cross-instance:
+    - publish events into Redis channel ucm:ws:broadcast
+    - each server instance subscribes and forwards locally
+
+If Upstash REST cannot do pubsub:
+- Implement “polling channel” pattern:
+  - append events to Redis list with TTL and consumers pull every 1s
+  - acceptable for v1 enterprise; upgrade later
+
+========================
+PHASE 6 — OBSERVABILITY + AUDITABILITY
+========================
+Add:
+- Structured JSON logging (pino) with requestId/traceId/jobId/tenantId/cityId
+- /health endpoint returns:
+  db_ok, redis_ok, ws_ok, worker_leader, queue_depths, last_job_runs
+- /metrics (optional) simple counters:
+  jobs_processed, jobs_failed, ws_connections, api_latency buckets
+
+Error reporting:
+- Add Sentry (behind env flag SENTRY_DSN)
+- Capture unhandledRejection/uncaughtException and exit gracefully (let supervisor restart)
+
+========================
+PHASE 7 — RELEASE SAFETY (NO MORE “PUBLISH BUT CHANGES DON’T SHOW”)
+========================
+Fix caching/versioning end-to-end:
+- Add BUILD_ID env (or git sha) injected into client at build time
+- Set static asset headers:
+  - assets with hashed filenames: Cache-Control: public, max-age=31536000, immutable
+  - index.html: Cache-Control: no-store
+- Service worker (if exists) must:
+  - show “Update available” banner
+  - skipWaiting on user action
+  - force refresh of app shell
+- Add /api/version returning buildId + timestamp
+- Show buildId in UI footer for admin + driver
+
+========================
+PHASE 8 — ENTERPRISE SECURITY GUARDS
+========================
+- Ensure all SECURITY DEFINER functions have search_path fixed (pg_catalog, public)
+- Confirm anon cannot execute internal helper functions
+- Confirm service_role only used server-side
+- Add rate limits at edge for sensitive endpoints
+- Add audit trail for:
+  - trip status changes
+  - billing generation
+  - RLS toggles (already partially)
+
+========================
+IMPLEMENTATION PLAN (DO THIS NOW)
+========================
+1) Create ROLE_MODE split with worker entrypoint; move schedulers into worker only.
+2) Implement leader election + per-scheduler locks.
+3) Convert heavy scheduler loops to enqueue jobs into Redis queue.
+4) Build queue processors with retries/backoff/DLQ and idempotency.
+5) Add /health + /api/version + buildId UI + cache headers fix.
+6) Add WS cross-instance broadcast strategy (Redis list channel pattern if no pubsub).
+7) Add feature flags + kill switches for P1/P2 jobs.
+8) Provide runbook: how to deploy server + worker, how to verify, how to rollback.
+
+OUTPUT REQUIRED
+- Exact files created/modified
+- Env vars list (with safe defaults):
+  ROLE_MODE, INSTANCE_ID, UPSTASH_REDIS_*, REQUIRE_REDIS, BUILD_ID, SENTRY_DSN,
+  MAX_JOBS_PER_TICK, MAX_JOB_RUNTIME_MS, ENABLE_AI_ENGINE, ENABLE_FORECAST, etc.
+- Verification commands:
+  - curl /health
+  - check leader lock keys
+  - simulate 2 workers and confirm only one is leader
+  - enqueue job and see it processed once
+- A “NO REGRESSION” checklist for UCM core workflows.
+
+START NOW. Implement carefully and do not change existing business logic unless necessary; wrap new behavior behind flags if risk.

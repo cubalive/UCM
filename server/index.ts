@@ -681,8 +681,8 @@ app.use((req, res, next) => {
   const { registerAdminMetricsRoutes } = await import("./lib/adminMetricsRoutes");
   registerAdminMetricsRoutes(app);
 
-  const { startJobEngine } = await import("./lib/jobEngine");
-  startJobEngine();
+  const { initSchedulers } = await import("./lib/schedulerInit");
+  await initSchedulers();
 
   const { registerIntegrityRoutes } = await import("./lib/integrityReport");
   registerIntegrityRoutes(app);
@@ -696,8 +696,6 @@ app.use((req, res, next) => {
   const { registerSmsAdminRoutes } = await import("./lib/sms/smsAdminRoutes");
   registerSmsAdminRoutes(app);
 
-  const { startSmsReminderScheduler } = await import("./lib/smsReminderScheduler");
-  startSmsReminderScheduler();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -743,20 +741,23 @@ app.use((req, res, next) => {
     },
   );
 
-  const { startMemoryLogger, stopAllSchedulers, stopMemoryLogger } = await import("./lib/schedulerHarness");
+  const { startMemoryLogger } = await import("./lib/schedulerHarness");
   startMemoryLogger(5 * 60 * 1000);
+
+  const { getRoleMode, shouldRunSchedulers } = await import("./lib/schedulerInit");
+  const { getSchedulerStates } = await import("./lib/schedulerHarness");
+  const activeSchedulers = shouldRunSchedulers()
+    ? Object.keys(getSchedulerStates())
+    : [];
 
   const bootSummary = {
     event: "boot_complete",
+    roleMode: getRoleMode(),
     db: "connected",
     dbSource: getDbSource(),
     redis: process.env.UPSTASH_REDIS_REST_URL ? "configured" : "not_configured",
-    schedulers: [
-      "ops_alert", "route_engine", "no_show", "recurring_schedule",
-      "ai_engine", "ai_sentinel", "ops_anomaly", "ops_score",
-      "payroll", "dunning", "dialysis", "sms_reminder",
-      "job_engine_eta", "job_engine_autoassign",
-    ],
+    schedulers: activeSchedulers,
+    schedulerCount: activeSchedulers.length,
     websocket: "active",
     memoryLogger: "active",
     nodeEnv: process.env.NODE_ENV || "development",
@@ -772,11 +773,8 @@ app.use((req, res, next) => {
     shuttingDown = true;
     console.log(JSON.stringify({ event: "shutdown_start", signal, ts: new Date().toISOString() }));
 
-    stopAllSchedulers();
-    stopMemoryLogger();
-
-    const { stopJobEngine } = await import("./lib/jobEngine");
-    stopJobEngine();
+    const { stopSchedulers } = await import("./lib/schedulerInit");
+    await stopSchedulers();
 
     try {
       const { getWss } = await import("./lib/realtime");
