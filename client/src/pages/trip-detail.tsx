@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin, Download, Loader2, Ban, Archive, Trash2, RotateCcw } from "lucide-react";
+import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin, Download, Loader2, Ban, Archive, Trash2, RotateCcw, DollarSign, Receipt } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { TripStaticMap } from "@/components/trip-static-map";
 import { TripRouteMap } from "@/components/trip-route-map";
@@ -69,6 +69,8 @@ export default function TripDetailPage() {
   const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"];
   const canWrite = user?.role && WRITE_ROLES.includes(user.role);
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const FINANCIAL_ROLES = ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
+  const canViewFinancials = user?.role && FINANCIAL_ROLES.includes(user.role);
 
   const cancelMutation = useMutation({
     mutationFn: () => rawAuthFetch(`/api/trips/${tripId}/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: cancelReason || "Cancelled via trip detail", faultParty: cancelFaultParty }) }),
@@ -110,6 +112,12 @@ export default function TripDetailPage() {
     queryKey: ["/api/drivers", trip?.driverId],
     queryFn: () => apiFetch(`/api/drivers/${trip.driverId}`, token),
     enabled: !!token && !!trip?.driverId,
+  });
+
+  const { data: financials, isLoading: financialsLoading } = useQuery<any>({
+    queryKey: ["/api/trips", tripId, "financials"],
+    queryFn: () => apiFetch(`/api/trips/${tripId}/financials`, token),
+    enabled: !!token && !!canViewFinancials && tripId > 0 && !!trip && ["COMPLETED", "NO_SHOW", "CANCELLED"].includes(trip?.status || ""),
   });
 
   const isActiveTrip = trip ? ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"].includes(trip.status) : false;
@@ -432,6 +440,64 @@ export default function TripDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {canViewFinancials && ["COMPLETED", "NO_SHOW", "CANCELLED"].includes(trip.status) && (
+        <Card data-testid="card-trip-financials">
+          <CardContent className="py-4 space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-1.5">
+              <DollarSign className="w-4 h-4" />
+              Financial Breakdown
+            </h3>
+            {financialsLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-4 w-36" />
+                <Skeleton className="h-4 w-40" />
+              </div>
+            ) : financials ? (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm" data-testid="row-trip-total">
+                  <span className="text-muted-foreground">Trip Total</span>
+                  <span className="font-mono font-medium">${(financials.tripTotalCents / 100).toFixed(2)}</span>
+                </div>
+                {financials.platformFeeCents > 0 && (
+                  <div className="flex justify-between text-sm" data-testid="row-platform-fee">
+                    <span className="text-muted-foreground">Platform Fee</span>
+                    <span className="font-mono text-red-600">-${(financials.platformFeeCents / 100).toFixed(2)}</span>
+                  </div>
+                )}
+                {financials.driverPayoutCents > 0 && (
+                  <div className="flex justify-between text-sm" data-testid="row-driver-payout">
+                    <span className="text-muted-foreground">Driver Payout</span>
+                    <span className="font-mono text-blue-600">-${(financials.driverPayoutCents / 100).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="border-t pt-2 flex justify-between text-sm font-semibold" data-testid="row-net-company">
+                  <span>Net to Company</span>
+                  <span className="font-mono">${(financials.netToCompanyCents / 100).toFixed(2)}</span>
+                </div>
+                {financials.feeRuleId && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                    <Receipt className="w-3 h-3" />
+                    <span data-testid="text-fee-rule-source">Fee Rule #{financials.feeRuleId} — {financials.feeRuleDetails?.feeType || "calculated"}</span>
+                  </div>
+                )}
+                {financials.feeRuleDetails?.source === "legacy" && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                    <Receipt className="w-3 h-3" />
+                    <span data-testid="text-fee-legacy-source">Legacy platform fee applied</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <span data-testid="text-ledger-entries">{financials.ledgerEntries?.length || 0} ledger entries</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground" data-testid="text-no-financials">No financial data available for this trip.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
     </div>
   );

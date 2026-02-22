@@ -2725,6 +2725,30 @@ export const feeRuleFeeTypeEnum = pgEnum("fee_rule_fee_type", [
   "percent_plus_fixed",
 ]);
 
+export const feeRuleCalcBaseEnum = pgEnum("fee_rule_calc_base", [
+  "trip_total",
+  "clinic_invoice",
+  "driver_payout",
+]);
+
+export const feeRuleDirectionEnum = pgEnum("fee_rule_direction", [
+  "add",
+  "subtract",
+]);
+
+export const feeRuleBeneficiaryEnum = pgEnum("fee_rule_beneficiary", [
+  "platform",
+  "clinic",
+  "driver",
+  "company",
+]);
+
+export const feeRuleSettlementStageEnum = pgEnum("fee_rule_settlement_stage", [
+  "invoice_generation",
+  "driver_payout",
+  "payment_capture",
+]);
+
 export const feeRules = pgTable("fee_rules", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   scopeType: feeRuleScopeEnum("scope_type").notNull(),
@@ -2736,6 +2760,10 @@ export const feeRules = pgTable("fee_rules", {
   fixedFeeCents: integer("fixed_fee_cents").notNull().default(0),
   minFeeCents: integer("min_fee_cents"),
   maxFeeCents: integer("max_fee_cents"),
+  calculationBase: feeRuleCalcBaseEnum("calculation_base").notNull().default("clinic_invoice"),
+  feeDirection: feeRuleDirectionEnum("fee_direction").notNull().default("subtract"),
+  beneficiary: feeRuleBeneficiaryEnum("beneficiary").notNull().default("platform"),
+  settlementStage: feeRuleSettlementStageEnum("settlement_stage").notNull().default("invoice_generation"),
   isEnabled: boolean("is_enabled").notNull().default(true),
   priority: integer("priority").notNull().default(100),
   effectiveFrom: timestamp("effective_from"),
@@ -2751,6 +2779,9 @@ export const feeRules = pgTable("fee_rules", {
   index("fr_enabled_idx").on(table.isEnabled),
   index("fr_priority_idx").on(table.priority),
   index("fr_effective_idx").on(table.effectiveFrom, table.effectiveTo),
+  index("fr_calc_base_idx").on(table.calculationBase),
+  index("fr_beneficiary_idx").on(table.beneficiary),
+  index("fr_settlement_idx").on(table.settlementStage),
 ]);
 
 export const insertFeeRuleSchema = createInsertSchema(feeRules).omit({ id: true, createdAt: true, updatedAt: true });
@@ -2897,3 +2928,61 @@ export const driverRiskScores = pgTable("driver_risk_scores", {
   index("drs_period_idx").on(table.periodStart, table.periodEnd),
   index("drs_risk_level_idx").on(table.riskLevel),
 ]);
+
+export const ledgerEntryTypeEnum = pgEnum("ledger_entry_type", [
+  "trip_revenue",
+  "platform_fee",
+  "driver_payout",
+  "clinic_charge",
+  "adjustment",
+  "cancellation_fee",
+  "bonus",
+  "penalty",
+]);
+
+export const ledgerStatusEnum = pgEnum("ledger_status", [
+  "pending",
+  "settled",
+  "voided",
+  "reversed",
+]);
+
+export const financialLedger = pgTable("financial_ledger", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  tripId: integer("trip_id").references(() => trips.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  invoiceId: integer("invoice_id").references((): AnyPgColumn => invoices.id),
+  feeRuleId: integer("fee_rule_id").references(() => feeRules.id),
+  entryType: ledgerEntryTypeEnum("entry_type").notNull(),
+  direction: ledgerDirectionEnum("direction").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull().default("usd"),
+  counterpartyType: text("counterparty_type"),
+  counterpartyId: integer("counterparty_id"),
+  status: ledgerStatusEnum("status").notNull().default("pending"),
+  settlementStage: text("settlement_stage"),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  idempotencyKey: text("idempotency_key").unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  settledAt: timestamp("settled_at"),
+  voidedAt: timestamp("voided_at"),
+  voidedBy: integer("voided_by").references(() => users.id),
+  voidReason: text("void_reason"),
+}, (table) => [
+  index("fl_company_idx").on(table.companyId),
+  index("fl_trip_idx").on(table.tripId),
+  index("fl_clinic_idx").on(table.clinicId),
+  index("fl_driver_idx").on(table.driverId),
+  index("fl_invoice_idx").on(table.invoiceId),
+  index("fl_entry_type_idx").on(table.entryType),
+  index("fl_status_idx").on(table.status),
+  index("fl_created_idx").on(table.createdAt),
+  index("fl_idempotency_idx").on(table.idempotencyKey),
+]);
+
+export const insertFinancialLedgerSchema = createInsertSchema(financialLedger).omit({ id: true, createdAt: true });
+export type FinancialLedgerEntry = typeof financialLedger.$inferSelect;
+export type InsertFinancialLedgerEntry = z.infer<typeof insertFinancialLedgerSchema>;

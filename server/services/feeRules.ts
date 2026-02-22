@@ -31,6 +31,10 @@ export interface FeeResolutionResult {
     maxFeeCents?: number | null;
     rawFeeCents?: number;
     clampedFeeCents?: number;
+    calculationBase?: string;
+    feeDirection?: string;
+    beneficiary?: string;
+    settlementStage?: string;
   };
 }
 
@@ -144,6 +148,10 @@ export async function resolveFeeRule(input: FeeResolutionInput): Promise<FeeReso
       maxFeeCents: winner.maxFeeCents,
       rawFeeCents: rawFee,
       clampedFeeCents: rawFee,
+      calculationBase: winner.calculationBase,
+      feeDirection: winner.feeDirection,
+      beneficiary: winner.beneficiary,
+      settlementStage: winner.settlementStage,
     },
   };
 }

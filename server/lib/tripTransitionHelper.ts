@@ -173,6 +173,13 @@ export async function transitionTripStatus(
         const { computeTripBilling } = await import("./clinicBillingRoutes");
         await computeTripBilling(tripId);
       } catch {}
+
+      try {
+        const { processTripFinancials } = await import("../services/financialEngine");
+        await processTripFinancials(tripId);
+      } catch (err: any) {
+        console.error("[TRANSITION] Financial engine failed for trip", tripId, err.message);
+      }
     }
 
     try {

@@ -87,6 +87,34 @@ router.get("/api/trips/:id/pdf/download", authMiddleware, requireRole("SUPER_ADM
 router.get("/api/trips/:id/invoice", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER"), requireTenantScope, getTripInvoiceHandler as any);
 router.post("/api/trips/:id/invoice", authMiddleware, requirePermission("invoices", "write"), requireTenantScope, requireSubscription, createTripInvoiceHandler as any);
 
+router.get("/api/trips/:id/financials", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireTenantScope, async (req: any, res: any) => {
+  try {
+    const tripId = parseInt(req.params.id);
+    if (isNaN(tripId)) return res.status(400).json({ error: "Invalid trip ID" });
+    const { getTripFinancialBreakdown } = await import("../services/financialEngine");
+    const breakdown = await getTripFinancialBreakdown(tripId);
+    if (!breakdown) return res.status(404).json({ error: "Trip not found or no billing data" });
+    res.json(breakdown);
+  } catch (err: any) {
+    console.error("[FINANCIALS] Error:", err.message);
+    res.status(500).json({ error: "Failed to load financial breakdown" });
+  }
+});
+
+router.get("/api/company/:companyId/ledger-summary", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"), requireTenantScope, async (req: any, res: any) => {
+  try {
+    const companyId = parseInt(req.params.companyId);
+    if (isNaN(companyId)) return res.status(400).json({ error: "Invalid company ID" });
+    const { dateFrom, dateTo } = req.query;
+    const { getCompanyLedgerSummary } = await import("../services/financialEngine");
+    const summary = await getCompanyLedgerSummary(companyId, dateFrom, dateTo);
+    res.json(summary);
+  } catch (err: any) {
+    console.error("[LEDGER] Error:", err.message);
+    res.status(500).json({ error: "Failed to load ledger summary" });
+  }
+});
+
 export function registerTripRoutes(app: Express) {
   app.use(router);
 }
