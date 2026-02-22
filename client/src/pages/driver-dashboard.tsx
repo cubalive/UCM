@@ -1264,6 +1264,22 @@ export default function DriverDashboard() {
   }, [isDriverOnline, hasActiveTrip, geoLocation?.lat, geoLocation?.lng, sendLocation]);
 
   useEffect(() => {
+    const shouldTrack = isDriverOnline || hasActiveTrip;
+    if (!shouldTrack || !geoLocation) return;
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && geoLocation) {
+        console.log("[GPS] App returned to foreground - sending burst ping");
+        sendLocation(geoLocation.lat, geoLocation.lng, geoLocation.accuracy, geoLocation.timestamp);
+        flushQueue();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [isDriverOnline, hasActiveTrip, geoLocation?.lat, geoLocation?.lng, sendLocation, flushQueue]);
+
+  useEffect(() => {
     if (!isDriverOnline || !token || !isNetworkOnline) return;
     const sendHeartbeat = () => {
       apiFetch("/api/driver/heartbeat", token, { method: "POST" }).catch(() => {});

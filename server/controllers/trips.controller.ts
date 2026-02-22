@@ -2511,6 +2511,9 @@ export async function getTripRouteProofHandler(req: AuthRequest, res: any) {
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
 
+    const userRole = req.user?.role;
+    const isAdmin = ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"].includes(userRole || "");
+
     const { db } = await import("../db");
     const { tripRoutePlans, tripRouteSummary, tripRoutePointChunks } = await import("@shared/schema");
     const { eq, asc } = await import("drizzle-orm");
@@ -2518,11 +2521,29 @@ export async function getTripRouteProofHandler(req: AuthRequest, res: any) {
 
     const [plan] = await db.select().from(tripRoutePlans).where(eq(tripRoutePlans.tripId, id)).limit(1);
     const [summary] = await db.select().from(tripRouteSummary).where(eq(tripRouteSummary.tripId, id)).limit(1);
-    const chunks = await db.select().from(tripRoutePointChunks).where(eq(tripRoutePointChunks.tripId, id)).orderBy(asc(tripRoutePointChunks.chunkIndex));
+
+    const chunkPage = Math.max(parseInt(req.query.chunkPage as string) || 0, 0);
+    const chunkSize = Math.min(Math.max(parseInt(req.query.chunkSize as string) || 20, 1), 50);
+    const MAX_POINTS_PER_PAGE = 2000;
+
+    const { count: countFn } = await import("drizzle-orm");
+    const [{ total: totalChunksRaw }] = await db.select({ total: countFn(tripRoutePointChunks.id) }).from(tripRoutePointChunks).where(eq(tripRoutePointChunks.tripId, id));
+    const totalChunks = Number(totalChunksRaw) || 0;
 
     let actualPoints: Array<{ lat: number; lng: number }> = [];
-    for (const chunk of chunks) {
-      actualPoints = actualPoints.concat(decodePolyline(chunk.polylineChunk));
+    if (isAdmin && totalChunks > 0) {
+      const paginatedChunks = await db.select().from(tripRoutePointChunks)
+        .where(eq(tripRoutePointChunks.tripId, id))
+        .orderBy(asc(tripRoutePointChunks.chunkIndex))
+        .limit(chunkSize)
+        .offset(chunkPage * chunkSize);
+
+      for (const chunk of paginatedChunks) {
+        const decoded = decodePolyline(chunk.polylineChunk);
+        const remaining = MAX_POINTS_PER_PAGE - actualPoints.length;
+        if (remaining <= 0) break;
+        actualPoints = actualPoints.concat(decoded.slice(0, remaining));
+      }
     }
 
     res.json({
@@ -2530,7 +2551,7 @@ export async function getTripRouteProofHandler(req: AuthRequest, res: any) {
       tripId: id,
       plan: plan ? {
         provider: plan.provider,
-        polyline: plan.polyline,
+        polyline: isAdmin ? plan.polyline : undefined,
         distanceMeters: plan.distanceMeters,
         durationSeconds: plan.durationSeconds,
         createdAt: plan.createdAt,
@@ -2544,11 +2565,14 @@ export async function getTripRouteProofHandler(req: AuthRequest, res: any) {
         gpsQualityScore: summary.gpsQualityScore,
         computedAt: summary.computedAt,
       } : null,
-      actualPath: {
-        chunkCount: chunks.length,
+      actualPath: isAdmin ? {
+        chunkCount: totalChunks,
         totalPoints: actualPoints.length,
-        points: actualPoints.length <= 500 ? actualPoints : [],
-      },
+        points: actualPoints,
+        page: chunkPage,
+        pageSize: chunkSize,
+        hasMore: (chunkPage + 1) * chunkSize < totalChunks,
+      } : { chunkCount: 0, totalPoints: 0, points: [], restricted: true },
     });
   } catch (err: any) {
     console.error("[ROUTE-PROOF] Error:", err.message);

@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin, Download, Loader2, Ban, Archive, Trash2, RotateCcw, DollarSign, Receipt } from "lucide-react";
+import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin, Download, Loader2, Ban, Archive, Trash2, RotateCcw, DollarSign, Receipt, Signal } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { TripStaticMap } from "@/components/trip-static-map";
 import { TripRouteMap } from "@/components/trip-route-map";
@@ -118,6 +118,12 @@ export default function TripDetailPage() {
     queryKey: ["/api/trips", tripId, "financials"],
     queryFn: () => apiFetch(`/api/trips/${tripId}/financials`, token),
     enabled: !!token && !!canViewFinancials && tripId > 0 && !!trip && ["COMPLETED", "NO_SHOW", "CANCELLED"].includes(trip?.status || ""),
+  });
+
+  const { data: gpsQuality } = useQuery<any>({
+    queryKey: ["/api/trips", tripId, "gps-quality"],
+    queryFn: () => apiFetch(`/api/trips/${tripId}/gps-quality`, token),
+    enabled: !!token && tripId > 0 && !!trip && ["COMPLETED", "NO_SHOW"].includes(trip?.status || ""),
   });
 
   const isActiveTrip = trip ? ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"].includes(trip.status) : false;
@@ -371,6 +377,24 @@ export default function TripDetailPage() {
             )}
 
             <TripMetricsCard trip={trip} />
+
+            {gpsQuality && gpsQuality.grade !== "NONE" && (
+              <div className="flex items-center gap-2" data-testid="gps-quality-badge">
+                <Signal className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">GPS:</span>
+                <Badge
+                  variant={gpsQuality.grade === "GREAT" ? "default" : gpsQuality.grade === "OK" ? "secondary" : "destructive"}
+                  className="text-xs"
+                  data-testid="text-gps-grade"
+                >
+                  {gpsQuality.grade} ({gpsQuality.score}/100)
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  {gpsQuality.totalPings} pings
+                  {gpsQuality.avgIntervalSeconds != null && ` | ~${gpsQuality.avgIntervalSeconds}s avg`}
+                </span>
+              </div>
+            )}
 
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">

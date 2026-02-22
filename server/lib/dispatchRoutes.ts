@@ -9,6 +9,7 @@ import { autoNotifyPatient } from "./dispatchAutoSms";
 import { isVehicleCompatible } from "@shared/schema";
 import { tripLockedGuard } from "./tripLockGuard";
 import { isDriverOnline, isDriverVisibleOnMap, isDriverAssignable, classifyDrivers } from "./driverClassification";
+import { computeBulkDriverStatus, type OperationalStatus } from "./driverStatus";
 
 const assignDriverVehicleSchema = z.object({
   driver_id: z.number().int().positive(),
@@ -734,12 +735,31 @@ export function registerDispatchRoutes(app: Express) {
 
         const vehicleMap = new Map(allVehicles.map((v) => [v.id, v]));
 
-        const visibleDrivers = allDrivers.filter((d) => isDriverVisibleOnMap(d));
+        const activeTripsByDriver = new Map<number, any>();
+        for (const t of activeTrips) {
+          if (t.driverId && !activeTripsByDriver.has(t.driverId)) {
+            activeTripsByDriver.set(t.driverId, t);
+          }
+        }
 
-        const driversWithVehicles = visibleDrivers.map((d) => ({
-          ...d,
-          vehicle: d.vehicleId ? vehicleMap.get(d.vehicleId) || null : null,
-        }));
+        const visibleDrivers = allDrivers.filter((d) => {
+          if (activeTripsByDriver.has(d.id)) return true;
+          return isDriverVisibleOnMap(d);
+        });
+
+        const driverIds = visibleDrivers.map((d: any) => d.id);
+        const opStatuses = driverIds.length > 0 ? await computeBulkDriverStatus(driverIds) : new Map();
+
+        const driversWithVehicles = visibleDrivers.map((d) => {
+          const opStatus = opStatuses.get(d.id);
+          return {
+            ...d,
+            vehicle: d.vehicleId ? vehicleMap.get(d.vehicleId) || null : null,
+            operationalStatus: opStatus?.status || (isDriverOnline(d) ? "AVAILABLE" : "OFFLINE"),
+            activeTripId: opStatus?.activeTripId || null,
+            activeTripStatus: opStatus?.activeTripStatus || null,
+          };
+        });
 
         res.json({
           drivers: driversWithVehicles,

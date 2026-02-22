@@ -81,6 +81,18 @@ router.get("/api/trips/:id/route/history", authMiddleware, requirePermission("tr
 router.post("/api/trips/:id/route/recompute", authMiddleware, requirePermission("dispatch", "write"), requireTenantScope, recomputeRouteHandler as any);
 router.get("/api/trips/:id/route/proof", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripRouteProofHandler as any);
 
+router.get("/api/trips/:id/gps-quality", authMiddleware, requirePermission("trips", "read"), requireTenantScope, async (req: any, res: any) => {
+  try {
+    const tripId = parseInt(req.params.id);
+    if (isNaN(tripId)) return res.status(400).json({ error: "Invalid trip ID" });
+    const { computeTripPingQuality } = await import("../lib/gpsPingQuality");
+    const quality = await computeTripPingQuality(tripId);
+    res.json({ ok: true, tripId, ...quality });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to compute GPS quality" });
+  }
+});
+
 router.post("/api/trips/:id/signature/driver", authMiddleware, requireRole("DRIVER", "SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireTenantScope, driverSignatureHandler as any);
 router.post("/api/trips/:id/signature/clinic", authMiddleware, requireRole("CLINIC_USER", "CLINIC_ADMIN", "SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireTenantScope, clinicSignatureHandler as any);
 router.get("/api/trips/:id/signature", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getSignatureHandler as any);

@@ -53,6 +53,71 @@ export async function transitionTripStatus(
     };
   }
 
+  const ARRIVAL_STATUSES = ["ARRIVED_PICKUP", "ARRIVED_DROPOFF"];
+  if (ARRIVAL_STATUSES.includes(nextStatus) && !options?.skipGeofenceCheck) {
+    const dispatchRoles = ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"];
+    const isDispatchOverride = dispatchRoles.includes(actor.role) || actor.source === "geofence_auto";
+
+    if (!isDispatchOverride && trip.driverId) {
+      const driver = await storage.getDriver(trip.driverId);
+      if (driver?.lastLat && driver?.lastLng) {
+        const isPickup = nextStatus === "ARRIVED_PICKUP";
+        const targetLat = isPickup ? Number(trip.pickupLat || 0) : Number(trip.dropoffLat || 0);
+        const targetLng = isPickup ? Number(trip.pickupLng || 0) : Number(trip.dropoffLng || 0);
+
+        if (targetLat && targetLng) {
+          const PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
+          const DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
+          const FALLBACK_RADIUS = parseInt(process.env.GEOFENCE_FALLBACK_RADIUS_METERS || "300");
+          const GPS_ACCURACY_THRESHOLD = parseInt(process.env.GEOFENCE_ACCURACY_THRESHOLD_METERS || "100");
+          const radius = isPickup ? PICKUP_RADIUS : DROPOFF_RADIUS;
+
+          const driverAccuracy = Number((driver as any).lastAccuracy || 0);
+          const overrideReason = options?.additionalData?.geofenceOverrideReason;
+
+          if (driverAccuracy > GPS_ACCURACY_THRESHOLD && driverAccuracy > 0 && !overrideReason) {
+            return {
+              success: false,
+              trip,
+              previousStatus: trip.status,
+              error: `GPS accuracy too low (${Math.round(driverAccuracy)}m, threshold: ${GPS_ACCURACY_THRESHOLD}m). Move to an open area or wait for better signal. Use manual override if needed.`,
+            };
+          }
+
+          const R = 6371000;
+          const dLat = ((targetLat - Number(driver.lastLat)) * Math.PI) / 180;
+          const dLng = ((targetLng - Number(driver.lastLng)) * Math.PI) / 180;
+          const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos((Number(driver.lastLat) * Math.PI) / 180) *
+            Math.cos((targetLat * Math.PI) / 180) *
+            Math.sin(dLng / 2) ** 2;
+          const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+          if (dist > radius && dist > FALLBACK_RADIUS && !overrideReason) {
+            return {
+              success: false,
+              trip,
+              previousStatus: trip.status,
+              error: `Too far from ${isPickup ? "pickup" : "dropoff"} (${Math.round(dist)}m away, radius: ${radius}m). Use manual override if you are at the location.`,
+            };
+          }
+
+          if ((dist > radius || driverAccuracy > GPS_ACCURACY_THRESHOLD) && overrideReason) {
+            try {
+              await storage.createAuditLog({
+                userId: actor.userId,
+                action: "GEOFENCE_OVERRIDE",
+                entity: "trip",
+                entityId: tripId,
+                details: `Manual arrival override at ${Math.round(dist)}m (radius: ${radius}m, accuracy: ${Math.round(driverAccuracy)}m). Reason: ${overrideReason}`,
+              });
+            } catch {}
+          }
+        }
+      }
+    }
+  }
+
   const timestampField = STATUS_TIMESTAMP_MAP[nextStatus];
   const updateData: any = { status: nextStatus };
   if (timestampField) {
@@ -101,6 +166,11 @@ export async function transitionTripStatus(
     } catch (err: any) {
       console.error(`[TRANSITION] Failed to update driver ${updatedTrip.driverId} dispatch status:`, err.message);
     }
+
+    try {
+      const { invalidateDriverStatusCache } = await import("./driverStatus");
+      invalidateDriverStatusCache(updatedTrip.driverId);
+    } catch {}
   }
 
   const broadcastPayload = {
@@ -180,6 +250,14 @@ export async function transitionTripStatus(
     if (nextStatus === "CANCELLED") await autoNotifyPatient(tripId, "canceled");
     if (nextStatus === "COMPLETED") await autoNotifyPatient(tripId, "completed");
   } catch {}
+
+  if (nextStatus === "COMPLETED") {
+    import("./gpsPingQuality").then(({ saveTripPingQuality }) => {
+      saveTripPingQuality(tripId).catch(err => {
+        console.warn(`[GPS-QUALITY] Failed to compute for trip ${tripId}: ${err.message}`);
+      });
+    }).catch(() => {});
+  }
 
   if (TERMINAL_STATUSES.includes(nextStatus)) {
     storage.revokeTokensForTrip(tripId).catch(() => {});

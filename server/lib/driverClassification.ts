@@ -20,6 +20,7 @@ export interface ClassifiedDriver {
   active_trip_status: string | null;
   cityId: number;
   group: DriverGroup;
+  operational_status: "AVAILABLE" | "BUSY" | "OFFLINE";
   today_trip_count: number;
   performance_score: number | null;
 }
@@ -98,6 +99,7 @@ export function classifyDrivers(
       active_trip_status: activeTrip?.status || null,
       cityId: d.cityId,
       group,
+      operational_status: computeOperationalLabel(group, !!activeTrip),
       today_trip_count: todayTripCounts?.get(d.id) ?? 0,
       performance_score: performanceScores?.get(d.id) ?? null,
     };
@@ -131,4 +133,14 @@ export function isDriverVisibleOnMap(d: { dispatchStatus: string | null; lastSee
   if (d.dispatchStatus === "hold") return false;
   if (d.lastLat == null || d.lastLng == null) return false;
   return isDriverOnline(d);
+}
+
+export function computeOperationalLabel(
+  group: DriverGroup,
+  hasActiveTrip: boolean,
+): "AVAILABLE" | "BUSY" | "OFFLINE" {
+  if (hasActiveTrip) return "BUSY";
+  if (group === "on_trip") return "BUSY";
+  if (group === "available") return "AVAILABLE";
+  return "OFFLINE";
 }
