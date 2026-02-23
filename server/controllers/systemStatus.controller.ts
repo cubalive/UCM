@@ -603,3 +603,39 @@ export async function getImportRunEvents(req: AuthRequest, res: Response) {
     res.status(500).json({ error: e.message });
   }
 }
+
+export async function getEventBusStatus(_req: AuthRequest, res: Response) {
+  try {
+    const { isEventBusEnabled } = await import("../lib/eventBus");
+    const { ORCHESTRATOR_INFO } = await import("../orchestrator");
+
+    const enabled = isEventBusEnabled();
+    const hasRedisUrl = !!process.env.UPSTASH_REDIS_REST_URL;
+    const hasRedisToken = !!process.env.UPSTASH_REDIS_REST_TOKEN;
+    const agenticFlag = process.env.UCM_AGENTIC_ROUTES || null;
+
+    let reason = "enabled";
+    if (!enabled) {
+      if (agenticFlag !== "1") reason = "UCM_AGENTIC_ROUTES!=1";
+      else if (!hasRedisUrl || !hasRedisToken) reason = "Redis unavailable";
+      else reason = "unknown";
+    }
+
+    res.json({
+      enabled,
+      reason,
+      env: {
+        UCM_AGENTIC_ROUTES: agenticFlag,
+        hasRedisUrl,
+        hasRedisToken,
+      },
+      orchestrator: {
+        consumerName: ORCHESTRATOR_INFO.consumer,
+        pollMs: ORCHESTRATOR_INFO.pollMs,
+        batchSize: ORCHESTRATOR_INFO.batchSize,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+}

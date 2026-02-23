@@ -1,0 +1,58 @@
+EXECUTION MODE: SINGLE AGENT ONLY. No sub-agents. No parallel work.
+
+Goal: Fix the operational logic:
+- Clinic dashboard must show “Today’s Trips” (scheduled for the day) separately from “Active Now” (driver actually in motion / in progress).
+- Driver remains AVAILABLE after accepting a future trip until the right time.
+- Smart notifications: notify driver exactly when they should depart (ETA-based).
+- No-show flow: at timer zero show two actions: wait +5 min OR mark NO_SHOW (do not remove extend).
+
+A) Define canonical trip phases for clinic:
+- TODAY (Scheduled/Assigned for today, not yet started)
+- ACTIVE NOW:
+  - EN_ROUTE_TO_PICKUP
+  - ARRIVED_PICKUP
+  - ON_TRIP
+  - ARRIVED_DROPOFF (if returning patient flow exists)
+Rules:
+- A trip scheduled at 5:30 is NOT “Active Now” until driver transitions to EN_ROUTE_TO_PICKUP.
+- Clinic dashboard:
+  - Today’s Trips count = trips with pickup_time within clinic local day AND status in {SCHEDULED, ASSIGNED}
+  - Active Now count = status in {EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, ON_TRIP, ARRIVED_DROPOFF}
+Add two counters:
+- Arriving next 15 min (ETA-to-clinic <= 15, status EN_ROUTE_TO_PICKUP or ON_TRIP toward clinic)
+- Departing next 60 min (trips leaving clinic within last hour / next hour based on direction + status)
+
+B) Driver availability model (future trip “holding”)
+When driver ACCEPTS a future trip:
+- Do NOT set driver busy immediately.
+- Create a “commitment” record (driver_trip_commitment) and keep driver status AVAILABLE.
+- Compute “dispatchTime” = pickup_time - (ETA(driver->pickup) + buffer)
+  - buffer default 5 minutes
+- At dispatchTime:
+  - Send notification “Time to leave now”
+  - Transition trip -> EN_ROUTE_TO_PICKUP when driver taps “Start Navigation” (or auto if policy)
+- Prevent conflicts:
+  - When offering a new trip, check gap between new trip pickup_time and existing commitments/trips:
+    - ensure enough travel time + buffer between dropoff and next pickup
+    - otherwise do not offer / or offer with warning
+
+C) Smart notify + GPS loss guard
+- If driver app background causes no pings for > 60s during ACTIVE NOW:
+  - send in-app alert + push (if available) + SMS fallback optional: “Open app to keep tracking active”
+- Add a “lastPingAt” and show “tracking health” indicator.
+
+D) No-show UX
+- Waiting timer reaches 0:
+  - Show two buttons:
+    1) “Wait +5 min” (extends once per policy or multiple with cap)
+    2) “Mark No-Show”
+- Keep “Extend Wait” but never block “No-Show” after timer hits 0.
+- When No-Show marked:
+  - status -> NO_SHOW
+  - finalize billing rules + timeline entry + clinic visibility
+
+Acceptance:
+- Clinic does not see future trips as Active Now.
+- Driver can accept future trip and remains Available until dispatchTime.
+- Notifications occur based on computed dispatchTime.
+- At wait timer 0, No-Show is offered immediately alongside +5 min.

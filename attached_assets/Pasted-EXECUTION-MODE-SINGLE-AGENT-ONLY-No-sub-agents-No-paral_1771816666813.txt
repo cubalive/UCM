@@ -1,0 +1,66 @@
+EXECUTION MODE: SINGLE AGENT ONLY. No sub-agents. No parallel work.
+
+Goal: Implement Uber-like route capture for admin/dispatcher/clinic: real polyline, distance miles, duration, and audit timeline. No more straight line A->B. Must work for:
+- Trip preview (scheduled/assigned)
+- Live view (active)
+- Final invoice proof (completed)
+
+Constraints:
+- Do NOT remove existing endpoints.
+- Keep DB migrations additive and safe.
+- Use Google Places (Place ID) + Google Routes API. Use fallback to lat/lng if Place ID missing.
+
+A) DB schema (additive)
+1) Add columns to trips (or a related trip_route table if preferred):
+- pickup_place_id text null
+- dropoff_place_id text null
+- route_polyline text null  (encoded polyline)
+- route_distance_meters int null
+- route_duration_seconds int null
+- route_source text null (e.g. "google_routes")
+- route_last_computed_at timestamptz null
+- actual_distance_meters int null
+- actual_duration_seconds int null
+- actual_polyline text null (optional: derived from pings)
+2) Add a trip_route_events table (or reuse existing ledger) to store milestones:
+- trip_id, event_type, ts, lat, lng, meta_json
+
+B) Capture Place IDs
+1) On trip create/update where address is entered:
+- Call Places API (Place Autocomplete + Place Details) server-side to resolve place_id for pickup & dropoff.
+- Store pickup_place_id and dropoff_place_id.
+2) If client already has place_id, accept it (validate format, store).
+
+C) Compute route (planned)
+1) Implement a route.compute worker handler:
+Input: tripId, pickupLat/Lng, dropoffLat/Lng, pickupPlaceId?, dropoffPlaceId?
+- Use Google Routes API computeRoutes:
+  - origin: placeId if present else latLng
+  - destination: placeId if present else latLng
+  - travelMode: DRIVE
+  - routingPreference: TRAFFIC_AWARE (or TRAFFIC_AWARE_OPTIMAL)
+- Persist:
+  - route_polyline (overview polyline)
+  - route_distance_meters
+  - route_duration_seconds
+  - route_last_computed_at
+- Broadcast over WebSocket to admin/dispatch/clinic subscriptions for that trip.
+
+D) Finalize route (actual)
+1) Ensure driver location pings are stored (or at least sampled) for the trip while active.
+2) On trip.status_changed to COMPLETED:
+- route.finalize builds actual_distance_meters from pings (haversine sum with smoothing) OR uses Google Routes between sampled points if preferred.
+- Persist actual_distance_meters, actual_duration_seconds, and optional actual_polyline.
+- Invoice line must show:
+  Trip ID clickable -> opens timeline + map with planned vs actual polyline + geofence confirmations.
+
+E) UI fixes (admin/dispatcher/clinic)
+- Map must render route_polyline for scheduled/assigned preview.
+- Map must render actual_polyline (or live polyline) for completed trips.
+- Remove straight-line fallback unless polyline missing; if missing, show explicit label “route pending compute”.
+
+Acceptance:
+- Creating a trip results in stored place_ids (when address is valid).
+- route.compute produces a polyline and distance/duration.
+- Completed trip shows miles and a real route on invoice and trip details.
+- Admin/dispatcher/clinic no longer see a straight line unless route compute failed (and that failure is visible).

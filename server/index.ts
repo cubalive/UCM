@@ -790,6 +790,17 @@ app.use((req, res, next) => {
   };
   console.log(JSON.stringify(bootSummary));
 
+  (async () => {
+    try {
+      console.log("[BOOT] Starting orchestrator...");
+      const { startOrchestrator } = await import("./orchestrator");
+      await startOrchestrator();
+      console.log("[BOOT] Orchestrator start attempted.");
+    } catch (e) {
+      console.warn("[BOOT] Orchestrator failed to start:", (e as any)?.message || e);
+    }
+  })();
+
   let shuttingDown = false;
   async function gracefulShutdown(signal: string) {
     if (shuttingDown) return;
