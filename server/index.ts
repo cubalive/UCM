@@ -665,6 +665,92 @@ app.use((req, res, next) => {
     console.warn("[BOOT] Schema migration warning:", migErr.message);
   }
 
+  const { getRoleMode, shouldRunServer, shouldRunSchedulers, initSchedulers, stopSchedulers } = await import("./lib/schedulerInit");
+  const roleMode = getRoleMode();
+  const runModeRaw = process.env.RUN_MODE || process.env.ROLE_MODE || "all";
+
+  console.log(JSON.stringify({
+    event: "boot_mode_resolved",
+    RUN_MODE: runModeRaw,
+    resolvedRole: roleMode,
+    willStartHttp: shouldRunServer(),
+    willStartSchedulers: shouldRunSchedulers(),
+    pid: process.pid,
+    ts: new Date().toISOString(),
+  }));
+
+  if (roleMode === "worker") {
+    console.log(JSON.stringify({
+      event: "worker_boot_start",
+      msg: "Worker-only mode: starting schedulers/orchestrator/route-worker. No HTTP server.",
+      ts: new Date().toISOString(),
+    }));
+
+    await initSchedulers();
+
+    const { startMemoryLogger } = await import("./lib/schedulerHarness");
+    startMemoryLogger(5 * 60 * 1000);
+
+    const { getSchedulerStates } = await import("./lib/schedulerHarness");
+    const activeSchedulers = Object.keys(getSchedulerStates());
+
+    console.log(JSON.stringify({
+      event: "boot_complete",
+      roleMode: "worker",
+      db: "connected",
+      dbSource: getDbSource(),
+      redis: process.env.UPSTASH_REDIS_REST_URL ? "configured" : "not_configured",
+      schedulers: activeSchedulers,
+      schedulerCount: activeSchedulers.length,
+      httpServer: "disabled",
+      websocket: "disabled",
+      nodeEnv: process.env.NODE_ENV || "development",
+      pid: process.pid,
+      uptime: process.uptime(),
+      ts: new Date().toISOString(),
+    }));
+
+    const WORKER_HEARTBEAT_MS = 60_000;
+    setInterval(() => {
+      console.log(JSON.stringify({
+        event: "worker_heartbeat",
+        roleMode: "worker",
+        uptimeSeconds: Math.round(process.uptime()),
+        memMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        ts: new Date().toISOString(),
+      }));
+    }, WORKER_HEARTBEAT_MS).unref();
+
+    let shuttingDown = false;
+    async function gracefulShutdownWorker(signal: string) {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(JSON.stringify({ event: "shutdown_start", signal, roleMode: "worker", ts: new Date().toISOString() }));
+      await stopSchedulers();
+      try {
+        const { pool: dbPool } = await import("./db");
+        await dbPool.end();
+        console.log(JSON.stringify({ event: "db_pool_closed", ts: new Date().toISOString() }));
+      } catch {}
+      setTimeout(() => {
+        console.log(JSON.stringify({ event: "forced_exit", ts: new Date().toISOString() }));
+        process.exit(1);
+      }, 10_000).unref();
+    }
+
+    process.on("SIGTERM", () => gracefulShutdownWorker("SIGTERM"));
+    process.on("SIGINT", () => gracefulShutdownWorker("SIGINT"));
+    process.on("unhandledRejection", (reason: any) => {
+      console.error(JSON.stringify({ event: "unhandled_rejection", error: reason?.message || String(reason), stack: reason?.stack?.slice(0, 1000), ts: new Date().toISOString() }));
+    });
+    process.on("uncaughtException", (err: Error) => {
+      console.error(JSON.stringify({ event: "uncaught_exception", error: err.message, stack: err.stack?.slice(0, 1000), ts: new Date().toISOString() }));
+      gracefulShutdownWorker("uncaughtException");
+    });
+
+    return;
+  }
+
   const jwtSecretSource = process.env.JWT_SECRET ? "env" : "fallback";
   const jwtSecretMasked = process.env.JWT_SECRET
     ? `${process.env.JWT_SECRET.slice(0, 4)}***${process.env.JWT_SECRET.slice(-4)}`
@@ -691,6 +777,7 @@ app.use((req, res, next) => {
       nodeEnv: process.env.NODE_ENV || "undefined",
       appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
       dbSource: getDbSource(),
+      roleMode,
       allowedAppOrigins: Array.from(allowedAppOrigins).map(o => o.replace(/https?:\/\//, "***")),
       allowedPublicOrigins: Array.from(allowedPublicOrigins).map(o => o.replace(/https?:\/\//, "***")),
       cookieMode: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax" },
@@ -751,8 +838,15 @@ app.use((req, res, next) => {
   const { registerAdminMetricsRoutes } = await import("./lib/adminMetricsRoutes");
   registerAdminMetricsRoutes(app);
 
-  const { initSchedulers } = await import("./lib/schedulerInit");
-  await initSchedulers();
+  if (roleMode === "all") {
+    await initSchedulers();
+  } else {
+    console.log(JSON.stringify({
+      event: "schedulers_skipped",
+      reason: `RUN_MODE=${runModeRaw} (api-only)`,
+      ts: new Date().toISOString(),
+    }));
+  }
 
   const { registerIntegrityRoutes } = await import("./lib/integrityReport");
   registerIntegrityRoutes(app);
@@ -780,9 +874,6 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
@@ -790,10 +881,6 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
 
   httpServer.requestTimeout = 30_000;
@@ -814,74 +901,28 @@ app.use((req, res, next) => {
   const { startMemoryLogger } = await import("./lib/schedulerHarness");
   startMemoryLogger(5 * 60 * 1000);
 
-  const { getRoleMode, shouldRunSchedulers } = await import("./lib/schedulerInit");
   const { getSchedulerStates } = await import("./lib/schedulerHarness");
   const activeSchedulers = shouldRunSchedulers()
     ? Object.keys(getSchedulerStates())
     : [];
 
-  const bootSummary = {
+  console.log(JSON.stringify({
     event: "boot_complete",
-    roleMode: getRoleMode(),
+    roleMode,
     db: "connected",
     dbSource: getDbSource(),
     redis: process.env.UPSTASH_REDIS_REST_URL ? "configured" : "not_configured",
     schedulers: activeSchedulers,
     schedulerCount: activeSchedulers.length,
+    httpServer: "active",
+    httpPort: port,
     websocket: "active",
     memoryLogger: "active",
     nodeEnv: process.env.NODE_ENV || "development",
     pid: process.pid,
     uptime: process.uptime(),
     ts: new Date().toISOString(),
-  };
-  console.log(JSON.stringify(bootSummary));
-
-  (async () => {
-    const { shouldRunSchedulers: shouldRunBg } = await import("./lib/schedulerInit");
-    if (!shouldRunBg()) {
-      console.log(JSON.stringify({
-        event: "agentic_routes_skipped",
-        reason: "RUN_MODE is api-only, background workers disabled",
-        ts: new Date().toISOString(),
-      }));
-      return;
-    }
-    try {
-      const { isEventBusEnabled } = await import("./lib/eventBus");
-      const enabled = isEventBusEnabled();
-      const redisConfigured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-      console.log(JSON.stringify({
-        event: "agentic_routes_enabled",
-        enabled,
-        redis: redisConfigured,
-        UCM_AGENTIC_ROUTES: process.env.UCM_AGENTIC_ROUTES || null,
-        ts: new Date().toISOString(),
-      }));
-      if (!enabled) {
-        if (process.env.UCM_AGENTIC_ROUTES !== "1") {
-          console.warn("[BOOT] Orchestrator skipped: UCM_AGENTIC_ROUTES is not set to '1'");
-        } else if (!redisConfigured) {
-          console.warn("[BOOT] Orchestrator skipped: UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN missing");
-        }
-        return;
-      }
-      console.log("[BOOT] Starting orchestrator...");
-      const { startOrchestrator } = await import("./orchestrator");
-      await startOrchestrator();
-      if (process.env.NODE_ENV === "production") {
-        console.log(JSON.stringify({ event: "orchestrator_boot_prod", ts: new Date().toISOString() }));
-      }
-      console.log("[BOOT] Orchestrator start attempted.");
-
-      console.log("[BOOT] Starting routes worker...");
-      const { startRoutesWorker } = await import("./workers/routesWorker");
-      await startRoutesWorker();
-      console.log("[BOOT] Routes worker start attempted.");
-    } catch (e) {
-      console.warn("[BOOT] Orchestrator failed to start:", (e as any)?.message || e);
-    }
-  })();
+  }));
 
   let shuttingDown = false;
   async function gracefulShutdown(signal: string) {
@@ -889,7 +930,6 @@ app.use((req, res, next) => {
     shuttingDown = true;
     console.log(JSON.stringify({ event: "shutdown_start", signal, ts: new Date().toISOString() }));
 
-    const { stopSchedulers } = await import("./lib/schedulerInit");
     await stopSchedulers();
 
     try {

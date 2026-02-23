@@ -35,7 +35,43 @@ The application follows a client-server architecture.
 - **Enhanced Driver Dispatch UX**: Real-time driver WebSocket channel (`subscribe_driver`/`broadcastToDriver()`) for dispatch_notify, dispatch_now, tracking_stale, tracking_restored events. Driver portal features: Upcoming Reservations list (ASSIGNED trips before dispatch_at), dispatch notification banner with countdown, auto-switch to active trip on dispatch_now, and tracking stale alert banner. Tracking health scheduler (30s cycles) detects GPS >60s stale, sets tracking_status='STALE', auto-recovers on fresh ping. Location ingest clears STALE status on fresh GPS receipt.
 
 - **Multi-Subdomain Architecture**: Centralized API at `app.unitedcaremobility.com` with `VITE_API_BASE_URL` env var and `API_BASE_URL`/`resolveUrl()`/`getWsUrl()` in `client/src/lib/api.ts`. All client-side `fetch()` and WebSocket calls route through these helpers for cross-subdomain support. Subdomains: `app` (API+admin), `clinic`, `driver`, `dispatch`, `admin`. CORS allows all UCM subdomains via `BUILTIN_APP_ORIGINS` in `server/index.ts`. System diagnostic endpoints: `/api/system/origins`, `/api/system/auth-health`, `/api/boot`.
-- **Production Stability & Deployment**: `RUN_MODE` env var (`api`/`worker`/`all`) controls process split — `api` runs HTTP server only (no schedulers/orchestrator/route-worker), `worker` runs background jobs only, `all` runs everything (default). Optimistic concurrency control on trip status updates prevents race conditions. Golden contract test suite (`shared/goldenContract.test.ts`) validates driver buttons, trip lifecycle, clinic categorization, and state machine integrity (<1s runtime). Deployment configs: `Dockerfile` (multi-stage), `fly.toml`, `render.yaml` with health check at `/api/boot`.
+- **Production Stability & Deployment**: `RUN_MODE` env var (`api`/`worker`/`all`) controls process split — `api` runs HTTP server only (no schedulers/orchestrator/route-worker), `worker` runs background jobs only (no HTTP server, no WebSocket, no Express routes), `all` runs everything (default for development). Optimistic concurrency control on trip status updates prevents race conditions. Golden contract test suite (`shared/goldenContract.test.ts`) validates driver buttons, trip lifecycle, clinic categorization, and state machine integrity (<1s runtime). Deployment configs: `Dockerfile` (multi-stage), `fly.toml`, `render.yaml` with health check at `/api/boot`.
+
+## Deployment Configuration (Two-Deployment Split)
+
+### API Deployment (public HTTP)
+- **Purpose**: Serves all HTTP routes, WebSocket, static frontend, all API endpoints
+- **RUN_MODE**: `api`
+- **Behavior**: Express server + WebSocket + Vite/static. NO schedulers, NO orchestrator, NO route worker
+- **Health check**: `GET /api/boot` returns `{ roleMode: "server", ... }`
+- **Boot log**: `{"event":"boot_complete","roleMode":"server","httpServer":"active","websocket":"active","schedulers":[]}`
+- **Domains**: app.unitedcaremobility.com, clinic.unitedcaremobility.com, driver.unitedcaremobility.com, dispatch.unitedcaremobility.com, admin.unitedcaremobility.com
+
+### Worker Deployment (background only)
+- **Purpose**: Runs all schedulers, orchestrator, route worker, job engine, leader election
+- **RUN_MODE**: `worker`
+- **Behavior**: DB init + schema migrations + scheduler loops. NO HTTP listener, NO WebSocket, NO Express routes
+- **Health indicator**: JSON heartbeat every 60s: `{"event":"worker_heartbeat","roleMode":"worker","uptimeSeconds":...}`
+- **Boot log**: `{"event":"boot_complete","roleMode":"worker","httpServer":"disabled","websocket":"disabled","schedulers":[...]}`
+- **No public domains needed**
+
+### Required Env Vars for Both Deployments
+- `DATABASE_URL` or `SUPABASE_DB_URL` — database connection
+- `JWT_SECRET` — auth token signing
+- `SESSION_SECRET` — session encryption
+- `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` — Redis for leader election, caching, event bus
+- `RUN_MODE` — `api` for API deployment, `worker` for worker deployment
+- `NODE_ENV` — `production`
+
+### Additional API-only Env Vars
+- `GOOGLE_MAPS_API_KEY` — maps/geocoding
+- `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` + `TWILIO_FROM_NUMBER` — SMS
+- `STRIPE_SECRET_KEY` — payments
+- `SUPABASE_URL` + `SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY` — Supabase auth
+
+### Worker-specific Env Vars
+- `UCM_AGENTIC_ROUTES=1` — enables orchestrator + route worker (optional, requires Redis)
+- `LEADER_ELECTION=true` — enables Redis-based leader election for multi-instance safety (default: auto based on Redis availability)
 
 ## External Dependencies
 - **PostgreSQL**: Primary relational database (Supabase pooler).
