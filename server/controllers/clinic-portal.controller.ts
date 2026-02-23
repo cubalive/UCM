@@ -907,6 +907,7 @@ export async function clinicTripByIdHandler(req: AuthRequest, res: Response) {
       cancelledReason: enriched.cancelledReason,
       billingOutcome: enriched.billingOutcome,
       billingReason: enriched.billingReason,
+      actualDistanceSource: enriched.actualDistanceSource,
       billingSetAt: enriched.billingSetAt,
       driverName: enriched.driverName,
       vehicleLabel: enriched.vehicleLabel,

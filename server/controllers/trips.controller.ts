@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, getUserCityIds, type AuthRequest } from "../auth";
-import { insertTripSchema, drivers, vehicles, trips, tripMessages, recurringSchedules, driverOffers, invoices, tripPdfs, tripBilling } from "@shared/schema";
+import { insertTripSchema, drivers, vehicles, trips, tripMessages, recurringSchedules, driverOffers, invoices, tripPdfs, tripBilling, tripLocationPoints } from "@shared/schema";
 import { VALID_TRANSITIONS, STATUS_TIMESTAMP_MAP } from "@shared/tripStateMachine";
 import { db } from "../db";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
@@ -2040,11 +2040,14 @@ export async function getTripRouteHandler(req: AuthRequest, res: Response) {
       routeVersion: result?.routeVersion || null,
       actualPolyline: (trip as any).actualPolyline || null,
       actualDistanceMeters: trip.actualDistanceMeters || null,
+      actualDistanceSource: trip.actualDistanceSource || null,
       actualDurationSeconds: (trip as any).actualDurationSeconds || null,
       waitingSeconds: (trip as any).waitingSeconds || null,
       routeSource: (trip as any).routeSource || null,
       routeQualityScore: (trip as any).routeQualityScore || null,
       status: trip.status,
+      timeline: (trip as any).timeline || [],
+      distanceMiles: trip.distanceMiles ? parseFloat(trip.distanceMiles) : null,
     };
 
     return res.json(response);
@@ -2583,5 +2586,83 @@ export async function getTripRouteProofHandler(req: AuthRequest, res: any) {
   } catch (err: any) {
     console.error("[ROUTE-PROOF] Error:", err.message);
     res.status(500).json({ message: "Failed to load route proof data" });
+  }
+}
+
+export async function getTripGpsHandler(req: AuthRequest, res: Response) {
+  try {
+    const tripId = parseInt(String(req.params.id));
+    if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+    const trip = await storage.getTrip(tripId);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+    const limit = Math.min(parseInt(String(req.query.limit)) || 2000, 5000);
+    const after = req.query.after ? new Date(String(req.query.after)) : null;
+
+    const conditions = [eq(tripLocationPoints.tripId, tripId)];
+    if (after) {
+      conditions.push(gte(tripLocationPoints.ts, after));
+    }
+
+    const points = await db.select({
+      lat: tripLocationPoints.lat,
+      lng: tripLocationPoints.lng,
+      ts: tripLocationPoints.ts,
+      accuracyM: tripLocationPoints.accuracyM,
+      speedMps: tripLocationPoints.speedMps,
+      headingDeg: tripLocationPoints.headingDeg,
+      source: tripLocationPoints.source,
+    }).from(tripLocationPoints)
+      .where(and(...conditions))
+      .orderBy(tripLocationPoints.ts)
+      .limit(limit);
+
+    res.json({ ok: true, tripId, count: points.length, points });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function patchTripPlacesHandler(req: AuthRequest, res: Response) {
+  try {
+    const tripId = parseInt(String(req.params.id));
+    if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+    const trip = await storage.getTrip(tripId);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+    const { pickupPlaceId, dropoffPlaceId, pickupLat, pickupLng, dropoffLat, dropoffLng } = req.body;
+    const updateData: any = {};
+
+    if (pickupPlaceId !== undefined) updateData.pickupPlaceId = pickupPlaceId;
+    if (dropoffPlaceId !== undefined) updateData.dropoffPlaceId = dropoffPlaceId;
+    if (typeof pickupLat === "number") updateData.pickupLat = pickupLat;
+    if (typeof pickupLng === "number") updateData.pickupLng = pickupLng;
+    if (typeof dropoffLat === "number") updateData.dropoffLat = dropoffLat;
+    if (typeof dropoffLng === "number") updateData.dropoffLng = dropoffLng;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: "No valid fields to update" });
+    }
+
+    updateData.updatedAt = new Date();
+    updateData.routeStatus = "missing";
+
+    const [updated] = await db.update(trips).set(updateData).where(eq(trips.id, tripId)).returning();
+
+    storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "REPAIR_PLACES",
+      entity: "trip",
+      entityId: tripId,
+      details: JSON.stringify(updateData),
+      cityId: trip.cityId,
+    }).catch(() => {});
+
+    const { ensureTripRouteNonBlocking } = await import("../lib/tripRouteService");
+    ensureTripRouteNonBlocking(tripId, "place_repair");
+
+    res.json({ ok: true, trip: updated });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
   }
 }

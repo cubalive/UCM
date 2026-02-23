@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { trips, drivers } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { VALID_TRANSITIONS, STATUS_TIMESTAMP_MAP } from "@shared/tripStateMachine";
 import { broadcastToTrip } from "./realtime";
@@ -65,11 +65,13 @@ export async function transitionTripStatus(
         const targetLng = isPickup ? Number(trip.pickupLng || 0) : Number(trip.dropoffLng || 0);
 
         if (targetLat && targetLng) {
-          const PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
-          const DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
+          const ENV_PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
+          const ENV_DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
           const FALLBACK_RADIUS = parseInt(process.env.GEOFENCE_FALLBACK_RADIUS_METERS || "300");
           const GPS_ACCURACY_THRESHOLD = parseInt(process.env.GEOFENCE_ACCURACY_THRESHOLD_METERS || "100");
-          const radius = isPickup ? PICKUP_RADIUS : DROPOFF_RADIUS;
+          const radius = isPickup
+            ? ((trip as any).pickupGeofenceM ?? ENV_PICKUP_RADIUS)
+            : ((trip as any).dropoffGeofenceM ?? ENV_DROPOFF_RADIUS);
 
           const driverAccuracy = Number((driver as any).lastAccuracy || 0);
           const overrideReason = options?.additionalData?.geofenceOverrideReason;
@@ -154,6 +156,61 @@ export async function transitionTripStatus(
   }
 
   const updatedTrip = updated[0];
+
+  try {
+    let driverLat: number | null = null;
+    let driverLng: number | null = null;
+    let withinGeofence: boolean | null = null;
+    let geofenceType: "pickup" | "dropoff" | null = null;
+    let geofenceDistanceM: number | null = null;
+
+    if (updatedTrip.driverId) {
+      try {
+        const { getDriverLocationFromCache } = await import("./driverLocationIngest");
+        const loc = getDriverLocationFromCache(updatedTrip.driverId);
+        if (loc) {
+          driverLat = loc.lat;
+          driverLng = loc.lng;
+        }
+      } catch {}
+    }
+
+    if (nextStatus === "ARRIVED_PICKUP" || nextStatus === "ARRIVED_DROPOFF") {
+      const isPickup = nextStatus === "ARRIVED_PICKUP";
+      geofenceType = isPickup ? "pickup" : "dropoff";
+      const targetLat = isPickup ? Number(updatedTrip.pickupLat || 0) : Number(updatedTrip.dropoffLat || 0);
+      const targetLng = isPickup ? Number(updatedTrip.pickupLng || 0) : Number(updatedTrip.dropoffLng || 0);
+      if (driverLat && driverLng && targetLat && targetLng) {
+        const R = 6371000;
+        const dLat = ((targetLat - driverLat) * Math.PI) / 180;
+        const dLng = ((targetLng - driverLng) * Math.PI) / 180;
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos((driverLat * Math.PI) / 180) * Math.cos((targetLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+        geofenceDistanceM = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+        const radius = isPickup ? (updatedTrip.pickupGeofenceM ?? 150) : (updatedTrip.dropoffGeofenceM ?? 150);
+        withinGeofence = geofenceDistanceM <= radius;
+      }
+    }
+
+    const timelineEntry = {
+      ts: new Date().toISOString(),
+      status: nextStatus,
+      previousStatus,
+      actorRole: actor.role,
+      actorId: actor.userId,
+      source: actor.source || "manual",
+      lat: driverLat,
+      lng: driverLng,
+      withinGeofence,
+      geofenceType,
+      geofenceDistanceM,
+    };
+
+    await db.update(trips).set({
+      timeline: sql`COALESCE(${trips.timeline}, '[]'::jsonb) || ${JSON.stringify([timelineEntry])}::jsonb`,
+    }).where(eq(trips.id, tripId));
+  } catch (err: any) {
+    console.warn(`[TIMELINE] Failed to record timeline for trip ${tripId}: ${err.message}`);
+  }
 
   if (updatedTrip.driverId) {
     try {

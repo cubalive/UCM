@@ -37,6 +37,8 @@ import {
   createTripInvoiceHandler,
   dispatchOverrideStatusHandler,
   getTripRouteProofHandler,
+  getTripGpsHandler,
+  patchTripPlacesHandler,
 } from "../controllers/trips.controller";
 import { archiveTripHandler, permanentDeleteTripHandler } from "../controllers/admin.controller";
 
@@ -80,6 +82,9 @@ router.get("/api/trips/:id/route", authMiddleware, requirePermission("trips", "r
 router.get("/api/trips/:id/route/history", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripRouteHistoryHandler as any);
 router.post("/api/trips/:id/route/recompute", authMiddleware, requirePermission("dispatch", "write"), requireTenantScope, recomputeRouteHandler as any);
 router.get("/api/trips/:id/route/proof", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripRouteProofHandler as any);
+
+router.get("/api/trips/:id/gps", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripGpsHandler as any);
+router.patch("/api/trips/:id/places", authMiddleware, requirePermission("dispatch", "write"), requireTenantScope, patchTripPlacesHandler as any);
 
 router.get("/api/trips/:id/gps-quality", authMiddleware, requirePermission("trips", "read"), requireTenantScope, async (req: any, res: any) => {
   try {

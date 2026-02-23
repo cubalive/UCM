@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, invalidateRevocationCache, clearAuthCookie, type AuthRequest } from "../auth";
-import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests, driverShifts, companies, cities, companySettings, driverSettings, driverTelemetryEvents } from "@shared/schema";
+import { drivers, users, trips, tripMessages, citySettings, driverTripAlerts, driverOffers, scheduleChangeRequests, driverBonusRules, driverScores, driverDevices, sessionRevocations, driverPushTokens, driverEmergencyEvents, driverShiftSwapRequests, tripBilling, accountDeletionRequests, driverShifts, companies, cities, companySettings, driverSettings, driverTelemetryEvents, tripLocationPoints } from "@shared/schema";
 import { resolveDriverV3Flags, DRIVER_V3_DEFAULTS } from "@shared/driverV3Flags";
 import { computeTurnScore, getGrade, DEFAULT_WEIGHTS, type PerformanceKPIs, type ScoringWeights } from "@shared/driverPerformance";
 import { db } from "../db";
@@ -499,6 +499,7 @@ export async function handleDriverLocationIngest(req: AuthRequest, res: any) {
     }
 
     const allTrips = await storage.getActiveTripsForDriver(user.driverId);
+    const ACTIVE_GPS_STATUSES = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
     for (const trip of allTrips) {
       const tripLocKey = cacheKeys("trip_driver_last", trip.id);
       cache.set(tripLocKey, { driverId: user.driverId, lat, lng, timestamp: Date.now() }, CACHE_TTL.TRIP_DRIVER_LAST);
@@ -507,6 +508,22 @@ export async function handleDriverLocationIngest(req: AuthRequest, res: any) {
       import("../lib/supabaseRealtime").then(({ broadcastTripSupabaseThrottled }) => {
         broadcastTripSupabaseThrottled(trip.id, { type: "driver_location", data: { driverId: user.driverId, lat, lng, ts: Date.now() } });
       }).catch(() => {});
+
+      if (ACTIVE_GPS_STATUSES.includes(trip.status)) {
+        db.insert(tripLocationPoints).values({
+          tripId: trip.id,
+          driverId: user.driverId,
+          lat,
+          lng,
+          accuracyM: typeof accuracy === "number" ? accuracy : null,
+          speedMps: typeof speed === "number" ? speed : null,
+          headingDeg: typeof heading === "number" ? heading : null,
+          source: "driver_ping",
+        }).catch((e: any) => console.warn(`[GPS-DB] Failed to insert point for trip ${trip.id}: ${e.message}`));
+
+        db.update(trips).set({ lastLocationAt: new Date() }).where(eq(trips.id, trip.id))
+          .catch((e: any) => console.warn(`[GPS-DB] Failed to update lastLocationAt for trip ${trip.id}: ${e.message}`));
+      }
     }
 
     res.json({ ok: true });
@@ -1872,8 +1889,10 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
       if (geofenceStatuses.includes(newStatus) && trip.driverId) {
         const { getDriverLocationFromCache } = await import("../lib/driverLocationIngest");
         const driverLoc = getDriverLocationFromCache(trip.driverId);
-        const PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
-        const DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
+        const ENV_PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
+        const ENV_DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
+        const PICKUP_RADIUS = trip.pickupGeofenceM ?? ENV_PICKUP_RADIUS;
+        const DROPOFF_RADIUS = trip.dropoffGeofenceM ?? ENV_DROPOFF_RADIUS;
         const haversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
           const R = 6371000;
           const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -1944,6 +1963,56 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
     }
 
     const [updated] = await db.update(trips).set(updateData).where(eq(trips.id, tripId)).returning();
+
+    try {
+      let driverLat: number | null = null;
+      let driverLng: number | null = null;
+      let withinGeofence: boolean | null = null;
+      let geofenceType: "pickup" | "dropoff" | null = null;
+      let geofenceDistanceM: number | null = null;
+
+      const { getDriverLocationFromCache } = await import("../lib/driverLocationIngest");
+      const driverLoc = getDriverLocationFromCache(user.driverId);
+      if (driverLoc) {
+        driverLat = driverLoc.lat;
+        driverLng = driverLoc.lng;
+      }
+
+      if (newStatus === "ARRIVED_PICKUP" || newStatus === "ARRIVED_DROPOFF") {
+        const isPickup = newStatus === "ARRIVED_PICKUP";
+        geofenceType = isPickup ? "pickup" : "dropoff";
+        const tLat = isPickup ? Number(trip.pickupLat || 0) : Number(trip.dropoffLat || 0);
+        const tLng = isPickup ? Number(trip.pickupLng || 0) : Number(trip.dropoffLng || 0);
+        if (driverLat && driverLng && tLat && tLng) {
+          const R = 6371000;
+          const dLat = ((tLat - driverLat) * Math.PI) / 180;
+          const dLng = ((tLng - driverLng) * Math.PI) / 180;
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos((driverLat * Math.PI) / 180) * Math.cos((tLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+          geofenceDistanceM = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+          const radius = isPickup ? (trip.pickupGeofenceM ?? 150) : (trip.dropoffGeofenceM ?? 150);
+          withinGeofence = geofenceDistanceM <= radius;
+        }
+      }
+
+      const timelineEntry = {
+        ts: new Date().toISOString(),
+        status: newStatus,
+        previousStatus: trip.status,
+        actorRole: "DRIVER",
+        actorId: req.user!.userId,
+        source: "driver_portal",
+        lat: driverLat,
+        lng: driverLng,
+        withinGeofence,
+        geofenceType,
+        geofenceDistanceM,
+      };
+
+      db.update(trips).set({
+        timeline: sql`COALESCE(${trips.timeline}, '[]'::jsonb) || ${JSON.stringify([timelineEntry])}::jsonb`,
+      }).where(eq(trips.id, tripId)).catch((e: any) => console.warn(`[TIMELINE] driver portal: ${e.message}`));
+    } catch {}
+
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ message: err.message });

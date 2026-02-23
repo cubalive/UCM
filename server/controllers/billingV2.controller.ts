@@ -363,6 +363,7 @@ export async function clinicGetInvoiceHandler(req: AuthRequest, res: Response) {
           pickupTime: trips.pickupTime,
           status: trips.status,
           distanceMiles: trips.distanceMiles,
+          actualDistanceSource: trips.actualDistanceSource,
           durationMinutes: trips.durationMinutes,
           mobilityRequirement: trips.mobilityRequirement,
           sharedGroupId: trips.sharedGroupId,

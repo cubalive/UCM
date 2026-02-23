@@ -448,6 +448,10 @@ export const trips = pgTable("trips", {
   autoAssignReason: text("auto_assign_reason"),
   etaDriverToPickupMin: integer("eta_driver_to_pickup_min"),
   serviceBufferMin: integer("service_buffer_min").notNull().default(10),
+  pickupGeofenceM: integer("pickup_geofence_m").notNull().default(150),
+  dropoffGeofenceM: integer("dropoff_geofence_m").notNull().default(150),
+  timeline: jsonb("timeline").default(sql`'[]'::jsonb`),
+  lastLocationAt: timestamp("last_location_at"),
 });
 
 export const tripLocationPoints = pgTable("trip_location_points", {

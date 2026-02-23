@@ -3,6 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { MapPin, Loader2, CheckCircle, AlertTriangle } from "lucide-react";
 
+interface DriverLocationData {
+  lat: number;
+  lng: number;
+  heading?: number;
+  ts?: number;
+}
+
 interface TripRouteMapProps {
   tripId: number;
   pickupLat?: number | string | null;
@@ -14,6 +21,8 @@ interface TripRouteMapProps {
   token?: string | null;
   className?: string;
   style?: React.CSSProperties;
+  driverLocation?: DriverLocationData | null;
+  showBreadcrumbs?: boolean;
 }
 
 declare global {
@@ -67,12 +76,15 @@ export function TripRouteMap({
   token,
   className = "",
   style,
+  driverLocation,
+  showBreadcrumbs,
 }: TripRouteMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const plannedPolylineRef = useRef<google.maps.Polyline | null>(null);
   const actualPolylineRef = useRef<google.maps.Polyline | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
+  const driverMarkerRef = useRef<google.maps.Marker | null>(null);
   const [mapsReady, setMapsReady] = useState(false);
   const [mapError, setMapError] = useState(false);
 
@@ -243,6 +255,45 @@ export function TripRouteMap({
   }, [mapsReady, pLat, pLng, dLat, dLng, routeQuery.data?.routePolyline, routeQuery.data?.actualPolyline]);
 
   useEffect(() => {
+    if (!mapRef.current || !mapsReady || !driverLocation) {
+      if (driverMarkerRef.current) {
+        driverMarkerRef.current.setMap(null);
+        driverMarkerRef.current = null;
+      }
+      return;
+    }
+
+    const pos = { lat: driverLocation.lat, lng: driverLocation.lng };
+
+    if (!driverMarkerRef.current) {
+      const svgIcon = {
+        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+        fillColor: "#3b82f6",
+        fillOpacity: 1,
+        strokeColor: "#1e40af",
+        strokeWeight: 2,
+        scale: 6,
+        rotation: driverLocation.heading ?? 0,
+        anchor: new google.maps.Point(0, 2.5),
+      };
+      driverMarkerRef.current = new google.maps.Marker({
+        position: pos,
+        map: mapRef.current,
+        icon: svgIcon,
+        title: "Driver",
+        zIndex: 100,
+      });
+    } else {
+      driverMarkerRef.current.setPosition(pos);
+      const icon = driverMarkerRef.current.getIcon() as google.maps.Symbol;
+      if (icon && driverLocation.heading != null) {
+        icon.rotation = driverLocation.heading;
+        driverMarkerRef.current.setIcon(icon);
+      }
+    }
+  }, [mapsReady, driverLocation]);
+
+  useEffect(() => {
     return () => {
       plannedPolylineRef.current?.setMap(null);
       plannedPolylineRef.current = null;
@@ -250,6 +301,8 @@ export function TripRouteMap({
       actualPolylineRef.current = null;
       markersRef.current.forEach((m) => m.setMap(null));
       markersRef.current = [];
+      driverMarkerRef.current?.setMap(null);
+      driverMarkerRef.current = null;
       mapRef.current = null;
     };
   }, []);

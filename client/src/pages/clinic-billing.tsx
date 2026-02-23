@@ -602,7 +602,14 @@ function TripsLogTab() {
                               <TableCell className="text-xs max-w-[200px] truncate">
                                 {leg.pickupAddress?.split(",")[0]} → {leg.dropoffAddress?.split(",")[0]}
                               </TableCell>
-                              <TableCell className="text-xs">{leg.distanceMiles ? parseFloat(leg.distanceMiles).toFixed(1) : "—"}</TableCell>
+                              <TableCell className="text-xs">
+                                {leg.distanceMiles ? parseFloat(leg.distanceMiles).toFixed(1) : "—"}
+                                {leg.distanceMiles && (leg.actualDistanceSource || leg.trip?.actualDistanceSource) && (
+                                  <span className={`ml-1 text-[10px] ${(leg.actualDistanceSource || leg.trip?.actualDistanceSource) === "gps" ? "text-green-600" : "text-amber-600"}`} data-testid={`text-distance-source-${leg.tripId}`}>
+                                    ({(leg.actualDistanceSource || leg.trip?.actualDistanceSource) === "gps" ? "GPS" : "Est."})
+                                  </span>
+                                )}
+                              </TableCell>
                               <TableCell className="text-xs text-center" data-testid={`text-pax-${leg.tripId}`}>{leg.passengerCount}</TableCell>
                               <TableCell>
                                 <Badge className={`text-xs ${OUTCOME_COLORS[leg.billingOutcome] || ""}`}>
@@ -1040,7 +1047,14 @@ function InvoicesTab() {
                                 <TableCell className="text-xs max-w-[160px] truncate">
                                   {line.pickupAddress?.split(",")[0]} → {line.dropoffAddress?.split(",")[0]}
                                 </TableCell>
-                                <TableCell className="text-xs">{line.distanceMiles ? parseFloat(line.distanceMiles).toFixed(1) : "—"}</TableCell>
+                                <TableCell className="text-xs">
+                                  {line.distanceMiles ? parseFloat(line.distanceMiles).toFixed(1) : "—"}
+                                  {line.distanceMiles && (line.actualDistanceSource || line.trip?.actualDistanceSource) && (
+                                    <span className={`ml-1 text-[10px] ${(line.actualDistanceSource || line.trip?.actualDistanceSource) === "gps" ? "text-green-600" : "text-amber-600"}`}>
+                                      ({(line.actualDistanceSource || line.trip?.actualDistanceSource) === "gps" ? "GPS" : "Est."})
+                                    </span>
+                                  )}
+                                </TableCell>
                                 <TableCell>
                                   <Badge className={`text-xs ${OUTCOME_COLORS[line.outcome] || ""}`}>
                                     {OUTCOME_LABELS[line.outcome] || line.outcome}
