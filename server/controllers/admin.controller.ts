@@ -739,11 +739,17 @@ export async function updateCompanyHandler(req: AuthRequest, res: Response) {
     const company = await storage.getCompany(id);
     if (!company) return res.status(404).json({ message: "Company not found" });
 
-    const allowedFields = ["name", "dispatchPhone"] as const;
+    const allowedFields = ["name", "dispatchPhone", "timezone"] as const;
     const updateData: Record<string, any> = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
         updateData[field] = req.body[field] || null;
+      }
+    }
+    if (updateData.timezone) {
+      const VALID_TZ = ["America/New_York","America/Chicago","America/Denver","America/Los_Angeles","America/Phoenix","America/Anchorage","Pacific/Honolulu","America/Indiana/Indianapolis"];
+      if (!VALID_TZ.includes(updateData.timezone)) {
+        return res.status(400).json({ message: "Invalid timezone" });
       }
     }
 

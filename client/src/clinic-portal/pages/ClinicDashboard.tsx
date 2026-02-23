@@ -563,11 +563,13 @@ export default function ClinicDashboard() {
   const clinicInfo = (inboundData as any)?.clinic ?? null;
 
   const todayTrips = (ops as any)?.todayTrips ?? 0;
-  const activeCount = Array.isArray(activeTrips) ? activeTrips.length : 0;
-  const completedToday = (ops as any)?.completedToday ?? 0;
-  const cancelledToday = (ops as any)?.cancelledToday ?? 0;
+  const activeTripsArray = Array.isArray(activeTrips) ? activeTrips : ((activeTrips as any)?.trips ?? []);
+  const activeCount = activeTripsArray.length;
+  const completedToday = (ops as any)?.completedToday ?? (ops as any)?.kpis?.completedToday ?? 0;
+  const cancelledToday = (ops as any)?.cancelledToday ?? (ops as any)?.kpis?.cancelledToday ?? 0;
   const totalPatients = (metrics as any)?.totalPatients ?? 0;
   const avgRating = (metrics as any)?.avgRating ?? 0;
+  const clinicTimezone = (ops as any)?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const statCards = [
     { label: "Today's Trips", value: todayTrips, icon: CalendarDays, color: "blue", testId: "stat-today-trips" },
@@ -599,7 +601,7 @@ export default function ClinicDashboard() {
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">
           <Clock className="w-3.5 h-3.5" />
-          {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+          {new Date().toLocaleDateString("en-US", { timeZone: clinicTimezone, weekday: "long", month: "long", day: "numeric" })}
         </div>
       </div>
 

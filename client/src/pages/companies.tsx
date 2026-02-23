@@ -357,6 +357,7 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(company.name);
   const [dispatchPhone, setDispatchPhone] = useState((company as any).dispatchPhone || "");
+  const [companyTimezone, setCompanyTimezone] = useState((company as any).timezone || "America/Los_Angeles");
   const { token } = useAuth();
   const { toast } = useToast();
 
@@ -364,6 +365,7 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
     if (open) {
       setName(company.name);
       setDispatchPhone((company as any).dispatchPhone || "");
+      setCompanyTimezone((company as any).timezone || "America/Los_Angeles");
     }
   }, [open, company]);
 
@@ -372,6 +374,7 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
       const res = await apiRequest("PATCH", `/api/admin/companies/${company.id}`, {
         name: name.trim(),
         dispatchPhone: dispatchPhone.trim() || null,
+        timezone: companyTimezone,
       });
       return res.json();
     },
@@ -421,6 +424,22 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
             </div>
             <p className="text-xs text-muted-foreground">
               SMS notifications for this company will come from this number. Leave empty to use the global default.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-timezone">Timezone</Label>
+            <Select value={companyTimezone} onValueChange={setCompanyTimezone}>
+              <SelectTrigger data-testid="select-edit-company-timezone">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIMEZONES.map(tz => (
+                  <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              All trip scheduling, billing, and reporting will use this timezone.
             </p>
           </div>
           <Button

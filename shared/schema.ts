@@ -30,6 +30,7 @@ export const companies = pgTable("companies", {
   autoAssignWeightLoad: integer("auto_assign_weight_load").notNull().default(20),
   autoAssignWeightFatigue: integer("auto_assign_weight_fatigue").notNull().default(10),
   zeroTouchDialysisEnabled: boolean("zero_touch_dialysis_enabled").notNull().default(false),
+  timezone: text("timezone").notNull().default("America/Los_Angeles"),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),

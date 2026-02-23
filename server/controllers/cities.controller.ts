@@ -57,7 +57,7 @@ export async function createCompanyHandler(req: AuthRequest, res: Response) {
     );
     
     const result = await db.transaction(async (tx) => {
-      const [company] = await tx.insert(companies).values({ name: name.trim() }).returning();
+      const [company] = await tx.insert(companies).values({ name: name.trim(), timezone: tz }).returning();
 
       let city: any;
       if (existingServiceCity.rows?.length) {

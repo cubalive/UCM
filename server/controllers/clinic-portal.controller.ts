@@ -2,8 +2,22 @@ import type { Response } from "express";
 import { storage } from "../storage";
 import { type AuthRequest } from "../auth";
 import { db } from "../db";
-import { trips, patients, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig } from "@shared/schema";
+import { trips, patients, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities } from "@shared/schema";
 import { eq, and, isNull, inArray, desc, gte, sql, or } from "drizzle-orm";
+
+function getTodayInTimezone(tz: string): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: tz });
+}
+
+async function getClinicTimezone(clinicCityId: number | null | undefined): Promise<string> {
+  if (!clinicCityId) return "America/Los_Angeles";
+  try {
+    const [city] = await db.select({ timezone: cities.timezone }).from(cities).where(eq(cities.id, clinicCityId));
+    return city?.timezone || "America/Los_Angeles";
+  } catch {
+    return "America/Los_Angeles";
+  }
+}
 import { getClinicForecast, getClinicCapacityForecast, saveClinicForecastSnapshot } from "../lib/clinicForecastEngine";
 import { generateTripPdf } from "../lib/tripPdfGenerator";
 import { denyAsNotFound } from "../lib/denyAsNotFound";
@@ -122,7 +136,8 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
     const clinic = await storage.getClinic(user.clinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
-    const todayDate = new Date().toISOString().split("T")[0];
+    const clinicTz = await getClinicTimezone((clinic as any).cityId);
+    const todayDate = getTodayInTimezone(clinicTz);
     const PRESENCE_TIMEOUT = 120_000;
     const LATE_THRESHOLD_MINUTES = 10;
 
@@ -188,6 +203,7 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
       !t.driverId && !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(t.status)
     );
     const completedToday = todayTrips.filter(t => t.status === "COMPLETED");
+    const cancelledToday = todayTrips.filter(t => t.status === "CANCELLED");
     const noShowsToday = todayTrips.filter(t => t.status === "NO_SHOW");
 
     const clinicPatientIds = await db.select({ id: patients.id }).from(patients).where(
@@ -295,6 +311,11 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
     res.json({
       ok: true,
       clinic: { id: clinic.id, name: clinic.name, lat: clinic.lat, lng: clinic.lng, address: clinic.address },
+      timezone: clinicTz,
+      todayDate,
+      todayTrips: todayTrips.length,
+      completedToday: completedToday.length,
+      cancelledToday: cancelledToday.length,
       kpis: {
         enRouteToClinic: enRouteToClinic.length,
         leavingClinic: leavingClinic.length,
@@ -302,6 +323,7 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
         lateRisk: lateRisk.length,
         noDriverAssigned: noDriverAssigned.length,
         completedToday: completedToday.length,
+        cancelledToday: cancelledToday.length,
         noShowsToday: noShowsToday.length,
         recurringActive: recurringActiveCount,
       },
@@ -709,6 +731,9 @@ export async function clinicTripsHandler(req: AuthRequest, res: Response) {
     }
     if (!clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
+    const clinicObj = await storage.getClinic(clinicId);
+    const tripsTz = await getClinicTimezone((clinicObj as any)?.cityId);
+
     const statusFilter = (req.query.status as string || "active").toLowerCase();
     const conditions: any[] = [
       eq(trips.clinicId, clinicId),
@@ -716,7 +741,7 @@ export async function clinicTripsHandler(req: AuthRequest, res: Response) {
     ];
 
     if (statusFilter === "today") {
-      const todayDate = new Date().toISOString().split("T")[0];
+      const todayDate = getTodayInTimezone(tripsTz);
       conditions.push(eq(trips.scheduledDate, todayDate));
     } else if (statusFilter === "active") {
       conditions.push(
@@ -1286,7 +1311,8 @@ export async function clinicAlertInputsHandler(req: AuthRequest, res: Response) 
     const clinic = await storage.getClinic(user.clinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
-    const todayDate = new Date().toISOString().split("T")[0];
+    const alertTz = await getClinicTimezone((clinic as any).cityId);
+    const todayDate = getTodayInTimezone(alertTz);
     const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
 
     const clinicTrips = await db.select().from(trips).where(
