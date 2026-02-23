@@ -9,7 +9,7 @@ import {
   type StreamMessage,
 } from "../lib/eventBus";
 import { db } from "../db";
-import { tripRoutePlans, tripRouteSummary, tripRoutePointChunks, tripLocationPoints, trips } from "@shared/schema";
+import { tripRoutePlans, tripRouteSummary, tripRoutePointChunks, tripLocationPoints, trips, tripRouteEvents } from "@shared/schema";
 import { eq, asc } from "drizzle-orm";
 import { buildRoute } from "../lib/googleMaps";
 import { broadcastToTrip } from "../lib/realtime";
@@ -73,10 +73,36 @@ async function handleRouteCompute(payload: Record<string, any>): Promise<void> {
     },
   });
 
+  const totalMiles = Math.round((distanceMeters / 1609.344) * 10) / 10;
+  const totalMinutes = Math.round(durationSeconds / 60);
+  await db.update(trips).set({
+    routePolyline: route.polyline,
+    routeDistanceMeters: distanceMeters,
+    routeDurationSeconds: durationSeconds,
+    routeProvider: "google",
+    routeStatus: "computed",
+    routeUpdatedAt: new Date(),
+    routeSource: "agentic_worker",
+    distanceMiles: String(totalMiles),
+    durationMinutes: totalMinutes,
+    updatedAt: new Date(),
+  }).where(eq(trips.id, tripId));
+
   try {
     broadcastToTrip(tripId, {
       type: "status_change",
-      data: { event: "route_plan_ready", tripId, distanceMeters, durationSeconds },
+      data: { event: "route_plan_ready", tripId, distanceMeters, durationSeconds, polyline: route.polyline },
+    });
+  } catch {}
+
+  try {
+    await db.insert(tripRouteEvents).values({
+      tripId,
+      eventType: "route_computed",
+      ts: new Date(),
+      lat: Number(pickupLat),
+      lng: Number(pickupLng),
+      metaJson: { distanceMeters, durationSeconds, totalMiles, trigger: payload.trigger, provider: "google" },
     });
   } catch {}
 
@@ -85,6 +111,7 @@ async function handleRouteCompute(payload: Record<string, any>): Promise<void> {
     tripId,
     distanceMeters,
     durationSeconds,
+    totalMiles,
     trigger: payload.trigger,
     ts: new Date().toISOString(),
   }));
@@ -156,13 +183,35 @@ async function handleRouteFinalize(payload: Record<string, any>): Promise<void> 
     },
   });
 
+  const actualPolylineStr = allPoints.length >= 2 ? encodePolyline(allPoints) : null;
+  const actualMiles = Math.round((actualDistanceMeters / 1609.344) * 10) / 10;
+  await db.update(trips).set({
+    actualDistanceMeters,
+    actualDurationSeconds,
+    actualPolyline: actualPolylineStr,
+    actualDistanceSource: pointsTotal >= 10 ? "gps" : pointsTotal >= 2 ? "gps_sparse" : "estimated",
+    routeQualityScore: parseInt(gpsQualityScore.replace("0.", ""), 10) || 0,
+    updatedAt: new Date(),
+  }).where(eq(trips.id, tripId));
+
+  try {
+    await db.insert(tripRouteEvents).values({
+      tripId,
+      eventType: "route_finalized",
+      ts: new Date(),
+      metaJson: { actualDistanceMeters, actualDurationSeconds, actualMiles, pointsTotal, gpsQuality: gpsQualityScore },
+    });
+  } catch {}
+
   console.log(JSON.stringify({
     event: "route_finalized",
     tripId,
     actualDistanceMeters,
     actualDurationSeconds,
+    actualMiles,
     pointsTotal,
     gpsQuality: gpsQualityScore,
+    hasActualPolyline: !!actualPolylineStr,
     ts: new Date().toISOString(),
   }));
 }

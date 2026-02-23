@@ -243,9 +243,14 @@ export function TripRouteMap({
       plannedPolylineRef.current = new google.maps.Polyline({
         path: straightPath,
         strokeColor: "#94a3b8",
-        strokeOpacity: 0.6,
-        strokeWeight: 3,
+        strokeOpacity: 0.3,
+        strokeWeight: 2,
         geodesic: true,
+        icons: [{
+          icon: { path: "M 0,-1 0,1", strokeOpacity: 0.4, scale: 3 },
+          offset: "0",
+          repeat: "15px",
+        }],
         map: mapRef.current,
         zIndex: 1,
       });
@@ -359,9 +364,10 @@ export function TripRouteMap({
           )}
         </div>
       )}
-      {routeData && !hasPlanned && !hasActual && !routeQuery.isLoading && (
-        <div className="absolute bottom-2 left-2 bg-background/80 rounded-md px-2 py-1 text-xs text-muted-foreground">
-          Straight line (road route unavailable)
+      {!hasPlanned && !hasActual && !routeQuery.isLoading && (
+        <div className="absolute bottom-2 left-2 bg-amber-500/90 text-white rounded-md px-2 py-1 text-xs font-medium flex items-center gap-1" data-testid="label-route-pending">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          Route pending compute
         </div>
       )}
     </div>

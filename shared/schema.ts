@@ -3256,6 +3256,23 @@ export const insertTripRouteSummarySchema = createInsertSchema(tripRouteSummary)
 export type TripRouteSummary = typeof tripRouteSummary.$inferSelect;
 export type InsertTripRouteSummary = z.infer<typeof insertTripRouteSummarySchema>;
 
+export const tripRouteEvents = pgTable("trip_route_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  eventType: text("event_type").notNull(),
+  ts: timestamp("ts").notNull().defaultNow(),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  metaJson: jsonb("meta_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_trip_route_events_trip").on(table.tripId, table.ts),
+]);
+
+export const insertTripRouteEventSchema = createInsertSchema(tripRouteEvents).omit({ id: true, createdAt: true });
+export type TripRouteEvent = typeof tripRouteEvents.$inferSelect;
+export type InsertTripRouteEvent = z.infer<typeof insertTripRouteEventSchema>;
+
 export const opsAuditLedger = pgTable("ops_audit_ledger", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   entityType: text("entity_type").notNull(),

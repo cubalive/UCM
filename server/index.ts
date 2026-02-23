@@ -645,6 +645,20 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`ALTER TABLE patients ADD COLUMN IF NOT EXISTS default_pickup_place_id TEXT`);
     await bootDb.execute(bootSql`ALTER TABLE patients ADD COLUMN IF NOT EXISTS default_dropoff_place_id TEXT`);
 
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS trip_route_events (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES trips(id),
+        event_type TEXT NOT NULL,
+        ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        lat DOUBLE PRECISION,
+        lng DOUBLE PRECISION,
+        meta_json JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trip_route_events_trip ON trip_route_events(trip_id, ts)`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);
@@ -814,6 +828,11 @@ app.use((req, res, next) => {
       const { startOrchestrator } = await import("./orchestrator");
       await startOrchestrator();
       console.log("[BOOT] Orchestrator start attempted.");
+
+      console.log("[BOOT] Starting routes worker...");
+      const { startRoutesWorker } = await import("./workers/routesWorker");
+      await startRoutesWorker();
+      console.log("[BOOT] Routes worker start attempted.");
     } catch (e) {
       console.warn("[BOOT] Orchestrator failed to start:", (e as any)?.message || e);
     }
