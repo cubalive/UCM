@@ -263,8 +263,18 @@ export async function dispatchApproveTripRequest(req: AuthRequest, res: Response
       return res.status(400).json({ message: "Patient must be assigned before approval" });
     }
 
+    const returnNote = req.body.returnNote || null;
+    const returnPickupTime = req.body.returnPickupTime || null;
+    if (request.isRoundTrip && !returnPickupTime && !returnNote) {
+      return res.status(400).json({
+        message: "Round trips require either a return pickup time or a return note explaining why a return is not scheduled",
+      });
+    }
+
+    const mobilityReq = request.serviceLevel === "wheelchair" ? "WHEELCHAIR" : (request.serviceLevel === "stretcher" ? "STRETCHER" : "STANDARD");
     const publicId = await generatePublicId();
-    const trip = await storage.createTrip({
+
+    const tripData: any = {
       publicId,
       cityId: request.cityId,
       patientId: request.patientId,
@@ -282,9 +292,53 @@ export async function dispatchApproveTripRequest(req: AuthRequest, res: Response
       status: "SCHEDULED",
       requestSource: "clinic_portal",
       notes: request.notes,
-      mobilityRequirement: request.serviceLevel === "wheelchair" ? "WHEELCHAIR" : (request.serviceLevel === "stretcher" ? "STRETCHER" : "STANDARD"),
+      mobilityRequirement: mobilityReq,
       passengerCount: request.passengerCount,
-    } as any);
+    };
+
+    if (request.isRoundTrip) {
+      tripData.isRoundTrip = true;
+      tripData.returnRequired = !!returnPickupTime;
+      if (!returnPickupTime && returnNote) {
+        tripData.returnNote = returnNote;
+      }
+    }
+
+    const trip = await storage.createTrip(tripData);
+
+    let returnTripId: number | null = null;
+    if (request.isRoundTrip && returnPickupTime) {
+      const returnPublicId = await generatePublicId();
+      const returnTrip = await storage.createTrip({
+        publicId: returnPublicId,
+        cityId: request.cityId,
+        patientId: request.patientId,
+        clinicId: request.clinicId,
+        companyId: request.companyId,
+        pickupAddress: request.dropoffAddress,
+        pickupLat: request.dropoffLat,
+        pickupLng: request.dropoffLng,
+        dropoffAddress: request.pickupAddress,
+        dropoffLat: request.pickupLat,
+        dropoffLng: request.pickupLng,
+        scheduledDate: request.scheduledDate,
+        pickupTime: returnPickupTime,
+        estimatedArrivalTime: "TBD",
+        status: "SCHEDULED",
+        requestSource: "clinic_portal",
+        notes: returnNote || `Return trip for ${publicId}`,
+        mobilityRequirement: mobilityReq,
+        passengerCount: request.passengerCount,
+        isRoundTrip: true,
+        pairedTripId: trip.id,
+        parentTripId: trip.id,
+      } as any);
+
+      returnTripId = returnTrip.id;
+      await db.update(trips).set({
+        pairedTripId: returnTrip.id,
+      } as any).where(eq(trips.id, trip.id));
+    }
 
     await db.update(tripRequests)
       .set({
@@ -295,7 +349,24 @@ export async function dispatchApproveTripRequest(req: AuthRequest, res: Response
       })
       .where(eq(tripRequests.id, id));
 
-    return res.json({ message: "Trip request approved", tripId: trip.id, request: { ...request, status: "APPROVED", approvedTripId: trip.id } });
+    let autoAssignResult: any = null;
+    try {
+      const { assignTripAutomatically } = await import("../lib/autoAssignV2Engine");
+      autoAssignResult = await assignTripAutomatically(trip.id, "clinic_approve", req.user!.userId);
+      if (returnTripId) {
+        await assignTripAutomatically(returnTripId, "clinic_approve_return", req.user!.userId);
+      }
+    } catch (err: any) {
+      console.warn("[APPROVE] Auto-assign failed:", err.message);
+    }
+
+    return res.json({
+      message: "Trip request approved",
+      tripId: trip.id,
+      returnTripId,
+      autoAssign: autoAssignResult || { success: false, reason: "skipped" },
+      request: { ...request, status: "APPROVED", approvedTripId: trip.id },
+    });
   } catch (err: any) {
     console.error("Error approving trip request:", err);
     return res.status(500).json({ message: "Failed to approve trip request" });

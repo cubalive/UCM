@@ -295,6 +295,56 @@ async function runDispatchCycle() {
   }
 }
 
+export async function computeEtaAndDispatchWindow(tripId: number): Promise<void> {
+  const [trip] = await db.select().from(trips).where(eq(trips.id, tripId));
+  if (!trip || !trip.driverId) return;
+
+  const timezone = await getCityTimezone(trip.cityId);
+  const pickupDt = parseTripDateTime(trip.scheduledDate, trip.scheduledTime, trip.pickupTime, timezone);
+  if (!pickupDt) return;
+
+  const bufferMin = getBufferMinutes(trip.mobilityRequirement);
+
+  let etaToPickupMin = DEFAULT_ETA_TO_PICKUP_MIN;
+  const driverRow = await db.select().from(drivers).where(eq(drivers.id, trip.driverId));
+  if (driverRow.length > 0) {
+    etaToPickupMin = await estimateEtaToPickup(driverRow[0], trip);
+  }
+
+  const dispatchAt = new Date(pickupDt.getTime() - (etaToPickupMin + bufferMin) * 60_000);
+  const notifyAt = new Date(dispatchAt.getTime() - NOTIFY_LEAD_MIN * 60_000);
+
+  let etaPickupToDropoffMin: number | null = null;
+  let plannedDropoffArrivalAt: Date | null = null;
+  if (trip.routeDurationSeconds) {
+    etaPickupToDropoffMin = Math.ceil(trip.routeDurationSeconds / 60);
+  } else if (trip.durationMinutes) {
+    etaPickupToDropoffMin = trip.durationMinutes;
+  }
+  if (etaPickupToDropoffMin) {
+    plannedDropoffArrivalAt = new Date(pickupDt.getTime() + etaPickupToDropoffMin * 60_000);
+  }
+
+  await db.update(trips).set({
+    dispatchAt,
+    notifyAt,
+    etaDriverToPickupMin: etaToPickupMin,
+    serviceBufferMin: bufferMin,
+    etaPickupToDropoffMin,
+    plannedDropoffArrivalAt,
+    updatedAt: new Date(),
+  } as any).where(eq(trips.id, tripId));
+
+  console.log(JSON.stringify({
+    event: "dispatch_window_computed",
+    tripId,
+    etaToPickupMin,
+    bufferMin,
+    dispatchAt: dispatchAt.toISOString(),
+    notifyAt: notifyAt.toISOString(),
+  }));
+}
+
 export function startDispatchWindowScheduler() {
   if (!ENABLED) {
     console.log("[DISPATCH-WINDOW] Disabled via DISPATCH_WINDOW_ENABLED=false");

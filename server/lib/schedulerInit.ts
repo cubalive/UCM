@@ -37,6 +37,7 @@ async function startAllSchedulerLoops(): Promise<void> {
   const { startDialysisScheduler } = await import("./zeroTouchDialysisEngine");
   const { startSmsReminderScheduler } = await import("./smsReminderScheduler");
   const { startDispatchWindowScheduler } = await import("./dispatchWindowEngine");
+  const { startAutoAssignRetryScheduler } = await import("./autoAssignV2Engine");
 
   startOpsAlertScheduler();
   startRouteScheduler();
@@ -50,6 +51,7 @@ async function startAllSchedulerLoops(): Promise<void> {
   startJobEngine();
   startSmsReminderScheduler();
   startDispatchWindowScheduler();
+  startAutoAssignRetryScheduler();
 
   const { startJobProcessor } = await import("./jobProcessor");
   startJobProcessor();

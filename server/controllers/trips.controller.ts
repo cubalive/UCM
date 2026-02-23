@@ -847,6 +847,12 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
       }, `trip.created:${trip.id}`);
     }).catch(() => {});
 
+    if (!trip.driverId && trip.approvalStatus === "approved") {
+      import("../lib/autoAssignV2Engine").then(({ assignTripAutomatically }) => {
+        assignTripAutomatically(trip.id, "trip_created", req.user?.userId).catch(() => {});
+      }).catch(() => {});
+    }
+
     res.json(trip);
   } catch (err: any) {
     res.status(500).json({ message: err.message });

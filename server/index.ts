@@ -628,6 +628,23 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS planned_dropoff_arrival_at TIMESTAMPTZ`);
     await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS eta_pickup_to_dropoff_min INTEGER`);
 
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS is_round_trip BOOLEAN NOT NULL DEFAULT false`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS return_required BOOLEAN NOT NULL DEFAULT true`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS return_note TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS paired_trip_id INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS preferred_driver_id INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS auto_assign_reason TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS eta_driver_to_pickup_min INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS service_buffer_min INTEGER NOT NULL DEFAULT 10`);
+
+    await bootDb.execute(bootSql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS availability_status TEXT NOT NULL DEFAULT 'OFFLINE'`);
+    await bootDb.execute(bootSql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS tracking_status TEXT NOT NULL DEFAULT 'UNKNOWN'`);
+
+    await bootDb.execute(bootSql`ALTER TABLE patients ADD COLUMN IF NOT EXISTS is_frequent BOOLEAN NOT NULL DEFAULT false`);
+    await bootDb.execute(bootSql`ALTER TABLE patients ADD COLUMN IF NOT EXISTS preferred_driver_id INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE patients ADD COLUMN IF NOT EXISTS default_pickup_place_id TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE patients ADD COLUMN IF NOT EXISTS default_dropoff_place_id TEXT`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);

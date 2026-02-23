@@ -237,6 +237,8 @@ export const drivers = pgTable("drivers", {
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
+  availabilityStatus: text("availability_status").notNull().default("OFFLINE"),
+  trackingStatus: text("tracking_status").notNull().default("UNKNOWN"),
   updatedAt: timestamp("updated_at").defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -294,6 +296,10 @@ export const patients = pgTable("patients", {
   source: text("source").notNull().default("internal"),
   companyId: integer("company_id").notNull().references(() => companies.id),
   active: boolean("active").notNull().default(true),
+  isFrequent: boolean("is_frequent").notNull().default(false),
+  preferredDriverId: integer("preferred_driver_id"),
+  defaultPickupPlaceId: text("default_pickup_place_id"),
+  defaultDropoffPlaceId: text("default_dropoff_place_id"),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
@@ -434,6 +440,14 @@ export const trips = pgTable("trips", {
   dispatchStage: text("dispatch_stage").notNull().default("NONE"),
   plannedDropoffArrivalAt: timestamp("planned_dropoff_arrival_at"),
   etaPickupToDropoffMin: integer("eta_pickup_to_dropoff_min"),
+  isRoundTrip: boolean("is_round_trip").notNull().default(false),
+  returnRequired: boolean("return_required").notNull().default(true),
+  returnNote: text("return_note"),
+  pairedTripId: integer("paired_trip_id"),
+  preferredDriverId: integer("preferred_driver_id"),
+  autoAssignReason: text("auto_assign_reason"),
+  etaDriverToPickupMin: integer("eta_driver_to_pickup_min"),
+  serviceBufferMin: integer("service_buffer_min").notNull().default(10),
 });
 
 export const tripLocationPoints = pgTable("trip_location_points", {

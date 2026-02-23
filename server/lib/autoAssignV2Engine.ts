@@ -1,6 +1,7 @@
 import { db } from "../db";
-import { trips, drivers, companies, autoAssignRuns, autoAssignRunCandidates, automationEvents } from "@shared/schema";
+import { trips, drivers, companies, patients, autoAssignRuns, autoAssignRunCandidates, automationEvents } from "@shared/schema";
 import { eq, and, inArray, isNull, sql, ne, gte, lte } from "drizzle-orm";
+import { checkTripFeasibility } from "./tripFeasibility";
 
 const COOLDOWN_MAP = new Map<number, number>();
 const COOLDOWN_MS = 30_000;
@@ -97,12 +98,49 @@ async function getDriverHoursWorkedToday(driverId: number): Promise<number> {
   return Number(row?.hours || 0);
 }
 
+async function getClinicAffinityScore(driverId: number, clinicId: number | null): Promise<number> {
+  if (!clinicId) return 0;
+  try {
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'COMPLETED') as completed,
+        COUNT(*) FILTER (WHERE status = 'COMPLETED' AND arrived_pickup_at IS NOT NULL AND picked_up_at IS NOT NULL
+          AND EXTRACT(EPOCH FROM (picked_up_at - arrived_pickup_at)) < 600) as on_time
+      FROM trips
+      WHERE driver_id = ${driverId} AND clinic_id = ${clinicId}
+      AND scheduled_date >= (CURRENT_DATE - INTERVAL '60 days')::text
+      AND deleted_at IS NULL
+    `);
+    const row = (result as any).rows?.[0] || (result as any)[0];
+    const completed = Number(row?.completed || 0);
+    if (completed < 3) return 0;
+    const onTime = Number(row?.on_time || 0);
+    return onTime / completed;
+  } catch {
+    return 0;
+  }
+}
+
+async function getPatientPreferredDriverId(patientId: number): Promise<number | null> {
+  try {
+    const [patient] = await db.select({ isFrequent: patients.isFrequent, preferredDriverId: patients.preferredDriverId })
+      .from(patients).where(eq(patients.id, patientId)).limit(1);
+    if (patient?.isFrequent && patient.preferredDriverId) return patient.preferredDriverId;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function scoreDriversForTrip(
   tripId: number,
   config: CompanyConfig
 ): Promise<ScoredCandidate[]> {
   const [trip] = await db.select().from(trips).where(eq(trips.id, tripId));
   if (!trip || !trip.pickupLat || !trip.pickupLng) return [];
+
+  const patientPreferredDriverId = await getPatientPreferredDriverId(trip.patientId);
+  const tripPreferredDriverId = trip.preferredDriverId || null;
 
   const companyDrivers = await db.select().from(drivers).where(
     and(
@@ -115,7 +153,7 @@ export async function scoreDriversForTrip(
   );
 
   const now = Date.now();
-  const GPS_STALE_SECONDS = 120;
+  const GPS_STALE_SECONDS = 300;
   const MAX_TRIPS_PER_DAY = 12;
   const SHIFT_LIMIT_HOURS = 10;
   const totalWeight = config.weightDistance + config.weightReliability + config.weightLoad + config.weightFatigue || 100;
@@ -127,50 +165,55 @@ export async function scoreDriversForTrip(
     let ineligibleReason: string | null = null;
 
     if (!driver.lastLat || !driver.lastLng) {
-      eligible = false;
-      ineligibleReason = "No GPS location";
+      const isPreferred = driver.id === patientPreferredDriverId || driver.id === tripPreferredDriverId;
+      if (!isPreferred) {
+        eligible = false;
+        ineligibleReason = "No GPS location";
+      }
     }
 
     const gpsAge = driver.lastSeenAt ? (now - driver.lastSeenAt.getTime()) / 1000 : Infinity;
     if (eligible && gpsAge > GPS_STALE_SECONDS) {
-      eligible = false;
-      ineligibleReason = `GPS stale (${Math.round(gpsAge)}s ago)`;
+      const isPreferred = driver.id === patientPreferredDriverId || driver.id === tripPreferredDriverId;
+      if (!isPreferred || gpsAge > 3600) {
+        eligible = false;
+        ineligibleReason = `GPS stale (${Math.round(gpsAge)}s ago)`;
+      }
     }
 
     const distanceM = (driver.lastLat && driver.lastLng)
       ? haversineMeters(Number(trip.pickupLat), Number(trip.pickupLng), driver.lastLat, driver.lastLng)
       : Infinity;
 
-    if (eligible && distanceM > config.maxDistanceMeters) {
-      eligible = false;
-      ineligibleReason = `Too far (${Math.round(distanceM)}m > ${config.maxDistanceMeters}m)`;
-    }
-
-    const activeTrips = await getDriverActiveTrips(driver.id, trip.scheduledDate);
-    if (eligible && activeTrips > 0) {
-      const hasConflict = await db.execute(sql`
-        SELECT 1 FROM trips
-        WHERE driver_id = ${driver.id}
-        AND scheduled_date = ${trip.scheduledDate}
-        AND status NOT IN ('COMPLETED', 'CANCELLED', 'NO_SHOW')
-        AND deleted_at IS NULL
-        AND pickup_time = ${trip.pickupTime}
-        LIMIT 1
-      `);
-      const conflictRows = (hasConflict as any).rows || hasConflict;
-      if (Array.isArray(conflictRows) && conflictRows.length > 0) {
+    if (eligible && distanceM !== Infinity && distanceM > config.maxDistanceMeters) {
+      const isPreferred = driver.id === patientPreferredDriverId || driver.id === tripPreferredDriverId;
+      if (!isPreferred) {
         eligible = false;
-        ineligibleReason = "Conflicting trip at same time";
+        ineligibleReason = `Too far (${Math.round(distanceM)}m > ${config.maxDistanceMeters}m)`;
       }
     }
 
-    const distanceScore = eligible ? Math.max(0, 1 - (distanceM / config.maxDistanceMeters)) : 0;
+    if (eligible) {
+      const feasibility = await checkTripFeasibility(driver.id, trip);
+      if (!feasibility.feasible) {
+        eligible = false;
+        ineligibleReason = feasibility.reason || "Time conflict with existing trip";
+      }
+    }
+
+    const activeTrips = eligible ? await getDriverActiveTrips(driver.id, trip.scheduledDate) : 0;
+    const distanceScore = eligible ? (distanceM !== Infinity ? Math.max(0, 1 - (distanceM / config.maxDistanceMeters)) : 0.3) : 0;
     const reliabilityRate = eligible ? await getDriverOnTimeRate(driver.id) : 0;
     const loadScore = eligible ? Math.max(0, 1 - (activeTrips / MAX_TRIPS_PER_DAY)) : 0;
     const hoursWorked = eligible ? await getDriverHoursWorkedToday(driver.id) : 0;
     const fatigueScore = eligible ? Math.max(0, 1 - (hoursWorked / SHIFT_LIMIT_HOURS)) : 0;
+    const clinicAffinity = eligible ? await getClinicAffinityScore(driver.id, trip.clinicId) : 0;
 
-    const finalScore = eligible
+    let preferredBonus = 0;
+    if (eligible && driver.id === patientPreferredDriverId) preferredBonus = 1000;
+    else if (eligible && driver.id === tripPreferredDriverId) preferredBonus = 500;
+
+    const baseScore = eligible
       ? (
         (config.weightDistance / totalWeight) * distanceScore +
         (config.weightReliability / totalWeight) * reliabilityRate +
@@ -179,10 +222,15 @@ export async function scoreDriversForTrip(
       ) * 100
       : 0;
 
+    const clinicAffinityBonus = clinicAffinity * 200;
+    const trackingPenalty = (driver.trackingStatus !== "OK" && driver.trackingStatus !== "UNKNOWN") ? -50 : 0;
+
+    const finalScore = baseScore + preferredBonus + clinicAffinityBonus + trackingPenalty;
+
     candidates.push({
       driverId: driver.id,
       driverName: `${driver.firstName} ${driver.lastName}`,
-      distanceMeters: Math.round(distanceM),
+      distanceMeters: distanceM === Infinity ? 999999 : Math.round(distanceM),
       distanceScore: Math.round(distanceScore * 100) / 100,
       reliabilityScore: Math.round(reliabilityRate * 100) / 100,
       loadScore: Math.round(loadScore * 100) / 100,
@@ -292,6 +340,16 @@ export async function runAutoAssignForTrip(tripId: number, actorUserId?: number)
 
   const bestCandidate = eligibleCandidates[0];
 
+  const patientPreferred = await getPatientPreferredDriverId(trip.patientId);
+  let assignReason = "scored_best";
+  if (bestCandidate.driverId === patientPreferred) {
+    assignReason = "preferred_driver";
+  } else if (bestCandidate.driverId === trip.preferredDriverId) {
+    assignReason = "trip_preferred_driver";
+  } else if (bestCandidate.finalScore >= 200) {
+    assignReason = "high_clinic_affinity";
+  }
+
   await db.update(autoAssignRunCandidates).set({
     offeredAt: new Date(),
     response: "ACCEPTED",
@@ -310,6 +368,7 @@ export async function runAutoAssignForTrip(tripId: number, actorUserId?: number)
     assignmentSource: "auto_assign_v2",
     assignmentReason: `Score: ${bestCandidate.finalScore} (dist=${bestCandidate.distanceScore}, rel=${bestCandidate.reliabilityScore}, load=${bestCandidate.loadScore}, fat=${bestCandidate.fatigueScore})`,
     autoAssignStatus: "SUCCESS",
+    autoAssignReason: assignReason,
     autoAssignSelectedDriverId: bestCandidate.driverId,
     autoAssignRunId: run.id,
     autoAssignFailureReason: null,
@@ -401,4 +460,148 @@ export async function getAutomationEventsByType(
     .where(and(...conditions))
     .orderBy(sql`${automationEvents.createdAt} DESC`)
     .limit(limit);
+}
+
+const ASSIGN_LOCKS = new Set<number>();
+
+export async function assignTripAutomatically(
+  tripId: number,
+  source: string = "approve_flow",
+  actorUserId?: number,
+): Promise<{ success: boolean; reason: string; driverId?: number }> {
+  if (ASSIGN_LOCKS.has(tripId)) {
+    return { success: false, reason: "Assignment already in progress" };
+  }
+  ASSIGN_LOCKS.add(tripId);
+  try {
+    const [trip] = await db.select().from(trips).where(eq(trips.id, tripId));
+    if (!trip) return { success: false, reason: "Trip not found" };
+
+    if (trip.driverId) return { success: true, reason: "Already assigned", driverId: trip.driverId };
+    if (["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status)) {
+      return { success: false, reason: "Trip is in terminal status" };
+    }
+
+    const [company] = await db.select().from(companies).where(eq(companies.id, trip.companyId));
+    if (!company?.autoAssignV2Enabled) {
+      await db.update(trips).set({
+        autoAssignStatus: "IDLE",
+        autoAssignReason: "auto_assign_disabled",
+      } as any).where(eq(trips.id, tripId));
+      return { success: false, reason: "Auto-assign not enabled for company" };
+    }
+
+    await db.update(trips).set({
+      autoAssignStatus: "PENDING",
+      assignmentSource: source,
+    } as any).where(eq(trips.id, tripId));
+
+    const result = await runAutoAssignForTrip(tripId, actorUserId);
+
+    if (result.success && result.selectedDriverId) {
+      try {
+        const { computeEtaAndDispatchWindow } = await import("./dispatchWindowEngine");
+        await computeEtaAndDispatchWindow(tripId);
+      } catch (err: any) {
+        console.warn(`[AUTO-ASSIGN] ETA/dispatch computation failed for trip ${tripId}:`, err.message);
+      }
+
+      console.log(JSON.stringify({
+        event: "auto_assign_immediate",
+        tripId,
+        source,
+        driverId: result.selectedDriverId,
+        reason: result.reason,
+        runId: result.runId,
+      }));
+    } else {
+      console.log(JSON.stringify({
+        event: "auto_assign_failed",
+        tripId,
+        source,
+        reason: result.reason,
+        runId: result.runId,
+      }));
+
+      try {
+        const { broadcastToTrip } = await import("./realtime");
+        broadcastToTrip(tripId, {
+          type: "auto_assign_failed",
+          tripId,
+          reason: result.reason,
+        });
+      } catch {}
+    }
+
+    return {
+      success: result.success,
+      reason: result.reason,
+      driverId: result.selectedDriverId,
+    };
+  } catch (err: any) {
+    console.error(`[AUTO-ASSIGN] Error for trip ${tripId}:`, err.message);
+    await db.update(trips).set({
+      autoAssignStatus: "FAILED",
+      autoAssignFailureReason: err.message,
+    } as any).where(eq(trips.id, tripId));
+    return { success: false, reason: err.message };
+  } finally {
+    ASSIGN_LOCKS.delete(tripId);
+  }
+}
+
+const RETRY_INTERVAL_MS = 5 * 60_000;
+const MAX_RETRY_AGE_HOURS = 24;
+let retryTask: (() => Promise<void>) | null = null;
+
+async function runAutoAssignRetry() {
+  const cutoff = new Date(Date.now() - MAX_RETRY_AGE_HOURS * 3600_000);
+  const unassigned = await db
+    .select({ id: trips.id, companyId: trips.companyId })
+    .from(trips)
+    .where(
+      and(
+        isNull(trips.driverId),
+        eq(trips.approvalStatus, "approved"),
+        inArray(trips.status, ["SCHEDULED"]),
+        gte(trips.scheduledDate, cutoff.toISOString().split("T")[0]),
+        inArray(trips.autoAssignStatus, ["FAILED", "PENDING"]),
+      )
+    )
+    .limit(20);
+
+  if (unassigned.length === 0) return;
+
+  let retried = 0;
+  let assigned = 0;
+  for (const trip of unassigned) {
+    if (COOLDOWN_MAP.has(trip.id) && Date.now() - (COOLDOWN_MAP.get(trip.id) || 0) < COOLDOWN_MS * 3) continue;
+
+    try {
+      const result = await assignTripAutomatically(trip.id, "retry_scheduler");
+      retried++;
+      if (result.success) assigned++;
+    } catch {}
+  }
+
+  if (retried > 0) {
+    console.log(JSON.stringify({ event: "auto_assign_retry_cycle", retried, assigned }));
+  }
+}
+
+export function startAutoAssignRetryScheduler() {
+  const { createHarnessedTask, registerInterval } = require("./schedulerHarness");
+
+  if (retryTask) return;
+
+  retryTask = createHarnessedTask({
+    name: "auto_assign_retry",
+    lockKey: "scheduler:lock:auto_assign_retry",
+    lockTtlSeconds: 60,
+    timeoutMs: 240_000,
+    fn: runAutoAssignRetry,
+  });
+
+  registerInterval("auto_assign_retry", RETRY_INTERVAL_MS, retryTask);
+  console.log("[AUTO-ASSIGN] Retry scheduler started (interval: 5min)");
 }

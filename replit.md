@@ -29,6 +29,9 @@ The application follows a client-server architecture.
 - **Enterprise Multi-Instance Hardening**: ROLE_MODE runtime split, Redis-based leader election, priority job queue with DLQ, circuit breakers, and priority-based load shedding.
 - **Agentic Features (UCM Agentic C)**: Redis Streams event bus with orchestrator and route worker for computing and finalizing Google Maps routes, including route proof API.
 - **Dispatch Window Engine**: Intelligent dispatch timing system for optimal dispatch and notification times based on ETA and mobility buffers, including trip feasibility checking to prevent overlapping assignments.
+- **"Approved = Assigned" Auto-Dispatch**: Automatic driver assignment on trip approval via `assignTripAutomatically()` with preferred driver priority (patient-preferred 1000pt > trip-preferred 500pt > clinic affinity 200pt > scored best), clinic affinity scoring (3+ completed trips in 60-day window), feasibility-gated assignment, and periodic retry scheduler (5min cycles for FAILED/PENDING trips). Reason tracking: preferred_driver, trip_preferred_driver, high_clinic_affinity, scored_best.
+- **Round-Trip Enforcement**: `is_round_trip`, `return_required`, `return_note`, `paired_trip_id` columns on trips. Approval of round-trip requests enforces either a return pickup time (creates paired return trip with swapped addresses) or a return note explaining deferral.
+- **ETA & Dispatch Window on Assignment**: `computeEtaAndDispatchWindow()` runs after successful auto-assign, computing `eta_driver_to_pickup_min`, `service_buffer_min`, `dispatch_at`, `notify_at`, `eta_pickup_to_dropoff_min`, and `planned_dropoff_arrival_at`.
 
 ## External Dependencies
 - **PostgreSQL**: Primary relational database (Supabase pooler).

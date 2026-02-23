@@ -1,0 +1,65 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+ROLE: Senior mobile + realtime engineer for driver dispatch UX (web/PWA now, Capacitor-ready), TypeScript, Express, WebSockets.
+
+GOAL
+1) Driver accepts future trip -> it is RESERVED (upcoming) and must NOT make driver busy.
+2) Trip becomes "active" and driver becomes BUSY only at dispatch_at.
+3) Notifications must be based on ETA/dispatch windows (notify_at + dispatch_at).
+4) If tracking is lost (no location ping) for >60s, system alerts driver and flags to admin/dispatcher/clinic.
+5) Make it Capacitor-ready: add hooks and config for background location (native) while keeping PWA fallback.
+
+STEP 1 — Driver UI behavior
+Implement in driver client:
+- "Upcoming Reservations" list (accepted future trips)
+- Hide reserved trip from active screen until now >= dispatch_at
+- When now >= notify_at: show banner "Trip soon" + haptics
+- When now >= dispatch_at: move trip to Active Trip screen automatically
+
+STEP 2 — Backend dispatch trigger + idempotent notifications
+In scheduler (every 30-60s):
+For each trip assigned and not terminal:
+- if now >= notify_at and dispatch_stage='NONE':
+  emit WS event to driver + optional push/SMS: "Prep now" (do not change trip status)
+  set dispatch_stage='NOTIFIED'
+- if now >= dispatch_at and dispatch_stage IN ('NONE','NOTIFIED'):
+  set driver.availability_status='BUSY'
+  transition trip status -> EN_ROUTE_TO_PICKUP (use existing transition function)
+  emit WS event "DISPATCH_NOW"
+  set dispatch_stage='DISPATCHED'
+
+All must be idempotent (retries safe).
+
+STEP 3 — Tracking health (loss detection)
+Driver app sends location ping every 10-15 seconds when in foreground.
+Backend stores:
+- drivers.last_location_at, lat, lng
+Every 30s scheduler:
+- if now - last_location_at > 60s:
+   set drivers.tracking_status='STALE'
+   emit WS alert to driver: "Open app to keep tracking"
+   emit WS alert to dispatcher/admin/clinic for any active trips: "Tracking paused"
+- if ping resumes:
+   set tracking_status='OK' and emit "Tracking restored"
+
+STEP 4 — Capacitor readiness plan (do not break web)
+Add documentation + optional code path:
+- If running under Capacitor (window.Capacitor):
+  enable native background location (to be implemented with a background geolocation plugin later)
+- If web/PWA:
+  keep foreground-only tracking + stale alerts
+
+Also add UI copy that does not feel controlling:
+"Tracking helps the clinic prepare and reduces delays. Keep the app open during active windows."
+
+STEP 5 — Verification scripts
+Provide:
+- test scenario: driver accepts trip 2 hours ahead -> stays AVAILABLE
+- at notify_at -> receives banner
+- at dispatch_at -> trip becomes active + driver BUSY + status EN_ROUTE_TO_PICKUP
+- simulate GPS stop -> after 60s -> driver + dispatcher alerts fired
+
+DELIVERABLES
+- files changed list
+- logs showing state transitions and notification idempotency
+- updated driver UI routes/components
