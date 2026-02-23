@@ -1507,4 +1507,16 @@ export function registerOpsRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.get("/api/ops/dispatch-simulate/:tripId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const tripId = parseInt(req.params.tripId);
+      if (isNaN(tripId)) return res.status(400).json({ ok: false, message: "Invalid trip ID" });
+      const { simulateDispatchFlow } = await import("./dispatchWindowEngine");
+      const result = await simulateDispatchFlow(tripId);
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, message: err.message });
+    }
+  });
 }

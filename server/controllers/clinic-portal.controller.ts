@@ -194,11 +194,34 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
       return false;
     });
 
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60_000);
+
+    const arrivingNext15 = activeTrips.filter(t => {
+      if (t.status !== "EN_ROUTE_TO_PICKUP" && t.status !== "EN_ROUTE_TO_DROPOFF" && t.status !== "PICKED_UP") return false;
+      if (t.lastEtaMinutes != null && t.lastEtaMinutes <= 15) return true;
+      return false;
+    });
+
+    const departedLast60 = allTodayIncludingTerminal.filter(t => {
+      if (t.status !== "ARRIVED_DROPOFF" && t.status !== "COMPLETED") return false;
+      if (t.arrivedDropoffAt) {
+        return new Date(t.arrivedDropoffAt).getTime() >= oneHourAgo.getTime();
+      }
+      return false;
+    });
+
+    const arrivedPickupLast60 = allTodayIncludingTerminal.filter(t => {
+      if (t.arrivedPickupAt) {
+        return new Date(t.arrivedPickupAt).getTime() >= oneHourAgo.getTime();
+      }
+      return false;
+    });
+
     const lateRisk = todayTrips.filter(t => {
       if (["COMPLETED", "CANCELLED", "NO_SHOW"].includes(t.status)) return false;
       if (t.lastEtaMinutes != null && t.estimatedArrivalTime) {
         const [h, m] = t.estimatedArrivalTime.split(":").map(Number);
-        const now = new Date();
         const arrivalTarget = new Date(now);
         arrivalTarget.setHours(h, m, 0, 0);
         const scheduledMinutesFromNow = (arrivalTarget.getTime() - now.getTime()) / 60000;
@@ -333,6 +356,9 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
         enRouteToClinic: enRouteToClinic.length,
         leavingClinic: leavingClinic.length,
         arrivalsNext60: arrivalsNext60.length,
+        arrivingNext15: arrivingNext15.length,
+        departedLast60: departedLast60.length,
+        arrivedPickupLast60: arrivedPickupLast60.length,
         lateRisk: lateRisk.length,
         noDriverAssigned: noDriverAssigned.length,
         completedToday: completedToday.length,

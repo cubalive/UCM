@@ -368,6 +368,69 @@ export async function computeEtaAndDispatchWindow(tripId: number): Promise<void>
   }));
 }
 
+export async function simulateDispatchFlow(tripId: number): Promise<any> {
+  const [trip] = await db.select().from(trips).where(eq(trips.id, tripId));
+  if (!trip) return { error: "Trip not found" };
+
+  const driverRow = trip.driverId ? await db.select().from(drivers).where(eq(drivers.id, trip.driverId)) : [];
+  const driver = driverRow.length > 0 ? driverRow[0] : null;
+
+  const now = new Date();
+  const log: string[] = [];
+
+  log.push(`Trip ${trip.publicId} (ID: ${trip.id})`);
+  log.push(`Status: ${trip.status}`);
+  log.push(`Dispatch stage: ${trip.dispatchStage}`);
+  log.push(`Scheduled: ${trip.scheduledDate} ${trip.pickupTime}`);
+
+  if (driver) {
+    log.push(`Driver: ${driver.firstName} ${driver.lastName} (ID: ${driver.id})`);
+    log.push(`Driver dispatch status: ${driver.dispatchStatus}`);
+    log.push(`Driver availability: ${(driver as any).availabilityStatus ?? "N/A"}`);
+    log.push(`Driver remains Available until dispatch_at — confirmed: ${driver.dispatchStatus !== "enroute" && driver.dispatchStatus !== "busy"}`);
+  } else {
+    log.push("No driver assigned");
+  }
+
+  if (trip.dispatchAt) {
+    const dispatchAt = new Date(trip.dispatchAt);
+    const notifyAt = trip.notifyAt ? new Date(trip.notifyAt) : null;
+    log.push(`dispatch_at: ${dispatchAt.toISOString()}`);
+    log.push(`notify_at: ${notifyAt?.toISOString() ?? "N/A"}`);
+    log.push(`eta_driver_to_pickup_min: ${(trip as any).etaDriverToPickupMin ?? "N/A"}`);
+    log.push(`service_buffer_min: ${(trip as any).serviceBufferMin ?? "N/A"}`);
+
+    if (notifyAt && now >= notifyAt && trip.dispatchStage === "NONE") {
+      log.push(`⏰ notify_at has passed — will transition to NOTIFIED on next scheduler cycle`);
+    }
+    if (now >= dispatchAt && trip.status === "ASSIGNED") {
+      log.push(`🚀 dispatch_at has passed — will transition ASSIGNED → EN_ROUTE_TO_PICKUP on next scheduler cycle`);
+      log.push(`Driver will be set to Busy / On Trip at dispatch time`);
+    }
+    if (now < dispatchAt) {
+      const minutesUntilDispatch = Math.round((dispatchAt.getTime() - now.getTime()) / 60_000);
+      log.push(`⏳ ${minutesUntilDispatch} min until dispatch`);
+    }
+  } else {
+    log.push("No dispatch_at computed yet");
+  }
+
+  return {
+    tripId: trip.id,
+    publicId: trip.publicId,
+    status: trip.status,
+    dispatchStage: trip.dispatchStage,
+    driverId: trip.driverId,
+    driverStatus: driver?.dispatchStatus ?? null,
+    driverAvailability: (driver as any)?.availabilityStatus ?? null,
+    dispatchAt: trip.dispatchAt?.toISOString() ?? null,
+    notifyAt: trip.notifyAt?.toISOString() ?? null,
+    etaDriverToPickupMin: (trip as any).etaDriverToPickupMin ?? null,
+    serviceBufferMin: (trip as any).serviceBufferMin ?? null,
+    log,
+  };
+}
+
 export function startDispatchWindowScheduler() {
   if (!ENABLED) {
     console.log("[DISPATCH-WINDOW] Disabled via DISPATCH_WINDOW_ENABLED=false");
