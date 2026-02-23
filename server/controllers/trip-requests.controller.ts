@@ -95,6 +95,24 @@ export async function clinicListTripRequests(req: AuthRequest, res: Response) {
         clinicId = qClinicId;
       }
     }
+
+    if (!clinicId && ["COMPANY_ADMIN", "ADMIN"].includes(req.user!.role)) {
+      const companyId = req.user!.companyId;
+      if (companyId) {
+        const status = req.query.status as string | undefined;
+        const conditions = [eq(tripRequests.companyId, companyId)];
+        if (status) {
+          conditions.push(eq(tripRequests.status, status as any));
+        }
+        const requests = await db.select().from(tripRequests)
+          .where(and(...conditions))
+          .orderBy(desc(tripRequests.createdAt))
+          .limit(200);
+        const enriched = await enrichTripRequests(requests);
+        return res.json(enriched);
+      }
+    }
+
     if (!clinicId) return res.status(403).json({ message: "Clinic scope required" });
 
     const status = req.query.status as string | undefined;
@@ -131,10 +149,22 @@ export async function clinicGetTripRequest(req: AuthRequest, res: Response) {
         clinicId = qClinicId;
       }
     }
-    if (!clinicId) return res.status(403).json({ message: "Clinic scope required" });
 
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    if (!clinicId && ["COMPANY_ADMIN", "ADMIN"].includes(req.user!.role)) {
+      const companyId = req.user!.companyId;
+      if (companyId) {
+        const [request] = await db.select().from(tripRequests)
+          .where(and(eq(tripRequests.id, id), eq(tripRequests.companyId, companyId)));
+        if (!request) return res.status(404).json({ message: "Trip request not found" });
+        const [enriched] = await enrichTripRequests([request]);
+        return res.json(enriched);
+      }
+    }
+
+    if (!clinicId) return res.status(403).json({ message: "Clinic scope required" });
 
     const [request] = await db.select().from(tripRequests)
       .where(and(eq(tripRequests.id, id), eq(tripRequests.clinicId, clinicId)));
@@ -151,14 +181,22 @@ export async function clinicGetTripRequest(req: AuthRequest, res: Response) {
 
 export async function clinicCancelTripRequest(req: AuthRequest, res: Response) {
   try {
-    const clinicId = getClinicScopeId(req);
-    if (!clinicId) return res.status(403).json({ message: "Clinic scope required" });
+    let clinicId = getClinicScopeId(req);
 
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
+    let scopeConditions;
+    if (!clinicId && ["COMPANY_ADMIN", "ADMIN"].includes(req.user!.role) && req.user!.companyId) {
+      scopeConditions = and(eq(tripRequests.id, id), eq(tripRequests.companyId, req.user!.companyId));
+    } else if (clinicId) {
+      scopeConditions = and(eq(tripRequests.id, id), eq(tripRequests.clinicId, clinicId));
+    } else {
+      return res.status(403).json({ message: "Clinic scope required" });
+    }
+
     const [request] = await db.select().from(tripRequests)
-      .where(and(eq(tripRequests.id, id), eq(tripRequests.clinicId, clinicId)));
+      .where(scopeConditions);
 
     if (!request) return res.status(404).json({ message: "Trip request not found" });
     if (request.status === "APPROVED" || request.status === "CANCELLED") {

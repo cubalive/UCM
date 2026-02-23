@@ -1,6 +1,9 @@
 import type { Response, NextFunction } from "express";
 import type { AuthRequest } from "../auth";
 import { CLINIC_SCOPED_ROLES } from "../auth";
+import { db } from "../db";
+import { clinics } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 export function requireClinicScope(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) {
@@ -24,6 +27,25 @@ export function requireClinicScope(req: AuthRequest, res: Response, next: NextFu
   }
 
   if (["ADMIN", "COMPANY_ADMIN", "DISPATCH"].includes(req.user.role)) {
+    if (!req.user.clinicId && req.user.companyId) {
+      db.select({ id: clinics.id })
+        .from(clinics)
+        .where(eq(clinics.companyId, req.user.companyId))
+        .limit(1)
+        .then((rows) => {
+          if (rows.length > 0) {
+            (req as any).clinicScopeId = rows[0].id;
+            (req as any).clinicCompanyId = req.user!.companyId;
+          }
+          next();
+        })
+        .catch(() => next());
+      return;
+    }
+    if (req.user.clinicId) {
+      (req as any).clinicScopeId = req.user.clinicId;
+      (req as any).clinicCompanyId = req.user.companyId;
+    }
     return next();
   }
 

@@ -43,16 +43,17 @@ async function getActorClinicContext(req: AuthRequest, res: Response): Promise<{
     res.status(401).json({ message: "Unauthorized" });
     return null;
   }
-  if (!actor.clinicId) {
+  const clinicId = actor.clinicId || (req as any).clinicScopeId || null;
+  if (!clinicId) {
     res.status(403).json({ message: "Clinic context required" });
     return null;
   }
-  const companyId = await getClinicCompanyId(actor.clinicId);
+  const companyId = await getClinicCompanyId(clinicId);
   if (!companyId) {
     res.status(403).json({ message: "Clinic not associated with a company" });
     return null;
   }
-  return { clinicId: actor.clinicId, companyId };
+  return { clinicId, companyId };
 }
 
 export async function listTariffsHandler(req: AuthRequest, res: Response) {

@@ -4,6 +4,11 @@ import { type AuthRequest } from "../auth";
 import { db } from "../db";
 import { trips, patients, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities } from "@shared/schema";
 import { eq, and, isNull, inArray, desc, gte, sql, or } from "drizzle-orm";
+import { getClinicScopeId } from "../middleware/requireClinicScope";
+
+function resolveClinicId(req: AuthRequest, user: any): number | null {
+  return user?.clinicId || getClinicScopeId(req) || null;
+}
 
 function getTodayInTimezone(tz: string): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: tz });
@@ -131,9 +136,10 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
-    const clinic = await storage.getClinic(user.clinicId);
+    const clinic = await storage.getClinic(effectiveClinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
     const clinicTz = await getClinicTimezone((clinic as any).cityId);
@@ -142,7 +148,7 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
     const LATE_THRESHOLD_MINUTES = 10;
 
     const clinicTrips = await db.select().from(trips).where(
-      and(eq(trips.clinicId, user.clinicId), isNull(trips.deletedAt))
+      and(eq(trips.clinicId, effectiveClinicId), isNull(trips.deletedAt))
     );
 
     const todayTrips = clinicTrips.filter(t => t.scheduledDate === todayDate);
@@ -207,7 +213,7 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
     const noShowsToday = todayTrips.filter(t => t.status === "NO_SHOW");
 
     const clinicPatientIds = await db.select({ id: patients.id }).from(patients).where(
-      and(eq(patients.clinicId, user.clinicId), eq(patients.active, true), isNull(patients.deletedAt))
+      and(eq(patients.clinicId, effectiveClinicId), eq(patients.active, true), isNull(patients.deletedAt))
     );
     const patientIds = clinicPatientIds.map(p => p.id);
     let recurringActiveCount = 0;
@@ -339,10 +345,10 @@ export async function clinicActiveTripsHandler(req: AuthRequest, res: Response) 
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (user.role !== "CLINIC_USER") return res.status(403).json({ message: "Access denied: clinic users only" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
-    const clinic = await storage.getClinic(user.clinicId);
+    const clinic = await storage.getClinic(effectiveClinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
     const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"];
@@ -350,7 +356,7 @@ export async function clinicActiveTripsHandler(req: AuthRequest, res: Response) 
 
     const clinicTrips = await db.select().from(trips).where(
       and(
-        eq(trips.clinicId, user.clinicId),
+        eq(trips.clinicId, effectiveClinicId),
         inArray(trips.status, ACTIVE_STATUSES as any),
         isNull(trips.deletedAt),
       )
@@ -480,7 +486,8 @@ export async function clinicMetricsHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
     const now = new Date();
     const endDate = req.query.endDate as string || now.toISOString().split("T")[0];
@@ -489,7 +496,7 @@ export async function clinicMetricsHandler(req: AuthRequest, res: Response) {
 
     const clinicTrips = await db.select().from(trips).where(
       and(
-        eq(trips.clinicId, user.clinicId),
+        eq(trips.clinicId, effectiveClinicId),
         isNull(trips.deletedAt),
         gte(trips.scheduledDate, startDate),
         sql`${trips.scheduledDate} <= ${endDate}`,
@@ -584,14 +591,15 @@ export async function clinicMapHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
     const CLINIC_MAP_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF"];
     const PRESENCE_TIMEOUT = 120_000;
 
     const clinicTrips = await db.select().from(trips).where(
       and(
-        eq(trips.clinicId, user.clinicId),
+        eq(trips.clinicId, effectiveClinicId),
         inArray(trips.status, CLINIC_MAP_STATUSES as any),
         isNull(trips.deletedAt),
       )
@@ -665,7 +673,9 @@ export async function clinicMapHandler(req: AuthRequest, res: Response) {
 export async function clinicTripsExportHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || !user.clinicId) {
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) {
       return res.status(403).json({ message: "No clinic linked to this account" });
     }
 
@@ -676,7 +686,7 @@ export async function clinicTripsExportHandler(req: AuthRequest, res: Response) 
     }
 
     const conditions: any[] = [
-      eq(trips.clinicId, user.clinicId),
+      eq(trips.clinicId, effectiveClinicId),
       isNull(trips.deletedAt),
       gte(trips.scheduledDate, startDate),
     ];
@@ -717,7 +727,7 @@ export async function clinicTripsHandler(req: AuthRequest, res: Response) {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    let clinicId = user.clinicId;
+    let clinicId = resolveClinicId(req, user);
     if (!clinicId && req.query.clinicId) {
       const qClinicId = parseInt(req.query.clinicId as string);
       if (!isNaN(qClinicId)) {
@@ -792,7 +802,7 @@ export async function clinicTripByIdHandler(req: AuthRequest, res: Response) {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    let clinicId = user.clinicId;
+    let clinicId = resolveClinicId(req, user);
     if (!clinicId && req.query.clinicId) {
       const qClinicId = parseInt(req.query.clinicId as string);
       if (!isNaN(qClinicId)) {
@@ -898,13 +908,14 @@ export async function clinicTripPdfHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
     const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
-    if (trip.clinicId !== user.clinicId) return res.status(404).json({ message: "Trip not found" });
+    if (trip.clinicId !== effectiveClinicId) return res.status(404).json({ message: "Trip not found" });
 
     const [enriched] = await enrichTripsWithRelations([trip]);
     const clinic = trip.clinicId ? await storage.getClinic(trip.clinicId) : null;
@@ -930,13 +941,14 @@ export async function clinicTripTrackingHandler(req: AuthRequest, res: Response)
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked to this account" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked to this account" });
 
     const tripId = parseInt(String(req.params.id));
     if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
-    if (trip.clinicId !== user.clinicId) {
+    if (trip.clinicId !== effectiveClinicId) {
       return res.status(404).json({ message: "Trip not found" });
     }
 
@@ -1036,11 +1048,12 @@ export async function clinicInvoicesHandler(req: AuthRequest, res: Response) {
       return res.json(filtered);
     }
 
-    if (!user.clinicId) {
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) {
       return res.status(403).json({ message: "No clinic linked to this account" });
     }
 
-    const clinicInvoices = await storage.getInvoices(user.clinicId);
+    const clinicInvoices = await storage.getInvoices(effectiveClinicId);
     res.json(clinicInvoices);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -1078,7 +1091,8 @@ export async function clinicInvoiceByIdHandler(req: AuthRequest, res: Response) 
       return res.json(invoice);
     }
 
-    if (!user.clinicId || user.clinicId !== invoice.clinicId) {
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId || effectiveClinicId !== invoice.clinicId) {
       return denyAsNotFound(res, "Invoice");
     }
 
@@ -1091,17 +1105,19 @@ export async function clinicInvoiceByIdHandler(req: AuthRequest, res: Response) 
 export async function clinicDeletePatientHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || (user.role !== "VIEWER" && user.role !== "CLINIC_USER") || !user.clinicId) {
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
     const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const patient = await storage.getPatient(id);
     if (!patient) return res.status(404).json({ message: "Patient not found" });
-    if (patient.clinicId !== user.clinicId) {
+    if (patient.clinicId !== effectiveClinicId) {
       return denyAsNotFound(res, "Patient");
     }
-    const clinic = await storage.getClinic(user.clinicId);
+    const clinic = await storage.getClinic(effectiveClinicId);
     if (clinic?.companyId && patient.companyId !== clinic.companyId) {
       return denyAsNotFound(res, "Patient");
     }
@@ -1126,17 +1142,19 @@ export async function clinicDeletePatientHandler(req: AuthRequest, res: Response
 export async function clinicDeleteTripHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || (user.role !== "VIEWER" && user.role !== "CLINIC_USER") || !user.clinicId) {
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
     const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const trip = await storage.getTrip(id);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
-    if (trip.clinicId !== user.clinicId) {
+    if (trip.clinicId !== effectiveClinicId) {
       return denyAsNotFound(res, "Trip");
     }
-    const clinic = await storage.getClinic(user.clinicId);
+    const clinic = await storage.getClinic(effectiveClinicId);
     if (clinic?.companyId && trip.companyId !== clinic.companyId) {
       return denyAsNotFound(res, "Trip");
     }
@@ -1161,13 +1179,15 @@ export async function clinicDeleteTripHandler(req: AuthRequest, res: Response) {
 export async function clinicPatientsHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || (user.role !== "VIEWER" && user.role !== "CLINIC_USER") || !user.clinicId) {
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
-    const clinic = await storage.getClinic(user.clinicId);
+    const clinic = await storage.getClinic(effectiveClinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
     const conditions: any[] = [
-      eq(patients.clinicId, user.clinicId),
+      eq(patients.clinicId, effectiveClinicId),
       eq(patients.active, true),
       isNull(patients.deletedAt),
     ];
@@ -1186,8 +1206,10 @@ export async function clinicPatientsHandler(req: AuthRequest, res: Response) {
 export async function clinicProfileHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || !user.clinicId) return res.status(403).json({ message: "No clinic linked" });
-    const clinic = await storage.getClinic(user.clinicId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+    const clinic = await storage.getClinic(effectiveClinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
     res.json(clinic);
   } catch (err: any) {
@@ -1209,16 +1231,17 @@ export async function clinicInboundLiveHandler(req: AuthRequest, res: Response) 
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
 
-    const clinic = await storage.getClinic(user.clinicId);
+    const clinic = await storage.getClinic(effectiveClinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
     const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
 
     const clinicTrips = await db.select().from(trips).where(
       and(
-        eq(trips.clinicId, user.clinicId),
+        eq(trips.clinicId, effectiveClinicId),
         inArray(trips.status, ACTIVE_STATUSES as any),
         isNull(trips.deletedAt),
       )
@@ -1306,9 +1329,10 @@ export async function clinicAlertInputsHandler(req: AuthRequest, res: Response) 
   try {
     const user = await storage.getUser(req.user!.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!user.clinicId) return res.status(403).json({ message: "No clinic linked" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
 
-    const clinic = await storage.getClinic(user.clinicId);
+    const clinic = await storage.getClinic(effectiveClinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
     const alertTz = await getClinicTimezone((clinic as any).cityId);
@@ -1317,7 +1341,7 @@ export async function clinicAlertInputsHandler(req: AuthRequest, res: Response) 
 
     const clinicTrips = await db.select().from(trips).where(
       and(
-        eq(trips.clinicId, user.clinicId),
+        eq(trips.clinicId, effectiveClinicId),
         isNull(trips.deletedAt),
       )
     );
@@ -1499,11 +1523,13 @@ export async function clinicAlertInputsHandler(req: AuthRequest, res: Response) 
 export async function clinicRecurringSchedulesHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user || (user.role !== "VIEWER" && user.role !== "CLINIC_USER") || !user.clinicId) {
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) {
       return res.status(403).json({ message: "Only clinic users can use this endpoint" });
     }
     const clinicPatientIds = await db.select({ id: patients.id }).from(patients).where(
-      and(eq(patients.clinicId, user.clinicId), eq(patients.active, true), isNull(patients.deletedAt))
+      and(eq(patients.clinicId, effectiveClinicId), eq(patients.active, true), isNull(patients.deletedAt))
     );
     const patientIds = clinicPatientIds.map(p => p.id);
     if (patientIds.length === 0) return res.json([]);
@@ -1526,9 +1552,11 @@ async function checkClinicFeatureEnabled(clinicId: number, featureKey: string): 
 export async function clinicForecastHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user?.clinicId) return res.status(403).json({ message: "No clinic linked" });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
 
-    const enabled = await checkClinicFeatureEnabled(user.clinicId, "clinic_intelligence_pack");
+    const enabled = await checkClinicFeatureEnabled(effectiveClinicId, "clinic_intelligence_pack");
     if (!enabled) {
       return res.status(403).json({
         ok: false,
@@ -1538,7 +1566,7 @@ export async function clinicForecastHandler(req: AuthRequest, res: Response) {
     }
 
     const horizon = Math.min(parseInt(req.query.horizon as string) || 180, 360);
-    const forecast = await getClinicForecast(user.clinicId, horizon);
+    const forecast = await getClinicForecast(effectiveClinicId, horizon);
 
     const next60 = forecast.filter(b => {
       const [h, m] = b.bucketStart.split(":").map(Number);
@@ -1570,9 +1598,11 @@ export async function clinicForecastHandler(req: AuthRequest, res: Response) {
 export async function clinicCapacityForecastHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user?.clinicId) return res.status(403).json({ message: "No clinic linked" });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
 
-    const enabled = await checkClinicFeatureEnabled(user.clinicId, "clinic_intelligence_pack");
+    const enabled = await checkClinicFeatureEnabled(effectiveClinicId, "clinic_intelligence_pack");
     if (!enabled) {
       return res.status(403).json({
         ok: false,
@@ -1581,10 +1611,10 @@ export async function clinicCapacityForecastHandler(req: AuthRequest, res: Respo
       });
     }
 
-    const forecast = await getClinicForecast(user.clinicId);
-    const capacity = await getClinicCapacityForecast(user.clinicId, forecast);
+    const forecast = await getClinicForecast(effectiveClinicId);
+    const capacity = await getClinicCapacityForecast(effectiveClinicId, forecast);
 
-    try { await saveClinicForecastSnapshot(user.clinicId); } catch (_) {}
+    try { await saveClinicForecastSnapshot(effectiveClinicId); } catch (_) {}
 
     res.json({ ok: true, ...capacity });
   } catch (err: any) {
@@ -1595,9 +1625,11 @@ export async function clinicCapacityForecastHandler(req: AuthRequest, res: Respo
 export async function clinicFeatureStatusHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
-    if (!user?.clinicId) return res.status(403).json({ message: "No clinic linked" });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
 
-    const features = await db.select().from(clinicFeatures).where(eq(clinicFeatures.clinicId, user.clinicId));
+    const features = await db.select().from(clinicFeatures).where(eq(clinicFeatures.clinicId, effectiveClinicId));
     const featureMap: Record<string, { enabled: boolean; plan: string | null; priceCents: number | null }> = {};
     for (const f of features) {
       featureMap[f.featureKey] = { enabled: f.enabled, plan: f.plan, priceCents: f.priceCents };

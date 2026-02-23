@@ -2,6 +2,7 @@ import { Router, type Express } from "express";
 import { authMiddleware, requirePermission, requireRole } from "../auth";
 import { requireTenantScope } from "../middleware";
 import { requireSubscription } from "../middleware/requireSubscription";
+import { requireClinicScope } from "../middleware/requireClinicScope";
 import {
   listTariffsHandler,
   createTariffHandler,
@@ -46,13 +47,13 @@ router.post("/api/company/billing/invoices/batch-finalize", authMiddleware, requ
 router.post("/api/company/billing/invoices/:id/finalize", authMiddleware, requirePermission("billing", "write"), requireTenantScope, finalizeInvoiceHandler as any);
 router.get("/api/company/billing/invoices", authMiddleware, requirePermission("billing", "read"), requireTenantScope, companyListInvoicesHandler as any);
 
-router.get("/api/clinic/billing/invoices", authMiddleware, requirePermission("billing", "read"), clinicListInvoicesHandler as any);
-router.get("/api/clinic/billing/invoices/:id", authMiddleware, requirePermission("billing", "read"), clinicGetInvoiceHandler as any);
-router.get("/api/clinic/billing/invoices/:id/export.csv", authMiddleware, requirePermission("billing", "read"), clinicExportInvoiceCsvHandler as any);
-router.get("/api/clinic/billing/invoices/:id/export.json", authMiddleware, requirePermission("billing", "read"), clinicExportInvoiceJsonHandler as any);
-router.post("/api/clinic/billing/invoices/:id/pay", authMiddleware, requirePermission("billing", "read"), clinicPayInvoiceHandler as any);
+router.get("/api/clinic/billing/invoices", authMiddleware, requirePermission("billing", "read"), requireClinicScope as any, clinicListInvoicesHandler as any);
+router.get("/api/clinic/billing/invoices/:id", authMiddleware, requirePermission("billing", "read"), requireClinicScope as any, clinicGetInvoiceHandler as any);
+router.get("/api/clinic/billing/invoices/:id/export.csv", authMiddleware, requirePermission("billing", "read"), requireClinicScope as any, clinicExportInvoiceCsvHandler as any);
+router.get("/api/clinic/billing/invoices/:id/export.json", authMiddleware, requirePermission("billing", "read"), requireClinicScope as any, clinicExportInvoiceJsonHandler as any);
+router.post("/api/clinic/billing/invoices/:id/pay", authMiddleware, requirePermission("billing", "read"), requireClinicScope as any, clinicPayInvoiceHandler as any);
 
-router.get("/api/clinic/dispatch-contact", authMiddleware, getDispatchContactHandler as any);
+router.get("/api/clinic/dispatch-contact", authMiddleware, requireClinicScope as any, getDispatchContactHandler as any);
 
 router.post("/api/clinic/support/thread", authMiddleware, requirePermission("support", "write"), clinicCreateSupportThreadHandler as any);
 router.get("/api/clinic/support/thread", authMiddleware, requirePermission("support", "read"), clinicGetSupportThreadHandler as any);
