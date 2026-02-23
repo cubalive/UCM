@@ -827,6 +827,9 @@ app.use((req, res, next) => {
       console.log("[BOOT] Starting orchestrator...");
       const { startOrchestrator } = await import("./orchestrator");
       await startOrchestrator();
+      if (process.env.NODE_ENV === "production") {
+        console.log(JSON.stringify({ event: "orchestrator_boot_prod", ts: new Date().toISOString() }));
+      }
       console.log("[BOOT] Orchestrator start attempted.");
 
       console.log("[BOOT] Starting routes worker...");
