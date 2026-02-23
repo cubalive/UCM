@@ -203,6 +203,41 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
       return false;
     });
 
+    const departingNext15 = activeTrips.filter(t => {
+      if (!isFromClinic(t)) return false;
+      if (t.status !== "EN_ROUTE_TO_PICKUP" && t.status !== "ARRIVED_PICKUP" && t.status !== "ASSIGNED") return false;
+      if (t.pickupTime) {
+        const [h, m] = t.pickupTime.split(":").map(Number);
+        const pickupTarget = new Date(now);
+        pickupTarget.setHours(h, m, 0, 0);
+        const diffMin = (pickupTarget.getTime() - now.getTime()) / 60000;
+        return diffMin >= 0 && diffMin <= 15;
+      }
+      return false;
+    });
+
+    const departuresLast60 = allTodayIncludingTerminal.filter(t => {
+      if (!isFromClinic(t)) return false;
+      if (t.pickedUpAt) {
+        return new Date(t.pickedUpAt).getTime() >= oneHourAgo.getTime();
+      }
+      return false;
+    });
+
+    const arrivalsToClinicNext15 = activeTrips.filter(t => {
+      if (!isToClinic(t)) return false;
+      if (t.lastEtaMinutes != null && t.lastEtaMinutes <= 15) return true;
+      return false;
+    });
+
+    const arrivalsToClinicLast60 = allTodayIncludingTerminal.filter(t => {
+      if (!isToClinic(t)) return false;
+      if (t.arrivedDropoffAt) {
+        return new Date(t.arrivedDropoffAt).getTime() >= oneHourAgo.getTime();
+      }
+      return false;
+    });
+
     const departedLast60 = allTodayIncludingTerminal.filter(t => {
       if (t.status !== "ARRIVED_DROPOFF" && t.status !== "COMPLETED") return false;
       if (t.arrivedDropoffAt) {
@@ -358,6 +393,10 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
         arrivalsNext60: arrivalsNext60.length,
         arrivingNext15: arrivingNext15.length,
         departedLast60: departedLast60.length,
+        departingNext15: departingNext15.length,
+        departuresLast60: departuresLast60.length,
+        arrivalsToClinicNext15: arrivalsToClinicNext15.length,
+        arrivalsToClinicLast60: arrivalsToClinicLast60.length,
         arrivedPickupLast60: arrivedPickupLast60.length,
         lateRisk: lateRisk.length,
         noDriverAssigned: noDriverAssigned.length,

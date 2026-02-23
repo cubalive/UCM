@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { trips, drivers, companies, patients, autoAssignRuns, autoAssignRunCandidates, automationEvents } from "@shared/schema";
+import { trips, drivers, companies, patients, autoAssignRuns, autoAssignRunCandidates, automationEvents, isVehicleCompatible } from "@shared/schema";
 import { eq, and, inArray, isNull, sql, ne, gte, lte } from "drizzle-orm";
 import { checkTripFeasibility } from "./tripFeasibility";
 
@@ -178,6 +178,21 @@ export async function scoreDriversForTrip(
       if (!isPreferred || gpsAge > 3600) {
         eligible = false;
         ineligibleReason = `GPS stale (${Math.round(gpsAge)}s ago)`;
+      }
+    }
+
+    if (eligible && !isVehicleCompatible(trip.mobilityRequirement, driver.vehicleCapability)) {
+      eligible = false;
+      ineligibleReason = `Vehicle incompatible (${driver.vehicleCapability} vs ${trip.mobilityRequirement})`;
+    }
+
+    if (eligible && driver.preferredServiceTypes && driver.preferredServiceTypes.length > 0) {
+      if (!driver.preferredServiceTypes.includes(trip.mobilityRequirement)) {
+        const isPreferred = driver.id === patientPreferredDriverId || driver.id === tripPreferredDriverId;
+        if (!isPreferred) {
+          eligible = false;
+          ineligibleReason = `Service type mismatch (driver: ${driver.preferredServiceTypes.join(",")} vs trip: ${trip.mobilityRequirement})`;
+        }
       }
     }
 

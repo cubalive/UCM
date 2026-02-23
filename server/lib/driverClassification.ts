@@ -47,9 +47,15 @@ export function isDriverPaused(d: { dispatchStatus: string | null; lastSeenAt: s
   return elapsed > ONLINE_CUTOFF_MS;
 }
 
+const BUSY_STATUSES = new Set([
+  "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP",
+  "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS",
+]);
+
 export function classifyDriverGroup(
   d: { dispatchStatus: string | null; lastSeenAt: string | Date | null },
-  hasActiveTrip: boolean
+  hasActiveTrip: boolean,
+  activeTripStatus?: string | null,
 ): DriverGroup {
   if (d.dispatchStatus === "off") return "logged_out";
 
@@ -61,7 +67,9 @@ export function classifyDriverGroup(
   }
 
   if (d.dispatchStatus === "hold") return "hold";
-  if (hasActiveTrip || d.dispatchStatus === "enroute") return "on_trip";
+
+  const isBusy = activeTripStatus ? BUSY_STATUSES.has(activeTripStatus) : hasActiveTrip;
+  if (isBusy || d.dispatchStatus === "enroute") return "on_trip";
   if (d.dispatchStatus === "available") return "available";
   return "logged_out";
 }
@@ -79,7 +87,7 @@ export function classifyDrivers(
     const vehicle = d.vehicleId ? vehicleMap.get(d.vehicleId) : null;
     const activeTrip = activeTripsMap.get(d.id);
     const online = isDriverOnline(d);
-    const group = classifyDriverGroup(d, !!activeTrip);
+    const group = classifyDriverGroup(d, !!activeTrip, activeTrip?.status);
 
     const driverObj: ClassifiedDriver = {
       id: d.id,
@@ -99,7 +107,7 @@ export function classifyDrivers(
       active_trip_status: activeTrip?.status || null,
       cityId: d.cityId,
       group,
-      operational_status: computeOperationalLabel(group, !!activeTrip),
+      operational_status: computeOperationalLabel(group, !!activeTrip, activeTrip?.status),
       today_trip_count: todayTripCounts?.get(d.id) ?? 0,
       performance_score: performanceScores?.get(d.id) ?? null,
     };
@@ -138,9 +146,10 @@ export function isDriverVisibleOnMap(d: { dispatchStatus: string | null; lastSee
 export function computeOperationalLabel(
   group: DriverGroup,
   hasActiveTrip: boolean,
+  activeTripStatus?: string | null,
 ): "AVAILABLE" | "BUSY" | "OFFLINE" {
-  if (hasActiveTrip) return "BUSY";
   if (group === "on_trip") return "BUSY";
+  if (hasActiveTrip && activeTripStatus && BUSY_STATUSES.has(activeTripStatus)) return "BUSY";
   if (group === "available") return "AVAILABLE";
   return "OFFLINE";
 }

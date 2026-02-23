@@ -10,6 +10,8 @@ export interface DriverOperationalResult {
   activeTripPublicId: string | null;
   dispatchStatus: string | null;
   lastSeenAt: string | null;
+  reservedTripId: number | null;
+  reservedTripPublicId: string | null;
 }
 
 const ONLINE_CUTOFF_MS = 90_000;
@@ -17,6 +19,15 @@ const CACHE_TTL_MS = 15_000;
 
 const ACTIVE_TRIP_STATUSES = new Set([
   "ASSIGNED",
+  "EN_ROUTE_TO_PICKUP",
+  "ARRIVED_PICKUP",
+  "PICKED_UP",
+  "EN_ROUTE_TO_DROPOFF",
+  "ARRIVED_DROPOFF",
+  "IN_PROGRESS",
+]);
+
+const BUSY_TRIP_STATUSES = new Set([
   "EN_ROUTE_TO_PICKUP",
   "ARRIVED_PICKUP",
   "PICKED_UP",
@@ -36,11 +47,13 @@ export async function computeDriverOperationalStatus(driverId: number): Promise<
   }
 
   const activeTrips = await storage.getActiveTripsForDriver(driverId);
-  const activeTrip = activeTrips.find(t => ACTIVE_TRIP_STATUSES.has(t.status)) || null;
+  const busyTrip = activeTrips.find(t => BUSY_TRIP_STATUSES.has(t.status)) || null;
+  const activeTrip = busyTrip || activeTrips.find(t => ACTIVE_TRIP_STATUSES.has(t.status)) || null;
+  const reservedTrip = !busyTrip ? activeTrips.find(t => t.status === "ASSIGNED") || null : null;
 
   let status: OperationalStatus;
 
-  if (activeTrip) {
+  if (busyTrip) {
     status = "BUSY";
   } else if (driver.dispatchStatus === "off") {
     status = "OFFLINE";
@@ -56,13 +69,17 @@ export async function computeDriverOperationalStatus(driverId: number): Promise<
     ? (driver.lastSeenAt instanceof Date ? driver.lastSeenAt : new Date(String(driver.lastSeenAt)))
     : null;
 
+  const displayTrip = busyTrip || activeTrip;
+
   const result: DriverOperationalResult = {
     status,
-    activeTripId: activeTrip?.id || null,
-    activeTripStatus: activeTrip?.status || null,
-    activeTripPublicId: activeTrip?.publicId || null,
+    activeTripId: displayTrip?.id || null,
+    activeTripStatus: displayTrip?.status || null,
+    activeTripPublicId: displayTrip?.publicId || null,
     dispatchStatus: driver.dispatchStatus,
     lastSeenAt: lastSeenDate ? lastSeenDate.toISOString() : null,
+    reservedTripId: reservedTrip?.id || null,
+    reservedTripPublicId: reservedTrip?.publicId || null,
   };
 
   cache.set(cacheKey, result, CACHE_TTL_MS);

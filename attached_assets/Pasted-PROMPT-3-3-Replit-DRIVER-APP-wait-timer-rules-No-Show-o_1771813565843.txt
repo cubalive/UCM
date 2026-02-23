@@ -1,0 +1,76 @@
+PROMPT 3/3 (Replit) — DRIVER APP: wait timer rules + No-Show option at zero + “Arrived” activation reliability
+
+EXECUTION MODE: SINGLE AGENT ONLY
+We need the driver app behavior polished and correct:
+- “Arrived” button must activate when driver is at pickup (geofence) reliably.
+- Waiting timer: when it reaches 0, show two primary actions:
+   1) Extend Wait +5 min (one-tap)
+   2) Mark No-Show (with confirm + reason)
+Do NOT remove the existing “Extend” feature; make it smarter.
+Also fix: when driver arrives at patient address, the arrived button + waiting clock must activate (currently sometimes not).
+
+REQUIRED UX RULES
+1) Arrived button enabled only inside pickup geofence (default 150m, configurable per trip).
+2) When driver taps “Arrived at Pickup”:
+   - start wait timer immediately (default 10:00)
+   - show countdown and “Extend +5” button always visible
+3) When timer hits 00:00:
+   - show “Extend +5 min” AND “Mark No-Show” as visible options
+   - “Mark No-Show” must require confirm modal + reason preset (e.g., “Patient not present”, “Wrong address”, “Could not contact”)
+4) Extend rules:
+   - allow max 2 extensions by default (config)
+   - each extension adds +5 min
+   - timeline logs each extension with timestamp
+5) If driver is outside geofence, show helper text:
+   “Move closer to pickup to enable Arrived” + distance meters.
+
+BACKEND CHANGES (minimal, compatible)
+A) Add/confirm status transitions in shared/tripStateMachine.ts
+- Ensure statuses exist and are consistent:
+  ASSIGNED -> EN_ROUTE_TO_PICKUP -> ARRIVED_PICKUP -> ON_TRIP -> ARRIVED_DROPOFF -> COMPLETED
+  ARRIVED_PICKUP -> NO_SHOW allowed after wait expires (or with confirm)
+- Guard rules:
+  - ARRIVED_PICKUP requires within pickup geofence proof
+  - NO_SHOW requires ARRIVED_PICKUP and wait_timer_elapsed=true OR admin override
+
+B) Waiting timer storage (source of truth)
+- Add to trips:
+   wait_started_at timestamptz
+   wait_total_seconds int default 600
+   wait_extended_count int default 0
+   wait_max_extensions int default 2
+- Endpoint:
+  POST /api/driver/trips/:tripId/wait/start  (sets started_at)
+  POST /api/driver/trips/:tripId/wait/extend (adds +300s if below max)
+  POST /api/driver/trips/:tripId/no-show     (marks NO_SHOW with reason)
+All must be driver-scoped and idempotent.
+
+C) Fix “Arrived doesn’t activate”
+- Ensure driver app is using:
+  - driver’s latest location ping
+  - trip pickup canonical lat/lng
+- On the client, compute distance continuously (every 2–3s) using last known location
+- If location stale (>30s) show banner “Updating GPS…” and force a location ping call.
+- On server, when driver requests status change to ARRIVED_PICKUP:
+  - re-check distance using the last stored ping in DB (authoritative)
+  - return {allowed:boolean, distance_m} so UI can explain.
+
+FRONTEND DRIVER APP CHANGES
+- In driver Active Trip card:
+  - show Wait timer component only after ARRIVED_PICKUP
+  - show action buttons:
+    - Before ARRIVED_PICKUP: “Arrived at Pickup” disabled until geofence ok
+    - After ARRIVED_PICKUP:
+       Countdown + “Extend +5” button
+       When 0: “Extend +5” + “Mark No-Show”
+- Add haptics/sounds if already present.
+
+TEST CHECKLIST
+1) Driver within 50m: Arrived button enables; tapping starts timer at 10:00
+2) Timer reaches 0: shows Extend +5 and Mark No-Show (both)
+3) Extend increments count and adds 5 minutes; max 2 extensions
+4) No-Show requires confirm + reason; trip becomes NO_SHOW; timeline logs it
+5) Billing/admin sees no-show correctly
+6) If driver outside geofence, Arrived stays disabled and distance message shown
+
+Do it directly in code and verify end-to-end with at least one sample trip.

@@ -31,6 +31,7 @@ export const companies = pgTable("companies", {
   autoAssignWeightFatigue: integer("auto_assign_weight_fatigue").notNull().default(10),
   zeroTouchDialysisEnabled: boolean("zero_touch_dialysis_enabled").notNull().default(false),
   timezone: text("timezone").notNull().default("America/Los_Angeles"),
+  minGapMinutes: integer("min_gap_minutes").notNull().default(15),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
@@ -239,6 +240,8 @@ export const drivers = pgTable("drivers", {
   deleteReason: text("delete_reason"),
   availabilityStatus: text("availability_status").notNull().default("OFFLINE"),
   trackingStatus: text("tracking_status").notNull().default("UNKNOWN"),
+  homeCityId: integer("home_city_id").references(() => cities.id),
+  preferredServiceTypes: text("preferred_service_types").array(),
   updatedAt: timestamp("updated_at").defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
