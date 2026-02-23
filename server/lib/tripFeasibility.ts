@@ -1,8 +1,9 @@
 import { db } from "../db";
-import { trips, cities } from "@shared/schema";
+import { trips, cities, drivers, companies } from "@shared/schema";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
 const DEFAULT_SERVICE_BUFFER_MIN = 10;
+const DEFAULT_GAP_MINUTES = 15;
 const BUFFER_BY_MOBILITY: Record<string, number> = {
   WHEELCHAIR: 15,
   wheelchair: 15,
@@ -90,6 +91,15 @@ export async function checkTripFeasibility(
     return { feasible: true };
   }
 
+  let gapMinutes = DEFAULT_GAP_MINUTES;
+  try {
+    const [driverRow] = await db.select({ companyId: drivers.companyId }).from(drivers).where(eq(drivers.id, driverId)).limit(1);
+    if (driverRow) {
+      const [companyRow] = await db.select({ minGapMinutes: companies.minGapMinutes }).from(companies).where(eq(companies.id, driverRow.companyId)).limit(1);
+      if (companyRow?.minGapMinutes != null) gapMinutes = companyRow.minGapMinutes;
+    }
+  } catch {}
+
   const sameDate = candidateTrip.scheduledDate;
   const existingTrips = await db
     .select()
@@ -105,7 +115,7 @@ export async function checkTripFeasibility(
 
   if (existingTrips.length === 0) return { feasible: true };
 
-  const bufferMinCandidate = BUFFER_BY_MOBILITY[candidateTrip.mobilityRequirement] || DEFAULT_SERVICE_BUFFER_MIN;
+  const bufferMinCandidate = Math.max(BUFFER_BY_MOBILITY[candidateTrip.mobilityRequirement] || DEFAULT_SERVICE_BUFFER_MIN, gapMinutes);
   let candidateDurationMin = 30;
   if (candidateTrip.etaPickupToDropoffMin) {
     candidateDurationMin = candidateTrip.etaPickupToDropoffMin;
@@ -124,13 +134,15 @@ export async function checkTripFeasibility(
     const existingPickupDt = parseTripDateTime(existing.scheduledDate, existing.scheduledTime, existing.pickupTime, timezone);
     if (!existingPickupDt) continue;
 
-    const existingFinish = estimatedFinishAt(existing, timezone);
-    if (!existingFinish) continue;
+    const existingFinishRaw = estimatedFinishAt(existing, timezone);
+    if (!existingFinishRaw) continue;
+
+    const existingFinish = new Date(existingFinishRaw.getTime() + gapMinutes * 60_000);
 
     const existingDispatchAt = existing.dispatchAt ? new Date(existing.dispatchAt) : existingPickupDt;
 
-    const candidateStartsBeforeExistingEnds = candidateDispatchAt < existingFinish;
-    const existingStartsBeforeCandidateEnds = existingDispatchAt < candidateFinishAt;
+    const candidateStartsBeforeExistingEnds = candidateDispatchAt <= existingFinish;
+    const existingStartsBeforeCandidateEnds = existingDispatchAt <= candidateFinishAt;
 
     if (candidateStartsBeforeExistingEnds && existingStartsBeforeCandidateEnds) {
       return {

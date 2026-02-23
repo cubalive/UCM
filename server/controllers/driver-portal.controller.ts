@@ -559,11 +559,15 @@ export async function getDriverActiveTripHandler(req: AuthRequest, res: Response
     const trip = activeTrip[0];
     const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
 
+    const BUSY_STATUSES = new Set(["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"]);
+    const driverTripState = trip.status === "ASSIGNED" ? "RESERVED" : (BUSY_STATUSES.has(trip.status) ? "ACTIVE" : "IDLE");
+
     res.json({
       trip: {
         id: trip.id,
         publicId: trip.publicId,
         status: trip.status,
+        driverTripState,
         pickupAddress: trip.pickupAddress,
         pickupLat: trip.pickupLat,
         pickupLng: trip.pickupLng,
@@ -581,6 +585,8 @@ export async function getDriverActiveTripHandler(req: AuthRequest, res: Response
         waitingMinutes: trip.waitingMinutes,
         waitingEndedAt: trip.waitingEndedAt,
         waitingExtendCount: trip.waitingExtendCount,
+        dispatchAt: (trip as any).dispatchAt || null,
+        notifyAt: (trip as any).notifyAt || null,
       },
     });
   } catch (err: any) {
