@@ -7,7 +7,6 @@ import { broadcastToTrip } from "./realtime";
 import { broadcastTripSupabase } from "./supabaseRealtime";
 
 const ACTIVE_TRIP_STATUSES = [
-  "ASSIGNED",
   "EN_ROUTE_TO_PICKUP",
   "ARRIVED_PICKUP",
   "PICKED_UP",

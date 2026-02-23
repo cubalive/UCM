@@ -622,6 +622,12 @@ app.use((req, res, next) => {
     `);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trip_location_points_trip_ts ON trip_location_points(trip_id, ts)`);
 
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS dispatch_at TIMESTAMPTZ`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS notify_at TIMESTAMPTZ`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS dispatch_stage TEXT NOT NULL DEFAULT 'NONE'`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS planned_dropoff_arrival_at TIMESTAMPTZ`);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS eta_pickup_to_dropoff_min INTEGER`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);

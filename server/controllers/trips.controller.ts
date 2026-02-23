@@ -1189,9 +1189,9 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
     const updatedTrip = updated[0];
 
     if (updatedTrip.driverId) {
-      const activeStatuses = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "ARRIVED_DROPOFF"];
+      const inMotionStatuses = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS", "ARRIVED_DROPOFF"];
       const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
-      if (activeStatuses.includes(parsed.data.status)) {
+      if (inMotionStatuses.includes(parsed.data.status)) {
         db.update(drivers).set({ dispatchStatus: "enroute" }).where(eq(drivers.id, updatedTrip.driverId)).catch((err: any) => {
           console.error(`[DISPATCH] Failed to set driver ${updatedTrip.driverId} to enroute:`, err.message);
         });

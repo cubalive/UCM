@@ -1,0 +1,116 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+ROLE: Principal engineer for NEMT dispatch automation (Uber-grade), TypeScript, Express, Drizzle/Postgres, WebSockets, Google Routes.
+
+GOAL
+Implement "Approved = Assigned" dispatch automation with:
+- mandatory Round-Trip (or note) from Clinic Portal
+- recurring/patient preference driver logic
+- immediate auto-assign upon approve/confirm
+- driver reserved but NOT busy until dispatch_at
+- conflict-safe scheduling between trips
+- audit-friendly fields and reasons for fallback
+
+NON-NEGOTIABLE
+- Do NOT reset DB
+- Additive migrations only
+- Keep tenant/company/city scoping intact
+- Use existing status transition function/state machine (do not invent random statuses; only add minimal flags)
+
+STEP 1 — Additive schema updates (Drizzle + DB)
+Trips: add columns
+- is_round_trip boolean not null default false
+- return_required boolean not null default true
+- return_note text null
+- paired_trip_id uuid null  (link ida<->regreso)
+- preferred_driver_id uuid null (snapshot at creation/approval)
+- auto_assign_status text not null default 'PENDING'  -- PENDING|ASSIGNED|FAILED
+- auto_assign_reason text null
+- dispatch_at timestamptz null
+- notify_at timestamptz null
+- dispatch_stage text not null default 'NONE' -- NONE|NOTIFIED|DISPATCHED
+- eta_driver_to_pickup_min int null
+- eta_pickup_to_dropoff_min int null
+- service_buffer_min int not null default 10
+
+Drivers: add columns (if missing)
+- availability_status text not null default 'OFFLINE' -- OFFLINE|AVAILABLE|BUSY
+- last_location_at timestamptz null
+- last_location_lat double precision null
+- last_location_lng double precision null
+- tracking_status text not null default 'UNKNOWN' -- OK|STALE|OFF
+
+Patients: add columns (if missing)
+- is_frequent boolean not null default false
+- preferred_driver_id uuid null
+- default_pickup_place_id text null
+- default_dropoff_place_id text null
+
+Clinic portal form: enforce
+- Clinic must submit RETURN trip OR set return_required=false AND provide return_note (required)
+- Block Approve/Submit if neither return trip nor note is present.
+
+STEP 2 — Auto-assign engine (core)
+Create server/lib/autoAssignEngine.ts and a scheduler (every 30-60s) plus event-hook:
+Trigger auto-assign on:
+- trip created by clinic and marked APPROVED/CONFIRMED
+- any time trip is edited and still not terminal
+- periodic retry for PENDING/FAILED
+
+Auto-assign algorithm:
+Hard filters:
+- driver in same tenant/company/city scope
+- driver category supports service type (ambulatory/wheelchair)
+- driver availability_status != OFFLINE
+- driver has no time-conflict with existing assigned trips
+
+Priority order:
+1) Frequent patient preference: if patient.is_frequent=true AND patient.preferred_driver_id exists:
+   if feasible -> assign that driver; set auto_assign_reason='preferred_driver'
+2) Otherwise score all candidates with:
+   score = 0
+   + 1000 if driver matches preferred_driver_id snapshot
+   + 200 if driver clinic affinity high (based on past on-time for that clinic)
+   + 0..300 based on lower ETA driver->pickup
+   + 0..150 based on lower deadhead distance
+   + 0..200 based on driver performance (punctuality, cancel rate, compliance)
+   - big penalty if tracking_status != OK
+Pick highest score.
+
+Time conflict check:
+For each driver’s existing assigned trips on same day:
+- compute dispatch window for those trips (or approximate)
+- if overlap with candidate trip dispatch window -> conflict -> reject candidate
+
+On success:
+- set trip.driver_id
+- set trip.auto_assign_status='ASSIGNED'
+- set trip.auto_assign_reason with winner reason
+- do NOT mark driver BUSY unless now>=dispatch_at (handled later)
+
+On failure:
+- set auto_assign_status='FAILED' + reason ('no_candidates', 'all_conflicted', etc)
+- emit websocket event to dispatcher/admin for manual handling
+
+STEP 3 — Compute ETA + dispatch window fields (saved on trip)
+For any assigned trip:
+- compute eta_driver_to_pickup_min via Google Routes (driver last known location -> pickup)
+- set buffer:
+  wheelchair=15, ambulatory=10 (or use service_buffer_min per trip)
+- notify_lead=5
+- dispatch_at = scheduled_pickup_at - (eta_driver_to_pickup_min + buffer)
+- notify_at = dispatch_at - 5 minutes
+Persist these values.
+
+STEP 4 — Clinic Portal counters correctness
+TODAY’S TRIPS = scheduled today (not terminal)
+ACTIVE NOW = only in-motion statuses:
+EN_ROUTE_TO_PICKUP, ARRIVING_SOON, ARRIVED, WAITING, PICKED_UP, EN_ROUTE_TO_DROPOFF
+Never treat "ASSIGNED" as active.
+
+DELIVERABLES
+- migration + Drizzle schema updates
+- autoAssignEngine + hooks + scheduler
+- clinic portal validation for return trip/note
+- logs for one trip proving assignment happens immediately on approve
+- list of files changed

@@ -10,62 +10,32 @@ I prefer iterative development with a focus on clear, modular code. I appreciate
 The application follows a client-server architecture.
 
 **UI/UX Decisions:**
-- **Frontend**: Built with React, Vite, Tailwind CSS, and shadcn/ui.
-- **Color Scheme**: Emphasizes clarity and ease of use.
+- **Frontend**: Built with React, Vite, Tailwind CSS, and shadcn/ui, emphasizing clarity and ease of use.
 - **Live Maps**: Uber-like map views for drivers and live tracking for clinics.
 - **Admin Dashboards**: Comprehensive dashboards for operational oversight, financial metrics, and automation health.
 
 **Technical Implementations & Feature Specifications:**
-- **Authentication**: JWT-based with `bcryptjs` and Magic Link Login, supporting dual-auth (Bearer token + httpOnly session cookie).
-- **Authorization**: Centralized Permission-Based Access Control using a `ROLE_PERMISSIONS` matrix, enforcing clinic-scoped roles and user management.
-- **Data Management**: PostgreSQL with Drizzle ORM, multi-city data segregation, and a public ID system. US States/Cities master reference tables with cascading dropdowns and deduplication.
-- **Dispatch Engine**: Automated driver-vehicle and trip assignment, real-time tracking, ETA, and safety rule enforcement.
-- **Communication**: SMS notifications and branded email services.
-- **Location Services**: Google Maps integration for geocoding, autocomplete, ETA, route optimization, and live maps.
-- **Audit Logging**: Comprehensive logging of key system actions.
-- **Trip Management**: Public tracking links, clinic address enforcement, approval workflow, recurring trips, no-show/late tracking, and driver offer acceptance. Utilizes a deterministic state machine for robust trip status transitions.
-- **Patient Communication System**: Automated SMS notifications for various trip events with configurable geofencing and reminders.
-- **Server-Side Geofence Gating**: Proximity checks for driver status transitions (e.g., `ARRIVED_PICKUP`) with configurable radii and manual override capabilities.
-- **Waiting Timer**: Automatic patient waiting countdown, configurable per company, with driver extension options and audit logging.
-- **Cross-Company Tenant Isolation**: Strict enforcement of company_id ownership for all entities, preventing cross-company data access, with SUPER_ADMIN override capabilities.
-- **Dispatcher City Permissions**: Granular access control for dispatchers based on city, enforced via middleware and configurable through an admin interface.
-- **Automation & Operational Features**: A 7-Phase Automation System for routing, auto-assignment, anti-no-show, driver scoring, and operational health monitoring.
-- **Portals & APIs**: Public Booking API, Clinic Portal, and multi-company isolation.
-- **Realtime Trip State Management**: Centralized `transitionTripStatus()` helper for consistent status transitions, driver dispatch sync, audit logging, and multi-channel broadcasts. WebSocket company/clinic channels with tenant-isolated subscriptions, auto-reconnecting frontend hook (`useRealtimeTrips`), shared trip status color/label mapping (`tripStatusMapping.ts`), map legend component, and instant dispatch board updates replacing 15s polling. DB indexes on `trips(driver_id, status)`, `trips(company_id, status)`, `trips(clinic_id, status)`, `trips(city_id, status)` for fast active trip lookups.
-- **Realtime & Performance Hardening**: WebSocket server, Supabase Realtime, Upstash Redis for caching, rate-limited data ingestion, and ETA throttling.
-- **Enterprise Multi-Tenant + Async Engine**: Hard multi-tenant enforcement, Redis-backed background job queue, idempotency, company quotas, and system event streams.
-- **Production Scale Hardening**: Structured JSON logging, adaptive backpressure, circuit breakers, graceful shutdown, and HTTP timeouts.
-- **Platform Pricing Settings**: Configurable tariffs, discount logic, clinic memberships, and an admin API.
-- **Financial & Billing**: Automatic invoice email sending, Stripe integration, and detailed clinic cancellation/billing workflows. Financial Engine (`server/services/financialEngine.ts`) with `processTripFinancials()` for automatic double-entry ledger creation on trip completion, `financial_ledger` table for all monetary flows, and trip-level financial breakdown API (`/api/trips/:id/financials`).
-- **Fee Rules Engine (vNext)**: Extended `fee_rules` table with `calculation_base`, `fee_direction`, `beneficiary`, and `settlement_stage` columns for multi-directional fee computation. Supports platform fees, driver payouts, and clinic charges with idempotent ledger entry creation.
-- **Enterprise Billing vNext**: Billing adjustments (credit/debit/refund/fee_override), double-entry ledger (journal-based with balance enforcement), payout reconciliation (Stripe balance transaction sync), billing audit events, dunning/retry logic with Stripe idempotency keys, Stripe customer/PM management (setup_future_usage), dispute tracking via webhooks, and SUPER_ADMIN Finance Console UI.
-- **Company-to-Driver Payroll**: Per-company payroll settings, idempotent earnings ledger, payrun management with Stripe transfers. Earnings Modifiers Engine with optional ON/OFF toggles per company: Daily Minimum Guarantee (top-up to configurable daily min), On-Time Bonus (per-trip or weekly mode with threshold), No-Show Penalty (per-incident deduction). Idempotent `driver_earnings_adjustments` table with deterministic keys, computed on trip completion via `transitionTripStatus()`, admin Pay Rules settings page, and driver weekly earnings breakdown UI.
-- **Time & Pay v1 (Hourly Timesheets)**: Manual and CSV import of time entries with a DRAFT→PAID workflow and driver self-service views.
-- **Driver App Experience**: Today Dashboard, status confirmations, support events, offline queue, heartbeat, navigation UX, and score trend chart.
-- **Mobile Driver App (Capacitor)**: Background GPS, secure token bridge, native UI, and Firebase Push Notifications, with feature flags for native functionalities.
-- **Distributed Job Engine + Locking**: Redis-backed enqueue scheduler with distributed locks replacing in-process schedulers.
-- **UCM Intelligence Core**: Integrates daily/weekly metrics, TRI scores, cost leak alerts, and certifications with corresponding API endpoints and a frontend dashboard.
-- **Driver Intelligence Engine**: Driver performance scoring based on KPIs, anomaly detection, and background recomputation.
-- **Platform Billing Fees**: Application fees collected via Stripe Connect, with global and company-specific overrides.
-- **Company Subscriptions**: Stripe-powered monthly subscription billing for companies, configurable via platform settings and managed through admin interfaces.
-- **Production Ops & Observability**: Boot config logging, pooler enforcement, Redis diagnostics, SUPER_ADMIN ops endpoints, graceful shutdown, HTTP timeouts, access-denied logging, WebSocket hardening, and DB-backed route cache.
-- **Production Reliability Hardening**: Centralized scheduler harness (`schedulerHarness.ts`) with distributed Redis locks (SET NX EX), ownership-verified lock renewal (`compareAndRenew`) and release (`compareAndDelete`), timeout guards (60-120s), structured JSON logging, and per-scheduler state tracking. All 14 schedulers use the harness. Process guards for `unhandledRejection`/`uncaughtException`, enhanced graceful shutdown with WebSocket cleanup, 5-minute memory logger, boot config summary, and enhanced `/api/healthz` endpoint with Redis/scheduler/memory observability. Dev crash simulation at `/api/dev/crash`.
-- **Enterprise Multi-Instance Hardening**: ROLE_MODE runtime split (`server/lib/schedulerInit.ts`, `worker/index.ts`) supporting `server|worker|all` modes for horizontal scaling. Redis-based leader election (`server/lib/leaderElection.ts`) with 30s TTL, ownership-verified renewal/release, scheduler startup gated by leadership. Priority job queue (`server/lib/jobProcessor.ts`) with P0_CRITICAL/P1_NORMAL/P2_LOW levels, exponential backoff retry, DLQ tracking (failed jobs with `[DLQ]` prefix), stale job release. Circuit breakers (`server/lib/circuitBreaker.ts`) with configurable error thresholds and recovery windows, priority-based load shedding (drops P2 jobs when DB/Redis overloaded). WebSocket connection limits (WS_MAX_CONNECTIONS=500), max payload size (4KB). Readiness probe at `/api/readyz`. Admin queue inspection endpoints at `/api/admin/queues`, `/api/admin/queues/dlq`, `/api/admin/queues/dlq/:jobId/retry` (SUPER_ADMIN only).
-- **Entity Detail Pages & Click-Through Navigation**: Dedicated detail pages for key entities (patients, drivers, vehicles, clinics, invoices, payroll runs) with consistent navigation.
-- **URL-Based Filter Persistence**: Filter states persisted in URL query parameters for shareability and browser history.
-- **Server-Side Search**: ILIKE text search across major list endpoints, respecting RBAC scope.
-- **Driver Portal Upgrade (Shift Mode + Trip Center)**: Formal shift session tracking, in-app foreground geofence distance display, no-show evidence capture, digital signature options, and earnings summaries.
-- **Driver App v3 (Feature-Flagged)**: Triple-gated features (env + company + driver settings) including performance scoring, smart prompts, offline outbox, and sounds/haptics.
-- **Clinic Intelligence Pack (Paywalled)**: Dialysis Load Predictor (V1) with 15-min bucket forecasts using historical baseline + 7-day rolling adjustment + confidence scoring (LOW/MEDIUM/HIGH). Capacity Forecast engine converting demand to drivers-needed with shortage detection. Feature-flagged via `clinic_features` table with SUPER_ADMIN toggle on clinic detail page. Paywall card shown when disabled. Forecast snapshots stored daily in `clinic_forecast_snapshots` for audit trail. Endpoints: `/api/clinic/forecast`, `/api/clinic/capacity-forecast`, `/api/clinic/features`, admin CRUD at `/api/admin/clinic-features/:clinicId` and `/api/admin/clinic-capacity/:clinicId`.
-- **Clinic Portal Arrival Radar + Smart Staff Alerts**: Real-time mini Google Map on clinic dashboard with driver markers (phase-colored), ETA tooltips, geofence detection. Smart Staff Alerts panel with 4 alert types (wheelchair_surge, at_door, return_backlog, high_delay_risk), client-side dedup, and sound notifications. Endpoints: `/api/clinic/inbound-live`, `/api/clinic/alert-inputs`.
-- **UCM Agentic C (PRO) - Event Bus + Orchestrator + Route Proof**: Redis Streams event bus (`server/lib/eventBus.ts`) with XADD/XREADGROUP, consumer groups (orchestrator-group, worker-routes-group), idempotency keys, dead-letter queue. Orchestrator (`server/orchestrator/index.ts`) listens for trip.created/trip.assigned/trip.status_changed events and enqueues route.compute/route.finalize actions. Routes Worker (`server/workers/routesWorker.ts`) computes Google Maps routes and finalizes GPS breadcrumb summaries. Breadcrumb Buffer (`server/lib/breadcrumbBuffer.ts`) batches GPS points into polyline-encoded chunks. Polyline codec (`server/lib/polylineCodec.ts`) for encoding/decoding Google polyline format. DB tables: `trip_route_plans`, `trip_route_point_chunks`, `trip_route_summary`, `ops_audit_ledger`. Feature-flagged behind `UCM_AGENTIC_ROUTES=1`. Route Proof API: `GET /api/trips/:id/route/proof`. Event emissions are fail-open (try/catch wrapped) from trips.controller.ts, tripTransitionHelper.ts, and driverLocationIngest.ts.
+- **Authentication & Authorization**: JWT-based with Magic Link Login, dual-auth, and centralized Permission-Based Access Control using a `ROLE_PERMISSIONS` matrix for clinic-scoped roles.
+- **Data Management**: PostgreSQL with Drizzle ORM, supporting multi-city data segregation, public IDs, and US States/Cities master reference tables.
+- **Dispatch Engine**: Automated driver-vehicle and trip assignment, real-time tracking, ETA, and safety rule enforcement, utilizing a deterministic state machine for trip status transitions.
+- **Communication**: SMS notifications and branded email services with automated patient communication and configurable geofencing.
+- **Location Services**: Google Maps integration for geocoding, autocomplete, ETA, route optimization, and live maps. Server-side geofence gating for driver status transitions.
+- **Realtime & Performance**: WebSocket server, Supabase Realtime, Upstash Redis for caching, rate-limited data ingestion, and ETA throttling. Includes a centralized `transitionTripStatus()` helper for consistent state changes and instant dispatch board updates.
+- **Enterprise Multi-Tenant & Async Engine**: Hard multi-tenant enforcement, Redis-backed background job queue, idempotency, company quotas, and system event streams. Distributed job engine with Redis-backed scheduler and locks.
+- **Financial & Billing**: Configurable platform pricing, automatic invoice emailing, Stripe integration, and a financial engine for double-entry ledger creation, detailed financial breakdowns, and payout reconciliation.
+- **Payroll**: Per-company payroll settings, idempotent earnings ledger, payrun management with Stripe transfers, and an Earnings Modifiers Engine (Daily Minimum Guarantee, On-Time Bonus, No-Show Penalty).
+- **Driver & Clinic Portals**: Dedicated portals for clinics and drivers, including a Driver App with background GPS, push notifications, and feature flags. Clinic Portal features an Arrival Radar and Smart Staff Alerts.
+- **UCM Intelligence Core**: Integrates daily/weekly metrics, TRI scores, cost leak alerts, certifications, and a Driver Intelligence Engine for performance scoring and anomaly detection.
+- **Enterprise Multi-Instance Hardening**: ROLE_MODE runtime split, Redis-based leader election, priority job queue with DLQ, circuit breakers, and priority-based load shedding.
+- **Agentic Features (UCM Agentic C)**: Redis Streams event bus with orchestrator and route worker for computing and finalizing Google Maps routes, including route proof API.
+- **Dispatch Window Engine**: Intelligent dispatch timing system for optimal dispatch and notification times based on ETA and mobility buffers, including trip feasibility checking to prevent overlapping assignments.
 
 ## External Dependencies
-- **PostgreSQL**: Primary relational database, specifically Supabase pooler.
-- **Supabase**: User authentication profiles, city management, Row-Level Security (RLS), and private requests storage.
+- **PostgreSQL**: Primary relational database (Supabase pooler).
+- **Supabase**: User authentication, city management, Row-Level Security (RLS).
 - **Google Maps Platform**: Maps JavaScript API, Directions API, Geocoding API, Places API.
 - **Twilio**: SMS messaging.
 - **Resend**: Transactional email delivery.
-- **Stripe**: Payment intent verification.
+- **Stripe**: Payment processing, subscriptions, and financial integrations.
 - **Upstash Redis**: Distributed cache and message broker.
 - **Firebase Cloud Messaging**: Push notifications.

@@ -826,6 +826,19 @@ export async function postDriverOfferAcceptHandler(req: AuthRequest, res: Respon
       return res.status(409).json({ message: "Offer has expired" });
     }
 
+    const [trip] = await db.select().from(trips).where(eq(trips.id, offer.tripId));
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+
+    const { checkTripFeasibility } = await import("../lib/tripFeasibility");
+    const feasibility = await checkTripFeasibility(user.driverId, trip);
+    if (!feasibility.feasible) {
+      return res.status(409).json({
+        message: feasibility.reason || "Trip conflicts with another assignment",
+        conflictingTripId: feasibility.conflictingTripId,
+        conflictingTripPublicId: feasibility.conflictingTripPublicId,
+      });
+    }
+
     const [accepted] = await db.update(driverOffers)
       .set({ status: "accepted", acceptedAt: now })
       .where(
@@ -840,8 +853,6 @@ export async function postDriverOfferAcceptHandler(req: AuthRequest, res: Respon
     if (!accepted) {
       return res.status(409).json({ message: "Offer is no longer available" });
     }
-
-    const [trip] = await db.select().from(trips).where(eq(trips.id, offer.tripId));
     const driver = await storage.getDriver(user.driverId);
     if (trip && (trip.status === "SCHEDULED" || !trip.driverId)) {
       const updateData: any = {

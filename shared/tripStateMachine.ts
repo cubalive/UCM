@@ -260,6 +260,23 @@ export function eventToTargetStatus(event: string, currentState: string): string
   }
 }
 
+export const TERMINAL_STATUSES = [TripState.COMPLETED, TripState.CANCELLED, TripState.NO_SHOW] as const;
+
+export const ACTIVE_NOW_STATUSES = [
+  TripState.EN_ROUTE_TO_PICKUP,
+  TripState.ARRIVED_PICKUP,
+  TripState.PICKED_UP,
+  TripState.EN_ROUTE_TO_DROPOFF,
+  TripState.IN_PROGRESS,
+  TripState.ARRIVED_DROPOFF,
+] as const;
+
+export const DISPATCH_STAGES = {
+  NONE: "NONE",
+  NOTIFIED: "NOTIFIED",
+  DISPATCHED: "DISPATCHED",
+} as const;
+
 export const VALID_TRANSITIONS: Record<string, string[]> = {};
 for (const [state, events] of Object.entries(TRANSITION_TABLE)) {
   VALID_TRANSITIONS[state] = Object.values(events).filter((v): v is string => !!v);

@@ -379,7 +379,12 @@ export function registerDispatchRoutes(app: Express) {
           fiveMinAlertSent: false,
         } as any);
 
-        await storage.updateDriver(driver_id, { dispatchStatus: "enroute" } as any);
+        const pickupTimeStr = trip.pickupTime || trip.scheduledTime;
+        const tripDt = pickupTimeStr ? new Date(`${trip.scheduledDate}T${pickupTimeStr}`) : null;
+        const isFutureTrip = tripDt && tripDt.getTime() > Date.now() + 30 * 60_000;
+        if (!isFutureTrip) {
+          await storage.updateDriver(driver_id, { dispatchStatus: "enroute" } as any);
+        }
 
         const eta = await calculateAndStoreEta(
           trip_id,
@@ -390,6 +395,21 @@ export function registerDispatchRoutes(app: Express) {
           trip.pickupAddress,
           trip.dropoffAddress
         );
+
+        if (trip.pickupLat && trip.pickupLng && trip.dropoffLat && trip.dropoffLng && (!trip.routePolyline || trip.routeStatus === "missing")) {
+          import("./tripRouteService").then(({ computeRouteFromCoords }) => {
+            computeRouteFromCoords(
+              trip_id,
+              Number(trip.pickupLat),
+              Number(trip.pickupLng),
+              Number(trip.dropoffLat),
+              Number(trip.dropoffLng),
+              "assignment"
+            ).catch((err: any) => {
+              console.warn(`[DISPATCH] Route compute for trip ${trip_id} failed: ${err.message}`);
+            });
+          }).catch(() => {});
+        }
 
         await storage.createAuditLog({
           userId: req.user!.userId,

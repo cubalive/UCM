@@ -429,6 +429,11 @@ export const trips = pgTable("trips", {
   routeSource: text("route_source"),
   routeQualityScore: integer("route_quality_score"),
   actualPolyline: text("actual_polyline"),
+  dispatchAt: timestamp("dispatch_at"),
+  notifyAt: timestamp("notify_at"),
+  dispatchStage: text("dispatch_stage").notNull().default("NONE"),
+  plannedDropoffArrivalAt: timestamp("planned_dropoff_arrival_at"),
+  etaPickupToDropoffMin: integer("eta_pickup_to_dropoff_min"),
 });
 
 export const tripLocationPoints = pgTable("trip_location_points", {

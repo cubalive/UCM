@@ -1,0 +1,122 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+ROLE: Senior dispatch systems engineer (Uber-like NEMT) + Backend TS/Express + Drizzle/Postgres.
+
+CONTEXT
+We have trips with:
+- scheduled_pickup_at (ONLY official time)
+- pickup_location + dropoff_location
+- status state machine already exists
+We have a Clinic Portal showing wrong “Active Now” counts (shows assigned future trips as active).
+We also have driver acceptance marking drivers busy too early.
+
+GOAL
+1) Fix Clinic Portal logic:
+- TODAY’S TRIPS = all trips scheduled today (date(scheduled_pickup_at)=today) that are not terminal
+- ACTIVE NOW = only trips truly in motion (based on status), not future scheduled.
+2) Implement intelligent dispatch window:
+- drivers remain AVAILABLE after accepting future trips
+- driver becomes BUSY only at dispatch_at
+- system sends notify_at (pre-alert) and dispatch_at (“Go to pickup”)
+3) Enforce feasibility between trips (time gap) so drivers can’t accept overlapping trips.
+4) Ensure admin/dispatcher/clinic maps show real polylines and final mileage/ETA metrics, not just straight A→B.
+
+NON-NEGOTIABLES
+- Do NOT reset DB.
+- Additive schema changes only.
+- Preserve existing trip state machine; transitions must use the existing transition function.
+- Everything must be tenant/company scoped as currently implemented.
+- Provide verification steps and logs.
+
+STEP 1 — Schema (additive)
+Add columns to trips:
+- dispatch_at timestamptz null
+- notify_at timestamptz null
+- dispatch_stage text not null default 'NONE'  -- NONE|NOTIFIED|DISPATCHED
+- planned_dropoff_arrival_at timestamptz null
+- eta_pickup_to_dropoff_min_snapshot int null
+- route_polyline text null
+- route_distance_miles numeric null
+- route_duration_minutes int null
+
+Add columns to drivers (if missing):
+- availability_status text not null default 'OFFLINE'  -- OFFLINE|AVAILABLE|BUSY
+
+STEP 2 — Clinic Portal logic
+Update backend endpoints used by clinic portal:
+- TODAY’S TRIPS query:
+  date(trips.scheduled_pickup_at) = today
+  AND status NOT IN (COMPLETED, CANCELLED, NO_SHOW)
+- ACTIVE NOW query:
+  status IN (EN_ROUTE_TO_PICKUP, ARRIVING_SOON, ARRIVED, WAITING, PICKED_UP, EN_ROUTE_TO_DROPOFF)
+
+Also add counters for clinic:
+- Arriving next 15 min: trips scheduled today where dispatch_at <= now+15m and not terminal, and direction is toward clinic (dropoff is clinic)
+- Departing next 15 min: trips scheduled today where dispatch_at <= now+15m and pickup is clinic
+- Arriving last 60 min: based on status timestamps (arrived_at/picked_up_at) if present; if not present, add timestamps on status transitions.
+- Departing last 60 min: similar.
+
+STEP 3 — Dispatch Window Engine (scheduler)
+Create a scheduler that runs every 60s:
+For each assigned trip in next 24h that is not terminal:
+1) Determine driver current location (latest ping). If missing, fallback to last known location.
+2) Compute ETA driver->pickup using existing Google Routes/Directions integration.
+3) Compute buffer_min based on service type:
+   - ambulatory: 10
+   - wheelchair: 15
+4) notify_lead_min = 5
+5) dispatch_at = scheduled_pickup_at - (eta_to_pickup_min + buffer_min)
+6) notify_at = dispatch_at - notify_lead_min
+7) Save dispatch_at/notify_at if changed.
+
+Notification rules (idempotent):
+- If now >= notify_at and dispatch_stage='NONE': send push/SMS/in-app notification “Trip in 5 min — get ready” and set dispatch_stage='NOTIFIED'
+- If now >= dispatch_at and dispatch_stage IN ('NONE','NOTIFIED'):
+   a) set driver availability_status='BUSY'
+   b) transition trip status to EN_ROUTE_TO_PICKUP (via existing transition function)
+   c) compute and store polyline + distance + duration for driver->pickup route
+   d) set dispatch_stage='DISPATCHED'
+   e) notify driver “Go to pickup now”
+
+STEP 4 — Driver Acceptance Logic
+When driver accepts a future trip:
+- DO NOT set availability_status='BUSY'
+- Mark trip assigned/confirmed as you do now
+- Compute feasibility against other assigned trips (time between trips):
+   For each other assigned trip same day:
+   Estimate finish of earlier trip:
+     estimated_finish_at = earlier.scheduled_pickup_at + eta_pickup_to_dropoff_min + service_buffer_min
+   (eta_pickup_to_dropoff_min comes from Google route pickup->dropoff)
+   Block acceptance if estimated_finish_at > dispatch_at(candidate_trip)
+Return clear reason to driver: “Trip conflicts with another assignment (insufficient time).”
+
+STEP 5 — Maps, polylines, and final mileage (fix the “straight line” problem)
+- On trip creation (or assignment), compute and store pickup->dropoff polyline + distance + duration using Google Routes.
+- During live trip, keep updating route if needed, but minimum:
+  - store planned route polyline
+  - store route_distance_miles and route_duration_minutes
+- On completion, compute actual distance:
+  Option A (best): sum GPS segments from driver location pings during trip window (picked_up->dropoff).
+  Option B (fallback): use Google route distance pickup->dropoff.
+Store final fields:
+- actual_distance_miles
+- actual_duration_minutes
+
+Update admin/dispatcher/clinic UI map to render:
+- polyline from stored route_polyline
+- live driver marker via websocket
+- show timeline + distances
+
+STEP 6 — Verification (must show logs)
+Provide:
+- SQL migration output
+- Example logs for:
+  - scheduled trip at 5:30pm shows Today’s Trips but NOT Active Now at 3pm
+  - driver accepts trip at 7:30pm but stays AVAILABLE at 6:20pm
+  - notify triggers at notify_at
+  - dispatch triggers at dispatch_at, driver becomes BUSY, trip becomes EN_ROUTE_TO_PICKUP
+  - clinic Active Now increments only after dispatch
+- List of files changed
+
+DELIVERABLE
+Implement all above, commit-ready changes, no breaking changes, and include a short README section explaining the dispatch window logic.

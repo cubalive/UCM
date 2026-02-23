@@ -151,10 +151,13 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
       and(eq(trips.clinicId, effectiveClinicId), isNull(trips.deletedAt))
     );
 
-    const todayTrips = clinicTrips.filter(t => t.scheduledDate === todayDate);
-    const activeStatuses = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
-    const mapVisibleStatuses = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF"];
-    const activeTrips = todayTrips.filter(t => activeStatuses.includes(t.status));
+    const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];
+    const todayTrips = clinicTrips.filter(t => t.scheduledDate === todayDate && !terminalStatuses.includes(t.status));
+    const activeNowStatuses = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+    const mapVisibleStatuses = ["EN_ROUTE_TO_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF"];
+    const activeTrips = todayTrips.filter(t => activeNowStatuses.includes(t.status));
+    const scheduledNotActive = todayTrips.filter(t => ["SCHEDULED", "ASSIGNED"].includes(t.status));
+    const allTodayIncludingTerminal = clinicTrips.filter(t => t.scheduledDate === todayDate);
 
     const isToClinic = (trip: any) => {
       if (!clinic.lat || !clinic.lng) return false;
@@ -206,11 +209,11 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
     });
 
     const noDriverAssigned = todayTrips.filter(t =>
-      !t.driverId && !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(t.status)
+      !t.driverId && !terminalStatuses.includes(t.status)
     );
-    const completedToday = todayTrips.filter(t => t.status === "COMPLETED");
-    const cancelledToday = todayTrips.filter(t => t.status === "CANCELLED");
-    const noShowsToday = todayTrips.filter(t => t.status === "NO_SHOW");
+    const completedToday = allTodayIncludingTerminal.filter(t => t.status === "COMPLETED");
+    const cancelledToday = allTodayIncludingTerminal.filter(t => t.status === "CANCELLED");
+    const noShowsToday = allTodayIncludingTerminal.filter(t => t.status === "NO_SHOW");
 
     const clinicPatientIds = await db.select({ id: patients.id }).from(patients).where(
       and(eq(patients.clinicId, effectiveClinicId), eq(patients.active, true), isNull(patients.deletedAt))
@@ -319,10 +322,14 @@ export async function clinicOpsHandler(req: AuthRequest, res: Response) {
       clinic: { id: clinic.id, name: clinic.name, lat: clinic.lat, lng: clinic.lng, address: clinic.address },
       timezone: clinicTz,
       todayDate,
-      todayTrips: todayTrips.length,
+      todayTrips: todayTrips.length + completedToday.length + cancelledToday.length + noShowsToday.length,
+      activeNow: activeTrips.length,
+      scheduledUpcoming: scheduledNotActive.length,
       completedToday: completedToday.length,
       cancelledToday: cancelledToday.length,
       kpis: {
+        activeNow: activeTrips.length,
+        scheduledUpcoming: scheduledNotActive.length,
         enRouteToClinic: enRouteToClinic.length,
         leavingClinic: leavingClinic.length,
         arrivalsNext60: arrivalsNext60.length,
@@ -351,7 +358,7 @@ export async function clinicActiveTripsHandler(req: AuthRequest, res: Response) 
     const clinic = await storage.getClinic(effectiveClinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
-    const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF"];
+    const ACTIVE_STATUSES = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
     const STALE_THRESHOLD_MS = 90 * 1000;
 
     const clinicTrips = await db.select().from(trips).where(
@@ -1237,7 +1244,7 @@ export async function clinicInboundLiveHandler(req: AuthRequest, res: Response) 
     const clinic = await storage.getClinic(effectiveClinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
-    const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+    const ACTIVE_STATUSES = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
 
     const clinicTrips = await db.select().from(trips).where(
       and(
@@ -1337,7 +1344,7 @@ export async function clinicAlertInputsHandler(req: AuthRequest, res: Response) 
 
     const alertTz = await getClinicTimezone((clinic as any).cityId);
     const todayDate = getTodayInTimezone(alertTz);
-    const ACTIVE_STATUSES = ["ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
+    const ACTIVE_STATUSES = ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"];
 
     const clinicTrips = await db.select().from(trips).where(
       and(
