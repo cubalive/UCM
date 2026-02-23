@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTripRealtime } from "@/hooks/use-trip-realtime";
+import { useRealtimeTrips } from "@/hooks/use-realtime-trips";
 import { RealtimeDebugPanel } from "@/components/realtime-debug-panel";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
@@ -158,6 +159,24 @@ function sevenDaysAgoStr(): string {
 export default function ClinicTripsPage() {
   const [mainTab, setMainTab] = useState("ops");
   const { t } = useTranslation();
+  const { token } = useAuth();
+
+  const clinicProfileQuery = useQuery<any>({
+    queryKey: ["/api/clinic/profile"],
+    queryFn: () => apiFetch("/api/clinic/profile", token),
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  useRealtimeTrips({
+    clinicId: clinicProfileQuery.data?.id || null,
+    enabled: !!token && !!clinicProfileQuery.data?.id,
+    invalidateKeys: [
+      "/api/clinic/trips",
+      "/api/clinic/active-trips",
+      "/api/clinic/ops",
+    ],
+  });
 
   return (
     <div className="p-4 space-y-4 max-w-6xl mx-auto">

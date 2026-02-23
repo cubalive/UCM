@@ -192,7 +192,7 @@ export default function DispatchBoardPage() {
   useRealtimeTrips({
     companyId: user?.companyId || null,
     enabled: !!token,
-    invalidateKeys: ["/api/dispatch/trips"],
+    invalidateKeys: ["/api/dispatch/trips", "/api/dispatch/drivers/status"],
   });
 
   const tripsQuery = useQuery<any>({

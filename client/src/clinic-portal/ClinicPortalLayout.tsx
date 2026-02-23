@@ -1,5 +1,6 @@
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useRealtimeTrips } from "@/hooks/use-realtime-trips";
 import { ClinicSidebar } from "./components/ClinicSidebar";
 import ClinicDashboard from "./pages/ClinicDashboard";
 import ClinicTrips from "./pages/ClinicTrips";
@@ -57,9 +58,20 @@ function ClinicHostUnauthorized() {
 }
 
 export function ClinicPortalLayout() {
-  const { user, loading } = useAuth();
+  const { user, token, loading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [location] = useLocation();
+
+  useRealtimeTrips({
+    clinicId: user?.clinicId || null,
+    enabled: !!token && !!user?.clinicId,
+    invalidateKeys: [
+      "/api/clinic/trip-requests",
+      "/api/clinic/trips",
+      "/api/clinic/active-trips",
+      "/api/clinic/ops",
+    ],
+  });
 
   if (loading) {
     return (
