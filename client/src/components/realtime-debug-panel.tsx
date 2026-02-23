@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { isDriverHost, isOpsAllowed } from "@/lib/hostDetection";
 import type { RealtimeDebugInfo } from "@/hooks/use-trip-realtime";
+import { resolveUrl } from "@/lib/api";
 
 interface RealtimeDebugPanelProps {
   debugInfo: RealtimeDebugInfo;
@@ -66,7 +67,7 @@ export function RealtimeDebugPanel({
     setPingSending(true);
     setPingResult(null);
     try {
-      const resp = await fetch("/api/realtime/test", {
+      const resp = await fetch(resolveUrl("/api/realtime/test"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

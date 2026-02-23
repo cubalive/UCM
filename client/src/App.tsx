@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { can, type Resource } from "@shared/permissions";
+import { API_BASE_URL } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 import "@/i18n";
 import { isDriverHost, isClinicHost, getTokenKey } from "@/lib/hostDetection";
@@ -121,7 +122,8 @@ function AuthDebugPanel() {
     let authMeStatus = 0, authMeResponse = "not tested";
 
     try {
-      const r1 = await fetch("/api/me", { credentials: creds, headers });
+      const resolveUrl = (p: string) => API_BASE_URL && p.startsWith("/") ? `${API_BASE_URL}${p}` : p;
+      const r1 = await fetch(resolveUrl("/api/me"), { credentials: creds, headers });
       meStatus = r1.status;
       meResponse = (await r1.text()).slice(0, 300);
     } catch (e: any) {
@@ -129,7 +131,8 @@ function AuthDebugPanel() {
     }
 
     try {
-      const r2 = await fetch("/api/auth/me", { credentials: creds, headers });
+      const resolveUrl = (p: string) => API_BASE_URL && p.startsWith("/") ? `${API_BASE_URL}${p}` : p;
+      const r2 = await fetch(resolveUrl("/api/auth/me"), { credentials: creds, headers });
       authMeStatus = r2.status;
       authMeResponse = (await r2.text()).slice(0, 300);
     } catch (e: any) {

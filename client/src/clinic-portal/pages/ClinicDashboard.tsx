@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { Link, useLocation } from "wouter";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { playSound } from "@/hooks/use-sound-notifications";
+import { resolveUrl } from "@/lib/api";
 import {
   Car,
   Clock,
@@ -104,7 +105,7 @@ function ArrivalRadarMap({ trips, clinic }: { trips: any[]; clinic: any }) {
       try {
         let apiKey = window.__MAPS_KEY_CACHE__;
         if (!apiKey) {
-          const res = await fetch("/api/public/maps/key");
+          const res = await fetch(resolveUrl("/api/public/maps/key"));
           const json = await res.json();
           apiKey = json.key;
           if (apiKey) window.__MAPS_KEY_CACHE__ = apiKey;

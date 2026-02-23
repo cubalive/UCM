@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
+import { getWsUrl } from "@/lib/api";
 
 interface TripWsEvent {
   type: "driver_location" | "status_change" | "eta_update";
@@ -31,8 +32,7 @@ export function useTripWs({ tripId, token, onDriverLocation, onStatusChange, onE
     if (!token || !tripId) return;
     if (!mountedRef.current) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+    const wsUrl = getWsUrl(token);
 
     try {
       const ws = new WebSocket(wsUrl);

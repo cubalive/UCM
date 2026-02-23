@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveUrl } from "@/lib/api";
 import {
   ArrowLeft,
   User,
@@ -108,7 +108,7 @@ export default function DriverProfilePage() {
 
   const updateMutation = useMutation({
     mutationFn: async (body: any) => {
-      const res = await fetch("/api/driver/me", {
+      const res = await fetch(resolveUrl("/api/driver/me"), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

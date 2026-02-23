@@ -73,6 +73,7 @@ const BUILTIN_APP_ORIGINS = new Set([
   "https://app.unitedcaremobility.com",
   "https://clinic.unitedcaremobility.com",
   "https://driver.unitedcaremobility.com",
+  "https://dispatch.unitedcaremobility.com",
   "https://admin.unitedcaremobility.com",
 ]);
 
@@ -694,6 +695,38 @@ app.use((req, res, next) => {
       allowedPublicOrigins: Array.from(allowedPublicOrigins).map(o => o.replace(/https?:\/\//, "***")),
       cookieMode: { secure: IS_PROD, sameSite: IS_PROD ? "none" : "lax" },
       trustProxy: IS_PROD,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.get("/api/system/origins", (_req, res) => {
+    const origin = _req.headers.origin || "(none)";
+    const host = _req.hostname || "(none)";
+    res.json({
+      requestOrigin: origin,
+      requestHost: host,
+      isAppOrigin: isAppOrigin(origin),
+      isPublicOrigin: isPublicOrigin(origin),
+      isReplitDev: isReplitDev(origin),
+      allowedAppDomains: Array.from(allowedAppOrigins).map(o => new URL(o).hostname),
+      allowedPublicDomains: Array.from(allowedPublicOrigins).map(o => { try { return new URL(o).hostname; } catch { return o; } }),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.get("/api/system/auth-health", (req, res) => {
+    const origin = req.headers.origin || "(none)";
+    const hasSession = !!(req as any).session?.userId;
+    const hasBearer = !!req.headers.authorization?.startsWith("Bearer ");
+    const cookieNames = Object.keys(req.cookies || {});
+    res.json({
+      origin,
+      host: req.hostname,
+      hasSession,
+      hasBearer,
+      cookies: cookieNames,
+      jwtConfigured: !!process.env.JWT_SECRET,
+      sessionConfigured: !!process.env.SESSION_SECRET,
       timestamp: new Date().toISOString(),
     });
   });

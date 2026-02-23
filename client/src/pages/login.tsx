@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { isDriverHost, getCredentials, getTokenKey } from "@/lib/hostDetection";
+import { resolveUrl } from "@/lib/api";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -38,7 +39,7 @@ export default function LoginPage() {
     setTokenLoading(true);
     setTokenError(null);
 
-    fetch("/api/auth/token-login", {
+    fetch(resolveUrl("/api/auth/token-login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token, type }),
@@ -83,7 +84,7 @@ export default function LoginPage() {
     e.preventDefault();
     setForgotLoading(true);
     try {
-      const res = await fetch("/api/auth/forgot-password", {
+      const res = await fetch(resolveUrl("/api/auth/forgot-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: forgotEmail }),

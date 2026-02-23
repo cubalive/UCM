@@ -1,6 +1,12 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { User, City } from "@shared/schema";
 import { getTokenKey, getCredentials, isDriverHost, DRIVER_TOKEN_KEY, migrateLegacyTokenIfNeeded } from "@/lib/hostDetection";
+import { API_BASE_URL } from "@/lib/api";
+
+function apiUrl(path: string): string {
+  if (API_BASE_URL && path.startsWith("/")) return `${API_BASE_URL}${path}`;
+  return path;
+}
 
 interface AuthUser extends Omit<User, "password"> {
   cityAccess: number[];
@@ -104,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCityChosen(true);
     const t = token || localStorage.getItem(getTokenKey());
     if (t) {
-      fetch("/api/auth/working-city", {
+      fetch(apiUrl("/api/auth/working-city"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
         credentials: getCredentials(),
@@ -155,7 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/me", {
+      const res = await fetch(apiUrl("/api/auth/me"), {
         headers: { Authorization: `Bearer ${t}` },
         credentials: "omit",
       });
@@ -192,7 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
 
       try {
-        const meRes = await fetch("/api/me", {
+        const meRes = await fetch(apiUrl("/api/me"), {
           headers: { Authorization: `Bearer ${t}` },
           credentials: "omit",
         });
@@ -215,7 +221,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     try {
       const creds = getCredentials();
-      const authRes = await fetch("/api/auth/me", {
+      const authRes = await fetch(apiUrl("/api/auth/me"), {
         headers: { Authorization: `Bearer ${t}` },
         credentials: creds,
       });
@@ -252,7 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       restoreCity(data.cities || [], data.user?.role || "", data.workingCityId, data.workingCityScope);
 
       try {
-        const meRes = await fetch("/api/me", {
+        const meRes = await fetch(apiUrl("/api/me"), {
           headers: { Authorization: `Bearer ${t}` },
           credentials: creds,
         });
@@ -282,7 +288,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       fetchUser(token);
     } else if (!isDriverHost && IS_DEV && devLoginAttempts < 2 && !devBypassed) {
       setLoading(true);
-      fetch("/api/auth/dev-session", { credentials: getCredentials() })
+      fetch(apiUrl("/api/auth/dev-session"), { credentials: getCredentials() })
         .then((res) => {
           if (!res.ok) throw new Error("Dev session failed");
           return res.json();
@@ -329,7 +335,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLastAuthStatus(null);
 
     if (isDriverHost) {
-      const res = await fetch("/api/auth/login-jwt", {
+      const res = await fetch(apiUrl("/api/auth/login-jwt"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
@@ -352,7 +358,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const creds = getCredentials();
-    const res = await fetch("/api/auth/login", {
+    const res = await fetch(apiUrl("/api/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
@@ -377,7 +383,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const meRes = await fetch("/api/me", {
+      const meRes = await fetch(apiUrl("/api/me"), {
         headers: { Authorization: `Bearer ${data.token}` },
         credentials: creds,
       });
@@ -390,7 +396,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     if (isDriverHost) {
       try {
-        await fetch("/api/auth/driver-logout", {
+        await fetch(apiUrl("/api/auth/driver-logout"), {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           credentials: "omit",
@@ -399,7 +405,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(DRIVER_TOKEN_KEY);
     } else if (token && user?.role?.toUpperCase() === "DRIVER") {
       try {
-        await fetch("/api/auth/driver-logout", {
+        await fetch(apiUrl("/api/auth/driver-logout"), {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           credentials: getCredentials(),
@@ -408,7 +414,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(getTokenKey());
     } else {
       try {
-        await fetch("/api/auth/logout", {
+        await fetch(apiUrl("/api/auth/logout"), {
           method: "POST",
           credentials: getCredentials(),
         });

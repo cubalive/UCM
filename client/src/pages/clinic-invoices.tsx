@@ -18,7 +18,7 @@ import { FileText, Download, Receipt, MapPin, CreditCard, ExternalLink, Eye } fr
 import { TripRef } from "@/components/trip-ref";
 import { useToast } from "@/hooks/use-toast";
 import { downloadWithAuth } from "@/lib/export";
-import { rawAuthFetch } from "@/lib/api";
+import { rawAuthFetch, resolveUrl } from "@/lib/api";
 
 function InvoiceMapThumb({ tripId, token }: { tripId: number | null; token: string | null }) {
   const [failed, setFailed] = useState(false);
@@ -79,7 +79,7 @@ export default function ClinicInvoicesPage() {
   const { data: invoicesList, isLoading } = useQuery<Invoice[]>({
     queryKey: ["/api/clinic/invoices"],
     queryFn: async () => {
-      const res = await fetch("/api/clinic/invoices", {
+      const res = await fetch(resolveUrl("/api/clinic/invoices"), {
         headers: authHeaders(token),
       });
       if (!res.ok) {
@@ -203,7 +203,7 @@ function PayInvoiceButton({ invoiceId, token }: { invoiceId: number; token: stri
     if (!token) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/clinic/invoices/${invoiceId}/pay`, {
+      const res = await fetch(resolveUrl(`/api/clinic/invoices/${invoiceId}/pay`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

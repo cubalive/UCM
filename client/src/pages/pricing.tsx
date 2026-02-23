@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth, authHeaders } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveUrl } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,7 +114,7 @@ export default function PricingPage() {
     queryKey: ["/api/pricing/active", cityName],
     queryFn: async () => {
       if (!cityName) return null;
-      const res = await fetch(`/api/pricing/active?city=${encodeURIComponent(cityName)}`, {
+      const res = await fetch(resolveUrl(`/api/pricing/active?city=${encodeURIComponent(cityName)}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) throw new Error("Failed to load pricing");
@@ -127,7 +127,7 @@ export default function PricingPage() {
     queryKey: ["/api/pricing/audit", pricingData?.profileId],
     queryFn: async () => {
       if (!pricingData?.profileId) return [];
-      const res = await fetch(`/api/pricing/audit?profileId=${pricingData.profileId}`, {
+      const res = await fetch(resolveUrl(`/api/pricing/audit?profileId=${pricingData.profileId}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) return [];
@@ -140,7 +140,7 @@ export default function PricingPage() {
     queryKey: ["/api/pricing/preview-quote", cityName, previewMiles, previewMinutes, previewWheelchair, previewRoundTrip, previewTime],
     queryFn: async () => {
       if (!cityName) return null;
-      const res = await fetch("/api/pricing/preview-quote", {
+      const res = await fetch(resolveUrl("/api/pricing/preview-quote"), {
         method: "POST",
         headers: { ...authHeaders(token), "Content-Type": "application/json" },
         body: JSON.stringify({

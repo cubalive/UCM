@@ -1,5 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { getStoredToken, getStoredCityId, getStoredCompanyScopeId } from "./api";
+import { getStoredToken, getStoredCityId, getStoredCompanyScopeId, API_BASE_URL } from "./api";
 import { isDriverHost } from "./hostDetection";
 
 function getDeviceFingerprint(): string | null {
@@ -62,6 +62,13 @@ function isBlockedOpsCall(url: string): boolean {
   return isDriverHost && (url.startsWith("/api/ops") || url.startsWith("/api/admin/metrics"));
 }
 
+function resolveUrl(path: string): string {
+  if (API_BASE_URL && path.startsWith("/")) {
+    return `${API_BASE_URL}${path}`;
+  }
+  return path;
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -79,7 +86,7 @@ export async function apiRequest(
   };
   if (data) headers["Content-Type"] = "application/json";
 
-  const res = await fetch(url, {
+  const res = await fetch(resolveUrl(url), {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
@@ -101,7 +108,7 @@ export const getQueryFn: <T>(options: {
       return null;
     }
 
-    const res = await fetch(url, {
+    const res = await fetch(resolveUrl(url), {
       credentials: resolveCredentials(),
       headers: buildDefaultHeaders(),
     });

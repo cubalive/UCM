@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth, authHeaders } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveUrl } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -151,7 +151,7 @@ export default function FleetOpsPage() {
   const { data: fleetData, isLoading, refetch } = useQuery<FleetData>({
     queryKey: ["/api/ops/fleet", cityId],
     queryFn: async () => {
-      const res = await fetch(`/api/ops/fleet?city_id=${cityId}`, {
+      const res = await fetch(resolveUrl(`/api/ops/fleet?city_id=${cityId}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) throw new Error("Failed to load fleet data");
@@ -163,7 +163,7 @@ export default function FleetOpsPage() {
   const { data: assignments, isLoading: assignmentsLoading, refetch: refetchAssignments } = useQuery<Assignment[]>({
     queryKey: ["/api/vehicle-assignments", cityId, today],
     queryFn: async () => {
-      const res = await fetch(`/api/vehicle-assignments?cityId=${cityId}&date=${today}`, {
+      const res = await fetch(resolveUrl(`/api/vehicle-assignments?cityId=${cityId}&date=${today}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) throw new Error("Failed to load assignments");
@@ -175,7 +175,7 @@ export default function FleetOpsPage() {
   const { data: allDrivers } = useQuery<DriverInfo[]>({
     queryKey: ["/api/drivers", cityId],
     queryFn: async () => {
-      const res = await fetch(`/api/drivers?cityId=${cityId}`, {
+      const res = await fetch(resolveUrl(`/api/drivers?cityId=${cityId}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) throw new Error("Failed to load drivers");
@@ -187,7 +187,7 @@ export default function FleetOpsPage() {
   const { data: allVehicles } = useQuery<VehicleInfo[]>({
     queryKey: ["/api/vehicles", cityId],
     queryFn: async () => {
-      const res = await fetch(`/api/vehicles?cityId=${cityId}`, {
+      const res = await fetch(resolveUrl(`/api/vehicles?cityId=${cityId}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) throw new Error("Failed to load vehicles");
@@ -236,7 +236,7 @@ export default function FleetOpsPage() {
 
   const reassignMutation = useMutation({
     mutationFn: async (data: { assignmentId: number; newVehicleId: number; updateTrips: boolean; notes?: string }) => {
-      const res = await fetch("/api/dispatch/assignments/reassign-vehicle", {
+      const res = await fetch(resolveUrl("/api/dispatch/assignments/reassign-vehicle"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify(data),
@@ -264,7 +264,7 @@ export default function FleetOpsPage() {
 
   const swapMutation = useMutation({
     mutationFn: async (data: { assignmentIdA: number; assignmentIdB: number; updateTrips: boolean; notes?: string }) => {
-      const res = await fetch("/api/dispatch/assignments/swap-drivers", {
+      const res = await fetch(resolveUrl("/api/dispatch/assignments/swap-drivers"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify(data),

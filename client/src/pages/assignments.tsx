@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth, authHeaders } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveUrl } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -188,7 +188,7 @@ export default function AssignmentsPage() {
     queryKey: ["/api/vehicle-assignments", cityId, selectedDate],
     queryFn: async () => {
       if (!cityId || !selectedDate) return [];
-      const res = await fetch(`/api/vehicle-assignments?cityId=${cityId}&date=${selectedDate}`, {
+      const res = await fetch(resolveUrl(`/api/vehicle-assignments?cityId=${cityId}&date=${selectedDate}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) throw new Error("Failed to load assignments");
@@ -201,7 +201,7 @@ export default function AssignmentsPage() {
     queryKey: ["/api/drivers", cityId],
     queryFn: async () => {
       if (!cityId) return [];
-      const res = await fetch(`/api/drivers?cityId=${cityId}`, {
+      const res = await fetch(resolveUrl(`/api/drivers?cityId=${cityId}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) return [];
@@ -214,7 +214,7 @@ export default function AssignmentsPage() {
     queryKey: ["/api/vehicles", cityId],
     queryFn: async () => {
       if (!cityId) return [];
-      const res = await fetch(`/api/vehicles?cityId=${cityId}`, {
+      const res = await fetch(resolveUrl(`/api/vehicles?cityId=${cityId}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) return [];
@@ -226,7 +226,7 @@ export default function AssignmentsPage() {
   const { data: healthData } = useQuery({
     queryKey: ["/api/assignments/health"],
     queryFn: async () => {
-      const res = await fetch("/api/assignments/health", { headers: authHeaders(token) });
+      const res = await fetch(resolveUrl("/api/assignments/health"), { headers: authHeaders(token) });
       if (!res.ok) return null;
       return res.json();
     },
@@ -602,7 +602,7 @@ function SchedulerTab({
     queryKey: ["/api/assignments/schedule-status", cityId, selectedDate],
     queryFn: async () => {
       if (!cityId || !selectedDate) return null;
-      const res = await fetch(`/api/assignments/schedule-status?cityId=${cityId}&date=${selectedDate}`, {
+      const res = await fetch(resolveUrl(`/api/assignments/schedule-status?cityId=${cityId}&date=${selectedDate}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) return null;

@@ -78,6 +78,7 @@ const DISPATCH_STATUS_LABELS: Record<string, string> = {
 };
 
 import { getTripMarkerColor, getTripStatusLabel, TRIP_STATUS_MAP, MAP_LEGEND_ITEMS, DRIVER_LEGEND_ITEMS, ACTIVE_TRIP_STATUSES } from "@/lib/tripStatusMapping";
+import { resolveUrl } from "@/lib/api";
 
 const TRIP_STATUS_COLORS: Record<string, string> = Object.fromEntries(
   Object.entries(TRIP_STATUS_MAP).map(([k, v]) => [k, v.markerColor])
@@ -192,7 +193,7 @@ export default function DispatchMapPage() {
 
   const assignTripMutation = useMutation({
     mutationFn: async ({ trip_id, driver_id }: { trip_id: number; driver_id: number }) => {
-      const res = await fetch("/api/dispatch/assign-trip", {
+      const res = await fetch(resolveUrl("/api/dispatch/assign-trip"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({ trip_id, driver_id }),
@@ -217,7 +218,7 @@ export default function DispatchMapPage() {
 
   const assignVehicleMutation = useMutation({
     mutationFn: async ({ driver_id, vehicle_id }: { driver_id: number; vehicle_id: number }) => {
-      const res = await fetch("/api/dispatch/assign-driver-vehicle", {
+      const res = await fetch(resolveUrl("/api/dispatch/assign-driver-vehicle"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({ driver_id, vehicle_id }),
@@ -243,7 +244,7 @@ export default function DispatchMapPage() {
   const autoAssignMutation = useMutation({
     mutationFn: async () => {
       if (!cityId) throw new Error("Select a city first");
-      const res = await fetch("/api/dispatch/auto-assign", {
+      const res = await fetch(resolveUrl("/api/dispatch/auto-assign"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({ city_id: cityId }),
@@ -266,7 +267,7 @@ export default function DispatchMapPage() {
 
   const overrideAssignMutation = useMutation({
     mutationFn: async ({ driver_id, vehicle_id, date }: { driver_id: number; vehicle_id: number; date: string }) => {
-      const res = await fetch("/api/vehicle-assignments/override", {
+      const res = await fetch(resolveUrl("/api/vehicle-assignments/override"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({ driver_id, vehicle_id, date }),
@@ -293,7 +294,7 @@ export default function DispatchMapPage() {
   const triggerAutoAssignMutation = useMutation({
     mutationFn: async () => {
       if (!cityId) throw new Error("Select a city first");
-      const res = await fetch("/api/vehicle-assignments/trigger", {
+      const res = await fetch(resolveUrl("/api/vehicle-assignments/trigger"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({ city_id: cityId }),
@@ -316,7 +317,7 @@ export default function DispatchMapPage() {
 
   const driverStatusMutation = useMutation({
     mutationFn: async ({ driver_id, status }: { driver_id: number; status: string }) => {
-      const res = await fetch("/api/drivers/status", {
+      const res = await fetch(resolveUrl("/api/drivers/status"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({ driver_id, status }),
@@ -340,7 +341,7 @@ export default function DispatchMapPage() {
 
   const smsNotifyMutation = useMutation({
     mutationFn: async ({ tripId, status }: { tripId: number; status: string }) => {
-      const res = await fetch(`/api/trips/${tripId}/notify`, {
+      const res = await fetch(resolveUrl(`/api/trips/${tripId}/notify`), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({ status }),
@@ -362,7 +363,7 @@ export default function DispatchMapPage() {
 
   const smsDirectMutation = useMutation({
     mutationFn: async ({ to, message }: { to: string; message: string }) => {
-      const res = await fetch("/api/sms/send", {
+      const res = await fetch(resolveUrl("/api/sms/send"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({ to, message }),
@@ -447,7 +448,7 @@ export default function DispatchMapPage() {
         body.feeOverride = feeOverride;
         body.overrideNote = overrideNote || "";
       }
-      const res = await fetch(`/api/trips/${tripId}/cancel`, {
+      const res = await fetch(resolveUrl(`/api/trips/${tripId}/cancel`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify(body),
@@ -474,7 +475,7 @@ export default function DispatchMapPage() {
 
   const rejectCancelMutation = useMutation({
     mutationFn: async (tripId: number) => {
-      const res = await fetch(`/api/trips/${tripId}/reject-cancel`, {
+      const res = await fetch(resolveUrl(`/api/trips/${tripId}/reject-cancel`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
       });
@@ -497,7 +498,7 @@ export default function DispatchMapPage() {
 
   const returnTripMutation = useMutation({
     mutationFn: async ({ tripId, notes }: { tripId: number; notes?: string }) => {
-      const res = await fetch(`/api/trips/${tripId}/return-trip`, {
+      const res = await fetch(resolveUrl(`/api/trips/${tripId}/return-trip`), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({ notes }),
@@ -523,7 +524,7 @@ export default function DispatchMapPage() {
     setSmsMode("template");
     setSmsCustomMessage("");
     try {
-      const res = await fetch(`/api/patients?cityId=${trip.cityId}`, {
+      const res = await fetch(resolveUrl(`/api/patients?cityId=${trip.cityId}`), {
         headers: authHeaders(token),
       });
       if (res.ok) {

@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch, resolveUrl } from "@/lib/api";
 import {
   Car,
   MapPin,
@@ -544,7 +544,7 @@ function useLoadGoogleMaps(token: string | null) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/maps/client-key", {
+        const res = await fetch(resolveUrl("/api/maps/client-key"), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) { if (!cancelled) setKeyMissing(true); return; }
@@ -650,7 +650,7 @@ function useAutoReroute(
     if (!shouldRecompute) return;
 
     pendingRef.current = true;
-    fetch(`/api/trips/${activeTrip.id}/route/recompute`, {
+    fetch(resolveUrl(`/api/trips/${activeTrip.id}/route/recompute`), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ originLat: driverLocation.lat, originLng: driverLocation.lng }),
@@ -3571,7 +3571,7 @@ function DrawerProfileSection({ token }: { token: string | null }) {
 
   const updateMutation = useMutation({
     mutationFn: async (body: any) => {
-      const res = await fetch("/api/driver/me", {
+      const res = await fetch(resolveUrl("/api/driver/me"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         credentials: "include",

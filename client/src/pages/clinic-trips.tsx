@@ -6,7 +6,7 @@ import { useTripRealtime } from "@/hooks/use-trip-realtime";
 import { useRealtimeTrips } from "@/hooks/use-realtime-trips";
 import { RealtimeDebugPanel } from "@/components/realtime-debug-panel";
 import { queryClient } from "@/lib/queryClient";
-import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { apiFetch, rawAuthFetch, resolveUrl } from "@/lib/api";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -663,7 +663,7 @@ function LiveTripCards({ trips, selectedTrip, onSelectTrip }: {
 
   const cancelMutation = useMutation({
     mutationFn: async ({ tripId, reason, notes }: { tripId: number; reason: string; notes: string }) => {
-      const res = await fetch(`/api/trips/${tripId}/cancel-request`, {
+      const res = await fetch(resolveUrl(`/api/trips/${tripId}/cancel-request`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ reason: notes ? `${reason} - ${notes}` : reason }),
@@ -997,8 +997,8 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
 
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    fetch("/api/maps/client-key", { headers })
-      .then(r => r.ok ? r.json() : fetch("/api/public/maps/key").then(rr => rr.json()))
+    fetch(resolveUrl("/api/maps/client-key"), { headers })
+      .then(r => r.ok ? r.json() : fetch(resolveUrl("/api/public/maps/key")).then(rr => rr.json()))
       .then(json => {
         if (!json.key) { setMapAvailable(false); return; }
         if (window.google?.maps) {
@@ -1242,7 +1242,7 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
     if (etaAge < CLINIC_REROUTE_INTERVAL_MS) return;
 
     clinicRerouteRef.current = { tripId: selectedTrip.tripId, time: Date.now() };
-    fetch(`/api/trips/${trip.tripId}/route/recompute`, {
+    fetch(resolveUrl(`/api/trips/${trip.tripId}/route/recompute`), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ originLat: trip.driver.lastLat, originLng: trip.driver.lastLng }),
@@ -2110,8 +2110,8 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
 
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    fetch("/api/maps/client-key", { headers })
-      .then(r => r.ok ? r.json() : fetch("/api/public/maps/key").then(rr => rr.json()))
+    fetch(resolveUrl("/api/maps/client-key"), { headers })
+      .then(r => r.ok ? r.json() : fetch(resolveUrl("/api/public/maps/key")).then(rr => rr.json()))
       .then(json => {
         if (!json.key) {
           setMapAvailable(false);

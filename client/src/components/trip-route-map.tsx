@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveUrl } from "@/lib/api";
 import { MapPin, Loader2, CheckCircle, AlertTriangle } from "lucide-react";
 
 interface DriverLocationData {
@@ -110,7 +110,7 @@ export function TripRouteMap({
       try {
         let apiKey = window.__MAPS_KEY_CACHE__;
         if (!apiKey) {
-          const res = await fetch("/api/public/maps/key");
+          const res = await fetch(resolveUrl("/api/public/maps/key"));
           const json = await res.json();
           apiKey = json.key;
           if (apiKey) window.__MAPS_KEY_CACHE__ = apiKey;

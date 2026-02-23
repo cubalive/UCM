@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
+import { getWsUrl } from "@/lib/api";
 
 interface TripUpdateEvent {
   type: "trip_update";
@@ -42,8 +43,7 @@ export function useRealtimeTrips({
     if (!token || !enabled) return;
     if (!companyId && !clinicId) return;
 
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+    const wsUrl = getWsUrl(token);
 
     try {
       const ws = new WebSocket(wsUrl);

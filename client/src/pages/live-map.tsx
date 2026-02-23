@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, MapPin, RefreshCw, Users } from "lucide-react";
 import { MapLegend } from "@/components/map-legend";
 import { getTripMarkerColor, TRIP_STATUS_MAP } from "@/lib/tripStatusMapping";
+import { resolveUrl } from "@/lib/api";
 
 interface DriverLocation {
   driver_id: number;
@@ -75,7 +76,7 @@ function useGoogleMapsApiKey() {
   return useQuery<{ key: string | null }>({
     queryKey: ["/api/maps/client-key"],
     queryFn: async () => {
-      const res = await fetch("/api/maps/client-key", {
+      const res = await fetch(resolveUrl("/api/maps/client-key"), {
         headers: authHeaders(token),
       });
       if (!res.ok) return { key: null };
@@ -432,7 +433,7 @@ function ClinicMapView({ token, cityId, mapsReady, renderError, keyLoading, maps
   const { data: driverLocations, isLoading: driversLoading, refetch, dataUpdatedAt } = useQuery<DriverLocation[]>({
     queryKey: ["/api/ops/driver-locations", cityId],
     queryFn: async () => {
-      const res = await fetch(`/api/ops/driver-locations?city_id=${cityId}`, {
+      const res = await fetch(resolveUrl(`/api/ops/driver-locations?city_id=${cityId}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) return [];
@@ -445,7 +446,7 @@ function ClinicMapView({ token, cityId, mapsReady, renderError, keyLoading, maps
   const { data: tripData } = useQuery<{ role: string; clinicId: number; trips: ActiveTripInfo[] }>({
     queryKey: ["/api/ops/my-active-trips", cityId],
     queryFn: async () => {
-      const res = await fetch(`/api/ops/my-active-trips?city_id=${cityId}`, {
+      const res = await fetch(resolveUrl(`/api/ops/my-active-trips?city_id=${cityId}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) return { role: "clinic", clinicId: 0, trips: [] };
@@ -571,7 +572,7 @@ function PatientMapView({ token, mapsReady, renderError, keyLoading, mapsLoaded,
   const { data: driverLocations, isLoading: driversLoading, refetch, dataUpdatedAt } = useQuery<DriverLocation[]>({
     queryKey: ["/api/ops/driver-locations"],
     queryFn: async () => {
-      const res = await fetch("/api/ops/driver-locations", {
+      const res = await fetch(resolveUrl("/api/ops/driver-locations"), {
         headers: authHeaders(token),
       });
       if (!res.ok) return [];
@@ -584,7 +585,7 @@ function PatientMapView({ token, mapsReady, renderError, keyLoading, mapsLoaded,
   const { data: tripData } = useQuery<{ role: string; patientId: number; trip: ActiveTripInfo | null }>({
     queryKey: ["/api/ops/my-active-trips"],
     queryFn: async () => {
-      const res = await fetch("/api/ops/my-active-trips", {
+      const res = await fetch(resolveUrl("/api/ops/my-active-trips"), {
         headers: authHeaders(token),
       });
       if (!res.ok) return { role: "patient", patientId: 0, trip: null };
@@ -709,7 +710,7 @@ function DispatchMapView({ token, localCityId, cities, setSelectedCity, setLocal
   const { data: driverLocations, isLoading: driversLoading, refetch, dataUpdatedAt } = useQuery<DriverLocation[]>({
     queryKey: ["/api/ops/driver-locations", localCityId],
     queryFn: async () => {
-      const res = await fetch(`/api/ops/driver-locations?city_id=${localCityId}`, {
+      const res = await fetch(resolveUrl(`/api/ops/driver-locations?city_id=${localCityId}`), {
         headers: authHeaders(token),
       });
       if (!res.ok) {

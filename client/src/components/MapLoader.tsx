@@ -1,4 +1,5 @@
 import { useEffect, useState, createContext, useContext } from "react";
+import { resolveUrl } from "@/lib/api";
 
 interface MapLoaderContextType {
   isAvailable: boolean;
@@ -19,7 +20,7 @@ export function MapLoader({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/google/health")
+    fetch(resolveUrl("/api/google/health"))
       .then((res) => res.json())
       .then((data) => {
         if (data.ok && data.hasBrowserKey) {

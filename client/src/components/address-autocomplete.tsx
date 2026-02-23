@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { MapPin, Loader2, X, AlertTriangle, Pencil } from "lucide-react";
+import { resolveUrl } from "@/lib/api";
 
 export interface StructuredAddress {
   formattedAddress: string;
@@ -144,11 +145,11 @@ export function AddressAutocomplete({
     let cancelled = false;
     async function init() {
       try {
-        const res = await fetch("/api/maps/client-key", {
+        const res = await fetch(resolveUrl("/api/maps/client-key"), {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (!res.ok) {
-          const pubRes = await fetch("/api/public/maps/key");
+          const pubRes = await fetch(resolveUrl("/api/public/maps/key"));
           if (!pubRes.ok) {
             setMapsError(true);
             return;

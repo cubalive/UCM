@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
+import { getWsUrl } from "@/lib/api";
 
 export interface DriverWsEvent {
   type: "dispatch_notify" | "dispatch_now" | "tracking_stale" | "tracking_restored" | "subscribed_driver" | "trip_cancelled";
@@ -44,8 +45,7 @@ export function useDriverWs({ driverId, token, onDispatchNotify, onDispatchNow, 
     if (!token || !driverId) return;
     if (!mountedRef.current) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+    const wsUrl = getWsUrl(token);
 
     try {
       const ws = new WebSocket(wsUrl);

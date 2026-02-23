@@ -34,6 +34,8 @@ The application follows a client-server architecture.
 - **ETA & Dispatch Window on Assignment**: `computeEtaAndDispatchWindow()` runs after successful auto-assign, computing `eta_driver_to_pickup_min`, `service_buffer_min`, `dispatch_at`, `notify_at`, `eta_pickup_to_dropoff_min`, and `planned_dropoff_arrival_at`.
 - **Enhanced Driver Dispatch UX**: Real-time driver WebSocket channel (`subscribe_driver`/`broadcastToDriver()`) for dispatch_notify, dispatch_now, tracking_stale, tracking_restored events. Driver portal features: Upcoming Reservations list (ASSIGNED trips before dispatch_at), dispatch notification banner with countdown, auto-switch to active trip on dispatch_now, and tracking stale alert banner. Tracking health scheduler (30s cycles) detects GPS >60s stale, sets tracking_status='STALE', auto-recovers on fresh ping. Location ingest clears STALE status on fresh GPS receipt.
 
+- **Multi-Subdomain Architecture**: Centralized API at `app.unitedcaremobility.com` with `VITE_API_BASE_URL` env var and `API_BASE_URL`/`resolveUrl()`/`getWsUrl()` in `client/src/lib/api.ts`. All client-side `fetch()` and WebSocket calls route through these helpers for cross-subdomain support. Subdomains: `app` (API+admin), `clinic`, `driver`, `dispatch`, `admin`. CORS allows all UCM subdomains via `BUILTIN_APP_ORIGINS` in `server/index.ts`. System diagnostic endpoints: `/api/system/origins`, `/api/system/auth-health`, `/api/boot`.
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database (Supabase pooler).
 - **Supabase**: User authentication, city management, Row-Level Security (RLS).

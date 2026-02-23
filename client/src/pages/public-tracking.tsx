@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Clock, MapPin, Navigation, AlertTriangle, Car, CheckCircle2, XCircle, Phone, MessageSquare, Truck } from "lucide-react";
+import { resolveUrl } from "@/lib/api";
 
 function StaticMapImage({ token, ...props }: { token: string; "data-testid"?: string }) {
   const [failed, setFailed] = useState(false);
@@ -99,7 +100,7 @@ export default function PublicTrackingPage() {
 
   const fetchTracking = useCallback(async () => {
     try {
-      const res = await fetch(`/api/public/trips/track/${token}`);
+      const res = await fetch(resolveUrl(`/api/public/trips/track/${token}`));
       const json = await res.json();
       if (!json.ok) {
         setError(json.message || json.error || "Unable to load tracking information");
@@ -151,7 +152,7 @@ export default function PublicTrackingPage() {
     const script = document.createElement("script");
     script.async = true;
 
-    fetch("/api/public/maps/key")
+    fetch(resolveUrl("/api/public/maps/key"))
       .then(r => r.json())
       .then(json => {
         if (json.key) {

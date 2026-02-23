@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveUrl } from "@/lib/api";
 import { NATIVE_ENABLED } from "@/lib/hostDetection";
 import {
   evaluatePickupGeofence,
@@ -2742,7 +2742,7 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
   const versionQuery = useQuery<{ version?: string; builtAt?: string; env?: string }>({
     queryKey: ["/api/healthz"],
     queryFn: async () => {
-      const res = await fetch("/api/healthz?_t=" + Date.now(), { cache: "no-store" });
+      const res = await fetch(resolveUrl("/api/healthz?_t=" + Date.now()), { cache: "no-store" });
       if (!res.ok) return {};
       return res.json();
     },

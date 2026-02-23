@@ -1,4 +1,30 @@
-import { isDriverHost, getTokenKey } from "@/lib/hostDetection";
+import { isDriverHost, isProductionSubdomain, getTokenKey } from "@/lib/hostDetection";
+
+const PROD_API_DEFAULT = "https://app.unitedcaremobility.com";
+
+export const API_BASE_URL: string = (() => {
+  const envVal = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (envVal) return envVal.replace(/\/+$/, "");
+  if (isProductionSubdomain) return PROD_API_DEFAULT;
+  return "";
+})();
+
+export function getWsUrl(token: string): string {
+  if (API_BASE_URL) {
+    const url = new URL(API_BASE_URL);
+    const protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${url.host}/ws?token=${encodeURIComponent(token)}`;
+  }
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+}
+
+export function resolveUrl(path: string): string {
+  if (API_BASE_URL && path.startsWith("/")) {
+    return `${API_BASE_URL}${path}`;
+  }
+  return path;
+}
 
 export function getStoredCityId(): string | null {
   try {
@@ -100,7 +126,7 @@ export async function apiFetch(
   const headers = buildHeaders(token, extraHeaders);
   const credentials: RequestCredentials = isDriverHost ? "omit" : "include";
 
-  const res = await fetch(url, { ...options, headers, credentials });
+  const res = await fetch(resolveUrl(url), { ...options, headers, credentials });
   if (!res.ok) {
     if (res.status === 401) {
       const err = await res.json().catch(() => ({ message: res.statusText }));
@@ -146,5 +172,5 @@ export function rawAuthFetch(url: string, init?: RequestInit): Promise<Response>
   const extraHeaders = (init?.headers as Record<string, string>) || {};
   const headers = buildHeaders(token, extraHeaders);
   const credentials: RequestCredentials = isDriverHost ? "omit" : "include";
-  return fetch(url, { ...init, headers, credentials });
+  return fetch(resolveUrl(url), { ...init, headers, credentials });
 }

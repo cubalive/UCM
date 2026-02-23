@@ -2,6 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
 import { useState } from "react";
+import { resolveUrl } from "@/lib/api";
 import {
   CreditCard,
   FileText,
@@ -52,7 +53,7 @@ function InvoiceLineDrawer({ invoice, onClose }: { invoice: any; onClose: () => 
   const { data: detail, isLoading } = useQuery({
     queryKey: ["/api/clinic/billing/invoices", invoice.id],
     queryFn: async () => {
-      const res = await fetch(`/api/clinic/billing/invoices/${invoice.id}`, { credentials: "include" });
+      const res = await fetch(resolveUrl(`/api/clinic/billing/invoices/${invoice.id}`), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch invoice details");
       return res.json();
     },
@@ -197,7 +198,7 @@ function AdjustmentsSection({ invoiceId }: { invoiceId: number }) {
   const { data, isLoading } = useQuery({
     queryKey: ["/api/finance/invoices", invoiceId, "adjustments"],
     queryFn: async () => {
-      const res = await fetch(`/api/finance/invoices/${invoiceId}/adjustments`, { credentials: "include" });
+      const res = await fetch(resolveUrl(`/api/finance/invoices/${invoiceId}/adjustments`), { credentials: "include" });
       if (!res.ok) return { adjustments: [] };
       return res.json();
     },
@@ -250,7 +251,7 @@ export default function ClinicBilling() {
   const { data: invoices, isLoading } = useQuery({
     queryKey: ["/api/clinic/billing/invoices"],
     queryFn: async () => {
-      const res = await fetch("/api/clinic/billing/invoices", { credentials: "include" });
+      const res = await fetch(resolveUrl("/api/clinic/billing/invoices"), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch invoices");
       return res.json();
     },
@@ -259,7 +260,7 @@ export default function ClinicBilling() {
 
   const payMutation = useMutation({
     mutationFn: async (invoiceId: number) => {
-      const res = await fetch(`/api/clinic/billing/invoices/${invoiceId}/pay`, {
+      const res = await fetch(resolveUrl(`/api/clinic/billing/invoices/${invoiceId}/pay`), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
