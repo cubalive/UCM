@@ -3040,7 +3040,7 @@ export default function DriverPortal() {
     }, [playSound, toast]),
     onDispatchNow: useCallback((event: DriverWsEvent) => {
       setDispatchBanner(null);
-      playSound("alert");
+      playSound("alert_critical");
       toast({ title: "GO — Trip dispatched!", description: `Navigate to ${event.pickupAddress ?? "pickup"}`, variant: "default" });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips", getToday()] });
@@ -3048,7 +3048,7 @@ export default function DriverPortal() {
     }, [playSound, toast]),
     onTrackingStale: useCallback((event: DriverWsEvent) => {
       setTrackingAlert(event.message ?? "Location signal lost");
-      playSound("alert");
+      playSound("alert_warning");
     }, [playSound]),
     onTrackingRestored: useCallback(() => {
       setTrackingAlert(null);
@@ -3344,6 +3344,15 @@ export default function DriverPortal() {
     }
   }, []);
 
+  const upcomingTrips = useMemo(() => {
+    const now = Date.now();
+    return todayTrips.filter((t: any) => {
+      if (t.status !== "ASSIGNED") return false;
+      if (!t.dispatchAt) return true;
+      return new Date(t.dispatchAt).getTime() > now;
+    });
+  }, [todayTrips]);
+
   if (geoPermission === "prompt") {
     return (
       <div className="flex items-center justify-center min-h-[60vh] p-4">
@@ -3408,15 +3417,6 @@ export default function DriverPortal() {
       </div>
     );
   }
-
-  const upcomingTrips = useMemo(() => {
-    const now = Date.now();
-    return todayTrips.filter((t: any) => {
-      if (t.status !== "ASSIGNED") return false;
-      if (!t.dispatchAt) return true;
-      return new Date(t.dispatchAt).getTime() > now;
-    });
-  }, [todayTrips]);
 
   return (
     <div className="flex flex-col min-h-screen bg-background" data-testid="driver-portal">
