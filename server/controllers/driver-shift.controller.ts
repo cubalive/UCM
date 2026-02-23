@@ -328,16 +328,22 @@ export async function getDriverGeofenceCheckHandler(req: AuthRequest, res: Respo
     const dropoffDistance = dropoffLat && dropoffLng
       ? haversineDistance(driverLat, driverLng, dropoffLat, dropoffLng) : null;
 
-    const PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
-    const DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
+    const ENV_PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "150");
+    // Default 150m (configurable per trip via pickupGeofenceM)
+    const ENV_DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
+    const PICKUP_RADIUS = trip.pickupGeofenceM ?? ENV_PICKUP_RADIUS;
+    const DROPOFF_RADIUS = trip.dropoffGeofenceM ?? ENV_DROPOFF_RADIUS;
 
     res.json({
+      tripId: trip.id,
+      tripStatus: trip.status,
       pickupDistanceMeters: pickupDistance ? Math.round(pickupDistance) : null,
       dropoffDistanceMeters: dropoffDistance ? Math.round(dropoffDistance) : null,
       withinPickupRadius: pickupDistance !== null && pickupDistance <= PICKUP_RADIUS,
       withinDropoffRadius: dropoffDistance !== null && dropoffDistance <= DROPOFF_RADIUS,
       pickupRadiusMeters: PICKUP_RADIUS,
       dropoffRadiusMeters: DROPOFF_RADIUS,
+      arrivedEnabled: pickupDistance !== null && pickupDistance <= PICKUP_RADIUS && trip.status === "EN_ROUTE_TO_PICKUP",
     });
   } catch (err: any) {
     res.status(500).json({ message: err.message });

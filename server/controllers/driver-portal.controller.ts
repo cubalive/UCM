@@ -1895,7 +1895,7 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
       if (geofenceStatuses.includes(newStatus) && trip.driverId) {
         const { getDriverLocationFromCache } = await import("../lib/driverLocationIngest");
         const driverLoc = getDriverLocationFromCache(trip.driverId);
-        const ENV_PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "120");
+        const ENV_PICKUP_RADIUS = parseInt(process.env.GEOFENCE_PICKUP_RADIUS_METERS || "150");
         const ENV_DROPOFF_RADIUS = parseInt(process.env.GEOFENCE_DROPOFF_RADIUS_METERS || "160");
         const PICKUP_RADIUS = trip.pickupGeofenceM ?? ENV_PICKUP_RADIUS;
         const DROPOFF_RADIUS = trip.dropoffGeofenceM ?? ENV_DROPOFF_RADIUS;
@@ -2047,14 +2047,14 @@ export async function extendWaitingHandler(req: AuthRequest, res: Response) {
     const [cs] = await db.select().from(companySettings).where(eq(companySettings.companyId, trip.companyId));
     const waitCfg = (cs?.driverV3 as any)?.waiting;
     const allowExtend = waitCfg?.allowExtend !== false;
-    const maxExtends = waitCfg?.maxExtends ?? 3;
-    const extendMinutes = waitCfg?.minutes ?? 10;
+    const maxExtends = waitCfg?.maxExtends ?? 2;
+    const extendMinutes = waitCfg?.extendMinutes ?? 5;
 
     if (!allowExtend) {
       return res.status(403).json({ message: "Wait extension not allowed by company policy" });
     }
     if ((trip.waitingExtendCount ?? 0) >= maxExtends) {
-      return res.status(400).json({ message: `Maximum ${maxExtends} extensions reached` });
+      return res.status(400).json({ message: `Maximum ${maxExtends} extensions reached`, maxExtensions: maxExtends, currentCount: trip.waitingExtendCount ?? 0 });
     }
 
     const newWaitMinutes = (trip.waitingMinutes ?? 10) + extendMinutes;
@@ -2074,8 +2074,148 @@ export async function extendWaitingHandler(req: AuthRequest, res: Response) {
       cityId: trip.cityId,
     }).catch(() => {});
 
+    const timelineEntry = {
+      ts: new Date().toISOString(),
+      action: "WAIT_EXTENDED",
+      actorRole: "DRIVER",
+      actorId: req.user!.userId,
+      extendCount: newExtendCount,
+      addedMinutes: extendMinutes,
+      totalWaitMinutes: newWaitMinutes,
+    };
+    db.update(trips).set({
+      timeline: sql`COALESCE(${trips.timeline}, '[]'::jsonb) || ${JSON.stringify([timelineEntry])}::jsonb`,
+    }).where(eq(trips.id, tripId)).catch(() => {});
+
     console.log(`[WAITING] Trip ${tripId}: wait extended #${newExtendCount}, total ${newWaitMinutes} min`);
-    res.json(updated);
+    res.json({
+      ...updated,
+      waitConfig: { maxExtensions: maxExtends, extendMinutes, currentCount: newExtendCount, canExtendMore: newExtendCount < maxExtends },
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+const NO_SHOW_REASONS = [
+  "Patient not present",
+  "Wrong address",
+  "Could not contact patient",
+  "Patient refused transport",
+  "Unsafe conditions",
+  "Other",
+] as const;
+
+export async function markNoShowHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+    const tripId = parseInt(String(req.params.tripId));
+    if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const [trip] = await db.select().from(trips)
+      .where(and(eq(trips.id, tripId), eq(trips.driverId, user.driverId), isNull(trips.deletedAt)));
+    if (!trip) return res.status(404).json({ message: "Trip not found or not assigned to you" });
+
+    if (trip.status !== "ARRIVED_PICKUP") {
+      return res.status(400).json({ message: "Can only mark no-show after arriving at pickup" });
+    }
+
+    const reason = req.body.reason;
+    if (!reason || typeof reason !== "string") {
+      return res.status(400).json({ message: "No-show reason is required", availableReasons: NO_SHOW_REASONS });
+    }
+
+    if (trip.waitingStartedAt) {
+      const startedAt = new Date(trip.waitingStartedAt).getTime();
+      const waitMs = (trip.waitingMinutes ?? 10) * 60 * 1000;
+      const endTime = startedAt + waitMs;
+      const remaining = endTime - Date.now();
+      if (remaining > 0 && !req.body.adminOverride) {
+        return res.status(400).json({
+          message: "Wait timer has not expired yet",
+          remainingSeconds: Math.ceil(remaining / 1000),
+          expiresAt: new Date(endTime).toISOString(),
+        });
+      }
+    }
+
+    const notes = req.body.notes || null;
+
+    const { STATUS_TIMESTAMP_MAP } = await import("@shared/tripStateMachine");
+    const timestampField = STATUS_TIMESTAMP_MAP["NO_SHOW"];
+    const updateData: any = {
+      status: "NO_SHOW",
+      waitingEndedAt: new Date(),
+      waitingReason: reason,
+    };
+    if (timestampField) updateData[timestampField] = new Date();
+
+    const [updated] = await db.update(trips).set(updateData).where(eq(trips.id, tripId)).returning();
+
+    const { noShowEvidence } = await import("@shared/schema");
+    await db.insert(noShowEvidence).values({
+      tripId,
+      driverId: user.driverId,
+      arrivedAt: trip.arrivedPickupAt || trip.waitingStartedAt || null,
+      waitedMinutes: trip.waitingMinutes ?? 10,
+      callAttempted: !!req.body.callAttempted,
+      smsAttempted: !!req.body.smsAttempted,
+      dispatchNotified: !!req.body.dispatchNotified,
+      reason,
+      notes,
+    }).catch((e: any) => console.warn(`[NO_SHOW] evidence insert failed: ${e.message}`));
+
+    const timelineEntry = {
+      ts: new Date().toISOString(),
+      status: "NO_SHOW",
+      previousStatus: trip.status,
+      actorRole: "DRIVER",
+      actorId: req.user!.userId,
+      source: "driver_portal",
+      reason,
+      notes,
+      waitedMinutes: trip.waitingMinutes ?? 10,
+      extendCount: trip.waitingExtendCount ?? 0,
+    };
+    db.update(trips).set({
+      timeline: sql`COALESCE(${trips.timeline}, '[]'::jsonb) || ${JSON.stringify([timelineEntry])}::jsonb`,
+    }).where(eq(trips.id, tripId)).catch(() => {});
+
+    storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "TRIP_NO_SHOW",
+      entity: "trip",
+      entityId: tripId,
+      details: JSON.stringify({ reason, notes, waitedMinutes: trip.waitingMinutes, extendCount: trip.waitingExtendCount }),
+      cityId: trip.cityId,
+    }).catch(() => {});
+
+    console.log(`[NO_SHOW] Trip ${tripId}: marked no-show by driver ${user.driverId}, reason: ${reason}`);
+    res.json({ ok: true, trip: updated });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getWaitConfigHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+    const driver = await storage.getDriver(user.driverId);
+    if (!driver) return res.status(404).json({ message: "Driver not found" });
+
+    const { companySettings } = await import("@shared/schema");
+    const [cs] = await db.select().from(companySettings).where(eq(companySettings.companyId, driver.companyId));
+    const waitCfg = (cs?.driverV3 as any)?.waiting;
+
+    res.json({
+      waitMinutes: waitCfg?.minutes ?? 10,
+      maxExtensions: waitCfg?.maxExtends ?? 2,
+      extendMinutes: waitCfg?.extendMinutes ?? 5,
+      allowExtend: waitCfg?.allowExtend !== false,
+      noShowReasons: NO_SHOW_REASONS,
+    });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

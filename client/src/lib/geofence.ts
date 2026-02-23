@@ -16,7 +16,7 @@ export function haversineMeters(
   return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export const DEFAULT_PICKUP_RADIUS_M = 120;
+export const DEFAULT_PICKUP_RADIUS_M = 150;
 export const DEFAULT_DROPOFF_RADIUS_M = 160;
 export const MANUAL_FALLBACK_RADIUS_M = 300;
 export const GPS_FRESH_THRESHOLD_MS = 30_000;

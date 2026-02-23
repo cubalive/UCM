@@ -87,6 +87,9 @@ import {
   Gauge,
   Volume2,
   Vibrate,
+  UserX,
+  Plus,
+  Timer,
 } from "lucide-react";
 
 type TabId = "home" | "trips" | "performance" | "bonuses" | "earnings" | "schedule" | "settings";
@@ -689,8 +692,8 @@ function ArrivalGeofenceInfo({ gate, targetStatus }: { gate: GeofenceResult; tar
     return (
       <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-sm" data-testid="geofence-info-no-coords">
         <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-          <Satellite className="w-4 h-4 flex-shrink-0" />
-          <span>{!gate.gpsFresh ? "GPS signal stale — waiting for fresh location" : `No ${label} coordinates available`}</span>
+          <Satellite className="w-4 h-4 flex-shrink-0 animate-pulse" />
+          <span>{!gate.gpsFresh ? "Updating GPS… move closer to pickup to enable Arrived" : `No ${label} coordinates available`}</span>
         </div>
       </div>
     );
@@ -709,18 +712,104 @@ function ArrivalGeofenceInfo({ gate, targetStatus }: { gate: GeofenceResult; tar
       <div className={`flex items-center gap-2 ${textClass}`}>
         <LocateFixed className="w-4 h-4 flex-shrink-0" />
         <span>
-          {gate.distanceMeters}m to {label}
           {withinRadius
-            ? ` — within ${radius}m radius`
-            : ` — need to be within ${radius}m`}
+            ? `${gate.distanceMeters}m to ${label} — within ${radius}m radius ✓`
+            : `Move closer to ${label} to enable Arrived — ${gate.distanceMeters}m away (need ${radius}m)`}
         </span>
       </div>
       {!gate.gpsFresh && gate.gpsFreshSeconds != null && (
         <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500 mt-1">
-          <Satellite className="w-4 h-4 flex-shrink-0" />
-          <span>GPS {gate.gpsFreshSeconds}s old — waiting for fresh signal</span>
+          <Satellite className="w-4 h-4 flex-shrink-0 animate-pulse" />
+          <span>Updating GPS… signal {gate.gpsFreshSeconds}s old</span>
         </div>
       )}
+    </div>
+  );
+}
+
+const NO_SHOW_REASONS = [
+  "Patient not present",
+  "Wrong address",
+  "Could not contact patient",
+  "Patient refused transport",
+  "Unsafe conditions",
+  "Other",
+];
+
+function NoShowConfirmModal({ tripId, token, onClose, onSuccess }: {
+  tripId: number;
+  token: string | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [selectedReason, setSelectedReason] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const noShowMutation = useMutation({
+    mutationFn: () => apiFetch(`/api/driver/trips/${tripId}/no-show`, token, {
+      method: "POST",
+      body: JSON.stringify({ reason: selectedReason, notes: notes || undefined }),
+    }),
+    onSuccess: () => {
+      toast({ title: "Trip marked as No-Show" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/trips"] });
+      onSuccess();
+    },
+    onError: (err: any) => toast({ title: "Could not mark no-show", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" data-testid="dialog-no-show">
+      <Card className="w-full max-w-sm">
+        <CardContent className="py-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <UserX className="w-5 h-5 text-orange-600" />
+            <h3 className="text-lg font-semibold" data-testid="text-no-show-title">Mark No-Show</h3>
+          </div>
+          <p className="text-sm text-muted-foreground">Please select a reason for marking this trip as a no-show.</p>
+          <div className="space-y-2">
+            {NO_SHOW_REASONS.map((reason) => (
+              <button
+                key={reason}
+                onClick={() => setSelectedReason(reason)}
+                className={`w-full text-left px-3 py-2.5 rounded-md border text-sm transition-colors min-h-[44px] ${
+                  selectedReason === reason
+                    ? "border-orange-500 bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-300 font-medium"
+                    : "border-border hover:bg-muted"
+                }`}
+                data-testid={`button-no-show-reason-${reason.toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                {reason}
+              </button>
+            ))}
+          </div>
+          {selectedReason === "Other" && (
+            <Textarea
+              placeholder="Additional notes (optional)"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="min-h-[60px]"
+              data-testid="input-no-show-notes"
+            />
+          )}
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" onClick={onClose} className="flex-1 min-h-[44px]" data-testid="button-no-show-cancel">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => noShowMutation.mutate()}
+              disabled={!selectedReason || noShowMutation.isPending}
+              className="flex-1 min-h-[44px] bg-orange-600 hover:bg-orange-700 text-white"
+              data-testid="button-no-show-confirm"
+            >
+              {noShowMutation.isPending ? "Submitting..." : "Confirm No-Show"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -732,6 +821,7 @@ function WaitingTimer({ trip, token, onStatusChange }: {
 }) {
   const { toast } = useToast();
   const [now, setNow] = useState(Date.now());
+  const [showNoShowModal, setShowNoShowModal] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -740,8 +830,9 @@ function WaitingTimer({ trip, token, onStatusChange }: {
 
   const extendMutation = useMutation({
     mutationFn: () => apiFetch(`/api/driver/trips/${trip.id}/extend-wait`, token, { method: "POST", body: JSON.stringify({}) }),
-    onSuccess: () => {
-      toast({ title: "Wait time extended" });
+    onSuccess: (data: any) => {
+      const remaining = data?.waitConfig?.maxExtensions - (data?.waitConfig?.currentCount ?? 0);
+      toast({ title: "Wait extended +5 min", description: remaining > 0 ? `${remaining} extension${remaining !== 1 ? "s" : ""} remaining` : "No more extensions available" });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips"] });
       queryClient.invalidateQueries({ queryKey: ["/api/driver/trips"] });
@@ -760,61 +851,98 @@ function WaitingTimer({ trip, token, onStatusChange }: {
   const totalSec = (trip.waitingMinutes ?? 10) * 60;
   const progressPct = Math.min(100, ((totalSec - remainingSec) / totalSec) * 100);
   const isExpired = remainingSec <= 0;
+  const maxExtensions = 2;
+  const canExtend = (trip.waitingExtendCount ?? 0) < maxExtensions;
 
   const mins = Math.floor(remainingSec / 60);
   const secs = remainingSec % 60;
   const timeStr = `${mins}:${secs.toString().padStart(2, "0")}`;
 
   return (
-    <div className={`rounded-lg border px-4 py-3 space-y-2 ${isExpired ? "bg-green-50 dark:bg-green-950/30 border-green-300 dark:border-green-800" : "bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-800"}`} data-testid="waiting-timer">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Clock className={`w-5 h-5 flex-shrink-0 ${isExpired ? "text-green-600" : "text-blue-600"}`} />
-          <span className="text-sm font-semibold" data-testid="waiting-timer-label">
-            {isExpired ? "Waiting time reached" : "Waiting for patient"}
+    <>
+      <div className={`rounded-lg border px-4 py-3 space-y-2 ${isExpired ? "bg-orange-50 dark:bg-orange-950/30 border-orange-300 dark:border-orange-800" : "bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-800"}`} data-testid="waiting-timer">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Timer className={`w-5 h-5 flex-shrink-0 ${isExpired ? "text-orange-600" : "text-blue-600"}`} />
+            <span className="text-sm font-semibold" data-testid="waiting-timer-label">
+              {isExpired ? "Wait time expired" : "Waiting for patient"}
+            </span>
+          </div>
+          <span className={`text-lg font-mono font-bold tabular-nums ${isExpired ? "text-orange-700 dark:text-orange-400" : "text-blue-700 dark:text-blue-400"}`} data-testid="waiting-timer-countdown">
+            {isExpired ? "0:00" : timeStr}
           </span>
         </div>
-        <span className={`text-lg font-mono font-bold tabular-nums ${isExpired ? "text-green-700 dark:text-green-400" : "text-blue-700 dark:text-blue-400"}`} data-testid="waiting-timer-countdown">
-          {isExpired ? "0:00" : timeStr}
-        </span>
-      </div>
 
-      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-1000 ${isExpired ? "bg-green-500" : "bg-blue-500"}`}
-          style={{ width: `${progressPct}%` }}
-          data-testid="waiting-timer-progress"
-        />
-      </div>
-
-      {isExpired && (
-        <div className="flex gap-2 pt-1">
-          <Button
-            onClick={() => onStatusChange(trip.id, trip.status)}
-            className="flex-1 min-h-[44px] bg-green-600 hover:bg-green-700 text-white"
-            data-testid="button-waiting-pickup"
-          >
-            Mark Picked Up
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => extendMutation.mutate()}
-            disabled={extendMutation.isPending}
-            className="min-h-[44px]"
-            data-testid="button-waiting-extend"
-          >
-            Extend Wait
-          </Button>
+        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-1000 ${isExpired ? "bg-orange-500" : "bg-blue-500"}`}
+            style={{ width: `${progressPct}%` }}
+            data-testid="waiting-timer-progress"
+          />
         </div>
-      )}
 
-      {!isExpired && (
-        <p className="text-xs text-muted-foreground" data-testid="waiting-timer-hint">
-          Patient has {trip.waitingMinutes ?? 10} min to arrive. Timer started at {new Date(trip.waitingStartedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
-          {(trip.waitingExtendCount ?? 0) > 0 && ` Extended ${trip.waitingExtendCount}x.`}
-        </p>
+        {isExpired && (
+          <div className="space-y-2 pt-1">
+            <div className="flex gap-2">
+              {canExtend && (
+                <Button
+                  variant="outline"
+                  onClick={() => extendMutation.mutate()}
+                  disabled={extendMutation.isPending}
+                  className="flex-1 min-h-[44px] border-blue-300 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                  data-testid="button-waiting-extend"
+                >
+                  <Plus className="w-4 h-4 mr-1" /> Extend +5 min
+                </Button>
+              )}
+              <Button
+                onClick={() => setShowNoShowModal(true)}
+                className="flex-1 min-h-[44px] bg-orange-600 hover:bg-orange-700 text-white"
+                data-testid="button-waiting-no-show"
+              >
+                <UserX className="w-4 h-4 mr-1" /> Mark No-Show
+              </Button>
+            </div>
+            <Button
+              onClick={() => onStatusChange(trip.id, trip.status)}
+              className="w-full min-h-[44px] bg-green-600 hover:bg-green-700 text-white"
+              data-testid="button-waiting-pickup"
+            >
+              <CheckCircle className="w-4 h-4 mr-1" /> Patient Arrived — Pick Up
+            </Button>
+          </div>
+        )}
+
+        {!isExpired && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground" data-testid="waiting-timer-hint">
+              Patient has {trip.waitingMinutes ?? 10} min to arrive. Timer started at {new Date(trip.waitingStartedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+              {(trip.waitingExtendCount ?? 0) > 0 && ` Extended ${trip.waitingExtendCount}x.`}
+            </p>
+            {canExtend && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => extendMutation.mutate()}
+                disabled={extendMutation.isPending}
+                className="text-xs text-blue-600 dark:text-blue-400 h-7 px-2"
+                data-testid="button-waiting-extend-early"
+              >
+                <Plus className="w-3 h-3 mr-1" /> Extend +5 min
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+      {showNoShowModal && (
+        <NoShowConfirmModal
+          tripId={trip.id}
+          token={token}
+          onClose={() => setShowNoShowModal(false)}
+          onSuccess={() => setShowNoShowModal(false)}
+        />
       )}
-    </div>
+    </>
   );
 }
 

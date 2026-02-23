@@ -72,6 +72,8 @@ import {
   getDriverV3FlagsHandler,
   getDriverPerformanceCurrentShiftHandler,
   extendWaitingHandler,
+  markNoShowHandler,
+  getWaitConfigHandler,
   postDriverTelemetryHandler,
 } from "../controllers/driver-portal.controller";
 
@@ -148,6 +150,8 @@ router.get("/api/driver/trips/upcoming", authMiddleware, requireRole("DRIVER"), 
 router.get("/api/driver/trips/history", authMiddleware, requireRole("DRIVER"), getDriverTripsHistoryHandler as any);
 router.post("/api/driver/trips/:tripId/status", authMiddleware, requireRole("DRIVER"), postDriverTripStatusHandler as any);
 router.post("/api/driver/trips/:tripId/extend-wait", authMiddleware, requireRole("DRIVER"), extendWaitingHandler as any);
+router.post("/api/driver/trips/:tripId/no-show", authMiddleware, requireRole("DRIVER"), markNoShowHandler as any);
+router.get("/api/driver/wait-config", authMiddleware, requireRole("DRIVER"), getWaitConfigHandler as any);
 router.get("/api/driver/trips/:tripId", authMiddleware, requireRole("DRIVER"), getDriverTripDetailHandler as any);
 router.get("/api/driver/schedule", authMiddleware, requireRole("DRIVER"), getDriverScheduleHandler as any);
 router.get("/api/driver/metrics/weekly", authMiddleware, requireRole("DRIVER"), getDriverMetricsWeeklyHandler as any);
