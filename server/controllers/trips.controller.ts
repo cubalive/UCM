@@ -1943,6 +1943,29 @@ export async function cancelTripHandler(req: AuthRequest, res: Response) {
       autoNotifyPatient(id, "canceled");
     }).catch(() => {});
 
+    import("../lib/tripTransitionHelper").then(({ broadcastCompanyTripUpdate }) => {
+      broadcastCompanyTripUpdate(trip.companyId, {
+        tripId: id,
+        status: "CANCELLED",
+        previousStatus: trip.status,
+        driverId: trip.driverId,
+        clinicId: trip.clinicId,
+        cityId: trip.cityId,
+        publicId: trip.publicId,
+      });
+    }).catch(() => {});
+
+    if (trip.driverId) {
+      import("../lib/realtime").then(({ broadcastToDriver }) => {
+        broadcastToDriver(trip.driverId!, {
+          type: "trip_cancelled",
+          tripId: id,
+          publicId: trip.publicId,
+          ts: Date.now(),
+        });
+      }).catch(() => {});
+    }
+
     res.json({ ...updated, invoiceId, cancelFee: finalFee, billable: isBillable });
   } catch (err: any) {
     res.status(500).json({ message: err.message });

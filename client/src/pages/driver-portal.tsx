@@ -3054,6 +3054,12 @@ export default function DriverPortal() {
       setTrackingAlert(null);
       toast({ title: "Tracking restored" });
     }, [toast]),
+    onTripCancelled: useCallback((event: DriverWsEvent) => {
+      toast({ title: "Trip cancelled", description: `Trip ${event.publicId ?? ""} was cancelled by dispatch`, variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips", getToday()] });
+      setDispatchBanner(null);
+    }, [toast]),
   });
 
   const activeShiftQuery = useQuery<{ shift: any }>({

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 
 export interface DriverWsEvent {
-  type: "dispatch_notify" | "dispatch_now" | "tracking_stale" | "tracking_restored" | "subscribed_driver";
+  type: "dispatch_notify" | "dispatch_now" | "tracking_stale" | "tracking_restored" | "subscribed_driver" | "trip_cancelled";
   driverId?: number;
   tripId?: number;
+  publicId?: string;
   pickupAddress?: string;
   dropoffAddress?: string;
   pickupTime?: string;
@@ -21,13 +22,14 @@ interface UseDriverWsOptions {
   onDispatchNow?: (event: DriverWsEvent) => void;
   onTrackingStale?: (event: DriverWsEvent) => void;
   onTrackingRestored?: (event: DriverWsEvent) => void;
+  onTripCancelled?: (event: DriverWsEvent) => void;
 }
 
 const WS_RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 10;
 const PING_INTERVAL_MS = 25_000;
 
-export function useDriverWs({ driverId, token, onDispatchNotify, onDispatchNow, onTrackingStale, onTrackingRestored }: UseDriverWsOptions) {
+export function useDriverWs({ driverId, token, onDispatchNotify, onDispatchNow, onTrackingStale, onTrackingRestored, onTripCancelled }: UseDriverWsOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -35,8 +37,8 @@ export function useDriverWs({ driverId, token, onDispatchNotify, onDispatchNow, 
   const mountedRef = useRef(true);
   const [connected, setConnected] = useState(false);
 
-  const callbacksRef = useRef({ onDispatchNotify, onDispatchNow, onTrackingStale, onTrackingRestored });
-  callbacksRef.current = { onDispatchNotify, onDispatchNow, onTrackingStale, onTrackingRestored };
+  const callbacksRef = useRef({ onDispatchNotify, onDispatchNow, onTrackingStale, onTrackingRestored, onTripCancelled });
+  callbacksRef.current = { onDispatchNotify, onDispatchNow, onTrackingStale, onTrackingRestored, onTripCancelled };
 
   const connect = useCallback(() => {
     if (!token || !driverId) return;
@@ -81,6 +83,9 @@ export function useDriverWs({ driverId, token, onDispatchNotify, onDispatchNow, 
               break;
             case "tracking_restored":
               callbacksRef.current.onTrackingRestored?.(msg);
+              break;
+            case "trip_cancelled":
+              callbacksRef.current.onTripCancelled?.(msg);
               break;
           }
         } catch (e) {
