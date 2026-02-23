@@ -5,6 +5,7 @@ import { createHarnessedTask, registerInterval, type HarnessedTask } from "./sch
 import { transitionTripStatus } from "./tripTransitionHelper";
 import { DISPATCH_STAGES } from "@shared/tripStateMachine";
 import { computeRouteFromCoords } from "./tripRouteService";
+import { broadcastToDriver } from "./realtime";
 
 const INTERVAL_MS = 60_000;
 const ENABLED = process.env.DISPATCH_WINDOW_ENABLED !== "false";
@@ -206,20 +207,29 @@ async function runDispatchCycle() {
       }
 
       if (trip.dispatchStage === DISPATCH_STAGES.NONE && now >= notifyAt) {
-        await db.update(trips).set({
+        const [updateResult] = await db.update(trips).set({
           dispatchStage: DISPATCH_STAGES.NOTIFIED,
           updatedAt: new Date(),
         }).where(
           and(eq(trips.id, trip.id), eq(trips.dispatchStage, DISPATCH_STAGES.NONE))
-        );
+        ).returning({ id: trips.id });
 
-        if (trip.driverId) {
+        if (updateResult && trip.driverId) {
+          broadcastToDriver(trip.driverId, {
+            type: "dispatch_notify",
+            tripId: trip.id,
+            pickupAddress: trip.pickupAddress,
+            pickupTime: trip.pickupTime,
+            patientId: trip.patientId,
+            dispatchAt: dispatchAt.toISOString(),
+          });
+
           try {
             const { autoNotifyPatient } = await import("./dispatchAutoSms");
             await autoNotifyPatient(trip.id, "dispatch_notify", {});
           } catch {}
         }
-        notified++;
+        if (updateResult) notified++;
       }
 
       const currentStage = trip.dispatchStage === DISPATCH_STAGES.NONE && now >= notifyAt
@@ -235,7 +245,8 @@ async function runDispatchCycle() {
         if (trip.driverId) {
           await db.update(drivers).set({
             dispatchStatus: "enroute",
-          }).where(eq(drivers.id, trip.driverId));
+            availabilityStatus: "BUSY",
+          } as any).where(eq(drivers.id, trip.driverId));
         }
 
         const result = await transitionTripStatus(trip.id, "EN_ROUTE_TO_PICKUP", {
@@ -249,6 +260,18 @@ async function runDispatchCycle() {
             dispatchStage: DISPATCH_STAGES.DISPATCHED,
             updatedAt: new Date(),
           }).where(eq(trips.id, trip.id));
+
+          if (trip.driverId) {
+            broadcastToDriver(trip.driverId, {
+              type: "dispatch_now",
+              tripId: trip.id,
+              pickupAddress: trip.pickupAddress,
+              dropoffAddress: trip.dropoffAddress,
+              pickupTime: trip.pickupTime,
+              patientId: trip.patientId,
+              status: "EN_ROUTE_TO_PICKUP",
+            });
+          }
 
           if (trip.driverId && trip.pickupLat && trip.pickupLng) {
             const driverRow = await db.select().from(drivers).where(eq(drivers.id, trip.driverId));

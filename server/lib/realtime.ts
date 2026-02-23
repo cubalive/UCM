@@ -9,6 +9,7 @@ interface TripSubscription {
 }
 
 const tripSubscriptions = new Map<number, Set<WebSocket>>();
+const driverSubscriptions = new Map<number, Set<WebSocket>>();
 
 let wss: WebSocketServer | null = null;
 
@@ -93,6 +94,9 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
         for (const tripId of subscribed) {
           unsubscribeFromTrip(ws, tripId);
         }
+      }
+      if (meta._subscribedDriverId) {
+        unsubscribeFromDriver(ws, meta._subscribedDriverId);
       }
       try {
         const { cleanupChannelSubscriptions } = require("./tripTransitionHelper");
@@ -188,10 +192,51 @@ function handleMessage(ws: WebSocket, msg: any): void {
       ws.send(JSON.stringify({ type: "unsubscribed_clinic", clinicId }));
       break;
     }
+    case "subscribe_driver": {
+      const user = (ws as any)._user;
+      if (!user) return;
+      const driverId = parseInt(msg.driverId);
+      if (isNaN(driverId)) return;
+      if (user.role !== "SUPER_ADMIN" && user.role !== "DRIVER") {
+        ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+        return;
+      }
+      subscribeToDriver(ws, driverId);
+      ws.send(JSON.stringify({ type: "subscribed_driver", driverId }));
+      break;
+    }
+    case "unsubscribe_driver": {
+      const driverId = parseInt(msg.driverId);
+      if (isNaN(driverId)) return;
+      unsubscribeFromDriver(ws, driverId);
+      ws.send(JSON.stringify({ type: "unsubscribed_driver", driverId }));
+      break;
+    }
     case "ping": {
       ws.send(JSON.stringify({ type: "pong", ts: Date.now() }));
       break;
     }
+  }
+}
+
+function subscribeToDriver(ws: WebSocket, driverId: number): void {
+  let subs = driverSubscriptions.get(driverId);
+  if (!subs) {
+    subs = new Set();
+    driverSubscriptions.set(driverId, subs);
+  }
+  subs.add(ws);
+  (ws as any)._subscribedDriverId = driverId;
+}
+
+function unsubscribeFromDriver(ws: WebSocket, driverId: number): void {
+  const subs = driverSubscriptions.get(driverId);
+  if (subs) {
+    subs.delete(ws);
+    if (subs.size === 0) driverSubscriptions.delete(driverId);
+  }
+  if ((ws as any)._subscribedDriverId === driverId) {
+    (ws as any)._subscribedDriverId = null;
   }
 }
 
@@ -261,6 +306,25 @@ export function getActiveConnectionCount(): number {
 
 export function getTripSubscriberCount(tripId: number): number {
   return tripSubscriptions.get(tripId)?.size || 0;
+}
+
+export function broadcastToDriver(driverId: number, event: any): void {
+  const subs = driverSubscriptions.get(driverId);
+  if (!subs || subs.size === 0) return;
+
+  const payload = JSON.stringify({ ...event, driverId, ts: Date.now() });
+
+  for (const ws of subs) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+    } else {
+      subs.delete(ws);
+    }
+  }
+
+  if (subs.size === 0) {
+    driverSubscriptions.delete(driverId);
+  }
 }
 
 export function getWss(): WebSocketServer | null {

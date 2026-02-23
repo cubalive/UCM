@@ -1,0 +1,247 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Senior full-stack engineer (Express + React/Vite + Drizzle + Supabase/Postgres + Google Maps/Places/Routes)
+GOAL: Implement Place ID + real route + real miles + geofence arrival + invoice “audit proof” to remove the straight-line issue. Do NOT break existing structure. Do NOT reset DB. Do NOT remove any columns. Only additive migrations + safe backfill. Must work for: Admin/Dispatcher/Clinic portals + Driver.
+
+CONTEXT (current problems)
+- Admin/dispatcher/clinic maps show only point A, point B, and a straight line.
+- At end of trip, miles/time/route are not saved (no polyline, no real distance).
+- Clinic “Active now” logic is wrong: trips appear active even when scheduled later.
+- Need Place ID + Routes API for precision, and geofence gating so “Arrived” activates correctly.
+
+NON-NEGOTIABLES
+- Keep production safe: additive DB changes only.
+- Idempotent endpoints and status transitions remain intact.
+- Geofence gating must be based on Place ID lat/lng.
+- Save route polyline + distance + duration at key moments.
+- Invoice must show route + timeline + geofence confirmations (no “—”, no straight line).
+- Use existing Google Maps key in secrets (GOOGLE_MAPS_API_KEY). Use Routes API if available; fallback to Directions API only if necessary.
+- Maintain tenant/company/city scoping and driver ownership.
+
+DELIVERABLES
+A) DB schema updates (Drizzle + SQL migration)
+B) Backend endpoints updates
+C) Frontend updates (Clinic + Dispatcher + Admin)
+D) Driver app logic fix: arrived button activation + wait timer based on geofence
+E) Clinic dashboard metrics: arriving vs leaving vs next 15 min + Active Now rules
+F) Verification checklist + Postman tests
+
+========================================
+A) DATABASE: ADD COLUMNS (SAFE)
+========================================
+1) Update Drizzle schema (shared/schema.ts) for trips table:
+Add nullable fields:
+- pickup_place_id, dropoff_place_id (text)
+- pickup_lat, pickup_lng, dropoff_lat, dropoff_lng (double precision / numeric)
+- planned_route_polyline (text)  // from Routes/Directions at assignment time
+- actual_route_polyline (text)   // built from driver breadcrumbs or latest computed
+- planned_distance_meters (int)
+- planned_duration_seconds (int)
+- actual_distance_meters (int)
+- actual_duration_seconds (int)
+- wait_start_at (timestamp) 
+- wait_end_at (timestamp)
+- arrived_pickup_at, arrived_dropoff_at (timestamp)
+- geofence_pickup_entered_at, geofence_pickup_exited_at (timestamp)
+- geofence_dropoff_entered_at, geofence_dropoff_exited_at (timestamp)
+- last_route_calc_at (timestamp)
+- route_source (text) // 'routes' | 'directions' | 'none'
+
+2) Add a new table for GPS breadcrumbs if not present:
+trip_location_events:
+- id (uuid)
+- trip_id
+- driver_id
+- ts (timestamp)
+- lat (double)
+- lng (double)
+- speed_mps (double, nullable)
+- accuracy_m (double, nullable)
+Indexes on (trip_id, ts), (driver_id, ts)
+
+3) Add a migration script (SQL) that:
+- Adds columns with IF NOT EXISTS (safe)
+- Creates trip_location_events IF NOT EXISTS
+- Backfills pickup/dropoff lat/lng for existing trips:
+   If trips already have pickup_address/dropoff_address:
+   Call server-side geocode on-demand later; DO NOT mass-geocode in migration.
+- Set default route_source='none' for existing rows.
+
+========================================
+B) BACKEND: PLACE ID + ROUTE ENGINE + GEOFENCE
+========================================
+Implement/modify these server routes:
+
+1) Places Autocomplete proxy (secure) (optional but recommended to protect key):
+GET /api/maps/places/autocomplete?q=...&country=US
+-> Calls Google Places Autocomplete
+-> Returns predictions with { description, place_id }
+
+2) Place Details (to get lat/lng)
+GET /api/maps/places/details?place_id=...
+-> Returns { place_id, lat, lng, formatted_address }
+
+3) Route compute endpoint (Routes preferred):
+POST /api/maps/route
+Body: { origin: {placeId or latLng}, destination: {placeId or latLng}, travelMode:'DRIVE' }
+-> Use Routes API (computeRoutes) if enabled, else Directions API
+-> Return { polyline, distance_meters, duration_seconds, source }
+
+4) Trip create/update must accept place ids + lat/lng:
+When clinic/dispatcher creates a trip:
+- Require pickup and dropoff to include: place_id + lat + lng + address
+- Save into trips columns.
+- Compute planned route once immediately (store planned_*).
+- Store last_route_calc_at.
+
+5) Driver location ingest must append breadcrumbs and drive geofence logic:
+POST /api/driver/location (existing) or /api/driver/location/ping alias:
+- Save into trip_location_events for ACTIVE trips only (or EN_ROUTE/ON_TRIP states).
+- Update driver current location table (existing).
+- Every ping: check distance to pickup/dropoff geofence centers:
+   - Use pickup_lat/lng and dropoff_lat/lng (from Place Details)
+   - Radii: pickup=100m, dropoff=120m (config)
+- On enter pickup geofence:
+   - set geofence_pickup_entered_at if null
+   - if status is EN_ROUTE_TO_PICKUP and arrival not set:
+        allow “Arrived pickup” and auto-transition if configured
+- On exit pickup geofence after wait start, record geofence_pickup_exited_at
+- On enter dropoff geofence:
+   - set geofence_dropoff_entered_at if null
+   - allow “Arrived dropoff” button activation
+- On exit dropoff geofence: set geofence_dropoff_exited_at
+
+6) Status transition guardrails:
+In POST /api/driver/trips/:tripId/status:
+- For ARRIVED_PICKUP: require driver within pickup geofence OR allow override with reason for dispatcher (not driver).
+- For START_TRIP: require ARRIVED_PICKUP occurred OR explicit override with audit.
+- For ARRIVED_DROPOFF: require within dropoff geofence OR override with audit.
+- For COMPLETE: require ARRIVED_DROPOFF or override; then finalize actual distance/time.
+
+7) Actual miles/time calculation:
+At COMPLETE (or periodic while ON_TRIP):
+- Prefer summing breadcrumb distance:
+   Compute distance across sequential trip_location_events (Haversine) ignoring jumps (accuracy filter)
+- Set actual_distance_meters, actual_duration_seconds.
+- Generate actual_route_polyline:
+   - Option A: encode sampled points to polyline (downsample)
+   - Option B: store as simplified polyline string
+- If breadcrumbs insufficient: fallback computeRoutes from first/last points.
+
+8) WebSocket broadcasts:
+- Broadcast driver marker updates and trip polyline updates to admin/dispatcher/clinic live views.
+
+========================================
+C) FRONTEND: CLINIC / DISPATCHER / ADMIN MAPS FIX
+========================================
+1) Trip creation forms:
+- Replace plain address inputs with Google Places Autocomplete.
+- On select, store:
+  address, place_id, lat, lng.
+- Send to backend as structured payload.
+- Show a mini preview map or “verified pin” indicator.
+
+2) Trip detail view:
+- Show planned route polyline (planned_route_polyline).
+- If trip active or completed and actual_route_polyline exists, render actual route (toggle).
+- Show distance/time planned vs actual.
+
+3) Billing / invoice UI:
+- Each line item must be clickable to open trip detail.
+- Show:
+  - Trip timeline (status changes + timestamps)
+  - Geofence confirmations (entered_at for pickup/dropoff)
+  - Wait timer duration (wait_end_at - wait_start_at)
+  - Actual miles (actual_distance_meters -> miles)
+  - Route preview map (polyline)
+- Remove any “—” by ensuring computed fields default to 0/“pending calc” and are finalized at completion.
+
+========================================
+D) DRIVER APP: ARRIVAL BUTTON + WAIT TIMER
+========================================
+1) “Arrived” button activation:
+- Driver app should poll / subscribe to trip detail which includes:
+  - distance_to_pickup_m (computed server-side from driver location vs pickup lat/lng)
+  - can_arrive_pickup boolean
+- Only enable Arrived when can_arrive_pickup=true.
+- Same for dropoff.
+
+2) Wait timer:
+- When ARRIVED_PICKUP occurs:
+   - if patient not boarded, driver can tap “Start Wait”
+   - sets wait_start_at
+- When boarding, “End Wait” sets wait_end_at and then “Start Trip”
+
+3) “Busy” logic:
+- Accepting a future trip should NOT mark driver busy immediately.
+- Driver remains Available until “Go Time” window (ETA-based):
+   - Server calculates driver ETA to pickup periodically.
+   - If scheduled pickup at T:
+       go_time = max(T - ETA(driver->pickup) - buffer(5min), now)
+   - At go_time: push notification “Leave now” + status becomes EN_ROUTE_TO_PICKUP if driver confirms.
+- Implement notifications server-side:
+   - Scheduler checks upcoming assigned trips and triggers notification at go_time.
+
+========================================
+E) CLINIC DASHBOARD LOGIC FIX + NEW METRICS
+========================================
+Define clinic dashboard counters:
+- Todays Trips: all trips scheduled today for this clinic (pickup or dropoff at clinic)
+- Active Now: ONLY trips with status in:
+   EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, ON_TRIP, ARRIVED_DROPOFF
+(Exclude SCHEDULED/ASSIGNED)
+- Arriving (last 60 min): trips with destination = clinic AND arrived_dropoff_at within last 60 min OR status approaching
+- Departing (last 60 min): trips with origin = clinic AND start_trip within last 60 min
+- Next 15 min arrivals: trips whose dropoff is clinic and ETA <= 15 min (use Routes ETA or driver live distance)
+Add “Arrival Radar” mini-map:
+- Show drivers approaching clinic (destination=clinic) with ETA badges.
+
+Implement new backend endpoints for clinic:
+GET /api/clinic/dashboard
+Returns:
+- todaysTripsCount
+- activeNowCount
+- completedCount
+- cancelledCount
+- arrivingLastHourCount
+- departingLastHourCount
+- arrivingNext15MinCount
+- arrivalRadar: list of { tripId, driverId, lat, lng, etaMinutes, serviceType }
+
+========================================
+F) TESTS / VERIFICATION
+========================================
+1) Postman:
+- Create trip with pickup/dropoff place ids
+- Fetch trip detail => must include place ids, lat/lng, planned polyline, planned distance/time
+- Simulate driver pings near pickup => can_arrive_pickup true
+- Transition to ARRIVED_PICKUP => allowed only inside geofence
+- Ping points along route => breadcrumbs stored
+- Complete trip => actual_distance/time saved, actual polyline exists
+- Invoice line => shows miles, timeline, geofence confirmed, route map not straight line
+
+2) UI:
+- Admin/dispatcher/clinic map shows route line (polyline) not straight line
+- Completed trips show actual miles
+- Clinic “Active now” only when driver in-route/on-trip
+
+IMPLEMENTATION INSTRUCTIONS
+- Make a new branch commit set with clear commits:
+  1) db schema + migration
+  2) backend endpoints + route engine + geofence
+  3) frontend forms + map rendering + billing
+  4) driver arrival gating + wait timer hooks
+  5) clinic dashboard counters + arrival radar
+
+START NOW:
+- Inspect current schema for trips and existing location tables.
+- Implement the DB changes first.
+- Then update trip create/edit flows.
+- Then route compute + store planned polyline.
+- Then geofence gating and actual route/miles on completion.
+- Finish with clinic dashboard logic and invoice UI.
+
+OUTPUT REQUIRED:
+- List of files changed
+- New SQL migration content
+- Any new env vars (should be none beyond GOOGLE_MAPS_API_KEY)
+- How to test end-to-end in production with one sample trip

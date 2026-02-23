@@ -39,6 +39,7 @@ import {
 import { useSoundNotifications } from "@/hooks/use-sound-notifications";
 import { evaluatePrompts, acknowledgePrompt, cleanOldPromptRecords, type SmartPrompt } from "@/lib/smartPrompts";
 import { notify, enableSoundsOnUserGesture, initAudioContext, type NotificationEvent } from "@/lib/notificationManager";
+import { useDriverWs, type DriverWsEvent } from "@/hooks/use-driver-ws";
 import {
   Home,
   Car,
@@ -2872,6 +2873,8 @@ export default function DriverPortal() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [confirmDialog, setConfirmDialog] = useState<{ tripId: number; nextStatus: string; label: string; manualOverride?: boolean } | null>(null);
   const [navChooserTrip, setNavChooserTrip] = useState<ActiveTripData | null>(null);
+  const [dispatchBanner, setDispatchBanner] = useState<DriverWsEvent | null>(null);
+  const [trackingAlert, setTrackingAlert] = useState<string | null>(null);
 
   const profileQuery = useQuery<any>({
     queryKey: ["/api/driver/profile"],
@@ -2897,6 +2900,33 @@ export default function DriverPortal() {
   const vehicle = profileQuery.data?.vehicle;
   const todayTrips = tripsQuery.data?.todayTrips || [];
   const activeTrip = activeTripQuery.data?.trip || null;
+
+  const { connected: driverWsConnected } = useDriverWs({
+    driverId: driver?.id ?? null,
+    token,
+    onDispatchNotify: useCallback((event: DriverWsEvent) => {
+      setDispatchBanner(event);
+      playSound("notification");
+      toast({ title: "Upcoming trip alert", description: `Pickup: ${event.pickupAddress ?? ""}` });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips", getToday()] });
+    }, [playSound, toast]),
+    onDispatchNow: useCallback((event: DriverWsEvent) => {
+      setDispatchBanner(null);
+      playSound("alert");
+      toast({ title: "GO — Trip dispatched!", description: `Navigate to ${event.pickupAddress ?? "pickup"}`, variant: "default" });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/active-trip"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/driver/my-trips", getToday()] });
+      setActiveTab("home");
+    }, [playSound, toast]),
+    onTrackingStale: useCallback((event: DriverWsEvent) => {
+      setTrackingAlert(event.message ?? "Location signal lost");
+      playSound("alert");
+    }, [playSound]),
+    onTrackingRestored: useCallback(() => {
+      setTrackingAlert(null);
+      toast({ title: "Tracking restored" });
+    }, [toast]),
+  });
 
   const activeShiftQuery = useQuery<{ shift: any }>({
     queryKey: ["/api/driver/shift/active"],
@@ -3245,9 +3275,71 @@ export default function DriverPortal() {
     );
   }
 
+  const upcomingTrips = useMemo(() => {
+    const now = Date.now();
+    return todayTrips.filter((t: any) => {
+      if (t.status !== "ASSIGNED") return false;
+      if (!t.dispatchAt) return true;
+      return new Date(t.dispatchAt).getTime() > now;
+    });
+  }, [todayTrips]);
+
   return (
     <div className="flex flex-col min-h-screen bg-background" data-testid="driver-portal">
+      {trackingAlert && (
+        <div className="bg-red-600 text-white px-4 py-2 flex items-center gap-2 text-sm" data-testid="tracking-alert-banner">
+          <WifiOff className="h-4 w-4 flex-shrink-0" />
+          <span className="flex-1">{trackingAlert}</span>
+          <Button variant="ghost" size="sm" className="text-white h-6 px-2" onClick={() => setTrackingAlert(null)} data-testid="dismiss-tracking-alert">
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
+      {dispatchBanner && (
+        <div className="bg-amber-500 text-white px-4 py-3 flex items-center gap-3" data-testid="dispatch-notify-banner">
+          <Bell className="h-5 w-5 flex-shrink-0 animate-bounce" />
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-sm">Upcoming trip</div>
+            <div className="text-xs truncate">{dispatchBanner.pickupAddress}</div>
+            {dispatchBanner.dispatchAt && (
+              <div className="text-xs opacity-90">Dispatches at {new Date(dispatchBanner.dispatchAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+            )}
+          </div>
+          <Button variant="ghost" size="sm" className="text-white h-7 px-2" onClick={() => setDispatchBanner(null)} data-testid="dismiss-dispatch-banner">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto pb-20">
+        {activeTab === "home" && upcomingTrips.length > 0 && (
+          <div className="px-4 pt-3 pb-1" data-testid="upcoming-reservations">
+            <h3 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" /> Upcoming Reservations ({upcomingTrips.length})
+            </h3>
+            <div className="space-y-2">
+              {upcomingTrips.map((trip: any) => (
+                <Card key={trip.id} className="bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800" data-testid={`upcoming-trip-${trip.id}`}>
+                  <CardContent className="p-3">
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs text-muted-foreground">
+                          {trip.pickupTime ? new Date(trip.pickupTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "TBD"}
+                        </div>
+                        <div className="text-sm font-medium truncate">{trip.pickupAddress}</div>
+                        {trip.dropoffAddress && (
+                          <div className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                            <ChevronRight className="h-3 w-3" /> {trip.dropoffAddress}
+                          </div>
+                        )}
+                      </div>
+                      <Badge variant="outline" className="text-xs ml-2 flex-shrink-0">Assigned</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
         {activeTab === "home" && (
           <HomePage
             driver={driver}

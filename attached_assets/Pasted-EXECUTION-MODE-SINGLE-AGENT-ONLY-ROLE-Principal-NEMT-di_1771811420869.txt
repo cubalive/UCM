@@ -1,0 +1,93 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+ROLE: Principal NEMT dispatch engineer.
+Do NOT rename any existing trip statuses.
+Use exactly the current system states:
+Scheduled, Assigned, En route to pickup, Arrived pickup, On trip, Arrived dropoff, Completed, Cancelled, No-show.
+
+GOAL
+Fix dispatch timing and clinic dashboard logic WITHOUT breaking state machine.
+
+PART 1 — Clinic Dashboard Logic Fix
+
+1) TODAY’S TRIPS must include:
+Scheduled
+Assigned
+En route to pickup
+Arrived pickup
+On trip
+Arrived dropoff
+
+2) ACTIVE NOW must include ONLY:
+En route to pickup
+Arrived pickup
+On trip
+Arrived dropoff
+
+Scheduled and Assigned must NEVER appear as Active Now.
+
+Update clinic queries accordingly.
+
+PART 2 — Intelligent Dispatch Timing
+
+For every trip in Assigned status:
+
+1) Compute ETA driver -> pickup using Google Routes.
+2) Define:
+dispatch_at = scheduled_pickup_at - (eta_minutes + service_buffer)
+notify_at   = dispatch_at - 5 minutes
+
+3) Add columns if missing:
+dispatch_at timestamptz
+notify_at timestamptz
+dispatch_stage text default 'NONE'
+
+4) Scheduler every 30s:
+
+If trip.status='Assigned' AND now >= notify_at AND dispatch_stage='NONE':
+  emit notification to driver ("Trip starting soon")
+  set dispatch_stage='NOTIFIED'
+
+If trip.status='Assigned' AND now >= dispatch_at:
+  change trip.status to 'En route to pickup'
+  change driver.availability_status to 'Busy / On Trip'
+  set dispatch_stage='DISPATCHED'
+
+Ensure idempotency.
+
+PART 3 — Driver Remains Available Until Dispatch
+
+When driver accepts future trip:
+- trip.status remains 'Assigned'
+- driver remains 'Available'
+- DO NOT set Busy
+
+Only set Busy when trip becomes 'En route to pickup'.
+
+PART 4 — Conflict Detection
+
+Before auto-assign:
+
+For each candidate driver:
+Check existing trips with status:
+Assigned, En route to pickup, Arrived pickup, On trip
+
+Simulate their dispatch windows.
+If new dispatch_at overlaps existing trip window:
+Reject candidate.
+
+PART 5 — Clinic Live Counters
+
+Add new counters:
+- Arriving next 15 min (status En route to pickup and ETA <=15)
+- Departed last 60 min (Arrived dropoff in last hour)
+- Arrived last 60 min (Arrived pickup in last hour)
+
+Return logs of:
+- one simulated trip
+- driver remains Available until dispatch
+- status transition from Assigned -> En route to pickup
+- clinic dashboard corrected counts
+
+Do NOT alter existing transitionTripStatus logic structure.
+Extend only.

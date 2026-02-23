@@ -269,6 +269,7 @@ async function maybePersistToDb(driverId: number, lat: number, lng: number): Pro
     lastLat: lat,
     lastLng: lng,
     lastSeenAt: new Date(),
+    trackingStatus: "OK",
   } as any);
 
   cache.set(persistKey, now, 120_000);
