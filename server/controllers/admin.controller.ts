@@ -1081,12 +1081,13 @@ export async function opsIntelScoresHandler(req: AuthRequest, res: Response) {
 export async function opsIntelAnomaliesHandler(req: AuthRequest, res: Response) {
   try {
     const companyId = getCompanyIdFromAuth(req) || (req.query.company_id ? parseInt(req.query.company_id as string) : null);
-    if (!companyId) return res.status(400).json({ message: "No company context. SUPER_ADMIN: pass ?company_id=N" });
+    if (!companyId) return res.status(200).json({ ok: true, anomalies: [] });
     const activeOnly = req.query.active !== "false";
     const anomalies = await getAnomaliesForCompany(companyId, activeOnly);
     res.json({ ok: true, anomalies });
   } catch (err: any) {
-    res.status(500).json({ ok: false, error: err.message });
+    console.error("[ops-intel/anomalies] error:", err.message);
+    res.status(200).json({ ok: true, anomalies: [], _error: err.message });
   }
 }
 

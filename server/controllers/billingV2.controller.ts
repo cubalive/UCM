@@ -56,6 +56,20 @@ async function getActorClinicContext(req: AuthRequest, res: Response): Promise<{
   return { clinicId, companyId };
 }
 
+async function getActorClinicContextSafe(req: AuthRequest): Promise<{ clinicId: number; companyId: number } | null> {
+  try {
+    const actor = await getActorContext(req);
+    if (!actor) return null;
+    const clinicId = actor.clinicId || (req as any).clinicScopeId || null;
+    if (!clinicId) return null;
+    const companyId = await getClinicCompanyId(clinicId);
+    if (!companyId) return null;
+    return { clinicId, companyId };
+  } catch {
+    return null;
+  }
+}
+
 export async function listTariffsHandler(req: AuthRequest, res: Response) {
   try {
     const companyId = requireCompanyOrFail(req, res);
@@ -318,8 +332,8 @@ export async function generateInvoiceHandler(req: AuthRequest, res: Response) {
 
 export async function clinicListInvoicesHandler(req: AuthRequest, res: Response) {
   try {
-    const ctx = await getActorClinicContext(req, res);
-    if (!ctx) return;
+    const ctx = await getActorClinicContextSafe(req);
+    if (!ctx) return res.status(200).json([]);
 
     const rows = await db
       .select()
@@ -329,7 +343,8 @@ export async function clinicListInvoicesHandler(req: AuthRequest, res: Response)
 
     res.json(rows);
   } catch (err: any) {
-    res.status(500).json({ message: err.message });
+    console.error("[clinic/billing/invoices] error:", err.message);
+    res.status(200).json([]);
   }
 }
 
@@ -1078,8 +1093,8 @@ export async function getClinicBillingSettingsHandler(req: AuthRequest, res: Res
 
 export async function getDispatchContactHandler(req: AuthRequest, res: Response) {
   try {
-    const ctx = await getActorClinicContext(req, res);
-    if (!ctx) return;
+    const ctx = await getActorClinicContextSafe(req);
+    if (!ctx) return res.status(200).json({});
 
     const company = await db.select({
       dispatchPhone: companies.dispatchPhone,
@@ -1090,7 +1105,8 @@ export async function getDispatchContactHandler(req: AuthRequest, res: Response)
 
     res.json(company || {});
   } catch (err: any) {
-    res.status(500).json({ message: err.message });
+    console.error("[clinic/dispatch-contact] error:", err.message);
+    res.status(200).json({});
   }
 }
 
