@@ -1191,7 +1191,10 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       console.log(`[WAITING] Trip ${id}: waiting timer started, ${waitMinutes} min`);
     }
 
-    const updated = await db.update(trips).set(updateData).where(eq(trips.id, id)).returning();
+    const updated = await db.update(trips).set(updateData).where(and(eq(trips.id, id), eq(trips.status, trip.status))).returning();
+    if (!updated.length) {
+      return res.status(409).json({ message: "Concurrent status update detected, please retry", code: "CONCURRENT_UPDATE" });
+    }
     const updatedTrip = updated[0];
 
     if (updatedTrip.driverId) {

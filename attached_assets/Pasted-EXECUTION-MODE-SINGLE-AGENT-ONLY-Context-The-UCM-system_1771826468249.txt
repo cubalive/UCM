@@ -1,0 +1,51 @@
+EXECUTION MODE: SINGLE AGENT ONLY.
+
+Context:
+The UCM system is currently working correctly. We already fixed workflows, metrics, and agentic routes. Now the priority is: make it extremely stable, hard to break, and ready for pilot + future scaling with minimal rework.
+
+Constraints:
+- Do NOT reset/drop DB.
+- Do NOT change existing working flows.
+- Only add protections, safeguards, and operational reliability.
+- Zero regressions policy.
+
+Goals:
+1) Prevent regressions (guardrails).
+2) Ensure heavy background work cannot destabilize the API.
+3) Make the system migration-ready (Fly/Render) without code rewrite.
+
+Tasks:
+
+A) Split API and WORKER (if not already split)
+- API: Express + WebSockets + serve frontend
+- WORKER: orchestrator + schedulers + route compute/finalize + auto-assign
+- Use RUN_MODE=api|worker and ensure API never starts heavy loops.
+
+B) Add regression guardrails
+1) Add a “golden contract” test suite (minimal) that verifies:
+   - Driver Shift buttons exist (connect + start shift)
+   - Trip actions exist (go to pickup, arrived, start trip, complete)
+   - Clinic view categorization logic (todays trips vs active now) is correct
+2) Tests must run in CI-like step during build (fast, <30s).
+3) If tests fail, build should fail.
+
+C) Add strict state machine enforcement
+- Validate every trip status transition server-side against shared/tripStateMachine.ts
+- Reject invalid transitions with clear error.
+
+D) Idempotency + dedupe hardening
+- Ensure route.compute and route.finalize are idempotent:
+  - same payload should not produce duplicate writes
+  - use Redis locks or unique DB constraints where safe
+- Ensure auto-assign cannot double-assign drivers on restart.
+
+E) Production readiness for migration
+- Add Dockerfile + fly.toml (or render.yaml) without changing runtime.
+- Document env vars required.
+- Keep Replit running, but prepare files so future migration is one command.
+
+Deliverables:
+- List files changed
+- Confirmation existing behavior unchanged
+- A short “Pilot stability checklist”
+- Dockerfile + deployment config files added

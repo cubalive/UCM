@@ -4,8 +4,9 @@ import { isRedisConnected } from "./redis";
 export type RoleMode = "server" | "worker" | "all";
 
 export function getRoleMode(): RoleMode {
-  const mode = (process.env.ROLE_MODE || "all").toLowerCase().trim();
-  if (mode === "server" || mode === "worker") return mode;
+  const mode = (process.env.RUN_MODE || process.env.ROLE_MODE || "all").toLowerCase().trim();
+  if (mode === "api" || mode === "server") return "server";
+  if (mode === "worker") return "worker";
   return "all";
 }
 

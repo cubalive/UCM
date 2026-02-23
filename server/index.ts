@@ -838,6 +838,15 @@ app.use((req, res, next) => {
   console.log(JSON.stringify(bootSummary));
 
   (async () => {
+    const { shouldRunSchedulers: shouldRunBg } = await import("./lib/schedulerInit");
+    if (!shouldRunBg()) {
+      console.log(JSON.stringify({
+        event: "agentic_routes_skipped",
+        reason: "RUN_MODE is api-only, background workers disabled",
+        ts: new Date().toISOString(),
+      }));
+      return;
+    }
     try {
       const { isEventBusEnabled } = await import("./lib/eventBus");
       const enabled = isEventBusEnabled();
