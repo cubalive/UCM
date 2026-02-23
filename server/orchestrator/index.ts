@@ -170,6 +170,8 @@ export async function startOrchestrator(): Promise<void> {
   pollLoop();
 }
 
+export function isOrchestratorRunning(): boolean { return running; }
+
 export const ORCHESTRATOR_INFO = { consumer: CONSUMER_NAME, pollMs: POLL_INTERVAL_MS, batchSize: BATCH_SIZE };
 
 export function stopOrchestrator(): void {

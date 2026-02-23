@@ -127,7 +127,12 @@ export async function ensureConsumerGroup(stream: string, group: string): Promis
   if (!redis) return;
 
   try {
-    await (redis as any).xgroup("CREATE", stream, group, "0", "MKSTREAM");
+    await redis.xgroup(stream, {
+      type: "CREATE",
+      group,
+      id: "0",
+      options: { MKSTREAM: true },
+    });
   } catch (err: any) {
     if (!err.message?.includes("BUSYGROUP")) {
       console.warn(`[EVENT-BUS] Group create error ${group}: ${err.message}`);
@@ -150,25 +155,38 @@ export async function readFromGroup(
   if (!redis) return [];
 
   try {
-    const raw: any = await (redis as any).xreadgroup(group, consumer, stream, ">", { count });
+    const raw: any = await redis.xreadgroup(group, consumer, stream, ">", { count });
 
-    if (!raw || raw.length === 0) return [];
+    if (!raw || !Array.isArray(raw) || raw.length === 0) return [];
 
     const messages: StreamMessage[] = [];
-    for (const streamData of raw) {
-      if (!streamData || !Array.isArray(streamData)) continue;
-      const [, entries] = streamData as [string, Array<[string, string[]]>];
-      if (!entries) continue;
-      for (const entry of entries) {
-        if (!entry || !Array.isArray(entry)) continue;
-        const [id, fieldArr] = entry;
-        const fields: Record<string, string> = {};
-        if (Array.isArray(fieldArr)) {
-          for (let i = 0; i < fieldArr.length; i += 2) {
-            fields[fieldArr[i]] = fieldArr[i + 1];
+    for (const item of raw) {
+      if (!item) continue;
+      if (typeof item === "object" && !Array.isArray(item)) {
+        const streamId = (item as any).id || (item as any).streamId;
+        if (streamId) {
+          const fields: Record<string, string> = {};
+          for (const [k, v] of Object.entries(item)) {
+            if (k !== "id" && k !== "streamId") fields[k] = String(v);
           }
+          messages.push({ streamId, fields });
+          continue;
         }
-        messages.push({ streamId: id, fields });
+      }
+      if (Array.isArray(item)) {
+        const [streamName, entries] = item;
+        if (!entries || !Array.isArray(entries)) continue;
+        for (const entry of entries) {
+          if (!entry || !Array.isArray(entry)) continue;
+          const [id, fieldArr] = entry;
+          const fields: Record<string, string> = {};
+          if (Array.isArray(fieldArr)) {
+            for (let i = 0; i < fieldArr.length; i += 2) {
+              fields[fieldArr[i]] = fieldArr[i + 1];
+            }
+          }
+          messages.push({ streamId: id, fields });
+        }
       }
     }
     return messages;

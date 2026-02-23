@@ -214,7 +214,7 @@ router.get("/api/ops/seed/status", authMiddleware, requireRole("SUPER_ADMIN"), a
 import {
   getSystemMap, getSystemStatus, runSmokeTest, getSmokeRuns,
   getCompanyDataOverview, getImportRuns, getImportRunEvents,
-  getEventBusStatus,
+  getEventBusStatus, getAgenticStatus, postAgenticSmokeTest,
 } from "../controllers/systemStatus.controller";
 import { alertAcknowledgments, auditLog, users } from "@shared/schema";
 import { eq, and, gt, desc } from "drizzle-orm";
@@ -230,6 +230,8 @@ async function resolveUserName(userId: number): Promise<string> {
 router.get("/api/ops/system-map", authMiddleware, requireRole("SUPER_ADMIN"), getSystemMap);
 router.get("/api/ops/system-status", authMiddleware, requireRole("SUPER_ADMIN"), getSystemStatus);
 router.get("/api/system/eventbus", authMiddleware, requireRole("SUPER_ADMIN"), getEventBusStatus);
+router.get("/api/system/agentic", authMiddleware, requireRole("SUPER_ADMIN"), getAgenticStatus);
+router.post("/api/system/agentic/smoke-test", authMiddleware, requireRole("SUPER_ADMIN"), postAgenticSmokeTest);
 router.post("/api/ops/smoke-run", authMiddleware, requireRole("SUPER_ADMIN"), runSmokeTest);
 router.get("/api/ops/smoke-runs", authMiddleware, requireRole("SUPER_ADMIN"), getSmokeRuns);
 router.get("/api/ops/company/:id/overview", authMiddleware, requireRole("SUPER_ADMIN"), getCompanyDataOverview);

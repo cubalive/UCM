@@ -792,6 +792,24 @@ app.use((req, res, next) => {
 
   (async () => {
     try {
+      const { isEventBusEnabled } = await import("./lib/eventBus");
+      const enabled = isEventBusEnabled();
+      const redisConfigured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+      console.log(JSON.stringify({
+        event: "agentic_routes_enabled",
+        enabled,
+        redis: redisConfigured,
+        UCM_AGENTIC_ROUTES: process.env.UCM_AGENTIC_ROUTES || null,
+        ts: new Date().toISOString(),
+      }));
+      if (!enabled) {
+        if (process.env.UCM_AGENTIC_ROUTES !== "1") {
+          console.warn("[BOOT] Orchestrator skipped: UCM_AGENTIC_ROUTES is not set to '1'");
+        } else if (!redisConfigured) {
+          console.warn("[BOOT] Orchestrator skipped: UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN missing");
+        }
+        return;
+      }
       console.log("[BOOT] Starting orchestrator...");
       const { startOrchestrator } = await import("./orchestrator");
       await startOrchestrator();

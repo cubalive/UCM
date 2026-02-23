@@ -639,3 +639,55 @@ export async function getEventBusStatus(_req: AuthRequest, res: Response) {
     res.status(500).json({ error: e.message });
   }
 }
+
+export async function getAgenticStatus(_req: AuthRequest, res: Response) {
+  try {
+    const { isEventBusEnabled } = await import("../lib/eventBus");
+    const { ORCHESTRATOR_INFO, isOrchestratorRunning } = await import("../orchestrator");
+
+    res.json({
+      enabled: isEventBusEnabled(),
+      redisConfigured: !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN),
+      orchestratorRunning: isOrchestratorRunning(),
+      pollMs: ORCHESTRATOR_INFO.pollMs,
+      batchSize: ORCHESTRATOR_INFO.batchSize,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+}
+
+export async function postAgenticSmokeTest(_req: AuthRequest, res: Response) {
+  try {
+    const { isEventBusEnabled, emitEvent } = await import("../lib/eventBus");
+    if (!isEventBusEnabled()) {
+      return res.status(503).json({ error: "Event bus is not enabled" });
+    }
+
+    const testPayload = {
+      tripId: 999999,
+      pickupLat: 36.1,
+      pickupLng: -115.1,
+      dropoffLat: 36.2,
+      dropoffLng: -115.2,
+    };
+
+    const streamId = await emitEvent("trip.created", testPayload, `smoke-test:${Date.now()}`);
+
+    console.log(JSON.stringify({
+      event: "agentic_smoke_test",
+      streamId,
+      payload: testPayload,
+      ts: new Date().toISOString(),
+    }));
+
+    res.json({
+      ok: true,
+      streamId,
+      payload: testPayload,
+      message: "Test event emitted. Check orchestrator logs for consumption.",
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+}
