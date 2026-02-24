@@ -14,9 +14,6 @@ export function getPortalBaseUrl(role?: string): string {
   if (upper === "DRIVER") {
     return process.env.DRIVER_APP_URL || "https://driver.unitedcaremobility.com";
   }
-  if (upper === "DISPATCH") {
-    return process.env.DISPATCH_APP_URL || "https://dispatch.unitedcaremobility.com";
-  }
   return APP_PUBLIC_URL;
 }
 
