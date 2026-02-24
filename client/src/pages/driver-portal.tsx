@@ -40,6 +40,7 @@ import { useSoundNotifications } from "@/hooks/use-sound-notifications";
 import { evaluatePrompts, acknowledgePrompt, cleanOldPromptRecords, type SmartPrompt } from "@/lib/smartPrompts";
 import { notify, enableSoundsOnUserGesture, initAudioContext, type NotificationEvent } from "@/lib/notificationManager";
 import { useDriverWs, type DriverWsEvent } from "@/hooks/use-driver-ws";
+import { formatPickupTimeDisplay } from "@/lib/timezone";
 import {
   Home,
   Car,
@@ -976,7 +977,7 @@ function TripCardCompact({ trip, onTap }: { trip: any; onTap: () => void }) {
       data-testid={`card-trip-compact-${trip.id}`}
     >
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-medium" data-testid={`text-trip-time-${trip.id}`}>{trip.pickupTime || "N/A"}</span>
+        <span className="text-sm font-medium" data-testid={`text-trip-time-${trip.id}`}>{formatPickupTimeDisplay(trip.pickupTime)}</span>
         <Badge className={STATUS_COLORS[trip.status] || ""} data-testid={`badge-trip-status-${trip.id}`}>
           {STATUS_LABELS[trip.status] || trip.status}
         </Badge>
@@ -1581,7 +1582,7 @@ function HomePage({
             <div className="space-y-1">
               <div className="flex items-start gap-1.5 text-sm"><Navigation className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600" /><span className="truncate">{currentOffer.pickupAddress}</span></div>
               <div className="flex items-start gap-1.5 text-sm"><MapPin className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600" /><span className="truncate">{currentOffer.dropoffAddress}</span></div>
-              {currentOffer.pickupTime && <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Clock className="w-4 h-4" /><span>{currentOffer.pickupTime}</span></div>}
+              {currentOffer.pickupTime && <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Clock className="w-4 h-4" /><span>{formatPickupTimeDisplay(currentOffer.pickupTime)}</span></div>}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => declineOfferMutation.mutate(currentOffer.offerId)} disabled={declineOfferMutation.isPending} className="flex-1 min-h-[44px]" data-testid="button-decline-offer">
@@ -1676,7 +1677,7 @@ function HomePage({
               <Clock className="w-5 h-5 text-primary" />
               <span className="font-semibold text-base">Next Pickup</span>
             </div>
-            <p className="text-sm" data-testid="text-next-pickup-time">{nextPickup.pickupTime || "N/A"} - {nextPickup.scheduledDate}</p>
+            <p className="text-sm" data-testid="text-next-pickup-time">{formatPickupTimeDisplay(nextPickup.pickupTime)} - {nextPickup.scheduledDate}</p>
             <div className="flex items-start gap-1.5 text-sm text-muted-foreground">
               <Navigation className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600" />
               <span className="truncate" data-testid="text-next-pickup-addr">{nextPickup.pickupAddress || "N/A"}</span>
@@ -1697,7 +1698,7 @@ function HomePage({
             <div className="space-y-1.5">
               {todayTrips.slice(0, 5).map((trip: any) => (
                 <div key={trip.id} className="flex items-center gap-2 text-sm min-h-[36px]" data-testid={`summary-trip-${trip.id}`}>
-                  <span className="font-medium w-14 flex-shrink-0">{trip.pickupTime || "N/A"}</span>
+                  <span className="font-medium w-14 flex-shrink-0">{formatPickupTimeDisplay(trip.pickupTime)}</span>
                   <Badge className={`${STATUS_COLORS[trip.status] || ""} text-[10px]`}>{STATUS_LABELS[trip.status] || trip.status}</Badge>
                   <span className="truncate text-muted-foreground flex-1 min-w-0">{trip.pickupAddress || ""}</span>
                 </div>
@@ -1834,7 +1835,7 @@ function TripsPage({ token, onStatusChange, statusIsPending, onOpenNavigation, g
                 <CardContent className="py-4 space-y-2">
                   <div className="flex items-start gap-1.5 text-sm"><Navigation className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600" /><span className="truncate">{offer.pickupAddress}</span></div>
                   <div className="flex items-start gap-1.5 text-sm"><MapPin className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-600" /><span className="truncate">{offer.dropoffAddress}</span></div>
-                  {offer.pickupTime && <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Clock className="w-4 h-4" />{offer.pickupTime}</div>}
+                  {offer.pickupTime && <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Clock className="w-4 h-4" />{formatPickupTimeDisplay(offer.pickupTime)}</div>}
                   <div className="flex gap-2 pt-1">
                     <Button variant="outline" onClick={() => declineOfferMutation.mutate(offer.offerId)} disabled={declineOfferMutation.isPending} className="flex-1 min-h-[44px]" data-testid={`button-decline-${offer.offerId}`}>Decline</Button>
                     <Button onClick={() => acceptOfferMutation.mutate(offer.offerId)} disabled={acceptOfferMutation.isPending} className="flex-1 min-h-[44px]" data-testid={`button-accept-${offer.offerId}`}>Accept</Button>
@@ -3457,7 +3458,7 @@ export default function DriverPortal() {
                     <div className="flex items-start justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="text-xs text-muted-foreground">
-                          {trip.pickupTime ? new Date(trip.pickupTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "TBD"}
+                          {formatPickupTimeDisplay(trip.pickupTime)}
                         </div>
                         <div className="text-sm font-medium truncate">{trip.pickupAddress}</div>
                         {trip.dropoffAddress && (

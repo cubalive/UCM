@@ -810,7 +810,10 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
       const patientForCompany = await storage.getPatient(parsed.data.patientId);
       if (patientForCompany?.companyId) effectiveCompanyId = patientForCompany.companyId;
     }
-    const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, ...pricingFields, companyId: effectiveCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource, ...(autoScheduledTime ? { scheduledTime: autoScheduledTime } : {}) } as any);
+    const tripCity = city || await storage.getCity(parsed.data.cityId);
+    const tripTimezone = tripCity?.timezone || "America/Chicago";
+
+    const trip = await storage.createTrip({ ...parsed.data, publicId, ...approvalFields, ...pricingFields, companyId: effectiveCompanyId, requestSource: (parsed.data as any).requestSource || autoRequestSource, tripTimezone, ...(autoScheduledTime ? { scheduledTime: autoScheduledTime } : {}) } as any);
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "CREATE",
@@ -1984,9 +1987,10 @@ export async function createReturnTripHandler(req: AuthRequest, res: Response) {
     const companyId = getCompanyIdFromAuth(req);
     if (!checkCompanyOwnership(parentTrip, companyId)) return res.status(403).json({ message: "Access denied" });
     const publicId = await generatePublicId();
-    const now = new Date();
-    const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
-    const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, "0")}-${now.getDate().toString().padStart(2, "0")}`;
+    const returnTripTz = parentTrip.tripTimezone || "America/Chicago";
+    const { nowInCity, cityNowDate, cityNowTime } = await import("@shared/timeUtils");
+    const timeStr = cityNowTime(returnTripTz);
+    const dateStr = cityNowDate(returnTripTz);
     const returnTrip = await storage.createTrip({
       publicId,
       cityId: parentTrip.cityId,
@@ -2016,6 +2020,7 @@ export async function createReturnTripHandler(req: AuthRequest, res: Response) {
       tripType: "one_time",
       status: "SCHEDULED",
       requestSource: "internal",
+      tripTimezone: returnTripTz,
       notes: `Return trip for ${parentTrip.publicId}${req.body.notes ? ` - ${req.body.notes}` : ""}`,
     } as any);
     await storage.updateTrip(returnTrip.id, { parentTripId: id } as any);

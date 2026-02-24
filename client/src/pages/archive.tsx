@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { Archive, RotateCcw, Trash2, Search, Building2, UserCheck, HeartPulse, Users, Copy, KeyRound, Route, Car, PackageOpen, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { formatPickupTimeDisplay } from "@/lib/timezone";
 
 type EntityTab = "clinics" | "drivers" | "patients" | "users" | "trips" | "vehicles";
 
@@ -145,7 +146,7 @@ export default function ArchivePage() {
               {activeTab === "trips" && (
                 <>
                   <p className="font-medium" data-testid={`text-archive-name-${item.id}`}>{item.publicId}</p>
-                  <p className="text-sm text-muted-foreground">{item.scheduledDate} | {item.pickupTime}</p>
+                  <p className="text-sm text-muted-foreground">{item.scheduledDate} | {formatPickupTimeDisplay(item.pickupTime)}</p>
                   <p className="text-sm text-muted-foreground truncate">{item.pickupAddress}</p>
                 </>
               )}

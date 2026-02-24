@@ -41,6 +41,7 @@ import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/com
 import { PatientRef, DriverRef, VehicleRef, ClinicRef } from "@/components/entity-ref";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { EmptyState } from "@/components/empty-state";
+import { formatPickupTimeDisplay, formatTripDateTime, getTripTz, tzAbbreviation } from "@/lib/timezone";
 
 function normalizePhoneToE164(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -556,7 +557,7 @@ export default function TripsPage() {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {trip.scheduledDate} | Pickup: {trip.pickupTime}{trip.estimatedArrivalTime && trip.estimatedArrivalTime !== "TBD" ? ` | ETA: ${trip.estimatedArrivalTime}` : ""}
+                      {trip.scheduledDate} | Pickup: {formatPickupTimeDisplay(trip.pickupTime)}{trip.estimatedArrivalTime && trip.estimatedArrivalTime !== "TBD" ? ` | ETA: ${formatPickupTimeDisplay(trip.estimatedArrivalTime)}` : ""}{trip.tripTimezone ? ` (${tzAbbreviation(trip.tripTimezone)})` : ""}
                     </p>
                     <p className="text-sm">
                       <span className="text-muted-foreground">From:</span> {trip.pickupAddress}
@@ -1811,9 +1812,12 @@ function TripDetailDialog({
 
             <div className="space-y-1">
               <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                <span data-testid="text-trip-pickup-time">Pickup: {trip.pickupTime}</span>
+                <span data-testid="text-trip-pickup-time">Pickup: {formatPickupTimeDisplay(trip.pickupTime)}</span>
                 {trip.estimatedArrivalTime && trip.estimatedArrivalTime !== "TBD" && (
-                  <span data-testid="text-trip-est-arrival">Est. Arrival: {trip.estimatedArrivalTime}</span>
+                  <span data-testid="text-trip-est-arrival">Est. Arrival: {formatPickupTimeDisplay(trip.estimatedArrivalTime)}</span>
+                )}
+                {trip.tripTimezone && (
+                  <span className="text-xs text-muted-foreground/70">{tzAbbreviation(trip.tripTimezone)}</span>
                 )}
               </div>
               {trip.recurringDays?.length > 0 && (

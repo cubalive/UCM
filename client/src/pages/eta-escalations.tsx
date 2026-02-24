@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, Clock, MapPin, BellOff, CheckCircle, Info } from "lucide-react";
+import { formatPickupTimeDisplay } from "@/lib/timezone";
 
 type EscalationLevel = "WARN" | "CLINIC" | "DISPATCH";
 
@@ -200,7 +201,7 @@ export default function EtaEscalationsPage() {
                         <td className="py-2 pr-2 font-mono text-xs" data-testid={`text-trip-id-${trip.id}`}>
                           {trip.publicId}
                         </td>
-                        <td className="py-2 px-2">{trip.pickupTime || "—"}</td>
+                        <td className="py-2 px-2">{formatPickupTimeDisplay(trip.pickupTime)}</td>
                         <td className="py-2 px-2">{trip.scheduledDate || "—"}</td>
                         <td className="py-2 px-2">
                           <Badge

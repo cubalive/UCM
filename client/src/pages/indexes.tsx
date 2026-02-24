@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
 import { downloadWithAuth } from "@/lib/export";
+import { formatPickupTimeDisplay } from "@/lib/timezone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -415,7 +416,7 @@ export default function IndexesPage() {
                       <TableRow key={trip.tripId} data-testid={`row-risk-${trip.tripId}`}>
                         <TableCell className="font-mono text-sm">{trip.publicId}</TableCell>
                         <TableCell>{trip.scheduledDate}</TableCell>
-                        <TableCell>{trip.pickupTime}</TableCell>
+                        <TableCell>{formatPickupTimeDisplay(trip.pickupTime)}</TableCell>
                         <TableCell className="text-right">
                           <Badge variant={trip.riskScore >= 60 ? "destructive" : trip.riskScore >= 30 ? "secondary" : "outline"}>
                             {trip.riskScore}

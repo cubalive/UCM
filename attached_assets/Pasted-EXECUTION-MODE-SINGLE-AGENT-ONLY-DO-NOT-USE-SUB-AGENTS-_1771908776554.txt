@@ -1,0 +1,136 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+DO NOT USE SUB-AGENTS. DO NOT DO PARALLEL WORK.
+
+OBJETIVO (UNA SOLA TAREA): Normalizar el manejo de hora/fechas en toda la plataforma para que TODO coincida con la hora real de la ciudad operativa.
+- Guardar timestamps en UTC en DB.
+- Cada CITY debe tener timezone IANA.
+- Todos los inputs de fecha/hora se interpretan como hora local de la ciudad y se convierten a UTC antes de guardar.
+- Todos los outputs se muestran en hora local de la ciudad (driver / clinic / dispatch / admin).
+- El trip guarda un snapshot del timezone usado (trip_timezone) para consistencia histórica.
+- Resolver problemas actuales: hora de creación de viaje mal, horarios de pickups/dropoffs mal, dashboards con hora distinta, etc.
+
+RESTRICCIONES:
+- No romper datos existentes.
+- No hacks con offsets manuales.
+- Soportar DST automáticamente.
+- No usar “new Date()” para mostrar horas sin pasar por conversión explícita.
+- Mantener seguridad y performance.
+
+PASO 0 — INVENTARIO Y DIAGNÓSTICO (ANTES DE CAMBIAR)
+1) Buscar todos los lugares donde se usa Date:
+   - grep: "new Date(" , "Date.now" , "toLocaleString" , "toISOString" , "moment" , "dayjs" , "luxon"
+2) Identificar campos de DB que representan tiempos:
+   - trips: created_at, pickup_at, dropoff_at, scheduled_at, etc.
+   - events/logs: created_at, occurred_at
+3) Confirmar tipos en Postgres:
+   - Deben ser timestamptz (timestamp with time zone) o al menos tratarse como UTC.
+4) Identificar fuente de “ciudad” para cada pantalla:
+   - Driver: su city_id / company city
+   - Clinic: clinic city o el trip city
+   - Dispatch/Admin: filtro seleccionado (city) o trip city
+
+PASO 1 — MODELO DE DATOS (DB)
+A) Cities:
+- Asegurar tabla cities tenga:
+  - id
+  - name
+  - state
+  - timezone (TEXT) // IANA, ej. "America/Los_Angeles"
+- Backfill para ciudades existentes (si hay Las Vegas -> America/Los_Angeles, Dallas -> America/Chicago, etc.)
+
+B) Trips:
+- Agregar columnas:
+  - trip_timezone TEXT NOT NULL DEFAULT (resolver por city.timezone)
+  - pickup_at_utc timestamptz (o usar el mismo pickup_at pero garantizando UTC)
+  - dropoff_at_utc timestamptz (si aplica)
+  - scheduled_at_utc timestamptz (si aplica)
+NOTA: Si ya existen pickup_at etc en timestamptz, NO dupliques; en ese caso:
+- Mantén pickup_at como UTC y renómbralo lógicamente (no físicamente) y solo agrega trip_timezone.
+
+C) Migración segura:
+- Crear migration SQL con:
+  - ALTER TABLE cities ADD COLUMN IF NOT EXISTS timezone text;
+  - ALTER TABLE trips ADD COLUMN IF NOT EXISTS trip_timezone text;
+  - Backfill: trips.trip_timezone = cities.timezone vía join (según trip.city_id).
+- Validar que no hay nulls finales.
+
+PASO 2 — “TIME SERVICE” ÚNICO (SERVER + CLIENT)
+Elegir una librería consistente:
+- Recomendado: luxon (IANA + DST fácil) o date-fns-tz.
+Implementar helpers compartidos (ideal en /shared):
+1) toUtcFromCityLocal(localISO, cityTz) -> returns ISO UTC
+   - localISO es "YYYY-MM-DDTHH:mm" SIN timezone (lo que sale del datepicker)
+2) toCityLocalFromUtc(utcISO, cityTz) -> returns display string + local ISO
+3) formatCity(utcISO, cityTz, format) -> string
+4) nowInCity(cityTz) -> display + epoch
+
+Prohibir en UI:
+- toLocaleString sin timezone explícito
+- new Date(utc).toString() sin conversión
+
+PASO 3 — APIs: LADO SERVIDOR (FUENTE DE VERDAD)
+A) Resolver timezone por contexto:
+- Crear función server/utils/timezone.ts:
+  - getCityTimezone(cityId): fetch cities.timezone
+  - getActorTimezone(actor): según rol:
+    - driver -> driver.city_id timezone
+    - clinic -> clinic.city_id timezone
+    - dispatch/admin -> si seleccionó city filter, usar esa; si no, fallback company default.
+
+B) En endpoints de creación/edición de trip:
+- Si el cliente manda pickup_local + city_id:
+  - tz = city.timezone
+  - pickup_utc = toUtcFromCityLocal(pickup_local, tz)
+  - guardar pickup_at = pickup_utc
+  - guardar trip_timezone = tz (snapshot)
+- created_at debe ser DEFAULT now() en DB (UTC).
+
+C) En endpoints de lectura:
+- Enviar SIEMPRE:
+  - pickup_at (UTC ISO)
+  - trip_timezone
+  - pickup_local_display (ya formateado) O enviar ambos y UI formatea con helper (elige un approach y úsalo en todo el sistema).
+Recomendación: enviar UTC + trip_timezone y UI formatea, pero con helpers centralizados.
+
+PASO 4 — UI (DRIVER / CLINIC / DISPATCH / ADMIN)
+A) Mostrar siempre con tz del trip (trip_timezone).
+- En listas, detalle, modales, logs, tablas.
+B) Datepickers:
+- Siempre trabajar con “local time de la ciudad”:
+  - input local "YYYY-MM-DDTHH:mm"
+  - al guardar: convertir a UTC usando tz de la ciudad.
+C) Encabezados:
+- Mostrar “City Time: 10:32 PM PST” en cada portal (según ciudad activa o trip).
+D) Evitar inconsistencias:
+- El “filtro de ciudad” en dispatch define el tz por defecto para crear trips.
+- Si el trip pertenece a otra ciudad, usar el tz del trip.
+
+PASO 5 — CORRECCIÓN DE DATOS EXISTENTES (SIN ROMPER)
+Problema típico: trips antiguos guardados como si fueran “local” pero interpretados como UTC (o viceversa).
+Hacer un diagnóstico:
+1) Elegir 10 trips de prueba por ciudad.
+2) Comparar hora esperada vs guardada.
+Si se confirma offset sistemático:
+- Escribir script de corrección controlado por ciudad con una ventana de fechas y un offset calculado SOLO si hay evidencia.
+- NO aplicar automáticamente si no hay certeza.
+
+PASO 6 — PRUEBAS OBLIGATORIAS (VERIFICACIÓN)
+1) Unit tests (shared time helpers):
+- toUtcFromCityLocal y back conversion para:
+  - America/Los_Angeles
+  - America/Chicago
+  - caso DST (fecha de cambio)
+2) Integration:
+- Crear trip en Las Vegas 8:00am local → DB guarda UTC correcto → UI muestra 8:00am.
+- Crear trip en Dallas 8:00am local → DB guarda otro UTC → UI muestra 8:00am Dallas.
+3) E2E manual checklist:
+- Driver ve horas correctas en su ciudad.
+- Clinic ve las mismas horas (para el mismo trip).
+- Dispatch ve lo mismo, y created_at coincide.
+- Cambiar filtro de ciudad no cambia hora de trips ya creados (por trip_timezone snapshot).
+
+ENTREGABLES (RETORNO):
+1) Root cause exacto encontrado (dónde se mezclaba UTC/local/server time).
+2) Lista de archivos cambiados + migración SQL.
+3) Confirmación build compila.
+4) Evidencia de pruebas: logs/outputs del test + checklist marcado (pass/fail).

@@ -455,6 +455,7 @@ export const trips = pgTable("trips", {
   dropoffGeofenceM: integer("dropoff_geofence_m").notNull().default(150),
   timeline: jsonb("timeline").default(sql`'[]'::jsonb`),
   lastLocationAt: timestamp("last_location_at"),
+  tripTimezone: text("trip_timezone").notNull().default("America/Chicago"),
 });
 
 export const tripLocationPoints = pgTable("trip_location_points", {
