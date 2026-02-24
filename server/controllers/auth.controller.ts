@@ -503,6 +503,11 @@ export async function tokenLoginHandler(req: Request, res: Response) {
 
     const { password, ...safeUser } = user;
 
+    const isRecovery = type === "recovery";
+    if (isRecovery && !user.mustChangePassword) {
+      await db.update(users).set({ mustChangePassword: true }).where(eq(users.id, user.id));
+    }
+
     await storage.createAuditLog({
       userId: user.id,
       action: "LOGIN_MAGIC_LINK",
@@ -514,7 +519,6 @@ export async function tokenLoginHandler(req: Request, res: Response) {
 
     setAuthCookie(res, jwtToken, req);
 
-    const isRecovery = type === "recovery";
     return res.json({
       token: jwtToken,
       user: { ...safeUser, cityAccess },

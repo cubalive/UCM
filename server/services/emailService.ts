@@ -14,6 +14,9 @@ export function getPortalBaseUrl(role?: string): string {
   if (upper === "DRIVER") {
     return process.env.DRIVER_APP_URL || "https://driver.unitedcaremobility.com";
   }
+  if (upper === "DISPATCH") {
+    return process.env.DISPATCH_APP_URL || "https://dispatch.unitedcaremobility.com";
+  }
   return APP_PUBLIC_URL;
 }
 
@@ -133,6 +136,7 @@ export async function sendDriverTempPassword(
   driverName?: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const portalUrl = getPortalBaseUrl("DRIVER");
     const name = driverName || "Driver";
     const html = brandedHtml(`
     <p>Hello ${name},</p>
@@ -142,7 +146,7 @@ export async function sendDriverTempPassword(
       <p style="margin: 4px 0;"><strong>Temporary Password:</strong> <code style="background: #f0f0f0; padding: 2px 8px; border-radius: 3px; font-size: 14px;">${tempPassword}</code></p>
     </div>
     <div style="text-align: center; margin: 24px 0;">
-      <a href="${APP_PUBLIC_URL}/login" style="display: inline-block; background: #1a1a2e; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 6px; font-weight: 600;">
+      <a href="${portalUrl}/login" style="display: inline-block; background: #1a1a2e; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 6px; font-weight: 600;">
         Sign In to UCM
       </a>
     </div>
@@ -235,8 +239,10 @@ export async function sendResetPasswordEmail(
   email: string,
   tempPassword: string,
   userName?: string,
+  role?: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const portalUrl = getPortalBaseUrl(role);
     const name = userName || "User";
     const html = brandedHtml(`
     <p>Hello ${name},</p>
@@ -246,7 +252,7 @@ export async function sendResetPasswordEmail(
       <p style="margin: 4px 0;"><strong>New Temporary Password:</strong> <code style="background: #f0f0f0; padding: 2px 8px; border-radius: 3px; font-size: 14px;">${tempPassword}</code></p>
     </div>
     <div style="text-align: center; margin: 24px 0;">
-      <a href="${APP_PUBLIC_URL}/login" style="display: inline-block; background: #1a1a2e; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 6px; font-weight: 600;">
+      <a href="${portalUrl}/login" style="display: inline-block; background: #1a1a2e; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 6px; font-weight: 600;">
         Sign In to UCM
       </a>
     </div>

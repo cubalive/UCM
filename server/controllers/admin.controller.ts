@@ -526,7 +526,7 @@ export async function resetUserPasswordHandler(req: AuthRequest, res: Response) 
 
       try {
         const { sendResetPasswordEmail } = await import("../services/emailService");
-        const emailResult = await sendResetPasswordEmail(targetUser.email, tempPassword, `${targetUser.firstName} ${targetUser.lastName}`);
+        const emailResult = await sendResetPasswordEmail(targetUser.email, tempPassword, `${targetUser.firstName} ${targetUser.lastName}`, targetUser.role);
         if (!emailResult.success) {
           console.error("[adminResetPassword] Email send failed (non-fatal):", emailResult.error);
         }
@@ -583,7 +583,7 @@ export async function resetClinicPasswordHandler(req: AuthRequest, res: Response
     let emailSent = false;
     try {
       const { sendResetPasswordEmail } = await import("../services/emailService");
-      const emailResult = await sendResetPasswordEmail(clinic.email, tempPassword, clinic.name);
+      const emailResult = await sendResetPasswordEmail(clinic.email, tempPassword, clinic.name, clinicUser.role);
       emailSent = emailResult.success;
     } catch (emailErr: any) {
       console.error("[clinicResetPassword] Email failed (non-fatal):", emailErr.message);
@@ -638,7 +638,7 @@ export async function resetDriverPasswordHandler(req: AuthRequest, res: Response
     try {
       const { sendResetPasswordEmail } = await import("../services/emailService");
       const driverName = `${driver.firstName} ${driver.lastName}`;
-      const emailResult = await sendResetPasswordEmail(driver.email, tempPassword, driverName);
+      const emailResult = await sendResetPasswordEmail(driver.email, tempPassword, driverName, "DRIVER");
       emailSent = emailResult.success;
     } catch (emailErr: any) {
       console.error("[driverResetPassword] Email failed (non-fatal):", emailErr.message);
