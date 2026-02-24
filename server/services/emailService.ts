@@ -8,20 +8,26 @@ const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || "United Care Mobility";
 export function getPortalBaseUrl(role?: string): string {
   if (!role) return APP_PUBLIC_URL;
   const upper = role.toUpperCase();
-  if (upper === "CLINIC" || upper === "CLINIC_ADMIN" || upper === "CLINIC_STAFF") {
+  if (["CLINIC", "CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER", "CLINIC_STAFF"].includes(upper)) {
     return CLINIC_APP_URL;
   }
   if (upper === "DRIVER") {
-    return process.env.DRIVER_APP_URL || APP_PUBLIC_URL;
+    return process.env.DRIVER_APP_URL || "https://driver.unitedcaremobility.com";
   }
   return APP_PUBLIC_URL;
 }
 
-function buildPortalLoginLink(actionLink: string, portalUrl: string, extraParams?: Record<string, string>): string {
+function buildPortalLoginLink(actionLink: string, portalUrl: string, extraParams?: Record<string, string>, hashedToken?: string): string {
   try {
-    const url = new URL(actionLink);
-    const tokenHash = url.searchParams.get("token");
-    const type = url.searchParams.get("type") || "magiclink";
+    let tokenHash: string | null = hashedToken || null;
+    let type = "magiclink";
+
+    if (actionLink) {
+      const url = new URL(actionLink);
+      tokenHash = url.searchParams.get("token") || url.searchParams.get("token_hash") || tokenHash;
+      type = url.searchParams.get("type") || type;
+    }
+
     const loginUrl = new URL(`${portalUrl}/login`);
     if (tokenHash) loginUrl.searchParams.set("token", tokenHash);
     loginUrl.searchParams.set("type", type);
@@ -32,6 +38,9 @@ function buildPortalLoginLink(actionLink: string, portalUrl: string, extraParams
     }
     return loginUrl.toString();
   } catch {
+    if (hashedToken) {
+      return `${portalUrl}/login?token=${encodeURIComponent(hashedToken)}&type=magiclink${extraParams ? "&" + new URLSearchParams(extraParams).toString() : ""}`;
+    }
     return `${portalUrl}/login`;
   }
 }
@@ -78,11 +87,12 @@ export async function sendClinicLoginLink(email: string, clinicName?: string): P
     }
 
     const magicLink = data?.properties?.action_link;
-    if (!magicLink) {
+    const hashedToken = data?.properties?.hashed_token;
+    if (!magicLink && !hashedToken) {
       return { success: false, error: "No magic link returned from Supabase" };
     }
 
-    const productionLink = buildPortalLoginLink(magicLink, portalUrl);
+    const productionLink = buildPortalLoginLink(magicLink || "", portalUrl, undefined, hashedToken);
     console.log(`[emailService] Clinic magic link generated — role=CLINIC, portalUrl=${portalUrl}, link=${productionLink}`);
 
     const name = clinicName || "Clinic User";
@@ -181,11 +191,12 @@ export async function sendDispatchLoginLink(email: string, userName?: string): P
     }
 
     const magicLink = data?.properties?.action_link;
-    if (!magicLink) {
+    const hashedTokenD = data?.properties?.hashed_token;
+    if (!magicLink && !hashedTokenD) {
       return { success: false, error: "No magic link returned from Supabase" };
     }
 
-    const productionLink = buildPortalLoginLink(magicLink, portalUrl);
+    const productionLink = buildPortalLoginLink(magicLink || "", portalUrl, undefined, hashedTokenD);
     console.log(`[emailService] Dispatch magic link generated — role=DISPATCH, portalUrl=${portalUrl}, link=${productionLink}`);
 
     const name = userName || "Team Member";
@@ -286,11 +297,12 @@ export async function sendForgotPasswordLink(email: string, role?: string): Prom
     }
 
     const recoveryLink = data?.properties?.action_link;
-    if (!recoveryLink) {
+    const recoveryHashedToken = data?.properties?.hashed_token;
+    if (!recoveryLink && !recoveryHashedToken) {
       return { success: false, error: "No recovery link returned from Supabase" };
     }
 
-    const productionLink = buildPortalLoginLink(recoveryLink, portalUrl, { reset: "true" });
+    const productionLink = buildPortalLoginLink(recoveryLink || "", portalUrl, { reset: "true" }, recoveryHashedToken);
 
     const html = brandedHtml(`
     <p>Hello,</p>
