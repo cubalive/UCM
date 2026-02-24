@@ -114,7 +114,7 @@ app.use("/api/public", (req, res, next) => {
   if (isPublicOrigin(origin) || isAppOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-City-Id, X-UCM-Device, x-ucm-company-id");
     res.setHeader("Access-Control-Max-Age", "86400");
   } else if (origin) {
     console.warn(`[CORS] Blocked public origin="${origin}" path="${req.path}" method="${req.method}"`);
@@ -135,7 +135,7 @@ app.use("/api", (req, res, next) => {
   if (isAppOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Stripe-Signature");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Stripe-Signature, X-City-Id, X-UCM-Device, x-ucm-company-id");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Max-Age", "86400");
   } else if (origin) {

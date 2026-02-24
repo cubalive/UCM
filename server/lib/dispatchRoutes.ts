@@ -234,6 +234,62 @@ async function getDriverIdForTrip(tripId: number): Promise<number | null> {
 
 export function registerDispatchRoutes(app: Express) {
 
+  app.get("/api/dispatch/trips/:tab",
+    authMiddleware,
+    requirePermission("dispatch", "read"),
+    async (req: AuthRequest, res) => {
+      try {
+        const tab = req.params.tab as string || "unassigned";
+        const search = (req.query.search as string)?.trim() || "";
+        const origin = (req.query.origin as string) || "";
+        const companyId = getCompanyIdFromAuth(req);
+
+        const cityIdHeader = req.headers["x-city-id"] as string;
+        const cityId = cityIdHeader ? parseInt(cityIdHeader) : undefined;
+
+        const { db } = await import("../db");
+        const { trips } = await import("@shared/schema");
+        const { and, eq, inArray, isNull, desc, sql, or } = await import("drizzle-orm");
+
+        const conditions: any[] = [isNull(trips.deletedAt), isNull(trips.archivedAt)];
+
+        if (companyId) conditions.push(eq(trips.companyId, companyId));
+        if (cityId && !isNaN(cityId)) conditions.push(eq(trips.cityId, cityId));
+
+        if (tab === "unassigned") {
+          conditions.push(isNull(trips.driverId));
+          conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));
+          conditions.push(eq(trips.approvalStatus, "approved"));
+        } else if (tab === "scheduled") {
+          conditions.push(inArray(trips.status, ["SCHEDULED", "ASSIGNED"]));
+        } else if (tab === "active") {
+          conditions.push(inArray(trips.status, ["EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS"]));
+        } else if (tab === "completed") {
+          conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
+        }
+
+        if (origin) {
+          conditions.push(eq(trips.requestSource, origin));
+        }
+
+        if (search) {
+          const pattern = `%${search}%`;
+          conditions.push(or(
+            sql`${trips.publicId} ILIKE ${pattern}`,
+            sql`${trips.pickupAddress} ILIKE ${pattern}`,
+            sql`${trips.dropoffAddress} ILIKE ${pattern}`,
+          )!);
+        }
+
+        const result = await db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt)).limit(100);
+        res.json(result);
+      } catch (err: any) {
+        console.error("[dispatch/trips] Error:", err.message);
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
   app.post("/api/dispatch/assign-driver-vehicle",
     authMiddleware,
     requirePermission("dispatch", "write"),
