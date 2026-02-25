@@ -2057,26 +2057,23 @@ export async function getTripRouteHandler(req: AuthRequest, res: Response) {
     const { ensureTripRoute } = await import("../lib/tripRouteService");
     const result = await ensureTripRoute(id);
 
+    let tripData = trip;
     let actualPolyline = (trip as any).actualPolyline || null;
-    let actualDistMeta = trip.actualDistanceMeters || null;
-    let actualDurMeta = (trip as any).actualDurationSeconds || null;
-    let qualityScore = (trip as any).routeQualityScore || null;
 
     if (!actualPolyline && ["COMPLETED", "NO_SHOW"].includes(trip.status)) {
       try {
         const { finalizeTripRoute } = await import("../lib/tripFinalizationService");
         await finalizeTripRoute(id);
         const refreshed = await storage.getTrip(id);
-        if (refreshed) {
-          actualPolyline = (refreshed as any).actualPolyline || null;
-          actualDistMeta = refreshed.actualDistanceMeters || actualDistMeta;
-          actualDurMeta = (refreshed as any).actualDurationSeconds ?? actualDurMeta;
-          qualityScore = (refreshed as any).routeQualityScore ?? qualityScore;
-        }
+        if (refreshed) tripData = refreshed;
+        actualPolyline = (tripData as any).actualPolyline || null;
       } catch (err: any) {
         console.warn(`[TRIP-ROUTE] Actual polyline generation failed for trip ${id}: ${err.message}`);
       }
     }
+
+    const distMiles = tripData.distanceMiles ? parseFloat(tripData.distanceMiles) : null;
+    const durMin = tripData.durationMinutes ?? null;
 
     const response: any = {
       routePolyline: result?.routePolyline || null,
@@ -2084,15 +2081,16 @@ export async function getTripRouteHandler(req: AuthRequest, res: Response) {
       durationSeconds: result?.routeDurationSeconds || null,
       routeVersion: result?.routeVersion || null,
       actualPolyline,
-      actualDistanceMeters: actualDistMeta,
-      actualDistanceSource: trip.actualDistanceSource || null,
-      actualDurationSeconds: actualDurMeta,
-      waitingSeconds: (trip as any).waitingSeconds || null,
-      routeSource: (trip as any).routeSource || null,
-      routeQualityScore: qualityScore,
-      status: trip.status,
-      timeline: (trip as any).timeline || [],
-      distanceMiles: trip.distanceMiles ? parseFloat(trip.distanceMiles) : null,
+      actualDistanceMeters: tripData.actualDistanceMeters || null,
+      actualDistanceSource: tripData.actualDistanceSource || null,
+      actualDurationSeconds: (tripData as any).actualDurationSeconds ?? null,
+      waitingSeconds: (tripData as any).waitingSeconds ?? null,
+      routeSource: (tripData as any).routeSource || null,
+      routeQualityScore: (tripData as any).routeQualityScore ?? null,
+      status: tripData.status,
+      timeline: (tripData as any).timeline || [],
+      distanceMiles: distMiles,
+      durationMinutes: durMin,
     };
 
     return res.json(response);

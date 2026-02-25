@@ -201,6 +201,10 @@ export async function finalizeTripRoute(tripId: number): Promise<void> {
         updateData.actualPolyline = actualPolyline;
         updateData.routeSource = "telemetry";
         updateData.routeQualityScore = quality;
+        updateData.distanceMiles = String(Math.round((totalMeters / 1609.344) * 10) / 10);
+        if (actualDurationSeconds != null) {
+          updateData.durationMinutes = Math.round(actualDurationSeconds / 60);
+        }
 
         console.log(
           `[FINALIZE] Trip ${tripId}: ${rawPoints.length} raw → ${filtered.length} clean → ${simplified.length} simplified, ` +
