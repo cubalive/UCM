@@ -541,15 +541,8 @@ export function buildProgressEvents(tripData: any): Array<{key: string; label: s
     if (!val) continue;
 
     let atStr: string;
-    if (step.isTimeOnly && step.dateField) {
-      const dateStr = tripData[step.dateField];
-      if (dateStr && typeof val === "string" && val.includes(":") && val.length <= 5) {
-        const [h, m] = val.split(":").map(Number);
-        const dt = new Date(`${dateStr}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
-        atStr = isNaN(dt.getTime()) ? val : dt.toISOString();
-      } else {
-        atStr = typeof val === "string" ? val : new Date(val).toISOString();
-      }
+    if (step.isTimeOnly) {
+      atStr = typeof val === "string" ? val : String(val);
     } else {
       atStr = val instanceof Date ? val.toISOString() : String(val);
     }
@@ -2064,18 +2057,39 @@ export async function getTripRouteHandler(req: AuthRequest, res: Response) {
     const { ensureTripRoute } = await import("../lib/tripRouteService");
     const result = await ensureTripRoute(id);
 
+    let actualPolyline = (trip as any).actualPolyline || null;
+    let actualDistMeta = trip.actualDistanceMeters || null;
+    let actualDurMeta = (trip as any).actualDurationSeconds || null;
+    let qualityScore = (trip as any).routeQualityScore || null;
+
+    if (!actualPolyline && ["COMPLETED", "NO_SHOW"].includes(trip.status)) {
+      try {
+        const { finalizeTripRoute } = await import("../lib/tripFinalizationService");
+        await finalizeTripRoute(id);
+        const refreshed = await storage.getTrip(id);
+        if (refreshed) {
+          actualPolyline = (refreshed as any).actualPolyline || null;
+          actualDistMeta = refreshed.actualDistanceMeters || actualDistMeta;
+          actualDurMeta = (refreshed as any).actualDurationSeconds ?? actualDurMeta;
+          qualityScore = (refreshed as any).routeQualityScore ?? qualityScore;
+        }
+      } catch (err: any) {
+        console.warn(`[TRIP-ROUTE] Actual polyline generation failed for trip ${id}: ${err.message}`);
+      }
+    }
+
     const response: any = {
       routePolyline: result?.routePolyline || null,
       distanceMeters: result?.routeDistanceMeters || null,
       durationSeconds: result?.routeDurationSeconds || null,
       routeVersion: result?.routeVersion || null,
-      actualPolyline: (trip as any).actualPolyline || null,
-      actualDistanceMeters: trip.actualDistanceMeters || null,
+      actualPolyline,
+      actualDistanceMeters: actualDistMeta,
       actualDistanceSource: trip.actualDistanceSource || null,
-      actualDurationSeconds: (trip as any).actualDurationSeconds || null,
+      actualDurationSeconds: actualDurMeta,
       waitingSeconds: (trip as any).waitingSeconds || null,
       routeSource: (trip as any).routeSource || null,
-      routeQualityScore: (trip as any).routeQualityScore || null,
+      routeQualityScore: qualityScore,
       status: trip.status,
       timeline: (trip as any).timeline || [],
       distanceMiles: trip.distanceMiles ? parseFloat(trip.distanceMiles) : null,

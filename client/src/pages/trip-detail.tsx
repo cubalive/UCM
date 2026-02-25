@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Clock, Navigation, AlertTriangle, MapPin, Download, Loader2, Ban, Archive, Trash2, RotateCcw, DollarSign, Receipt, Signal } from "lucide-react";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { formatPickupTimeDisplay } from "@/lib/timezone";
 import { TripStaticMap } from "@/components/trip-static-map";
 import { TripRouteMap } from "@/components/trip-route-map";
 import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
@@ -367,7 +368,7 @@ export default function TripDetailPage() {
             <TripDateTimeHeader trip={trip} />
 
             <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-              <span data-testid="text-detail-pickup-time">Pickup: {trip.pickupTime}</span>
+              <span data-testid="text-detail-pickup-time">Pickup: {formatPickupTimeDisplay(trip.pickupTime)}</span>
               {trip.estimatedArrivalTime && trip.estimatedArrivalTime !== "TBD" && (
                 <span data-testid="text-detail-est-arrival">ETA: {trip.estimatedArrivalTime}</span>
               )}
