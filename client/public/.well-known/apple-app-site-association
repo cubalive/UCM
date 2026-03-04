@@ -1,0 +1,20 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAM_ID.com.unitedcaremobility.driver",
+        "paths": [
+          "/login*",
+          "/privacy",
+          "/terms"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "TEAM_ID.com.unitedcaremobility.driver"
+    ]
+  }
+}

@@ -79,7 +79,11 @@ async function checkForUpdates() {
 setInterval(checkForUpdates, VERSION_CHECK_INTERVAL);
 checkForUpdates();
 
-if ("serviceWorker" in navigator) {
+const isCapacitorNative =
+  typeof (window as any).Capacitor !== "undefined" &&
+  (window as any).Capacitor.isNativePlatform?.() === true;
+
+if ("serviceWorker" in navigator && !isCapacitorNative) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("/sw.js")

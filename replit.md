@@ -73,6 +73,20 @@ The application follows a client-server architecture.
 - `UCM_AGENTIC_ROUTES=1` — enables orchestrator + route worker (optional, requires Redis)
 - `LEADER_ELECTION=true` — enables Redis-based leader election for multi-instance safety (default: auto based on Redis availability)
 
+## Mobile App (iOS/Android - Capacitor)
+- **Bundle ID**: `com.unitedcaremobility.driver`
+- **App Name**: UCM Driver
+- **Root Capacitor Config**: `capacitor.config.ts` (production-oriented, locked to `driver.unitedcaremobility.com`)
+- **Mobile-Driver Wrapper**: `mobile-driver/` — standalone Capacitor project with background GPS (`@capacitor-community/background-geolocation`), push notifications, and native platform configs
+- **iOS Config**: `ios/App/App/Info.plist` — CFBundleShortVersionString=1.0.0, CFBundleVersion=1, background modes (location, fetch, processing, remote-notification), location permission rationale strings, `ITSAppUsesNonExemptEncryption=false`
+- **Android Config**: `android/app/src/main/AndroidManifest.xml` — FINE_LOCATION, FOREGROUND_SERVICE, FOREGROUND_SERVICE_LOCATION permissions
+- **Universal Links**: `client/public/.well-known/apple-app-site-association` (AASA) for deep linking reset/magic links into native app. Requires `TEAM_ID` replacement with Apple Developer Team ID. Android App Links via `client/public/.well-known/assetlinks.json`.
+- **Service Worker Guard**: Service worker registration skipped on Capacitor native platform (`isCapacitorNative` check in `main.tsx`) to avoid WKWebView caching conflicts
+- **Offline Detection**: `client/src/components/network-status.tsx` — full-screen offline overlay with retry, auto-dismiss on reconnect
+- **Version Checker**: `client/src/components/version-checker.tsx` — polls `/version.json` every 5 min, auto-reloads on version change (skipped for "dev" builds)
+- **Legal Pages**: `/privacy` (privacy-policy.tsx) and `/terms` (terms-of-service.tsx) — public routes accessible without auth, linked from login page and driver profile
+- **Error Boundary**: `AppErrorBoundary` in App.tsx with Reload + Report Issue buttons (mailto:support@unitedcaremobility.com)
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database (Supabase pooler).
 - **Supabase**: User authentication, city management, Row-Level Security (RLS).

@@ -1,14 +1,34 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   ChevronLeft, User, Car, FileText, Volume2, Vibrate,
-  Eye, Navigation, Shield, Info, ChevronRight, Settings
+  Eye, Navigation, Shield, Info, ChevronRight, Settings, ExternalLink
 } from "lucide-react";
 import { useDriverStore } from "../store/driverStore";
 import { colors } from "../design/tokens";
 import { glowColor } from "../design/theme";
 import { GlassCard } from "../components/ui/GlassCard";
 import { NebulaBackground } from "../components/ui/MapOverlay";
+import { resolveUrl } from "@/lib/api";
+
+function ProfileVersionDisplay() {
+  const [buildVersion, setBuildVersion] = useState("...");
+
+  useEffect(() => {
+    fetch(resolveUrl("/version.json"), { cache: "no-store", credentials: "omit" })
+      .then((r) => r.json())
+      .then((d) => setBuildVersion(d.version || "dev"))
+      .catch(() => setBuildVersion("unknown"));
+  }, []);
+
+  return (
+    <div className="pt-3 text-center" data-testid="text-build-version">
+      <p className="text-[10px]" style={{ color: colors.textTertiary }}>
+        UCM Driver • Build {buildVersion}
+      </p>
+    </div>
+  );
+}
 
 function SettingsRow({
   icon,
@@ -205,11 +225,26 @@ export function Profile({ onBack }: { onBack: () => void }) {
           <SettingsRow icon={<Car className="w-4 h-4" />} label="Vehicle Info" value="Toyota Camry 2023" onPress={() => {}} testID="row-vehicle" />
           <SettingsRow icon={<FileText className="w-4 h-4" />} label="Documents" value="3 uploaded" onPress={() => {}} accent={colors.neonPurple} testID="row-documents" />
           <SettingsRow icon={<Shield className="w-4 h-4" />} label="Safety" onPress={() => {}} accent={colors.dangerNeon} testID="row-safety" />
-          <div className="pt-3 text-center">
-            <p className="text-[10px]" style={{ color: colors.textTertiary }}>
-              UCM Driver v4.0.0 • Build 2026.02.21
-            </p>
-          </div>
+        </GlassCard>
+
+        <GlassCard variant="default" testID="card-settings-legal" className="!p-3">
+          <p className="text-[10px] uppercase tracking-wider mb-1 px-1" style={{ color: colors.textTertiary }}>
+            Legal
+          </p>
+          <SettingsRow
+            icon={<FileText className="w-4 h-4" />}
+            label="Privacy Policy"
+            onPress={() => window.open("/privacy", "_blank")}
+            testID="row-privacy-policy"
+          />
+          <SettingsRow
+            icon={<FileText className="w-4 h-4" />}
+            label="Terms of Service"
+            onPress={() => window.open("/terms", "_blank")}
+            accent={colors.neonPurple}
+            testID="row-terms-of-service"
+          />
+          <ProfileVersionDisplay />
         </GlassCard>
       </div>
     </NebulaBackground>

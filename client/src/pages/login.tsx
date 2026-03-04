@@ -288,6 +288,12 @@ export default function LoginPage() {
           {t("app.versionFull")}
         </p>
 
+        <div className="flex items-center justify-center gap-3 text-xs text-muted-foreground">
+          <a href="/privacy" target="_blank" rel="noopener" className="hover:underline" data-testid="link-privacy">Privacy Policy</a>
+          <span>|</span>
+          <a href="/terms" target="_blank" rel="noopener" className="hover:underline" data-testid="link-terms">Terms of Service</a>
+        </div>
+
         <div className="flex items-center justify-center gap-1">
           <LanguageSwitcher />
           <ThemeToggle />

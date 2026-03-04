@@ -7,21 +7,29 @@ const config: CapacitorConfig = {
   server: {
     url: 'https://driver.unitedcaremobility.com',
     cleartext: false,
+    allowNavigation: [
+      'driver.unitedcaremobility.com',
+      'app.unitedcaremobility.com',
+    ],
   },
   plugins: {
     SplashScreen: {
       launchAutoHide: true,
+      launchShowDuration: 2000,
       androidScaleType: 'CENTER_CROP',
+      splashImmersive: true,
     },
   },
   ios: {
     scheme: 'UCMDriver',
     contentInset: 'automatic',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#0a1e3d',
+    preferredContentMode: 'mobile',
+    allowsLinkPreview: false,
   },
   android: {
     allowMixedContent: false,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#0a1e3d',
   },
 };
 

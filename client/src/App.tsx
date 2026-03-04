@@ -90,6 +90,10 @@ import ZeroTouchDialysisPage from "@/pages/zero-touch-dialysis";
 import PayrollSettingsPage from "@/pages/payroll-settings";
 import DriverEarningsPage from "@/pages/driver-earnings";
 import NotFound from "@/pages/not-found";
+import PrivacyPolicyPage from "@/pages/privacy-policy";
+import TermsOfServicePage from "@/pages/terms-of-service";
+import { NetworkStatus } from "@/components/network-status";
+import { useAppVersion } from "@/components/version-checker";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState as useStateHook } from "react";
 
@@ -494,10 +498,21 @@ class AppErrorBoundary extends React.Component<
                   )}
                 </div>
               )}
-              <Button onClick={() => window.location.reload()} className="w-full" data-testid="button-reload">
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Reload
-              </Button>
+              <div className="flex gap-2">
+                <Button onClick={() => window.location.reload()} className="flex-1" data-testid="button-reload">
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Reload
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => window.open("mailto:support@unitedcaremobility.com?subject=App%20Error%20Report&body=" + encodeURIComponent("Error: " + (this.state.error?.message || "Unknown") + "\n\nSteps to reproduce:\n"), "_blank")}
+                  className="flex-1"
+                  data-testid="button-report-issue"
+                >
+                  <AlertTriangle className="mr-2 h-4 w-4" />
+                  Report
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -602,21 +617,33 @@ function AuthenticatedApp() {
   );
 }
 
+function AppWithVersionCheck() {
+  useAppVersion();
+  return (
+    <>
+      <NetworkStatus />
+      <Switch>
+        <Route path="/t/:token" component={PublicTrackingPage} />
+        <Route path="/privacy" component={PrivacyPolicyPage} />
+        <Route path="/terms" component={TermsOfServicePage} />
+        <Route path="/driver-v4" component={DriverAppV4} />
+        <Route>
+          <AuthProvider>
+            <AuthenticatedApp />
+          </AuthProvider>
+        </Route>
+      </Switch>
+      <Toaster />
+    </>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider>
-          <Switch>
-            <Route path="/t/:token" component={PublicTrackingPage} />
-            <Route path="/driver-v4" component={DriverAppV4} />
-            <Route>
-              <AuthProvider>
-                <AuthenticatedApp />
-              </AuthProvider>
-            </Route>
-          </Switch>
-          <Toaster />
+          <AppWithVersionCheck />
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

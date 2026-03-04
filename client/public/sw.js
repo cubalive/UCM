@@ -75,6 +75,11 @@ self.addEventListener("fetch", (event) => {
 
   if (url.origin !== self.location.origin) return;
 
+  if (url.pathname.startsWith("/.well-known/")) {
+    event.respondWith(networkOnly(event.request));
+    return;
+  }
+
   if (isApiRequest(url)) {
     event.respondWith(networkOnly(event.request));
     return;

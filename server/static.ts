@@ -47,6 +47,26 @@ export function serveStatic(app: Express) {
     res.sendFile(path.resolve(distPath, "version.json"));
   });
 
+  app.get("/.well-known/apple-app-site-association", (_req: Request, res: Response) => {
+    res.set({ ...NO_STORE_HEADERS, "Content-Type": "application/json" });
+    const filePath = path.resolve(distPath, ".well-known/apple-app-site-association");
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).json({ error: "not found" });
+    }
+  });
+
+  app.get("/.well-known/assetlinks.json", (_req: Request, res: Response) => {
+    res.set({ ...NO_STORE_HEADERS, "Content-Type": "application/json" });
+    const filePath = path.resolve(distPath, ".well-known/assetlinks.json");
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).json({ error: "not found" });
+    }
+  });
+
   app.use(
     "/assets",
     express.static(path.join(distPath, "assets"), {
