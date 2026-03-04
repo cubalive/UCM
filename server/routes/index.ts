@@ -59,7 +59,10 @@ export async function registerRoutes(
     const appKey = getAppKeyForHostname(req.hostname || "");
     res.set({
       "Content-Type": "application/json",
-      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Cache-Control": "no-store, max-age=0",
+      "Pragma": "no-cache",
+      "Surrogate-Control": "no-store",
+      "Vary": "Host",
     });
     res.json(getAASA(appKey));
   });
