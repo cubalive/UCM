@@ -1,0 +1,56 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+TASK 1 — AUDIT (NO BEHAVIOR CHANGES)
+Goal: Verify (with hard evidence) whether our “multi-subdomain auth + reset password routing + role-based redirect” is already implemented correctly across:
+- driver.<ROOT_DOMAIN>
+- clinic.<ROOT_DOMAIN>
+- app.<ROOT_DOMAIN>
+
+Do NOT refactor or “improve” anything in Task 1. Only inspect and report.
+
+1) Identify architecture and auth stack
+- Confirm if frontend uses Supabase Auth directly or backend proxies it.
+- Locate where password reset requests are initiated (UI + API route).
+- Locate where reset links are generated (Supabase templates, backend, or both).
+- Locate where token links are parsed on each portal (/login or /auth/callback route).
+
+2) Verify role → portal mapping exists
+- Find a single source of truth for role→portal base URL.
+- If missing, report “MISSING” (do not create yet).
+- If present, list exact file path + exported function name.
+
+3) Verify reset link correctness (must be portal-specific)
+For each role: DRIVER, CLINIC, DISPATCH/ADMIN:
+- Trigger reset flow (in code, not by sending emails): show the exact redirect_to or final URL that would be produced.
+- Confirm reset link points to the correct portal subdomain.
+- Confirm “magiclink/verify” and “recovery/reset” both end in the correct portal.
+
+4) Verify each portal can complete the flow
+For each portal:
+- Confirm there is a route that handles:
+  - /auth/v1/verify?token=...&type=magiclink&redirect_to=...
+  - /login?token=...&type=recovery (or equivalent)
+- Confirm the code exchanges the token for a session and routes the user to “Set new password” screen.
+- Confirm the UI uses the correct Supabase URL/keys in that portal build (VITE_ vars).
+
+5) Verify publish behavior (no missing changes)
+- Confirm build step includes latest client bundle.
+- Confirm service worker (if any) isn’t caching stale JS and preventing updated UI.
+- Report if there is a caching issue causing “changes not appearing after publish”.
+
+6) Output required (must be copy/pasteable):
+A) STATUS TABLE with:
+- Item
+- Implemented? (YES/NO/PARTIAL)
+- Proof (file path + snippet line ranges)
+- Risk if left as-is
+B) Minimal delta plan (ONLY if something is missing) — do NOT implement in Task 1.
+
+Stop after Task 1 and wait for approval before changing code.
+Return the report only.
+
+ENV:
+<ROOT_DOMAIN>=unitedcaremobility.com
+Driver=https://driver.unitedcaremobility.com
+Clinic=https://clinic.unitedcaremobility.com
+App=https://app.unitedcaremobility.com
