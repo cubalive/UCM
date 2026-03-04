@@ -54,6 +54,18 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  const { getAppKeyForHostname, getAASA } = await import("../config/apps");
+  app.get("/.well-known/apple-app-site-association", (req, res) => {
+    const appKey = getAppKeyForHostname(req.hostname || "");
+    res.set({
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    });
+    res.json(getAASA(appKey));
+  });
+
+  const { releaseReadinessHandler, smokeTestHandler } = await import("../controllers/releaseReadiness.controller");
+
   app.get("/api/healthz", healthz);
   app.get("/api/readyz", readyz);
   app.get("/api/health", healthLegacy);
@@ -62,6 +74,8 @@ export async function registerRoutes(
   app.get("/api/health/details", authMiddleware, requireRole("SUPER_ADMIN"), healthDbDetails as any);
   app.get("/api/pwa/health", pwaHealth);
   app.get("/api/system/db-check", authMiddleware, requireRole("SUPER_ADMIN"), dbCheckHandler as any);
+  app.get("/api/system/release-readiness", authMiddleware, requireRole("SUPER_ADMIN"), releaseReadinessHandler as any);
+  app.post("/api/system/release-readiness/smoke-test", authMiddleware, requireRole("SUPER_ADMIN"), smokeTestHandler as any);
   app.get("/api/dev/crash", crashSimulation);
 
   registerMapsRoutes(app);

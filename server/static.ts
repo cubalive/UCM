@@ -47,13 +47,21 @@ export function serveStatic(app: Express) {
     res.sendFile(path.resolve(distPath, "version.json"));
   });
 
-  app.get("/.well-known/apple-app-site-association", (_req: Request, res: Response) => {
-    res.set({ ...NO_STORE_HEADERS, "Content-Type": "application/json" });
-    const filePath = path.resolve(distPath, ".well-known/apple-app-site-association");
-    if (fs.existsSync(filePath)) {
-      res.sendFile(filePath);
-    } else {
-      res.status(404).json({ error: "not found" });
+  app.get("/.well-known/apple-app-site-association", (req: Request, res: Response) => {
+    try {
+      const { getAppKeyForHostname, getAASA } = require("./config/apps");
+      const appKey = getAppKeyForHostname(req.hostname || "");
+      const aasa = getAASA(appKey);
+      res.set({ ...NO_STORE_HEADERS, "Content-Type": "application/json" });
+      res.json(aasa);
+    } catch {
+      res.set({ ...NO_STORE_HEADERS, "Content-Type": "application/json" });
+      const filePath = path.resolve(distPath, ".well-known/apple-app-site-association");
+      if (fs.existsSync(filePath)) {
+        res.sendFile(filePath);
+      } else {
+        res.status(404).json({ error: "not found" });
+      }
     }
   });
 

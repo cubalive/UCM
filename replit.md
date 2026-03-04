@@ -80,7 +80,9 @@ The application follows a client-server architecture.
 - **Mobile-Driver Wrapper**: `mobile-driver/` — standalone Capacitor project with background GPS (`@capacitor-community/background-geolocation`), push notifications, and native platform configs
 - **iOS Config**: `ios/App/App/Info.plist` — CFBundleShortVersionString=1.0.0, CFBundleVersion=1, background modes (location, fetch, processing, remote-notification), location permission rationale strings, `ITSAppUsesNonExemptEncryption=false`
 - **Android Config**: `android/app/src/main/AndroidManifest.xml` — FINE_LOCATION, FOREGROUND_SERVICE, FOREGROUND_SERVICE_LOCATION permissions
-- **Universal Links**: `client/public/.well-known/apple-app-site-association` (AASA) for deep linking reset/magic links into native app. Requires `TEAM_ID` replacement with Apple Developer Team ID. Android App Links via `client/public/.well-known/assetlinks.json`.
+- **Universal Links**: Dynamic AASA served per subdomain via `server/config/apps.ts` (Team ID: HVF2V75J4T). `/.well-known/apple-app-site-association` returns hostname-specific appID (driver/clinic/admin). Android App Links via `client/public/.well-known/assetlinks.json`.
+- **Central App Config**: `server/config/apps.ts` — single source of truth for TEAM_ID, APP_DOMAINS, APP_BUNDLES, `getRedirectBaseUrlForRole()`, `getAASA()`. All auth link generation uses this.
+- **Release Readiness**: `GET /api/system/release-readiness` (SUPER_ADMIN) — env presence, AASA URLs, auth redirect mapping, build info. `POST /api/system/release-readiness/smoke-test` (SUPER_ADMIN) — validates AASA, Supabase, Redis, Maps key.
 - **Service Worker Guard**: Service worker registration skipped on Capacitor native platform (`isCapacitorNative` check in `main.tsx`) to avoid WKWebView caching conflicts
 - **Offline Detection**: `client/src/components/network-status.tsx` — full-screen offline overlay with retry, auto-dismiss on reconnect
 - **Version Checker**: `client/src/components/version-checker.tsx` — polls `/version.json` every 5 min, auto-reloads on version change (skipped for "dev" builds)

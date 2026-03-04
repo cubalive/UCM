@@ -1,0 +1,118 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+You are the Replit agent working inside the UCM monorepo (Express/Node backend + Vite/React frontend + Capacitor apps). 
+Goal: Make sure ALL 3 apps (Driver / Clinic / Admin-Dispatch) are correctly configured end-to-end for production, including subdomain routing, Supabase auth redirect links, Apple Universal Links (AASA), secrets/env vars, and verification endpoints. 
+Do NOT break anything that already works. Make minimal, surgical changes only. No schema/RLS changes.
+
+TARGETS
+- Team ID: HVF2V75J4T
+- Driver:
+  - Domain: https://driver.unitedcaremobility.com
+  - Bundle ID: com.unitedcaremobility.driver
+- Clinic:
+  - Domain: https://clinic.unitedcaremobility.com
+  - Bundle ID: com.unitedcaremobility.clinic
+- Admin/Dispatch:
+  - Domain: https://dispatch.unitedcaremobility.com
+  - Bundle ID: com.unitedcaremobility.admin
+
+NON-NEGOTIABLE RULES
+1) Do NOT refactor large files. Do NOT rename routes. Do NOT change DB, RLS, policies, or migrations.
+2) Any change must include an automated verification step and a human-readable report.
+3) If something is missing, ADD it. If it exists but wrong, FIX it. If it exists and correct, LEAVE IT.
+4) Produce a final checklist + commands I can run after publish to confirm everything is correct.
+
+WHAT TO BUILD / VERIFY
+
+A) Single source of truth config
+1) Create or update a central config file (server/config/apps.ts or similar) exporting:
+   - TEAM_ID
+   - APP_DOMAINS { driver, clinic, admin }
+   - APP_BUNDLES { driver, clinic, admin }
+   - getRedirectBaseUrlForRole(role: string): string
+     Mapping:
+     - driver -> driver domain
+     - clinic -> clinic domain
+     - admin/dispatcher/super_admin -> dispatch domain
+   Keep it pure TypeScript, no side effects.
+
+B) Fix Supabase auth link redirects (CRITICAL)
+2) Search the entire repo for any place generating auth links, invites, magiclinks, or reset links, including:
+   - resetPasswordForEmail
+   - signInWithOtp
+   - generateLink / admin.generateLink
+   - inviteUserByEmail
+   - any manual construction of /auth/v1/verify URLs
+3) Ensure EVERY auth link uses role-based redirect_to via getRedirectBaseUrlForRole().
+4) Ensure the redirect_to path is preserved when needed:
+   - For reset: redirect to /auth/reset (or your existing reset route)
+   - For magiclink/verify: redirect to / (or role home) on the correct subdomain
+5) Ensure the driver reset link ALWAYS lands on driver.unitedcaremobility.com and clinic resets ALWAYS land on clinic.unitedcaremobility.com.
+
+C) Apple Universal Links (AASA) per subdomain
+6) Ensure each subdomain serves a correct AASA JSON with NO redirects at:
+   - https://driver.unitedcaremobility.com/.well-known/apple-app-site-association
+   - https://clinic.unitedcaremobility.com/.well-known/apple-app-site-association
+   - https://dispatch.unitedcaremobility.com/.well-known/apple-app-site-association
+7) The AASA content must contain:
+   - Driver:  appID "HVF2V75J4T.com.unitedcaremobility.driver"
+   - Clinic:  appID "HVF2V75J4T.com.unitedcaremobility.clinic"
+   - Admin:   appID "HVF2V75J4T.com.unitedcaremobility.admin"
+   paths: ["/*"]
+8) Serve with Content-Type application/json (or application/pkcs7-mime). Ensure Express does not apply auth middleware to these routes.
+
+D) Replit/Server-side verification endpoints (SUPER_ADMIN only)
+9) Add a read-only verification endpoint:
+   GET /api/system/release-readiness
+   Protected: SUPER_ADMIN only
+   Returns JSON containing:
+   - teamId
+   - bundles/domains
+   - env presence booleans (true/false only; never return secret values):
+     DATABASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+     JWT_SECRET, SESSION_SECRET,
+     GOOGLE_MAPS_API_KEY,
+     UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN,
+     STRIPE_SECRET_KEY (or your actual var), STRIPE_WEBHOOK_SECRET (if used),
+     TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_FROM (if used)
+   - aasaUrls
+   - aasaFetchStatus for each (ok/httpStatus/error)
+   - aasaHasCorrectAppId for each (true/false)
+   - authRedirectMapping (the role->baseUrl mapping)
+   - build/runtime: node version, git commit if available, uptime
+
+10) Add a second endpoint for a safe smoke test:
+    POST /api/system/release-readiness/smoke-test
+    Protected: SUPER_ADMIN only
+    Executes:
+    - fetch each AASA url and validate appID matches
+    - validate redirect mapping outputs correct domains
+    - validate server can reach Supabase URL (simple HEAD)
+    - validate Redis reachable if configured (PING)
+    - validate Google Maps key presence (do NOT call paid endpoints)
+    Returns pass/fail with reasons.
+
+E) Make sure publish updates really show
+11) Add a /version.json public endpoint (no auth) that returns:
+    { version, buildTime, commit }
+    Make client read it and show in footer for clinic/admin/driver so we can confirm deploy updates instantly.
+
+F) FINAL REPORT
+12) Output:
+   - Files changed
+   - Exact functions/places updated for redirect_to
+   - Confirmation: NO DB/RLS changes
+   - Curl commands I can run after publish:
+     curl -i https://driver.unitedcaremobility.com/.well-known/apple-app-site-association
+     curl -i https://clinic.unitedcaremobility.com/.well-known/apple-app-site-association
+     curl -i https://dispatch.unitedcaremobility.com/.well-known/apple-app-site-association
+     curl -s https://dispatch.unitedcaremobility.com/version.json
+     curl -s https://dispatch.unitedcaremobility.com/api/system/release-readiness -H "Authorization: Bearer <SUPER_ADMIN_TOKEN>"
+     curl -s -X POST https://dispatch.unitedcaremobility.com/api/system/release-readiness/smoke-test -H "Authorization: Bearer <SUPER_ADMIN_TOKEN>"
+   - Expected outputs (what “correct” looks like)
+
+START NOW:
+- First: scan repo and identify current state (what already exists).
+- Then: implement minimal deltas.
+- Then: run local checks/tests.
+- Then: produce the final checklist and commands.

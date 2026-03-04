@@ -1,20 +1,11 @@
 import { getSupabaseServer } from "../../lib/supabaseClient";
 import { sendEmail } from "../lib/email";
+import { getRedirectBaseUrlForRole } from "../config/apps";
 
-const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL || "https://app.unitedcaremobility.com";
-const CLINIC_APP_URL = process.env.CLINIC_APP_URL || "https://clinic.unitedcaremobility.com";
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || "United Care Mobility";
 
 export function getPortalBaseUrl(role?: string): string {
-  if (!role) return APP_PUBLIC_URL;
-  const upper = role.toUpperCase();
-  if (["CLINIC", "CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER", "CLINIC_STAFF"].includes(upper)) {
-    return CLINIC_APP_URL;
-  }
-  if (upper === "DRIVER") {
-    return process.env.DRIVER_APP_URL || "https://driver.unitedcaremobility.com";
-  }
-  return APP_PUBLIC_URL;
+  return getRedirectBaseUrlForRole(role || "");
 }
 
 function buildPortalLoginLink(actionLink: string, portalUrl: string, extraParams?: Record<string, string>, hashedToken?: string): string {

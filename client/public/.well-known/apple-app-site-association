@@ -3,18 +3,14 @@
     "apps": [],
     "details": [
       {
-        "appID": "TEAM_ID.com.unitedcaremobility.driver",
-        "paths": [
-          "/login*",
-          "/privacy",
-          "/terms"
-        ]
+        "appID": "HVF2V75J4T.com.unitedcaremobility.driver",
+        "paths": ["/*"]
       }
     ]
   },
   "webcredentials": {
     "apps": [
-      "TEAM_ID.com.unitedcaremobility.driver"
+      "HVF2V75J4T.com.unitedcaremobility.driver"
     ]
   }
 }
