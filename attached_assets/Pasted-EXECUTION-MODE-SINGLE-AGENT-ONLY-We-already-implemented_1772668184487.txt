@@ -1,0 +1,93 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+We already implemented:
+- Central config server/config/apps.ts (Team ID HVF2V75J4T, bundles, domains, getRedirectBaseUrlForRole)
+- Dynamic AASA per hostname
+- Release readiness endpoints (/api/system/release-readiness + smoke-test)
+- Version endpoint /version.json
+- Updated emailService redirects by role
+
+Now I need you to VERIFY in production-like runtime and FIX ONLY what is still wrong. No DB/RLS changes. No refactors. Minimal deltas.
+
+CRITICAL ACCEPTANCE CRITERIA (MUST PASS):
+
+1) AASA correct per subdomain (NO redirects, NO auth, correct appID):
+- driver.unitedcaremobility.com => HVF2V75J4T.com.unitedcaremobility.driver
+- clinic.unitedcaremobility.com => HVF2V75J4T.com.unitedcaremobility.clinic
+- dispatch.unitedcaremobility.com => HVF2V75J4T.com.unitedcaremobility.admin
+Also ensure Content-Type is application/json and the response is stable.
+
+2) Supabase links redirect to correct portal:
+- Any reset password link for DRIVER must redirect_to driver subdomain.
+- Any reset password link for CLINIC must redirect_to clinic subdomain.
+- Any magiclink/invite for admin/dispatch must redirect_to dispatch subdomain.
+We must NEVER generate links pointing to app.unitedcaremobility.com for driver/clinic.
+
+3) The endpoints exist and work:
+- GET /version.json (public)
+- GET /api/system/release-readiness (SUPER_ADMIN only)
+- POST /api/system/release-readiness/smoke-test (SUPER_ADMIN only)
+
+4) Fix the most common failure modes if present:
+- AASA route served from client/public but NOT dynamic per hostname
+- Express static middleware intercepting /.well-known route
+- Cloudflare or proxy caching returning wrong AASA for all subdomains
+- redirect_to being overridden by a global APP_PUBLIC_URL somewhere else in repo
+- Email templates hardcoding app.unitedcaremobility.com
+- Missing ALLOWED_ORIGINS / CORS causing clinic/driver portal auth callbacks to fail
+
+WHAT I WANT YOU TO DO (STEP BY STEP):
+
+A) Repo scan (read-only)
+1) Search for any remaining hardcoded URLs:
+   - app.unitedcaremobility.com
+   - APP_PUBLIC_URL
+   - CLINIC_APP_URL
+   - DRIVER_APP_URL
+   - redirect_to=
+   - /auth/v1/verify
+   - supabase.auth.resetPasswordForEmail
+   - supabase.auth.signInWithOtp
+   - auth.admin.generateLink
+   - inviteUserByEmail
+   Show findings and exact file:line.
+
+B) AASA runtime truth
+2) Confirm AASA handler is hit BEFORE any static handler:
+   - Ensure in server routes: /.well-known/apple-app-site-association is registered before static file serving.
+   - Ensure it responds based on req.hostname (not req.headers.host raw) and handles port stripping.
+
+3) Add a “no-cache” header to AASA responses to prevent wrong caching:
+   - Cache-Control: no-store, max-age=0
+   - Pragma: no-cache
+   - Surrogate-Control: no-store (optional)
+   This is to avoid one subdomain poisoning another.
+
+C) Supabase redirect correctness
+4) Ensure we always set redirectTo in generateLink calls and it includes the correct subdomain + path:
+   - driver: https://driver.unitedcaremobility.com/auth/reset (or existing reset route)
+   - clinic: https://clinic.unitedcaremobility.com/auth/reset
+   - dispatch: https://dispatch.unitedcaremobility.com/auth/reset
+If existing app uses different reset route, adapt but keep per-subdomain.
+
+5) Confirm there’s no server-side fallback that rewrites redirect_to to APP_PUBLIC_URL.
+If exists, remove/disable it.
+
+D) Verification tooling
+6) Ensure /api/system/release-readiness returns:
+   - teamId HVF2V75J4T
+   - domains/bundles
+   - envPresence booleans only
+   - aasaUrls
+   - aasaStatus per portal including fetchStatus + hasCorrectAppId
+   - authRedirectMapping
+7) Ensure smoke-test actually fetches AASA and validates appID strings.
+
+E) Output
+8) Give me:
+   - List of code changes (files + summary)
+   - Updated curl commands and expected outputs
+   - A PASS/FAIL table for each acceptance criteria
+   - Confirm no DB/RLS changes
+
+DO NOT STOP until you can assert PASS on all criteria.
