@@ -1,3 +1,10 @@
+import { initSentry } from "./lib/sentry";
+import { overrideConsoleWithPino } from "./lib/logger";
+
+// Initialize observability before anything else
+initSentry();
+overrideConsoleWithPino();
+
 import express, { type Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import path from "path";
@@ -912,6 +919,13 @@ app.use((req, res, next) => {
 
     console.error("Internal Server Error:", err);
 
+    // Report 5xx errors to Sentry
+    if (status >= 500) {
+      import("./lib/sentry").then(({ captureException }) => {
+        captureException(err, { status, url: _req.originalUrl, method: _req.method });
+      }).catch(() => {});
+    }
+
     if (res.headersSent) {
       return next(err);
     }
@@ -1015,6 +1029,9 @@ app.use((req, res, next) => {
       stack: reason?.stack?.slice(0, 1000),
       ts: new Date().toISOString(),
     }));
+    import("./lib/sentry").then(({ captureException }) => {
+      captureException(reason instanceof Error ? reason : new Error(String(reason)), { context: "unhandledRejection" });
+    }).catch(() => {});
   });
 
   process.on("uncaughtException", (err: Error) => {
@@ -1024,6 +1041,9 @@ app.use((req, res, next) => {
       stack: err.stack?.slice(0, 1000),
       ts: new Date().toISOString(),
     }));
+    import("./lib/sentry").then(({ captureException }) => {
+      captureException(err, { context: "uncaughtException" });
+    }).catch(() => {});
     gracefulShutdown("uncaughtException");
   });
 })();
