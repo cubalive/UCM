@@ -35,8 +35,63 @@ The application follows a client-server architecture.
 - **Production Stability & Deployment**: `RUN_MODE` environment variable (`api`/`worker`/`all`) controls process split. Optimistic concurrency control on trip status updates. Golden contract test suite for validation. Deployment configured via `Dockerfile`, `fly.toml`, `render.yaml`.
 - **Mobile Apps (iOS/Android - Capacitor)**: Three Capacitor-wrapped apps: Driver, Clinic, and Admin, each with its own configurations for background GPS, push notifications, native platform settings, and universal links.
 
+## Mobile Apps (iOS/Android - Capacitor) — 3 Apps
+- **Apps**: Driver (`com.unitedcaremobility.driver`), Clinic (`com.unitedcaremobility.clinic`), Admin (`com.unitedcaremobility.admin`)
+- **Capacitor Wrappers**: `mobile-driver/`, `mobile-clinic/`, `mobile-admin/` — each has its own `capacitor.config.ts`, `package.json`, and `resources/` folder
+- **Icon Sources**: SVGs in `client/public/app-icons/{driver,clinic,admin}/` — `icon-foreground.svg`, `icon-background.svg`, `icon-monochrome.svg`, `icon-maskable.svg`
+- **Icon Pipeline**: `scripts/cap-assets.mjs` generates all PNGs (web/PWA/Android adaptive/iOS/splash). Run per-app: `node scripts/cap-assets.mjs driver|clinic|admin`
+- **Generated outputs**:
+  - Web/PWA: `client/public/generated-icons/{app}/` — AppIcon-1024, AppIcon-512, icon-192, icon-512, maskable-192, maskable-512
+  - Mobile: `mobile-{app}/resources/android/` (foreground, background, monochrome, AppIcon-512), `resources/ios/` (AppIcon-1024), `resources/splash/` (splash + dark)
+- **PWA Manifests**: Dynamic `/manifest.json` route serves per-hostname manifest (`manifest.driver.json`, `manifest.clinic.json`, `manifest.admin.json`)
+- **Universal Links**: Dynamic AASA per subdomain via `server/config/apps.ts` (Team ID: HVF2V75J4T)
+- **Central App Config**: `server/config/apps.ts` — single source of truth for TEAM_ID, APP_DOMAINS, APP_BUNDLES, `getRedirectBaseUrlForRole()`, `getAASA()`
+- **System Debug Endpoints** (SUPER_ADMIN only):
+  - `GET /api/system/release-readiness` — env, AASA, manifest, icons, mobile resources, capacitor configs, auth redirects
+  - `POST /api/system/release-readiness/smoke-test` — validates AASA, manifests, Supabase, Redis, Maps key
+  - `GET /api/system/auth-redirect-debug?role=DRIVER` — redirect URL + sample links for a given role (supports `?email=` too)
+  - `GET /api/system/aasa-status` — fetches and validates AASA from all 3 subdomains
+
+## Release Smoke Test Commands
+```bash
+# Generate all app assets
+node scripts/cap-assets.mjs driver
+node scripts/cap-assets.mjs clinic
+node scripts/cap-assets.mjs admin
+
+# Verify generated icons exist
+ls client/public/generated-icons/driver/ client/public/generated-icons/clinic/ client/public/generated-icons/admin/
+
+# Verify mobile resources exist
+ls mobile-driver/resources/android/ mobile-driver/resources/ios/ mobile-driver/resources/splash/
+ls mobile-clinic/resources/android/ mobile-clinic/resources/ios/ mobile-clinic/resources/splash/
+ls mobile-admin/resources/android/ mobile-admin/resources/ios/ mobile-admin/resources/splash/
+
+# AASA per subdomain
+curl -i https://driver.unitedcaremobility.com/.well-known/apple-app-site-association
+curl -i https://clinic.unitedcaremobility.com/.well-known/apple-app-site-association
+curl -i https://app.unitedcaremobility.com/.well-known/apple-app-site-association
+
+# Manifests per subdomain
+curl -s https://driver.unitedcaremobility.com/manifest.json | head -c 100
+curl -s https://clinic.unitedcaremobility.com/manifest.json | head -c 100
+curl -s https://app.unitedcaremobility.com/manifest.json | head -c 100
+
+# Version
+curl -s https://app.unitedcaremobility.com/version.json
+
+# Release readiness (SUPER_ADMIN token required)
+curl -s https://app.unitedcaremobility.com/api/system/release-readiness -H "Authorization: Bearer <TOKEN>"
+
+# AASA status
+curl -s https://app.unitedcaremobility.com/api/system/aasa-status -H "Authorization: Bearer <TOKEN>"
+
+# Full smoke test
+curl -s -X POST https://app.unitedcaremobility.com/api/system/release-readiness/smoke-test -H "Authorization: Bearer <TOKEN>"
+```
+
 ## External Dependencies
-- **PostgreSQL**: Primary relational database.
+- **PostgreSQL**: Primary relational database (Supabase pooler).
 - **Supabase**: User authentication, city management, Row-Level Security (RLS).
 - **Google Maps Platform**: Maps JavaScript API, Directions API, Geocoding API, Places API.
 - **Twilio**: SMS messaging.

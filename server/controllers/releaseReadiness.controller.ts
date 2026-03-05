@@ -92,13 +92,38 @@ export async function releaseReadinessHandler(_req: AuthRequest, res: Response) 
   }
 
   const cwd = process.cwd();
-  const ICON_FILES = ["AppIcon-1024.png", "AppIcon-512.png", "icon-192.png"];
+  const ICON_FILES = ["AppIcon-1024.png", "AppIcon-512.png", "icon-192.png", "icon-512.png", "maskable-192.png", "maskable-512.png"];
   const iconAssetsPresence: Record<string, Record<string, boolean>> = {};
   for (const app of ["driver", "clinic", "admin"]) {
     iconAssetsPresence[app] = {};
     for (const file of ICON_FILES) {
       iconAssetsPresence[app][file] = existsSync(resolve(cwd, `client/public/generated-icons/${app}/${file}`));
     }
+  }
+
+  const MOBILE_RESOURCE_FILES = [
+    "android/ic_launcher_foreground.png",
+    "android/ic_launcher_background.png",
+    "android/ic_launcher_monochrome.png",
+    "android/AppIcon-512.png",
+    "ios/AppIcon-1024.png",
+    "splash/splash-2732x2732.png",
+    "splash/splash-dark-2732x2732.png",
+  ];
+  const MOBILE_DIRS: Record<string, string> = {
+    driver: "mobile-driver/resources",
+    clinic: "mobile-clinic/resources",
+    admin: "mobile-admin/resources",
+  };
+  const mobileResourcesPresence: Record<string, { ok: boolean; missing: string[] }> = {};
+  for (const [app, dir] of Object.entries(MOBILE_DIRS)) {
+    const missing: string[] = [];
+    for (const file of MOBILE_RESOURCE_FILES) {
+      if (!existsSync(resolve(cwd, dir, file))) {
+        missing.push(file);
+      }
+    }
+    mobileResourcesPresence[app] = { ok: missing.length === 0, missing };
   }
 
   const CAP_CONFIGS: Record<string, { path: string; expectedAppId: string; expectedUrl: string; expectedName: string }> = {
@@ -127,6 +152,7 @@ export async function releaseReadinessHandler(_req: AuthRequest, res: Response) 
     manifestUrls: MANIFEST_URLS,
     manifestStatus,
     iconAssetsPresence,
+    mobileResourcesPresence,
     capacitorConfigsPresence,
     authRedirectMapping,
     build: {
