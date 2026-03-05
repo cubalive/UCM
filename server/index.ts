@@ -12,6 +12,16 @@ import { tenantGuard } from "./lib/tenantGuard";
 const app = express();
 const httpServer = createServer(app);
 
+console.log(JSON.stringify({
+  event: "process_start",
+  nodeVersion: process.version,
+  nodeEnv: process.env.NODE_ENV || "development",
+  runMode: process.env.RUN_MODE || process.env.ROLE_MODE || "all",
+  port: process.env.PORT || "5000",
+  pid: process.pid,
+  ts: new Date().toISOString(),
+}));
+
 const IS_PROD = process.env.NODE_ENV === "production";
 if (IS_PROD) {
   app.set("trust proxy", 1);
@@ -50,6 +60,19 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Liveness probe — returns 200 immediately, no auth, no DB dependency.
+// Use this as Railway/k8s healthcheck. Registered synchronously so it works
+// even before the async boot sequence completes.
+app.get("/health", (_req, res) => {
+  res.status(200).json({
+    status: "alive",
+    version: process.env.UCM_BUILD_VERSION || "dev",
+    runMode: process.env.RUN_MODE || process.env.ROLE_MODE || "all",
+    uptime: Math.round(process.uptime()),
+    ts: new Date().toISOString(),
+  });
+});
 
 app.get("/.well-known/assetlinks.json", (_req, res) => {
   res.setHeader("Cache-Control", "public, max-age=3600");
@@ -703,6 +726,19 @@ app.use((req, res, next) => {
     const { getSchedulerStates } = await import("./lib/schedulerHarness");
     const activeSchedulers = Object.keys(getSchedulerStates());
 
+    // Start a minimal HTTP server for Railway healthcheck in worker mode.
+    // Only serves /health (already registered on `app` above).
+    const workerPort = parseInt(process.env.PORT || "5000", 10);
+    const workerHttp = createServer(app);
+    workerHttp.listen({ port: workerPort, host: "0.0.0.0" }, () => {
+      console.log(JSON.stringify({
+        event: "worker_healthcheck_http",
+        port: workerPort,
+        path: "/health",
+        ts: new Date().toISOString(),
+      }));
+    });
+
     console.log(JSON.stringify({
       event: "boot_complete",
       roleMode: "worker",
@@ -711,7 +747,7 @@ app.use((req, res, next) => {
       redis: process.env.UPSTASH_REDIS_REST_URL ? "configured" : "not_configured",
       schedulers: activeSchedulers,
       schedulerCount: activeSchedulers.length,
-      httpServer: "disabled",
+      httpServer: "healthcheck_only",
       websocket: "disabled",
       nodeEnv: process.env.NODE_ENV || "development",
       pid: process.pid,
