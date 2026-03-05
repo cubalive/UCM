@@ -1,3 +1,14 @@
+// Guard: prevent standalone worker from running in API-only mode
+const runMode = (process.env.RUN_MODE || process.env.ROLE_MODE || "all").toLowerCase();
+if (runMode === "api" || runMode === "server") {
+  console.error(JSON.stringify({
+    event: "worker_abort",
+    reason: `RUN_MODE=${runMode} — standalone worker.ts should not run in API mode`,
+    ts: new Date().toISOString(),
+  }));
+  process.exit(1);
+}
+
 import { dequeueJob, completeJob, failJob, releaseStaleJobs, cleanupOldJobs } from "./lib/jobQueue";
 import { processPdfJob } from "./lib/pdfJobProcessor";
 import { processBatchPdfJob } from "./lib/batchPdfProcessor";
