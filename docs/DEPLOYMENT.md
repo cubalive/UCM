@@ -154,6 +154,79 @@ All structured logs (via pino) include these base fields:
 
 Sentry errors are tagged with `environment` and `service` for filtering.
 
+## Subscription Enforcement
+
+UCM enforces SaaS subscription status and usage quotas per company.
+
+### How It Works
+
+1. **Subscription status** is synced from Stripe via webhooks into `company_subscriptions`
+2. **Per-company settings** in `company_subscription_settings` control:
+   - `subscription_enabled` — whether enforcement is active for this company
+   - `subscription_required_for_access` — whether an active subscription is required
+   - `max_drivers`, `max_active_trips`, `max_clinics` — quota limits
+   - `grace_period_days` — days of access after payment failure (default: 7)
+3. **Two middleware layers**:
+   - `requireSubscription` — gates API access when subscription is inactive
+   - `enforceQuota` — blocks resource creation (POST /api/drivers, /api/trips, /api/clinics) when quotas are exceeded
+
+### Subscription Statuses
+
+| Status     | Reads | New Resources | Trip Completion |
+|-----------|-------|--------------|-----------------|
+| `active`   | Yes   | Yes (quota)  | Yes             |
+| `trialing` | Yes   | Yes (quota)  | Yes             |
+| `past_due` (within grace) | Yes | Yes (quota) | Yes |
+| `past_due` (grace expired) | Yes | **No** | Yes |
+| `canceled` | Yes   | **No**       | Yes             |
+| `paused`   | Yes   | **No**       | Yes             |
+
+**Critical rule**: Drivers can always complete assigned trips, even with inactive subscriptions.
+
+### Error Codes
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `SUBSCRIPTION_INACTIVE` | 403 | Subscription is not active (canceled, paused, or past_due beyond grace) |
+| `QUOTA_EXCEEDED` | 403 | Resource creation blocked — limit reached |
+
+Response includes metadata: `companyId`, `status`, `limitName`, `currentUsage`, `limitValue`, `graceDaysRemaining`.
+
+### Bypasses
+
+- **SUPER_ADMIN** always bypasses all enforcement
+- **Exempt paths**: `/health`, `/api/auth/*`, `/api/public/*`, `/api/stripe/*`, `/api/webhooks/*`
+- **Companies without enforcement enabled** — `subscription_enabled = false` (default)
+
+### Quota Defaults
+
+| Quota | Default | Override Column |
+|-------|---------|----------------|
+| Max drivers | 50 | `max_drivers` |
+| Max active trips | 200 | `max_active_trips` |
+| Max clinics | 20 | `max_clinics` |
+| Grace period | 7 days | `grace_period_days` |
+
+### Redis Caching
+
+Usage counts are cached in Redis with 30s TTL per company:
+- Key: `company:{companyId}:usage_counts`
+- Falls back to direct DB query when Redis is unavailable
+
+### Staging Environment
+
+For staging, simulate subscription states by:
+1. Set `subscription_enabled = true` on test companies via admin API
+2. Use Stripe test keys (`sk_test_*`) — subscriptions work with test cards
+3. Manually set subscription status via admin endpoints for edge case testing
+4. Grace period testing: set `current_period_end` to past dates
+
+### Audit Trail
+
+All enforcement blocks are logged to the `system_events` table with:
+- `event_type: "subscription_enforcement"`
+- Payload includes: code, reason, quota snapshot, environment, service, version
+
 ## Workflow
 
 ```

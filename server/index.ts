@@ -707,6 +707,12 @@ app.use((req, res, next) => {
     `);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trip_route_events_trip ON trip_route_events(trip_id, ts)`);
 
+    // Subscription quota columns on company_subscription_settings
+    await bootDb.execute(bootSql`ALTER TABLE company_subscription_settings ADD COLUMN IF NOT EXISTS max_drivers INTEGER NOT NULL DEFAULT 50`);
+    await bootDb.execute(bootSql`ALTER TABLE company_subscription_settings ADD COLUMN IF NOT EXISTS max_active_trips INTEGER NOT NULL DEFAULT 200`);
+    await bootDb.execute(bootSql`ALTER TABLE company_subscription_settings ADD COLUMN IF NOT EXISTS max_clinics INTEGER NOT NULL DEFAULT 20`);
+    await bootDb.execute(bootSql`ALTER TABLE company_subscription_settings ADD COLUMN IF NOT EXISTS grace_period_days INTEGER NOT NULL DEFAULT 7`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);
@@ -889,6 +895,12 @@ app.use((req, res, next) => {
   } catch (err) {
     console.error("Seed error:", err);
   }
+
+  // Register subscription usage query function + quota middleware
+  const { registerUsageQueryFn, enforceQuota } = await import("./middleware/requireSubscription");
+  const { queryCompanyUsageCounts } = await import("./services/usageCountService");
+  registerUsageQueryFn(queryCompanyUsageCounts);
+  app.use(enforceQuota);
 
   await registerRoutes(httpServer, app);
 

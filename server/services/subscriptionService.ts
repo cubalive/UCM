@@ -375,6 +375,63 @@ export async function checkCompanyAccess(companyId: number): Promise<{
   };
 }
 
+/**
+ * Update a company's subscription record from a Stripe subscription object.
+ * Called by webhook handlers or admin staging endpoints.
+ */
+export async function updateCompanySubscriptionFromStripe(
+  companyId: number,
+  stripeSubscription: {
+    id: string;
+    status: string;
+    current_period_start?: number;
+    current_period_end?: number;
+    cancel_at_period_end?: boolean;
+    canceled_at?: number | null;
+    items?: { data?: Array<{ price?: { id?: string } }> };
+  },
+  eventId?: string
+): Promise<void> {
+  const existing = await getCompanySubscription(companyId);
+
+  const data = {
+    stripeSubscriptionId: stripeSubscription.id,
+    stripePriceId: stripeSubscription.items?.data?.[0]?.price?.id || "unknown",
+    status: stripeSubscription.status,
+    currentPeriodStart: stripeSubscription.current_period_start
+      ? new Date(stripeSubscription.current_period_start * 1000)
+      : null,
+    currentPeriodEnd: stripeSubscription.current_period_end
+      ? new Date(stripeSubscription.current_period_end * 1000)
+      : null,
+    cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end || false,
+    canceledAt: stripeSubscription.canceled_at
+      ? new Date(stripeSubscription.canceled_at * 1000)
+      : null,
+    lastEventId: eventId || null,
+    updatedAt: new Date(),
+  };
+
+  if (existing) {
+    await db
+      .update(companySubscriptions)
+      .set(data)
+      .where(eq(companySubscriptions.companyId, companyId));
+  } else {
+    await db.insert(companySubscriptions).values({
+      companyId,
+      ...data,
+    });
+  }
+
+  console.log(JSON.stringify({
+    event: "subscription_synced_from_stripe",
+    companyId,
+    status: data.status,
+    subscriptionId: data.stripeSubscriptionId,
+  }));
+}
+
 export async function getStripeSubscriptionCheck(companyId: number) {
   const [sc] = await db
     .select()
