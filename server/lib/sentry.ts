@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/node";
+import { getEnvironment, getVersion, getRunMode } from "./env";
 
 const SENTRY_DSN = process.env.SENTRY_DSN;
 
@@ -18,10 +19,12 @@ export function initSentry(): void {
     return;
   }
 
+  const ucmEnv = getEnvironment();
+
   Sentry.init({
     dsn: SENTRY_DSN,
-    environment: process.env.NODE_ENV || "development",
-    release: process.env.UCM_BUILD_VERSION || "dev",
+    environment: ucmEnv,
+    release: getVersion(),
     tracesSampleRate: parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE || "0.1"),
     beforeSend(event) {
       // Strip PII from breadcrumbs
@@ -43,10 +46,13 @@ export function initSentry(): void {
 
   initialized = true;
 
+  Sentry.setTag("service", getRunMode());
+
   console.log(
     JSON.stringify({
       event: "sentry_initialized",
-      environment: process.env.NODE_ENV || "development",
+      environment: ucmEnv,
+      service: getRunMode(),
       ts: new Date().toISOString(),
     })
   );

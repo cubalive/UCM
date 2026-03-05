@@ -15,21 +15,28 @@ import { createServer } from "http";
 import { recordRequest as recordReqMetric } from "./lib/requestMetrics";
 import { tracingMiddleware } from "./lib/requestTracing";
 import { tenantGuard } from "./lib/tenantGuard";
+import { getEnvironment, getRunMode, getVersion, isDeployed } from "./lib/env";
+
+const ucmEnv = getEnvironment();
+const ucmRunMode = getRunMode();
+const ucmVersion = getVersion();
 
 const app = express();
 const httpServer = createServer(app);
 
 console.log(JSON.stringify({
   event: "process_start",
+  environment: ucmEnv,
   nodeVersion: process.version,
   nodeEnv: process.env.NODE_ENV || "development",
-  runMode: process.env.RUN_MODE || process.env.ROLE_MODE || "all",
+  runMode: ucmRunMode,
+  version: ucmVersion,
   port: process.env.PORT || "5000",
   pid: process.pid,
   ts: new Date().toISOString(),
 }));
 
-const IS_PROD = process.env.NODE_ENV === "production";
+const IS_PROD = isDeployed();
 if (IS_PROD) {
   app.set("trust proxy", 1);
 }
@@ -74,8 +81,9 @@ app.use(express.urlencoded({ extended: false }));
 app.get("/health", (_req, res) => {
   res.status(200).json({
     status: "alive",
-    version: process.env.UCM_BUILD_VERSION || "dev",
-    runMode: process.env.RUN_MODE || process.env.ROLE_MODE || "all",
+    environment: ucmEnv,
+    version: ucmVersion,
+    runMode: ucmRunMode,
     uptime: Math.round(process.uptime()),
     ts: new Date().toISOString(),
   });
@@ -812,7 +820,10 @@ app.use((req, res, next) => {
 
   const bootConfig = {
     event: "boot_config",
+    environment: ucmEnv,
     nodeEnv: process.env.NODE_ENV || "undefined",
+    runMode: ucmRunMode,
+    version: ucmVersion,
     appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
     dbSource: getDbSource(),
     jwtSecret: jwtSecretSource,
@@ -822,7 +833,7 @@ app.use((req, res, next) => {
   console.log(JSON.stringify(bootConfig));
 
   const { APP_VERSION } = await import("./controllers/health.controller");
-  console.log(`[BOOT] UCM version: ${APP_VERSION}, env: ${process.env.NODE_ENV || "development"}`);
+  console.log(`[BOOT] UCM version: ${APP_VERSION}, env: ${ucmEnv}, runMode: ${ucmRunMode}`);
 
   app.get("/api/boot", (_req, res) => {
     res.json({
@@ -967,6 +978,8 @@ app.use((req, res, next) => {
 
   console.log(JSON.stringify({
     event: "boot_complete",
+    environment: ucmEnv,
+    version: ucmVersion,
     roleMode,
     db: "connected",
     dbSource: getDbSource(),

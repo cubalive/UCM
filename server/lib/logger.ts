@@ -1,10 +1,17 @@
 import pino from "pino";
+import { getEnvironment, getRunMode, getVersion } from "./env";
 
-const IS_PROD = process.env.NODE_ENV === "production";
+const env = getEnvironment();
+const IS_DEPLOYED = env !== "development";
 
 export const logger = pino({
-  level: process.env.LOG_LEVEL || (IS_PROD ? "info" : "debug"),
-  ...(IS_PROD
+  level: process.env.LOG_LEVEL || (IS_DEPLOYED ? "info" : "debug"),
+  base: {
+    environment: env,
+    service: getRunMode(),
+    version: getVersion(),
+  },
+  ...(IS_DEPLOYED
     ? {}
     : {
         transport: {
