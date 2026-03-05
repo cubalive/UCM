@@ -67,6 +67,27 @@ export async function registerRoutes(
     res.json(getAASA(appKey));
   });
 
+  const pathMod = await import("path");
+  const fsMod = await import("fs");
+  app.get("/manifest.json", (req, res) => {
+    const appKey = getAppKeyForHostname(req.hostname || "");
+    const manifestFile = `manifest.${appKey}.json`;
+    res.set({
+      "Content-Type": "application/manifest+json",
+      "Cache-Control": "no-store, max-age=0",
+      "Pragma": "no-cache",
+      "Vary": "Host",
+    });
+    const filePath = pathMod.resolve(process.cwd(), "client/public", manifestFile);
+    const distFilePath = pathMod.resolve(process.cwd(), "dist/public", manifestFile);
+    const target = fsMod.existsSync(filePath) ? filePath : fsMod.existsSync(distFilePath) ? distFilePath : null;
+    if (target) {
+      res.sendFile(target);
+    } else {
+      res.status(404).json({ error: `manifest ${manifestFile} not found` });
+    }
+  });
+
   const { releaseReadinessHandler, smokeTestHandler } = await import("../controllers/releaseReadiness.controller");
 
   app.get("/api/healthz", healthz);

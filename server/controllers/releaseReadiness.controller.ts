@@ -30,6 +30,18 @@ const ROLE_SAMPLES = [
   "DISPATCH",
 ];
 
+const MANIFEST_URLS: Record<string, string> = {
+  driver: `${APP_DOMAINS.driver}/manifest.json`,
+  clinic: `${APP_DOMAINS.clinic}/manifest.json`,
+  admin: `${APP_DOMAINS.admin}/manifest.json`,
+};
+
+const EXPECTED_MANIFEST_NAMES: Record<string, string> = {
+  driver: "Driver UCM",
+  clinic: "Clinic UCM",
+  admin: "UCM",
+};
+
 export async function releaseReadinessHandler(_req: AuthRequest, res: Response) {
   const envPresence: Record<string, boolean> = {};
   for (const key of ENV_CHECKS) {
@@ -61,6 +73,22 @@ export async function releaseReadinessHandler(_req: AuthRequest, res: Response) 
     }
   }
 
+  const manifestStatus: Record<string, { fetchStatus: string; hasCorrectName: boolean | null }> = {};
+  for (const [key, url] of Object.entries(MANIFEST_URLS)) {
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!resp.ok) {
+        manifestStatus[key] = { fetchStatus: `HTTP ${resp.status}`, hasCorrectName: null };
+        continue;
+      }
+      const body = await resp.json();
+      const expectedName = EXPECTED_MANIFEST_NAMES[key];
+      manifestStatus[key] = { fetchStatus: "ok", hasCorrectName: body?.name === expectedName };
+    } catch (err: any) {
+      manifestStatus[key] = { fetchStatus: `error: ${err.message}`, hasCorrectName: null };
+    }
+  }
+
   res.json({
     teamId: TEAM_ID,
     bundles: APP_BUNDLES,
@@ -68,6 +96,8 @@ export async function releaseReadinessHandler(_req: AuthRequest, res: Response) 
     envPresence,
     aasaUrls: AASA_URLS,
     aasaStatus,
+    manifestUrls: MANIFEST_URLS,
+    manifestStatus,
     authRedirectMapping,
     build: {
       version: APP_VERSION,
@@ -103,6 +133,28 @@ export async function smokeTestHandler(_req: AuthRequest, res: Response) {
       }
     } catch (err: any) {
       results.push({ check: `aasa_fetch_${key}`, status: "fail", detail: err.message });
+    }
+  }
+
+  for (const [key, url] of Object.entries(MANIFEST_URLS)) {
+    try {
+      const resp = await fetch(url, {
+        headers: { "User-Agent": "UCM-SmokeTest/1.0" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!resp.ok) {
+        results.push({ check: `manifest_fetch_${key}`, status: "fail", detail: `HTTP ${resp.status}` });
+        continue;
+      }
+      const body = await resp.json();
+      const expectedName = EXPECTED_MANIFEST_NAMES[key];
+      if (body?.name === expectedName) {
+        results.push({ check: `manifest_${key}`, status: "pass", detail: body.name });
+      } else {
+        results.push({ check: `manifest_${key}`, status: "fail", detail: `expected "${expectedName}", got "${body?.name}"` });
+      }
+    } catch (err: any) {
+      results.push({ check: `manifest_fetch_${key}`, status: "fail", detail: err.message });
     }
   }
 
