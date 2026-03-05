@@ -2,6 +2,8 @@ import type { Response } from "express";
 import type { AuthRequest } from "../auth";
 import { TEAM_ID, APP_DOMAINS, APP_BUNDLES, AASA_URLS, getRedirectBaseUrlForRole, getAASA, type AppKey } from "../config/apps";
 import { APP_VERSION, APP_BUILD_TIME } from "./health.controller";
+import { existsSync } from "fs";
+import { resolve } from "path";
 
 const ENV_CHECKS = [
   "DATABASE_URL",
@@ -89,6 +91,32 @@ export async function releaseReadinessHandler(_req: AuthRequest, res: Response) 
     }
   }
 
+  const cwd = process.cwd();
+  const ICON_FILES = ["AppIcon-1024.png", "AppIcon-512.png", "icon-192.png"];
+  const iconAssetsPresence: Record<string, Record<string, boolean>> = {};
+  for (const app of ["driver", "clinic", "admin"]) {
+    iconAssetsPresence[app] = {};
+    for (const file of ICON_FILES) {
+      iconAssetsPresence[app][file] = existsSync(resolve(cwd, `client/public/generated-icons/${app}/${file}`));
+    }
+  }
+
+  const CAP_CONFIGS: Record<string, { path: string; expectedAppId: string; expectedUrl: string; expectedName: string }> = {
+    driver: { path: "mobile-driver/capacitor.config.ts", expectedAppId: "com.unitedcaremobility.driver", expectedUrl: "https://driver.unitedcaremobility.com", expectedName: "UCM Driver" },
+    clinic: { path: "mobile-clinic/capacitor.config.ts", expectedAppId: "com.unitedcaremobility.clinic", expectedUrl: "https://clinic.unitedcaremobility.com", expectedName: "UCM Clinic" },
+    admin: { path: "mobile-admin/capacitor.config.ts", expectedAppId: "com.unitedcaremobility.admin", expectedUrl: "https://app.unitedcaremobility.com", expectedName: "UCM Admin" },
+  };
+  const capacitorConfigsPresence: Record<string, { exists: boolean; path: string; expectedAppId: string; expectedUrl: string; expectedName: string }> = {};
+  for (const [key, cfg] of Object.entries(CAP_CONFIGS)) {
+    capacitorConfigsPresence[key] = {
+      exists: existsSync(resolve(cwd, cfg.path)),
+      path: cfg.path,
+      expectedAppId: cfg.expectedAppId,
+      expectedUrl: cfg.expectedUrl,
+      expectedName: cfg.expectedName,
+    };
+  }
+
   res.json({
     teamId: TEAM_ID,
     bundles: APP_BUNDLES,
@@ -98,6 +126,8 @@ export async function releaseReadinessHandler(_req: AuthRequest, res: Response) 
     aasaStatus,
     manifestUrls: MANIFEST_URLS,
     manifestStatus,
+    iconAssetsPresence,
+    capacitorConfigsPresence,
     authRedirectMapping,
     build: {
       version: APP_VERSION,

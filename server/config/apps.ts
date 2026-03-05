@@ -3,7 +3,7 @@ export const TEAM_ID = "HVF2V75J4T";
 export const APP_DOMAINS = {
   driver: "https://driver.unitedcaremobility.com",
   clinic: "https://clinic.unitedcaremobility.com",
-  admin: "https://dispatch.unitedcaremobility.com",
+  admin: "https://app.unitedcaremobility.com",
 } as const;
 
 export const APP_BUNDLES = {

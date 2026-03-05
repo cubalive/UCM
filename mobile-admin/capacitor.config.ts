@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.unitedcaremobility.admin',
-  appName: 'UCM',
+  appName: 'UCM Admin',
   webDir: 'www',
   server: {
     url: 'https://app.unitedcaremobility.com',
@@ -17,7 +17,7 @@ const config: CapacitorConfig = {
   plugins: {
     SplashScreen: {
       launchAutoHide: true,
-      launchShowDuration: 2000,
+      launchShowDuration: 0,
       androidScaleType: 'CENTER_CROP',
       splashImmersive: true,
     },
