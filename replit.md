@@ -29,6 +29,7 @@ The application follows a client-server architecture.
 - **Enterprise Multi-Instance Hardening**: `ROLE_MODE` runtime split, Redis-based leader election, priority job queue with DLQ, circuit breakers, and priority-based load shedding.
 - **Agentic Features (UCM Agentic C)**: Redis Streams event bus with orchestrator and route worker for computing and finalizing Google Maps routes, including route proof API.
 - **Dispatch Window Engine**: Intelligent dispatch timing system for optimal dispatch and notification times based on ETA and mobility buffers, including trip feasibility checking.
+- **Route Optimizer Service**: Production-grade NEMT route optimization with trip clustering (proximity + time window), nearest-neighbor route construction, capacity/time validation, driver assignment, and daily 2:00 AM UTC background worker. Endpoints: `POST /api/routes/preview` (dry-run), `POST /api/routes/optimize` (execute).
 - **Round-Trip Enforcement**: Supports `is_round_trip`, `return_required`, `return_note`, `paired_trip_id` for managing round trips with either a return pickup time or a return note.
 - **Enhanced Driver Dispatch UX**: Real-time driver WebSocket channel for dispatch_notify, dispatch_now, tracking_stale, tracking_restored events. Driver portal features upcoming reservations, dispatch notification banners, and tracking health monitoring.
 - **Multi-Subdomain Architecture**: Centralized API at `app.unitedcaremobility.com` with specific subdomains for `app`, `clinic`, `driver`, `dispatch`, `admin`. CORS allows all UCM subdomains.

@@ -40,6 +40,7 @@ async function startAllSchedulerLoops(): Promise<void> {
   const { startDispatchWindowScheduler } = await import("./dispatchWindowEngine");
   const { startAutoAssignRetryScheduler } = await import("./autoAssignV2Engine");
   const { startTrackingHealthScheduler } = await import("./driverTrackingHealth");
+  const { startRouteOptimizerWorker } = await import("../workers/routeOptimizerWorker");
 
   startOpsAlertScheduler();
   startRouteScheduler();
@@ -55,6 +56,7 @@ async function startAllSchedulerLoops(): Promise<void> {
   startDispatchWindowScheduler();
   startAutoAssignRetryScheduler();
   startTrackingHealthScheduler();
+  startRouteOptimizerWorker();
 
   const { startJobProcessor } = await import("./jobProcessor");
   startJobProcessor();
@@ -74,7 +76,7 @@ async function startAllSchedulerLoops(): Promise<void> {
       "ai_engine", "ai_sentinel", "ops_anomaly", "ops_score",
       "payroll", "dunning", "dialysis", "sms_reminder",
       "job_engine_eta", "job_engine_autoassign",
-      "orchestrator", "routes_worker", "breadcrumb_flusher",
+      "orchestrator", "routes_worker", "breadcrumb_flusher", "route_optimizer",
     ],
     ts: new Date().toISOString(),
   }));

@@ -49,6 +49,8 @@ import { registerQueueRoutes } from "./queue.routes";
 import { registerAutoAssignV2Routes } from "../lib/autoAssignV2Routes";
 import { registerEtaVarianceRoutes } from "../lib/etaVarianceRoutes";
 import { registerZeroTouchDialysisRoutes } from "../lib/zeroTouchDialysisRoutes";
+import { registerRoutePreviewRoutes } from "./routes.preview";
+import { registerRouteOptimizeRoutes } from "./routes.optimize";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -155,6 +157,8 @@ export async function registerRoutes(
   registerEtaVarianceRoutes(app);
   registerZeroTouchDialysisRoutes(app);
   registerQueueRoutes(app);
+  registerRoutePreviewRoutes(app);
+  registerRouteOptimizeRoutes(app);
 
   return httpServer;
 }
