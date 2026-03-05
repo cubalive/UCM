@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr create --title \"Add CLAUDE.md with project guidance for Claude Code\" --body \"$\\(cat <<'EOF'\n## Summary\n- Adds `CLAUDE.md` with project-specific guidance for Claude Code sessions\n- Documents build/dev/test commands, monorepo architecture, key patterns \\(auth, multi-tenancy, trip state machine, process modes\\), path aliases, and important conventions\n\n## Test plan\n- [ ] Verify CLAUDE.md renders correctly on GitHub\n- [ ] Confirm no other files were modified\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\nEOF\n\\)\")",
+      "Bash(fuser -k 5000/tcp 2>/dev/null; sleep 1; npm run dev)"
+    ]
+  }
+}
