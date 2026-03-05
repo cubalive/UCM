@@ -28,7 +28,19 @@ router.get("/api/auth/me", authMiddleware, authMeHandler as any);
 router.get("/api/me", meHandler);
 router.post("/api/auth/token-login", loginRateLimit, tokenLoginHandler);
 router.post("/api/auth/forgot-password", loginRateLimit, forgotPasswordHandler);
-router.post("/api/auth/change-password", authMiddleware, changePasswordHandler as any);
+function changePasswordRateLimit(req: Request, res: Response, next: NextFunction) {
+  const userId = (req as any).user?.userId || "anon";
+  const { allowed, retryAfterMs } = checkRateLimit(`chpw:${userId}`, 5, 3600);
+  if (!allowed) {
+    return res.status(429).json({
+      message: "Too many password change attempts. Please try again later.",
+      retryAfterMs,
+    });
+  }
+  next();
+}
+
+router.post("/api/auth/change-password", authMiddleware, changePasswordRateLimit, changePasswordHandler as any);
 router.post("/api/auth/working-city", authMiddleware, setWorkingCityHandler as any);
 router.get("/api/auth/health", authHealthHandler);
 

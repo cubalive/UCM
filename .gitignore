@@ -29,6 +29,7 @@ coverage/
 # Env
 .env
 .env.*
+!.env.example
 *.pem
 
 # Replit / ephemeral
