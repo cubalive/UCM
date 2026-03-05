@@ -51,10 +51,18 @@ The application follows a client-server architecture.
   - `POST /api/system/release-readiness/smoke-test` — validates AASA, manifests, Supabase, Redis, Maps key
   - `GET /api/system/auth-redirect-debug?role=DRIVER` — redirect URL + sample links for a given role (supports `?email=` too)
   - `GET /api/system/aasa-status` — fetches and validates AASA from all 3 subdomains
+  - `GET /api/system/icon-assets-status` — checks SVG sources, generated PNGs, and Capacitor resources for all 3 apps
+  - `GET /api/system/playstore-readiness` — Android project, SDK, permissions, icons, screenshots, feature graphics
 
 ## Release Smoke Test Commands
 ```bash
-# Generate all app assets
+# Generate all app icons (new icon system)
+node scripts/generate-icons.mjs all
+
+# Generate Play Store assets (feature graphics, screenshots, metadata)
+node scripts/generate-playstore-assets.mjs
+
+# Generate all app assets (legacy pipeline — foreground/background/monochrome/maskable)
 node scripts/cap-assets.mjs driver
 node scripts/cap-assets.mjs clinic
 node scripts/cap-assets.mjs admin

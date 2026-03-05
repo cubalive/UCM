@@ -89,7 +89,7 @@ export async function registerRoutes(
   });
 
   const { releaseReadinessHandler, smokeTestHandler } = await import("../controllers/releaseReadiness.controller");
-  const { authRedirectDebugHandler, aasaStatusHandler } = await import("../controllers/systemDebug.controller");
+  const { authRedirectDebugHandler, aasaStatusHandler, iconAssetsStatusHandler, playstoreReadinessHandler } = await import("../controllers/systemDebug.controller");
 
   app.get("/api/healthz", healthz);
   app.get("/api/readyz", readyz);
@@ -103,6 +103,8 @@ export async function registerRoutes(
   app.post("/api/system/release-readiness/smoke-test", authMiddleware, requireRole("SUPER_ADMIN"), smokeTestHandler as any);
   app.get("/api/system/auth-redirect-debug", authMiddleware, requireRole("SUPER_ADMIN"), authRedirectDebugHandler as any);
   app.get("/api/system/aasa-status", authMiddleware, requireRole("SUPER_ADMIN"), aasaStatusHandler as any);
+  app.get("/api/system/icon-assets-status", authMiddleware, requireRole("SUPER_ADMIN"), iconAssetsStatusHandler as any);
+  app.get("/api/system/playstore-readiness", authMiddleware, requireRole("SUPER_ADMIN"), playstoreReadinessHandler as any);
   app.get("/api/dev/crash", crashSimulation);
 
   registerMapsRoutes(app);

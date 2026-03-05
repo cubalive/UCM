@@ -1,0 +1,17 @@
+{
+  "driver": {
+    "title": "UCM Driver",
+    "shortDescription": "Driver navigation for medical transportation",
+    "fullDescription": "UCM Driver allows medical transport drivers to manage dialysis and clinic trips, receive dispatch updates, and navigate safely."
+  },
+  "clinic": {
+    "title": "UCM Clinic",
+    "shortDescription": "Clinic transportation management",
+    "fullDescription": "UCM Clinic enables healthcare clinics to schedule and monitor patient transportation in real time."
+  },
+  "admin": {
+    "title": "UCM Dispatch",
+    "shortDescription": "Dispatch and fleet control",
+    "fullDescription": "UCM Dispatch provides real-time control over drivers, trips, clinics and patient transportation logistics."
+  }
+}

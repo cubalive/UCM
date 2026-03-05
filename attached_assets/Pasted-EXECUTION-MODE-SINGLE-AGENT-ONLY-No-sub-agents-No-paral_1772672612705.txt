@@ -1,0 +1,202 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+No sub-agents. No parallel work. Do not modify database schema, migrations, or RLS. Do not change existing routing or business logic.
+
+GOAL
+Create a modern icon system and asset pipeline for the three UCM apps:
+- Driver UCM
+- Clinic UCM
+- UCM (Admin / Dispatch)
+
+Domains (must remain unchanged):
+Driver → https://driver.unitedcaremobility.com
+Clinic → https://clinic.unitedcaremobility.com
+Admin → https://app.unitedcaremobility.com
+
+Bundle IDs:
+com.unitedcaremobility.driver
+com.unitedcaremobility.clinic
+com.unitedcaremobility.admin
+
+Team ID:
+HVF2V75J4T
+
+DESIGN STYLE
+Modern minimalist tech style.
+White background.
+Primary color: #0A4DFF
+Accent color: #00C389
+No text, only symbols.
+Icons must remain recognizable at small sizes.
+
+STEP 1 — Create asset structure
+
+Create folders:
+
+client/public/app-icons/driver
+client/public/app-icons/clinic
+client/public/app-icons/admin
+
+client/public/generated-icons/driver
+client/public/generated-icons/clinic
+client/public/generated-icons/admin
+
+STEP 2 — Create modern SVG icons
+
+Driver icon (navigation / transport concept)
+
+Create:
+client/public/app-icons/driver/icon.svg
+
+Content:
+
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<rect width="1024" height="1024" fill="#ffffff"/>
+<circle cx="512" cy="410" r="190" fill="none" stroke="#0A4DFF" stroke-width="80"/>
+<circle cx="512" cy="410" r="48" fill="#00C389"/>
+<path d="M512 600 L512 850" stroke="#0A4DFF" stroke-width="95" stroke-linecap="round"/>
+<circle cx="512" cy="880" r="70" fill="#00C389"/>
+</svg>
+
+Clinic icon (medical facility concept)
+
+Create:
+client/public/app-icons/clinic/icon.svg
+
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<rect width="1024" height="1024" fill="#ffffff"/>
+<rect x="270" y="280" width="480" height="460" rx="90" fill="#0A4DFF"/>
+<rect x="488" y="380" width="90" height="300" fill="#ffffff"/>
+<rect x="400" y="470" width="270" height="90" fill="#ffffff"/>
+<rect x="450" y="760" width="140" height="140" rx="40" fill="#00C389"/>
+</svg>
+
+Admin / Dispatch icon (control grid concept)
+
+Create:
+client/public/app-icons/admin/icon.svg
+
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<rect width="1024" height="1024" fill="#ffffff"/>
+<g fill="#0A4DFF">
+<rect x="240" y="240" width="170" height="170" rx="30"/>
+<rect x="430" y="240" width="170" height="170" rx="30"/>
+<rect x="620" y="240" width="170" height="170" rx="30"/>
+<rect x="240" y="430" width="170" height="170" rx="30"/>
+<rect x="620" y="430" width="170" height="170" rx="30"/>
+<rect x="240" y="620" width="170" height="170" rx="30"/>
+<rect x="430" y="620" width="170" height="170" rx="30"/>
+<rect x="620" y="620" width="170" height="170" rx="30"/>
+</g>
+<rect x="430" y="430" width="170" height="170" rx="30" fill="#00C389"/>
+</svg>
+
+STEP 3 — Install image generation tooling
+
+Install dev dependency:
+
+npm install sharp --save-dev
+
+STEP 4 — Create icon generator script
+
+Create file:
+
+scripts/generate-icons.mjs
+
+The script must:
+
+- Read each SVG
+- Generate PNG icons in sizes:
+1024
+512
+192
+
+Output to:
+
+client/public/generated-icons/driver
+client/public/generated-icons/clinic
+client/public/generated-icons/admin
+
+Filenames:
+
+icon-1024.png
+icon-512.png
+icon-192.png
+
+STEP 5 — Add package.json scripts
+
+Add:
+
+"icons:driver": "node scripts/generate-icons.mjs driver",
+"icons:clinic": "node scripts/generate-icons.mjs clinic",
+"icons:admin": "node scripts/generate-icons.mjs admin",
+"icons:all": "node scripts/generate-icons.mjs all"
+
+STEP 6 — Generate icons automatically
+
+Run:
+
+npm run icons:all
+
+STEP 7 — Prepare Capacitor resources folders
+
+Ensure these exist:
+
+mobile-driver/resources
+mobile-clinic/resources
+mobile-admin/resources
+
+Copy icon-1024.png to each resources folder.
+
+STEP 8 — Create splash screen placeholders
+
+Create splash SVGs:
+
+client/public/app-icons/driver/splash.svg
+client/public/app-icons/clinic/splash.svg
+client/public/app-icons/admin/splash.svg
+
+Each splash should have:
+
+white background
+centered icon
+large scale
+
+STEP 9 — Add verification endpoint
+
+Create endpoint:
+
+GET /api/system/icon-assets-status
+
+Return JSON:
+
+{
+driverIcons:true,
+clinicIcons:true,
+adminIcons:true,
+generatedPNGs:true,
+capacitorResources:true
+}
+
+SUPER_ADMIN only.
+
+STEP 10 — Verification commands
+
+Output these commands at the end:
+
+npm run icons:all
+
+ls client/public/generated-icons/driver
+ls client/public/generated-icons/clinic
+ls client/public/generated-icons/admin
+
+curl https://app.unitedcaremobility.com/api/system/icon-assets-status
+
+SUCCESS CRITERIA
+
+- SVG icons exist
+- PNG icons generated
+- Capacitor resources folders populated
+- No changes to DB or routing
+- Apps continue functioning normally
+
+IMPLEMENT ALL STEPS NOW.

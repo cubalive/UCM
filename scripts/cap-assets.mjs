@@ -59,9 +59,11 @@ async function generate() {
     }
   }
 
-  const mainSvg = existsSync(join(srcDir, `icon-${appKey}.svg`))
-    ? `icon-${appKey}.svg`
-    : "icon-foreground.svg";
+  const mainSvg = existsSync(join(srcDir, "icon.svg"))
+    ? "icon.svg"
+    : existsSync(join(srcDir, `icon-${appKey}.svg`))
+      ? `icon-${appKey}.svg`
+      : "icon-foreground.svg";
 
   mkdirSync(outDir, { recursive: true });
   mkdirSync(resourcesDir, { recursive: true });
