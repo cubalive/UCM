@@ -412,15 +412,15 @@ export async function deleteDispatchDriverDeviceHandler(req: AuthRequest, res: R
 
 export async function handleDriverLocationIngest(req: AuthRequest, res: any) {
   try {
-    const { checkRateLimit } = await import("../lib/rateLimiter");
+    const { checkRateLimitDistributed } = await import("../lib/rateLimiter");
     const driverRateKey = `gps:driver:${req.user!.userId}`;
-    const rl = checkRateLimit(driverRateKey, 30, 60);
+    const rl = await checkRateLimitDistributed(driverRateKey, 30, 60);
     if (!rl.allowed) {
       return res.status(429).json({ ok: false, message: "GPS rate limit exceeded — max 30 updates per minute", retry_after_ms: rl.retryAfterMs });
     }
 
     const ipAddr = req.ip || req.socket.remoteAddress || "unknown";
-    const ipRl = checkRateLimit(`gps:ip:${ipAddr}`, 120, 60);
+    const ipRl = await checkRateLimitDistributed(`gps:ip:${ipAddr}`, 120, 60);
     if (!ipRl.allowed) {
       return res.status(429).json({ ok: false, message: "IP rate limit exceeded", retry_after_ms: ipRl.retryAfterMs });
     }

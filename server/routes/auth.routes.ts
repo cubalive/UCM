@@ -1,11 +1,11 @@
 import express, { type Request, Response, NextFunction, type Express } from "express";
 import { authMiddleware, type AuthRequest } from "../auth";
-import { checkRateLimit } from "../lib/rateLimiter";
+import { checkRateLimitDistributed } from "../lib/rateLimiter";
 import { loginHandler, loginJwtHandler, devSessionHandler, authMeHandler, meHandler, changePasswordHandler, setWorkingCityHandler, authHealthHandler, forgotPasswordHandler, tokenLoginHandler } from "../controllers/auth.controller";
 
-function loginRateLimit(req: Request, res: Response, next: NextFunction) {
+async function loginRateLimit(req: Request, res: Response, next: NextFunction) {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
-  const { allowed, retryAfterMs } = checkRateLimit(`login:${ip}`, 10, 300);
+  const { allowed, retryAfterMs } = await checkRateLimitDistributed(`login:${ip}`, 10, 300);
   if (!allowed) {
     return res.status(429).json({
       message: "Too many login attempts. Please try again later.",
@@ -28,9 +28,9 @@ router.get("/api/auth/me", authMiddleware, authMeHandler as any);
 router.get("/api/me", meHandler);
 router.post("/api/auth/token-login", loginRateLimit, tokenLoginHandler);
 router.post("/api/auth/forgot-password", loginRateLimit, forgotPasswordHandler);
-function changePasswordRateLimit(req: Request, res: Response, next: NextFunction) {
+async function changePasswordRateLimit(req: Request, res: Response, next: NextFunction) {
   const userId = (req as any).user?.userId || "anon";
-  const { allowed, retryAfterMs } = checkRateLimit(`chpw:${userId}`, 5, 3600);
+  const { allowed, retryAfterMs } = await checkRateLimitDistributed(`chpw:${userId}`, 5, 3600);
   if (!allowed) {
     return res.status(429).json({
       message: "Too many password change attempts. Please try again later.",
