@@ -258,13 +258,23 @@ const port = parseInt(process.env.PORT || "5000", 10);
 httpServer.requestTimeout = 30_000;
 httpServer.headersTimeout = 15_000;
 httpServer.keepAliveTimeout = 65_000;
-httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+httpServer.listen({ port, host: "0.0.0.0" }, () => {
   console.log(JSON.stringify({
     event: "http_listening",
     port,
     msg: `Server bound to 0.0.0.0:${port} — healthchecks active, async boot starting`,
     ts: new Date().toISOString(),
   }));
+});
+httpServer.on("error", (err: any) => {
+  console.error(JSON.stringify({
+    event: "http_listen_error",
+    error: err.message,
+    code: err.code,
+    port,
+    ts: new Date().toISOString(),
+  }));
+  process.exit(1);
 });
 
 (async () => {
