@@ -252,6 +252,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// Bind HTTP server BEFORE the async boot so Railway healthchecks pass
+// even if DB/Redis/seed/migrations are still running or have failed.
+const port = parseInt(process.env.PORT || "5000", 10);
+httpServer.requestTimeout = 30_000;
+httpServer.headersTimeout = 15_000;
+httpServer.keepAliveTimeout = 65_000;
+httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+  console.log(JSON.stringify({
+    event: "http_listening",
+    port,
+    msg: `Server bound to 0.0.0.0:${port} — healthchecks active, async boot starting`,
+    ts: new Date().toISOString(),
+  }));
+});
+
 (async () => {
   const { dbReady, getDbSource, db: bootDb } = await import("./db");
   await dbReady;
@@ -771,18 +786,8 @@ app.use((req, res, next) => {
     const { getSchedulerStates } = await import("./lib/schedulerHarness");
     const activeSchedulers = Object.keys(getSchedulerStates());
 
-    // Start a minimal HTTP server for Railway healthcheck in worker mode.
-    // Only serves /health (already registered on `app` above).
-    const workerPort = parseInt(process.env.PORT || "5000", 10);
-    const workerHttp = createServer(app);
-    workerHttp.listen({ port: workerPort, host: "0.0.0.0" }, () => {
-      console.log(JSON.stringify({
-        event: "worker_healthcheck_http",
-        port: workerPort,
-        path: "/health",
-        ts: new Date().toISOString(),
-      }));
-    });
+    // httpServer already listening (bound synchronously before async boot).
+    // Health endpoints (/health, /api/boot) are already registered.
 
     console.log(JSON.stringify({
       event: "boot_complete",
@@ -865,7 +870,7 @@ app.use((req, res, next) => {
   const { APP_VERSION } = await import("./controllers/health.controller");
   console.log(`[BOOT] UCM version: ${APP_VERSION}, env: ${ucmEnv}, runMode: ${ucmRunMode}`);
 
-  app.get("/api/boot", (_req, res) => {
+  app.get("/api/boot/config", (_req, res) => {
     res.json({
       nodeEnv: process.env.NODE_ENV || "undefined",
       appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
@@ -987,22 +992,9 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  const port = parseInt(process.env.PORT || "5000", 10);
-
-  httpServer.requestTimeout = 30_000;
-  httpServer.headersTimeout = 15_000;
-  httpServer.keepAliveTimeout = 65_000;
-
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+  // httpServer.listen() moved to synchronous scope (before async boot)
+  // so Railway healthchecks pass immediately on startup.
+  log(`async boot complete — server already listening on port ${port}`);
 
   const { startMemoryLogger } = await import("./lib/schedulerHarness");
   startMemoryLogger(5 * 60 * 1000);
