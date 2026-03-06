@@ -19,6 +19,7 @@ import { acquireLock } from "./lib/jobEngine";
 import { executeEtaCycleForCity } from "./lib/etaEngine";
 import { runVehicleAutoAssignForCity } from "./lib/vehicleAutoAssign";
 import { storage } from "./storage";
+import { processWebhookQueue } from "./services/webhookDispatcher";
 
 const POLL_INTERVAL = 2000;
 const STALE_CHECK_INTERVAL = 60000;
@@ -189,6 +190,13 @@ async function workerLoop(): Promise<void> {
           console.log(`[WORKER] Cleaned up ${cleaned} old jobs`);
         }
         cleanupAt = Date.now();
+      }
+
+      // Process webhook delivery queue
+      try {
+        await processWebhookQueue();
+      } catch (err: any) {
+        console.error(`[WORKER] Webhook queue error: ${err.message}`);
       }
 
       const job = await dequeueJob();

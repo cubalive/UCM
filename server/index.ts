@@ -80,12 +80,22 @@ app.use(express.urlencoded({ extended: false }));
 // even before the async boot sequence completes.
 app.get("/health", (_req, res) => {
   res.status(200).json({
-    status: "alive",
+    status: "ok",
+    service: "ucm-api",
     environment: ucmEnv,
     version: ucmVersion,
     runMode: ucmRunMode,
     uptime: Math.round(process.uptime()),
     ts: new Date().toISOString(),
+  });
+});
+
+// Railway healthcheck endpoint
+app.get("/api/boot", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    service: "ucm-api",
+    uptime: Math.round(process.uptime()),
   });
 });
 
@@ -712,6 +722,20 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`ALTER TABLE company_subscription_settings ADD COLUMN IF NOT EXISTS max_active_trips INTEGER NOT NULL DEFAULT 200`);
     await bootDb.execute(bootSql`ALTER TABLE company_subscription_settings ADD COLUMN IF NOT EXISTS max_clinics INTEGER NOT NULL DEFAULT 20`);
     await bootDb.execute(bootSql`ALTER TABLE company_subscription_settings ADD COLUMN IF NOT EXISTS grace_period_days INTEGER NOT NULL DEFAULT 7`);
+
+    // PR10: Company Webhooks
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS company_webhooks (
+        id TEXT PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        url TEXT NOT NULL,
+        secret TEXT NOT NULL,
+        events TEXT[] NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_company_webhooks_company ON company_webhooks(company_id)`);
 
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {

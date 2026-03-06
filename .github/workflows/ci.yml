@@ -35,6 +35,18 @@ jobs:
       - run: npm ci
       - run: npx vitest run
 
+  openapi:
+    name: Validate OpenAPI Spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsx script/validate-openapi.ts
+
   build:
     name: Build
     runs-on: ubuntu-latest

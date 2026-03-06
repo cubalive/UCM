@@ -227,6 +227,107 @@ All enforcement blocks are logged to the `system_events` table with:
 - `event_type: "subscription_enforcement"`
 - Payload includes: code, reason, quota snapshot, environment, service, version
 
+## Self-Service Onboarding
+
+UCM supports self-service tenant onboarding, allowing new companies to sign up without SUPER_ADMIN intervention.
+
+### Signup Flow
+
+1. **Company Registration** — `POST /api/signup/company` (public, rate-limited)
+   - Creates company, COMPANY_ADMIN user, default settings, and onboarding state
+   - Starts a 14-day trial subscription (`status: trialing`)
+   - Returns JWT for immediate login
+   - Rate limited: 5 requests/hour per IP
+
+2. **Stripe Connect** — `POST /api/signup/stripe-connect` (authenticated)
+   - Creates a Stripe Express account for the company
+   - Returns the Stripe onboarding URL
+   - Requires COMPANY_ADMIN or SUPER_ADMIN role
+
+3. **Onboarding Progress** — `GET /api/signup/onboarding-state` (authenticated)
+   - Returns setup wizard progress
+
+### Trial System
+
+New companies start with a 14-day trial:
+- `status: trialing` in `company_subscriptions`
+- Full platform access during trial (subject to quotas)
+- Subscription enforcement is enabled from day one
+- After trial expires, company must subscribe to continue creating resources
+
+### Stripe Connection
+
+Companies can connect their Stripe account for payment processing:
+- Uses Stripe Connect Express accounts
+- Onboarding link generation via `/api/signup/stripe-connect`
+- Account details stored in `company_stripe_accounts`
+
+### First Login Steps
+
+After signup, the new COMPANY_ADMIN should:
+1. Complete Stripe Connect onboarding (optional but recommended)
+2. Add their first driver
+3. Create their first trip
+4. Progress tracked in `onboarding_state` table
+
+### Onboarding State
+
+The `onboarding_state` table tracks setup completion:
+
+| Step | Field | Description |
+|------|-------|-------------|
+| Company Created | `company_created` | Set on signup |
+| Stripe Connected | `stripe_connected` | Set when Stripe account is verified |
+| First Driver Added | `first_driver_added` | Set when first driver is created |
+| First Trip Created | `first_trip_created` | Set when first trip is created |
+
+### Audit Trail
+
+All onboarding events are logged to `system_events`:
+- `company.created` — new company registered
+- `admin.user.created` — first admin user created
+- `trial.subscription.started` — trial period started
+- `stripe.connect.started` — Stripe Connect onboarding initiated
+
+## API Documentation
+
+### Accessing the API Docs
+
+Interactive API documentation is available via Swagger UI at:
+
+| Environment | URL |
+|-------------|-----|
+| Production  | `https://app.unitedcaremobility.com/api/docs` |
+| Staging     | `https://staging.unitedcaremobility.com/api/docs` |
+| Development | `http://localhost:5000/api/docs` |
+
+The raw OpenAPI JSON spec is available at `/api/docs/openapi.json`.
+
+The source OpenAPI YAML spec lives at `docs/openapi.yaml` in the repository.
+
+### SDK Generation
+
+Generate client SDKs from the OpenAPI spec using [openapi-generator](https://openapi-generator.tech/):
+
+```bash
+# TypeScript SDK
+npx @openapitools/openapi-generator-cli generate \
+  -i docs/openapi.yaml \
+  -g typescript-fetch \
+  -o sdk/typescript
+
+# Python SDK
+npx @openapitools/openapi-generator-cli generate \
+  -i docs/openapi.yaml \
+  -g python \
+  -o sdk/python
+```
+
+### CI Validation
+
+The CI pipeline validates `docs/openapi.yaml` syntax and structure on every push.
+If the spec is malformed, the `openapi` CI job will fail.
+
 ## Workflow
 
 ```

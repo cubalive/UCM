@@ -1,0 +1,2132 @@
+openapi: "3.1.0"
+info:
+  title: UCM API
+  version: "1.0.0"
+  description: |
+    United Care Mobility — Multi-tenant Medical Transportation Management System API.
+
+    Manages fleets, drivers, patients, trips, clinics, billing, and dispatch across multiple cities.
+
+    ## Authentication
+    All protected endpoints require a Bearer JWT token obtained via `POST /api/auth/login-jwt`.
+    Include the token in the `Authorization` header: `Authorization: Bearer <token>`.
+
+    ## Multi-Tenancy
+    The JWT payload includes `companyId` for automatic tenant isolation. All data queries
+    are scoped to the authenticated user's company. SUPER_ADMIN users can access data across companies
+    by setting the `x-company-id` header.
+
+    ## Roles
+    - **SUPER_ADMIN** — Platform-wide access
+    - **ADMIN** / **COMPANY_ADMIN** — Company-level administration
+    - **DISPATCH** — Trip and driver management
+    - **DRIVER** — Driver portal access
+    - **VIEWER** — Read-only company access
+    - **CLINIC_ADMIN** / **CLINIC_USER** / **CLINIC_VIEWER** — Clinic portal access
+
+    ## Subscription Enforcement
+    Companies with `subscription_enabled = true` are subject to subscription status checks
+    and quota enforcement. Inactive subscriptions return `SUBSCRIPTION_INACTIVE` (403).
+    Quota violations return `QUOTA_EXCEEDED` (403).
+  contact:
+    name: UCM Engineering
+  license:
+    name: MIT
+
+servers:
+  - url: "{protocol}://{host}"
+    description: UCM API Server
+    variables:
+      protocol:
+        default: https
+        enum: [https, http]
+      host:
+        default: app.unitedcaremobility.com
+
+tags:
+  - name: Auth
+    description: Authentication and session management
+  - name: Trips
+    description: Trip lifecycle management — create, assign, status transitions, signatures, PDFs
+  - name: Drivers
+    description: Driver management, profiles, and location tracking
+  - name: Clinics
+    description: Clinic management and clinic portal
+  - name: Patients
+    description: Patient records management
+  - name: Vehicles
+    description: Vehicle fleet management
+  - name: Billing
+    description: Invoicing, billing cycles, and payment operations
+  - name: Admin
+    description: Administrative operations — archive, restore, delete, system health
+  - name: Subscriptions
+    description: SaaS subscription and quota management
+  - name: Onboarding
+    description: Self-service tenant onboarding — company signup, trial activation, Stripe Connect
+  - name: Webhooks
+    description: Webhook endpoint management — subscribe to UCM events for external integrations
+  - name: Health
+    description: System health, readiness, and version checks
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT authentication token. Obtain via `POST /api/auth/login-jwt`.
+        The JWT payload includes `companyId` for tenant scoping.
+
+  schemas:
+    WebhookResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        secret:
+          type: string
+          description: HMAC SHA256 signing secret (only returned on creation)
+        events:
+          type: array
+          items:
+            type: string
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    WebhookListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    WebhookPayload:
+      type: object
+      description: Payload delivered to webhook endpoints
+      properties:
+        event:
+          type: string
+          description: "Event name (e.g., trip.created)"
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          type: object
+          description: Event-specific data
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Human-readable error message
+        code:
+          type: string
+          description: Machine-readable error code
+      required: [message]
+
+    SubscriptionInactiveError:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Subscription is not active
+        code:
+          type: string
+          example: SUBSCRIPTION_INACTIVE
+        companyId:
+          type: integer
+          example: 1
+        status:
+          type: string
+          example: canceled
+        graceDaysRemaining:
+          type: integer
+          example: 0
+      required: [message, code, companyId, status]
+
+    QuotaExceededError:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Driver quota exceeded
+        code:
+          type: string
+          example: QUOTA_EXCEEDED
+        companyId:
+          type: integer
+          example: 1
+        limitName:
+          type: string
+          example: max_drivers
+        currentUsage:
+          type: integer
+          example: 50
+        limitValue:
+          type: integer
+          example: 50
+      required: [message, code, companyId, limitName, currentUsage, limitValue]
+
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          example: admin@ucm.com
+        password:
+          type: string
+          example: password123
+      required: [username, password]
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT access token
+        user:
+          type: object
+          properties:
+            id:
+              type: integer
+            username:
+              type: string
+            role:
+              type: string
+            companyId:
+              type: integer
+              nullable: true
+
+    Trip:
+      type: object
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: integer
+        patientId:
+          type: integer
+        driverId:
+          type: integer
+          nullable: true
+        clinicId:
+          type: integer
+          nullable: true
+        cityId:
+          type: integer
+        status:
+          type: string
+          enum:
+            - SCHEDULED
+            - ASSIGNED
+            - EN_ROUTE_TO_PICKUP
+            - ARRIVED_PICKUP
+            - IN_TRANSIT
+            - ARRIVED_DESTINATION
+            - COMPLETED
+            - CANCELLED
+            - NO_SHOW
+        pickupAddress:
+          type: string
+        dropoffAddress:
+          type: string
+        scheduledPickupTime:
+          type: string
+          format: date-time
+        tripType:
+          type: string
+          enum: [ONE_WAY, ROUND_TRIP, WAIT_AND_RETURN]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TripCreateRequest:
+      type: object
+      properties:
+        patientId:
+          type: integer
+          example: 42
+        clinicId:
+          type: integer
+          example: 5
+        cityId:
+          type: integer
+          example: 1
+        pickupAddress:
+          type: string
+          example: "123 Main St, Washington, DC 20001"
+        dropoffAddress:
+          type: string
+          example: "456 Hospital Ave, Washington, DC 20010"
+        scheduledPickupTime:
+          type: string
+          format: date-time
+          example: "2026-03-10T09:00:00Z"
+        tripType:
+          type: string
+          enum: [ONE_WAY, ROUND_TRIP, WAIT_AND_RETURN]
+          example: ONE_WAY
+        notes:
+          type: string
+          example: "Patient requires wheelchair accessible vehicle"
+      required: [patientId, cityId, pickupAddress, dropoffAddress, scheduledPickupTime]
+
+    Driver:
+      type: object
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: integer
+        userId:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, SUSPENDED]
+        vehicleId:
+          type: integer
+          nullable: true
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    DriverLocationUpdate:
+      type: object
+      properties:
+        latitude:
+          type: number
+          format: double
+          example: 38.8977
+        longitude:
+          type: number
+          format: double
+          example: -77.0365
+        heading:
+          type: number
+          format: double
+          example: 180.0
+        speed:
+          type: number
+          format: double
+          example: 35.5
+        accuracy:
+          type: number
+          format: double
+          example: 10.0
+        timestamp:
+          type: string
+          format: date-time
+      required: [latitude, longitude]
+
+    Clinic:
+      type: object
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: integer
+        name:
+          type: string
+        address:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        cityId:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    Patient:
+      type: object
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+        dateOfBirth:
+          type: string
+          format: date
+        clinicId:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: integer
+        make:
+          type: string
+        model:
+          type: string
+        year:
+          type: integer
+        licensePlate:
+          type: string
+        vin:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, MAINTENANCE]
+        createdAt:
+          type: string
+          format: date-time
+
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: integer
+        clinicId:
+          type: integer
+          nullable: true
+        tripId:
+          type: integer
+          nullable: true
+        amountCents:
+          type: integer
+          description: Amount in cents (e.g., 5000 = $50.00)
+        status:
+          type: string
+          enum: [DRAFT, SENT, PAID, OVERDUE, VOID]
+        dueDate:
+          type: string
+          format: date
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    PaginatedResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {}
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+
+  responses:
+    Unauthorized:
+      description: Authentication required — missing or invalid JWT token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            message: Unauthorized
+
+    Forbidden:
+      description: Insufficient permissions for this operation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            message: Forbidden
+
+    SubscriptionInactive:
+      description: Company subscription is not active (SUBSCRIPTION_INACTIVE)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SubscriptionInactiveError"
+
+    QuotaExceeded:
+      description: Resource quota exceeded for company (QUOTA_EXCEEDED)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/QuotaExceededError"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            message: Not found
+
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            message: "Validation error: pickupAddress is required"
+
+paths:
+  # ──────────────────────────── Health ────────────────────────────
+  /api/healthz:
+    get:
+      tags: [Health]
+      summary: Liveness probe with DB and Redis status
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  db:
+                    type: string
+                    example: ok
+                  redis:
+                    type: string
+                    example: ok
+
+  /api/readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      security: []
+      responses:
+        "200":
+          description: Service is ready to accept traffic
+        "503":
+          description: Service is not ready
+
+  /api/version:
+    get:
+      tags: [Health]
+      summary: Application version and build info
+      security: []
+      responses:
+        "200":
+          description: Version information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  environment:
+                    type: string
+                  runMode:
+                    type: string
+
+  # ──────────────────────────── Auth ────────────────────────────
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with username and password (session-based)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+        "429":
+          description: Rate limit exceeded
+
+  /api/auth/login-jwt:
+    post:
+      tags: [Auth]
+      summary: Login and receive a JWT token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: JWT token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+        "429":
+          description: Rate limit exceeded
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  username:
+                    type: string
+                  role:
+                    type: string
+                  companyId:
+                    type: integer
+                    nullable: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request password reset email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+              required: [email]
+      responses:
+        "200":
+          description: Reset email sent (always returns 200 to prevent enumeration)
+        "429":
+          description: Rate limit exceeded
+
+  /api/auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change password for authenticated user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+              required: [currentPassword, newPassword]
+      responses:
+        "200":
+          description: Password changed successfully
+        "400":
+          description: Invalid current password
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/auth/health:
+    get:
+      tags: [Auth]
+      summary: Auth service health check
+      security: []
+      responses:
+        "200":
+          description: Auth service is healthy
+
+  # ──────────────────────────── Trips ────────────────────────────
+  /api/trips:
+    get:
+      tags: [Trips]
+      summary: List trips
+      description: Returns trips for the authenticated user's company. Supports filtering by status, date range, driver, clinic, and city.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [SCHEDULED, ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, IN_TRANSIT, ARRIVED_DESTINATION, COMPLETED, CANCELLED, NO_SHOW]
+        - name: driverId
+          in: query
+          schema:
+            type: integer
+        - name: clinicId
+          in: query
+          schema:
+            type: integer
+        - name: cityId
+          in: query
+          schema:
+            type: integer
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of trips
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trip"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Trips]
+      summary: Create a new trip
+      description: |
+        Creates a trip in SCHEDULED status. Subject to quota enforcement
+        when subscription is active (`QUOTA_EXCEEDED` if max_active_trips is reached).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TripCreateRequest"
+            example:
+              patientId: 42
+              clinicId: 5
+              cityId: 1
+              pickupAddress: "123 Main St, Washington, DC 20001"
+              dropoffAddress: "456 Hospital Ave, Washington, DC 20010"
+              scheduledPickupTime: "2026-03-10T09:00:00Z"
+              tripType: ONE_WAY
+              notes: "Patient requires wheelchair accessible vehicle"
+      responses:
+        "201":
+          description: Trip created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trip"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/SubscriptionInactive"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/trips/{id}:
+    get:
+      tags: [Trips]
+      summary: Get trip details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Trip details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trip"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Trips]
+      summary: Update trip details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pickupAddress:
+                  type: string
+                dropoffAddress:
+                  type: string
+                scheduledPickupTime:
+                  type: string
+                  format: date-time
+                driverId:
+                  type: integer
+                  nullable: true
+                notes:
+                  type: string
+      responses:
+        "200":
+          description: Trip updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trip"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/trips/{id}/status:
+    patch:
+      tags: [Trips]
+      summary: Transition trip status
+      description: Advances the trip through its state machine. Only valid transitions are allowed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                  description: State machine event
+                  enum:
+                    - ASSIGN_DRIVER
+                    - START_TO_PICKUP
+                    - MARK_ARRIVED_PICKUP
+                    - START_TRANSIT
+                    - MARK_ARRIVED_DESTINATION
+                    - COMPLETE
+                    - CANCEL
+                    - NO_SHOW
+              required: [event]
+      responses:
+        "200":
+          description: Status transitioned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trip"
+        "400":
+          description: Invalid transition
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/trips/{id}/cancel:
+    post:
+      tags: [Trips]
+      summary: Cancel a trip
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Trip cancelled
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/trips/{id}/pdf:
+    get:
+      tags: [Trips]
+      summary: Download trip PDF
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: PDF document
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/trips/{id}/signature/driver:
+    post:
+      tags: [Trips]
+      summary: Upload driver signature for trip
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                signature:
+                  type: string
+                  description: Base64-encoded signature image
+              required: [signature]
+      responses:
+        "200":
+          description: Signature saved
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ──────────────────────────── Drivers ────────────────────────────
+  /api/drivers:
+    get:
+      tags: [Drivers]
+      summary: List drivers
+      description: Returns drivers for the authenticated user's company.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, INACTIVE, SUSPENDED]
+        - name: cityId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of drivers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Driver"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Drivers]
+      summary: Create a new driver
+      description: |
+        Creates a driver and associated user account.
+        Subject to quota enforcement (`QUOTA_EXCEEDED` if max_drivers is reached).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                  example: John
+                lastName:
+                  type: string
+                  example: Smith
+                email:
+                  type: string
+                  format: email
+                  example: john.smith@example.com
+                phone:
+                  type: string
+                  example: "+12025551234"
+                cityId:
+                  type: integer
+                  example: 1
+              required: [firstName, lastName, email, phone, cityId]
+      responses:
+        "201":
+          description: Driver created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/QuotaExceeded"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/drivers/{id}:
+    get:
+      tags: [Drivers]
+      summary: Get driver details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Driver details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Drivers]
+      summary: Update driver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                phone:
+                  type: string
+                status:
+                  type: string
+                  enum: [ACTIVE, INACTIVE, SUSPENDED]
+      responses:
+        "200":
+          description: Driver updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ──────────────────────────── Clinics ────────────────────────────
+  /api/clinics:
+    get:
+      tags: [Clinics]
+      summary: List clinics
+      parameters:
+        - name: cityId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of clinics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Clinic"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Clinics]
+      summary: Create a new clinic
+      description: Subject to quota enforcement when subscription is active.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "Washington Medical Center"
+                address:
+                  type: string
+                  example: "789 Health Blvd, Washington, DC 20005"
+                phone:
+                  type: string
+                  example: "+12025559876"
+                email:
+                  type: string
+                  format: email
+                  example: "info@washmed.com"
+                cityId:
+                  type: integer
+                  example: 1
+              required: [name, address, cityId]
+      responses:
+        "201":
+          description: Clinic created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Clinic"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/QuotaExceeded"
+
+  /api/clinics/{id}:
+    get:
+      tags: [Clinics]
+      summary: Get clinic details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Clinic details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Clinic"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Clinics]
+      summary: Update clinic
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                address:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+                  format: email
+      responses:
+        "200":
+          description: Clinic updated
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ──────────────────────────── Patients ────────────────────────────
+  /api/patients:
+    get:
+      tags: [Patients]
+      summary: List patients
+      parameters:
+        - name: clinicId
+          in: query
+          schema:
+            type: integer
+        - name: cityId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of patients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Patient"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Patients]
+      summary: Create a new patient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                phone:
+                  type: string
+                dateOfBirth:
+                  type: string
+                  format: date
+                clinicId:
+                  type: integer
+              required: [firstName, lastName]
+      responses:
+        "201":
+          description: Patient created
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/patients/{id}:
+    get:
+      tags: [Patients]
+      summary: Get patient details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Patient details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Patient"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Patients]
+      summary: Update patient
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                phone:
+                  type: string
+                dateOfBirth:
+                  type: string
+                  format: date
+      responses:
+        "200":
+          description: Patient updated
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ──────────────────────────── Vehicles ────────────────────────────
+  /api/vehicles:
+    get:
+      tags: [Vehicles]
+      summary: List vehicles
+      parameters:
+        - name: cityId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of vehicles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Vehicle"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Vehicles]
+      summary: Create a new vehicle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                make:
+                  type: string
+                model:
+                  type: string
+                year:
+                  type: integer
+                licensePlate:
+                  type: string
+                vin:
+                  type: string
+                cityId:
+                  type: integer
+              required: [make, model, year, licensePlate]
+      responses:
+        "201":
+          description: Vehicle created
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/vehicles/{id}:
+    get:
+      tags: [Vehicles]
+      summary: Get vehicle details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Vehicle details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Vehicles]
+      summary: Update vehicle
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                make:
+                  type: string
+                model:
+                  type: string
+                year:
+                  type: integer
+                licensePlate:
+                  type: string
+                status:
+                  type: string
+                  enum: [ACTIVE, INACTIVE, MAINTENANCE]
+      responses:
+        "200":
+          description: Vehicle updated
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ──────────────────────────── Billing ────────────────────────────
+  /api/invoices:
+    get:
+      tags: [Billing]
+      summary: List invoices
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [DRAFT, SENT, PAID, OVERDUE, VOID]
+        - name: clinicId
+          in: query
+          schema:
+            type: integer
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: List of invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invoice"
+              example:
+                - id: 101
+                  companyId: 1
+                  clinicId: 5
+                  tripId: 42
+                  amountCents: 7500
+                  status: PAID
+                  dueDate: "2026-03-15"
+                  paidAt: "2026-03-12T14:30:00Z"
+                  createdAt: "2026-03-01T10:00:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/invoices/{id}:
+    patch:
+      tags: [Billing]
+      summary: Update invoice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [DRAFT, SENT, PAID, OVERDUE, VOID]
+                amountCents:
+                  type: integer
+      responses:
+        "200":
+          description: Invoice updated
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/invoices/{id}/mark-paid:
+    patch:
+      tags: [Billing]
+      summary: Mark invoice as paid
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Invoice marked as paid
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/invoices/{id}/pdf:
+    post:
+      tags: [Billing]
+      summary: Generate invoice PDF
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: PDF generated
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/billing/weekly:
+    get:
+      tags: [Billing]
+      summary: List weekly billing cycles
+      responses:
+        "200":
+          description: Weekly billing cycles
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/billing/weekly/generate:
+    post:
+      tags: [Billing]
+      summary: Generate weekly billing cycle
+      responses:
+        "201":
+          description: Billing cycle generated
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ──────────────────────────── Admin ────────────────────────────
+  /api/admin/subscriptions:
+    get:
+      tags: [Admin, Subscriptions]
+      summary: List all company subscriptions (SUPER_ADMIN)
+      responses:
+        "200":
+          description: All subscriptions
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/subscriptions/company/{companyId}:
+    get:
+      tags: [Admin, Subscriptions]
+      summary: Get subscription for a company
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Company subscription details
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/admin/subscriptions/company/{companyId}/settings:
+    post:
+      tags: [Admin, Subscriptions]
+      summary: Update subscription settings for a company
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subscriptionEnabled:
+                  type: boolean
+                subscriptionRequiredForAccess:
+                  type: boolean
+                monthlyFeeCents:
+                  type: integer
+      responses:
+        "200":
+          description: Settings updated
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/subscriptions/company/{companyId}/cancel:
+    post:
+      tags: [Admin, Subscriptions]
+      summary: Cancel subscription at period end
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Subscription cancellation scheduled
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/admin/subscriptions/company/{companyId}/reactivate:
+    post:
+      tags: [Admin, Subscriptions]
+      summary: Reactivate a cancelled subscription
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Subscription reactivated
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/users:
+    get:
+      tags: [Admin]
+      summary: List users
+      responses:
+        "200":
+          description: List of users
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Admin]
+      summary: Create a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+                companyId:
+                  type: integer
+              required: [username, password, role]
+      responses:
+        "201":
+          description: User created
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/companies:
+    get:
+      tags: [Admin]
+      summary: List all companies (SUPER_ADMIN)
+      responses:
+        "200":
+          description: List of companies
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Admin]
+      summary: Create a new company (SUPER_ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required: [name]
+      responses:
+        "201":
+          description: Company created
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/cities:
+    get:
+      tags: [Admin]
+      summary: List cities
+      responses:
+        "200":
+          description: List of cities
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Admin]
+      summary: Create a new city
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                state:
+                  type: string
+                timezone:
+                  type: string
+              required: [name, state, timezone]
+      responses:
+        "201":
+          description: City created
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ---------------------------------------------------------------------------
+  # Self-Service Onboarding (PR9)
+  # ---------------------------------------------------------------------------
+
+  /api/signup/company:
+    post:
+      tags: [Onboarding]
+      summary: Register a new company (self-service signup)
+      description: |
+        Public endpoint — no authentication required, rate-limited to 5 requests/hour per IP.
+
+        Creates a new company, admin user (COMPANY_ADMIN), trial subscription (14 days),
+        default settings, and onboarding state. Returns a JWT for immediate login.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                companyName:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                  example: Acme Medical Transport
+                adminEmail:
+                  type: string
+                  format: email
+                  maxLength: 255
+                  example: admin@acme-transport.com
+                adminPassword:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+                  example: secureP@ssw0rd
+                city:
+                  type: string
+                  maxLength: 100
+                  example: New York
+                timezone:
+                  type: string
+                  maxLength: 50
+                  example: America/New_York
+              required: [companyName, adminEmail, adminPassword]
+      responses:
+        "201":
+          description: Company created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  company:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      email:
+                        type: string
+                      role:
+                        type: string
+                        example: COMPANY_ADMIN
+                  subscription:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: trialing
+                      trialEndsAt:
+                        type: string
+                        format: date-time
+                  onboarding:
+                    type: object
+                    properties:
+                      company_created:
+                        type: boolean
+                      stripe_connected:
+                        type: boolean
+                      first_driver_added:
+                        type: boolean
+                      first_trip_created:
+                        type: boolean
+                  token:
+                    type: string
+                    description: JWT access token for immediate login
+        "400":
+          description: Invalid signup data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate email or company name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  code:
+                    type: string
+                    enum: [EMAIL_EXISTS, COMPANY_EXISTS]
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  retryAfterMs:
+                    type: integer
+
+  /api/signup/stripe-connect:
+    post:
+      tags: [Onboarding]
+      summary: Generate Stripe Connect onboarding link
+      description: |
+        Authenticated endpoint. Creates a Stripe Express account for the company
+        (if one doesn't exist) and returns an onboarding URL. Only the company's
+        own COMPANY_ADMIN or a SUPER_ADMIN can call this.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                companyId:
+                  type: integer
+                  example: 42
+              required: [companyId]
+      responses:
+        "200":
+          description: Stripe onboarding URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+                    example: https://connect.stripe.com/setup/s/...
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Stripe not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/signup/onboarding-state:
+    get:
+      tags: [Onboarding]
+      summary: Get onboarding progress for the authenticated company
+      description: |
+        Returns the setup wizard state showing which onboarding steps
+        have been completed. Requires authentication.
+      responses:
+        "200":
+          description: Onboarding state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  companyId:
+                    type: integer
+                  steps:
+                    type: object
+                    properties:
+                      company_created:
+                        type: boolean
+                      stripe_connected:
+                        type: boolean
+                      first_driver_added:
+                        type: boolean
+                      first_trip_created:
+                        type: boolean
+                  completedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No onboarding state found
+
+  /api/webhooks:
+    post:
+      tags: [Webhooks]
+      summary: Create webhook endpoint
+      description: Register a new webhook endpoint for the authenticated company. Returns the webhook secret (only shown once).
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: HTTPS endpoint URL to receive webhook payloads
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - trip.created
+                      - trip.assigned
+                      - trip.started
+                      - trip.completed
+                      - trip.cancelled
+                      - driver.location_updated
+                      - invoice.created
+                      - invoice.paid
+                      - subscription.updated
+                  description: List of events to subscribe to
+      responses:
+        "201":
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookResponse"
+        "400":
+          description: Invalid input
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: COMPANY_ADMIN role required
+
+    get:
+      tags: [Webhooks]
+      summary: List company webhooks
+      description: List all webhook endpoints for the authenticated company. Secrets are not included.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebhookListItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: COMPANY_ADMIN role required
+
+  /api/webhooks/{id}:
+    patch:
+      tags: [Webhooks]
+      summary: Update webhook
+      description: Update a webhook endpoint's URL, events, or active status.
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - trip.created
+                      - trip.assigned
+                      - trip.started
+                      - trip.completed
+                      - trip.cancelled
+                      - driver.location_updated
+                      - invoice.created
+                      - invoice.paid
+                      - subscription.updated
+                active:
+                  type: boolean
+      responses:
+        "200":
+          description: Webhook updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookListItem"
+        "400":
+          description: Invalid input
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Webhook not found
+
+    delete:
+      tags: [Webhooks]
+      summary: Deactivate webhook
+      description: Soft-delete a webhook by setting active to false.
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Webhook deactivated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Webhook not found

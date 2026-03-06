@@ -275,6 +275,27 @@ export async function transitionTripStatus(
     await emitEvent("trip.status_changed", eventPayload, `trip.status:${tripId}:${previousStatus}:${nextStatus}:${Date.now()}`);
   } catch {}
 
+  // Webhook dispatch for trip status events
+  try {
+    const { dispatchWebhookEvent } = await import("../services/webhookDispatcher");
+    const statusToWebhookEvent: Record<string, string> = {
+      ASSIGNED: "trip.assigned",
+      EN_ROUTE_TO_PICKUP: "trip.started",
+      COMPLETED: "trip.completed",
+      CANCELLED: "trip.cancelled",
+    };
+    const webhookEvent = statusToWebhookEvent[nextStatus];
+    if (webhookEvent) {
+      await dispatchWebhookEvent(updatedTrip.companyId, webhookEvent as any, {
+        tripId,
+        status: nextStatus,
+        previousStatus,
+        driverId: updatedTrip.driverId,
+        publicId: updatedTrip.publicId,
+      });
+    }
+  } catch {}
+
   broadcastCompanyTripUpdate(updatedTrip.companyId, {
     tripId,
     status: nextStatus,

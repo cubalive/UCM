@@ -51,6 +51,9 @@ import { registerEtaVarianceRoutes } from "../lib/etaVarianceRoutes";
 import { registerZeroTouchDialysisRoutes } from "../lib/zeroTouchDialysisRoutes";
 import { registerRoutePreviewRoutes } from "./routes.preview";
 import { registerRouteOptimizeRoutes } from "./routes.optimize";
+import { registerDocsRoutes } from "../lib/openapi";
+import { registerSignupRoutes } from "./signup.routes";
+import { registerWebhookRoutes } from "./webhooks.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -159,6 +162,9 @@ export async function registerRoutes(
   registerQueueRoutes(app);
   registerRoutePreviewRoutes(app);
   registerRouteOptimizeRoutes(app);
+  registerSignupRoutes(app);
+  registerWebhookRoutes(app);
+  registerDocsRoutes(app);
 
   return httpServer;
 }

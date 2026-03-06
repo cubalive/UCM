@@ -3291,3 +3291,45 @@ export const opsAuditLedger = pgTable("ops_audit_ledger", {
 export const insertOpsAuditLedgerSchema = createInsertSchema(opsAuditLedger).omit({ id: true, createdAt: true });
 export type OpsAuditLedgerEntry = typeof opsAuditLedger.$inferSelect;
 export type InsertOpsAuditLedgerEntry = z.infer<typeof insertOpsAuditLedgerSchema>;
+
+// ---------------------------------------------------------------------------
+// Self-Service Onboarding State (PR9)
+// ---------------------------------------------------------------------------
+
+export const onboardingState = pgTable("onboarding_state", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id).unique(),
+  companyCreated: boolean("company_created").notNull().default(false),
+  stripeConnected: boolean("stripe_connected").notNull().default(false),
+  firstDriverAdded: boolean("first_driver_added").notNull().default(false),
+  firstTripCreated: boolean("first_trip_created").notNull().default(false),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_onboarding_company").on(table.companyId),
+]);
+
+export const insertOnboardingStateSchema = createInsertSchema(onboardingState).omit({ id: true, createdAt: true, updatedAt: true });
+export type OnboardingState = typeof onboardingState.$inferSelect;
+export type InsertOnboardingState = z.infer<typeof insertOnboardingStateSchema>;
+
+// ---------------------------------------------------------------------------
+// Company Webhooks (PR10)
+// ---------------------------------------------------------------------------
+
+export const companyWebhooks = pgTable("company_webhooks", {
+  id: text("id").primaryKey(), // uuid
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  url: text("url").notNull(),
+  secret: text("secret").notNull(),
+  events: text("events").array().notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_company_webhooks_company").on(table.companyId),
+]);
+
+export const insertCompanyWebhookSchema = createInsertSchema(companyWebhooks).omit({ createdAt: true });
+export type CompanyWebhook = typeof companyWebhooks.$inferSelect;
+export type InsertCompanyWebhook = z.infer<typeof insertCompanyWebhookSchema>;

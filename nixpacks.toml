@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs-20_x", "python3"]
+
+[phases.install]
+cmds = ["npm install --ignore-scripts", "npm rebuild sharp --platform=linuxmusl || true", "npm rebuild esbuild || true"]
+
+[phases.build]
+cmds = ["npm run build", "ls -la dist/ && ls -la dist/public/ || echo 'WARNING: dist/public missing'"]
+
+[start]
+cmd = "NODE_ENV=production node dist/index.cjs"

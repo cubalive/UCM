@@ -508,6 +508,16 @@ export class DatabaseStorage implements IStorage {
 
   async createTrip(data: InsertTrip): Promise<Trip> {
     const [trip] = await db.insert(trips).values(data).returning();
+    // Webhook: trip.created
+    try {
+      const { dispatchWebhookEvent } = await import("./services/webhookDispatcher");
+      await dispatchWebhookEvent(trip.companyId, "trip.created", {
+        tripId: trip.id,
+        status: trip.status,
+        publicId: trip.publicId,
+        scheduledDate: trip.scheduledDate,
+      });
+    } catch {}
     return trip;
   }
 
@@ -1517,6 +1527,16 @@ export class DatabaseStorage implements IStorage {
 
   async createBillingCycleInvoice(data: InsertBillingCycleInvoice): Promise<BillingCycleInvoice> {
     const [row] = await db.insert(billingCycleInvoices).values(data).returning();
+    // Webhook: invoice.created
+    try {
+      const { dispatchWebhookEvent } = await import("./services/webhookDispatcher");
+      await dispatchWebhookEvent(row.companyId, "invoice.created", {
+        invoiceId: row.id,
+        companyId: row.companyId,
+        status: row.status,
+        totalCents: row.totalCents,
+      });
+    } catch {}
     return row;
   }
 
@@ -1568,6 +1588,17 @@ export class DatabaseStorage implements IStorage {
 
   async createInvoicePayment(data: InsertInvoicePayment): Promise<InvoicePayment> {
     const [row] = await db.insert(invoicePayments).values(data).returning();
+    // Webhook: invoice.paid
+    try {
+      const { dispatchWebhookEvent } = await import("./services/webhookDispatcher");
+      await dispatchWebhookEvent(row.companyId, "invoice.paid", {
+        invoiceId: row.invoiceId,
+        paymentId: row.id,
+        companyId: row.companyId,
+        amountCents: row.amountCents,
+        method: row.method,
+      });
+    } catch {}
     return row;
   }
 

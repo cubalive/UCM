@@ -334,6 +334,17 @@ async function upsertSubscriptionFromStripe(
       subscriptionId: data.stripeSubscriptionId,
     })
   );
+
+  // Webhook: subscription.updated
+  try {
+    const { dispatchWebhookEvent } = await import("./webhookDispatcher");
+    await dispatchWebhookEvent(companyId, "subscription.updated", {
+      companyId,
+      status: data.status,
+      stripeSubscriptionId: data.stripeSubscriptionId,
+      cancelAtPeriodEnd: data.cancelAtPeriodEnd,
+    });
+  } catch {}
 }
 
 export function isSubscriptionActive(sub: CompanySubscription | null): boolean {
