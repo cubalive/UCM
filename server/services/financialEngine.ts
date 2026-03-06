@@ -189,14 +189,16 @@ export async function processTripFinancials(tripId: number): Promise<TripFinanci
     });
   }
 
-  for (const entry of entries) {
-    try {
-      await db.insert(financialLedger).values(entry as any).onConflictDoNothing();
-    } catch (err: any) {
-      if (err.code === "23505") continue;
-      throw err;
+  await db.transaction(async (tx) => {
+    for (const entry of entries) {
+      try {
+        await tx.insert(financialLedger).values(entry as any).onConflictDoNothing();
+      } catch (err: any) {
+        if (err.code === "23505") continue;
+        throw err;
+      }
     }
-  }
+  });
 
   return {
     tripId,

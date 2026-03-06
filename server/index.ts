@@ -152,15 +152,15 @@ function isReplitDev(origin: string): boolean {
 function isAppOrigin(origin: string): boolean {
   if (!origin) return false;
   if (allowedAppOrigins.has(origin)) return true;
-  if (isReplitDev(origin)) return true;
+  if (!IS_PROD && isReplitDev(origin)) return true;
   return false;
 }
 
 function isPublicOrigin(origin: string): boolean {
   if (!origin) return false;
   if (allowedPublicOrigins.has(origin)) return true;
-  if (/^https:\/\/[a-z0-9\-]+\.lovable\.app$/i.test(origin)) return true;
-  if (isReplitDev(origin)) return true;
+  if (!IS_PROD && /^https:\/\/[a-z0-9\-]+\.lovable\.app$/i.test(origin)) return true;
+  if (!IS_PROD && isReplitDev(origin)) return true;
   return false;
 }
 

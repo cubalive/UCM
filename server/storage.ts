@@ -359,10 +359,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async setUserCityAccess(userId: number, cityIds: number[]): Promise<void> {
-    await db.delete(userCityAccess).where(eq(userCityAccess.userId, userId));
-    if (cityIds.length > 0) {
-      await db.insert(userCityAccess).values(cityIds.map((cityId) => ({ userId, cityId })));
-    }
+    await db.transaction(async (tx) => {
+      await tx.delete(userCityAccess).where(eq(userCityAccess.userId, userId));
+      if (cityIds.length > 0) {
+        await tx.insert(userCityAccess).values(cityIds.map((cityId) => ({ userId, cityId })));
+      }
+    });
   }
 
   async getVehicles(cityId?: number): Promise<Vehicle[]> {

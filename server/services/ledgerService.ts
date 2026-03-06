@@ -39,19 +39,21 @@ export async function writeJournal(params: JournalParams): Promise<string> {
     throw new Error(`Ledger imbalance: debit=${totalDebit} credit=${totalCredit} for ${params.refType}/${params.refId}`);
   }
 
-  for (const line of params.lines) {
-    await db.insert(ledgerEntries).values({
-      journalId,
-      refType: params.refType,
-      refId: params.refId,
-      clinicId: params.clinicId ?? null,
-      companyId: params.companyId ?? null,
-      account: line.account,
-      direction: line.direction,
-      amountCents: line.amountCents,
-      currency: params.currency || "usd",
-    });
-  }
+  await db.transaction(async (tx) => {
+    for (const line of params.lines) {
+      await tx.insert(ledgerEntries).values({
+        journalId,
+        refType: params.refType,
+        refId: params.refId,
+        clinicId: params.clinicId ?? null,
+        companyId: params.companyId ?? null,
+        account: line.account,
+        direction: line.direction,
+        amountCents: line.amountCents,
+        currency: params.currency || "usd",
+      });
+    }
+  });
 
   return journalId;
 }

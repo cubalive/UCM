@@ -370,23 +370,24 @@ export async function computeTripBilling(tripId: number): Promise<BillingLineIte
 }
 
 export async function upsertTripBillingRows(lines: BillingLineItem[]): Promise<void> {
-  for (const line of lines) {
-    const existing = await db
-      .select({ id: tripBilling.id })
-      .from(tripBilling)
-      .where(
-        and(
-          eq(tripBilling.tripId, line.tripId),
-          eq(tripBilling.patientId, line.patientId)
+  await db.transaction(async (tx) => {
+    for (const line of lines) {
+      const existing = await tx
+        .select({ id: tripBilling.id })
+        .from(tripBilling)
+        .where(
+          and(
+            eq(tripBilling.tripId, line.tripId),
+            eq(tripBilling.patientId, line.patientId)
+          )
         )
-      )
-      .then((r) => r[0]);
+        .then((r) => r[0]);
 
-    if (existing) {
-      await db
-        .update(tripBilling)
-        .set({
-          companyId: line.companyId,
+      if (existing) {
+        await tx
+          .update(tripBilling)
+          .set({
+            companyId: line.companyId,
           clinicId: line.clinicId,
           serviceDate: line.serviceDate,
           statusAtBill: line.statusAtBill,
@@ -415,9 +416,9 @@ export async function upsertTripBillingRows(lines: BillingLineItem[]): Promise<v
           updatedAt: new Date(),
         })
         .where(eq(tripBilling.id, existing.id));
-    } else {
-      await db.insert(tripBilling).values({
-        tripId: line.tripId,
+      } else {
+        await tx.insert(tripBilling).values({
+          tripId: line.tripId,
         companyId: line.companyId,
         clinicId: line.clinicId,
         patientId: line.patientId,
@@ -446,8 +447,9 @@ export async function upsertTripBillingRows(lines: BillingLineItem[]): Promise<v
         totalCents: line.totalCents,
         currency: line.currency,
         components: line.components,
-        status: "computed",
-      });
+          status: "computed",
+        });
+      }
     }
-  }
+  });
 }
