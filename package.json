@@ -48,6 +48,8 @@
     "@replit/vite-plugin-cartographer": "^0.4.7",
     "@replit/vite-plugin-dev-banner": "^0.1.2",
     "@replit/vite-plugin-runtime-error-modal": "^0.0.4",
+    "@sentry/node": "^10.42.0",
+    "@sentry/profiling-node": "^10.42.0",
     "@supabase/supabase-js": "^2.95.3",
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "^4.1.18",
