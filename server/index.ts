@@ -195,6 +195,31 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
+app.get("/api/boot", (_req, res) => {
+  res.json({
+    status: "ok",
+    service: "ucm-api",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+const port = parseInt(process.env.PORT || "5000", 10);
+httpServer.requestTimeout = 30_000;
+httpServer.headersTimeout = 15_000;
+httpServer.keepAliveTimeout = 65_000;
+
+httpServer.listen(
+  { port, host: "0.0.0.0", reusePort: true },
+  () => {
+    console.log(`${new Date().toLocaleTimeString()} [express] serving on port ${port}`);
+  },
+);
+
 (async () => {
   const { dbReady, getDbSource, db: bootDb } = await import("./db");
   await dbReady;
@@ -772,7 +797,7 @@ app.use((req, res, next) => {
   const { APP_VERSION } = await import("./controllers/health.controller");
   console.log(`[BOOT] UCM version: ${APP_VERSION}, env: ${process.env.NODE_ENV || "development"}`);
 
-  app.get("/api/boot", (_req, res) => {
+  app.get("/api/boot/detail", (_req, res) => {
     res.json({
       status: "ok",
       service: "ucm-api",
@@ -787,10 +812,6 @@ app.use((req, res, next) => {
       trustProxy: IS_PROD,
       timestamp: new Date().toISOString(),
     });
-  });
-
-  app.get("/health", (_req, res) => {
-    res.json({ status: "ok" });
   });
 
   app.get("/api/system/origins", (_req, res) => {
@@ -887,23 +908,6 @@ app.use((req, res, next) => {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
-
-  const port = parseInt(process.env.PORT || "5000", 10);
-
-  httpServer.requestTimeout = 30_000;
-  httpServer.headersTimeout = 15_000;
-  httpServer.keepAliveTimeout = 65_000;
-
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
 
   const { startMemoryLogger } = await import("./lib/schedulerHarness");
   startMemoryLogger(5 * 60 * 1000);
