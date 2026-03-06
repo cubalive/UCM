@@ -2,8 +2,9 @@ FROM node:20-alpine AS base
 WORKDIR /app
 
 FROM base AS deps
+RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev && npm rebuild sharp --platform=linuxmusl 2>/dev/null || true
 
 FROM base AS build
 COPY package.json package-lock.json ./

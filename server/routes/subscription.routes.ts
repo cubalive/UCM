@@ -176,7 +176,9 @@ export function registerSubscriptionWebhook(app: express.Express) {
     try {
       const Stripe = require("stripe").default;
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-      const event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      // Use rawBody captured by express.json verify callback in index.ts
+      const rawBody = req.rawBody || req.body;
+      const event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
 
       await handleSubscriptionWebhook(event);
       res.json({ received: true });
@@ -186,15 +188,6 @@ export function registerSubscriptionWebhook(app: express.Express) {
     }
   };
 
-  app.post(
-    "/api/stripe/webhook",
-    express.raw({ type: "application/json" }),
-    webhookHandler
-  );
-
-  app.post(
-    "/api/webhooks/stripe/subscription",
-    express.raw({ type: "application/json" }),
-    webhookHandler
-  );
+  app.post("/api/stripe/webhook", webhookHandler);
+  app.post("/api/webhooks/stripe/subscription", webhookHandler);
 }

@@ -1709,7 +1709,7 @@ export function registerClinicBillingRoutes(app: Express) {
       let event;
       try {
         event = stripe.webhooks.constructEvent(
-          (req as any).rawBody || Buffer.from(JSON.stringify(req.body)),
+          (req as any).rawBody,
           sig as string,
           process.env.STRIPE_WEBHOOK_SECRET
         );

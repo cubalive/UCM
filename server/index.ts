@@ -15,7 +15,10 @@ import { createServer } from "http";
 import { recordRequest as recordReqMetric } from "./lib/requestMetrics";
 import { tracingMiddleware } from "./lib/requestTracing";
 import { tenantGuard } from "./lib/tenantGuard";
-import { getEnvironment, getRunMode, getVersion, isDeployed } from "./lib/env";
+import { getEnvironment, getRunMode, getVersion, isDeployed, validateEnvAtBoot } from "./lib/env";
+
+// Fail fast if critical env vars are missing
+validateEnvAtBoot();
 
 const ucmEnv = getEnvironment();
 const ucmRunMode = getRunMode();
@@ -255,8 +258,8 @@ app.use((req, res, next) => {
 // Bind HTTP server BEFORE the async boot so Railway healthchecks pass
 // even if DB/Redis/seed/migrations are still running or have failed.
 const port = parseInt(process.env.PORT || "5000", 10);
-httpServer.requestTimeout = 30_000;
-httpServer.headersTimeout = 15_000;
+httpServer.requestTimeout = 120_000;
+httpServer.headersTimeout = 70_000;
 httpServer.keepAliveTimeout = 65_000;
 httpServer.listen({ port, host: "0.0.0.0" }, () => {
   console.log(JSON.stringify({
