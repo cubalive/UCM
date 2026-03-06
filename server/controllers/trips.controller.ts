@@ -2679,6 +2679,12 @@ export async function getTripGpsHandler(req: AuthRequest, res: Response) {
     const trip = await storage.getTrip(tripId);
     if (!trip) return res.status(404).json({ message: "Trip not found" });
 
+    // Company scoping: non-super-admin users can only view GPS for their company's trips
+    const scope = await getScope(req);
+    if (scope?.companyId && trip.companyId !== scope.companyId) {
+      return res.status(404).json({ message: "Trip not found" });
+    }
+
     const limit = Math.min(parseInt(String(req.query.limit)) || 2000, 5000);
     const after = req.query.after ? new Date(String(req.query.after)) : null;
 

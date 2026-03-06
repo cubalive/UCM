@@ -305,11 +305,16 @@ export async function generateInvoiceHandler(req: AuthRequest, res: Response) {
       createdBy: req.user!.userId,
     }).returning();
 
+    // Batch-load patients to avoid N+1
+    const genPatientIds = [...new Set(billingRows.filter(r => r.patientId).map(r => r.patientId!))];
+    const genPatientMap = new Map<number, string>();
+    if (genPatientIds.length > 0) {
+      const pRows = await db.select({ id: patients.id, firstName: patients.firstName, lastName: patients.lastName }).from(patients).where(inArray(patients.id, genPatientIds));
+      for (const p of pRows) genPatientMap.set(p.id, `${p.firstName} ${p.lastName}`);
+    }
+
     for (const row of billingRows) {
-      const patient = row.patientId
-        ? await db.select({ firstName: patients.firstName, lastName: patients.lastName }).from(patients).where(eq(patients.id, row.patientId)).then(r => r[0])
-        : null;
-      const patientName = patient ? `${patient.firstName} ${patient.lastName}` : "Unknown";
+      const patientName = row.patientId ? (genPatientMap.get(row.patientId) || "Unknown") : "Unknown";
       const desc = `${patientName} - ${row.serviceDate} - ${row.statusAtBill} (${row.pricingMode})`;
 
       await db.insert(billingCycleInvoiceItems).values({
@@ -707,15 +712,16 @@ export async function batchGenerateInvoicesHandler(req: AuthRequest, res: Respon
           createdBy: req.user!.userId,
         }).returning();
 
+        // Batch-load patients to avoid N+1
+        const batchPatientIds = [...new Set(billingRows.filter(r => r.patientId).map(r => r.patientId!))];
+        const batchPatientMap = new Map<number, string>();
+        if (batchPatientIds.length > 0) {
+          const pRows = await db.select({ id: patients.id, firstName: patients.firstName, lastName: patients.lastName }).from(patients).where(inArray(patients.id, batchPatientIds));
+          for (const p of pRows) batchPatientMap.set(p.id, `${p.firstName} ${p.lastName}`);
+        }
+
         for (const row of billingRows) {
-          const patient = row.patientId
-            ? await db
-                .select({ firstName: patients.firstName, lastName: patients.lastName })
-                .from(patients)
-                .where(eq(patients.id, row.patientId))
-                .then((r) => r[0])
-            : null;
-          const patientName = patient ? `${patient.firstName} ${patient.lastName}` : "Unknown";
+          const patientName = row.patientId ? (batchPatientMap.get(row.patientId) || "Unknown") : "Unknown";
           const description = `${patientName} - ${row.serviceDate} - ${row.statusAtBill} (${row.pricingMode})`;
 
           await db.insert(billingCycleInvoiceItems).values({
@@ -880,11 +886,14 @@ export async function companyListInvoicesHandler(req: AuthRequest, res: Response
       .where(and(...conditions))
       .orderBy(desc(billingCycleInvoices.createdAt));
 
-    const enriched = [];
-    for (const inv of rows) {
-      const clinic = await db.select({ name: clinics.name }).from(clinics).where(eq(clinics.id, inv.clinicId)).then(r => r[0]);
-      enriched.push({ ...inv, clinicName: clinic?.name || "Unknown" });
+    // Batch-load clinic names to avoid N+1
+    const invClinicIds = [...new Set(rows.map(r => r.clinicId))];
+    const clinicNameMap = new Map<number, string>();
+    if (invClinicIds.length > 0) {
+      const cRows = await db.select({ id: clinics.id, name: clinics.name }).from(clinics).where(inArray(clinics.id, invClinicIds));
+      for (const c of cRows) clinicNameMap.set(c.id, c.name);
     }
+    const enriched = rows.map(inv => ({ ...inv, clinicName: clinicNameMap.get(inv.clinicId) || "Unknown" }));
     res.json(enriched);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -992,11 +1001,14 @@ export async function companyListSupportThreadsHandler(req: AuthRequest, res: Re
       .where(and(...conditions))
       .orderBy(desc(supportThreads.lastMessageAt));
 
-    const enriched = [];
-    for (const t of threads) {
-      const clinic = await db.select({ name: clinics.name }).from(clinics).where(eq(clinics.id, t.clinicId)).then(r => r[0]);
-      enriched.push({ ...t, clinicName: clinic?.name || "Unknown" });
+    // Batch-load clinic names to avoid N+1
+    const threadClinicIds = [...new Set(threads.map(t => t.clinicId))];
+    const threadClinicMap = new Map<number, string>();
+    if (threadClinicIds.length > 0) {
+      const cRows = await db.select({ id: clinics.id, name: clinics.name }).from(clinics).where(inArray(clinics.id, threadClinicIds));
+      for (const c of cRows) threadClinicMap.set(c.id, c.name);
     }
+    const enriched = threads.map(t => ({ ...t, clinicName: threadClinicMap.get(t.clinicId) || "Unknown" }));
 
     res.json(enriched);
   } catch (err: any) {
@@ -1020,11 +1032,14 @@ export async function companyGetThreadMessagesHandler(req: AuthRequest, res: Res
       .where(eq(supportMessages.threadId, threadId))
       .orderBy(asc(supportMessages.createdAt));
 
-    const enriched = [];
-    for (const m of messages) {
-      const sender = await db.select({ email: users.email }).from(users).where(eq(users.id, m.senderUserId)).then(r => r[0]);
-      enriched.push({ ...m, senderEmail: sender?.email || "" });
+    // Batch-load sender emails to avoid N+1
+    const senderIds = [...new Set(messages.map(m => m.senderUserId))];
+    const senderMap = new Map<number, string>();
+    if (senderIds.length > 0) {
+      const uRows = await db.select({ id: users.id, email: users.email }).from(users).where(inArray(users.id, senderIds));
+      for (const u of uRows) senderMap.set(u.id, u.email);
     }
+    const enriched = messages.map(m => ({ ...m, senderEmail: senderMap.get(m.senderUserId) || "" }));
 
     res.json({ thread, messages: enriched });
   } catch (err: any) {
@@ -1136,11 +1151,14 @@ export async function clinicGetThreadMessagesHandler(req: AuthRequest, res: Resp
       .where(eq(supportMessages.threadId, threadId))
       .orderBy(asc(supportMessages.createdAt));
 
-    const enriched = [];
-    for (const m of messages) {
-      const sender = await db.select({ email: users.email }).from(users).where(eq(users.id, m.senderUserId)).then(r => r[0]);
-      enriched.push({ ...m, senderEmail: sender?.email || "" });
+    // Batch-load sender emails to avoid N+1
+    const senderIds = [...new Set(messages.map(m => m.senderUserId))];
+    const senderMap = new Map<number, string>();
+    if (senderIds.length > 0) {
+      const uRows = await db.select({ id: users.id, email: users.email }).from(users).where(inArray(users.id, senderIds));
+      for (const u of uRows) senderMap.set(u.id, u.email);
     }
+    const enriched = messages.map(m => ({ ...m, senderEmail: senderMap.get(m.senderUserId) || "" }));
 
     res.json({ thread, messages: enriched });
   } catch (err: any) {
