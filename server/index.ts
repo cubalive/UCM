@@ -214,11 +214,22 @@ httpServer.headersTimeout = 15_000;
 httpServer.keepAliveTimeout = 65_000;
 
 httpServer.listen(
-  { port, host: "0.0.0.0", reusePort: true },
+  { port, host: "0.0.0.0" },
   () => {
     console.log(`${new Date().toLocaleTimeString()} [express] serving on port ${port}`);
   },
 );
+
+httpServer.on("error", (err: any) => {
+  console.error(JSON.stringify({
+    event: "http_listen_error",
+    error: err.message,
+    code: err.code,
+    port,
+    ts: new Date().toISOString()
+  }));
+  process.exit(1);
+});
 
 (async () => {
   const { dbReady, getDbSource, db: bootDb } = await import("./db");
