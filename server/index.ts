@@ -49,6 +49,9 @@ app.use(cookieParser());
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "0");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
   if (IS_PROD) {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
@@ -218,6 +221,25 @@ export function log(message: string, source = "express") {
 
   console.log(`${formattedTime} [${source}] ${message}`);
 }
+
+// CSRF protection: reject mutating requests with disallowed Origin header.
+// Cookie auth uses sameSite:"none" so cross-origin POSTs would carry the cookie.
+// Webhook endpoints are excluded (Stripe POSTs don't carry browser Origin).
+const CSRF_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const CSRF_SKIP_PREFIXES = ["/api/stripe/webhook", "/api/public", "/health", "/api/boot"];
+app.use("/api", (req, res, next) => {
+  if (CSRF_SAFE_METHODS.has(req.method)) return next();
+  if (CSRF_SKIP_PREFIXES.some(p => req.originalUrl.startsWith(p))) return next();
+
+  const origin = req.headers.origin;
+  if (!origin) return next(); // server-to-server / same-origin (some browsers omit Origin)
+
+  if (!isAppOrigin(origin) && !isPublicOrigin(origin)) {
+    console.warn(`[CSRF] Blocked mutating request origin="${origin}" path="${req.path}" method="${req.method}"`);
+    return res.status(403).json({ message: "Forbidden: invalid origin", code: "CSRF_REJECTED" });
+  }
+  next();
+});
 
 app.use((req: Request, _res: Response, next: NextFunction) => {
   req.requestId = (req.headers["x-request-id"] as string) || crypto.randomUUID().slice(0, 12);
@@ -839,7 +861,9 @@ httpServer.on("error", (err: any) => {
         const { pool: dbPool } = await import("./db");
         await dbPool.end();
         console.log(JSON.stringify({ event: "db_pool_closed", ts: new Date().toISOString() }));
-      } catch {}
+      } catch (err: any) {
+        console.warn(JSON.stringify({ event: "db_pool_close_error", error: err.message, ts: new Date().toISOString() }));
+      }
       setTimeout(() => {
         console.log(JSON.stringify({ event: "forced_exit", ts: new Date().toISOString() }));
         process.exit(1);
@@ -995,7 +1019,11 @@ httpServer.on("error", (err: any) => {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    // In production, hide internal error details from clients
+    const safeMessage = status >= 500 && process.env.NODE_ENV === "production"
+      ? "Internal Server Error"
+      : message;
+    return res.status(status).json({ message: safeMessage });
   });
 
   if (process.env.NODE_ENV === "production") {
@@ -1055,7 +1083,9 @@ httpServer.on("error", (err: any) => {
         wss.close();
         console.log(JSON.stringify({ event: "websocket_closed", ts: new Date().toISOString() }));
       }
-    } catch {}
+    } catch (err: any) {
+      console.warn(JSON.stringify({ event: "websocket_close_error", error: err.message, ts: new Date().toISOString() }));
+    }
 
     await new Promise<void>((resolve) => {
       httpServer.close(() => {
@@ -1070,7 +1100,9 @@ httpServer.on("error", (err: any) => {
       const { pool: dbPool } = await import("./db");
       await dbPool.end();
       console.log(JSON.stringify({ event: "db_pool_closed", ts: new Date().toISOString() }));
-    } catch {}
+    } catch (err: any) {
+      console.warn(JSON.stringify({ event: "db_pool_close_error", error: err.message, ts: new Date().toISOString() }));
+    }
 
     console.log(JSON.stringify({ event: "shutdown_complete", ts: new Date().toISOString() }));
     process.exit(0);

@@ -52,7 +52,7 @@ async function getCompanyConfig(companyId: number): Promise<CompanyConfig | null
   };
 }
 
-async function getDriverOnTimeRate(driverId: number): Promise<number> {
+async function getDriverOnTimeRate(driverId: number, companyId?: number): Promise<number> {
   const result = await db.execute(sql`
     SELECT
       COUNT(*) FILTER (WHERE status = 'COMPLETED') as completed,
@@ -61,6 +61,7 @@ async function getDriverOnTimeRate(driverId: number): Promise<number> {
     WHERE driver_id = ${driverId}
     AND scheduled_date >= (CURRENT_DATE - INTERVAL '30 days')::text
     AND status IN ('COMPLETED', 'NO_SHOW', 'CANCELLED')
+    ${companyId ? sql`AND company_id = ${companyId}` : sql``}
   `);
   const row = (result as any).rows?.[0] || (result as any)[0];
   const completed = Number(row?.completed || 0);
@@ -69,19 +70,20 @@ async function getDriverOnTimeRate(driverId: number): Promise<number> {
   return total > 0 ? completed / total : 0.8;
 }
 
-async function getDriverActiveTrips(driverId: number, scheduledDate: string): Promise<number> {
+async function getDriverActiveTrips(driverId: number, scheduledDate: string, companyId?: number): Promise<number> {
   const result = await db.execute(sql`
     SELECT COUNT(*) as cnt FROM trips
     WHERE driver_id = ${driverId}
     AND scheduled_date = ${scheduledDate}
     AND status NOT IN ('COMPLETED', 'CANCELLED', 'NO_SHOW')
     AND deleted_at IS NULL
+    ${companyId ? sql`AND company_id = ${companyId}` : sql``}
   `);
   const row = (result as any).rows?.[0] || (result as any)[0];
   return Number(row?.cnt || 0);
 }
 
-async function getDriverHoursWorkedToday(driverId: number): Promise<number> {
+async function getDriverHoursWorkedToday(driverId: number, companyId?: number): Promise<number> {
   const result = await db.execute(sql`
     SELECT
       COALESCE(SUM(
@@ -93,12 +95,13 @@ async function getDriverHoursWorkedToday(driverId: number): Promise<number> {
     AND started_at IS NOT NULL
     AND status IN ('COMPLETED', 'IN_PROGRESS', 'EN_ROUTE_TO_DROPOFF', 'ARRIVED_DROPOFF')
     AND deleted_at IS NULL
+    ${companyId ? sql`AND company_id = ${companyId}` : sql``}
   `);
   const row = (result as any).rows?.[0] || (result as any)[0];
   return Number(row?.hours || 0);
 }
 
-async function getClinicAffinityScore(driverId: number, clinicId: number | null): Promise<number> {
+async function getClinicAffinityScore(driverId: number, clinicId: number | null, companyId?: number): Promise<number> {
   if (!clinicId) return 0;
   try {
     const result = await db.execute(sql`
@@ -110,6 +113,7 @@ async function getClinicAffinityScore(driverId: number, clinicId: number | null)
       WHERE driver_id = ${driverId} AND clinic_id = ${clinicId}
       AND scheduled_date >= (CURRENT_DATE - INTERVAL '60 days')::text
       AND deleted_at IS NULL
+      ${companyId ? sql`AND company_id = ${companyId}` : sql``}
     `);
     const row = (result as any).rows?.[0] || (result as any)[0];
     const completed = Number(row?.completed || 0);
@@ -216,13 +220,13 @@ export async function scoreDriversForTrip(
       }
     }
 
-    const activeTrips = eligible ? await getDriverActiveTrips(driver.id, trip.scheduledDate) : 0;
+    const activeTrips = eligible ? await getDriverActiveTrips(driver.id, trip.scheduledDate, trip.companyId) : 0;
     const distanceScore = eligible ? (distanceM !== Infinity ? Math.max(0, 1 - (distanceM / config.maxDistanceMeters)) : 0.3) : 0;
-    const reliabilityRate = eligible ? await getDriverOnTimeRate(driver.id) : 0;
+    const reliabilityRate = eligible ? await getDriverOnTimeRate(driver.id, trip.companyId) : 0;
     const loadScore = eligible ? Math.max(0, 1 - (activeTrips / MAX_TRIPS_PER_DAY)) : 0;
-    const hoursWorked = eligible ? await getDriverHoursWorkedToday(driver.id) : 0;
+    const hoursWorked = eligible ? await getDriverHoursWorkedToday(driver.id, trip.companyId) : 0;
     const fatigueScore = eligible ? Math.max(0, 1 - (hoursWorked / SHIFT_LIMIT_HOURS)) : 0;
-    const clinicAffinity = eligible ? await getClinicAffinityScore(driver.id, trip.clinicId) : 0;
+    const clinicAffinity = eligible ? await getClinicAffinityScore(driver.id, trip.clinicId, trip.companyId) : 0;
 
     let preferredBonus = 0;
     if (eligible && driver.id === patientPreferredDriverId) preferredBonus = 1000;
@@ -477,17 +481,20 @@ export async function getAutomationEventsByType(
     .limit(limit);
 }
 
-const ASSIGN_LOCKS = new Set<number>();
+import { setNx, del as redisDel } from "./redis";
+
+const ASSIGN_LOCK_TTL_SECONDS = 30;
 
 export async function assignTripAutomatically(
   tripId: number,
   source: string = "approve_flow",
   actorUserId?: number,
 ): Promise<{ success: boolean; reason: string; driverId?: number }> {
-  if (ASSIGN_LOCKS.has(tripId)) {
+  const lockKey = `auto_assign:lock:${tripId}`;
+  const lockAcquired = await setNx(lockKey, `${process.pid}:${Date.now()}`, ASSIGN_LOCK_TTL_SECONDS);
+  if (!lockAcquired) {
     return { success: false, reason: "Assignment already in progress" };
   }
-  ASSIGN_LOCKS.add(tripId);
   try {
     const [trip] = await db.select().from(trips).where(eq(trips.id, tripId));
     if (!trip) return { success: false, reason: "Trip not found" };
@@ -545,7 +552,7 @@ export async function assignTripAutomatically(
           tripId,
           reason: result.reason,
         });
-      } catch {}
+      } catch (e) { console.warn("[AUTO-ASSIGN] broadcast failed:", e); }
     }
 
     return {
@@ -561,7 +568,7 @@ export async function assignTripAutomatically(
     } as any).where(eq(trips.id, tripId));
     return { success: false, reason: err.message };
   } finally {
-    ASSIGN_LOCKS.delete(tripId);
+    await redisDel(lockKey).catch((e) => console.warn("[AUTO-ASSIGN] lock release failed:", e));
   }
 }
 
@@ -596,7 +603,9 @@ async function runAutoAssignRetry() {
       const result = await assignTripAutomatically(trip.id, "retry_scheduler");
       retried++;
       if (result.success) assigned++;
-    } catch {}
+    } catch (err: any) {
+      console.warn(`[AUTO-ASSIGN] Retry error for trip ${trip.id}: ${err.message}`);
+    }
   }
 
   if (retried > 0) {

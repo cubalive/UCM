@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { authMiddleware, requireRole, getActorContext, type AuthRequest } from "../auth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { invoices, companies, billingCycleInvoices } from "@shared/schema";
 
 function getStripe() {
@@ -423,7 +423,7 @@ export function registerStripeConnectRoutes(app: Express) {
               scopeCompanyId: bci.companyId,
               details: { paymentIntentId: bciPaymentIntentId, amountCents: bci.totalCents, source: "webhook", stripeEventId: event.id },
             });
-          } catch {}
+          } catch (e: any) { console.warn("[StripeWebhook] BCI billing audit failed:", e.message); }
 
           if (bciPaymentIntentId) {
             try {
@@ -437,12 +437,25 @@ export function registerStripeConnectRoutes(app: Express) {
                   }).where(eq(clinicsTable.id, bci.clinicId));
                 }
               }
-            } catch {}
+            } catch (e: any) { console.warn("[StripeWebhook] BCI payment method save failed:", e.message); }
           }
 
           await storage.updateStripeWebhookEvent(event.id, "PROCESSED");
           console.log(`[StripeWebhook] BillingCycleInvoice ${bciId} marked PAID`);
           return res.status(200).json({ received: true, invoiceId: bciId, status: "paid" });
+        }
+
+        // Forward subscription checkouts to subscription handler
+        if (session.mode === "subscription") {
+          try {
+            const { handleSubscriptionWebhook } = await import("../services/subscriptionService");
+            await handleSubscriptionWebhook(event);
+            await storage.updateStripeWebhookEvent(event.id, "PROCESSED", "Subscription checkout forwarded");
+          } catch (subErr: any) {
+            console.error("[StripeWebhook] Subscription checkout handler error:", subErr.message);
+            await storage.updateStripeWebhookEvent(event.id, "FAILED", subErr.message);
+          }
+          return res.status(200).json({ received: true });
         }
 
         if (metadata.type !== "clinic_invoice") {
@@ -545,6 +558,28 @@ export function registerStripeConnectRoutes(app: Express) {
           return res.status(200).json({ received: true });
         } catch (disputeErr: any) {
           console.error("[StripeWebhook] Dispute handling error:", disputeErr.message);
+        }
+      }
+
+      // Forward subscription-related events to subscription handler
+      const SUBSCRIPTION_EVENTS = [
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+        "invoice.paid",
+        "invoice.payment_failed",
+      ];
+      const isSubscriptionCheckout = event.type === "checkout.session.completed" && event.data?.object?.mode === "subscription";
+      if (SUBSCRIPTION_EVENTS.includes(event.type) || isSubscriptionCheckout) {
+        try {
+          const { handleSubscriptionWebhook } = await import("../services/subscriptionService");
+          await handleSubscriptionWebhook(event);
+          await storage.updateStripeWebhookEvent(event.id, "PROCESSED", `Handled by subscription handler: ${event.type}`);
+          return res.status(200).json({ received: true });
+        } catch (subErr: any) {
+          console.error(`[StripeWebhook] Subscription handler error for ${event.type}:`, subErr.message);
+          await storage.updateStripeWebhookEvent(event.id, "FAILED", subErr.message);
+          return res.status(200).json({ received: true });
         }
       }
 

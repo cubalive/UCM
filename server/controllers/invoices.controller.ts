@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
 import { db } from "../db";
 import { eq, inArray, desc } from "drizzle-orm";
-import { trips, invoices, clinics as clinicsTable } from "@shared/schema";
+import { trips, invoices, clinics as clinicsTable, patients as patientsTable } from "@shared/schema";
 
 export async function getInvoicesHandler(req: AuthRequest, res: Response) {
   try {
@@ -369,15 +369,15 @@ export async function getWeeklyBillingPreviewHandler(req: AuthRequest, res: Resp
       }
     }
     const uninvoicedTrips = await storage.getUninvoicedCompletedTrips(clinicId, startDate, endDate, previewCompanyId);
-    const patients = new Map<number, any>();
-    for (const t of uninvoicedTrips) {
-      if (!patients.has(t.patientId)) {
-        const p = await storage.getPatient(t.patientId);
-        if (p) patients.set(t.patientId, p);
-      }
+    const patientIds = [...new Set(uninvoicedTrips.filter(t => t.patientId).map(t => t.patientId))];
+    const patientMap = new Map<number, { firstName: string; lastName: string }>();
+    if (patientIds.length > 0) {
+      const rows = await db.select({ id: patientsTable.id, firstName: patientsTable.firstName, lastName: patientsTable.lastName })
+        .from(patientsTable).where(inArray(patientsTable.id, patientIds));
+      for (const p of rows) patientMap.set(p.id, p);
     }
     const tripsWithPatient = uninvoicedTrips.map((t: any) => {
-      const p = patients.get(t.patientId);
+      const p = patientMap.get(t.patientId);
       return { ...t, patientName: p ? `${p.firstName} ${p.lastName}` : "Unknown" };
     });
     res.json({ trips: tripsWithPatient, count: tripsWithPatient.length });

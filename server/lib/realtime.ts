@@ -84,8 +84,12 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
       }
       try {
         const msg = JSON.parse(raw.toString());
-        handleMessage(ws, msg);
-      } catch {}
+        handleMessage(ws, msg).catch((err) => {
+          console.warn(`[WS] handleMessage error: ${err.message}`);
+        });
+      } catch {
+        // Invalid JSON — ignore malformed messages
+      }
     });
 
     ws.on("close", () => {
@@ -101,7 +105,7 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
       try {
         const { cleanupChannelSubscriptions } = require("./tripTransitionHelper");
         cleanupChannelSubscriptions(ws);
-      } catch {}
+      } catch (e) { console.warn("[WS] cleanupChannelSubscriptions failed:", e); }
     });
 
     ws.send(JSON.stringify({ type: "connected", ts: Date.now() }));
@@ -124,11 +128,27 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
   return wss;
 }
 
-function handleMessage(ws: WebSocket, msg: any): void {
+async function handleMessage(ws: WebSocket, msg: any): Promise<void> {
   switch (msg.type) {
     case "subscribe_trip": {
       const tripId = parseInt(msg.tripId);
       if (isNaN(tripId)) return;
+      const tripUser = (ws as any)._user;
+      if (!tripUser) return;
+      // Company-scoped users can only subscribe to trips from their company
+      // Ownership check is async; verify trip belongs to user's company
+      if (tripUser.role !== "SUPER_ADMIN" && tripUser.companyId) {
+        try {
+          const { db } = require("../db");
+          const { trips } = require("@shared/schema");
+          const { eq } = require("drizzle-orm");
+          const [trip] = await db.select({ companyId: trips.companyId }).from(trips).where(eq(trips.id, tripId));
+          if (trip && trip.companyId !== tripUser.companyId) {
+            ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+            return;
+          }
+        } catch (e) { console.warn("[WS] subscribe_trip ownership check failed:", e); }
+      }
       subscribeToTrip(ws, tripId);
       ws.send(JSON.stringify({ type: "subscribed", tripId }));
       break;
@@ -178,6 +198,19 @@ function handleMessage(ws: WebSocket, msg: any): void {
           ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
           return;
         }
+        // Company users: verify clinic belongs to their company
+        if (isCompanyUser && user.companyId) {
+          try {
+            const { db } = require("../db");
+            const { clinics } = require("@shared/schema");
+            const { eq } = require("drizzle-orm");
+            const [clinic] = await db.select({ companyId: clinics.companyId }).from(clinics).where(eq(clinics.id, clinicId));
+            if (clinic && clinic.companyId !== user.companyId) {
+              ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+              return;
+            }
+          } catch (e) { console.warn("[WS] subscribe_clinic ownership check failed:", e); }
+        }
       }
       const { subscribeToClinicChannel } = require("./tripTransitionHelper");
       subscribeToClinicChannel(ws, clinicId);
@@ -197,7 +230,27 @@ function handleMessage(ws: WebSocket, msg: any): void {
       if (!user) return;
       const driverId = parseInt(msg.driverId);
       if (isNaN(driverId)) return;
-      if (user.role !== "SUPER_ADMIN" && user.role !== "DRIVER") {
+      if (user.role === "SUPER_ADMIN") {
+        // Super admin can subscribe to any driver
+      } else if (user.role === "DRIVER") {
+        // Drivers can only subscribe to their own channel
+        if (user.driverId && user.driverId !== driverId) {
+          ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+          return;
+        }
+      } else if (["ADMIN", "COMPANY_ADMIN", "DISPATCH"].includes(user.role)) {
+        // Company users can subscribe to drivers in their company
+        try {
+          const { db } = require("../db");
+          const { drivers } = require("@shared/schema");
+          const { eq } = require("drizzle-orm");
+          const [driver] = await db.select({ companyId: drivers.companyId }).from(drivers).where(eq(drivers.id, driverId));
+          if (driver && user.companyId && driver.companyId !== user.companyId) {
+            ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+            return;
+          }
+        } catch (e) { console.warn("[WS] subscribe_driver ownership check failed:", e); }
+      } else {
         ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
         return;
       }

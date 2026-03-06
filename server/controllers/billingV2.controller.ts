@@ -240,7 +240,8 @@ export async function backfillBillingHandler(req: AuthRequest, res: Response) {
           await upsertTripBillingRows(lines);
           processed++;
         }
-      } catch {
+      } catch (e: any) {
+        console.warn(`[BILLING] computeTripBilling failed for trip ${t.id}:`, e.message);
         errors++;
       }
     }
@@ -366,33 +367,42 @@ export async function clinicGetInvoiceHandler(req: AuthRequest, res: Response) {
       .where(eq(billingCycleInvoiceItems.invoiceId, invoiceId))
       .orderBy(asc(billingCycleInvoiceItems.createdAt));
 
-    const enrichedItems = [];
-    for (const item of items) {
-      let tripRow = null;
-      if (item.tripId) {
-        tripRow = await db.select({
-          publicId: trips.publicId,
-          pickupAddress: trips.pickupAddress,
-          dropoffAddress: trips.dropoffAddress,
-          scheduledDate: trips.scheduledDate,
-          pickupTime: trips.pickupTime,
-          status: trips.status,
-          distanceMiles: trips.distanceMiles,
-          actualDistanceSource: trips.actualDistanceSource,
-          durationMinutes: trips.durationMinutes,
-          mobilityRequirement: trips.mobilityRequirement,
-          sharedGroupId: trips.sharedGroupId,
-          sharedPassengerCount: trips.sharedPassengerCount,
-        }).from(trips).where(eq(trips.id, item.tripId)).then(r => r[0]);
-      }
-      let patientName = "Unknown";
-      if (item.patientId) {
-        const p = await db.select({ firstName: patients.firstName, lastName: patients.lastName })
-          .from(patients).where(eq(patients.id, item.patientId)).then(r => r[0]);
-        if (p) patientName = `${p.firstName} ${p.lastName}`;
-      }
-      enrichedItems.push({ ...item, trip: tripRow, patientName });
+    // Batch-load trips and patients to avoid N+1 queries
+    const tripIds = [...new Set(items.filter(i => i.tripId).map(i => i.tripId!))];
+    const patientIds = [...new Set(items.filter(i => i.patientId).map(i => i.patientId!))];
+
+    const tripMap = new Map<number, any>();
+    if (tripIds.length > 0) {
+      const tripRows = await db.select({
+        id: trips.id,
+        publicId: trips.publicId,
+        pickupAddress: trips.pickupAddress,
+        dropoffAddress: trips.dropoffAddress,
+        scheduledDate: trips.scheduledDate,
+        pickupTime: trips.pickupTime,
+        status: trips.status,
+        distanceMiles: trips.distanceMiles,
+        actualDistanceSource: trips.actualDistanceSource,
+        durationMinutes: trips.durationMinutes,
+        mobilityRequirement: trips.mobilityRequirement,
+        sharedGroupId: trips.sharedGroupId,
+        sharedPassengerCount: trips.sharedPassengerCount,
+      }).from(trips).where(inArray(trips.id, tripIds));
+      for (const t of tripRows) tripMap.set(t.id, t);
     }
+
+    const patientMap = new Map<number, string>();
+    if (patientIds.length > 0) {
+      const patientRows = await db.select({ id: patients.id, firstName: patients.firstName, lastName: patients.lastName })
+        .from(patients).where(inArray(patients.id, patientIds));
+      for (const p of patientRows) patientMap.set(p.id, `${p.firstName} ${p.lastName}`);
+    }
+
+    const enrichedItems = items.map(item => ({
+      ...item,
+      trip: item.tripId ? tripMap.get(item.tripId) || null : null,
+      patientName: item.patientId ? patientMap.get(item.patientId) || "Unknown" : "Unknown",
+    }));
 
     const company = await db.select({ dispatchPhone: companies.dispatchPhone, dispatchChatEnabled: companies.dispatchChatEnabled, dispatchCallEnabled: companies.dispatchCallEnabled })
       .from(companies).where(eq(companies.id, ctx.companyId)).then(r => r[0]);

@@ -249,8 +249,12 @@ export async function transitionTripStatus(
     },
   };
 
-  try { broadcastToTrip(tripId, broadcastPayload); } catch {}
-  try { await broadcastTripSupabase(tripId, broadcastPayload); } catch {}
+  try { broadcastToTrip(tripId, broadcastPayload); } catch (err: any) {
+    console.warn(`[TRANSITION] WS broadcast failed for trip ${tripId}: ${err.message}`);
+  }
+  try { await broadcastTripSupabase(tripId, broadcastPayload); } catch (err: any) {
+    console.warn(`[TRANSITION] Supabase broadcast failed for trip ${tripId}: ${err.message}`);
+  }
 
   try {
     const { emitEvent } = await import("./eventBus");
@@ -273,7 +277,9 @@ export async function transitionTripStatus(
       await emitEvent("trip.assigned", eventPayload, `trip.assigned:${tripId}:${updatedTrip.driverId}`);
     }
     await emitEvent("trip.status_changed", eventPayload, `trip.status:${tripId}:${previousStatus}:${nextStatus}:${Date.now()}`);
-  } catch {}
+  } catch (err: any) {
+    console.warn(`[TRANSITION] EventBus emit failed for trip ${tripId}: ${err.message}`);
+  }
 
   // Webhook dispatch for trip status events
   try {
@@ -294,7 +300,9 @@ export async function transitionTripStatus(
         publicId: updatedTrip.publicId,
       });
     }
-  } catch {}
+  } catch (err: any) {
+    console.warn(`[TRANSITION] Webhook dispatch failed for trip ${tripId}: ${err.message}`);
+  }
 
   broadcastCompanyTripUpdate(updatedTrip.companyId, {
     tripId,
@@ -326,7 +334,9 @@ export async function transitionTripStatus(
     if (nextStatus === "PICKED_UP") await autoNotifyPatient(tripId, "picked_up");
     if (nextStatus === "CANCELLED") await autoNotifyPatient(tripId, "canceled");
     if (nextStatus === "COMPLETED") await autoNotifyPatient(tripId, "completed");
-  } catch {}
+  } catch (err: any) {
+    console.warn(`[TRANSITION] SMS notification failed for trip ${tripId}: ${err.message}`);
+  }
 
   if (nextStatus === "COMPLETED") {
     import("./gpsPingQuality").then(({ saveTripPingQuality }) => {
@@ -343,7 +353,9 @@ export async function transitionTripStatus(
       try {
         const { autoBillingClassify } = await import("./clinicBillingRoutes");
         await autoBillingClassify(updatedTrip);
-      } catch {}
+      } catch (err: any) {
+        console.warn(`[TRANSITION] Auto billing classify failed for trip ${tripId}: ${err.message}`);
+      }
     }
 
     if (nextStatus === "COMPLETED") {
@@ -366,7 +378,9 @@ export async function transitionTripStatus(
       try {
         const { computeTripBilling } = await import("./clinicBillingRoutes");
         await computeTripBilling(tripId);
-      } catch {}
+      } catch (err: any) {
+        console.warn(`[TRANSITION] Clinic billing computation failed for trip ${tripId}: ${err.message}`);
+      }
 
       try {
         const { processTripFinancials } = await import("../services/financialEngine");

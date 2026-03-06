@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, getUserCityIds, type AuthRequest } from "../auth";
-import { insertTripSchema, drivers, vehicles, trips, tripMessages, recurringSchedules, driverOffers, invoices, tripPdfs, tripBilling, tripLocationPoints } from "@shared/schema";
+import { insertTripSchema, drivers, vehicles, trips, tripMessages, recurringSchedules, driverOffers, invoices, tripPdfs, tripBilling, tripLocationPoints, patients, clinics } from "@shared/schema";
 import { VALID_TRANSITIONS, STATUS_TIMESTAMP_MAP } from "@shared/tripStateMachine";
 import { db } from "../db";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
@@ -126,6 +126,8 @@ export async function generateRecurringSchedulesHandler(req: AuthRequest, res: R
 }
 
 export async function enrichTripsWithRelations(tripList: any[]) {
+  if (tripList.length === 0) return [];
+
   const allCities = await storage.getCities();
   const cityMap = new Map(allCities.map(c => [c.id, c]));
 
@@ -137,11 +139,44 @@ export async function enrichTripsWithRelations(tripList: any[]) {
     : [];
   const acceptedMap = new Map(acceptedOffers.filter(o => o.acceptedAt).map(o => [o.tripId, o.acceptedAt]));
 
-  return Promise.all(tripList.map(async (t) => {
-    const patient = t.patientId ? await storage.getPatient(t.patientId) : null;
-    const clinic = t.clinicId ? await storage.getClinic(t.clinicId) : null;
-    const driver = t.driverId ? await storage.getDriver(t.driverId) : null;
-    const vehicle = driver?.vehicleId ? await storage.getVehicle(driver.vehicleId) : (t.vehicleId ? await storage.getVehicle(t.vehicleId) : null);
+  // Batch-load all related entities to avoid N+1 queries
+  const patientIds = [...new Set(tripList.map(t => t.patientId).filter(Boolean))];
+  const clinicIds = [...new Set(tripList.map(t => t.clinicId).filter(Boolean))];
+  const driverIds = [...new Set(tripList.map(t => t.driverId).filter(Boolean))];
+
+  const [patientRows, clinicRows, driverRows] = await Promise.all([
+    patientIds.length > 0
+      ? db.select({ id: patients.id, firstName: patients.firstName, lastName: patients.lastName }).from(patients).where(inArray(patients.id, patientIds))
+      : [],
+    clinicIds.length > 0
+      ? db.select({ id: clinics.id, name: clinics.name }).from(clinics).where(inArray(clinics.id, clinicIds))
+      : [],
+    driverIds.length > 0
+      ? db.select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName, phone: drivers.phone, lastLat: drivers.lastLat, lastLng: drivers.lastLng, lastSeenAt: drivers.lastSeenAt, vehicleId: drivers.vehicleId }).from(drivers).where(inArray(drivers.id, driverIds))
+      : [],
+  ]);
+
+  const patientMap = new Map(patientRows.map(p => [p.id, p]));
+  const clinicMap = new Map(clinicRows.map(c => [c.id, c]));
+  const driverMap = new Map(driverRows.map(d => [d.id, d]));
+
+  // Collect vehicle IDs from drivers and trips
+  const vehicleIds = new Set<number>();
+  for (const t of tripList) {
+    const driver = t.driverId ? driverMap.get(t.driverId) : null;
+    if (driver?.vehicleId) vehicleIds.add(driver.vehicleId);
+    else if (t.vehicleId) vehicleIds.add(t.vehicleId);
+  }
+  const vehicleRows = vehicleIds.size > 0
+    ? await db.select().from(vehicles).where(inArray(vehicles.id, [...vehicleIds]))
+    : [];
+  const vehicleMap = new Map(vehicleRows.map(v => [v.id, v]));
+
+  return tripList.map((t) => {
+    const patient = t.patientId ? patientMap.get(t.patientId) : null;
+    const clinic = t.clinicId ? clinicMap.get(t.clinicId) : null;
+    const driver = t.driverId ? driverMap.get(t.driverId) : null;
+    const vehicle = driver?.vehicleId ? vehicleMap.get(driver.vehicleId) : (t.vehicleId ? vehicleMap.get(t.vehicleId) : null);
     const city = cityMap.get(t.cityId);
     const offerAcceptedAt = acceptedMap.get(t.id);
     return {
@@ -155,13 +190,13 @@ export async function enrichTripsWithRelations(tripList: any[]) {
       driverLastSeenAt: driver?.lastSeenAt || null,
       vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
       vehicleType: vehicle?.capability || null,
-      vehicleColor: vehicle?.colorHex || null,
+      vehicleColor: (vehicle as any)?.colorHex || null,
       vehicleMake: vehicle?.make || null,
       vehicleModel: vehicle?.model || null,
       cityName: city?.name || null,
       acceptedAt: offerAcceptedAt ? new Date(offerAcceptedAt).toISOString() : null,
     };
-  }));
+  });
 }
 
 export async function assignTripHandler(req: AuthRequest, res: Response) {
@@ -311,7 +346,12 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
       }
     }
 
-    const [updatedTrip] = await db.update(trips).set(updateData).where(eq(trips.id, id)).returning();
+    const [updatedTrip] = await db.update(trips).set(updateData).where(
+      and(eq(trips.id, id), eq(trips.status, trip.status))
+    ).returning();
+    if (!updatedTrip) {
+      return res.status(409).json({ message: "Trip was modified concurrently. Please refresh and try again." });
+    }
 
     import("../lib/realtime").then(({ broadcastToTrip }) => {
       broadcastToTrip(id, { type: "status_change", data: { status: "ASSIGNED", tripId: id } });

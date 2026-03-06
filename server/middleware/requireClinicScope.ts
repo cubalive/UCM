@@ -39,7 +39,10 @@ export function requireClinicScope(req: AuthRequest, res: Response, next: NextFu
           }
           next();
         })
-        .catch(() => next());
+        .catch((err) => {
+          console.error(`[requireClinicScope] DB error resolving clinic for companyId=${req.user!.companyId}: ${err.message}`);
+          next();
+        });
       return;
     }
     if (req.user.clinicId) {

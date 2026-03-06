@@ -2,7 +2,7 @@ import type { Response } from "express";
 import { storage } from "../storage";
 import { type AuthRequest } from "../auth";
 import { db } from "../db";
-import { trips, patients, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities } from "@shared/schema";
+import { trips, patients, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities, drivers, vehicles, clinics } from "@shared/schema";
 import { eq, and, isNull, inArray, desc, gte, sql, or } from "drizzle-orm";
 import { getClinicScopeId } from "../middleware/requireClinicScope";
 
@@ -39,6 +39,8 @@ function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: 
 }
 
 async function enrichTripsWithRelations(tripList: any[]) {
+  if (tripList.length === 0) return [];
+
   const allCities = await storage.getCities();
   const cityMap = new Map(allCities.map(c => [c.id, c]));
 
@@ -50,11 +52,43 @@ async function enrichTripsWithRelations(tripList: any[]) {
     : [];
   const acceptedMap = new Map(acceptedOffers.filter(o => o.acceptedAt).map(o => [o.tripId, o.acceptedAt]));
 
-  return Promise.all(tripList.map(async (t) => {
-    const patient = t.patientId ? await storage.getPatient(t.patientId) : null;
-    const clinic = t.clinicId ? await storage.getClinic(t.clinicId) : null;
-    const driver = t.driverId ? await storage.getDriver(t.driverId) : null;
-    const vehicle = driver?.vehicleId ? await storage.getVehicle(driver.vehicleId) : (t.vehicleId ? await storage.getVehicle(t.vehicleId) : null);
+  // Batch-load all related entities to avoid N+1 queries
+  const patientIds = [...new Set(tripList.map(t => t.patientId).filter(Boolean))];
+  const clinicIds = [...new Set(tripList.map(t => t.clinicId).filter(Boolean))];
+  const driverIds = [...new Set(tripList.map(t => t.driverId).filter(Boolean))];
+
+  const [patientRows, clinicRows, driverRows] = await Promise.all([
+    patientIds.length > 0
+      ? db.select({ id: patients.id, firstName: patients.firstName, lastName: patients.lastName }).from(patients).where(inArray(patients.id, patientIds))
+      : [],
+    clinicIds.length > 0
+      ? db.select({ id: clinics.id, name: clinics.name }).from(clinics).where(inArray(clinics.id, clinicIds))
+      : [],
+    driverIds.length > 0
+      ? db.select({ id: drivers.id, firstName: drivers.firstName, lastName: drivers.lastName, phone: drivers.phone, lastLat: drivers.lastLat, lastLng: drivers.lastLng, lastSeenAt: drivers.lastSeenAt, vehicleId: drivers.vehicleId }).from(drivers).where(inArray(drivers.id, driverIds))
+      : [],
+  ]);
+
+  const patientMap = new Map(patientRows.map(p => [p.id, p]));
+  const clinicMap = new Map(clinicRows.map(c => [c.id, c]));
+  const driverMap = new Map(driverRows.map(d => [d.id, d]));
+
+  const vehicleIdsSet = new Set<number>();
+  for (const t of tripList) {
+    const driver = t.driverId ? driverMap.get(t.driverId) : null;
+    if (driver?.vehicleId) vehicleIdsSet.add(driver.vehicleId);
+    else if (t.vehicleId) vehicleIdsSet.add(t.vehicleId);
+  }
+  const vehicleRows = vehicleIdsSet.size > 0
+    ? await db.select().from(vehicles).where(inArray(vehicles.id, [...vehicleIdsSet]))
+    : [];
+  const vehicleMap = new Map(vehicleRows.map(v => [v.id, v]));
+
+  return tripList.map((t) => {
+    const patient = t.patientId ? patientMap.get(t.patientId) : null;
+    const clinic = t.clinicId ? clinicMap.get(t.clinicId) : null;
+    const driver = t.driverId ? driverMap.get(t.driverId) : null;
+    const vehicle = driver?.vehicleId ? vehicleMap.get(driver.vehicleId) : (t.vehicleId ? vehicleMap.get(t.vehicleId) : null);
     const city = cityMap.get(t.cityId);
     const offerAcceptedAt = acceptedMap.get(t.id);
     return {
@@ -67,14 +101,14 @@ async function enrichTripsWithRelations(tripList: any[]) {
       driverLastLng: driver?.lastLng || null,
       driverLastSeenAt: driver?.lastSeenAt || null,
       vehicleLabel: vehicle ? `${vehicle.name} (${vehicle.licensePlate})` : null,
-      vehicleType: (vehicle as any)?.type || null,
-      vehicleColor: (vehicle as any)?.color || null,
+      vehicleType: vehicle?.capability || null,
+      vehicleColor: (vehicle as any)?.colorHex || null,
       vehicleMake: vehicle?.make || null,
       vehicleModel: vehicle?.model || null,
       cityName: city?.name || null,
       acceptedAt: offerAcceptedAt ? new Date(offerAcceptedAt).toISOString() : null,
     };
-  }));
+  });
 }
 
 function buildProgressEvents(tripData: any): Array<{key: string; label: string; at: string; meta?: {reason?: string}}> {
@@ -1687,7 +1721,7 @@ export async function clinicCapacityForecastHandler(req: AuthRequest, res: Respo
     const forecast = await getClinicForecast(effectiveClinicId);
     const capacity = await getClinicCapacityForecast(effectiveClinicId, forecast);
 
-    try { await saveClinicForecastSnapshot(effectiveClinicId); } catch (_) {}
+    try { await saveClinicForecastSnapshot(effectiveClinicId); } catch (e) { console.warn("saveClinicForecastSnapshot failed:", e); }
 
     res.json({ ok: true, ...capacity });
   } catch (err: any) {

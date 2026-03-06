@@ -164,12 +164,16 @@ export async function stopSchedulers(): Promise<void> {
     stopOrchestrator();
     stopRoutesWorker();
     stopBreadcrumbFlusher();
-  } catch {}
+  } catch (err: any) {
+    console.warn(`[SCHEDULER] Error stopping orchestrator/workers: ${err.message}`);
+  }
 
   try {
     const { stopLeaderElection } = await import("./leaderElection");
     await stopLeaderElection();
-  } catch {}
+  } catch (err: any) {
+    console.warn(`[SCHEDULER] Error stopping leader election: ${err.message}`);
+  }
 
   schedulersStarted = false;
 }

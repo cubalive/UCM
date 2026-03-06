@@ -14,10 +14,12 @@ RUN npm run build
 
 FROM base AS runtime
 ENV NODE_ENV=production
+RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001 -G appgroup
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/shared ./shared
 COPY package.json ./
+USER appuser
 
 EXPOSE 5000
 CMD ["node", "dist/index.cjs"]

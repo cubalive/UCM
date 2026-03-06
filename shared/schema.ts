@@ -149,7 +149,11 @@ export const users = pgTable("users", {
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_users_company_id").on(table.companyId),
+  index("idx_users_role").on(table.role),
+  index("idx_users_clinic_id").on(table.clinicId),
+]);
 
 export const userCityAccess = pgTable("user_city_access", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -209,7 +213,10 @@ export const vehicles = pgTable("vehicles", {
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_vehicles_company_id").on(table.companyId),
+  index("idx_vehicles_city_id").on(table.cityId),
+]);
 
 export const drivers = pgTable("drivers", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -244,7 +251,11 @@ export const drivers = pgTable("drivers", {
   preferredServiceTypes: text("preferred_service_types").array(),
   updatedAt: timestamp("updated_at").defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_drivers_company_id").on(table.companyId),
+  index("idx_drivers_city_id").on(table.cityId),
+  index("idx_drivers_dispatch_status").on(table.dispatchStatus),
+]);
 
 export const clinics = pgTable("clinics", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -273,7 +284,10 @@ export const clinics = pgTable("clinics", {
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_clinics_company_id").on(table.companyId),
+  index("idx_clinics_city_id").on(table.cityId),
+]);
 
 export const patients = pgTable("patients", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -307,7 +321,11 @@ export const patients = pgTable("patients", {
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_patients_company_id").on(table.companyId),
+  index("idx_patients_clinic_id").on(table.clinicId),
+  index("idx_patients_city_id").on(table.cityId),
+]);
 
 export const trips = pgTable("trips", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -463,6 +481,7 @@ export const trips = pgTable("trips", {
   index("idx_trips_clinic_status").on(table.clinicId, table.status),
   index("idx_trips_status_deleted").on(table.status, table.deletedAt),
   index("idx_trips_company_date").on(table.companyId, table.scheduledDate, table.deletedAt),
+  index("idx_trips_city_status").on(table.cityId, table.status),
 ]);
 
 export const tripLocationPoints = pgTable("trip_location_points", {

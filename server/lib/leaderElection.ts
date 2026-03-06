@@ -42,7 +42,9 @@ async function tryAcquireLeadership(): Promise<boolean> {
           ts: new Date().toISOString(),
         }));
         for (const cb of onAcquiredCallbacks) {
-          try { cb(); } catch {}
+          try { cb(); } catch (err: any) {
+            console.error(`[LEADER] onAcquired callback error: ${err.message}`);
+          }
         }
       }
       startRenewal();
@@ -93,7 +95,9 @@ function handleLeadershipLost(reason: string): void {
   stopRenewal();
 
   for (const cb of onLostCallbacks) {
-    try { cb(); } catch {}
+    try { cb(); } catch (err: any) {
+      console.error(`[LEADER] onLost callback error: ${err.message}`);
+    }
   }
 }
 
@@ -146,7 +150,7 @@ export async function stopLeaderElection(): Promise<void> {
         instanceId,
         ts: new Date().toISOString(),
       }));
-    } catch {}
+    } catch (e) { console.warn("[LEADER] release error:", e); }
   }
 
   isLeader = false;
@@ -162,7 +166,7 @@ export async function getLeaderInfo(): Promise<{
   let currentLeader: string | null = null;
   try {
     currentLeader = await getString(LEADER_KEY);
-  } catch {}
+  } catch (e) { console.warn("[LEADER] getLeaderInfo error:", e); }
 
   return {
     currentLeader,

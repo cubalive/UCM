@@ -188,6 +188,8 @@ export function registerSubscriptionWebhook(app: express.Express) {
     }
   };
 
-  app.post("/api/stripe/webhook", webhookHandler);
+  // NOTE: /api/stripe/webhook is handled by the universal handler in stripeConnectRoutes.ts
+  // which already forwards subscription events to handleSubscriptionWebhook().
+  // Only register the dedicated subscription-specific path here.
   app.post("/api/webhooks/stripe/subscription", webhookHandler);
 }

@@ -514,6 +514,11 @@ export function registerDriverLocationRoutes(app: Express): void {
           return res.status(403).json({ ok: false, message: "Access denied" });
         }
 
+        // DRIVER role can only post location for their own driverId
+        if (req.user?.role === "DRIVER" && req.user.driverId && req.user.driverId !== driverId) {
+          return res.status(403).json({ ok: false, message: "Drivers can only update their own location" });
+        }
+
         if (checkSpam(driverId)) {
           recordRejectedRateLimit();
           return res.status(429).json({ ok: false, message: "Too many requests — rate limited", reason: "spam_detected" });

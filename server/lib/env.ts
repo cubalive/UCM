@@ -71,6 +71,10 @@ export function validateEnvAtBoot(): void {
     if (!process.env.GOOGLE_MAPS_API_KEY) warnings.push("GOOGLE_MAPS_API_KEY (routing/ETA disabled)");
     if (!process.env.UPSTASH_REDIS_REST_URL) warnings.push("UPSTASH_REDIS_REST_URL (using in-memory fallback — no distributed locking)");
     if (!process.env.PUBLIC_BASE_URL) warnings.push("PUBLIC_BASE_URL (email links may break)");
+    if (!process.env.SENTRY_DSN) warnings.push("SENTRY_DSN (error tracking disabled — production errors will go unreported)");
+    if (!process.env.RESEND_API_KEY) warnings.push("RESEND_API_KEY (email sending disabled)");
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) warnings.push("TWILIO_ACCOUNT_SID/AUTH_TOKEN (SMS disabled)");
+    if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) warnings.push("FIREBASE_SERVICE_ACCOUNT_JSON (push notifications disabled)");
   }
 
   if (missing.length > 0) {
