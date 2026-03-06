@@ -456,7 +456,14 @@ export const trips = pgTable("trips", {
   timeline: jsonb("timeline").default(sql`'[]'::jsonb`),
   lastLocationAt: timestamp("last_location_at"),
   tripTimezone: text("trip_timezone").notNull().default("America/Chicago"),
-});
+}, (table) => [
+  index("idx_trips_company_status").on(table.companyId, table.status),
+  index("idx_trips_driver_status").on(table.driverId, table.status),
+  index("idx_trips_scheduled_date").on(table.scheduledDate, table.status),
+  index("idx_trips_clinic_status").on(table.clinicId, table.status),
+  index("idx_trips_status_deleted").on(table.status, table.deletedAt),
+  index("idx_trips_company_date").on(table.companyId, table.scheduledDate, table.deletedAt),
+]);
 
 export const tripLocationPoints = pgTable("trip_location_points", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

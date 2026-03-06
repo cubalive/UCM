@@ -1057,8 +1057,13 @@ httpServer.on("error", (err: any) => {
       }
     } catch {}
 
-    httpServer.close(() => {
-      console.log(JSON.stringify({ event: "http_server_closed", ts: new Date().toISOString() }));
+    await new Promise<void>((resolve) => {
+      httpServer.close(() => {
+        console.log(JSON.stringify({ event: "http_server_closed", ts: new Date().toISOString() }));
+        resolve();
+      });
+      // If server doesn't close in 5s, continue shutdown anyway
+      setTimeout(resolve, 5_000);
     });
 
     try {
@@ -1067,10 +1072,8 @@ httpServer.on("error", (err: any) => {
       console.log(JSON.stringify({ event: "db_pool_closed", ts: new Date().toISOString() }));
     } catch {}
 
-    setTimeout(() => {
-      console.log(JSON.stringify({ event: "forced_exit", ts: new Date().toISOString() }));
-      process.exit(1);
-    }, 10_000).unref();
+    console.log(JSON.stringify({ event: "shutdown_complete", ts: new Date().toISOString() }));
+    process.exit(0);
   }
 
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
