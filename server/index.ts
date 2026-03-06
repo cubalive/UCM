@@ -76,7 +76,7 @@ app.use(
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "256kb" }));
 
 // Liveness probe — returns 200 immediately, no auth, no DB dependency.
 // Use this as Railway/k8s healthcheck. Registered synchronously so it works

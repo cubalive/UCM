@@ -106,7 +106,7 @@ export async function loginJwtHandler(req: Request, res: Response) {
 
     const valid = await comparePassword(parsed.data.password, user.password);
     if (!valid) {
-      console.warn(`[AUTH] login-jwt: password mismatch userId=${user.id} email="${normalizedEmail}" hashPrefix="${user.password?.substring(0, 7)}"`);
+      console.warn(`[AUTH] login-jwt: password mismatch userId=${user.id} email="${normalizedEmail}"`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 

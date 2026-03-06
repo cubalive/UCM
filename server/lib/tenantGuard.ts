@@ -38,6 +38,7 @@ export function tenantGuard(req: AuthRequest, res: Response, next: NextFunction)
       const parsed = parseInt(String(headerVal), 10);
       if (!isNaN(parsed) && parsed > 0) {
         (req as any).companyId = parsed;
+        console.info(`[TENANT] SUPER_ADMIN userId=${req.user.userId} override companyId=${parsed} path=${req.path}`);
       }
     }
     return next();
@@ -74,6 +75,7 @@ export function requireCompanyId(req: AuthRequest, res: Response, next: NextFunc
       const parsed = parseInt(String(headerVal), 10);
       if (!isNaN(parsed) && parsed > 0) {
         (req as any).companyId = parsed;
+        console.info(`[TENANT] SUPER_ADMIN userId=${req.user.userId} override companyId=${parsed} path=${req.path}`);
       }
     }
     return next();
