@@ -126,7 +126,7 @@ router.get("/api/ops/queue-stats", authMiddleware, requireRole("SUPER_ADMIN", "A
 router.get("/api/ops/system-events", authMiddleware, requireRole("SUPER_ADMIN"), systemEventsHandler as any);
 router.get("/api/ops/jobs", authMiddleware, requirePermission("dashboard", "read"), opsJobsHandler as any);
 router.get("/api/debug/email-health", authMiddleware, requireRole("SUPER_ADMIN"), debugEmailHealthHandler as any);
-router.get("/api/health/email", healthEmailHandler as any);
+router.get("/api/health/email", authMiddleware, requireRole("SUPER_ADMIN"), healthEmailHandler as any);
 
 router.get("/api/admin/company-cities", authMiddleware, requireRole("SUPER_ADMIN"), getAllCompanyCitiesHandler as any);
 router.get("/api/admin/companies/:companyId/cities", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"), getCompanyCitiesHandler as any);
