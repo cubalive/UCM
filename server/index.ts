@@ -774,6 +774,9 @@ app.use((req, res, next) => {
 
   app.get("/api/boot", (_req, res) => {
     res.json({
+      status: "ok",
+      service: "ucm-api",
+      uptime: process.uptime(),
       nodeEnv: process.env.NODE_ENV || "undefined",
       appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
       dbSource: getDbSource(),
@@ -784,6 +787,10 @@ app.use((req, res, next) => {
       trustProxy: IS_PROD,
       timestamp: new Date().toISOString(),
     });
+  });
+
+  app.get("/health", (_req, res) => {
+    res.json({ status: "ok" });
   });
 
   app.get("/api/system/origins", (_req, res) => {

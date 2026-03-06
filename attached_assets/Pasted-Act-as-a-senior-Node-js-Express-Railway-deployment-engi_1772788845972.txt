@@ -1,0 +1,71 @@
+Act as a senior Node.js + Express + Railway deployment engineer.
+
+Project: UCM (United Care Mobility), a production SaaS backend for NEMT dispatch.
+Environment: Replit development, Railway deployment, Supabase, Redis, Stripe, Twilio, Google Maps.
+
+Current issue:
+Railway deployment is failing healthchecks because Railway is checking:
+
+/api/boot
+
+and the service is returning unavailable.
+
+Your task is to FIX THIS DIRECTLY IN THE CODEBASE and leave the project ready to redeploy.
+
+Do all of the following:
+
+1. Inspect the Express server startup file and identify where routes and listen() are configured.
+
+2. Ensure the server binds correctly using:
+   const port = process.env.PORT || 5000
+   and listens on 0.0.0.0
+
+3. Add a health endpoint:
+   GET /api/boot
+   Response JSON:
+   {
+     "status": "ok",
+     "service": "ucm-api",
+     "uptime": process.uptime()
+   }
+
+4. Also add:
+   GET /health
+   returning:
+   {
+     "status": "ok"
+   }
+
+5. Make sure these endpoints are registered before static serving and before any catch-all 404 route.
+
+6. Verify that serveStatic or client asset loading does NOT crash the backend if dist/public is missing.
+   If the folder is missing, log a warning and continue booting.
+
+7. Verify that package.json scripts are valid for Railway:
+   - build
+   - start
+
+8. Verify Railway compatibility:
+   - server must boot even if frontend assets are missing
+   - no fatal crash during startup
+   - process must bind to Railway PORT
+
+9. Make only the minimal safe changes needed.
+   Do not refactor unrelated code.
+   Do not change business logic.
+   Do not change architecture.
+
+10. After changes:
+   - show me exactly which files were modified
+   - show me the code added/changed
+   - tell me the exact commands I should run next in Replit shell:
+     git add .
+     git commit -m "fix: add Railway health endpoints and stabilize startup"
+     git push origin HEAD
+     railway up
+
+11. If commit signing fails, instruct me to run:
+   git commit --no-gpg-sign -m "fix: add Railway health endpoints and stabilize startup"
+
+Important:
+Do the code changes now. Do not only explain. Apply them in the project.
