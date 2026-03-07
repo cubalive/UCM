@@ -16,8 +16,9 @@ import {
 } from "../services/tripService.js";
 import { autoAssignTrip } from "../services/autoAssignService.js";
 import { getDb } from "../db/index.js";
-import { tenants } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { tenants, trips } from "../db/schema.js";
+import { eq, and } from "drizzle-orm";
+import { getRoute, haversineEstimate } from "../services/routingService.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
@@ -232,6 +233,89 @@ router.post(
     } catch (err: any) {
       const status = err.message.includes("not found") ? 404 : 400;
       res.status(status).json({ error: err.message });
+    }
+  }
+);
+
+// Get driving route between trip pickup and dropoff
+router.get(
+  "/:id/route",
+  validateParams(uuidParam),
+  async (req: Request, res: Response) => {
+    try {
+      const trip = await getTripById(req.params.id as string, req.tenantId!);
+      if (!trip) {
+        res.status(404).json({ error: "Trip not found" });
+        return;
+      }
+
+      // Check DB-cached route first (valid for 30 min)
+      if (trip.routePolyline && trip.routeFetchedAt) {
+        const cacheAge = Date.now() - new Date(trip.routeFetchedAt).getTime();
+        if (cacheAge < 30 * 60 * 1000) {
+          res.json({
+            source: "google_directions",
+            distanceMiles: Number(trip.routeDistanceMiles),
+            durationMinutes: trip.routeDurationMinutes,
+            polyline: trip.routePolyline,
+            summary: "Cached route",
+          });
+          return;
+        }
+      }
+
+      const pickupLat = trip.pickupLat ? Number(trip.pickupLat) : null;
+      const pickupLng = trip.pickupLng ? Number(trip.pickupLng) : null;
+      const dropoffLat = trip.dropoffLat ? Number(trip.dropoffLat) : null;
+      const dropoffLng = trip.dropoffLng ? Number(trip.dropoffLng) : null;
+
+      if (!pickupLat || !pickupLng || !dropoffLat || !dropoffLng) {
+        res.status(422).json({ error: "Trip missing coordinates" });
+        return;
+      }
+
+      // Try Google Directions API
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (apiKey) {
+        const route = await getRoute(pickupLat, pickupLng, dropoffLat, dropoffLng, apiKey);
+        if (route) {
+          // Cache route in DB (fire and forget)
+          const db = getDb();
+          db.update(trips)
+            .set({
+              routePolyline: route.polyline,
+              routeDistanceMiles: route.distanceMiles.toFixed(2),
+              routeDurationMinutes: route.durationMinutes,
+              routeFetchedAt: new Date(),
+              estimatedMiles: route.distanceMiles.toFixed(2),
+              estimatedMinutes: route.durationMinutes,
+            })
+            .where(and(eq(trips.id, req.params.id as string), eq(trips.tenantId, req.tenantId!)))
+            .catch(err => logger.warn("Failed to cache route", { error: (err as Error).message }));
+
+          res.json({
+            source: "google_directions",
+            distanceMiles: route.distanceMiles,
+            durationMinutes: route.durationMinutes,
+            polyline: route.polyline,
+            summary: route.summary,
+          });
+          return;
+        }
+      }
+
+      // Fallback to haversine estimate
+      const estimate = haversineEstimate(pickupLat, pickupLng, dropoffLat, dropoffLng);
+      res.json({
+        source: "haversine_estimate",
+        distanceMiles: estimate.distanceMiles,
+        durationMinutes: estimate.durationMinutes,
+        polyline: null,
+        summary: "Estimated (straight-line based)",
+      });
+    } catch (err: any) {
+      logger.error("Failed to get route", { error: err.message });
+      res.status(500).json({ error: "Failed to get route" });
     }
   }
 );

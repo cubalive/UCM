@@ -3,6 +3,7 @@ import { checkDbHealth } from "../db/index.js";
 import { checkRedisHealth } from "../lib/redis.js";
 import { checkStripeHealth } from "../lib/stripe.js";
 import { getConnectedStats, getOnlineDrivers } from "../services/realtimeService.js";
+import { collectMetrics, metricsToPrometheus } from "../services/metricsService.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
@@ -119,6 +120,29 @@ router.get("/health/pipeline", async (_req: Request, res: Response) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to get pipeline stats" });
+  }
+});
+
+// Full system metrics (JSON)
+router.get("/health/metrics", async (_req: Request, res: Response) => {
+  try {
+    const metrics = await collectMetrics();
+    res.json(metrics);
+  } catch (err: any) {
+    logger.error("Failed to collect metrics", { error: err.message });
+    res.status(500).json({ error: "Failed to collect metrics" });
+  }
+});
+
+// Prometheus-compatible metrics endpoint
+router.get("/health/prometheus", async (_req: Request, res: Response) => {
+  try {
+    const metrics = await collectMetrics();
+    res.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    res.send(metricsToPrometheus(metrics));
+  } catch (err: any) {
+    logger.error("Failed to export prometheus metrics", { error: err.message });
+    res.status(500).send("# Error collecting metrics\n");
   }
 });
 

@@ -18,6 +18,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
   SENTRY_DSN: z.string().optional(),
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

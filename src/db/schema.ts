@@ -105,6 +105,16 @@ export const trips = pgTable(
     estimatedMinutes: integer("estimated_minutes"),
     notes: text("notes"),
     metadata: jsonb("metadata").default({}),
+    // Route intelligence (cached from Google Directions)
+    routePolyline: text("route_polyline"),
+    routeDistanceMiles: decimal("route_distance_miles", { precision: 10, scale: 2 }),
+    routeDurationMinutes: integer("route_duration_minutes"),
+    routeFetchedAt: timestamp("route_fetched_at", { withTimezone: true }),
+    // ETA tracking
+    etaMinutes: integer("eta_minutes"),
+    etaUpdatedAt: timestamp("eta_updated_at", { withTimezone: true }),
+    // Vehicle preference
+    vehicleType: text("vehicle_type"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -300,6 +310,11 @@ export const driverStatus = pgTable(
     speed: integer("speed"),
     lastLocationAt: timestamp("last_location_at", { withTimezone: true }),
     lastManualOverride: timestamp("last_manual_override", { withTimezone: true }),
+    // Performance tracking for dispatch intelligence
+    avgCompletionMinutes: decimal("avg_completion_minutes", { precision: 10, scale: 1 }),
+    completedTrips30d: integer("completed_trips_30d").default(0),
+    onTimeRate: decimal("on_time_rate", { precision: 5, scale: 2 }),
+    declineRate7d: decimal("decline_rate_7d", { precision: 5, scale: 2 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

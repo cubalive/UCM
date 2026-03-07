@@ -3,6 +3,7 @@ import { tripApi, driverApi, earningsApi } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { DriverMap } from "../components/DriverMap";
 import { formatDateTime, formatDate } from "../lib/timezone";
+import { decodePolyline } from "../lib/polyline";
 
 type Trip = {
   id: string; status: string; priority: string;
@@ -51,6 +52,8 @@ export function DriverApp() {
   const [tab, setTab] = useState<"trip" | "earnings">("trip");
   const [earnings, setEarnings] = useState<any>(null);
   const [timezone, setTimezone] = useState("America/New_York");
+  const [routeCoords, setRouteCoords] = useState<[number, number][] | undefined>();
+  const [routeInfo, setRouteInfo] = useState<{ miles: number; minutes: number; source: string } | null>(null);
   const { connected, on, send } = useWebSocket();
   const locationInterval = useRef<number>();
   const prevTripIdRef = useRef<string | null>(null);
@@ -94,6 +97,35 @@ export function DriverApp() {
     ];
     return () => { unsubs.forEach(u => u()); clearTimeout(popupTimeoutRef.current); };
   }, [on, loadTrips]);
+
+  // Fetch driving route when active trip changes
+  useEffect(() => {
+    if (!activeTrip?.id || !activeTrip.pickupLat || !activeTrip.dropoffLat) {
+      setRouteCoords(undefined);
+      setRouteInfo(null);
+      return;
+    }
+    let cancelled = false;
+    tripApi.getRoute(activeTrip.id).then(data => {
+      if (cancelled) return;
+      if (data.polyline) {
+        setRouteCoords(decodePolyline(data.polyline));
+      } else {
+        // Fallback: straight line between pickup and dropoff
+        setRouteCoords([
+          [activeTrip.pickupLng!, activeTrip.pickupLat!],
+          [activeTrip.dropoffLng!, activeTrip.dropoffLat!],
+        ]);
+      }
+      setRouteInfo({ miles: data.distanceMiles, minutes: data.durationMinutes, source: data.source });
+    }).catch(() => {
+      if (!cancelled) {
+        setRouteCoords(undefined);
+        setRouteInfo(null);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [activeTrip?.id]);
 
   // Location tracking — adaptive interval: 5s during active trip, 15s when idle
   useEffect(() => {
@@ -244,6 +276,7 @@ export function DriverApp() {
               pickupLng={activeTrip?.pickupLng}
               dropoffLat={activeTrip?.dropoffLat}
               dropoffLng={activeTrip?.dropoffLng}
+              routeCoords={routeCoords}
             />
           </div>
 
@@ -278,10 +311,17 @@ export function DriverApp() {
                   </div>
                 </div>
 
-                {(activeTrip.estimatedMiles || activeTrip.mileage) && (
+                {(routeInfo || activeTrip.estimatedMiles || activeTrip.mileage) && (
                   <p className="text-sm text-gray mb-1" style={{ paddingLeft: "1.25rem" }}>
-                    {activeTrip.mileage ? `${activeTrip.mileage} mi` : `~${activeTrip.estimatedMiles} mi`}
-                    {activeTrip.estimatedMinutes ? ` / ~${activeTrip.estimatedMinutes} min` : ""}
+                    {routeInfo
+                      ? `${routeInfo.miles} mi / ~${routeInfo.minutes} min`
+                      : activeTrip.mileage
+                        ? `${activeTrip.mileage} mi`
+                        : `~${activeTrip.estimatedMiles} mi`}
+                    {!routeInfo && activeTrip.estimatedMinutes ? ` / ~${activeTrip.estimatedMinutes} min` : ""}
+                    {routeInfo?.source === "google_directions" && (
+                      <span className="text-xs ml-1" style={{ color: "var(--green-600)" }}>(driving route)</span>
+                    )}
                   </p>
                 )}
 

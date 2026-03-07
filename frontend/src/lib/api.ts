@@ -83,6 +83,13 @@ export const tripApi = {
   },
   accept: (id: string) => api.post<any>(`/trips/${id}/accept`),
   decline: (id: string, reason?: string) => api.post<any>(`/trips/${id}/decline`, { reason }),
+  getRoute: (id: string) => api.get<{
+    source: string;
+    distanceMiles: number;
+    durationMinutes: number;
+    polyline: string | null;
+    summary: string;
+  }>(`/trips/${id}/route`),
 };
 
 export const earningsApi = {

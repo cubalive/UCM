@@ -9,17 +9,21 @@ type Props = {
   pickupLng?: number;
   dropoffLat?: number;
   dropoffLng?: number;
+  routeCoords?: [number, number][]; // [lng, lat] pairs for route polyline
 };
 
 const DEFAULT_CENTER: [number, number] = [-80.1918, 25.7617]; // Miami
 const STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const ROUTE_SOURCE = "route-line";
+const ROUTE_LAYER = "route-line-layer";
 
-export function DriverMap({ driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng }: Props) {
+export function DriverMap({ driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng, routeCoords }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
   const pickupMarkerRef = useRef<maplibregl.Marker | null>(null);
   const dropoffMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const mapLoadedRef = useRef(false);
 
   // Initialize map
   useEffect(() => {
@@ -38,9 +42,26 @@ export function DriverMap({ driverLat, driverLng, pickupLat, pickupLng, dropoffL
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
+    map.on("load", () => {
+      mapLoadedRef.current = true;
+      // Add empty route source and layer
+      map.addSource(ROUTE_SOURCE, {
+        type: "geojson",
+        data: { type: "Feature", geometry: { type: "LineString", coordinates: [] }, properties: {} },
+      });
+      map.addLayer({
+        id: ROUTE_LAYER,
+        type: "line",
+        source: ROUTE_SOURCE,
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#3b82f6", "line-width": 4, "line-opacity": 0.8 },
+      });
+    });
+
     mapRef.current = map;
 
     return () => {
+      mapLoadedRef.current = false;
       map.remove();
       mapRef.current = null;
     };
@@ -101,6 +122,29 @@ export function DriverMap({ driverLat, driverLng, pickupLat, pickupLng, dropoffL
         .addTo(map);
     }
   }, [dropoffLat, dropoffLng]);
+
+  // Update route polyline
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+
+    const source = map.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    if (routeCoords && routeCoords.length >= 2) {
+      source.setData({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: routeCoords },
+        properties: {},
+      });
+    } else {
+      source.setData({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: [] },
+        properties: {},
+      });
+    }
+  }, [routeCoords]);
 
   // Fit bounds when trip locations change
   useEffect(() => {
