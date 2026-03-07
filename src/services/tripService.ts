@@ -1,0 +1,308 @@
+import { getDb, getPool } from "../db/index.js";
+import { trips, users, patients } from "../db/schema.js";
+import { eq, and, sql, between, desc, inArray } from "drizzle-orm";
+import { recordAudit } from "./auditService.js";
+import logger from "../lib/logger.js";
+import { broadcastToTenant, broadcastToUser } from "./realtimeService.js";
+
+// Valid state transitions for trip lifecycle
+const VALID_TRANSITIONS: Record<string, string[]> = {
+  requested: ["assigned", "cancelled"],
+  assigned: ["en_route", "cancelled", "requested"], // back to requested if driver declines
+  en_route: ["arrived", "cancelled", "assigned"],
+  arrived: ["in_progress", "cancelled"],
+  in_progress: ["completed", "cancelled"],
+  completed: [],
+  cancelled: [],
+};
+
+export function canTransition(from: string, to: string): boolean {
+  return VALID_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+export interface CreateTripInput {
+  tenantId: string;
+  patientId: string;
+  pickupAddress: string;
+  dropoffAddress: string;
+  scheduledAt: Date;
+  notes?: string;
+  isImmediate?: boolean;
+  requestedBy?: string;
+}
+
+export async function createTrip(input: CreateTripInput) {
+  const db = getDb();
+
+  const [trip] = await db
+    .insert(trips)
+    .values({
+      tenantId: input.tenantId,
+      patientId: input.patientId,
+      pickupAddress: input.pickupAddress,
+      dropoffAddress: input.dropoffAddress,
+      scheduledAt: input.scheduledAt,
+      status: "requested",
+      notes: input.notes,
+      metadata: {
+        isImmediate: input.isImmediate || false,
+        requestedBy: input.requestedBy,
+        requestedAt: new Date().toISOString(),
+      },
+    })
+    .returning();
+
+  await recordAudit({
+    tenantId: input.tenantId,
+    userId: input.requestedBy,
+    action: "trip.created",
+    resource: "trip",
+    resourceId: trip.id,
+    details: { isImmediate: input.isImmediate, pickupAddress: input.pickupAddress },
+  });
+
+  // Notify dispatch in realtime
+  broadcastToTenant(input.tenantId, "trip:created", {
+    trip,
+    isImmediate: input.isImmediate || false,
+  });
+
+  logger.info("Trip created", { tripId: trip.id, tenantId: input.tenantId, isImmediate: input.isImmediate });
+  return trip;
+}
+
+export async function assignTrip(tripId: string, driverId: string, tenantId: string, assignedBy?: string) {
+  const db = getDb();
+
+  const [trip] = await db
+    .select()
+    .from(trips)
+    .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)));
+
+  if (!trip) throw new Error("Trip not found");
+  if (!canTransition(trip.status, "assigned")) {
+    throw new Error(`Cannot assign trip in status: ${trip.status}`);
+  }
+
+  // Verify driver exists and belongs to tenant
+  const [driver] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.id, driverId), eq(users.tenantId, tenantId), eq(users.role, "driver")));
+
+  if (!driver) throw new Error("Driver not found");
+
+  const [updated] = await db
+    .update(trips)
+    .set({
+      driverId,
+      status: "assigned",
+      updatedAt: new Date(),
+      metadata: {
+        ...(trip.metadata as Record<string, unknown>),
+        assignedAt: new Date().toISOString(),
+        assignedBy,
+      },
+    })
+    .where(eq(trips.id, tripId))
+    .returning();
+
+  await recordAudit({
+    tenantId,
+    userId: assignedBy,
+    action: "trip.assigned",
+    resource: "trip",
+    resourceId: tripId,
+    details: { driverId, driverName: `${driver.firstName} ${driver.lastName}` },
+  });
+
+  // Notify driver in realtime
+  broadcastToUser(driverId, "trip:assigned", { trip: updated });
+
+  // Notify dispatch
+  broadcastToTenant(tenantId, "trip:updated", { trip: updated });
+
+  logger.info("Trip assigned", { tripId, driverId });
+  return updated;
+}
+
+export async function updateTripStatus(
+  tripId: string,
+  newStatus: string,
+  tenantId: string,
+  userId?: string,
+  extra?: { mileage?: number }
+) {
+  const db = getDb();
+
+  const [trip] = await db
+    .select()
+    .from(trips)
+    .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)));
+
+  if (!trip) throw new Error("Trip not found");
+  if (!canTransition(trip.status, newStatus)) {
+    throw new Error(`Invalid transition: ${trip.status} → ${newStatus}`);
+  }
+
+  const updateData: Record<string, unknown> = {
+    status: newStatus,
+    updatedAt: new Date(),
+  };
+
+  if (newStatus === "en_route" || newStatus === "in_progress") {
+    if (!trip.startedAt) {
+      updateData.startedAt = new Date();
+    }
+  }
+
+  if (newStatus === "completed") {
+    updateData.completedAt = new Date();
+    if (extra?.mileage) {
+      updateData.mileage = extra.mileage.toFixed(2);
+    }
+  }
+
+  const [updated] = await db
+    .update(trips)
+    .set(updateData)
+    .where(eq(trips.id, tripId))
+    .returning();
+
+  await recordAudit({
+    tenantId,
+    userId,
+    action: `trip.${newStatus}`,
+    resource: "trip",
+    resourceId: tripId,
+    details: { previousStatus: trip.status, newStatus },
+  });
+
+  // Broadcast to everyone
+  broadcastToTenant(tenantId, "trip:updated", { trip: updated });
+  if (trip.driverId) {
+    broadcastToUser(trip.driverId, "trip:updated", { trip: updated });
+  }
+
+  logger.info("Trip status updated", { tripId, from: trip.status, to: newStatus });
+  return updated;
+}
+
+export async function getTripsForDispatch(tenantId: string, filters?: {
+  status?: string[];
+  driverId?: string;
+  date?: string;
+}) {
+  const db = getDb();
+
+  let query = db.select().from(trips).where(eq(trips.tenantId, tenantId));
+
+  // We'll apply filters at the SQL level
+  const conditions = [eq(trips.tenantId, tenantId)];
+
+  if (filters?.status && filters.status.length > 0) {
+    conditions.push(inArray(trips.status, filters.status as any));
+  }
+  if (filters?.driverId) {
+    conditions.push(eq(trips.driverId, filters.driverId));
+  }
+
+  const results = await db
+    .select()
+    .from(trips)
+    .where(and(...conditions))
+    .orderBy(desc(trips.scheduledAt))
+    .limit(200);
+
+  return results;
+}
+
+export async function getTripById(tripId: string, tenantId: string) {
+  const db = getDb();
+
+  const [trip] = await db
+    .select()
+    .from(trips)
+    .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)));
+
+  if (!trip) return null;
+
+  // Enrich with patient and driver info
+  let patient = null;
+  let driver = null;
+
+  if (trip.patientId) {
+    const [p] = await db.select().from(patients).where(eq(patients.id, trip.patientId));
+    patient = p || null;
+  }
+
+  if (trip.driverId) {
+    const [d] = await db.select().from(users).where(eq(users.id, trip.driverId));
+    driver = d ? { id: d.id, firstName: d.firstName, lastName: d.lastName, email: d.email } : null;
+  }
+
+  return { ...trip, patient, driver };
+}
+
+export async function getDriverTrips(driverId: string, tenantId: string, activeOnly: boolean = false) {
+  const db = getDb();
+
+  const conditions = [eq(trips.tenantId, tenantId), eq(trips.driverId, driverId)];
+
+  if (activeOnly) {
+    conditions.push(inArray(trips.status, ["assigned", "en_route", "arrived", "in_progress"] as any));
+  }
+
+  const results = await db
+    .select()
+    .from(trips)
+    .where(and(...conditions))
+    .orderBy(desc(trips.scheduledAt))
+    .limit(100);
+
+  return results;
+}
+
+export async function cancelTrip(tripId: string, tenantId: string, userId?: string, reason?: string) {
+  const db = getDb();
+
+  const [trip] = await db
+    .select()
+    .from(trips)
+    .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)));
+
+  if (!trip) throw new Error("Trip not found");
+  if (trip.status === "completed") throw new Error("Cannot cancel a completed trip");
+  if (trip.status === "cancelled") throw new Error("Trip is already cancelled");
+
+  const [updated] = await db
+    .update(trips)
+    .set({
+      status: "cancelled",
+      updatedAt: new Date(),
+      metadata: {
+        ...(trip.metadata as Record<string, unknown>),
+        cancelledAt: new Date().toISOString(),
+        cancelledBy: userId,
+        cancellationReason: reason,
+      },
+    })
+    .where(eq(trips.id, tripId))
+    .returning();
+
+  await recordAudit({
+    tenantId,
+    userId,
+    action: "trip.cancelled",
+    resource: "trip",
+    resourceId: tripId,
+    details: { reason, previousStatus: trip.status },
+  });
+
+  broadcastToTenant(tenantId, "trip:updated", { trip: updated });
+  if (trip.driverId) {
+    broadcastToUser(trip.driverId, "trip:cancelled", { trip: updated });
+  }
+
+  return updated;
+}

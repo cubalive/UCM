@@ -1,0 +1,279 @@
+import { getDb, getPool } from "../db/index.js";
+import { webhookEvents, invoices, ledgerEntries } from "../db/schema.js";
+import { eq, and, sql } from "drizzle-orm";
+import { getStripe } from "../lib/stripe.js";
+import { recordPayment } from "./invoiceService.js";
+import { recordAudit } from "./auditService.js";
+import logger from "../lib/logger.js";
+import Stripe from "stripe";
+
+const MAX_RETRY_ATTEMPTS = 5;
+
+export async function verifyAndStoreWebhook(
+  rawBody: Buffer,
+  signature: string
+): Promise<{ event: Stripe.Event; isNew: boolean }> {
+  const stripe = getStripe();
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) throw new Error("STRIPE_WEBHOOK_SECRET not configured");
+
+  const event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+
+  const db = getDb();
+  // Idempotency check
+  const existing = await db
+    .select()
+    .from(webhookEvents)
+    .where(eq(webhookEvents.stripeEventId, event.id));
+
+  if (existing.length > 0) {
+    logger.info("Duplicate webhook event received", { eventId: event.id, type: event.type });
+    return { event, isNew: false };
+  }
+
+  await db.insert(webhookEvents).values({
+    stripeEventId: event.id,
+    eventType: event.type,
+    status: "received",
+    payload: event as unknown as Record<string, unknown>,
+    attempts: 0,
+  });
+
+  return { event, isNew: true };
+}
+
+export async function processWebhookEvent(event: Stripe.Event): Promise<void> {
+  const db = getDb();
+
+  try {
+    await db
+      .update(webhookEvents)
+      .set({ status: "processing", lastAttemptAt: new Date(), attempts: sql`${webhookEvents.attempts} + 1` })
+      .where(eq(webhookEvents.stripeEventId, event.id));
+
+    switch (event.type) {
+      case "payment_intent.succeeded":
+        await handlePaymentIntentSucceeded(event);
+        break;
+      case "payment_intent.payment_failed":
+        await handlePaymentIntentFailed(event);
+        break;
+      case "invoice.paid":
+        await handleStripeInvoicePaid(event);
+        break;
+      case "invoice.payment_failed":
+        await handleStripeInvoicePaymentFailed(event);
+        break;
+      case "account.updated":
+        await handleAccountUpdated(event);
+        break;
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted":
+        await handleSubscriptionChange(event);
+        break;
+      default:
+        logger.info("Unhandled webhook event type", { type: event.type, eventId: event.id });
+    }
+
+    await db
+      .update(webhookEvents)
+      .set({ status: "processed", processedAt: new Date() })
+      .where(eq(webhookEvents.stripeEventId, event.id));
+
+    logger.info("Webhook event processed", { eventId: event.id, type: event.type });
+  } catch (err: any) {
+    logger.error("Webhook processing failed", { eventId: event.id, type: event.type, error: err.message });
+
+    const [webhookRecord] = await db
+      .select()
+      .from(webhookEvents)
+      .where(eq(webhookEvents.stripeEventId, event.id));
+
+    const attempts = webhookRecord?.attempts || 0;
+    const shouldDeadLetter = attempts >= MAX_RETRY_ATTEMPTS;
+
+    await db
+      .update(webhookEvents)
+      .set({
+        status: shouldDeadLetter ? "dead_letter" : "failed",
+        error: err.message,
+        deadLetteredAt: shouldDeadLetter ? new Date() : undefined,
+      })
+      .where(eq(webhookEvents.stripeEventId, event.id));
+
+    if (shouldDeadLetter) {
+      logger.error("Webhook event moved to dead letter queue", { eventId: event.id, type: event.type, attempts });
+    }
+
+    throw err;
+  }
+}
+
+async function handlePaymentIntentSucceeded(event: Stripe.Event): Promise<void> {
+  const paymentIntent = event.data.object as Stripe.PaymentIntent;
+  const invoiceId = paymentIntent.metadata?.invoiceId;
+  const tenantId = paymentIntent.metadata?.tenantId;
+
+  if (!invoiceId || !tenantId) {
+    logger.warn("Payment intent missing invoice/tenant metadata", { paymentIntentId: paymentIntent.id });
+    return;
+  }
+
+  const amount = paymentIntent.amount / 100;
+  await recordPayment(invoiceId, tenantId, amount, paymentIntent.id);
+}
+
+async function handlePaymentIntentFailed(event: Stripe.Event): Promise<void> {
+  const paymentIntent = event.data.object as Stripe.PaymentIntent;
+  const invoiceId = paymentIntent.metadata?.invoiceId;
+  const tenantId = paymentIntent.metadata?.tenantId;
+
+  if (!invoiceId || !tenantId) return;
+
+  await recordAudit({
+    tenantId,
+    action: "payment.failed",
+    resource: "invoice",
+    resourceId: invoiceId,
+    details: {
+      paymentIntentId: paymentIntent.id,
+      error: paymentIntent.last_payment_error?.message,
+    },
+  });
+
+  logger.warn("Payment failed", { invoiceId, paymentIntentId: paymentIntent.id });
+}
+
+async function handleStripeInvoicePaid(event: Stripe.Event): Promise<void> {
+  const stripeInvoice = event.data.object as Stripe.Invoice;
+  const db = getDb();
+
+  const [invoice] = await db
+    .select()
+    .from(invoices)
+    .where(eq(invoices.stripeInvoiceId, stripeInvoice.id));
+
+  if (!invoice) {
+    logger.info("No matching invoice for Stripe invoice", { stripeInvoiceId: stripeInvoice.id });
+    return;
+  }
+
+  const amount = (stripeInvoice.amount_paid || 0) / 100;
+  await recordPayment(invoice.id, invoice.tenantId, amount, stripeInvoice.payment_intent as string);
+}
+
+async function handleStripeInvoicePaymentFailed(event: Stripe.Event): Promise<void> {
+  const stripeInvoice = event.data.object as Stripe.Invoice;
+  const db = getDb();
+
+  const [invoice] = await db
+    .select()
+    .from(invoices)
+    .where(eq(invoices.stripeInvoiceId, stripeInvoice.id));
+
+  if (!invoice) return;
+
+  await db
+    .update(invoices)
+    .set({ status: "overdue", updatedAt: new Date() })
+    .where(eq(invoices.id, invoice.id));
+
+  await recordAudit({
+    tenantId: invoice.tenantId,
+    action: "payment.failed",
+    resource: "invoice",
+    resourceId: invoice.id,
+    details: { stripeInvoiceId: stripeInvoice.id },
+  });
+}
+
+async function handleAccountUpdated(event: Stripe.Event): Promise<void> {
+  // Handle Stripe Connect account updates
+  const account = event.data.object as Stripe.Account;
+  logger.info("Stripe account updated", {
+    accountId: account.id,
+    chargesEnabled: account.charges_enabled,
+    payoutsEnabled: account.payouts_enabled,
+  });
+}
+
+async function handleSubscriptionChange(event: Stripe.Event): Promise<void> {
+  const subscription = event.data.object as Stripe.Subscription;
+  logger.info("Subscription change", {
+    subscriptionId: subscription.id,
+    status: subscription.status,
+    type: event.type,
+  });
+}
+
+export async function replayWebhookEvent(webhookEventId: string): Promise<void> {
+  const db = getDb();
+
+  const [webhookRecord] = await db
+    .select()
+    .from(webhookEvents)
+    .where(eq(webhookEvents.id, webhookEventId));
+
+  if (!webhookRecord) throw new Error("Webhook event not found");
+  if (webhookRecord.status === "processed") throw new Error("Event already processed");
+
+  const event = webhookRecord.payload as unknown as Stripe.Event;
+
+  // Reset attempts for replay
+  await db
+    .update(webhookEvents)
+    .set({ status: "received", attempts: 0, error: null, deadLetteredAt: null })
+    .where(eq(webhookEvents.id, webhookEventId));
+
+  await processWebhookEvent(event);
+}
+
+export async function getWebhookDashboardData(limit: number = 50) {
+  const db = getDb();
+
+  const recentEvents = await db
+    .select()
+    .from(webhookEvents)
+    .orderBy(sql`${webhookEvents.createdAt} DESC`)
+    .limit(limit);
+
+  const statusCounts = await db
+    .select({
+      status: webhookEvents.status,
+      count: sql<number>`count(*)`,
+    })
+    .from(webhookEvents)
+    .groupBy(webhookEvents.status);
+
+  const typeCounts = await db
+    .select({
+      eventType: webhookEvents.eventType,
+      count: sql<number>`count(*)`,
+    })
+    .from(webhookEvents)
+    .groupBy(webhookEvents.eventType)
+    .orderBy(sql`count(*) DESC`)
+    .limit(20);
+
+  const failedEvents = await db
+    .select()
+    .from(webhookEvents)
+    .where(eq(webhookEvents.status, "failed"))
+    .orderBy(sql`${webhookEvents.createdAt} DESC`)
+    .limit(20);
+
+  const deadLetterEvents = await db
+    .select()
+    .from(webhookEvents)
+    .where(eq(webhookEvents.status, "dead_letter"))
+    .orderBy(sql`${webhookEvents.createdAt} DESC`)
+    .limit(20);
+
+  return {
+    recentEvents,
+    statusCounts: Object.fromEntries(statusCounts.map((s) => [s.status, Number(s.count)])),
+    typeCounts: Object.fromEntries(typeCounts.map((t) => [t.eventType, Number(t.count)])),
+    failedEvents,
+    deadLetterEvents,
+  };
+}
