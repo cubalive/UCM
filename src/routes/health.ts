@@ -6,6 +6,7 @@ import { getConnectedStats, getOnlineDrivers } from "../services/realtimeService
 import { collectMetrics, metricsToPrometheus } from "../services/metricsService.js";
 import { getRequestMetricsPrometheus, getRequestMetricsSummary } from "../middleware/requestMetrics.js";
 import { stripeCircuitBreaker } from "../lib/circuitBreaker.js";
+import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
@@ -64,13 +65,14 @@ router.get("/health/ready", async (_req: Request, res: Response) => {
   }
 });
 
-// Trip pipeline monitor
-router.get("/health/pipeline", async (_req: Request, res: Response) => {
+// Trip pipeline monitor — requires admin auth + tenant isolation
+router.get("/health/pipeline", authenticate, authorize("admin", "dispatcher"), tenantIsolation, async (req: Request, res: Response) => {
   try {
     const { getDb } = await import("../db/index.js");
     const { trips } = await import("../db/schema.js");
-    const { sql } = await import("drizzle-orm");
+    const { sql, eq } = await import("drizzle-orm");
     const db = getDb();
+    const tenantId = req.tenantId!;
 
     const [stats] = await db
       .select({
@@ -84,7 +86,8 @@ router.get("/health/pipeline", async (_req: Request, res: Response) => {
         cancelled_today: sql<number>`count(case when status = 'cancelled' and updated_at > now() - interval '24 hours' then 1 end)`,
         stuck: sql<number>`count(case when status in ('assigned', 'en_route', 'arrived') and updated_at < now() - interval '2 hours' then 1 end)`,
       })
-      .from(trips);
+      .from(trips)
+      .where(eq(trips.tenantId, tenantId));
 
     const wsStats = getConnectedStats();
 

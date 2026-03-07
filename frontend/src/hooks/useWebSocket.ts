@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { getToken } from "../lib/api";
+import { getToken, logout } from "../lib/api";
 
 type EventHandler = (data: any) => void;
 
@@ -47,9 +47,10 @@ export function useWebSocket() {
     ws.onclose = (event) => {
       setConnected(false);
 
-      // Don't reconnect on auth failures
+      // Don't reconnect on auth failures — redirect to login
       if (event.code === 4001 || event.code === 4002) {
-        console.log("[WS] Auth failed, not reconnecting");
+        console.log("[WS] Auth failed, redirecting to login");
+        logout();
         return;
       }
 

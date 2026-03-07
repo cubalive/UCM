@@ -31,9 +31,14 @@ export async function getRoute(
   }
 
   try {
-    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&mode=driving&key=${apiKey}`;
+    // Build URL safely via URL class to prevent key leaking into template-string logs
+    const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
+    url.searchParams.set("origin", `${originLat},${originLng}`);
+    url.searchParams.set("destination", `${destLat},${destLng}`);
+    url.searchParams.set("mode", "driving");
+    url.searchParams.set("key", apiKey);
 
-    const response = await fetch(url);
+    const response = await fetch(url.toString());
     if (!response.ok) {
       logger.warn("Google Directions API HTTP error", { status: response.status });
       return null;

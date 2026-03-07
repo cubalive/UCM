@@ -203,7 +203,7 @@ export async function updateDriverLocation(
     .values({
       driverId,
       tenantId,
-      availability: "offline", // default for new record, will be set properly via availability endpoint
+      availability: "available", // default for new record: driver sending location is active
       latitude: latitude.toString(),
       longitude: longitude.toString(),
       heading,

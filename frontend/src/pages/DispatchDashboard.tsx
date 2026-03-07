@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { dispatchApi, driverApi, tripApi } from "../lib/api";
+import { dispatchApi, driverApi, tripApi, logout } from "../lib/api";
 import { ImportWizard } from "../components/ImportWizard";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { DispatchMap } from "../components/DispatchMap";
@@ -209,6 +209,9 @@ export function DispatchDashboard() {
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "var(--green-500)" : "var(--red-500)", display: "inline-block" }}></span>
           {connected ? "Live" : "Disconnected"}
         </div>
+        <button className="btn btn-sm btn-outline mt-4" style={{ width: "100%", color: "var(--gray-400)", borderColor: "var(--gray-600)" }} onClick={logout}>
+          Sign Out
+        </button>
       </aside>
 
       <main className="main-content">

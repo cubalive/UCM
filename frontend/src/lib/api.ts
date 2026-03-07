@@ -16,7 +16,29 @@ export function clearToken() {
   localStorage.removeItem("ucm_token");
 }
 
+export function logout() {
+  clearToken();
+  window.location.href = "/login";
+}
+
+/** Decode JWT payload and check expiration (with 60s buffer) */
+export function isTokenExpired(): boolean {
+  if (!authToken) return true;
+  try {
+    const payload = JSON.parse(atob(authToken.split(".")[1]));
+    return payload.exp * 1000 < Date.now() + 60_000;
+  } catch {
+    return true;
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // Check token expiration before making request
+  if (authToken && isTokenExpired()) {
+    logout();
+    throw new Error("Session expired. Please sign in again.");
+  }
+
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
@@ -30,6 +52,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+  // Auto-logout on 401 (expired/invalid token)
+  if (res.status === 401) {
+    logout();
+    throw new Error("Session expired. Please sign in again.");
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));

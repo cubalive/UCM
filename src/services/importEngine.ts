@@ -28,6 +28,7 @@ export const TRIP_ALIASES: Record<string, string[]> = {
   patientFirstName: ["patient_first_name", "rider_first", "member_first", "passenger_first"],
   patientLastName: ["patient_last_name", "rider_last", "member_last", "passenger_last"],
   patientPhone: ["patient_phone", "rider_phone", "member_phone", "contact_phone"],
+  patientEmail: ["patient_email", "rider_email", "member_email", "contact_email"],
   patientExternalId: ["patient_id", "patientid", "member_id", "memberid", "rider_id", "medicaid_id"],
   pickupAddress: ["pickup_address", "pickupaddress", "pickup", "origin", "from", "from_address", "origen", "pickup_location", "pick_up", "pu_address", "start_address"],
   dropoffAddress: ["dropoff_address", "dropoffaddress", "dropoff", "destination", "to", "to_address", "destino", "dropoff_location", "drop_off", "do_address", "end_address", "delivery_address"],

@@ -46,7 +46,19 @@ router.post("/preview", upload.single("file"), async (req: Request, res: Respons
       return res.status(400).json({ error: `entity must be one of: ${VALID_ENTITIES.join(", ")}` });
     }
 
-    const columnOverrides = req.body.columnOverrides ? JSON.parse(req.body.columnOverrides) : undefined;
+    let columnOverrides: Record<string, string> | undefined;
+    if (req.body.columnOverrides) {
+      try {
+        const parsed = JSON.parse(req.body.columnOverrides);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          columnOverrides = parsed;
+        } else {
+          return res.status(400).json({ error: "columnOverrides must be a JSON object" });
+        }
+      } catch {
+        return res.status(400).json({ error: "Invalid JSON in columnOverrides" });
+      }
+    }
 
     const preview = await previewImport(
       req.file.originalname,
@@ -79,13 +91,29 @@ router.post("/execute", upload.single("file"), async (req: Request, res: Respons
 
     let dedupeStrategies: DedupeStrategy[] = ["email", "phone"];
     if (req.body.dedupeStrategies) {
-      const parsed = JSON.parse(req.body.dedupeStrategies);
-      if (Array.isArray(parsed)) {
-        dedupeStrategies = parsed.filter((s: string) => VALID_STRATEGIES.includes(s as DedupeStrategy)) as DedupeStrategy[];
+      try {
+        const parsed = JSON.parse(req.body.dedupeStrategies);
+        if (Array.isArray(parsed)) {
+          dedupeStrategies = parsed.filter((s: string) => VALID_STRATEGIES.includes(s as DedupeStrategy)) as DedupeStrategy[];
+        }
+      } catch {
+        return res.status(400).json({ error: "Invalid JSON in dedupeStrategies" });
       }
     }
 
-    const columnOverrides = req.body.columnOverrides ? JSON.parse(req.body.columnOverrides) : undefined;
+    let columnOverrides: Record<string, string> | undefined;
+    if (req.body.columnOverrides) {
+      try {
+        const parsed = JSON.parse(req.body.columnOverrides);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          columnOverrides = parsed;
+        } else {
+          return res.status(400).json({ error: "columnOverrides must be a JSON object" });
+        }
+      } catch {
+        return res.status(400).json({ error: "Invalid JSON in columnOverrides" });
+      }
+    }
 
     const tenantId = (req as any).tenantId;
     if (!tenantId) {

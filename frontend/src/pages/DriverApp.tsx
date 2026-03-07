@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { tripApi, driverApi, earningsApi } from "../lib/api";
+import { tripApi, driverApi, earningsApi, logout } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { DriverMap } from "../components/DriverMap";
 import { formatDateTime, formatDate } from "../lib/timezone";
@@ -256,6 +256,9 @@ export function DriverApp() {
               {s.charAt(0).toUpperCase() + s.slice(1)}
             </button>
           ))}
+          <button className="btn btn-sm btn-outline" style={{ color: "white", borderColor: "rgba(255,255,255,0.3)" }} onClick={logout}>
+            Sign Out
+          </button>
         </div>
       </header>
 

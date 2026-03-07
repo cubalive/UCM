@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
-import { clinicApi } from "../lib/api";
+import { clinicApi, logout } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { formatDateTime, localInputToUTC } from "../lib/timezone";
 
@@ -274,6 +274,9 @@ export function ClinicPortal() {
           <NavLink to="/clinic/trips" className={({ isActive }) => isActive ? "active" : ""}>Trip Status</NavLink>
           <NavLink to="/clinic/patients" className={({ isActive }) => isActive ? "active" : ""}>Patients</NavLink>
         </nav>
+        <button className="btn btn-sm btn-outline mt-4" style={{ width: "100%", color: "var(--gray-400)", borderColor: "var(--gray-600)" }} onClick={logout}>
+          Sign Out
+        </button>
       </aside>
       <main className="main-content">
         <Routes>
