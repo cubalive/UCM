@@ -66,11 +66,22 @@ router.post(
   }
 );
 
-// Check payout status (driver or admin)
+// Check payout status (driver or admin) — validates account belongs to tenant
 router.get(
   "/status/:stripeAccountId",
   async (req: Request, res: Response) => {
     try {
+      const { getDb } = await import("../db/index.js");
+      const { users } = await import("../db/schema.js");
+      const { eq, and } = await import("drizzle-orm");
+      const db = getDb();
+      const [owner] = await db.select({ id: users.id }).from(users).where(
+        and(eq(users.stripeAccountId, req.params.stripeAccountId as string), eq(users.tenantId, req.tenantId!))
+      );
+      if (!owner) {
+        res.status(404).json({ error: "Stripe account not found for this tenant" });
+        return;
+      }
       const status = await getDriverPayoutStatus(req.params.stripeAccountId as string);
       res.json(status);
     } catch (err: any) {
@@ -80,11 +91,22 @@ router.get(
   }
 );
 
-// Get driver's Stripe Express dashboard link
+// Get driver's Stripe Express dashboard link — validates account belongs to tenant
 router.get(
   "/dashboard/:stripeAccountId",
   async (req: Request, res: Response) => {
     try {
+      const { getDb } = await import("../db/index.js");
+      const { users } = await import("../db/schema.js");
+      const { eq, and } = await import("drizzle-orm");
+      const db = getDb();
+      const [owner] = await db.select({ id: users.id }).from(users).where(
+        and(eq(users.stripeAccountId, req.params.stripeAccountId as string), eq(users.tenantId, req.tenantId!))
+      );
+      if (!owner) {
+        res.status(404).json({ error: "Stripe account not found for this tenant" });
+        return;
+      }
       const url = await getDriverDashboardLink(req.params.stripeAccountId as string);
       res.json({ url });
     } catch (err: any) {

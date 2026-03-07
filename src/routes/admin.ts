@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { authenticate, authorize } from "../middleware/auth.js";
+import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import { billingRateLimiter } from "../middleware/rateLimiter.js";
 import { runReconciliation } from "../services/reconciliationService.js";
 import { getWebhookDashboardData, replayWebhookEvent } from "../services/webhookService.js";
@@ -13,7 +13,7 @@ import { validateParams, uuidParam } from "../middleware/validation.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
-router.use(authenticate, authorize("admin"));
+router.use(authenticate, authorize("admin"), tenantIsolation);
 
 // Reconciliation report
 router.get("/reconciliation", billingRateLimiter, async (_req: Request, res: Response) => {
@@ -47,7 +47,7 @@ router.get("/audit-log", async (req: Request, res: Response) => {
     const results = await db
       .select()
       .from(auditLog)
-      .where(req.tenantId ? eq(auditLog.tenantId, req.tenantId) : undefined)
+      .where(eq(auditLog.tenantId, req.tenantId!))
       .orderBy(desc(auditLog.createdAt))
       .limit(limit)
       .offset(offset);
@@ -100,7 +100,7 @@ router.post(
 // Driver online monitor
 router.get("/drivers/online", async (req: Request, res: Response) => {
   try {
-    const onlineDrivers = getOnlineDrivers(req.tenantId || undefined);
+    const onlineDrivers = getOnlineDrivers(req.tenantId!);
     const wsStats = getConnectedStats();
     res.json({ online: onlineDrivers, stats: wsStats });
   } catch (err: any) {
@@ -110,7 +110,7 @@ router.get("/drivers/online", async (req: Request, res: Response) => {
 });
 
 // Trip pipeline monitor
-router.get("/trip-pipeline", async (_req: Request, res: Response) => {
+router.get("/trip-pipeline", async (req: Request, res: Response) => {
   try {
     const db = getDb();
     const [stats] = await db
@@ -125,7 +125,8 @@ router.get("/trip-pipeline", async (_req: Request, res: Response) => {
         cancelled_today: sql<number>`count(case when status = 'cancelled' and updated_at > now() - interval '24 hours' then 1 end)`,
         stuck: sql<number>`count(case when status in ('assigned', 'en_route', 'arrived') and updated_at < now() - interval '2 hours' then 1 end)`,
       })
-      .from(trips);
+      .from(trips)
+      .where(eq(trips.tenantId, req.tenantId!));
 
     res.json({
       requested: Number(stats.requested),
