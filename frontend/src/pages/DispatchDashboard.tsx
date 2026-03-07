@@ -7,6 +7,10 @@ import { formatDateTime, formatTime } from "../lib/timezone";
 type Trip = {
   id: string; status: string; priority: string;
   pickupAddress: string; dropoffAddress: string;
+  pickupLat?: number; pickupLng?: number;
+  dropoffLat?: number; dropoffLng?: number;
+  estimatedMiles?: number; estimatedMinutes?: number;
+  mileage?: number;
   scheduledPickup?: string; patientName?: string;
   driverId?: string; driverName?: string;
   createdAt: string;
@@ -118,7 +122,11 @@ export function DispatchDashboard() {
             d.id === data.driverId ? { ...d, latitude: data.latitude, longitude: data.longitude, lastLocationAt: data.timestamp } : d
           ));
         }
-        // No full reload — WS data is sufficient for location updates
+      }),
+      on("operational:alert", (data: any) => {
+        if (data?.message) {
+          flash(data.message);
+        }
       }),
     ];
     return () => { unsubs.forEach(u => u()); clearTimeout(debouncedReloadRef.current); };
@@ -317,7 +325,7 @@ export function DispatchDashboard() {
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Status</th><th>Priority</th><th>Patient</th><th>Pickup</th><th>Dropoff</th><th>Driver</th><th>Wait</th><th>Actions</th></tr>
+                  <tr><th>Status</th><th>Priority</th><th>Patient</th><th>Pickup</th><th>Dropoff</th><th>Distance</th><th>Driver</th><th>Wait</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                   {trips.map(trip => (
@@ -327,6 +335,10 @@ export function DispatchDashboard() {
                       <td>{trip.patientName || "—"}</td>
                       <td className="truncate" style={{ maxWidth: 180 }}>{trip.pickupAddress}</td>
                       <td className="truncate" style={{ maxWidth: 180 }}>{trip.dropoffAddress}</td>
+                      <td className="text-sm text-gray">
+                        {trip.mileage ? `${trip.mileage} mi` : trip.estimatedMiles ? `~${trip.estimatedMiles} mi` : "—"}
+                        {trip.estimatedMinutes ? <span className="text-xs ml-1">({trip.estimatedMinutes}m)</span> : null}
+                      </td>
                       <td>{trip.driverName || "—"}</td>
                       <td className="text-sm" style={{ color: trip.status === "requested" ? "var(--amber-600)" : undefined, fontWeight: trip.status === "requested" ? 600 : undefined }}>
                         {trip.createdAt ? waitTime(trip.createdAt) : "—"}
@@ -365,7 +377,7 @@ export function DispatchDashboard() {
                       </td>
                     </tr>
                   ))}
-                  {trips.length === 0 && <tr><td colSpan={8} style={{ textAlign: "center", padding: "2rem" }} className="text-gray">No trips found</td></tr>}
+                  {trips.length === 0 && <tr><td colSpan={9} style={{ textAlign: "center", padding: "2rem" }} className="text-gray">No trips found</td></tr>}
                 </tbody>
               </table>
             </div>

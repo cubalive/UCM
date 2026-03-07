@@ -6,6 +6,7 @@ import { getDb } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { validateBody } from "../middleware/validation.js";
+import { authRateLimiter } from "../middleware/rateLimiter.js";
 import { recordAudit } from "../services/auditService.js";
 import logger from "../lib/logger.js";
 
@@ -16,7 +17,7 @@ const loginSchema = z.object({
   password: z.string().min(1).max(128),
 });
 
-router.post("/login", validateBody(loginSchema), async (req: Request, res: Response) => {
+router.post("/login", authRateLimiter, validateBody(loginSchema), async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
     const db = getDb();
@@ -27,12 +28,14 @@ router.post("/login", validateBody(loginSchema), async (req: Request, res: Respo
       .where(and(eq(users.email, email), eq(users.active, true)));
 
     if (!user) {
+      logger.warn("Login failed: unknown email", { email, ip: req.ip });
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
+      logger.warn("Login failed: wrong password", { email, userId: user.id, ip: req.ip });
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }

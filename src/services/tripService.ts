@@ -27,6 +27,12 @@ export interface CreateTripInput {
   patientId: string;
   pickupAddress: string;
   dropoffAddress: string;
+  pickupLat?: number;
+  pickupLng?: number;
+  dropoffLat?: number;
+  dropoffLng?: number;
+  estimatedMiles?: number;
+  estimatedMinutes?: number;
   scheduledAt: Date;
   timezone?: string;
   notes?: string;
@@ -51,6 +57,12 @@ export async function createTrip(input: CreateTripInput) {
       patientId: input.patientId,
       pickupAddress: input.pickupAddress,
       dropoffAddress: input.dropoffAddress,
+      pickupLat: input.pickupLat?.toString(),
+      pickupLng: input.pickupLng?.toString(),
+      dropoffLat: input.dropoffLat?.toString(),
+      dropoffLng: input.dropoffLng?.toString(),
+      estimatedMiles: input.estimatedMiles?.toFixed(2),
+      estimatedMinutes: input.estimatedMinutes,
       scheduledAt: input.scheduledAt,
       timezone: tripTimezone,
       status: "requested",
@@ -59,6 +71,8 @@ export async function createTrip(input: CreateTripInput) {
         isImmediate: input.isImmediate || false,
         requestedBy: input.requestedBy,
         requestedAt: new Date().toISOString(),
+        ...(input.pickupLat ? { pickupLat: input.pickupLat } : {}),
+        ...(input.pickupLng ? { pickupLng: input.pickupLng } : {}),
       },
     })
     .returning();
@@ -375,6 +389,14 @@ export async function declineTrip(tripId: string, driverId: string, tenantId: st
     throw new Error("Trip is not assigned to this driver");
   }
 
+  // Build decline history so auto-assign can exclude all previous decliners
+  const existingMeta = (trip.metadata && typeof trip.metadata === "object") ? trip.metadata as Record<string, unknown> : {};
+  const declinedByHistory = Array.isArray(existingMeta.declinedByHistory)
+    ? [...(existingMeta.declinedByHistory as string[]), driverId]
+    : existingMeta.previousDriverId
+      ? [existingMeta.previousDriverId as string, driverId]
+      : [driverId];
+
   const [updated] = await db
     .update(trips)
     .set({
@@ -382,11 +404,12 @@ export async function declineTrip(tripId: string, driverId: string, tenantId: st
       driverId: null,
       updatedAt: new Date(),
       metadata: {
-        ...(trip.metadata as Record<string, unknown>),
+        ...existingMeta,
         declinedAt: new Date().toISOString(),
         declinedBy: driverId,
         declineReason: reason,
         previousDriverId: driverId,
+        declinedByHistory: [...new Set(declinedByHistory)],
       },
     })
     .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)))

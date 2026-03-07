@@ -5,6 +5,7 @@ import { runReconciliation } from "../services/reconciliationService.js";
 import { getWebhookDashboardData, replayWebhookEvent } from "../services/webhookService.js";
 import { generateBillingReport } from "../services/observabilityService.js";
 import { getDeadLetterStats } from "../jobs/deadLetterProcessor.js";
+import { detectStuckTrips, detectOfflineDriversWithActiveTrips } from "../jobs/stuckTripDetector.js";
 import { getDb } from "../db/index.js";
 import { auditLog, driverStatus, trips, users } from "../db/schema.js";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
@@ -141,6 +142,45 @@ router.get("/trip-pipeline", async (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error("Failed to get trip pipeline", { error: err.message });
     res.status(500).json({ error: "Failed to get trip pipeline" });
+  }
+});
+
+// Operational alerts — stuck trips and offline drivers with active trips
+router.get("/operational-alerts", async (req: Request, res: Response) => {
+  try {
+    const [stuckTrips, offlineDriversWithTrips] = await Promise.all([
+      detectStuckTrips(),
+      detectOfflineDriversWithActiveTrips(),
+    ]);
+
+    // Filter to tenant's alerts
+    const tenantStuckTrips = stuckTrips.filter(t => t.tenantId === req.tenantId);
+    const tenantOfflineDrivers = offlineDriversWithTrips.filter(d => d.tenantId === req.tenantId);
+
+    const alerts: Array<{ level: string; type: string; message: string; details: any }> = [];
+
+    if (tenantStuckTrips.length > 0) {
+      alerts.push({
+        level: "warning",
+        type: "stuck_trips",
+        message: `${tenantStuckTrips.length} trip(s) stuck in active state for >2 hours`,
+        details: tenantStuckTrips,
+      });
+    }
+
+    if (tenantOfflineDrivers.length > 0) {
+      alerts.push({
+        level: "warning",
+        type: "offline_drivers_with_trips",
+        message: `${tenantOfflineDrivers.length} offline driver(s) with active trips`,
+        details: tenantOfflineDrivers,
+      });
+    }
+
+    res.json({ alerts, timestamp: new Date().toISOString() });
+  } catch (err: any) {
+    logger.error("Failed to get operational alerts", { error: err.message });
+    res.status(500).json({ error: "Failed to get operational alerts" });
   }
 });
 

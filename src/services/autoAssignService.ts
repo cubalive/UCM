@@ -116,8 +116,22 @@ export async function findBestDriver(
     const breakdown: Record<string, number> = {};
     let score = 100;
 
-    // Active trip penalty
+    // Active trip penalty — hard cap at 3 active trips
     const activeTrips = activeTripsMap.get(driver.driverId) || 0;
+    if (activeTrips >= 3) {
+      breakdown.maxTripsReached = -999;
+      score = -999;
+      candidates.push({
+        driverId: driver.driverId,
+        name: `${driver.firstName} ${driver.lastName}`,
+        latitude: driver.latitude ? Number(driver.latitude) : null,
+        longitude: driver.longitude ? Number(driver.longitude) : null,
+        activeTrips,
+        score,
+        breakdown,
+      });
+      continue;
+    }
     const tripPenalty = activeTrips * 30;
     score -= tripPenalty;
     breakdown.activeTrips = -tripPenalty;
@@ -211,10 +225,10 @@ export async function autoAssignTrip(tripId: string, tenantId: string): Promise<
     }
   }
 
-  // Extract pickup coordinates from trip metadata if available
+  // Extract pickup coordinates from trip columns first, fallback to metadata
   const meta = (trip.metadata && typeof trip.metadata === "object") ? trip.metadata as Record<string, unknown> : {};
-  const pickupLat = meta.pickupLat ? Number(meta.pickupLat) : undefined;
-  const pickupLng = meta.pickupLng ? Number(meta.pickupLng) : undefined;
+  const pickupLat = trip.pickupLat ? Number(trip.pickupLat) : (meta.pickupLat ? Number(meta.pickupLat) : undefined);
+  const pickupLng = trip.pickupLng ? Number(trip.pickupLng) : (meta.pickupLng ? Number(meta.pickupLng) : undefined);
 
   const bestDriver = await findBestDriver(tenantId, pickupLat, pickupLng, declinedBy);
 

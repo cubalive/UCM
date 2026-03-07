@@ -9,6 +9,8 @@ type Trip = {
   pickupAddress: string; dropoffAddress: string;
   pickupLat?: number; pickupLng?: number;
   dropoffLat?: number; dropoffLng?: number;
+  estimatedMiles?: number; estimatedMinutes?: number;
+  mileage?: number;
   scheduledPickup?: string; patientName?: string;
   patientPhone?: string; notes?: string;
 };
@@ -275,6 +277,13 @@ export function DriverApp() {
                     <span>{activeTrip.dropoffAddress}</span>
                   </div>
                 </div>
+
+                {(activeTrip.estimatedMiles || activeTrip.mileage) && (
+                  <p className="text-sm text-gray mb-1" style={{ paddingLeft: "1.25rem" }}>
+                    {activeTrip.mileage ? `${activeTrip.mileage} mi` : `~${activeTrip.estimatedMiles} mi`}
+                    {activeTrip.estimatedMinutes ? ` / ~${activeTrip.estimatedMinutes} min` : ""}
+                  </p>
+                )}
 
                 {activeTrip.scheduledPickup && (
                   <p className="text-sm text-gray mb-2">Pickup: {formatDateTime(activeTrip.scheduledPickup, timezone)}</p>

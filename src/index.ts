@@ -20,6 +20,8 @@ import { getRedis } from "./lib/redis.js";
 import { initWebSocket } from "./services/realtimeService.js";
 import { startReconciliationJob } from "./jobs/reconciliationJob.js";
 import { startDeadLetterMonitorJob } from "./jobs/deadLetterProcessor.js";
+import { startStuckTripDetectorJob } from "./jobs/stuckTripDetector.js";
+import { startLocationCleanupJob } from "./jobs/locationCleanup.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -41,13 +43,22 @@ app.use(globalRateLimiter);
 
 // CORS for frontend
 app.use((_req, res, next) => {
-  const origin = process.env.APP_URL || "";
-  if (origin) {
-    res.header("Access-Control-Allow-Origin", origin);
+  const allowedOrigins = (process.env.APP_URL || "").split(",").map(s => s.trim()).filter(Boolean);
+  const requestOrigin = _req.headers.origin;
+
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    res.header("Access-Control-Allow-Origin", requestOrigin);
     res.header("Access-Control-Allow-Credentials", "true");
-  } else {
-    res.header("Access-Control-Allow-Origin", _req.headers.origin || "*");
+  } else if (allowedOrigins.length > 0) {
+    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
+    res.header("Access-Control-Allow-Credentials", "true");
   }
+  // In development without APP_URL, allow the request origin (not wildcard with credentials)
+  else if (process.env.NODE_ENV !== "production" && requestOrigin) {
+    res.header("Access-Control-Allow-Origin", requestOrigin);
+    res.header("Access-Control-Allow-Credentials", "true");
+  }
+
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token");
   res.header("Access-Control-Max-Age", "86400");
@@ -95,6 +106,8 @@ server.listen(port, () => {
   if (process.env.NODE_ENV === "production") {
     startReconciliationJob();
     startDeadLetterMonitorJob();
+    startStuckTripDetectorJob();
+    startLocationCleanupJob();
   }
 });
 

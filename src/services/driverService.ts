@@ -7,6 +7,48 @@ import logger from "../lib/logger.js";
 
 export type DriverAvailability = "available" | "busy" | "offline" | "break";
 
+// --- Location History Batching ---
+// Buffer location history records in memory and flush every 10 seconds
+// to reduce DB write pressure from high-frequency driver location updates
+interface LocationRecord {
+  driverId: string;
+  tenantId: string;
+  latitude: string;
+  longitude: string;
+  heading?: number;
+  speed?: number;
+  recordedAt: Date;
+}
+
+const locationBuffer: LocationRecord[] = [];
+let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+async function flushLocationBuffer() {
+  if (locationBuffer.length === 0) return;
+
+  const batch = locationBuffer.splice(0, locationBuffer.length);
+  try {
+    const db = getDb();
+    await db.insert(driverLocations).values(batch);
+  } catch (err) {
+    logger.error("Failed to flush location buffer", {
+      count: batch.length,
+      error: (err as Error).message,
+    });
+    // Re-add failed records back to buffer for next flush (limit to prevent OOM)
+    if (locationBuffer.length < 5000) {
+      locationBuffer.push(...batch);
+    }
+  }
+}
+
+// Start the flush timer
+if (!flushTimer) {
+  flushTimer = setInterval(flushLocationBuffer, 10000);
+  // Ensure buffer is flushed on process exit
+  process.on("beforeExit", () => { flushLocationBuffer(); });
+}
+
 export async function getDriversForTenant(tenantId: string) {
   const db = getDb();
 
@@ -181,8 +223,8 @@ export async function updateDriverLocation(
       },
     });
 
-  // Store location history
-  await db.insert(driverLocations).values({
+  // Buffer location history for batched writes (flushed every 10s)
+  locationBuffer.push({
     driverId,
     tenantId,
     latitude: latitude.toString(),

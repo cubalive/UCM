@@ -65,6 +65,13 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       priority: (t.metadata as any)?.isImmediate ? "immediate" : "scheduled",
       pickupAddress: t.pickupAddress,
       dropoffAddress: t.dropoffAddress,
+      pickupLat: t.pickupLat ? Number(t.pickupLat) : null,
+      pickupLng: t.pickupLng ? Number(t.pickupLng) : null,
+      dropoffLat: t.dropoffLat ? Number(t.dropoffLat) : null,
+      dropoffLng: t.dropoffLng ? Number(t.dropoffLng) : null,
+      estimatedMiles: t.estimatedMiles ? Number(t.estimatedMiles) : null,
+      estimatedMinutes: t.estimatedMinutes,
+      mileage: t.mileage ? Number(t.mileage) : null,
       scheduledPickup: t.scheduledAt?.toISOString(),
       patientName: patientMap.get(t.patientId) || null,
       driverId: t.driverId,
@@ -109,6 +116,48 @@ router.get("/dashboard", async (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error("Failed to load dispatch dashboard", { error: err.message });
     res.status(500).json({ error: "Failed to load dashboard" });
+  }
+});
+
+// Auto-assign scoring simulation — shows scoring breakdown without making changes
+router.get("/auto-assign-preview/:id", validateParams(uuidParam), async (req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const [trip] = await db.select().from(trips).where(
+      and(eq(trips.id, req.params.id as string), eq(trips.tenantId, req.tenantId!))
+    );
+    if (!trip) {
+      res.status(404).json({ error: "Trip not found" });
+      return;
+    }
+
+    // Collect declined drivers
+    const meta = (trip.metadata && typeof trip.metadata === "object") ? trip.metadata as Record<string, unknown> : {};
+    const declinedBy: string[] = [];
+    if (Array.isArray(meta.declinedByHistory)) {
+      declinedBy.push(...(meta.declinedByHistory as string[]));
+    } else if (meta.previousDriverId) {
+      declinedBy.push(meta.previousDriverId as string);
+    }
+
+    const pickupLat = trip.pickupLat ? Number(trip.pickupLat) : (meta.pickupLat ? Number(meta.pickupLat) : undefined);
+    const pickupLng = trip.pickupLng ? Number(trip.pickupLng) : (meta.pickupLng ? Number(meta.pickupLng) : undefined);
+
+    // findBestDriver returns the top candidate, but we want all scored — import raw scoring
+    const { findBestDriver } = await import("../services/autoAssignService.js");
+    const bestDriver = await findBestDriver(req.tenantId!, pickupLat, pickupLng, declinedBy);
+
+    res.json({
+      tripId: trip.id,
+      tripStatus: trip.status,
+      pickupCoords: pickupLat && pickupLng ? { lat: pickupLat, lng: pickupLng } : null,
+      declinedBy,
+      bestDriver: bestDriver || null,
+      message: bestDriver ? `Best driver: ${bestDriver.name} (score: ${bestDriver.score})` : "No eligible drivers found",
+    });
+  } catch (err: any) {
+    logger.error("Auto-assign preview failed", { error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 

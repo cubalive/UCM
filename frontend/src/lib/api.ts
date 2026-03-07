@@ -62,6 +62,8 @@ export const dispatchApi = {
     api.post<any>(`/dispatch/trips/${tripId}/cancel`, { reason }),
   repairTrip: (tripId: string, newStatus: string, reason: string) =>
     api.post<any>(`/dispatch/trips/${tripId}/repair`, { newStatus, reason }),
+  autoAssignPreview: (tripId: string) =>
+    api.get<any>(`/dispatch/auto-assign-preview/${tripId}`),
 };
 
 export const tripApi = {
