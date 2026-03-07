@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import { validateBody, validateParams, uuidParam } from "../middleware/validation.js";
-import { billingRateLimiter } from "../middleware/rateLimiter.js";
+import { billingRateLimiter, locationRateLimiter } from "../middleware/rateLimiter.js";
 import {
   getDriversForTenant,
   getDriverStatus,
@@ -46,14 +46,14 @@ router.get(
   }
 );
 
-// Get driver status
+// Get driver status (tenant-scoped)
 router.get(
   "/:id/status",
   validateParams(uuidParam),
   async (req: Request, res: Response) => {
     try {
       const status = await getDriverStatus(req.params.id as string);
-      if (!status) {
+      if (!status || status.tenantId !== req.tenantId) {
         res.status(404).json({ error: "Driver status not found" });
         return;
       }
@@ -90,6 +90,7 @@ router.post(
 // Driver updates location
 router.post(
   "/me/location",
+  locationRateLimiter,
   authorize("driver"),
   validateBody(locationUpdateSchema),
   async (req: Request, res: Response) => {

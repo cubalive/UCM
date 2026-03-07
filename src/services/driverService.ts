@@ -2,7 +2,7 @@ import { getDb } from "../db/index.js";
 import { users, trips, driverLocations, driverStatus as driverStatusTable } from "../db/schema.js";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { recordAudit } from "./auditService.js";
-import { broadcastToTenant, broadcastToUser } from "./realtimeService.js";
+import { broadcastToTenant, broadcastToUser, WS_EVENTS } from "./realtimeService.js";
 import logger from "../lib/logger.js";
 
 export type DriverAvailability = "available" | "busy" | "offline" | "break";
@@ -119,13 +119,13 @@ export async function updateDriverAvailability(
   }
 
   // Broadcast status change
-  broadcastToTenant(tenantId, "driver:status_changed", {
+  broadcastToTenant(tenantId, WS_EVENTS.DRIVER_STATUS_UPDATE, {
     driverId,
     availability,
     driverName: `${driver.firstName} ${driver.lastName}`,
   });
 
-  broadcastToUser(driverId, "driver:status_changed", { availability });
+  broadcastToUser(driverId, WS_EVENTS.DRIVER_STATUS_UPDATE, { availability });
 
   return { driverId, availability };
 }
@@ -181,7 +181,7 @@ export async function updateDriverLocation(
   });
 
   // Broadcast location to dispatch (throttled by frontend)
-  broadcastToTenant(tenantId, "driver:location", {
+  broadcastToTenant(tenantId, WS_EVENTS.DRIVER_LOCATION_UPDATE, {
     driverId,
     latitude,
     longitude,

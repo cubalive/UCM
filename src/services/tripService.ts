@@ -3,7 +3,7 @@ import { trips, users, patients } from "../db/schema.js";
 import { eq, and, sql, between, desc, inArray } from "drizzle-orm";
 import { recordAudit } from "./auditService.js";
 import logger from "../lib/logger.js";
-import { broadcastToTenant, broadcastToUser } from "./realtimeService.js";
+import { broadcastToTenant, broadcastToUser, broadcastToRole, WS_EVENTS } from "./realtimeService.js";
 import { autoSetBusy, autoSetAvailable } from "./driverService.js";
 
 // Valid state transitions for trip lifecycle
@@ -63,10 +63,18 @@ export async function createTrip(input: CreateTripInput) {
   });
 
   // Notify dispatch in realtime
-  broadcastToTenant(input.tenantId, "trip:created", {
+  broadcastToTenant(input.tenantId, WS_EVENTS.TRIP_CREATED, {
     trip,
     isImmediate: input.isImmediate || false,
   });
+
+  // Fire urgent event for immediate trips so dispatchers get alerted
+  if (input.isImmediate) {
+    broadcastToRole(input.tenantId, "dispatcher", WS_EVENTS.URGENT_TRIP_REQUEST, {
+      trip,
+      message: `Urgent trip request from ${input.pickupAddress}`,
+    });
+  }
 
   logger.info("Trip created", { tripId: trip.id, tenantId: input.tenantId, isImmediate: input.isImmediate });
   return trip;
@@ -124,11 +132,11 @@ export async function assignTrip(tripId: string, driverId: string, tenantId: str
     logger.warn("Failed to auto-set driver busy", { driverId, error: (err as Error).message });
   }
 
-  // Notify driver in realtime
-  broadcastToUser(driverId, "trip:assigned", { trip: updated });
+  // Notify driver immediately
+  broadcastToUser(driverId, WS_EVENTS.TRIP_ASSIGNED, { trip: updated });
 
   // Notify dispatch
-  broadcastToTenant(tenantId, "trip:updated", { trip: updated });
+  broadcastToTenant(tenantId, WS_EVENTS.TRIP_UPDATED, { trip: updated });
 
   logger.info("Trip assigned", { tripId, driverId });
   return updated;
@@ -195,10 +203,10 @@ export async function updateTripStatus(
     }
   }
 
-  // Broadcast to everyone
-  broadcastToTenant(tenantId, "trip:updated", { trip: updated });
+  // Broadcast to dispatch and driver
+  broadcastToTenant(tenantId, WS_EVENTS.TRIP_UPDATED, { trip: updated });
   if (trip.driverId) {
-    broadcastToUser(trip.driverId, "trip:updated", { trip: updated });
+    broadcastToUser(trip.driverId, WS_EVENTS.TRIP_UPDATED, { trip: updated });
   }
 
   logger.info("Trip status updated", { tripId, from: trip.status, to: newStatus });
@@ -296,6 +304,66 @@ export async function getDriverTrips(driverId: string, tenantId: string, activeO
   }));
 }
 
+export async function acceptTrip(tripId: string, driverId: string, tenantId: string) {
+  const db = getDb();
+  const [trip] = await db.select().from(trips).where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)));
+  if (!trip) throw new Error("Trip not found");
+  if (trip.status !== "assigned" || trip.driverId !== driverId) {
+    throw new Error("Trip is not assigned to this driver");
+  }
+
+  const [updated] = await db
+    .update(trips)
+    .set({
+      updatedAt: new Date(),
+      metadata: {
+        ...(trip.metadata as Record<string, unknown>),
+        acceptedAt: new Date().toISOString(),
+        acceptedByDriver: true,
+      },
+    })
+    .where(eq(trips.id, tripId))
+    .returning();
+
+  await recordAudit({ tenantId, userId: driverId, action: "trip.accepted", resource: "trip", resourceId: tripId, details: { driverId } });
+  broadcastToTenant(tenantId, WS_EVENTS.TRIP_ACCEPTED, { trip: updated });
+  broadcastToUser(driverId, WS_EVENTS.TRIP_ACCEPTED, { trip: updated });
+  logger.info("Trip accepted by driver", { tripId, driverId });
+  return updated;
+}
+
+export async function declineTrip(tripId: string, driverId: string, tenantId: string, reason?: string) {
+  const db = getDb();
+  const [trip] = await db.select().from(trips).where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)));
+  if (!trip) throw new Error("Trip not found");
+  if (trip.status !== "assigned" || trip.driverId !== driverId) {
+    throw new Error("Trip is not assigned to this driver");
+  }
+
+  const [updated] = await db
+    .update(trips)
+    .set({
+      status: "requested",
+      driverId: null,
+      updatedAt: new Date(),
+      metadata: {
+        ...(trip.metadata as Record<string, unknown>),
+        declinedAt: new Date().toISOString(),
+        declinedBy: driverId,
+        declineReason: reason,
+        previousDriverId: driverId,
+      },
+    })
+    .where(eq(trips.id, tripId))
+    .returning();
+
+  await recordAudit({ tenantId, userId: driverId, action: "trip.declined", resource: "trip", resourceId: tripId, details: { driverId, reason } });
+  try { await autoSetAvailable(driverId, tenantId); } catch { /* non-fatal */ }
+  broadcastToTenant(tenantId, WS_EVENTS.TRIP_UPDATED, { trip: updated });
+  logger.info("Trip declined by driver", { tripId, driverId });
+  return updated;
+}
+
 export async function cancelTrip(tripId: string, tenantId: string, userId?: string, reason?: string) {
   const db = getDb();
 
@@ -341,9 +409,9 @@ export async function cancelTrip(tripId: string, tenantId: string, userId?: stri
     }
   }
 
-  broadcastToTenant(tenantId, "trip:updated", { trip: updated });
+  broadcastToTenant(tenantId, WS_EVENTS.TRIP_CANCELLED, { trip: updated });
   if (trip.driverId) {
-    broadcastToUser(trip.driverId, "trip:cancelled", { trip: updated });
+    broadcastToUser(trip.driverId, WS_EVENTS.TRIP_CANCELLED, { trip: updated });
   }
 
   return updated;

@@ -11,6 +11,8 @@ import {
   getTripById,
   getDriverTrips,
   cancelTrip,
+  acceptTrip,
+  declineTrip,
 } from "../services/tripService.js";
 import { autoAssignTrip } from "../services/autoAssignService.js";
 import logger from "../lib/logger.js";
@@ -168,6 +170,38 @@ router.post(
       }
     } catch (err: any) {
       logger.error("Failed to update trip status", { error: err.message });
+      const status = err.message.includes("not found") ? 404 : 400;
+      res.status(status).json({ error: err.message });
+    }
+  }
+);
+
+// Driver accepts an assigned trip
+router.post(
+  "/:id/accept",
+  authorize("driver"),
+  validateParams(uuidParam),
+  async (req: Request, res: Response) => {
+    try {
+      const trip = await acceptTrip(req.params.id as string, req.user!.id, req.tenantId!);
+      res.json({ accepted: true, trip });
+    } catch (err: any) {
+      const status = err.message.includes("not found") ? 404 : 400;
+      res.status(status).json({ error: err.message });
+    }
+  }
+);
+
+// Driver declines an assigned trip (goes back to pool)
+router.post(
+  "/:id/decline",
+  authorize("driver"),
+  validateParams(uuidParam),
+  async (req: Request, res: Response) => {
+    try {
+      const trip = await declineTrip(req.params.id as string, req.user!.id, req.tenantId!, req.body?.reason);
+      res.json({ declined: true, trip });
+    } catch (err: any) {
       const status = err.message.includes("not found") ? 404 : 400;
       res.status(status).json({ error: err.message });
     }

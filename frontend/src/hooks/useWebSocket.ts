@@ -8,18 +8,22 @@ export function useWebSocket() {
   const handlersRef = useRef<Map<string, Set<EventHandler>>>(new Map());
   const [connected, setConnected] = useState(false);
   const reconnectTimeoutRef = useRef<number>();
+  const reconnectAttemptRef = useRef(0);
 
   const connect = useCallback(() => {
     const token = getToken();
     if (!token) return;
 
+    // Use URL token for backward compat with server
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${token}`);
 
     ws.onopen = () => {
       setConnected(true);
+      reconnectAttemptRef.current = 0;
       console.log("[WS] Connected");
-      // Heartbeat every 30s to keep connection alive and detect dead sockets
+
+      // Heartbeat every 30s
       const hb = window.setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "ping" }));
@@ -35,21 +39,26 @@ export function useWebSocket() {
         if (handlers) {
           handlers.forEach((handler) => handler(msg.data));
         }
-      } catch {
-        // ignore malformed messages
-      }
+      } catch { /* ignore malformed */ }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setConnected(false);
-      console.log("[WS] Disconnected, reconnecting in 3s...");
-      reconnectTimeoutRef.current = window.setTimeout(connect, 3000);
+
+      // Don't reconnect on auth failures
+      if (event.code === 4001 || event.code === 4002) {
+        console.log("[WS] Auth failed, not reconnecting");
+        return;
+      }
+
+      // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+      const attempt = reconnectAttemptRef.current++;
+      const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+      console.log(`[WS] Disconnected, reconnecting in ${delay / 1000}s...`);
+      reconnectTimeoutRef.current = window.setTimeout(connect, delay);
     };
 
-    ws.onerror = () => {
-      ws.close();
-    };
-
+    ws.onerror = () => { ws.close(); };
     wsRef.current = ws;
   }, []);
 
@@ -66,10 +75,7 @@ export function useWebSocket() {
       handlersRef.current.set(event, new Set());
     }
     handlersRef.current.get(event)!.add(handler);
-
-    return () => {
-      handlersRef.current.get(event)?.delete(handler);
-    };
+    return () => { handlersRef.current.get(event)?.delete(handler); };
   }, []);
 
   const send = useCallback((type: string, data?: any) => {

@@ -9,7 +9,7 @@ import { assignTrip, updateTripStatus, cancelTrip } from "../services/tripServic
 import { updateDriverAvailability, detectStaleDrivers, getDriversForTenant } from "../services/driverService.js";
 import { autoAssignTrip, findBestDriver } from "../services/autoAssignService.js";
 import { recordAudit } from "../services/auditService.js";
-import { getConnectedStats } from "../services/realtimeService.js";
+import { getConnectedStats, getOnlineDrivers } from "../services/realtimeService.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
@@ -84,12 +84,21 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     }));
 
     const wsStats = getConnectedStats();
+    const onlineDriversList = getOnlineDrivers(tenantId);
+    const onlineDriverIds = new Set(onlineDriversList.map(d => d.driverId));
+
+    // Tag online presence on drivers
+    const driversWithPresence = normalizedDrivers.map((d) => ({
+      ...d,
+      isOnline: onlineDriverIds.has(d.id),
+    }));
 
     res.json({
       trips: enrichedTrips,
-      drivers: normalizedDrivers,
+      drivers: driversWithPresence,
       stats: {
         connections: wsStats,
+        onlineDrivers: onlineDriversList.length,
       },
     });
   } catch (err: any) {
@@ -298,6 +307,68 @@ router.post(
       res.json({ unassigned: true, tripId: trip.id });
     } catch (err: any) {
       logger.error("Unassign failed", { error: err.message });
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// Trip status repair — fix inconsistent trip states
+const statusRepairSchema = z.object({
+  newStatus: z.enum(["requested", "assigned", "en_route", "arrived", "in_progress", "completed", "cancelled"]),
+  reason: z.string().min(1).max(500),
+});
+
+router.post(
+  "/trips/:id/repair",
+  validateParams(uuidParam),
+  validateBody(statusRepairSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const db = getDb();
+      const [trip] = await db.select().from(trips).where(
+        and(eq(trips.id, req.params.id as string), eq(trips.tenantId, req.tenantId!))
+      );
+
+      if (!trip) {
+        res.status(404).json({ error: "Trip not found" });
+        return;
+      }
+
+      const previousStatus = trip.status;
+      const updateData: Record<string, unknown> = {
+        status: req.body.newStatus,
+        updatedAt: new Date(),
+        metadata: {
+          ...(trip.metadata as Record<string, unknown>),
+          repairedAt: new Date().toISOString(),
+          repairedBy: req.user!.id,
+          repairReason: req.body.reason,
+          previousStatus,
+        },
+      };
+
+      // Clear driver if going back to requested
+      if (req.body.newStatus === "requested") {
+        updateData.driverId = null;
+      }
+      if (req.body.newStatus === "completed" && !trip.completedAt) {
+        updateData.completedAt = new Date();
+      }
+
+      const [updated] = await db.update(trips).set(updateData).where(eq(trips.id, trip.id)).returning();
+
+      await recordAudit({
+        tenantId: req.tenantId!,
+        userId: req.user!.id,
+        action: "dispatch.trip_status_repair",
+        resource: "trip",
+        resourceId: trip.id,
+        details: { previousStatus, newStatus: req.body.newStatus, reason: req.body.reason },
+      });
+
+      res.json({ repaired: true, trip: updated });
+    } catch (err: any) {
+      logger.error("Trip status repair failed", { error: err.message });
       res.status(500).json({ error: err.message });
     }
   }

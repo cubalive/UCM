@@ -9,6 +9,11 @@ import {
   getDriverPayoutStatus,
   getDriverDashboardLink,
 } from "../services/driverPayoutService.js";
+import {
+  getDriverBalance,
+  getDriverEarningsHistory,
+  requestPayout,
+} from "../services/driverEarningsService.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
@@ -85,6 +90,41 @@ router.get(
     } catch (err: any) {
       logger.error("Failed to get dashboard link", { error: err.message });
       res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// GET /driver/earnings — driver's balance and earnings history
+router.get(
+  "/earnings",
+  authorize("driver"),
+  async (req: Request, res: Response) => {
+    try {
+      const [balance, history] = await Promise.all([
+        getDriverBalance(req.user!.id, req.tenantId!),
+        getDriverEarningsHistory(req.user!.id, req.tenantId!),
+      ]);
+      res.json({ ...balance, history });
+    } catch (err: any) {
+      logger.error("Failed to get driver earnings", { error: err.message });
+      res.status(500).json({ error: "Failed to get earnings" });
+    }
+  }
+);
+
+// POST /driver/payout — request payout
+router.post(
+  "/payout",
+  paymentRateLimiter,
+  authorize("driver"),
+  async (req: Request, res: Response) => {
+    try {
+      const result = await requestPayout(req.user!.id, req.tenantId!);
+      res.json(result);
+    } catch (err: any) {
+      logger.error("Driver payout failed", { error: err.message });
+      const status = err.message.includes("not found") ? 404 : 400;
+      res.status(status).json({ error: err.message });
     }
   }
 );

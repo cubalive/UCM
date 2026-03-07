@@ -2,12 +2,14 @@ import { Router, Request, Response } from "express";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { billingRateLimiter } from "../middleware/rateLimiter.js";
 import { runReconciliation } from "../services/reconciliationService.js";
-import { getWebhookDashboardData } from "../services/webhookService.js";
+import { getWebhookDashboardData, replayWebhookEvent } from "../services/webhookService.js";
 import { generateBillingReport } from "../services/observabilityService.js";
 import { getDeadLetterStats } from "../jobs/deadLetterProcessor.js";
 import { getDb } from "../db/index.js";
-import { auditLog } from "../db/schema.js";
-import { eq, desc, sql } from "drizzle-orm";
+import { auditLog, driverStatus, trips, users } from "../db/schema.js";
+import { eq, desc, sql, and, inArray } from "drizzle-orm";
+import { getConnectedStats, getOnlineDrivers } from "../services/realtimeService.js";
+import { validateParams, uuidParam } from "../middleware/validation.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
@@ -76,6 +78,68 @@ router.get("/dead-letter-stats", async (_req: Request, res: Response) => {
   } catch (err: any) {
     logger.error("Failed to get dead letter stats", { error: err.message });
     res.status(500).json({ error: "Failed to get dead letter stats" });
+  }
+});
+
+// Replay a webhook event
+router.post(
+  "/webhooks/:id/replay",
+  validateParams(uuidParam),
+  async (req: Request, res: Response) => {
+    try {
+      await replayWebhookEvent(req.params.id as string);
+      res.json({ replayed: true });
+    } catch (err: any) {
+      logger.error("Failed to replay webhook", { error: err.message });
+      const status = err.message.includes("not found") ? 404 : 400;
+      res.status(status).json({ error: err.message });
+    }
+  }
+);
+
+// Driver online monitor
+router.get("/drivers/online", async (req: Request, res: Response) => {
+  try {
+    const onlineDrivers = getOnlineDrivers(req.tenantId || undefined);
+    const wsStats = getConnectedStats();
+    res.json({ online: onlineDrivers, stats: wsStats });
+  } catch (err: any) {
+    logger.error("Failed to get online drivers", { error: err.message });
+    res.status(500).json({ error: "Failed to get online drivers" });
+  }
+});
+
+// Trip pipeline monitor
+router.get("/trip-pipeline", async (_req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const [stats] = await db
+      .select({
+        total: sql<number>`count(*)`,
+        requested: sql<number>`count(case when status = 'requested' then 1 end)`,
+        assigned: sql<number>`count(case when status = 'assigned' then 1 end)`,
+        en_route: sql<number>`count(case when status = 'en_route' then 1 end)`,
+        arrived: sql<number>`count(case when status = 'arrived' then 1 end)`,
+        in_progress: sql<number>`count(case when status = 'in_progress' then 1 end)`,
+        completed_today: sql<number>`count(case when status = 'completed' and completed_at > now() - interval '24 hours' then 1 end)`,
+        cancelled_today: sql<number>`count(case when status = 'cancelled' and updated_at > now() - interval '24 hours' then 1 end)`,
+        stuck: sql<number>`count(case when status in ('assigned', 'en_route', 'arrived') and updated_at < now() - interval '2 hours' then 1 end)`,
+      })
+      .from(trips);
+
+    res.json({
+      requested: Number(stats.requested),
+      assigned: Number(stats.assigned),
+      en_route: Number(stats.en_route),
+      arrived: Number(stats.arrived),
+      in_progress: Number(stats.in_progress),
+      completedToday: Number(stats.completed_today),
+      cancelledToday: Number(stats.cancelled_today),
+      stuck: Number(stats.stuck),
+    });
+  } catch (err: any) {
+    logger.error("Failed to get trip pipeline", { error: err.message });
+    res.status(500).json({ error: "Failed to get trip pipeline" });
   }
 });
 

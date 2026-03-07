@@ -60,6 +60,8 @@ export const dispatchApi = {
     api.post<any>(`/dispatch/trips/${tripId}/unassign`, { reason }),
   cancelTrip: (tripId: string, reason?: string) =>
     api.post<any>(`/dispatch/trips/${tripId}/cancel`, { reason }),
+  repairTrip: (tripId: string, newStatus: string, reason: string) =>
+    api.post<any>(`/dispatch/trips/${tripId}/repair`, { newStatus, reason }),
 };
 
 export const tripApi = {
@@ -77,6 +79,13 @@ export const tripApi = {
     const res = await api.get<any>(`/trips/driver/my-trips${activeOnly ? "?active=true" : ""}`);
     return { trips: res.data || res.trips || [] };
   },
+  accept: (id: string) => api.post<any>(`/trips/${id}/accept`),
+  decline: (id: string, reason?: string) => api.post<any>(`/trips/${id}/decline`, { reason }),
+};
+
+export const earningsApi = {
+  getEarnings: () => api.get<any>("/driver-payouts/earnings"),
+  requestPayout: () => api.post<any>("/driver-payouts/payout"),
 };
 
 export const driverApi = {

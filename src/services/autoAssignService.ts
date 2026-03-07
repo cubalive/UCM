@@ -2,6 +2,8 @@ import { getDb } from "../db/index.js";
 import { users, trips, driverStatus } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import { assignTrip } from "./tripService.js";
+import { isDriverOnline } from "./realtimeService.js";
+import { broadcastToRole, WS_EVENTS } from "./realtimeService.js";
 import logger from "../lib/logger.js";
 
 interface DriverCandidate {
@@ -11,16 +13,17 @@ interface DriverCandidate {
   longitude: number | null;
   activeTrips: number;
   score: number;
+  breakdown: Record<string, number>;
 }
 
 export async function findBestDriver(
   tenantId: string,
   pickupLat?: number,
-  pickupLng?: number
+  pickupLng?: number,
+  excludeDriverIds?: string[]
 ): Promise<DriverCandidate | null> {
   const db = getDb();
 
-  // Get available drivers with their status
   const availableDrivers = await db
     .select({
       driverId: users.id,
@@ -43,10 +46,12 @@ export async function findBestDriver(
 
   if (availableDrivers.length === 0) return null;
 
-  // Score each driver
   const candidates: DriverCandidate[] = [];
 
   for (const driver of availableDrivers) {
+    // Skip excluded drivers (e.g. those who already declined)
+    if (excludeDriverIds?.includes(driver.driverId)) continue;
+
     // Count active trips
     const [activeCount] = await db
       .select({ count: sql<number>`count(*)` })
@@ -59,30 +64,79 @@ export async function findBestDriver(
       );
 
     const activeTrips = Number(activeCount.count);
+    const breakdown: Record<string, number> = {};
     let score = 100;
 
     // Penalize drivers with active trips
-    score -= activeTrips * 30;
+    const tripPenalty = activeTrips * 30;
+    score -= tripPenalty;
+    breakdown.activeTrips = -tripPenalty;
 
-    // Bonus for proximity if we have coordinates
+    // Proximity bonus
     if (pickupLat && pickupLng && driver.latitude && driver.longitude) {
       const distance = haversineDistance(
-        pickupLat,
-        pickupLng,
-        Number(driver.latitude),
-        Number(driver.longitude)
+        pickupLat, pickupLng,
+        Number(driver.latitude), Number(driver.longitude)
       );
-      // Closer drivers score higher (max 50 bonus for <1 mile)
-      score += Math.max(0, 50 - distance * 5);
+      const proximityBonus = Math.max(0, 50 - distance * 5);
+      score += proximityBonus;
+      breakdown.proximity = Math.round(proximityBonus);
     }
 
-    // Penalize stale location (>10 min old)
+    // Stale location penalty
     if (driver.lastLocationAt) {
       const ageMinutes = (Date.now() - driver.lastLocationAt.getTime()) / 60000;
-      if (ageMinutes > 10) score -= 20;
-      if (ageMinutes > 30) score -= 30;
+      if (ageMinutes > 10) { score -= 20; breakdown.stale = -20; }
+      if (ageMinutes > 30) { score -= 30; breakdown.veryStale = -30; }
     } else {
       score -= 20;
+      breakdown.noLocation = -20;
+    }
+
+    // Online presence bonus
+    if (isDriverOnline(driver.driverId)) {
+      score += 15;
+      breakdown.online = 15;
+    }
+
+    // On-time rate: check recently completed trips (approximate)
+    const [completedStats] = await db
+      .select({
+        total: sql<number>`count(*)`,
+        onTime: sql<number>`count(case when ${trips.completedAt} is not null then 1 end)`,
+      })
+      .from(trips)
+      .where(
+        and(
+          eq(trips.driverId, driver.driverId),
+          sql`${trips.status} = 'completed'`,
+          sql`${trips.createdAt} > now() - interval '30 days'`
+        )
+      );
+
+    const totalCompleted = Number(completedStats.total);
+    if (totalCompleted >= 5) {
+      const onTimeRate = Number(completedStats.onTime) / totalCompleted;
+      const reliabilityBonus = Math.round(onTimeRate * 20);
+      score += reliabilityBonus;
+      breakdown.reliability = reliabilityBonus;
+    }
+
+    // Decline penalty: check if driver recently declined trips
+    const [declineStats] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(trips)
+      .where(
+        and(
+          sql`(${trips.metadata}->>'declinedBy')::text = ${driver.driverId}`,
+          sql`${trips.updatedAt} > now() - interval '1 hour'`
+        )
+      );
+    const recentDeclines = Number(declineStats.count);
+    if (recentDeclines > 0) {
+      const declinePenalty = recentDeclines * 15;
+      score -= declinePenalty;
+      breakdown.recentDeclines = -declinePenalty;
     }
 
     candidates.push({
@@ -92,6 +146,7 @@ export async function findBestDriver(
       longitude: driver.longitude ? Number(driver.longitude) : null,
       activeTrips,
       score,
+      breakdown,
     });
   }
 
@@ -100,17 +155,35 @@ export async function findBestDriver(
 
   logger.info("Auto-assign candidates scored", {
     tenantId,
-    candidates: candidates.map((c) => ({ name: c.name, score: c.score, activeTrips: c.activeTrips })),
+    candidates: candidates.map((c) => ({ name: c.name, score: c.score, breakdown: c.breakdown })),
   });
 
   return candidates[0] || null;
 }
 
 export async function autoAssignTrip(tripId: string, tenantId: string): Promise<boolean> {
-  const bestDriver = await findBestDriver(tenantId);
+  // Get trip to extract pickup location if available
+  const db = getDb();
+  const [trip] = await db.select().from(trips).where(eq(trips.id, tripId));
+
+  // Collect drivers who already declined this trip
+  const declinedBy: string[] = [];
+  if (trip?.metadata && typeof trip.metadata === "object") {
+    const meta = trip.metadata as Record<string, unknown>;
+    if (meta.previousDriverId) declinedBy.push(meta.previousDriverId as string);
+  }
+
+  const bestDriver = await findBestDriver(tenantId, undefined, undefined, declinedBy);
 
   if (!bestDriver) {
     logger.warn("Auto-assign: no available drivers", { tripId, tenantId });
+
+    // Fallback: notify dispatchers
+    broadcastToRole(tenantId, "dispatcher", WS_EVENTS.URGENT_TRIP_REQUEST, {
+      tripId,
+      message: "No drivers available for auto-assignment — manual assignment required",
+    });
+
     return false;
   }
 
@@ -129,14 +202,11 @@ export async function autoAssignTrip(tripId: string, tenantId: string): Promise<
   }
 }
 
-// Haversine formula for distance between two points (returns miles)
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 3959; // Earth radius in miles
+  const R = 3959;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }

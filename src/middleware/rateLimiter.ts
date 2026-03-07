@@ -49,3 +49,23 @@ export const paymentRateLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many payment requests, please try again later" },
 });
+
+// Driver location updates are frequent but should still be bounded
+export const locationRateLimiter = rateLimit({
+  windowMs: 10 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.user?.id || req.ip || "unknown",
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Location updates too frequent" },
+});
+
+// Strict rate limiter for dispatch override operations
+export const overrideRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  keyGenerator,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many override operations" },
+});

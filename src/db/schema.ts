@@ -300,6 +300,30 @@ export const driverStatus = pgTable(
   })
 );
 
+// Driver Earnings Ledger
+export const driverEarnings = pgTable(
+  "driver_earnings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    driverId: uuid("driver_id").references(() => users.id).notNull(),
+    tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
+    tripId: uuid("trip_id").references(() => trips.id),
+    type: text("type").notNull(), // 'trip_earning', 'bonus', 'adjustment', 'payout'
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    currency: text("currency").default("usd").notNull(),
+    description: text("description"),
+    stripeTransferId: text("stripe_transfer_id"),
+    metadata: jsonb("metadata").default({}),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    driverIdx: index("driver_earnings_driver_idx").on(table.driverId),
+    tenantIdx: index("driver_earnings_tenant_idx").on(table.tenantId),
+    tripIdx: index("driver_earnings_trip_idx").on(table.tripId),
+    typeIdx: index("driver_earnings_type_idx").on(table.type),
+  })
+);
+
 // Driver Location History
 export const driverLocations = pgTable(
   "driver_locations",
