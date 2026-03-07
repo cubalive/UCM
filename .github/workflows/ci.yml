@@ -7,7 +7,26 @@ on:
     branches: [main]
 
 jobs:
-  lint-typecheck-test:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+  test:
+    name: Test
     runs-on: ubuntu-latest
 
     services:
@@ -56,19 +75,47 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: TypeScript type check
-        run: npx tsc --noEmit
-
       - name: Run unit tests
         run: npx vitest run --config vitest.config.ts
 
       - name: Run DB migrations
         run: npx drizzle-kit push --force
-        env:
-          DATABASE_URL: postgresql://ucm:testpassword@localhost:5432/ucm_test
 
       - name: Run integration tests
         run: npx vitest run --config vitest.integration.config.ts
 
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Build
         run: npx tsc
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
