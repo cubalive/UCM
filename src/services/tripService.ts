@@ -93,17 +93,7 @@ export async function createTrip(input: CreateTripInput) {
 export async function assignTrip(tripId: string, driverId: string, tenantId: string, assignedBy?: string) {
   const db = getDb();
 
-  const [trip] = await db
-    .select()
-    .from(trips)
-    .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)));
-
-  if (!trip) throw new Error("Trip not found");
-  if (!canTransition(trip.status, "assigned")) {
-    throw new Error(`Cannot assign trip in status: ${trip.status}`);
-  }
-
-  // Verify driver exists and belongs to tenant
+  // Verify driver exists and belongs to tenant (outside transaction — read-only)
   const [driver] = await db
     .select()
     .from(users)
@@ -111,20 +101,31 @@ export async function assignTrip(tripId: string, driverId: string, tenantId: str
 
   if (!driver) throw new Error("Driver not found");
 
+  // Use atomic update with WHERE clause to prevent race conditions
   const [updated] = await db
     .update(trips)
     .set({
       driverId,
       status: "assigned",
       updatedAt: new Date(),
-      metadata: {
-        ...(trip.metadata as Record<string, unknown>),
-        assignedAt: new Date().toISOString(),
-        assignedBy,
-      },
+      metadata: sql`jsonb_set(
+        COALESCE(${trips.metadata}, '{}'::jsonb),
+        '{assignedAt}',
+        to_jsonb(${new Date().toISOString()}::text)
+      ) || jsonb_build_object('assignedBy', ${assignedBy || null}::text)`,
     })
-    .where(eq(trips.id, tripId))
+    .where(
+      and(
+        eq(trips.id, tripId),
+        eq(trips.tenantId, tenantId),
+        inArray(trips.status, ["requested", "assigned"] as any)
+      )
+    )
     .returning();
+
+  if (!updated) {
+    throw new Error("Trip not found or cannot be assigned in its current status");
+  }
 
   await recordAudit({
     tenantId,
@@ -157,7 +158,7 @@ export async function updateTripStatus(
   newStatus: string,
   tenantId: string,
   userId?: string,
-  extra?: { mileage?: number }
+  extra?: { mileage?: number; userRole?: string }
 ) {
   const db = getDb();
 
@@ -167,6 +168,12 @@ export async function updateTripStatus(
     .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)));
 
   if (!trip) throw new Error("Trip not found");
+
+  // Drivers can only update trips assigned to them
+  if (extra?.userRole === "driver" && trip.driverId !== userId) {
+    throw new Error("You can only update trips assigned to you");
+  }
+
   if (!canTransition(trip.status, newStatus)) {
     throw new Error(`Invalid transition: ${trip.status} → ${newStatus}`);
   }

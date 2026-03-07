@@ -10,43 +10,57 @@ export type DriverAvailability = "available" | "busy" | "offline" | "break";
 export async function getDriversForTenant(tenantId: string) {
   const db = getDb();
 
-  const drivers = await db
+  // Single query with LEFT JOIN — eliminates N+1
+  const driversWithStatus = await db
     .select({
       id: users.id,
       firstName: users.firstName,
       lastName: users.lastName,
       email: users.email,
       active: users.active,
+      availability: driverStatusTable.availability,
+      lastLocationAt: driverStatusTable.lastLocationAt,
+      latitude: driverStatusTable.latitude,
+      longitude: driverStatusTable.longitude,
     })
     .from(users)
+    .leftJoin(driverStatusTable, eq(users.id, driverStatusTable.driverId))
     .where(and(eq(users.tenantId, tenantId), eq(users.role, "driver")));
 
-  // Enrich with status
-  const enriched = await Promise.all(
-    drivers.map(async (driver) => {
-      const status = await getDriverStatus(driver.id);
-      const activeTrips = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(trips)
-        .where(
-          and(
-            eq(trips.driverId, driver.id),
-            inArray(trips.status, ["assigned", "en_route", "arrived", "in_progress"] as any)
-          )
-        );
+  // Batch active trip counts in one query
+  const driverIds = driversWithStatus.map(d => d.id);
+  let tripCountMap = new Map<string, number>();
 
-      return {
-        ...driver,
-        availability: status?.availability || "offline",
-        lastLocationAt: status?.lastLocationAt,
-        latitude: status?.latitude,
-        longitude: status?.longitude,
-        activeTrips: Number(activeTrips[0]?.count || 0),
-      };
-    })
-  );
+  if (driverIds.length > 0) {
+    const tripCounts = await db
+      .select({
+        driverId: trips.driverId,
+        count: sql<number>`count(*)`,
+      })
+      .from(trips)
+      .where(
+        and(
+          inArray(trips.driverId, driverIds),
+          inArray(trips.status, ["assigned", "en_route", "arrived", "in_progress"] as any)
+        )
+      )
+      .groupBy(trips.driverId);
 
-  return enriched;
+    tripCountMap = new Map(tripCounts.map(tc => [tc.driverId!, Number(tc.count)]));
+  }
+
+  return driversWithStatus.map(d => ({
+    id: d.id,
+    firstName: d.firstName,
+    lastName: d.lastName,
+    email: d.email,
+    active: d.active,
+    availability: d.availability || "offline",
+    lastLocationAt: d.lastLocationAt,
+    latitude: d.latitude,
+    longitude: d.longitude,
+    activeTrips: tripCountMap.get(d.id) || 0,
+  }));
 }
 
 export async function getDriverStatus(driverId: string) {
@@ -77,25 +91,25 @@ export async function updateDriverAvailability(
 
   if (!driver) throw new Error("Driver not found");
 
-  const existing = await getDriverStatus(driverId);
+  const existingBefore = await getDriverStatus(driverId);
 
-  if (existing) {
-    await db
-      .update(driverStatusTable)
-      .set({
-        availability,
-        updatedAt: new Date(),
-        lastManualOverride: isManualOverride ? new Date() : existing.lastManualOverride,
-      })
-      .where(eq(driverStatusTable.driverId, driverId));
-  } else {
-    await db.insert(driverStatusTable).values({
+  // Atomic upsert using ON CONFLICT — prevents race condition
+  await db
+    .insert(driverStatusTable)
+    .values({
       driverId,
       tenantId,
       availability,
       lastManualOverride: isManualOverride ? new Date() : null,
+    })
+    .onConflictDoUpdate({
+      target: driverStatusTable.driverId,
+      set: {
+        availability,
+        updatedAt: new Date(),
+        ...(isManualOverride ? { lastManualOverride: new Date() } : {}),
+      },
     });
-  }
 
   if (isManualOverride) {
     await recordAudit({
@@ -105,14 +119,14 @@ export async function updateDriverAvailability(
       resource: "driver",
       resourceId: driverId,
       details: {
-        previousStatus: existing?.availability,
+        previousStatus: existingBefore?.availability,
         newStatus: availability,
         isManualOverride: true,
       },
     });
     logger.info("Driver status manually overridden", {
       driverId,
-      from: existing?.availability,
+      from: existingBefore?.availability,
       to: availability,
       by: updatedBy,
     });
@@ -141,23 +155,10 @@ export async function updateDriverLocation(
   const db = getDb();
   const now = new Date();
 
-  // Update driver_status location
-  const existing = await getDriverStatus(driverId);
-
-  if (existing) {
-    await db
-      .update(driverStatusTable)
-      .set({
-        latitude: latitude.toString(),
-        longitude: longitude.toString(),
-        heading,
-        speed,
-        lastLocationAt: now,
-        updatedAt: now,
-      })
-      .where(eq(driverStatusTable.driverId, driverId));
-  } else {
-    await db.insert(driverStatusTable).values({
+  // Atomic upsert for driver location
+  await db
+    .insert(driverStatusTable)
+    .values({
       driverId,
       tenantId,
       availability: "available",
@@ -166,8 +167,18 @@ export async function updateDriverLocation(
       heading,
       speed,
       lastLocationAt: now,
+    })
+    .onConflictDoUpdate({
+      target: driverStatusTable.driverId,
+      set: {
+        latitude: latitude.toString(),
+        longitude: longitude.toString(),
+        heading,
+        speed,
+        lastLocationAt: now,
+        updatedAt: now,
+      },
     });
-  }
 
   // Store location history
   await db.insert(driverLocations).values({

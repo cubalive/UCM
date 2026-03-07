@@ -156,9 +156,18 @@ function handleClientMessage(client: ConnectedClient, message: { type: string; d
   switch (message.type) {
     case "driver:location_update":
       if (client.role === "driver" && message.data) {
+        const { latitude, longitude, heading, speed } = message.data;
+        // Validate location data before broadcasting
+        if (typeof latitude !== "number" || typeof longitude !== "number" ||
+            latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+          break;
+        }
         broadcastToTenant(client.tenantId, WS_EVENTS.DRIVER_LOCATION_UPDATE, {
           driverId: client.userId,
-          ...message.data,
+          latitude,
+          longitude,
+          heading: typeof heading === "number" ? heading : undefined,
+          speed: typeof speed === "number" ? speed : undefined,
           timestamp: new Date().toISOString(),
         });
       }

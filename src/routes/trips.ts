@@ -168,7 +168,7 @@ router.post(
           req.body.status,
           req.tenantId!,
           req.user!.id,
-          { mileage: req.body.mileage }
+          { mileage: req.body.mileage, userRole: req.user!.role }
         );
         res.json(trip);
       }
