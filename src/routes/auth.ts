@@ -40,6 +40,27 @@ router.post("/login", authRateLimiter, validateBody(loginSchema), async (req: Re
       return;
     }
 
+    // Block login if password reset is required (imported drivers)
+    if (user.mustResetPassword) {
+      // Generate a short-lived reset token
+      const resetSecret = process.env.JWT_SECRET;
+      if (!resetSecret) {
+        res.status(500).json({ error: "Server configuration error" });
+        return;
+      }
+      const resetToken = jwt.sign(
+        { id: user.id, tenantId: user.tenantId, purpose: "password-reset" },
+        resetSecret,
+        { expiresIn: "15m" }
+      );
+      res.status(403).json({
+        error: "Password reset required",
+        mustResetPassword: true,
+        resetToken,
+      });
+      return;
+    }
+
     const secret = process.env.JWT_SECRET;
     if (!secret) {
       logger.error("JWT_SECRET not configured");
@@ -83,6 +104,68 @@ router.post("/login", authRateLimiter, validateBody(loginSchema), async (req: Re
   } catch (err: any) {
     logger.error("Login failed", { error: err.message });
     res.status(500).json({ error: "Login failed" });
+  }
+});
+
+// Password reset for imported drivers
+const resetPasswordSchema = z.object({
+  resetToken: z.string().min(1),
+  newPassword: z.string().min(8).max(128),
+});
+
+router.post("/reset-password", authRateLimiter, validateBody(resetPasswordSchema), async (req: Request, res: Response) => {
+  try {
+    const { resetToken, newPassword } = req.body;
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      res.status(500).json({ error: "Server configuration error" });
+      return;
+    }
+
+    let payload: any;
+    try {
+      payload = jwt.verify(resetToken, secret);
+    } catch {
+      res.status(401).json({ error: "Invalid or expired reset token" });
+      return;
+    }
+
+    if (payload.purpose !== "password-reset") {
+      res.status(401).json({ error: "Invalid reset token" });
+      return;
+    }
+
+    const db = getDb();
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, payload.id), eq(users.tenantId, payload.tenantId), eq(users.active, true)));
+
+    if (!user || !user.mustResetPassword) {
+      res.status(404).json({ error: "Reset not required or user not found" });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await db
+      .update(users)
+      .set({ passwordHash, mustResetPassword: false, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+
+    await recordAudit({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: "user.password_reset",
+      resource: "user",
+      resourceId: user.id,
+      details: { method: "import_forced_reset" },
+    });
+
+    logger.info("Password reset completed", { userId: user.id, tenantId: user.tenantId });
+    res.json({ success: true, message: "Password has been reset. You can now log in." });
+  } catch (err: any) {
+    logger.error("Password reset failed", { error: err.message });
+    res.status(500).json({ error: "Password reset failed" });
   }
 });
 

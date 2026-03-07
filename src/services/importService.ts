@@ -450,6 +450,7 @@ async function importDrivers(
             firstName: row.firstName,
             lastName: row.lastName,
             active: true,
+            mustResetPassword: true,
           }).returning({ id: users.id });
 
           // Create driver status

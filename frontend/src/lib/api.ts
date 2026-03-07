@@ -1,6 +1,20 @@
 const API_BASE = "/api";
 
 let authToken: string | null = localStorage.getItem("ucm_token");
+let csrfToken: string | null = null;
+
+async function ensureCsrfToken(): Promise<string | null> {
+  if (csrfToken) return csrfToken;
+  try {
+    const res = await fetch(`${API_BASE}/csrf-token`, { credentials: "same-origin" });
+    if (res.ok) {
+      const data = await res.json();
+      csrfToken = data.csrfToken;
+      return csrfToken;
+    }
+  } catch { /* CSRF token fetch failed — continue without it */ }
+  return null;
+}
 
 export function setToken(token: string) {
   authToken = token;
@@ -51,7 +65,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  // Attach CSRF token for state-changing requests
+  const method = (options.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    const token = await ensureCsrfToken();
+    if (token) headers["X-CSRF-Token"] = token;
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "same-origin" });
 
   // Auto-logout on 401 (expired/invalid token)
   if (res.status === 401) {
@@ -141,10 +162,15 @@ export const importApi = {
     form.append("file", file);
     form.append("entity", entity);
     if (columnOverrides) form.append("columnOverrides", JSON.stringify(columnOverrides));
+    const csrf = await ensureCsrfToken();
+    const hdrs: Record<string, string> = {};
+    if (authToken) hdrs.Authorization = `Bearer ${authToken}`;
+    if (csrf) hdrs["X-CSRF-Token"] = csrf;
     const res = await fetch(`${API_BASE}/import/preview`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: hdrs,
       body: form,
+      credentials: "same-origin",
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: res.statusText }));
@@ -167,10 +193,15 @@ export const importApi = {
     if (opts.columnOverrides) form.append("columnOverrides", JSON.stringify(opts.columnOverrides));
     if (opts.skipDuplicates !== undefined) form.append("skipDuplicates", String(opts.skipDuplicates));
     if (opts.timezone) form.append("timezone", opts.timezone);
+    const csrf2 = await ensureCsrfToken();
+    const hdrs2: Record<string, string> = {};
+    if (authToken) hdrs2.Authorization = `Bearer ${authToken}`;
+    if (csrf2) hdrs2["X-CSRF-Token"] = csrf2;
     const res = await fetch(`${API_BASE}/import/execute`, {
       method: "POST",
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      headers: hdrs2,
       body: form,
+      credentials: "same-origin",
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: res.statusText }));

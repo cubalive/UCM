@@ -35,6 +35,8 @@ export function DispatchDashboard() {
   const [repairModal, setRepairModal] = useState<{ tripId: string; currentStatus: string } | null>(null);
   const [repairStatus, setRepairStatus] = useState("");
   const [repairReason, setRepairReason] = useState("");
+  const [tripPage, setTripPage] = useState(0);
+  const TRIPS_PER_PAGE = 25;
   const { connected, on } = useWebSocket();
 
   const loadDashboard = useCallback(async () => {
@@ -333,7 +335,7 @@ export function DispatchDashboard() {
                   <tr><th>Status</th><th>Priority</th><th>Patient</th><th>Pickup</th><th>Dropoff</th><th>Distance</th><th>Driver</th><th>Wait</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
-                  {trips.map(trip => (
+                  {trips.slice(tripPage * TRIPS_PER_PAGE, (tripPage + 1) * TRIPS_PER_PAGE).map(trip => (
                     <tr key={trip.id} className={trip.priority === "immediate" && trip.status === "requested" ? "trip-row-urgent" : ""}>
                       <td><span className={`badge badge-${trip.status}`}>{trip.status}</span></td>
                       <td><span className={`badge ${trip.priority === "immediate" ? "badge-immediate" : ""}`}>{trip.priority}</span></td>
@@ -386,6 +388,17 @@ export function DispatchDashboard() {
                 </tbody>
               </table>
             </div>
+            {trips.length > TRIPS_PER_PAGE && (
+              <div className="flex justify-between items-center" style={{ padding: "0.75rem 1rem", borderTop: "1px solid var(--gray-100)" }}>
+                <span className="text-sm text-gray">
+                  Showing {tripPage * TRIPS_PER_PAGE + 1}–{Math.min((tripPage + 1) * TRIPS_PER_PAGE, trips.length)} of {trips.length}
+                </span>
+                <div className="flex gap-2">
+                  <button className="btn btn-outline btn-sm" disabled={tripPage === 0} onClick={() => setTripPage(p => p - 1)}>Prev</button>
+                  <button className="btn btn-outline btn-sm" disabled={(tripPage + 1) * TRIPS_PER_PAGE >= trips.length} onClick={() => setTripPage(p => p + 1)}>Next</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

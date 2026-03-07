@@ -184,10 +184,13 @@ function RequestTripView() {
   );
 }
 
+const CLINIC_TRIPS_PER_PAGE = 20;
+
 function TripsView() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [filter, setFilter] = useState("");
   const [timezone, setTimezone] = useState("America/New_York");
+  const [page, setPage] = useState(0);
   const { on } = useWebSocket();
 
   const load = useCallback(async () => {
@@ -221,7 +224,7 @@ function TripsView() {
     <div>
       <div className="flex justify-between items-center mb-3">
         <h2 style={{ fontSize: "1.2rem", fontWeight: 600 }}>Trip Status</h2>
-        <select className="form-input" style={{ width: 160 }} value={filter} onChange={e => setFilter(e.target.value)}>
+        <select className="form-input" style={{ width: 160 }} value={filter} onChange={e => { setFilter(e.target.value); setPage(0); }}>
           <option value="">All trips</option>
           <option value="requested">Requested</option>
           <option value="assigned">Assigned</option>
@@ -240,7 +243,7 @@ function TripsView() {
               <tr><th>Status</th><th>Patient</th><th>Pickup</th><th>Dropoff</th><th>Driver</th><th>Scheduled</th><th>Actions</th></tr>
             </thead>
             <tbody>
-              {trips.map(trip => (
+              {trips.slice(page * CLINIC_TRIPS_PER_PAGE, (page + 1) * CLINIC_TRIPS_PER_PAGE).map(trip => (
                 <tr key={trip.id}>
                   <td><span className={`badge badge-${trip.status}`}>{trip.status}</span></td>
                   <td>{trip.patientName || "—"}</td>
@@ -259,6 +262,17 @@ function TripsView() {
             </tbody>
           </table>
         </div>
+        {trips.length > CLINIC_TRIPS_PER_PAGE && (
+          <div className="flex justify-between items-center" style={{ padding: "0.75rem 1rem", borderTop: "1px solid var(--gray-100)" }}>
+            <span className="text-sm text-gray">
+              Showing {page * CLINIC_TRIPS_PER_PAGE + 1}–{Math.min((page + 1) * CLINIC_TRIPS_PER_PAGE, trips.length)} of {trips.length}
+            </span>
+            <div className="flex gap-2">
+              <button className="btn btn-outline btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Prev</button>
+              <button className="btn btn-outline btn-sm" disabled={(page + 1) * CLINIC_TRIPS_PER_PAGE >= trips.length} onClick={() => setPage(p => p + 1)}>Next</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

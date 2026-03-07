@@ -49,6 +49,7 @@ export const users = pgTable(
     firstName: text("first_name").notNull(),
     lastName: text("last_name").notNull(),
     active: boolean("active").default(true),
+    mustResetPassword: boolean("must_reset_password").default(false),
     stripeAccountId: text("stripe_account_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

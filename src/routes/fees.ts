@@ -3,7 +3,7 @@ import { z } from "zod";
 import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import { validateBody, validateParams, uuidParam } from "../middleware/validation.js";
 import { billingRateLimiter } from "../middleware/rateLimiter.js";
-import { validateFeeRule } from "../services/feeService.js";
+import { validateFeeRule, invalidateFeeCache } from "../services/feeService.js";
 import { getDb } from "../db/index.js";
 import { feeRules } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
@@ -68,6 +68,7 @@ router.post(
         })
         .returning();
 
+      await invalidateFeeCache(req.tenantId!);
       res.status(201).json(rule);
     } catch (err: any) {
       logger.error("Failed to create fee rule", { error: err.message });
@@ -110,6 +111,7 @@ router.put(
         return;
       }
 
+      await invalidateFeeCache(req.tenantId!);
       res.json(updated);
     } catch (err: any) {
       logger.error("Failed to update fee rule", { error: err.message });
@@ -138,6 +140,7 @@ router.delete(
         return;
       }
 
+      await invalidateFeeCache(req.tenantId!);
       res.json({ deleted: true });
     } catch (err: any) {
       logger.error("Failed to delete fee rule", { error: err.message });

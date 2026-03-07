@@ -3,6 +3,10 @@ import { feeRules } from "../db/schema.js";
 import { eq, and, lte, gte, or, isNull } from "drizzle-orm";
 import logger from "../lib/logger.js";
 import { getDayInTimezone, getHourInTimezone, DEFAULT_TIMEZONE } from "../lib/timezone.js";
+import { getRedis, isRedisAvailable } from "../lib/redis.js";
+
+const FEE_CACHE_TTL = 300; // 5 minutes
+const FEE_CACHE_PREFIX = "ucm:fee_rules:";
 
 export interface FeeCalculationInput {
   tenantId: string;
@@ -27,22 +31,53 @@ export interface FeeCalculationResult {
   currency: string;
 }
 
-export async function calculateFees(input: FeeCalculationInput): Promise<FeeCalculationResult> {
-  const db = getDb();
-  const now = input.scheduledAt;
+async function getCachedFeeRules(tenantId: string) {
+  const cacheKey = `${FEE_CACHE_PREFIX}${tenantId}`;
+  if (isRedisAvailable()) {
+    try {
+      const redis = getRedis();
+      const cached = await redis?.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch { /* fall through to DB */ }
+  }
 
+  const db = getDb();
   const rules = await db
     .select()
     .from(feeRules)
-    .where(
-      and(
-        eq(feeRules.tenantId, input.tenantId),
-        eq(feeRules.active, true),
-        or(isNull(feeRules.effectiveFrom), lte(feeRules.effectiveFrom, now)),
-        or(isNull(feeRules.effectiveTo), gte(feeRules.effectiveTo, now))
-      )
-    )
+    .where(and(eq(feeRules.tenantId, tenantId), eq(feeRules.active, true)))
     .orderBy(feeRules.priority);
+
+  if (isRedisAvailable()) {
+    try {
+      const redis = getRedis();
+      await redis?.set(cacheKey, JSON.stringify(rules), "EX", FEE_CACHE_TTL);
+    } catch { /* cache write failure is non-fatal */ }
+  }
+
+  return rules;
+}
+
+export async function invalidateFeeCache(tenantId: string) {
+  if (isRedisAvailable()) {
+    try {
+      const redis = getRedis();
+      await redis?.del(`${FEE_CACHE_PREFIX}${tenantId}`);
+    } catch { /* non-fatal */ }
+  }
+}
+
+export async function calculateFees(input: FeeCalculationInput): Promise<FeeCalculationResult> {
+  const now = input.scheduledAt;
+
+  const allRules = await getCachedFeeRules(input.tenantId);
+
+  // Filter by effective date range in-memory (cached rules include all active rules)
+  const rules = allRules.filter((r: any) => {
+    if (r.effectiveFrom && new Date(r.effectiveFrom) > now) return false;
+    if (r.effectiveTo && new Date(r.effectiveTo) < now) return false;
+    return true;
+  });
 
   const lineItems: FeeLineItem[] = [];
   let subtotal = 0;

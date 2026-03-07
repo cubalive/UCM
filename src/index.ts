@@ -1,6 +1,9 @@
 import "dotenv/config";
+import { initSentry, captureException, sentryFlush } from "./lib/sentry.js";
+initSentry();
 import http from "http";
 import express from "express";
+import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { globalRateLimiter } from "./middleware/rateLimiter.js";
 import { requestMetricsMiddleware } from "./middleware/requestMetrics.js";
@@ -17,8 +20,10 @@ import clinicRoutes from "./routes/clinic.js";
 import driverPayoutRoutes from "./routes/driverPayouts.js";
 import authRoutes from "./routes/auth.js";
 import importRoutes from "./routes/import.js";
+import { csrfProtection, csrfTokenRoute } from "./middleware/csrf.js";
 import logger from "./lib/logger.js";
 import { getRedis } from "./lib/redis.js";
+import { getPool } from "./db/index.js";
 import { initWebSocket } from "./services/realtimeService.js";
 import { startReconciliationJob } from "./jobs/reconciliationJob.js";
 import { startDeadLetterMonitorJob } from "./jobs/deadLetterProcessor.js";
@@ -41,6 +46,7 @@ app.use("/api/webhooks/stripe", express.raw({ type: "application/json" }), (req,
 // Global middleware
 app.use(helmet());
 app.use(express.json({ limit: "1mb" }));
+app.use(cookieParser());
 app.use(globalRateLimiter);
 app.use(requestMetricsMiddleware);
 
@@ -72,6 +78,12 @@ app.use((_req, res, next) => {
   next();
 });
 
+// CSRF token endpoint (must be before csrfProtection middleware)
+app.get("/api/csrf-token", csrfTokenRoute);
+
+// CSRF protection for state-changing requests
+app.use(csrfProtection);
+
 // Routes
 app.use("/api", healthRoutes);
 app.use("/api/billing", billingRoutes);
@@ -90,6 +102,7 @@ app.use("/api/import", importRoutes);
 // Global error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error("Unhandled error", { error: err.message, stack: err.stack });
+  captureException(err);
   res.status(500).json({ error: "Internal server error" });
 });
 
@@ -103,16 +116,61 @@ try {
   logger.warn("Redis initialization skipped");
 }
 
+// Track cron jobs for graceful shutdown
+const cronJobs: Array<{ stop: () => void }> = [];
+
 server.listen(port, () => {
   logger.info(`UCM platform listening on port ${port}`, { env: process.env.NODE_ENV });
 
   // Start background jobs in production
   if (process.env.NODE_ENV === "production") {
-    startReconciliationJob();
-    startDeadLetterMonitorJob();
-    startStuckTripDetectorJob();
-    startLocationCleanupJob();
+    cronJobs.push(
+      startReconciliationJob(),
+      startDeadLetterMonitorJob(),
+      startStuckTripDetectorJob(),
+      startLocationCleanupJob(),
+    );
   }
 });
+
+// Graceful shutdown
+async function shutdown(signal: string) {
+  logger.info(`${signal} received — starting graceful shutdown`);
+
+  // 1. Stop accepting new connections
+  server.close(() => {
+    logger.info("HTTP server closed");
+  });
+
+  // 2. Stop cron jobs
+  for (const job of cronJobs) {
+    try { job.stop(); } catch { /* already stopped */ }
+  }
+
+  // 3. Close Redis
+  try {
+    const redis = getRedis();
+    if (redis) await redis.quit();
+  } catch { /* non-fatal */ }
+
+  // 4. Flush Sentry events
+  await sentryFlush(2000);
+
+  // 5. Close DB pool
+  try {
+    await getPool().end();
+  } catch { /* non-fatal */ }
+
+  logger.info("Graceful shutdown complete");
+
+  // Force exit after 10s if draining stalls
+  setTimeout(() => {
+    logger.warn("Forced exit after shutdown timeout");
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 export default app;

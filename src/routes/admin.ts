@@ -2,15 +2,13 @@ import { Router, Request, Response } from "express";
 import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import { billingRateLimiter } from "../middleware/rateLimiter.js";
 import { runReconciliation } from "../services/reconciliationService.js";
-import { getWebhookDashboardData, replayWebhookEvent } from "../services/webhookService.js";
 import { generateBillingReport } from "../services/observabilityService.js";
 import { getDeadLetterStats } from "../jobs/deadLetterProcessor.js";
 import { detectStuckTrips, detectOfflineDriversWithActiveTrips } from "../jobs/stuckTripDetector.js";
 import { getDb } from "../db/index.js";
-import { auditLog, driverStatus, trips, users } from "../db/schema.js";
-import { eq, desc, sql, and, inArray } from "drizzle-orm";
+import { auditLog, trips } from "../db/schema.js";
+import { eq, desc, sql } from "drizzle-orm";
 import { getConnectedStats, getOnlineDrivers } from "../services/realtimeService.js";
-import { validateParams, uuidParam } from "../middleware/validation.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
@@ -24,17 +22,6 @@ router.get("/reconciliation", billingRateLimiter, async (_req: Request, res: Res
   } catch (err: any) {
     logger.error("Reconciliation failed", { error: err.message });
     res.status(500).json({ error: "Reconciliation failed" });
-  }
-});
-
-// Webhook dashboard
-router.get("/webhooks/dashboard", async (_req: Request, res: Response) => {
-  try {
-    const data = await getWebhookDashboardData();
-    res.json(data);
-  } catch (err: any) {
-    logger.error("Failed to get webhook dashboard", { error: err.message });
-    res.status(500).json({ error: "Failed to get webhook dashboard" });
   }
 });
 
@@ -81,22 +68,6 @@ router.get("/dead-letter-stats", async (_req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to get dead letter stats" });
   }
 });
-
-// Replay a webhook event
-router.post(
-  "/webhooks/:id/replay",
-  validateParams(uuidParam),
-  async (req: Request, res: Response) => {
-    try {
-      await replayWebhookEvent(req.params.id as string);
-      res.json({ replayed: true });
-    } catch (err: any) {
-      logger.error("Failed to replay webhook", { error: err.message });
-      const status = err.message.includes("not found") ? 404 : 400;
-      res.status(status).json({ error: err.message });
-    }
-  }
-);
 
 // Driver online monitor
 router.get("/drivers/online", async (req: Request, res: Response) => {
