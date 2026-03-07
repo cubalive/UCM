@@ -38,6 +38,8 @@ export interface FeeResolutionResult {
   };
 }
 
+const MAX_FEE_CENTS = 10_000_00; // $10,000 safety cap
+
 export function computeFeeFromRule(rule: FeeRule, amountCents: number): number {
   let fee = 0;
 
@@ -48,6 +50,8 @@ export function computeFeeFromRule(rule: FeeRule, amountCents: number): number {
   } else if (rule.feeType === "percent_plus_fixed") {
     fee = Math.round((amountCents * rule.percentBps) / 10000) + rule.fixedFeeCents;
   }
+
+  fee = Math.min(fee, MAX_FEE_CENTS);
 
   if (rule.minFeeCents != null && fee < rule.minFeeCents) {
     fee = rule.minFeeCents;

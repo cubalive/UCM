@@ -526,7 +526,11 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
     }
 
     const Stripe = require("stripe").default;
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    const stripeKey = process.env.STRIPE_SECRET_KEY!;
+    if (process.env.NODE_ENV === "production" && !stripeKey.startsWith("sk_live_")) {
+      return res.status(500).json({ message: "Stripe misconfiguration detected" });
+    }
+    const stripe = new Stripe(stripeKey);
 
     const { ensureClinicStripeCustomer } = await import("../services/stripeCustomerService");
     const { writeBillingAudit } = await import("../services/billingAuditService");
@@ -605,7 +609,7 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
       platformFeeRate: feeResult.source !== "none" && feeResult.details.percentBps
         ? String(feeResult.details.percentBps)
         : null,
-      netToCompanyCents: amountCents - applicationFeeAmount,
+      netToCompanyCents: Math.max(0, amountCents - applicationFeeAmount),
       updatedAt: new Date(),
     }).where(eq(billingCycleInvoices.id, invoiceId));
 

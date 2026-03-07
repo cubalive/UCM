@@ -101,6 +101,20 @@ router.post(
         return res.status(400).json({ message: "percentBps must be 0-10000" });
       }
 
+      const parsedFixedFeeCents = parseInt(fixedFeeCents) || 0;
+      const parsedMinFeeCents = minFeeCents != null ? parseInt(minFeeCents) : null;
+      const parsedMaxFeeCents = maxFeeCents != null ? parseInt(maxFeeCents) : null;
+
+      if (parsedFixedFeeCents < 0) {
+        return res.status(400).json({ message: "fixedFeeCents must not be negative" });
+      }
+      if (parsedMinFeeCents != null && parsedMinFeeCents < 0) {
+        return res.status(400).json({ message: "minFeeCents must not be negative" });
+      }
+      if (parsedMaxFeeCents != null && parsedMaxFeeCents < 0) {
+        return res.status(400).json({ message: "maxFeeCents must not be negative" });
+      }
+
       const rule = await createFeeRule(
         {
           scopeType,
@@ -109,9 +123,9 @@ router.post(
           serviceLevel: serviceLevel || null,
           feeType,
           percentBps: bps,
-          fixedFeeCents: parseInt(fixedFeeCents) || 0,
-          minFeeCents: minFeeCents != null ? parseInt(minFeeCents) : null,
-          maxFeeCents: maxFeeCents != null ? parseInt(maxFeeCents) : null,
+          fixedFeeCents: parsedFixedFeeCents,
+          minFeeCents: parsedMinFeeCents,
+          maxFeeCents: parsedMaxFeeCents,
           isEnabled: isEnabled !== false,
           priority: parseInt(priority) || 100,
           effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : null,
@@ -153,9 +167,21 @@ router.patch(
         if (bps < 0 || bps > 10000) return res.status(400).json({ message: "percentBps must be 0-10000" });
         updates.percentBps = bps;
       }
-      if (req.body.fixedFeeCents !== undefined) updates.fixedFeeCents = parseInt(req.body.fixedFeeCents) || 0;
-      if (req.body.minFeeCents !== undefined) updates.minFeeCents = req.body.minFeeCents != null ? parseInt(req.body.minFeeCents) : null;
-      if (req.body.maxFeeCents !== undefined) updates.maxFeeCents = req.body.maxFeeCents != null ? parseInt(req.body.maxFeeCents) : null;
+      if (req.body.fixedFeeCents !== undefined) {
+        const fc = parseInt(req.body.fixedFeeCents) || 0;
+        if (fc < 0) return res.status(400).json({ message: "fixedFeeCents must not be negative" });
+        updates.fixedFeeCents = fc;
+      }
+      if (req.body.minFeeCents !== undefined) {
+        const mc = req.body.minFeeCents != null ? parseInt(req.body.minFeeCents) : null;
+        if (mc != null && mc < 0) return res.status(400).json({ message: "minFeeCents must not be negative" });
+        updates.minFeeCents = mc;
+      }
+      if (req.body.maxFeeCents !== undefined) {
+        const xc = req.body.maxFeeCents != null ? parseInt(req.body.maxFeeCents) : null;
+        if (xc != null && xc < 0) return res.status(400).json({ message: "maxFeeCents must not be negative" });
+        updates.maxFeeCents = xc;
+      }
       if (req.body.isEnabled !== undefined) updates.isEnabled = req.body.isEnabled;
       if (req.body.priority !== undefined) updates.priority = parseInt(req.body.priority) || 100;
       if (req.body.effectiveFrom !== undefined) updates.effectiveFrom = req.body.effectiveFrom ? new Date(req.body.effectiveFrom) : null;

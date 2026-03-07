@@ -7,7 +7,11 @@ import { invoices, companies, billingCycleInvoices } from "@shared/schema";
 
 function getStripe() {
   const Stripe = require("stripe").default;
-  return new Stripe(process.env.STRIPE_SECRET_KEY!);
+  const key = process.env.STRIPE_SECRET_KEY!;
+  if (process.env.NODE_ENV === "production" && !key.startsWith("sk_live_")) {
+    throw new Error("STRIPE_SECRET_KEY must be a live key in production");
+  }
+  return new Stripe(key);
 }
 
 const APP_URL = () =>
@@ -379,17 +383,7 @@ export function registerStripeConnectRoutes(app: Express) {
             }
           }
 
-          await db.update(billingCycleInvoices).set({
-            paymentStatus: "paid",
-            amountPaidCents: bci.totalCents,
-            balanceDueCents: 0,
-            lastPaymentAt: new Date(),
-            locked: true,
-            stripePaymentIntentId: bciPaymentIntentId,
-            receiptUrl: bciReceiptUrl,
-            updatedAt: new Date(),
-          }).where(eq(billingCycleInvoices.id, bciId));
-
+          // Write ledger + audit FIRST, then mark as paid — ensures consistency
           try {
             const { ledgerEntries } = await import("@shared/schema");
             const existing = await db.select().from(ledgerEntries)
@@ -410,7 +404,9 @@ export function registerStripeConnectRoutes(app: Express) {
               });
             }
           } catch (ledgerErr: any) {
-            console.warn("[StripeWebhook] Ledger write failed (non-fatal):", ledgerErr.message);
+            console.error("[StripeWebhook] Ledger write failed, deferring invoice update:", ledgerErr.message);
+            await storage.updateStripeWebhookEvent(event.id, "FAILED", `Ledger write failed: ${ledgerErr.message}`);
+            return res.status(500).json({ received: false, error: "Ledger write failed" });
           }
 
           try {
@@ -423,7 +419,18 @@ export function registerStripeConnectRoutes(app: Express) {
               scopeCompanyId: bci.companyId,
               details: { paymentIntentId: bciPaymentIntentId, amountCents: bci.totalCents, source: "webhook", stripeEventId: event.id },
             });
-          } catch (e: any) { console.warn("[StripeWebhook] BCI billing audit failed:", e.message); }
+          } catch (e: any) { console.warn("[StripeWebhook] BCI billing audit failed (non-fatal):", e.message); }
+
+          await db.update(billingCycleInvoices).set({
+            paymentStatus: "paid",
+            amountPaidCents: bci.totalCents,
+            balanceDueCents: 0,
+            lastPaymentAt: new Date(),
+            locked: true,
+            stripePaymentIntentId: bciPaymentIntentId,
+            receiptUrl: bciReceiptUrl,
+            updatedAt: new Date(),
+          }).where(eq(billingCycleInvoices.id, bciId));
 
           if (bciPaymentIntentId) {
             try {
@@ -451,11 +458,12 @@ export function registerStripeConnectRoutes(app: Express) {
             const { handleSubscriptionWebhook } = await import("../services/subscriptionService");
             await handleSubscriptionWebhook(event);
             await storage.updateStripeWebhookEvent(event.id, "PROCESSED", "Subscription checkout forwarded");
+            return res.status(200).json({ received: true });
           } catch (subErr: any) {
             console.error("[StripeWebhook] Subscription checkout handler error:", subErr.message);
             await storage.updateStripeWebhookEvent(event.id, "FAILED", subErr.message);
+            return res.status(500).json({ received: false, error: "Subscription handler failed" });
           }
-          return res.status(200).json({ received: true });
         }
 
         if (metadata.type !== "clinic_invoice") {
@@ -579,7 +587,7 @@ export function registerStripeConnectRoutes(app: Express) {
         } catch (subErr: any) {
           console.error(`[StripeWebhook] Subscription handler error for ${event.type}:`, subErr.message);
           await storage.updateStripeWebhookEvent(event.id, "FAILED", subErr.message);
-          return res.status(200).json({ received: true });
+          return res.status(500).json({ received: false, error: "Subscription handler failed" });
         }
       }
 
