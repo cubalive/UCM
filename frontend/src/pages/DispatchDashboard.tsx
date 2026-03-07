@@ -119,14 +119,14 @@ export function DispatchDashboard() {
   async function handleResyncStale() {
     try {
       const res = await dispatchApi.resyncStale(15);
-      flash(`Resynced ${res.updated || 0} stale drivers`);
+      flash(`Resynced ${res.corrected || 0} stale drivers`);
       loadDashboard();
     } catch (err: any) { flash(`Error: ${err.message}`); }
   }
 
   const urgentTrips = trips.filter(t => t.priority === "immediate" && t.status === "requested");
   const pendingTrips = trips.filter(t => t.status === "requested");
-  const activeTrips = trips.filter(t => ["assigned", "in_progress"].includes(t.status));
+  const activeTrips = trips.filter(t => ["assigned", "en_route", "arrived", "in_progress"].includes(t.status));
   const availableDrivers = drivers.filter(d => d.availability === "available");
 
   if (loading) return <div className="app-shell"><div className="main-content"><p>Loading dashboard...</p></div></div>;

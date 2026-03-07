@@ -4,6 +4,7 @@ import { eq, and, sql, between, desc, inArray } from "drizzle-orm";
 import { recordAudit } from "./auditService.js";
 import logger from "../lib/logger.js";
 import { broadcastToTenant, broadcastToUser } from "./realtimeService.js";
+import { autoSetBusy, autoSetAvailable } from "./driverService.js";
 
 // Valid state transitions for trip lifecycle
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -116,6 +117,13 @@ export async function assignTrip(tripId: string, driverId: string, tenantId: str
     details: { driverId, driverName: `${driver.firstName} ${driver.lastName}` },
   });
 
+  // Auto-set driver to busy
+  try {
+    await autoSetBusy(driverId, tenantId);
+  } catch (err) {
+    logger.warn("Failed to auto-set driver busy", { driverId, error: (err as Error).message });
+  }
+
   // Notify driver in realtime
   broadcastToUser(driverId, "trip:assigned", { trip: updated });
 
@@ -177,6 +185,15 @@ export async function updateTripStatus(
     resourceId: tripId,
     details: { previousStatus: trip.status, newStatus },
   });
+
+  // Auto-release driver when trip ends
+  if ((newStatus === "completed" || newStatus === "cancelled") && trip.driverId) {
+    try {
+      await autoSetAvailable(trip.driverId, tenantId);
+    } catch (err) {
+      logger.warn("Failed to auto-set driver available", { driverId: trip.driverId, error: (err as Error).message });
+    }
+  }
 
   // Broadcast to everyone
   broadcastToTenant(tenantId, "trip:updated", { trip: updated });
@@ -260,7 +277,23 @@ export async function getDriverTrips(driverId: string, tenantId: string, activeO
     .orderBy(desc(trips.scheduledAt))
     .limit(100);
 
-  return results;
+  // Enrich with patient names
+  const patientIds = [...new Set(results.map(t => t.patientId).filter(Boolean))] as string[];
+  let patientMap = new Map<string, string>();
+
+  if (patientIds.length > 0) {
+    const patientRows = await db
+      .select({ id: patients.id, firstName: patients.firstName, lastName: patients.lastName })
+      .from(patients)
+      .where(inArray(patients.id, patientIds));
+    patientMap = new Map(patientRows.map(p => [p.id, `${p.firstName} ${p.lastName}`]));
+  }
+
+  return results.map(t => ({
+    ...t,
+    patientName: t.patientId ? patientMap.get(t.patientId) || null : null,
+    priority: (t.metadata as any)?.isImmediate ? "immediate" : "scheduled",
+  }));
 }
 
 export async function cancelTrip(tripId: string, tenantId: string, userId?: string, reason?: string) {
@@ -298,6 +331,15 @@ export async function cancelTrip(tripId: string, tenantId: string, userId?: stri
     resourceId: tripId,
     details: { reason, previousStatus: trip.status },
   });
+
+  // Auto-release driver if no other active trips
+  if (trip.driverId) {
+    try {
+      await autoSetAvailable(trip.driverId, tenantId);
+    } catch (err) {
+      logger.warn("Failed to auto-set driver available after cancel", { driverId: trip.driverId, error: (err as Error).message });
+    }
+  }
 
   broadcastToTenant(tenantId, "trip:updated", { trip: updated });
   if (trip.driverId) {
