@@ -3,6 +3,8 @@ import { z } from "zod";
 import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validation.js";
 import { paymentRateLimiter } from "../middleware/rateLimiter.js";
+import { requireStripe } from "../middleware/gracefulDegradation.js";
+import { CircuitOpenError } from "../lib/circuitBreaker.js";
 import {
   createDriverStripeAccount,
   getDriverOnboardingLink,
@@ -30,6 +32,7 @@ const createAccountSchema = z.object({
 router.post(
   "/create-account",
   paymentRateLimiter,
+  requireStripe,
   authorize("admin", "dispatcher"),
   validateBody(createAccountSchema),
   async (req: Request, res: Response) => {
@@ -43,6 +46,10 @@ router.post(
       );
       res.status(201).json(result);
     } catch (err: any) {
+      if (err instanceof CircuitOpenError) {
+        res.status(503).json({ error: err.message, retryable: true });
+        return;
+      }
       logger.error("Failed to create driver Stripe account", { error: err.message });
       const status = err.message.includes("not found") ? 404 : 500;
       res.status(status).json({ error: err.message });

@@ -385,3 +385,72 @@ describe("Import Engine - Edge Cases", () => {
     expect(getAliasMap("drivers")).toBe(DRIVER_ALIASES);
   });
 });
+
+// ============================================================
+// GRACEFUL DEGRADATION - withRetry
+// ============================================================
+describe("withRetry", () => {
+  it("returns result on first success", async () => {
+    const { withRetry } = await import("../../src/middleware/gracefulDegradation.js");
+    const result = await withRetry(async () => "success");
+    expect(result).toBe("success");
+  });
+
+  it("retries on failure and eventually succeeds", async () => {
+    const { withRetry } = await import("../../src/middleware/gracefulDegradation.js");
+    let attempts = 0;
+    const result = await withRetry(
+      async () => {
+        attempts++;
+        if (attempts < 3) throw new Error("transient");
+        return "recovered";
+      },
+      { maxRetries: 3, delayMs: 10 }
+    );
+    expect(result).toBe("recovered");
+    expect(attempts).toBe(3);
+  });
+
+  it("throws after max retries exhausted", async () => {
+    const { withRetry } = await import("../../src/middleware/gracefulDegradation.js");
+    await expect(
+      withRetry(
+        async () => { throw new Error("permanent"); },
+        { maxRetries: 2, delayMs: 10 }
+      )
+    ).rejects.toThrow("permanent");
+  });
+
+  it("respects retryableErrors filter", async () => {
+    const { withRetry } = await import("../../src/middleware/gracefulDegradation.js");
+    let attempts = 0;
+    await expect(
+      withRetry(
+        async () => { attempts++; throw new Error("not retryable"); },
+        { maxRetries: 3, delayMs: 10, retryableErrors: ["timeout"] }
+      )
+    ).rejects.toThrow("not retryable");
+    expect(attempts).toBe(1); // No retries for non-retryable errors
+  });
+});
+
+// ============================================================
+// GRACEFUL DEGRADATION - requireStripe middleware
+// ============================================================
+describe("requireStripe middleware", () => {
+  it("calls next and allows request to proceed", async () => {
+    const { requireStripe } = await import("../../src/middleware/gracefulDegradation.js");
+    const req = { path: "/test" } as any;
+    const res = {
+      on: vi.fn(),
+      headersSent: false,
+    } as any;
+    const next = vi.fn();
+
+    requireStripe(req, res, next);
+    expect(next).toHaveBeenCalled();
+    // cleanup: simulate finish event
+    const finishHandler = res.on.mock.calls.find((c: any[]) => c[0] === "finish");
+    if (finishHandler) finishHandler[1]();
+  });
+});

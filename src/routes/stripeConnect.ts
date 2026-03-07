@@ -3,11 +3,13 @@ import { z } from "zod";
 import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validation.js";
 import { stripeConnectRateLimiter } from "../middleware/rateLimiter.js";
+import { requireStripe } from "../middleware/gracefulDegradation.js";
 import { createConnectAccount, createOnboardingLink, getConnectAccountStatus } from "../services/stripeConnectService.js";
+import { CircuitOpenError } from "../lib/circuitBreaker.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
-router.use(authenticate, authorize("admin"), tenantIsolation);
+router.use(authenticate, authorize("admin"), tenantIsolation, requireStripe);
 
 const createAccountSchema = z.object({
   email: z.string().email(),
@@ -28,6 +30,10 @@ router.post(
       const account = await createConnectAccount(req.tenantId!, req.body.email);
       res.status(201).json({ accountId: account.id });
     } catch (err: any) {
+      if (err instanceof CircuitOpenError) {
+        res.status(503).json({ error: err.message, retryable: true });
+        return;
+      }
       logger.error("Failed to create Stripe account", { error: err.message });
       res.status(500).json({ error: "Failed to create Stripe account" });
     }

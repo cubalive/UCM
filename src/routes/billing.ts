@@ -3,6 +3,8 @@ import { z } from "zod";
 import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import { validateBody, validateParams, validateQuery, uuidParam, paginationQuery } from "../middleware/validation.js";
 import { billingRateLimiter, paymentRateLimiter } from "../middleware/rateLimiter.js";
+import { requireStripe } from "../middleware/gracefulDegradation.js";
+import { CircuitOpenError } from "../lib/circuitBreaker.js";
 import { generateInvoice, finalizeInvoice, recordPayment, createStripePaymentIntent } from "../services/invoiceService.js";
 import { generateInvoicePdf } from "../services/pdfService.js";
 import { sendInvoiceGeneratedEmail } from "../services/emailService.js";
@@ -177,6 +179,7 @@ router.post(
 router.post(
   "/invoices/:id/payment-intent",
   paymentRateLimiter,
+  requireStripe,
   authorize("admin", "billing"),
   validateParams(uuidParam),
   async (req: Request, res: Response) => {
@@ -189,6 +192,10 @@ router.post(
         currency: paymentIntent.currency,
       });
     } catch (err: any) {
+      if (err instanceof CircuitOpenError) {
+        res.status(503).json({ error: err.message, retryable: true });
+        return;
+      }
       logger.error("Failed to create payment intent", { error: err.message });
       const status = err.message.includes("not found") ? 404 : 400;
       res.status(status).json({ error: err.message });
@@ -200,6 +207,7 @@ router.post(
 router.post(
   "/invoices/:id/retry-payment",
   paymentRateLimiter,
+  requireStripe,
   authorize("admin", "billing"),
   validateParams(uuidParam),
   async (req: Request, res: Response) => {
@@ -237,6 +245,10 @@ router.post(
         stripeDashboardUrl: `https://dashboard.stripe.com/payments/${paymentIntent.id}`,
       });
     } catch (err: any) {
+      if (err instanceof CircuitOpenError) {
+        res.status(503).json({ error: err.message, retryable: true });
+        return;
+      }
       logger.error("Failed to retry payment", { error: err.message });
       res.status(500).json({ error: "Failed to retry payment" });
     }
