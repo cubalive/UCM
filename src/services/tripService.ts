@@ -1,10 +1,11 @@
 import { getDb, getPool } from "../db/index.js";
-import { trips, users, patients } from "../db/schema.js";
+import { trips, users, patients, tenants } from "../db/schema.js";
 import { eq, and, sql, between, desc, inArray } from "drizzle-orm";
 import { recordAudit } from "./auditService.js";
 import logger from "../lib/logger.js";
 import { broadcastToTenant, broadcastToUser, broadcastToRole, WS_EVENTS } from "./realtimeService.js";
 import { autoSetBusy, autoSetAvailable } from "./driverService.js";
+import { DEFAULT_TIMEZONE } from "../lib/timezone.js";
 
 // Valid state transitions for trip lifecycle
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -27,6 +28,7 @@ export interface CreateTripInput {
   pickupAddress: string;
   dropoffAddress: string;
   scheduledAt: Date;
+  timezone?: string;
   notes?: string;
   isImmediate?: boolean;
   requestedBy?: string;
@@ -34,6 +36,13 @@ export interface CreateTripInput {
 
 export async function createTrip(input: CreateTripInput) {
   const db = getDb();
+
+  // Resolve timezone: use provided timezone, or fall back to tenant timezone
+  let tripTimezone = input.timezone || DEFAULT_TIMEZONE;
+  if (!input.timezone) {
+    const [tenant] = await db.select({ timezone: tenants.timezone }).from(tenants).where(eq(tenants.id, input.tenantId));
+    if (tenant?.timezone) tripTimezone = tenant.timezone;
+  }
 
   const [trip] = await db
     .insert(trips)
@@ -43,6 +52,7 @@ export async function createTrip(input: CreateTripInput) {
       pickupAddress: input.pickupAddress,
       dropoffAddress: input.dropoffAddress,
       scheduledAt: input.scheduledAt,
+      timezone: tripTimezone,
       status: "requested",
       notes: input.notes,
       metadata: {

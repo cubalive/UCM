@@ -77,7 +77,7 @@ export const tripApi = {
     api.post<any>(`/trips/${id}/status`, { status, ...extra }),
   driverTrips: async (activeOnly?: boolean) => {
     const res = await api.get<any>(`/trips/driver/my-trips${activeOnly ? "?active=true" : ""}`);
-    return { trips: res.data || res.trips || [] };
+    return { trips: res.data || res.trips || [], timezone: res.timezone || "America/New_York" };
   },
   accept: (id: string) => api.post<any>(`/trips/${id}/accept`),
   decline: (id: string, reason?: string) => api.post<any>(`/trips/${id}/decline`, { reason }),
@@ -109,7 +109,8 @@ export const clinicApi = {
       patientId: data.patientId,
       pickupAddress: data.pickupAddress,
       dropoffAddress: data.dropoffAddress,
-      scheduledAt: data.scheduledPickup || data.scheduledAt || new Date().toISOString(),
+      scheduledAt: data.scheduledAt,
+      timezone: data.timezone,
       isImmediate: data.priority === "immediate" || data.isImmediate || false,
       notes: data.notes,
     };
@@ -117,7 +118,7 @@ export const clinicApi = {
   },
   getTrips: async (status?: string) => {
     const res = await api.get<any>(`/clinic/trips${status ? `?status=${status}` : ""}`);
-    return { trips: res.data || [] };
+    return { trips: res.data || [], timezone: res.timezone as string | undefined };
   },
   getTrip: (id: string) => api.get<any>(`/clinic/trips/${id}`),
   cancelTrip: (id: string, reason?: string) => api.post<any>(`/clinic/trips/${id}/cancel`, { reason }),

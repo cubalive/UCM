@@ -2,12 +2,14 @@ import { getDb } from "../db/index.js";
 import { feeRules } from "../db/schema.js";
 import { eq, and, lte, gte, or, isNull } from "drizzle-orm";
 import logger from "../lib/logger.js";
+import { getDayInTimezone, getHourInTimezone, DEFAULT_TIMEZONE } from "../lib/timezone.js";
 
 export interface FeeCalculationInput {
   tenantId: string;
   tripId: string;
   mileage: number;
   scheduledAt: Date;
+  timezone?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -102,13 +104,15 @@ function matchesConditions(conditions: Record<string, unknown> | null, input: Fe
   if (conditions.maxMileage && input.mileage > Number(conditions.maxMileage)) return false;
 
   if (conditions.dayOfWeek) {
-    const day = input.scheduledAt.getDay();
+    const tz = input.timezone || DEFAULT_TIMEZONE;
+    const day = getDayInTimezone(input.scheduledAt, tz);
     const allowedDays = conditions.dayOfWeek as number[];
     if (Array.isArray(allowedDays) && !allowedDays.includes(day)) return false;
   }
 
   if (conditions.afterHour || conditions.beforeHour) {
-    const hour = input.scheduledAt.getHours();
+    const tz = input.timezone || DEFAULT_TIMEZONE;
+    const hour = getHourInTimezone(input.scheduledAt, tz);
     if (conditions.afterHour && hour < Number(conditions.afterHour)) return false;
     if (conditions.beforeHour && hour >= Number(conditions.beforeHour)) return false;
   }

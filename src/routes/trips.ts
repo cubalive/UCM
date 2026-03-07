@@ -15,6 +15,9 @@ import {
   declineTrip,
 } from "../services/tripService.js";
 import { autoAssignTrip } from "../services/autoAssignService.js";
+import { getDb } from "../db/index.js";
+import { tenants } from "../db/schema.js";
+import { eq } from "drizzle-orm";
 import logger from "../lib/logger.js";
 
 const router = Router();
@@ -25,6 +28,7 @@ const createTripSchema = z.object({
   pickupAddress: z.string().min(1).max(500),
   dropoffAddress: z.string().min(1).max(500),
   scheduledAt: z.coerce.date(),
+  timezone: z.string().max(100).optional(),
   notes: z.string().max(1000).optional(),
   isImmediate: z.boolean().optional().default(false),
 });
@@ -214,9 +218,11 @@ router.get(
   authorize("driver"),
   async (req: Request, res: Response) => {
     try {
+      const db = getDb();
       const activeOnly = req.query.active === "true";
-      const trips = await getDriverTrips(req.user!.id, req.tenantId!, activeOnly);
-      res.json({ data: trips });
+      const [tenantRow] = await db.select({ timezone: tenants.timezone }).from(tenants).where(eq(tenants.id, req.tenantId!));
+      const driverTrips = await getDriverTrips(req.user!.id, req.tenantId!, activeOnly);
+      res.json({ data: driverTrips, timezone: tenantRow?.timezone || "America/New_York" });
     } catch (err: any) {
       logger.error("Failed to get driver trips", { error: err.message });
       res.status(500).json({ error: "Failed to get driver trips" });

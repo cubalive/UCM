@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { clinicApi } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { formatDateTime, localInputToUTC } from "../lib/timezone";
 
 type Patient = { id: string; firstName: string; lastName: string; phone?: string; membershipId?: string };
 type Trip = {
@@ -103,17 +104,22 @@ function RequestTripView() {
   });
   const [msg, setMsg] = useState("");
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [timezone, setTimezone] = useState("America/New_York");
 
   useEffect(() => {
     clinicApi.getPatients().then(res => setPatients(res.patients || res || [])).catch(() => {});
+    // Load tenant timezone from a trips call (cached on first load)
+    clinicApi.getTrips().then(res => { if (res.timezone) setTimezone(res.timezone); }).catch(() => {});
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
+      const tz = timezone;
       await clinicApi.requestTrip({
         ...form,
-        scheduledPickup: form.scheduledPickup ? new Date(form.scheduledPickup).toISOString() : undefined,
+        scheduledAt: form.scheduledPickup ? localInputToUTC(form.scheduledPickup, tz) : new Date().toISOString(),
+        timezone: tz,
       });
       setMsg("Trip requested successfully! Dispatch has been notified.");
       setForm({ patientId: "", pickupAddress: "", dropoffAddress: "", scheduledPickup: "", priority: "scheduled", notes: "" });
@@ -154,7 +160,7 @@ function RequestTripView() {
 
           <div className="grid-2">
             <div className="form-group">
-              <label className="form-label">Scheduled Pickup</label>
+              <label className="form-label">Scheduled Pickup <span className="text-xs text-gray">({timezone.replace(/_/g, " ")})</span></label>
               <input className="form-input" type="datetime-local" value={form.scheduledPickup} onChange={e => setForm({ ...form, scheduledPickup: e.target.value })} />
             </div>
             <div className="form-group">
@@ -181,12 +187,14 @@ function RequestTripView() {
 function TripsView() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [filter, setFilter] = useState("");
+  const [timezone, setTimezone] = useState("America/New_York");
   const { on } = useWebSocket();
 
   const load = useCallback(async () => {
     try {
       const res = await clinicApi.getTrips(filter || undefined);
       setTrips(res.trips || res || []);
+      if (res.timezone) setTimezone(res.timezone);
     } catch { /* empty */ }
   }, [filter]);
 
@@ -239,7 +247,7 @@ function TripsView() {
                   <td className="truncate" style={{ maxWidth: 180 }}>{trip.pickupAddress}</td>
                   <td className="truncate" style={{ maxWidth: 180 }}>{trip.dropoffAddress}</td>
                   <td>{trip.driverName || <span className="text-gray">Pending</span>}</td>
-                  <td className="text-sm">{trip.scheduledPickup ? new Date(trip.scheduledPickup).toLocaleString() : "—"}</td>
+                  <td className="text-sm">{trip.scheduledPickup ? formatDateTime(trip.scheduledPickup, timezone) : "—"}</td>
                   <td>
                     {["requested", "assigned", "en_route", "arrived"].includes(trip.status) && (
                       <button className="btn btn-outline btn-sm" onClick={() => handleCancel(trip.id)}>Cancel</button>

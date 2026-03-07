@@ -3,7 +3,7 @@ import { z } from "zod";
 import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import { validateBody, validateParams, uuidParam } from "../middleware/validation.js";
 import { getDb } from "../db/index.js";
-import { trips, users, patients, driverStatus } from "../db/schema.js";
+import { trips, users, patients, driverStatus, tenants } from "../db/schema.js";
 import { eq, and, sql, inArray, desc } from "drizzle-orm";
 import { assignTrip, updateTripStatus, cancelTrip } from "../services/tripService.js";
 import { updateDriverAvailability, detectStaleDrivers, getDriversForTenant } from "../services/driverService.js";
@@ -21,7 +21,10 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     const db = getDb();
     const tenantId = req.tenantId!;
 
-    // Get all non-terminal trips + drivers in parallel
+    // Get tenant timezone + trips + drivers in parallel
+    const [tenantRow] = await db.select({ timezone: tenants.timezone }).from(tenants).where(eq(tenants.id, tenantId));
+    const tenantTimezone = tenantRow?.timezone || "America/New_York";
+
     const [allTrips, enrichedDrivers] = await Promise.all([
       db
         .select()
@@ -67,6 +70,7 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       driverId: t.driverId,
       driverName: t.driverId ? driverMap.get(t.driverId) || null : null,
       notes: t.notes,
+      timezone: t.timezone,
       createdAt: t.createdAt.toISOString(),
       metadata: t.metadata,
     }));
@@ -96,6 +100,7 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     res.json({
       trips: enrichedTrips,
       drivers: driversWithPresence,
+      timezone: tenantTimezone,
       stats: {
         connections: wsStats,
         onlineDrivers: onlineDriversList.length,

@@ -3,6 +3,7 @@ import { getDb } from "../db/index.js";
 import { invoices, invoiceLineItems, tenants, patients } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import logger from "../lib/logger.js";
+import { formatDateForPdf, DEFAULT_TIMEZONE } from "../lib/timezone.js";
 
 export async function generateInvoicePdf(invoiceId: string, tenantId: string): Promise<Buffer> {
   const db = getDb();
@@ -43,14 +44,15 @@ export async function generateInvoicePdf(invoiceId: string, tenantId: string): P
 
     // Invoice details
     doc.fontSize(10);
-    doc.text(`Date: ${invoice.createdAt.toLocaleDateString()}`);
+    const tz = tenant?.timezone || DEFAULT_TIMEZONE;
+    doc.text(`Date: ${formatDateForPdf(invoice.createdAt, tz)}`);
     if (invoice.dueDate) {
-      doc.text(`Due Date: ${invoice.dueDate.toLocaleDateString()}`);
+      doc.text(`Due Date: ${formatDateForPdf(invoice.dueDate, tz)}`);
     }
     doc.text(`Status: ${invoice.status.toUpperCase()}`);
     if (invoice.billingPeriodStart && invoice.billingPeriodEnd) {
       doc.text(
-        `Billing Period: ${invoice.billingPeriodStart.toLocaleDateString()} - ${invoice.billingPeriodEnd.toLocaleDateString()}`
+        `Billing Period: ${formatDateForPdf(invoice.billingPeriodStart, tz)} - ${formatDateForPdf(invoice.billingPeriodEnd, tz)}`
       );
     }
     doc.moveDown();

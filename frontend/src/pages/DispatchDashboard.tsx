@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { dispatchApi, driverApi, tripApi } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { DispatchMap } from "../components/DispatchMap";
+import { formatDateTime, formatTime } from "../lib/timezone";
 
 type Trip = {
   id: string; status: string; priority: string;
@@ -23,6 +24,7 @@ export function DispatchDashboard() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [timezone, setTimezone] = useState("America/New_York");
   const [tab, setTab] = useState<"trips" | "drivers" | "map" | "tools" | "urgent">("trips");
   const [actionMsg, setActionMsg] = useState("");
   const [repairModal, setRepairModal] = useState<{ tripId: string; currentStatus: string } | null>(null);
@@ -36,6 +38,7 @@ export function DispatchDashboard() {
       setTrips(data.trips || []);
       setDrivers(data.drivers || []);
       setStats(data.stats || null);
+      if (data.timezone) setTimezone(data.timezone);
     } catch {
       const [t, d] = await Promise.allSettled([tripApi.list(), driverApi.list()]);
       if (t.status === "fulfilled") setTrips(t.value.trips || t.value || []);
@@ -218,7 +221,7 @@ export function DispatchDashboard() {
                   <div>
                     <p className="font-bold">{trip.patientName || "Patient"}</p>
                     <p className="text-sm">{trip.pickupAddress} &rarr; {trip.dropoffAddress}</p>
-                    {trip.scheduledPickup && <p className="text-xs text-gray mt-1">Scheduled: {new Date(trip.scheduledPickup).toLocaleString()}</p>}
+                    {trip.scheduledPickup && <p className="text-xs text-gray mt-1">Scheduled: {formatDateTime(trip.scheduledPickup, timezone)}</p>}
                   </div>
                   <div className="flex gap-2">
                     <select className="form-input" style={{ width: 160 }} onChange={e => e.target.value && handleAssignTrip(trip.id, e.target.value)}>
@@ -345,7 +348,7 @@ export function DispatchDashboard() {
                       <td>{driver.activeTripCount}</td>
                       <td className="text-sm text-gray">
                         {driver.latitude && driver.longitude ? `${Number(driver.latitude).toFixed(4)}, ${Number(driver.longitude).toFixed(4)}` : "No location"}
-                        {driver.lastLocationAt && <span className="text-xs ml-1">({new Date(driver.lastLocationAt).toLocaleTimeString()})</span>}
+                        {driver.lastLocationAt && <span className="text-xs ml-1">({formatTime(driver.lastLocationAt, timezone)})</span>}
                       </td>
                       <td className="flex gap-2">
                         {driver.availability !== "available" && <button className="btn btn-success btn-sm" onClick={() => handleOverrideDriver(driver.id, "available")}>Available</button>}

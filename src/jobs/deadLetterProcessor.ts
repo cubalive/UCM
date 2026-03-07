@@ -54,8 +54,11 @@ export async function purgeOldDeadLetterEvents(olderThanDays: number = 90): Prom
 }
 
 export function startDeadLetterMonitorJob(): CronJob {
-  // Run daily at 2 AM
-  job = new CronJob("0 2 * * *", async () => {
+  // Run daily at 2 AM UTC
+  job = CronJob.from({
+    cronTime: "0 2 * * *",
+    timeZone: "UTC",
+    onTick: async () => {
     logger.info("Running dead letter monitor");
     try {
       const stats = await getDeadLetterStats();
@@ -69,7 +72,7 @@ export function startDeadLetterMonitorJob(): CronJob {
     } catch (err: any) {
       logger.error("Dead letter monitor failed", { error: err.message });
     }
-  });
+  }});
 
   job.start();
   logger.info("Dead letter monitor job scheduled (daily at 2 AM)");

@@ -6,7 +6,7 @@ import { billingRateLimiter } from "../middleware/rateLimiter.js";
 import { createTrip, getTripsForDispatch, getTripById, cancelTrip } from "../services/tripService.js";
 import { autoAssignTrip } from "../services/autoAssignService.js";
 import { getDb } from "../db/index.js";
-import { patients, users, trips as tripsTable } from "../db/schema.js";
+import { patients, users, trips as tripsTable, tenants } from "../db/schema.js";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import logger from "../lib/logger.js";
 
@@ -29,6 +29,7 @@ const createTripSchema = z.object({
   pickupAddress: z.string().min(1).max(500),
   dropoffAddress: z.string().min(1).max(500),
   scheduledAt: z.coerce.date(),
+  timezone: z.string().max(100).optional(),
   notes: z.string().max(1000).optional(),
   isImmediate: z.boolean().optional().default(false),
 });
@@ -153,13 +154,15 @@ router.get("/trips", billingRateLimiter, async (req: Request, res: Response) => 
       pickupAddress: t.pickupAddress,
       dropoffAddress: t.dropoffAddress,
       scheduledPickup: t.scheduledAt?.toISOString?.() || t.scheduledAt,
+      timezone: t.timezone,
       patientName: patientMap.get(t.patientId) || null,
       driverName: t.driverId ? driverMap.get(t.driverId) || null : null,
       notes: t.notes,
       createdAt: t.createdAt?.toISOString?.() || t.createdAt,
     }));
 
-    res.json({ data: enriched });
+    const [tenantRow] = await db.select({ timezone: tenants.timezone }).from(tenants).where(eq(tenants.id, req.tenantId!));
+    res.json({ data: enriched, timezone: tenantRow?.timezone || "America/New_York" });
   } catch (err: any) {
     logger.error("Failed to list clinic trips", { error: err.message });
     res.status(500).json({ error: "Failed to list trips" });

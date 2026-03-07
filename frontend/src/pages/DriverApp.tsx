@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { tripApi, driverApi, earningsApi } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { DriverMap } from "../components/DriverMap";
+import { formatDateTime, formatDate } from "../lib/timezone";
 
 type Trip = {
   id: string; status: string; priority: string;
@@ -47,6 +48,7 @@ export function DriverApp() {
   const [driverPos, setDriverPos] = useState<{ lat: number; lng: number } | null>(null);
   const [tab, setTab] = useState<"trip" | "earnings">("trip");
   const [earnings, setEarnings] = useState<any>(null);
+  const [timezone, setTimezone] = useState("America/New_York");
   const { connected, on, send } = useWebSocket();
   const locationInterval = useRef<number>();
   const prevTripIdRef = useRef<string | null>(null);
@@ -56,6 +58,7 @@ export function DriverApp() {
     try {
       const res = await tripApi.driverTrips(true);
       const trips: Trip[] = res.trips || res || [];
+      if (res.timezone) setTimezone(res.timezone);
       const active = trips.find((t: Trip) => ["assigned", "en_route", "arrived", "in_progress"].includes(t.status));
 
       // Show trip acceptance popup for new assignments
@@ -184,7 +187,7 @@ export function DriverApp() {
                 </div>
               </div>
               {pendingTrip.scheduledPickup && (
-                <p className="text-sm text-gray mt-2">Pickup: {new Date(pendingTrip.scheduledPickup).toLocaleString()}</p>
+                <p className="text-sm text-gray mt-2">Pickup: {formatDateTime(pendingTrip.scheduledPickup, timezone)}</p>
               )}
               {pendingTrip.notes && (
                 <p className="text-sm mt-2" style={{ background: "var(--amber-50)", padding: "0.5rem", borderRadius: "var(--radius)" }}>{pendingTrip.notes}</p>
@@ -274,7 +277,7 @@ export function DriverApp() {
                 </div>
 
                 {activeTrip.scheduledPickup && (
-                  <p className="text-sm text-gray mb-2">Pickup: {new Date(activeTrip.scheduledPickup).toLocaleString()}</p>
+                  <p className="text-sm text-gray mb-2">Pickup: {formatDateTime(activeTrip.scheduledPickup, timezone)}</p>
                 )}
 
                 {activeTrip.notes && (
@@ -412,7 +415,7 @@ export function DriverApp() {
                           <td className={e.type === "payout" ? "text-red" : "text-green"} style={{ fontWeight: 600 }}>
                             {e.type === "payout" ? "-" : "+"}${Math.abs(Number(e.amount)).toFixed(2)}
                           </td>
-                          <td className="text-sm text-gray">{new Date(e.createdAt).toLocaleDateString()}</td>
+                          <td className="text-sm text-gray">{formatDate(e.createdAt, timezone)}</td>
                           <td className="text-sm">{e.description || "—"}</td>
                         </tr>
                       ))}

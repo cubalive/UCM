@@ -5,8 +5,11 @@ import logger from "../lib/logger.js";
 let job: CronJob | null = null;
 
 export function startReconciliationJob(): CronJob {
-  // Run every 6 hours
-  job = new CronJob("0 */6 * * *", async () => {
+  // Run every 6 hours (explicit UTC)
+  job = CronJob.from({
+    cronTime: "0 */6 * * *",
+    timeZone: "UTC",
+    onTick: async () => {
     logger.info("Starting scheduled reconciliation job");
     try {
       const result = await runReconciliation();
@@ -41,7 +44,7 @@ export function startReconciliationJob(): CronJob {
     } catch (err: any) {
       logger.error("Reconciliation job failed", { error: err.message, stack: err.stack });
     }
-  });
+  }});
 
   job.start();
   logger.info("Reconciliation job scheduled (every 6 hours)");
