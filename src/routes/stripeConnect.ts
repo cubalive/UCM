@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validation.js";
-import { billingRateLimiter } from "../middleware/rateLimiter.js";
+import { stripeConnectRateLimiter } from "../middleware/rateLimiter.js";
 import { createConnectAccount, createOnboardingLink, getConnectAccountStatus } from "../services/stripeConnectService.js";
 import logger from "../lib/logger.js";
 
@@ -21,7 +21,7 @@ const onboardingLinkSchema = z.object({
 // Create Stripe Connect account
 router.post(
   "/create-account",
-  billingRateLimiter,
+  stripeConnectRateLimiter,
   validateBody(createAccountSchema),
   async (req: Request, res: Response) => {
     try {
@@ -37,7 +37,7 @@ router.post(
 // Create onboarding link
 router.post(
   "/onboarding-link",
-  billingRateLimiter,
+  stripeConnectRateLimiter,
   validateBody(onboardingLinkSchema),
   async (req: Request, res: Response) => {
     try {
@@ -51,7 +51,7 @@ router.post(
 );
 
 // Get account status
-router.get("/status", billingRateLimiter, async (req: Request, res: Response) => {
+router.get("/status", stripeConnectRateLimiter, async (req: Request, res: Response) => {
   try {
     const status = await getConnectAccountStatus(req.tenantId!);
     if (!status) {

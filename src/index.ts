@@ -3,6 +3,7 @@ import http from "http";
 import express from "express";
 import helmet from "helmet";
 import { globalRateLimiter } from "./middleware/rateLimiter.js";
+import { requestMetricsMiddleware } from "./middleware/requestMetrics.js";
 import healthRoutes from "./routes/health.js";
 import billingRoutes from "./routes/billing.js";
 import webhookRoutes from "./routes/webhooks.js";
@@ -41,6 +42,7 @@ app.use("/api/webhooks/stripe", express.raw({ type: "application/json" }), (req,
 app.use(helmet());
 app.use(express.json({ limit: "1mb" }));
 app.use(globalRateLimiter);
+app.use(requestMetricsMiddleware);
 
 // CORS for frontend
 app.use((_req, res, next) => {

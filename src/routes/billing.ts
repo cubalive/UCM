@@ -113,6 +113,16 @@ router.post(
         return;
       }
 
+      // Send email notification (fire-and-forget, non-blocking)
+      if (req.user?.email) {
+        sendInvoiceGeneratedEmail(
+          req.user.email,
+          invoice.invoiceNumber,
+          String(invoice.total),
+          invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : "N/A"
+        ).catch(err => logger.warn("Failed to send invoice email", { error: err.message }));
+      }
+
       res.status(201).json(invoice);
     } catch (err: any) {
       logger.error("Failed to generate invoice", { error: err.message });

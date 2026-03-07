@@ -4,6 +4,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { getStripe } from "../lib/stripe.js";
 import { recordPayment } from "./invoiceService.js";
 import { recordAudit } from "./auditService.js";
+import { sendPaymentConfirmedEmail, sendPaymentFailedEmail } from "./emailService.js";
 import logger from "../lib/logger.js";
 import Stripe from "stripe";
 
@@ -121,6 +122,14 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event): Promise<void> 
 
   const amount = paymentIntent.amount / 100;
   await recordPayment(invoiceId, tenantId, amount, paymentIntent.id);
+
+  // Send payment confirmation email (fire-and-forget)
+  const invoiceNumber = paymentIntent.metadata?.invoiceNumber;
+  const customerEmail = paymentIntent.receipt_email || paymentIntent.metadata?.customerEmail;
+  if (customerEmail && invoiceNumber) {
+    sendPaymentConfirmedEmail(customerEmail, invoiceNumber, amount.toFixed(2))
+      .catch(err => logger.warn("Failed to send payment confirmation email", { error: err.message }));
+  }
 }
 
 async function handlePaymentIntentFailed(event: Stripe.Event): Promise<void> {
@@ -142,6 +151,14 @@ async function handlePaymentIntentFailed(event: Stripe.Event): Promise<void> {
   });
 
   logger.warn("Payment failed", { invoiceId, paymentIntentId: paymentIntent.id });
+
+  // Send payment failure email (fire-and-forget)
+  const invoiceNumber = paymentIntent.metadata?.invoiceNumber;
+  const customerEmail = paymentIntent.receipt_email || paymentIntent.metadata?.customerEmail;
+  if (customerEmail && invoiceNumber) {
+    sendPaymentFailedEmail(customerEmail, invoiceNumber, paymentIntent.last_payment_error?.message)
+      .catch(err => logger.warn("Failed to send payment failure email", { error: err.message }));
+  }
 }
 
 async function handleStripeInvoicePaid(event: Stripe.Event): Promise<void> {

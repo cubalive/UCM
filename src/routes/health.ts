@@ -4,6 +4,8 @@ import { checkRedisHealth } from "../lib/redis.js";
 import { checkStripeHealth } from "../lib/stripe.js";
 import { getConnectedStats, getOnlineDrivers } from "../services/realtimeService.js";
 import { collectMetrics, metricsToPrometheus } from "../services/metricsService.js";
+import { getRequestMetricsPrometheus, getRequestMetricsSummary } from "../middleware/requestMetrics.js";
+import { stripeCircuitBreaker } from "../lib/circuitBreaker.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
@@ -134,16 +136,30 @@ router.get("/health/metrics", async (_req: Request, res: Response) => {
   }
 });
 
-// Prometheus-compatible metrics endpoint
+// Prometheus-compatible metrics endpoint (system + request metrics)
 router.get("/health/prometheus", async (_req: Request, res: Response) => {
   try {
     const metrics = await collectMetrics();
+    const systemMetrics = metricsToPrometheus(metrics);
+    const requestMetrics = getRequestMetricsPrometheus();
     res.set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-    res.send(metricsToPrometheus(metrics));
+    res.send(`${systemMetrics}\n\n# Request Metrics\n${requestMetrics}\n`);
   } catch (err: any) {
     logger.error("Failed to export prometheus metrics", { error: err.message });
     res.status(500).send("# Error collecting metrics\n");
   }
+});
+
+// Request metrics summary (JSON)
+router.get("/health/requests", (_req: Request, res: Response) => {
+  res.json(getRequestMetricsSummary());
+});
+
+// Circuit breaker status
+router.get("/health/circuits", (_req: Request, res: Response) => {
+  res.json({
+    stripe: stripeCircuitBreaker.getStats(),
+  });
 });
 
 export default router;

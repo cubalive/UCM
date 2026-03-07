@@ -69,3 +69,28 @@ export const overrideRateLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many override operations" },
 });
+
+// Tenant + user combined key for financial operations
+function tenantUserKey(req: Request): string {
+  return `${req.tenantId || "none"}:${req.user?.id || req.ip || "unknown"}`;
+}
+
+// Stricter per-tenant limit for Stripe Connect operations
+export const stripeConnectRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  keyGenerator: tenantUserKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many Stripe Connect requests, please try again later" },
+});
+
+// Import operations (heavy, limit per tenant)
+export const importRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  keyGenerator,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many import requests, please try again later" },
+});

@@ -4,6 +4,7 @@ import { eq, and, between, sql } from "drizzle-orm";
 import { calculateFees } from "./feeService.js";
 import { recordAudit } from "./auditService.js";
 import { getStripe } from "../lib/stripe.js";
+import { withStripeProtection } from "../lib/circuitBreaker.js";
 import logger from "../lib/logger.js";
 import { v4 as uuidv4 } from "uuid";
 
@@ -287,15 +288,17 @@ export async function createStripePaymentIntent(invoiceId: string, tenantId: str
   const remaining = Number(invoice.total) - Number(invoice.amountPaid || 0);
   if (remaining <= 0) throw new Error("No amount remaining");
 
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount: Math.round(remaining * 100),
-    currency: invoice.currency,
-    metadata: {
-      invoiceId: invoice.id,
-      tenantId,
-      invoiceNumber: invoice.invoiceNumber,
-    },
-  });
+  const paymentIntent = await withStripeProtection(() =>
+    stripe.paymentIntents.create({
+      amount: Math.round(remaining * 100),
+      currency: invoice.currency,
+      metadata: {
+        invoiceId: invoice.id,
+        tenantId,
+        invoiceNumber: invoice.invoiceNumber,
+      },
+    })
+  );
 
   await db
     .update(invoices)

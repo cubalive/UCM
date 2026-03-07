@@ -2,6 +2,7 @@ import { getDb } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { getStripe } from "../lib/stripe.js";
+import { withStripeProtection } from "../lib/circuitBreaker.js";
 import { recordAudit } from "./auditService.js";
 import logger from "../lib/logger.js";
 
@@ -67,27 +68,29 @@ export async function createDriverStripeAccount(
 
   if (!driver) throw new Error("Driver not found");
 
-  // Create Express connected account
-  const account = await stripe.accounts.create({
-    type: "express",
-    country: "US",
-    email,
-    capabilities: {
-      card_payments: { requested: true },
-      transfers: { requested: true },
-    },
-    business_type: "individual",
-    individual: {
-      first_name: firstName,
-      last_name: lastName,
+  // Create Express connected account (circuit breaker protected)
+  const account = await withStripeProtection(() =>
+    stripe.accounts.create({
+      type: "express",
+      country: "US",
       email,
-    },
-    metadata: {
-      driverId,
-      tenantId,
-      platform: "ucm",
-    },
-  });
+      capabilities: {
+        card_payments: { requested: true },
+        transfers: { requested: true },
+      },
+      business_type: "individual",
+      individual: {
+        first_name: firstName,
+        last_name: lastName,
+        email,
+      },
+      metadata: {
+        driverId,
+        tenantId,
+        platform: "ucm",
+      },
+    })
+  );
 
   // Store account ID on user
   await db.update(users).set({
@@ -182,15 +185,17 @@ export async function transferToDriver(
 ): Promise<string> {
   const stripe = getStripe();
 
-  const transfer = await stripe.transfers.create({
-    amount: amountCents,
-    currency,
-    destination: stripeAccountId,
-    metadata: {
-      ...metadata,
-      platform: "ucm",
-    },
-  });
+  const transfer = await withStripeProtection(() =>
+    stripe.transfers.create({
+      amount: amountCents,
+      currency,
+      destination: stripeAccountId,
+      metadata: {
+        ...metadata,
+        platform: "ucm",
+      },
+    })
+  );
 
   logger.info("Transfer to driver created", {
     transferId: transfer.id,

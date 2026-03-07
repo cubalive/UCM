@@ -1,12 +1,13 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import { authenticate, authorize, tenantIsolation } from "../middleware/auth.js";
+import { importRateLimiter } from "../middleware/rateLimiter.js";
 import { previewImport, executeImport, type ImportOptions } from "../services/importService.js";
 import { type EntityType, type DedupeStrategy } from "../services/importEngine.js";
 import logger from "../lib/logger.js";
 
 const router = Router();
-router.use(authenticate, authorize("admin"), tenantIsolation);
+router.use(authenticate, authorize("admin"), tenantIsolation, importRateLimiter);
 
 // 10MB file size limit
 const upload = multer({

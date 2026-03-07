@@ -2,6 +2,7 @@ import { getDb } from "../db/index.js";
 import { tenants } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { getStripe } from "../lib/stripe.js";
+import { withStripeProtection } from "../lib/circuitBreaker.js";
 import { recordAudit } from "./auditService.js";
 import logger from "../lib/logger.js";
 
@@ -9,15 +10,17 @@ export async function createConnectAccount(tenantId: string, email: string) {
   const stripe = getStripe();
   const db = getDb();
 
-  const account = await stripe.accounts.create({
-    type: "express",
-    email,
-    metadata: { tenantId },
-    capabilities: {
-      card_payments: { requested: true },
-      transfers: { requested: true },
-    },
-  });
+  const account = await withStripeProtection(() =>
+    stripe.accounts.create({
+      type: "express",
+      email,
+      metadata: { tenantId },
+      capabilities: {
+        card_payments: { requested: true },
+        transfers: { requested: true },
+      },
+    })
+  );
 
   await db
     .update(tenants)
@@ -45,13 +48,16 @@ export async function createOnboardingLink(tenantId: string, returnUrl: string, 
 
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
   if (!tenant?.stripeAccountId) throw new Error("No Stripe account for tenant");
+  const accountId = tenant.stripeAccountId;
 
-  const accountLink = await stripe.accountLinks.create({
-    account: tenant.stripeAccountId,
-    refresh_url: refreshUrl,
-    return_url: returnUrl,
-    type: "account_onboarding",
-  });
+  const accountLink = await withStripeProtection(() =>
+    stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
+      type: "account_onboarding",
+    })
+  );
 
   return accountLink;
 }
@@ -62,8 +68,11 @@ export async function getConnectAccountStatus(tenantId: string) {
 
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
   if (!tenant?.stripeAccountId) return null;
+  const stripeAcctId = tenant.stripeAccountId;
 
-  const account = await stripe.accounts.retrieve(tenant.stripeAccountId);
+  const account = await withStripeProtection(() =>
+    stripe.accounts.retrieve(stripeAcctId)
+  );
 
   const isComplete = account.charges_enabled && account.payouts_enabled;
 
