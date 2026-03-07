@@ -15,6 +15,7 @@ import dispatchRoutes from "./routes/dispatch.js";
 import clinicRoutes from "./routes/clinic.js";
 import driverPayoutRoutes from "./routes/driverPayouts.js";
 import authRoutes from "./routes/auth.js";
+import importRoutes from "./routes/import.js";
 import logger from "./lib/logger.js";
 import { getRedis } from "./lib/redis.js";
 import { initWebSocket } from "./services/realtimeService.js";
@@ -82,6 +83,7 @@ app.use("/api/dispatch", dispatchRoutes);
 app.use("/api/clinic", clinicRoutes);
 app.use("/api/driver-payouts", driverPayoutRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/import", importRoutes);
 
 // Global error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { dispatchApi, driverApi, tripApi } from "../lib/api";
+import { ImportWizard } from "../components/ImportWizard";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { DispatchMap } from "../components/DispatchMap";
 import { formatDateTime, formatTime } from "../lib/timezone";
@@ -29,7 +30,7 @@ export function DispatchDashboard() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [timezone, setTimezone] = useState("America/New_York");
-  const [tab, setTab] = useState<"trips" | "drivers" | "map" | "tools" | "urgent">("trips");
+  const [tab, setTab] = useState<"trips" | "drivers" | "map" | "tools" | "urgent" | "import">("trips");
   const [actionMsg, setActionMsg] = useState("");
   const [repairModal, setRepairModal] = useState<{ tripId: string; currentStatus: string } | null>(null);
   const [repairStatus, setRepairStatus] = useState("");
@@ -202,6 +203,7 @@ export function DispatchDashboard() {
           <a className={tab === "drivers" ? "active" : ""} onClick={() => setTab("drivers")} href="#">Drivers</a>
           <a className={tab === "map" ? "active" : ""} onClick={() => setTab("map")} href="#">Map</a>
           <a className={tab === "tools" ? "active" : ""} onClick={() => setTab("tools")} href="#">Tools</a>
+          <a className={tab === "import" ? "active" : ""} onClick={() => setTab("import")} href="#">Import</a>
         </nav>
         <div className="mt-4 text-sm flex items-center gap-1" style={{ color: connected ? "var(--green-500)" : "var(--red-500)" }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "var(--green-500)" : "var(--red-500)", display: "inline-block" }}></span>
@@ -465,6 +467,13 @@ export function DispatchDashboard() {
                 <button className="btn btn-outline" onClick={() => { setLoading(true); loadDashboard(); }}>Refresh</button>
               </div>
             </div>
+          </div>
+        )}
+
+        {tab === "import" && (
+          <div>
+            <h3 className="mb-3" style={{ fontSize: "1.1rem", fontWeight: 600 }}>Import Data</h3>
+            <ImportWizard />
           </div>
         )}
       </main>

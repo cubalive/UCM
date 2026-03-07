@@ -107,6 +107,52 @@ export const driverApi = {
   stale: (minutes?: number) => api.get<any>(`/drivers/stale?minutes=${minutes || 15}`),
 };
 
+export const importApi = {
+  preview: async (file: File, entity: string, columnOverrides?: Record<string, string>) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("entity", entity);
+    if (columnOverrides) form.append("columnOverrides", JSON.stringify(columnOverrides));
+    const res = await fetch(`${API_BASE}/import/preview`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return res.json();
+  },
+  execute: async (file: File, entity: string, opts: {
+    dryRun?: boolean;
+    dedupeStrategies?: string[];
+    columnOverrides?: Record<string, string>;
+    skipDuplicates?: boolean;
+    timezone?: string;
+  } = {}) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("entity", entity);
+    if (opts.dryRun) form.append("dryRun", "true");
+    if (opts.dedupeStrategies) form.append("dedupeStrategies", JSON.stringify(opts.dedupeStrategies));
+    if (opts.columnOverrides) form.append("columnOverrides", JSON.stringify(opts.columnOverrides));
+    if (opts.skipDuplicates !== undefined) form.append("skipDuplicates", String(opts.skipDuplicates));
+    if (opts.timezone) form.append("timezone", opts.timezone);
+    const res = await fetch(`${API_BASE}/import/execute`, {
+      method: "POST",
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return res.json();
+  },
+  downloadTemplate: (entity: string) => `${API_BASE}/import/template/${entity}`,
+};
+
 export const clinicApi = {
   getPatients: async (page?: number) => {
     const res = await api.get<any>(`/clinic/patients?page=${page || 1}`);
