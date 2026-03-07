@@ -81,7 +81,7 @@ export async function runReconciliation(): Promise<ReconciliationResult> {
     });
   }
 
-  // 2. Check ledger consistency
+  // 2. Check ledger consistency — batch query instead of N+1
   const allPaidInvoices = await db
     .select()
     .from(invoices)
@@ -89,42 +89,56 @@ export async function runReconciliation(): Promise<ReconciliationResult> {
 
   const ledgerMismatches: LedgerMismatch[] = [];
 
-  for (const inv of allPaidInvoices) {
-    const entries = await db
+  if (allPaidInvoices.length > 0) {
+    // Single query for all ledger entries related to paid invoices
+    const paidInvoiceIds = allPaidInvoices.map(inv => inv.id);
+    const allEntries = await db
       .select()
       .from(ledgerEntries)
-      .where(eq(ledgerEntries.invoiceId, inv.id));
+      .where(sql`${ledgerEntries.invoiceId} = ANY(ARRAY[${sql.join(paidInvoiceIds.map(id => sql`${id}::uuid`), sql`, `)}])`);
 
-    const chargeTotal = entries
-      .filter((e) => e.type === "charge")
-      .reduce((sum, e) => sum + Number(e.amount), 0);
-
-    const paymentTotal = entries
-      .filter((e) => e.type === "payment")
-      .reduce((sum, e) => sum + Number(e.amount), 0);
-
-    const invoiceTotal = Number(inv.total);
-
-    if (Math.abs(chargeTotal - invoiceTotal) > 0.01) {
-      ledgerMismatches.push({
-        invoiceId: inv.id,
-        invoiceNumber: inv.invoiceNumber,
-        invoiceTotal: inv.total,
-        ledgerChargeTotal: chargeTotal,
-        ledgerPaymentTotal: paymentTotal,
-        issue: `Ledger charge total ($${chargeTotal}) doesn't match invoice total ($${invoiceTotal})`,
-      });
+    // Group entries by invoiceId
+    const entriesByInvoice = new Map<string, typeof allEntries>();
+    for (const entry of allEntries) {
+      if (!entry.invoiceId) continue;
+      if (!entriesByInvoice.has(entry.invoiceId)) entriesByInvoice.set(entry.invoiceId, []);
+      entriesByInvoice.get(entry.invoiceId)!.push(entry);
     }
 
-    if (Math.abs(paymentTotal - invoiceTotal) > 0.01) {
-      ledgerMismatches.push({
-        invoiceId: inv.id,
-        invoiceNumber: inv.invoiceNumber,
-        invoiceTotal: inv.total,
-        ledgerChargeTotal: chargeTotal,
-        ledgerPaymentTotal: paymentTotal,
-        issue: `Ledger payment total ($${paymentTotal}) doesn't match invoice total ($${invoiceTotal})`,
-      });
+    for (const inv of allPaidInvoices) {
+      const entries = entriesByInvoice.get(inv.id) || [];
+
+      const chargeTotal = entries
+        .filter((e) => e.type === "charge")
+        .reduce((sum, e) => sum + Number(e.amount), 0);
+
+      const paymentTotal = entries
+        .filter((e) => e.type === "payment")
+        .reduce((sum, e) => sum + Number(e.amount), 0);
+
+      const invoiceTotal = Number(inv.total);
+
+      if (Math.abs(chargeTotal - invoiceTotal) > 0.01) {
+        ledgerMismatches.push({
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          invoiceTotal: inv.total,
+          ledgerChargeTotal: chargeTotal,
+          ledgerPaymentTotal: paymentTotal,
+          issue: `Ledger charge total ($${chargeTotal}) doesn't match invoice total ($${invoiceTotal})`,
+        });
+      }
+
+      if (Math.abs(paymentTotal - invoiceTotal) > 0.01) {
+        ledgerMismatches.push({
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          invoiceTotal: inv.total,
+          ledgerChargeTotal: chargeTotal,
+          ledgerPaymentTotal: paymentTotal,
+          issue: `Ledger payment total ($${paymentTotal}) doesn't match invoice total ($${invoiceTotal})`,
+        });
+      }
     }
   }
 

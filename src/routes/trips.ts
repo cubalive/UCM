@@ -65,6 +65,24 @@ router.get("/", billingRateLimiter, validateQuery(tripFilterQuery), async (req: 
   }
 });
 
+// Get driver's trips (driver view) — must be before /:id to avoid UUID route match
+router.get(
+  "/driver/my-trips",
+  authorize("driver"),
+  async (req: Request, res: Response) => {
+    try {
+      const db = getDb();
+      const activeOnly = req.query.active === "true";
+      const [tenantRow] = await db.select({ timezone: tenants.timezone }).from(tenants).where(eq(tenants.id, req.tenantId!));
+      const driverTrips = await getDriverTrips(req.user!.id, req.tenantId!, activeOnly);
+      res.json({ data: driverTrips, timezone: tenantRow?.timezone || "America/New_York" });
+    } catch (err: any) {
+      logger.error("Failed to get driver trips", { error: err.message });
+      res.status(500).json({ error: "Failed to get driver trips" });
+    }
+  }
+);
+
 // Get single trip
 router.get("/:id", validateParams(uuidParam), async (req: Request, res: Response) => {
   try {
@@ -208,24 +226,6 @@ router.post(
     } catch (err: any) {
       const status = err.message.includes("not found") ? 404 : 400;
       res.status(status).json({ error: err.message });
-    }
-  }
-);
-
-// Get driver's trips (driver view)
-router.get(
-  "/driver/my-trips",
-  authorize("driver"),
-  async (req: Request, res: Response) => {
-    try {
-      const db = getDb();
-      const activeOnly = req.query.active === "true";
-      const [tenantRow] = await db.select({ timezone: tenants.timezone }).from(tenants).where(eq(tenants.id, req.tenantId!));
-      const driverTrips = await getDriverTrips(req.user!.id, req.tenantId!, activeOnly);
-      res.json({ data: driverTrips, timezone: tenantRow?.timezone || "America/New_York" });
-    } catch (err: any) {
-      logger.error("Failed to get driver trips", { error: err.message });
-      res.status(500).json({ error: "Failed to get driver trips" });
     }
   }
 );

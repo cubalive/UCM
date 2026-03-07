@@ -9,12 +9,21 @@ import { v4 as uuidv4 } from "uuid";
 
 export async function generateInvoiceNumber(tenantId: string): Promise<string> {
   const db = getDb();
+  // Use MAX-based approach instead of COUNT to avoid gaps/duplicates from deleted invoices
   const result = await db
-    .select({ count: sql<number>`count(*)` })
+    .select({
+      maxNum: sql<string>`max(${invoices.invoiceNumber})`,
+    })
     .from(invoices)
     .where(eq(invoices.tenantId, tenantId));
-  const count = Number(result[0]?.count || 0) + 1;
-  return `INV-${count.toString().padStart(6, "0")}`;
+
+  const maxInv = result[0]?.maxNum;
+  let nextNum = 1;
+  if (maxInv) {
+    const match = maxInv.match(/INV-(\d+)/);
+    if (match) nextNum = parseInt(match[1], 10) + 1;
+  }
+  return `INV-${nextNum.toString().padStart(6, "0")}`;
 }
 
 export interface GenerateInvoiceInput {

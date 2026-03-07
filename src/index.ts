@@ -14,6 +14,7 @@ import driverRoutes from "./routes/drivers.js";
 import dispatchRoutes from "./routes/dispatch.js";
 import clinicRoutes from "./routes/clinic.js";
 import driverPayoutRoutes from "./routes/driverPayouts.js";
+import authRoutes from "./routes/auth.js";
 import logger from "./lib/logger.js";
 import { getRedis } from "./lib/redis.js";
 import { initWebSocket } from "./services/realtimeService.js";
@@ -38,11 +39,18 @@ app.use(helmet());
 app.use(express.json({ limit: "1mb" }));
 app.use(globalRateLimiter);
 
-// CORS for frontend dev
+// CORS for frontend
 app.use((_req, res, next) => {
-  res.header("Access-Control-Allow-Origin", process.env.APP_URL || "*");
+  const origin = process.env.APP_URL || "";
+  if (origin) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Credentials", "true");
+  } else {
+    res.header("Access-Control-Allow-Origin", _req.headers.origin || "*");
+  }
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token");
+  res.header("Access-Control-Max-Age", "86400");
   if (_req.method === "OPTIONS") {
     res.sendStatus(204);
     return;
@@ -62,6 +70,7 @@ app.use("/api/drivers", driverRoutes);
 app.use("/api/dispatch", dispatchRoutes);
 app.use("/api/clinic", clinicRoutes);
 app.use("/api/driver-payouts", driverPayoutRoutes);
+app.use("/api/auth", authRoutes);
 
 // Global error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

@@ -125,8 +125,23 @@ function registerClient(ws: WebSocket, user: AuthUser) {
   logger.info("WebSocket client connected", { userId: user.id, tenantId: user.tenantId, role: user.role });
   sendToClient(ws, WS_EVENTS.CONNECTED, { userId: user.id, role: user.role, timestamp: new Date().toISOString() });
 
+  // Rate limit: max 60 messages per 10 seconds per client
+  let messageCount = 0;
+  let messageWindowStart = Date.now();
+
   ws.on("message", (data) => {
     try {
+      const now = Date.now();
+      if (now - messageWindowStart > 10000) {
+        messageCount = 0;
+        messageWindowStart = now;
+      }
+      messageCount++;
+      if (messageCount > 60) {
+        logger.warn("WebSocket message rate limit exceeded", { userId: user.id });
+        return;
+      }
+
       const message = JSON.parse(data.toString());
       client.lastPingAt = new Date();
       if (user.role === "driver" && driverPresence.has(user.id)) {

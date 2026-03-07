@@ -85,21 +85,37 @@ router.get("/health/pipeline", async (_req: Request, res: Response) => {
 
     const wsStats = getConnectedStats();
 
+    const stuckCount = Number(stats.stuck);
+    const requestedCount = Number(stats.requested);
+
+    // Generate operational alerts
+    const alerts: Array<{ level: string; message: string }> = [];
+    if (stuckCount > 0) {
+      alerts.push({ level: "warning", message: `${stuckCount} trip(s) stuck in active state for >2 hours` });
+    }
+    if (requestedCount > 10) {
+      alerts.push({ level: "warning", message: `${requestedCount} unassigned trips in queue` });
+    }
+    if (wsStats.onlineDrivers === 0) {
+      alerts.push({ level: "info", message: "No drivers currently online" });
+    }
+
     res.json({
       pipeline: {
-        requested: Number(stats.requested),
+        requested: requestedCount,
         assigned: Number(stats.assigned),
         en_route: Number(stats.en_route),
         arrived: Number(stats.arrived),
         in_progress: Number(stats.in_progress),
         completedToday: Number(stats.completed_today),
         cancelledToday: Number(stats.cancelled_today),
-        stuck: Number(stats.stuck),
+        stuck: stuckCount,
       },
       drivers: {
         online: wsStats.onlineDrivers,
         connected: wsStats.byRole?.driver || 0,
       },
+      alerts,
     });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to get pipeline stats" });

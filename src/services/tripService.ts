@@ -199,8 +199,10 @@ export async function updateTripStatus(
   const [updated] = await db
     .update(trips)
     .set(updateData)
-    .where(eq(trips.id, tripId))
+    .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)))
     .returning();
+
+  if (!updated) throw new Error("Trip not found or update failed");
 
   await recordAudit({
     tenantId,
@@ -281,17 +283,21 @@ export async function getTripById(tripId: string, tenantId: string) {
 
   if (!trip) return null;
 
-  // Enrich with patient and driver info
+  // Enrich with patient and driver info (tenant-scoped)
   let patient = null;
   let driver = null;
 
   if (trip.patientId) {
-    const [p] = await db.select().from(patients).where(eq(patients.id, trip.patientId));
+    const [p] = await db.select().from(patients).where(
+      and(eq(patients.id, trip.patientId), eq(patients.tenantId, tenantId))
+    );
     patient = p || null;
   }
 
   if (trip.driverId) {
-    const [d] = await db.select().from(users).where(eq(users.id, trip.driverId));
+    const [d] = await db.select().from(users).where(
+      and(eq(users.id, trip.driverId), eq(users.tenantId, tenantId))
+    );
     driver = d ? { id: d.id, firstName: d.firstName, lastName: d.lastName, email: d.email } : null;
   }
 
@@ -351,7 +357,7 @@ export async function acceptTrip(tripId: string, driverId: string, tenantId: str
         acceptedByDriver: true,
       },
     })
-    .where(eq(trips.id, tripId))
+    .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)))
     .returning();
 
   await recordAudit({ tenantId, userId: driverId, action: "trip.accepted", resource: "trip", resourceId: tripId, details: { driverId } });
@@ -383,7 +389,7 @@ export async function declineTrip(tripId: string, driverId: string, tenantId: st
         previousDriverId: driverId,
       },
     })
-    .where(eq(trips.id, tripId))
+    .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)))
     .returning();
 
   await recordAudit({ tenantId, userId: driverId, action: "trip.declined", resource: "trip", resourceId: tripId, details: { driverId, reason } });
@@ -417,7 +423,7 @@ export async function cancelTrip(tripId: string, tenantId: string, userId?: stri
         cancellationReason: reason,
       },
     })
-    .where(eq(trips.id, tripId))
+    .where(and(eq(trips.id, tripId), eq(trips.tenantId, tenantId)))
     .returning();
 
   await recordAudit({

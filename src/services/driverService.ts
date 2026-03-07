@@ -155,13 +155,13 @@ export async function updateDriverLocation(
   const db = getDb();
   const now = new Date();
 
-  // Atomic upsert for driver location
+  // Atomic upsert for driver location — preserves current availability on conflict
   await db
     .insert(driverStatusTable)
     .values({
       driverId,
       tenantId,
-      availability: "available",
+      availability: "offline", // default for new record, will be set properly via availability endpoint
       latitude: latitude.toString(),
       longitude: longitude.toString(),
       heading,
@@ -177,6 +177,7 @@ export async function updateDriverLocation(
         speed,
         lastLocationAt: now,
         updatedAt: now,
+        // Note: availability is NOT updated here — preserves current state
       },
     });
 

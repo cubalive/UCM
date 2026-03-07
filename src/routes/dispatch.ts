@@ -163,7 +163,7 @@ router.post(
           status: "requested",
           driverId: null,
           updatedAt: new Date(),
-        }).where(eq(trips.id, trip.id));
+        }).where(and(eq(trips.id, trip.id), eq(trips.tenantId, req.tenantId!)));
       }
 
       const updated = await assignTrip(
@@ -290,7 +290,7 @@ router.post(
           unassignedBy: req.user!.id,
           unassignReason: req.body?.reason || "Dispatch unassign",
         },
-      }).where(eq(trips.id, trip.id));
+      }).where(and(eq(trips.id, trip.id), eq(trips.tenantId, req.tenantId!)));
 
       await recordAudit({
         tenantId: req.tenantId!,
@@ -360,7 +360,7 @@ router.post(
         updateData.completedAt = new Date();
       }
 
-      const [updated] = await db.update(trips).set(updateData).where(eq(trips.id, trip.id)).returning();
+      const [updated] = await db.update(trips).set(updateData).where(and(eq(trips.id, trip.id), eq(trips.tenantId, req.tenantId!))).returning();
 
       await recordAudit({
         tenantId: req.tenantId!,

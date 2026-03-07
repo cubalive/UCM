@@ -18,7 +18,7 @@ export function LoginPage() {
       setToken(res.token);
       const role = res.user.role;
       if (role === "driver") navigate("/driver");
-      else if (role === "clinic_staff") navigate("/clinic");
+      else if (role === "clinic") navigate("/clinic");
       else navigate("/dispatch");
     } catch (err: any) {
       setError(err.message || "Login failed");
