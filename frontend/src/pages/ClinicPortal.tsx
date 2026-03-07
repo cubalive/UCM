@@ -194,6 +194,7 @@ function TripsView() {
 
   useEffect(() => {
     const unsubs = [
+      on("trip:created", load),
       on("trip:updated", load),
       on("trip:assigned", load),
     ];
@@ -240,7 +241,7 @@ function TripsView() {
                   <td>{trip.driverName || <span className="text-gray">Pending</span>}</td>
                   <td className="text-sm">{trip.scheduledPickup ? new Date(trip.scheduledPickup).toLocaleString() : "—"}</td>
                   <td>
-                    {["requested", "assigned"].includes(trip.status) && (
+                    {["requested", "assigned", "en_route", "arrived"].includes(trip.status) && (
                       <button className="btn btn-outline btn-sm" onClick={() => handleCancel(trip.id)}>Cancel</button>
                     )}
                   </td>

@@ -124,10 +124,18 @@ export function DispatchDashboard() {
     } catch (err: any) { flash(`Error: ${err.message}`); }
   }
 
+  function waitTime(createdAt: string): string {
+    const mins = Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins}m`;
+    return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  }
+
   const urgentTrips = trips.filter(t => t.priority === "immediate" && t.status === "requested");
   const pendingTrips = trips.filter(t => t.status === "requested");
   const activeTrips = trips.filter(t => ["assigned", "en_route", "arrived", "in_progress"].includes(t.status));
   const availableDrivers = drivers.filter(d => d.availability === "available");
+  const busyDrivers = drivers.filter(d => d.availability === "busy");
 
   if (loading) return <div className="app-shell"><div className="main-content"><p>Loading dashboard...</p></div></div>;
 
@@ -141,7 +149,8 @@ export function DispatchDashboard() {
           <a className={tab === "map" ? "active" : ""} onClick={() => setTab("map")} href="#">Map</a>
           <a className={tab === "tools" ? "active" : ""} onClick={() => setTab("tools")} href="#">Tools</a>
         </nav>
-        <div className="mt-4 text-sm" style={{ color: connected ? "var(--green-500)" : "var(--red-500)" }}>
+        <div className="mt-4 text-sm flex items-center gap-1" style={{ color: connected ? "var(--green-500)" : "var(--red-500)" }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "var(--green-500)" : "var(--red-500)", display: "inline-block" }}></span>
           {connected ? "Live" : "Disconnected"}
         </div>
       </aside>
@@ -154,7 +163,7 @@ export function DispatchDashboard() {
         )}
 
         {/* Stats row */}
-        <div className="grid-4 mb-4">
+        <div className="grid-5 mb-4">
           <div className="stat-card stat-card-amber">
             <div className="stat-value">{pendingTrips.length}</div>
             <div className="stat-label">Pending Trips</div>
@@ -171,12 +180,19 @@ export function DispatchDashboard() {
             <div className="stat-value">{urgentTrips.length}</div>
             <div className="stat-label">Urgent Requests</div>
           </div>
+          <div className="stat-card stat-card-blue">
+            <div className="stat-value">{busyDrivers.length}</div>
+            <div className="stat-label">Busy Drivers</div>
+          </div>
         </div>
 
         {/* Urgent alerts */}
         {urgentTrips.map(trip => (
           <div key={trip.id} className="urgent-card mb-3">
-            <div className="urgent-label">Immediate Request</div>
+            <div className="flex justify-between items-center">
+              <div className="urgent-label">Immediate Request</div>
+              <span className="text-sm font-bold" style={{ color: "var(--red-600)" }}>Waiting {waitTime(trip.createdAt)}</span>
+            </div>
             <div className="flex justify-between items-center">
               <div>
                 <p className="font-bold">{trip.patientName || "Patient"}</p>
@@ -213,12 +229,13 @@ export function DispatchDashboard() {
                     <th>Dropoff</th>
                     <th>Driver</th>
                     <th>Scheduled</th>
+                    <th>Wait</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {trips.map(trip => (
-                    <tr key={trip.id}>
+                    <tr key={trip.id} className={trip.priority === "immediate" && trip.status === "requested" ? "trip-row-urgent" : ""}>
                       <td><span className={`badge badge-${trip.status}`}>{trip.status}</span></td>
                       <td><span className={`badge ${trip.priority === "immediate" ? "badge-immediate" : ""}`}>{trip.priority}</span></td>
                       <td>{trip.patientName || "—"}</td>
@@ -226,6 +243,9 @@ export function DispatchDashboard() {
                       <td className="truncate" style={{ maxWidth: 200 }}>{trip.dropoffAddress}</td>
                       <td>{trip.driverName || "—"}</td>
                       <td className="text-sm">{trip.scheduledPickup ? new Date(trip.scheduledPickup).toLocaleString() : "—"}</td>
+                      <td className="text-sm" style={{ color: trip.status === "requested" && trip.createdAt ? "var(--amber-600)" : undefined, fontWeight: trip.status === "requested" ? 600 : undefined }}>
+                        {trip.createdAt ? waitTime(trip.createdAt) : "—"}
+                      </td>
                       <td>
                         {trip.status === "requested" && (
                           <select className="form-input btn-sm" style={{ width: 130 }} onChange={e => e.target.value && handleAssignTrip(trip.id, e.target.value)}>
@@ -234,20 +254,41 @@ export function DispatchDashboard() {
                           </select>
                         )}
                         {["assigned", "en_route", "arrived", "in_progress"].includes(trip.status) && trip.driverId && (
-                          <select className="form-input btn-sm" style={{ width: 130 }} onChange={e => {
-                            if (e.target.value) {
-                              dispatchApi.reassignTrip(trip.id, e.target.value, "Dispatch reassignment").then(() => { flash("Reassigned"); loadDashboard(); });
-                              e.target.value = "";
+                          <div className="flex gap-1">
+                            <select className="form-input btn-sm" style={{ width: 110 }} onChange={e => {
+                              if (e.target.value) {
+                                dispatchApi.reassignTrip(trip.id, e.target.value, "Dispatch reassignment").then(() => { flash("Reassigned"); loadDashboard(); });
+                                e.target.value = "";
+                              }
+                            }}>
+                              <option value="">Reassign...</option>
+                              {drivers.filter(d => d.id !== trip.driverId).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                            </select>
+                            {["assigned", "en_route", "arrived"].includes(trip.status) && (
+                              <button className="btn btn-outline btn-sm" style={{ color: "var(--amber-600)", borderColor: "var(--amber-200)" }} onClick={() => {
+                                if (confirm("Unassign this trip? It will return to the pending pool.")) {
+                                  dispatchApi.unassignTrip(trip.id, "Dispatch unassign").then(() => { flash("Trip unassigned"); loadDashboard(); }).catch((err: any) => flash(`Error: ${err.message}`));
+                                }
+                              }}>Unassign</button>
+                            )}
+                            <button className="btn btn-outline btn-sm" style={{ color: "var(--red-600)", borderColor: "var(--red-200)" }} onClick={() => {
+                              if (confirm("Cancel this trip?")) {
+                                dispatchApi.cancelTrip(trip.id, "Cancelled by dispatch").then(() => { flash("Trip cancelled"); loadDashboard(); }).catch((err: any) => flash(`Error: ${err.message}`));
+                              }
+                            }}>Cancel</button>
+                          </div>
+                        )}
+                        {trip.status === "requested" && (
+                          <button className="btn btn-outline btn-sm" style={{ color: "var(--red-600)", borderColor: "var(--red-200)", marginTop: 4 }} onClick={() => {
+                            if (confirm("Cancel this trip?")) {
+                              dispatchApi.cancelTrip(trip.id, "Cancelled by dispatch").then(() => { flash("Trip cancelled"); loadDashboard(); }).catch((err: any) => flash(`Error: ${err.message}`));
                             }
-                          }}>
-                            <option value="">Reassign...</option>
-                            {drivers.filter(d => d.id !== trip.driverId).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                          </select>
+                          }}>Cancel</button>
                         )}
                       </td>
                     </tr>
                   ))}
-                  {trips.length === 0 && <tr><td colSpan={8} style={{ textAlign: "center", padding: "2rem" }} className="text-gray">No trips found</td></tr>}
+                  {trips.length === 0 && <tr><td colSpan={9} style={{ textAlign: "center", padding: "2rem" }} className="text-gray">No trips found</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -307,7 +348,7 @@ export function DispatchDashboard() {
         {tab === "map" && (
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ height: "calc(100vh - 220px)", minHeight: 400 }}>
-              <DispatchMap drivers={drivers} />
+              <DispatchMap drivers={drivers} trips={pendingTrips} />
             </div>
           </div>
         )}
@@ -315,7 +356,7 @@ export function DispatchDashboard() {
         {tab === "tools" && (
           <div>
             <h3 className="mb-3" style={{ fontSize: "1.1rem", fontWeight: 600 }}>Dispatch Tools</h3>
-            <div className="grid-3">
+            <div className="grid-2">
               <div className="card">
                 <h4 className="card-title mb-2">Auto-Assign</h4>
                 <p className="text-sm text-gray mb-3">Automatically assign all pending trips to the best available driver based on proximity and workload.</p>
@@ -325,6 +366,21 @@ export function DispatchDashboard() {
                 <h4 className="card-title mb-2">Resync Stale Drivers</h4>
                 <p className="text-sm text-gray mb-3">Set drivers with no location update in 15+ minutes to offline status.</p>
                 <button className="btn btn-warning" onClick={handleResyncStale}>Resync Stale</button>
+              </div>
+              <div className="card">
+                <h4 className="card-title mb-2">Release All Busy</h4>
+                <p className="text-sm text-gray mb-3">Force all busy drivers with 0 active trips back to available.</p>
+                <button className="btn btn-warning" onClick={async () => {
+                  const stuckBusy = drivers.filter(d => d.availability === "busy" && d.activeTripCount === 0);
+                  if (stuckBusy.length === 0) { flash("No stuck busy drivers found"); return; }
+                  if (!confirm(`Release ${stuckBusy.length} stuck busy driver(s)?`)) return;
+                  let released = 0;
+                  for (const d of stuckBusy) {
+                    try { await dispatchApi.releaseDriver(d.id); released++; } catch { /* skip */ }
+                  }
+                  flash(`Released ${released} driver(s)`);
+                  loadDashboard();
+                }}>Release Stuck</button>
               </div>
               <div className="card">
                 <h4 className="card-title mb-2">Refresh Dashboard</h4>

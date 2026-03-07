@@ -8,8 +8,14 @@ type Driver = {
   activeTripCount: number;
 };
 
+type Trip = {
+  id: string; pickupAddress: string; patientName?: string;
+  priority: string;
+};
+
 type Props = {
   drivers: Driver[];
+  trips?: Trip[];
 };
 
 const DEFAULT_CENTER: [number, number] = [-80.1918, 25.7617];
@@ -47,6 +53,7 @@ export function DispatchMap({ drivers }: Props) {
     };
   }, []);
 
+  // Update driver markers
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -55,11 +62,16 @@ export function DispatchMap({ drivers }: Props) {
 
     drivers.forEach(driver => {
       if (!driver.latitude || !driver.longitude) return;
-      currentIds.add(driver.id);
+      const markerId = `driver-${driver.id}`;
+      currentIds.add(markerId);
 
-      const existing = markersRef.current.get(driver.id);
+      const existing = markersRef.current.get(markerId);
       if (existing) {
         existing.setLngLat([Number(driver.longitude), Number(driver.latitude)]);
+        // Update marker color on status change
+        const el = existing.getElement();
+        const color = AVAILABILITY_COLORS[driver.availability] || "#9ca3af";
+        el.style.background = color;
         return;
       }
 
@@ -74,12 +86,12 @@ export function DispatchMap({ drivers }: Props) {
         ))
         .addTo(map);
 
-      markersRef.current.set(driver.id, marker);
+      markersRef.current.set(markerId, marker);
     });
 
-    // Remove stale markers
+    // Remove stale driver markers
     markersRef.current.forEach((marker, id) => {
-      if (!currentIds.has(id)) {
+      if (id.startsWith("driver-") && !currentIds.has(id)) {
         marker.remove();
         markersRef.current.delete(id);
       }

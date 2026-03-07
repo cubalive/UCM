@@ -19,6 +19,13 @@ export function useWebSocket() {
     ws.onopen = () => {
       setConnected(true);
       console.log("[WS] Connected");
+      // Heartbeat every 30s to keep connection alive and detect dead sockets
+      const hb = window.setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 30000);
+      ws.addEventListener("close", () => clearInterval(hb));
     };
 
     ws.onmessage = (event) => {

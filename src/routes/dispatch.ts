@@ -5,7 +5,7 @@ import { validateBody, validateParams, uuidParam } from "../middleware/validatio
 import { getDb } from "../db/index.js";
 import { trips, users, patients, driverStatus } from "../db/schema.js";
 import { eq, and, sql, inArray, desc } from "drizzle-orm";
-import { assignTrip, updateTripStatus } from "../services/tripService.js";
+import { assignTrip, updateTripStatus, cancelTrip } from "../services/tripService.js";
 import { updateDriverAvailability, detectStaleDrivers, getDriversForTenant } from "../services/driverService.js";
 import { autoAssignTrip, findBestDriver } from "../services/autoAssignService.js";
 import { recordAudit } from "../services/auditService.js";
@@ -242,5 +242,86 @@ router.post("/resync-stale", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Stale resync failed" });
   }
 });
+
+// Force unassign a trip (send back to requested pool)
+router.post(
+  "/trips/:id/unassign",
+  validateParams(uuidParam),
+  async (req: Request, res: Response) => {
+    try {
+      const db = getDb();
+      const [trip] = await db.select().from(trips).where(
+        and(eq(trips.id, req.params.id as string), eq(trips.tenantId, req.tenantId!))
+      );
+
+      if (!trip) {
+        res.status(404).json({ error: "Trip not found" });
+        return;
+      }
+
+      if (!["assigned", "en_route", "arrived"].includes(trip.status)) {
+        res.status(400).json({ error: `Cannot unassign trip in status: ${trip.status}` });
+        return;
+      }
+
+      const previousDriverId = trip.driverId;
+
+      await db.update(trips).set({
+        status: "requested",
+        driverId: null,
+        updatedAt: new Date(),
+        metadata: {
+          ...(trip.metadata as Record<string, unknown>),
+          unassignedAt: new Date().toISOString(),
+          unassignedBy: req.user!.id,
+          unassignReason: req.body?.reason || "Dispatch unassign",
+        },
+      }).where(eq(trips.id, trip.id));
+
+      await recordAudit({
+        tenantId: req.tenantId!,
+        userId: req.user!.id,
+        action: "dispatch.unassign",
+        resource: "trip",
+        resourceId: trip.id,
+        details: { previousDriverId, reason: req.body?.reason },
+      });
+
+      // Auto-release the previous driver if they have no other active trips
+      if (previousDriverId) {
+        try {
+          const { autoSetAvailable } = await import("../services/driverService.js");
+          await autoSetAvailable(previousDriverId, req.tenantId!);
+        } catch { /* non-fatal */ }
+      }
+
+      res.json({ unassigned: true, tripId: trip.id });
+    } catch (err: any) {
+      logger.error("Unassign failed", { error: err.message });
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// Force cancel a trip from dispatch
+router.post(
+  "/trips/:id/cancel",
+  validateParams(uuidParam),
+  async (req: Request, res: Response) => {
+    try {
+      const trip = await cancelTrip(
+        req.params.id as string,
+        req.tenantId!,
+        req.user!.id,
+        req.body?.reason || "Cancelled by dispatch"
+      );
+      res.json({ cancelled: true, trip });
+    } catch (err: any) {
+      logger.error("Dispatch cancel failed", { error: err.message });
+      const status = err.message.includes("not found") ? 404 : 400;
+      res.status(status).json({ error: err.message });
+    }
+  }
+);
 
 export default router;

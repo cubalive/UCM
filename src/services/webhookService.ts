@@ -1,5 +1,5 @@
 import { getDb, getPool } from "../db/index.js";
-import { webhookEvents, invoices, ledgerEntries } from "../db/schema.js";
+import { webhookEvents, invoices, ledgerEntries, users } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import { getStripe } from "../lib/stripe.js";
 import { recordPayment } from "./invoiceService.js";
@@ -188,13 +188,48 @@ async function handleStripeInvoicePaymentFailed(event: Stripe.Event): Promise<vo
 }
 
 async function handleAccountUpdated(event: Stripe.Event): Promise<void> {
-  // Handle Stripe Connect account updates
   const account = event.data.object as Stripe.Account;
-  logger.info("Stripe account updated", {
-    accountId: account.id,
-    chargesEnabled: account.charges_enabled,
-    payoutsEnabled: account.payouts_enabled,
-  });
+  const db = getDb();
+
+  // Check if this is a driver's connected account
+  const driverId = account.metadata?.driverId;
+  if (driverId) {
+    // Update the driver record with the latest onboarding status
+    const kycStatus = account.requirements?.currently_due?.length
+      ? "pending"
+      : account.requirements?.past_due?.length
+        ? "action_required"
+        : "verified";
+
+    await recordAudit({
+      tenantId: account.metadata?.tenantId,
+      action: "driver.stripe_account_updated",
+      resource: "driver",
+      resourceId: driverId,
+      details: {
+        stripeAccountId: account.id,
+        chargesEnabled: account.charges_enabled,
+        payoutsEnabled: account.payouts_enabled,
+        detailsSubmitted: account.details_submitted,
+        kycStatus,
+      },
+    });
+
+    logger.info("Driver Stripe account updated via webhook", {
+      driverId,
+      accountId: account.id,
+      chargesEnabled: account.charges_enabled,
+      payoutsEnabled: account.payouts_enabled,
+      kycStatus,
+    });
+  } else {
+    // Platform/tenant account update
+    logger.info("Stripe account updated", {
+      accountId: account.id,
+      chargesEnabled: account.charges_enabled,
+      payoutsEnabled: account.payouts_enabled,
+    });
+  }
 }
 
 async function handleSubscriptionChange(event: Stripe.Event): Promise<void> {

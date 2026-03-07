@@ -12,12 +12,29 @@ type Trip = {
   patientPhone?: string; notes?: string;
 };
 
-const STATUS_ACTIONS: Record<string, { next: string; label: string; color: string }> = {
+const STATUS_ACTIONS: Record<string, { next: string; label: string; color: string; confirm?: string }> = {
   assigned: { next: "en_route", label: "Start - En Route", color: "btn-primary" },
   en_route: { next: "arrived", label: "Arrived at Pickup", color: "btn-warning" },
   arrived: { next: "in_progress", label: "Patient On Board", color: "btn-success" },
-  in_progress: { next: "completed", label: "Complete Trip", color: "btn-success" },
+  in_progress: { next: "completed", label: "Complete Trip", color: "btn-success", confirm: "Mark this trip as completed?" },
 };
+
+const TRIP_STEPS = ["assigned", "en_route", "arrived", "in_progress", "completed"];
+const STEP_LABELS = ["Assigned", "En Route", "Arrived", "In Progress", "Done"];
+
+function TripProgress({ status }: { status: string }) {
+  const currentIdx = TRIP_STEPS.indexOf(status);
+  return (
+    <div className="trip-progress">
+      {TRIP_STEPS.map((step, i) => (
+        <div key={step} className={`trip-step ${i <= currentIdx ? "trip-step-done" : ""} ${i === currentIdx ? "trip-step-current" : ""}`}>
+          <div className="trip-step-dot">{i < currentIdx ? "\u2713" : i + 1}</div>
+          <span className="trip-step-label">{STEP_LABELS[i]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function DriverApp() {
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
@@ -25,15 +42,25 @@ export function DriverApp() {
   const [availability, setAvailability] = useState<string>("offline");
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState("");
+  const [isNewTrip, setIsNewTrip] = useState(false);
   const [driverPos, setDriverPos] = useState<{ lat: number; lng: number } | null>(null);
   const { connected, on, send } = useWebSocket();
   const locationInterval = useRef<number>();
+  const prevTripIdRef = useRef<string | null>(null);
 
   const loadTrips = useCallback(async () => {
     try {
       const res = await tripApi.driverTrips(true);
       const trips: Trip[] = res.trips || res || [];
       const active = trips.find((t: Trip) => ["assigned", "en_route", "arrived", "in_progress"].includes(t.status));
+
+      // Detect new trip assignment
+      if (active && active.id !== prevTripIdRef.current && active.status === "assigned") {
+        setIsNewTrip(true);
+        setTimeout(() => setIsNewTrip(false), 5000);
+      }
+      prevTripIdRef.current = active?.id || null;
+
       setActiveTrip(active || null);
       setUpcomingTrips(trips.filter((t: Trip) => t.status === "assigned" && t.id !== active?.id));
     } catch { /* empty */ }
@@ -47,6 +74,10 @@ export function DriverApp() {
     const unsubs = [
       on("trip:assigned", loadTrips),
       on("trip:updated", loadTrips),
+      on("trip:cancelled", loadTrips),
+      on("driver:status_changed", (data: any) => {
+        if (data?.availability) setAvailability(data.availability);
+      }),
     ];
     return () => unsubs.forEach(u => u());
   }, [on, loadTrips]);
@@ -99,6 +130,13 @@ export function DriverApp() {
 
   return (
     <div className="driver-shell">
+      {/* New trip notification banner */}
+      {isNewTrip && activeTrip && (
+        <div className="new-trip-banner">
+          {activeTrip.priority === "immediate" ? "URGENT TRIP ASSIGNED" : "NEW TRIP ASSIGNED"}
+        </div>
+      )}
+
       {/* Header */}
       <header className="driver-header">
         <div>
@@ -142,14 +180,17 @@ export function DriverApp() {
       <div className="driver-panel">
         {/* Active trip */}
         {activeTrip ? (
-          <div className="trip-card">
+          <div className={`trip-card ${activeTrip.priority === "immediate" ? "trip-card-urgent" : ""}`}>
             <div className="flex justify-between items-center mb-2">
               <span className={`badge badge-${activeTrip.status}`}>{activeTrip.status.replace("_", " ")}</span>
               {activeTrip.priority === "immediate" && <span className="badge badge-immediate">URGENT</span>}
             </div>
 
+            {/* Trip progress indicator */}
+            <TripProgress status={activeTrip.status} />
+
             {activeTrip.patientName && (
-              <p className="font-bold" style={{ fontSize: "1.1rem" }}>{activeTrip.patientName}</p>
+              <p className="font-bold" style={{ fontSize: "1.1rem", marginTop: "0.75rem" }}>{activeTrip.patientName}</p>
             )}
 
             <div className="trip-addresses">
@@ -185,7 +226,7 @@ export function DriverApp() {
                   className="btn btn-primary"
                   style={{ flex: 1, justifyContent: "center" }}
                 >
-                  Navigate
+                  Navigate {activeTrip.status === "in_progress" ? "to Dropoff" : "to Pickup"}
                 </a>
               )}
               {activeTrip.patientPhone && (
@@ -200,7 +241,10 @@ export function DriverApp() {
               <button
                 className={`btn ${action.color} btn-xl`}
                 style={{ width: "100%" }}
-                onClick={() => handleStatusUpdate(activeTrip.id, action.next)}
+                onClick={() => {
+                  if (action.confirm && !confirm(action.confirm)) return;
+                  handleStatusUpdate(activeTrip.id, action.next);
+                }}
               >
                 {action.label}
               </button>
@@ -237,21 +281,31 @@ export function DriverApp() {
           </div>
         ) : (
           <div className="card" style={{ textAlign: "center", padding: "2rem" }}>
-            <p className="text-gray font-medium">No active trip</p>
-            <p className="text-sm text-gray mt-1">Set yourself as available to receive trips</p>
+            <div style={{ fontSize: "2rem", marginBottom: "0.5rem", opacity: 0.3 }}>&#128663;</div>
+            <p className="font-medium" style={{ color: "var(--gray-700)" }}>No active trip</p>
+            {availability !== "available" ? (
+              <div className="mt-3">
+                <p className="text-sm text-gray mb-2">Set yourself as available to receive trips</p>
+                <button className="btn btn-success" onClick={() => handleAvailability("available")}>Go Available</button>
+              </div>
+            ) : (
+              <p className="text-sm text-gray mt-1">You're available. Waiting for dispatch to assign a trip.</p>
+            )}
           </div>
         )}
 
         {/* Upcoming trips */}
         {upcomingTrips.length > 0 && (
           <div className="mt-4">
-            <h3 className="font-medium mb-2" style={{ fontSize: "0.95rem" }}>Upcoming</h3>
+            <h3 className="font-medium mb-2" style={{ fontSize: "0.95rem" }}>Upcoming ({upcomingTrips.length})</h3>
             {upcomingTrips.map(trip => (
               <div key={trip.id} className="trip-card">
                 <div className="flex justify-between items-center">
                   <span className="badge badge-assigned">Assigned</span>
+                  {trip.priority === "immediate" && <span className="badge badge-immediate">URGENT</span>}
                   {trip.scheduledPickup && <span className="text-sm text-gray">{new Date(trip.scheduledPickup).toLocaleTimeString()}</span>}
                 </div>
+                {trip.patientName && <p className="font-medium mt-1">{trip.patientName}</p>}
                 <div className="trip-addresses mt-2">
                   <div className="address-line">
                     <span className="address-dot dot-pickup"></span>

@@ -56,6 +56,10 @@ export const dispatchApi = {
     api.post<any>(`/dispatch/trips/${tripId}/reassign`, { driverId, reason }),
   releaseDriver: (driverId: string) => api.post<any>(`/dispatch/drivers/${driverId}/release`),
   resyncStale: (minutes?: number) => api.post<any>(`/dispatch/resync-stale?minutes=${minutes || 15}`),
+  unassignTrip: (tripId: string, reason?: string) =>
+    api.post<any>(`/dispatch/trips/${tripId}/unassign`, { reason }),
+  cancelTrip: (tripId: string, reason?: string) =>
+    api.post<any>(`/dispatch/trips/${tripId}/cancel`, { reason }),
 };
 
 export const tripApi = {
