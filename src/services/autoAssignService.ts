@@ -173,7 +173,12 @@ export async function autoAssignTrip(tripId: string, tenantId: string): Promise<
     if (meta.previousDriverId) declinedBy.push(meta.previousDriverId as string);
   }
 
-  const bestDriver = await findBestDriver(tenantId, undefined, undefined, declinedBy);
+  // Extract pickup coordinates from trip metadata if available
+  const meta = (trip?.metadata && typeof trip.metadata === "object") ? trip.metadata as Record<string, unknown> : {};
+  const pickupLat = meta.pickupLat ? Number(meta.pickupLat) : undefined;
+  const pickupLng = meta.pickupLng ? Number(meta.pickupLng) : undefined;
+
+  const bestDriver = await findBestDriver(tenantId, pickupLat, pickupLng, declinedBy);
 
   if (!bestDriver) {
     logger.warn("Auto-assign: no available drivers", { tripId, tenantId });

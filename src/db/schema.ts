@@ -107,6 +107,8 @@ export const trips = pgTable(
     driverIdx: index("trips_driver_idx").on(table.driverId),
     statusIdx: index("trips_status_idx").on(table.status),
     scheduledIdx: index("trips_scheduled_idx").on(table.scheduledAt),
+    tenantStatusScheduledIdx: index("trips_tenant_status_scheduled_idx").on(table.tenantId, table.status, table.scheduledAt),
+    driverStatusIdx: index("trips_driver_status_idx").on(table.driverId, table.status),
   })
 );
 
@@ -342,5 +344,6 @@ export const driverLocations = pgTable(
   (table) => ({
     driverIdx: index("driver_locations_driver_idx").on(table.driverId),
     recordedIdx: index("driver_locations_recorded_idx").on(table.recordedAt),
+    driverRecordedIdx: index("driver_locations_driver_recorded_idx").on(table.driverId, table.recordedAt),
   })
 );

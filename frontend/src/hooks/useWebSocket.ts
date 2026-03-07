@@ -14,11 +14,13 @@ export function useWebSocket() {
     const token = getToken();
     if (!token) return;
 
-    // Use URL token for backward compat with server
+    // Use auth handshake instead of URL token to avoid logging credentials
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${token}`);
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
     ws.onopen = () => {
+      // Send auth token via message (not URL) to prevent token in server logs
+      ws.send(JSON.stringify({ type: "auth", token }));
       setConnected(true);
       reconnectAttemptRef.current = 0;
       console.log("[WS] Connected");

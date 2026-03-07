@@ -56,16 +56,61 @@ export function DispatchDashboard() {
 
   useEffect(() => {
     const unsubs = [
-      on("trip:created", () => loadDashboard()),
-      on("trip:updated", () => loadDashboard()),
-      on("trip:assigned", () => loadDashboard()),
-      on("trip:accepted", () => loadDashboard()),
-      on("trip:cancelled", () => loadDashboard()),
-      on("driver:status_changed", () => loadDashboard()),
+      on("trip:created", (data: any) => {
+        if (data?.trip) {
+          setTrips(prev => [{ ...data.trip, priority: data.isImmediate ? "immediate" : "scheduled" }, ...prev]);
+        } else {
+          loadDashboard();
+        }
+      }),
+      on("trip:updated", (data: any) => {
+        if (data?.trip) {
+          setTrips(prev => prev.map(t => t.id === data.trip.id ? { ...t, ...data.trip } : t));
+        } else {
+          loadDashboard();
+        }
+      }),
+      on("trip:assigned", (data: any) => {
+        if (data?.trip) {
+          setTrips(prev => prev.map(t => t.id === data.trip.id ? { ...t, ...data.trip } : t));
+        } else {
+          loadDashboard();
+        }
+      }),
+      on("trip:accepted", (data: any) => {
+        if (data?.trip) {
+          setTrips(prev => prev.map(t => t.id === data.trip.id ? { ...t, ...data.trip } : t));
+        } else {
+          loadDashboard();
+        }
+      }),
+      on("trip:cancelled", (data: any) => {
+        if (data?.trip) {
+          setTrips(prev => prev.filter(t => t.id !== data.trip.id));
+        } else {
+          loadDashboard();
+        }
+      }),
+      on("driver:status_changed", (data: any) => {
+        if (data?.driverId) {
+          setDrivers(prev => prev.map(d =>
+            d.id === data.driverId ? { ...d, availability: data.availability } : d
+          ));
+        } else {
+          loadDashboard();
+        }
+      }),
       on("trip:urgent", (data: any) => {
         flash(data?.message || "Urgent trip request received!");
         setTab("urgent");
-        loadDashboard();
+        if (data?.trip) {
+          setTrips(prev => {
+            if (prev.some(t => t.id === data.trip.id)) return prev;
+            return [{ ...data.trip, priority: "immediate" }, ...prev];
+          });
+        } else {
+          loadDashboard();
+        }
       }),
       on("driver:location", (data: any) => {
         if (data?.driverId) {
@@ -73,7 +118,7 @@ export function DispatchDashboard() {
             d.id === data.driverId ? { ...d, latitude: data.latitude, longitude: data.longitude, lastLocationAt: data.timestamp } : d
           ));
         }
-        debouncedReload();
+        // No full reload — WS data is sufficient for location updates
       }),
     ];
     return () => { unsubs.forEach(u => u()); clearTimeout(debouncedReloadRef.current); };

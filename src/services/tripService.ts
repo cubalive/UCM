@@ -211,6 +211,18 @@ export async function updateTripStatus(
     details: { previousStatus: trip.status, newStatus },
   });
 
+  // Record driver earnings when trip completes
+  if (newStatus === "completed" && trip.driverId) {
+    try {
+      const { recordTripEarning } = await import("./driverEarningsService.js");
+      const mileage = Number(extra?.mileage || trip.mileage || 0);
+      const earning = Math.max(5, 5 + mileage * 1.5);
+      await recordTripEarning(trip.driverId, tenantId, tripId, Math.round(earning * 100) / 100);
+    } catch (err) {
+      logger.warn("Failed to record trip earning", { tripId, driverId: trip.driverId, error: (err as Error).message });
+    }
+  }
+
   // Auto-release driver when trip ends
   if ((newStatus === "completed" || newStatus === "cancelled") && trip.driverId) {
     try {

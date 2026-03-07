@@ -28,7 +28,7 @@ const AVAILABILITY_COLORS: Record<string, string> = {
   offline: "#9ca3af",
 };
 
-export function DispatchMap({ drivers }: Props) {
+export function DispatchMap({ drivers, trips }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());

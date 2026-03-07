@@ -93,7 +93,7 @@ export function DriverApp() {
     return () => { unsubs.forEach(u => u()); clearTimeout(popupTimeoutRef.current); };
   }, [on, loadTrips]);
 
-  // Location tracking
+  // Location tracking — adaptive interval: 5s during active trip, 15s when idle
   useEffect(() => {
     if (!navigator.geolocation) return;
     function sendLocation() {
@@ -101,16 +101,16 @@ export function DriverApp() {
         (pos) => {
           setDriverPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           driverApi.updateLocation(pos.coords.latitude, pos.coords.longitude, undefined, Math.round(pos.coords.speed || 0));
-          send("driver:location_update", { latitude: pos.coords.latitude, longitude: pos.coords.longitude });
         },
         () => {},
         { enableHighAccuracy: true, timeout: 10000 }
       );
     }
+    const interval = activeTrip && ["en_route", "arrived", "in_progress"].includes(activeTrip.status) ? 5000 : 15000;
     sendLocation();
-    locationInterval.current = window.setInterval(sendLocation, 15000);
+    locationInterval.current = window.setInterval(sendLocation, interval);
     return () => clearInterval(locationInterval.current);
-  }, [send]);
+  }, [send, activeTrip?.status]);
 
   function flash(msg: string) {
     setActionMsg(msg);
