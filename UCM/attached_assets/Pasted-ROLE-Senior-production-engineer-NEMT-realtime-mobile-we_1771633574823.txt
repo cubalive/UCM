@@ -1,0 +1,292 @@
+ROLE: Senior production engineer (NEMT, realtime, mobile + web)
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT rename existing env vars unless explicitly instructed
+- Extend existing system only
+- ZERO regressions: what already works must keep working
+- If unsure, add feature flags + keep current behavior as default
+
+GOAL (fix + harden, enterprise-grade):
+1) Driver App + Admin/Super Admin must be “clockwork”: deterministic trip workflow, correct navigation, correct shift/connection UX, correct company/city isolation, and publishes must reflect immediately after deploy.
+2) Add guardrails so future changes cannot break already-working features.
+
+========================================
+A) HOTFIX: “Go to Pickup” opens DROPOFF (bug)
+========================================
+Issue:
+- Driver app shows Pickup and Dropoff correctly in UI
+- Button “Go to Pickup” launches navigation to Dropoff address (wrong destination)
+
+Requirements:
+- Navigation destination must be derived ONLY from current trip phase:
+  - Before Arrived Pickup => navigate to PICKUP
+  - After Picked Up / Start Trip => navigate to DROPOFF
+- Never skip pickup automatically.
+- Add unit-level checks so this can’t regress.
+
+Tasks:
+A1) Locate navigation handler used by:
+   - Home “Active Trip” card button
+   - TripDetail modal button(s)
+   Confirm both call the same shared helper (single source of truth).
+
+A2) Implement/verify helper:
+   getTripPhase(trip) -> "PICKUP" | "DROPOFF" | "DONE"
+   getNavTarget(trip, phase) -> { lat,lng,address,label }
+
+A3) Fix the bug by ensuring:
+   - If label says “Go to Pickup”, the target is pickup fields (not dropoff)
+   - Use explicit variables (pickupLat/pickupLng/pickupAddress) and (dropoffLat/dropoffLng/dropoffAddress)
+   - Add a runtime assertion (dev only) that logs if label/target mismatch.
+
+A4) Add tests (or lightweight runtime checks if tests aren’t present):
+   - Given trip.status = SCHEDULED/ASSIGNED => nav target must be pickup
+   - Given trip.status = PICKED_UP/IN_PROGRESS => nav target must be dropoff
+
+Deliverable for A:
+- “Go to Pickup” always routes to pickup. “Go to Dropoff” always routes to dropoff. No exceptions.
+
+========================================
+B) Driver Trip Workflow: deterministic state machine (enterprise-grade)
+========================================
+Problem:
+- Buttons and phases keep changing, sometimes skipping steps.
+- Need strict transitions, one source of truth, no auto-jumps.
+
+Requirements:
+- Deterministic state machine with strict transitions.
+- UI buttons are a pure function of trip.state.
+- No automatic transitions (only user action OR explicit geofence rule that ONLY enables a button, not auto-completes).
+- Add documentation in repo: docs/driver-trip-workflow.md
+- Must keep existing statuses if already in DB, but create an internal mapping layer (do NOT break data).
+
+Define canonical phases (example; adapt to existing statuses):
+- SCHEDULED / ASSIGNED
+- EN_ROUTE_PICKUP
+- ARRIVED_PICKUP
+- PICKED_UP
+- EN_ROUTE_DROPOFF
+- ARRIVED_DROPOFF
+- COMPLETED
+- CANCELED (if supported)
+
+Tasks:
+B1) Create a single “TripStateEngine” module:
+   - derivePhaseFromStatus(trip)
+   - allowedActions(phase)
+   - nextStatus(action)
+   - guard(action, trip, driver) -> ok/error message
+
+B2) Driver UI must show correct action buttons based on allowedActions:
+   - “Go to Pickup”
+   - “Mark Arrived at Pickup”
+   - “Picked Up Patient”
+   - “Start Trip to Dropoff”
+   - “Mark Arrived at Dropoff”
+   - “Complete Trip”
+   Buttons must never appear out of order.
+
+B3) Geofence rule:
+   - Being within radius enables “Arrived …” button (or shows “You’re at pickup” suggestion)
+   - It must NOT auto-change the status.
+
+B4) Documentation:
+   - Table: status -> phase -> allowed buttons
+   - Transition diagram (text is fine)
+   - Smoke test checklist
+
+========================================
+C) Driver Shift UX: BOTH buttons must exist (Connected + Start Shift)
+========================================
+Problem:
+- Button got replaced/removed; need both concepts:
+  1) “Connected” (app connected / location tracking capability)
+  2) “Start Shift / Clock In” (driver is on-duty)
+
+Requirements:
+- Driver can be Connected but Off Shift.
+- Driver only appears on live map if:
+  - Connected AND On Shift AND has city/company match
+- Add “Start Shift” and “End Shift (Clock Out)”
+- Keep “Connected” status indicator.
+
+Tasks:
+C1) Implement two distinct states:
+   - connectionState: connected/disconnected (socket/location heartbeat)
+   - shiftState: on_shift/off_shift (explicit user action)
+C2) Ensure UI shows:
+   - Connected indicator always
+   - Start Shift button when off_shift
+   - End Shift + Break when on_shift
+C3) Ensure driver location publishing to backend requires:
+   - connected + on_shift
+   (Or keep backend accepting, but map queries only show if on_shift=true)
+
+========================================
+D) Live Map / Company Isolation: no mixing
+========================================
+Requirements:
+- Every driver must belong to one company_id.
+- Every vehicle belongs to one company_id and city_id.
+- Every trip belongs to company_id and city_id.
+- Admin/Company Admin views must be filtered by their company_id and selected city_id.
+- Super Admin can see all; but must be able to filter by company and city.
+
+Tasks:
+D1) Verify schema has company_id on:
+   drivers, vehicles, trips, patients, clinics (as applicable)
+   If missing, add columns safely + backfill using existing relations (do NOT break).
+D2) Add UI columns and filters:
+   - Driver list shows Company + City
+   - Vehicle list shows Company + City
+   - Trip list shows Company + City
+D3) Enforce server-side filtering (not just UI), using RLS or API guards.
+
+========================================
+E) Google Maps “Maps unavailable” + correct secrets
+========================================
+Observed:
+- Admin map says: “Google Maps API key is not configured or invalid”
+
+Requirements:
+- Frontend must read key from Vite env:
+  VITE_GOOGLE_MAPS_API_KEY
+- Backend (if needed) can use:
+  GOOGLE_MAPS_API_KEY
+- It is OK for both to be the same key.
+- Must work for:
+  app.unitedcaremobility.com (admin)
+  driver.unitedcaremobility.com (driver)
+  any staging domains if used
+
+Tasks:
+E1) Audit code: search for all env usages:
+   - VITE_GOOGLE_MAPS_API_KEY
+   - GOOGLE_MAPS_API_KEY
+   Ensure the one used in browser is VITE_*.
+E2) Add a boot-time warning banner (dev only) that prints:
+   “Maps key missing” if the env is undefined.
+E3) Confirm Google Cloud Console restrictions:
+   - HTTP referrers include both production domains:
+     https://app.unitedcaremobility.com/*
+     https://driver.unitedcaremobility.com/*
+     (plus any Replit preview domains if required)
+   - Enabled APIs: Maps JavaScript API, Places API (if autocomplete), Directions API (if used)
+E4) Ensure build actually receives env during deploy:
+   - Replit Deploy uses environment variables at build time; verify they are set in Deploy Secrets/Env for that deployment.
+
+Deliverable for E:
+- Maps loads reliably for admin + driver.
+
+========================================
+F) Navigation provider chooser: Google Maps / Apple Maps / Waze + remember choice
+========================================
+Requirements:
+- When driver taps Navigate, show chooser with:
+  - Google Maps
+  - Apple Maps (iOS) / default maps (Android)
+  - Waze
+- Remember selection for future trips:
+  - Persist in driver profile (DB) AND localStorage fallback
+- Always use correct destination from section A.
+
+Tasks:
+F1) Implement a navigation service:
+   openNavigation(provider, destination)
+F2) Add settings toggle: Preferred Navigation App
+F3) If provider not installed, fallback gracefully.
+
+========================================
+G) Trip deletion (safe, auditable)
+========================================
+Requirements:
+- Need a way to “remove a trip” when necessary without breaking compliance:
+  - Default: soft-delete/archive (recommended)
+  - Hard delete: Super Admin only, behind confirm + audit log
+
+Tasks:
+G1) Add trip status “CANCELED” + “ARCHIVED” (or soft_deleted boolean + deleted_at)
+G2) UI:
+   - Company Admin can cancel/archive
+   - Super Admin can hard delete
+G3) Add audit log entry for cancel/archive/delete
+
+========================================
+H) Publish must reflect immediately (no stale)
+========================================
+Problem:
+- Changes sometimes don’t show after publish.
+
+Requirements:
+- After publish, app must run latest version always.
+- Keep your existing PWA update strategy, plus:
+  - version.json visible
+  - update banner + force refresh
+  - no-cache headers for HTML + service worker + version.json
+
+Tasks:
+H1) Confirm cache headers are applied in production for:
+   - /
+   - /index.html
+   - /service-worker.js
+   - /manifest.webmanifest
+   - /version.json
+H2) Ensure SW strategy:
+   - HTML: network-first (online), offline fallback page only
+   - Assets: cache-first with versioning
+H3) Add “Force Refresh” in Settings (already mentioned) and ensure it:
+   - unregister SW
+   - clear caches
+   - reload
+H4) Display current version (from version.json) in Settings.
+
+========================================
+I) Replit deploy log errors you showed
+========================================
+1) “failed to send deployment lifecycle client command: CONNECTION_CLOSED”
+- Treat as deploy UI/control-plane connection drop, not app runtime bug.
+- Add a retry and verify deploy status:
+  - Check Deployments → latest is “Healthy/Running”
+  - Open the public URL and /version.json to confirm it’s updated
+
+2) “Twilio client not configured”
+- Not a deploy blocker unless SMS is required.
+- Add feature flag:
+  - If TWILIO_* env missing => disable SMS sending and log once (not spam)
+- If you want SMS active: require secrets:
+  TWILIO_ACCOUNT_SID
+  TWILIO_AUTH_TOKEN
+  TWILIO_FROM_NUMBER
+
+========================================
+J) Final acceptance tests (MUST PASS)
+========================================
+J1) Driver app:
+- Connected indicator shows
+- Start Shift appears when off-shift
+- After Start Shift: driver appears on Admin live map within 30s
+J2) Trip flow:
+- Assigned trip shows “Go to Pickup”
+- Navigate goes to PICKUP
+- After Arrived Pickup → button changes correctly
+- After Picked Up → “Start Trip to Dropoff”
+- Navigate goes to DROPOFF
+J3) Admin:
+- Company admin sees ONLY their company drivers/vehicles/trips
+- Super admin can filter by company and city
+J4) Maps:
+- No “Maps unavailable” in admin
+J5) Publish/update:
+- After publish, /version.json changes and UI reflects it without manual cache hacks
+
+DELIVERABLES REQUIRED:
+- PR-style summary of changes
+- docs/driver-trip-workflow.md
+- Evidence of tests run (screenshots or console logs ok)
+- No regressions
+
+Start by implementing sections A, C, E (these are blocking live ops), then B, F, D, G, H.

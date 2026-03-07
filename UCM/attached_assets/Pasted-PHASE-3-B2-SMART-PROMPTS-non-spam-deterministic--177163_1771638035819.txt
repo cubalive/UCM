@@ -1,0 +1,118 @@
+PHASE 3 — B2 SMART PROMPTS (non-spam, deterministic)
+================================================================================
+3.1 Create smartPrompts engine:
+Inputs:
+- now, trip.status, scheduled_pickup_at, pickup coords, driver latest coords, ETA
+Rules (configurable):
+- LEAVE_NOW: if pickup in <= 25min and driver not en_route yet, once per trip
+- ARRIVE_NOW: if within geofence 150m and still not marked arrived, once per trip
+- LATE_RISK: if ETA exceeds (scheduled + grace), cooldown 10min
+Anti-spam:
+- store fired prompts per trip in local storage or driver_settings cache
+- never repeat same prompt in same phase
+
+3.2 UI:
+- Banner/toast with action buttons:
+  - “Navigate to pickup”
+  - “Mark arrived”
+  - “Snooze”
+- Critical prompts trigger sound/haptic when enabled.
+
+================================================================================
+PHASE 4 — B1 DRIVER PERFORMANCE (Turn Score + KPIs)
+================================================================================
+4.1 Choose approach:
+- v1 computed (no DB table) OR v2 persisted.
+Preferred: v1 computed + optional persistence.
+Compute per active shift:
+KPIs:
+- onTimeRate (arrived_pickup <= scheduled + grace)
+- lateCount
+- acceptanceRate (if offer pipeline exists; else derived from assignments + driver acknowledgement)
+- idleMinutes (onShift time - activeTrip time)
+- cancelCount (driver-initiated if exists)
+- complianceRate (location freshness while on shift)
+
+4.2 Score 0–100:
+Default weights:
+- punctuality 45
+- acceptance 20
+- idle 15
+- cancellations 10
+- compliance 10
+Make weights configurable per company.
+
+4.3 Endpoints:
+- GET /api/driver/performance/current-shift
+- GET /api/driver/performance/shifts?limit=20 (optional)
+- GET /api/driver/performance/summary?range=week (optional)
+All must be RLS-safe: driver sees only own.
+
+4.4 UI:
+Add “Performance” screen:
+- Turn Score big number + grade badge
+- KPI list with deltas
+- “This week” mini summary (optional)
+
+================================================================================
+PHASE 5 — C2 SOUNDS + HAPTICS (premium UX)
+================================================================================
+5.1 Add NotificationManager:
+Events:
+- NEW_TRIP_ASSIGNED
+- TRIP_STATUS_CHANGED (from dispatch/server)
+- MESSAGE_RECEIVED
+- SMART_PROMPT_CRITICAL
+- SHIFT_STARTED/ENDED (optional subtle)
+Audio rules:
+- User gesture enable once (Settings “Enable sounds”)
+- If blocked, fall back to vibration/haptics only
+Haptics:
+- light for normal
+- heavy for urgent
+
+5.2 Trigger sources:
+- websocket events if present
+- else polling diff:
+  - compare previous trips snapshot to current to detect new assignment/status change
+
+5.3 Persist settings:
+driver_settings.soundsOn, hapticsOn.
+
+================================================================================
+POSTMAN + DOCS + TESTS (required)
+================================================================================
+A) Add Postman folder "60 - Driver v3 (Performance/Prompts/Outbox)":
+- GET performance endpoints
+- (optional) POST location/batch
+- basic tests for JSON shape
+
+B) Docs:
+- docs/driver-performance.md (KPIs + score formula + config)
+- docs/smart-prompts.md (rules + anti-spam)
+- docs/offline-outbox.md (ordering + retry + failure handling)
+- docs/sounds-haptics.md (events + settings + platform notes)
+
+C) Minimal automated checks:
+- Unit tests for:
+  - scoring calculation
+  - prompts firing rules
+  - outbox ordering enforcement for status events
+
+================================================================================
+FINAL CHECKLIST (must run + report results)
+================================================================================
+1) Trip workflow still works (pickup->dropoff buttons correct)
+2) Go to Pickup routes to pickup (never dropoff)
+3) Offline mode:
+   - airplane mode -> status action queued -> reconnect -> flush works
+4) Performance screen loads without errors
+5) Prompts appear once, not spammy
+6) Sounds/haptics toggle works; no autoplay errors
+7) PWA publish still updates correctly; /api/version increments
+8) No console errors in driver app
+OUTPUT:
+- Files changed
+- Endpoints added/confirmed
+- How to toggle flags
+- Postman files path + how to ru

@@ -1,0 +1,267 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Do NOT drop/recreate tables
+- Extend existing system only
+- Verify before exit with real UI walkthrough + API smoke tests
+
+SITUATION:
+We changed chats and some prompts were wrong. The app now has inconsistencies and some functions may be incorrect or partially working.
+We must do a full, exhaustive audit of the entire product and fix/complete every core flow so the system runs “like a Swiss clock”.
+
+CORE PRINCIPLE:
+Every workflow must support BOTH:
+A) Manual operation (dispatcher/admin can do everything manually)
+B) Intelligent automation (default/priority) so humans intervene only when needed
+Manual is always available, automation is always prioritized and safe.
+
+ABSOLUTE REQUIREMENTS:
+- Multi-company/tenant correctness: every record must belong to a company (tenant) and be isolated
+- Clinic data, patients, trips, drivers, vehicles MUST be scoped to their company
+- Vehicles must be clearly tied to a company to avoid collisions/conditions
+- If anything is missing, add it (migrations only; no resets)
+- If any feature is incorrect, fix it
+- At the end: deliver a written report of what was checked, what was changed, and evidence of verification
+
+========================================================
+PHASE 0 — INVENTORY + SYSTEM MAP (NO CHANGES YET)
+========================================================
+0.1) Identify the tenant model used in code + DB:
+- Is it company_id / tenant_id / organization_id / clinic_id?
+- Decide and standardize on ONE top-level tenant key (prefer: company_id).
+- Document all tables and their tenant fields.
+
+0.2) List ALL core flows to audit end-to-end:
+- Create Company (tenant)
+- Create Clinic (optional separate entity) + create clinic user login
+- Create Patient (with address autocomplete + lat/lng)
+- Create Driver (with login + schedule + on-hold)
+- Create Vehicle (must belong to company; assigned to driver optional)
+- Create Trip (manual + auto schedule)
+- Assign Trip (manual dispatcher + auto assignment)
+- Driver app workflow (status, geofence, proof)
+- Clinic portal (live ops health, trip status, messaging)
+- Billing (private rides via Stripe + clinic billing/invoicing)
+- Reporting/Ops Health (KPIs, no-shows, lateness, idle miles)
+
+0.3) Add a temporary “Audit Mode” logger (server only):
+- requestId, userId, role, tenant/companyId
+- endpoint, payload validation errors, stack traces
+- never log secrets/PHI in plaintext
+
+========================================================
+PHASE 1 — TENANT ISOLATION (THE #1 ROOT CAUSE CLASS)
+========================================================
+1.1) DB checks (no destructive ops):
+For each relevant table (patients, trips, drivers, vehicles, clinics, invoices, schedules, messages, gps_pings):
+- Confirm it has company_id (or chosen tenant key).
+If missing: add via ALTER TABLE + index.
+
+1.2) Backfill strategy (safe):
+- For existing rows, infer company_id from clinic_id or created_by user’s company.
+- If ambiguous, mark as “needs_review” and expose an admin fix UI.
+
+1.3) Enforce RLS / query scoping:
+- Every backend query must filter by company_id unless role is super_admin.
+- Never rely on frontend filtering.
+- Add unit helper: requireCompanyScope(req) that returns company_id and applies it.
+
+1.4) Vehicle/company correctness:
+- vehicles.company_id REQUIRED
+- driver.company_id REQUIRED
+- trip.company_id REQUIRED
+- patient.company_id REQUIRED
+- Prevent assigning a vehicle/driver from a different company to a trip.
+
+========================================================
+PHASE 2 — VALIDATION + CONSISTENT DATA CONTRACTS
+========================================================
+2.1) Create a single shared validation layer (backend):
+- zod/joi schema per endpoint (createCompany, createPatient, createDriver, createVehicle, createTrip).
+- Standard error JSON: { ok:false, code, error, fields?, requestId }
+
+2.2) Stop silent failures in UI:
+- All forms must show field errors + toast with requestId.
+- Add “Copy error details” button for admin/dispatch.
+
+========================================================
+PHASE 3 — ADDRESS + GOOGLE APIs (AUTOCOMPLETE EVERYWHERE)
+========================================================
+3.1) One AddressAutocomplete component used for ALL address inputs:
+- patient address
+- pickup/dropoff addresses
+- clinic address (if used)
+It must output: formatted_address, place_id, lat, lng.
+
+3.2) Backend geocode endpoint:
+POST /api/geocode { address } -> { formatted_address, lat, lng, place_id }
+Use server GOOGLE_MAPS_API_KEY.
+Rate limit basic. Never return HTML.
+
+3.3) Storage rules:
+- Always store formatted_address + lat/lng.
+- Trip cannot be created without lat/lng for pickup & dropoff.
+
+========================================================
+PHASE 4 — CORE CRUD FLOWS (MANUAL FIRST, AUTOMATION ON TOP)
+========================================================
+For EACH entity below, verify create/edit/list/detail/delete (as allowed) works,
+scoped to company_id, and appears correctly in UI.
+
+4.1) Company
+- super_admin creates company
+- company has settings: timezone, service_radius_meters, default pricing, auto-assign toggles
+
+4.2) Clinic (if separate from company)
+- company admin/dispatch creates clinic under company
+- create clinic_user account (email + temp password + force reset)
+
+4.3) Patient
+- create patient under company (and clinic if relevant)
+- address autocomplete works
+- appears in lists for that company only
+
+4.4) Driver
+- create driver under company with login
+- schedule + on-hold works
+- driver sees ONLY their company data
+
+4.5) Vehicle
+- create vehicle under company
+- requires: type (sedan/wheelchair etc), plate, color, capacity, wheelchair_flag
+- optional: assign vehicle to driver
+- enforce company match for driver assignment
+
+4.6) Trip
+Manual creation MUST work:
+- pick patient
+- pickup/dropoff addresses (lat/lng)
+- pickup time required
+- round-trip logic if supported
+- trip detail page loads
+
+Automation (priority) must exist BUT manual override always available:
+- Auto-schedule for recurrent patients
+- Auto-assign driver based on schedule + proximity + vehicle capability
+- Dispatcher can override assignment and times
+
+========================================================
+PHASE 5 — GEOFENCE + STATUS STATE MACHINE (SERVER ENFORCED)
+========================================================
+5.1) Implement server-side status transition rules:
+scheduled -> en_route_pickup -> arrived_pickup -> picked_up -> en_route_dropoff -> arrived_dropoff -> completed
+Reject invalid transitions.
+
+5.2) Geofence validation:
+- arrived_pickup requires driver within X meters of pickup lat/lng
+- arrived_dropoff requires within X meters of dropoff lat/lng
+- allow dispatch override with reason (audited)
+
+5.3) GPS pings:
+- store driver location pings with company_id, driver_id, trip_id (optional), timestamp
+- protect endpoints to driver role only
+
+========================================================
+PHASE 6 — OPS HEALTH (AUTOMATION LAYER) + MANUAL FALLBACK
+========================================================
+6.1) Define Ops Health KPIs per clinic/company:
+- inbound/outbound counts
+- late trips
+- no-shows
+- average wait time
+- driver idle time/miles
+- completion rate
+
+6.2) Ensure every Ops Health number comes from reliable data:
+- timestamps (scheduled vs actual)
+- status transitions
+- gps pings
+
+6.3) Notifications:
+- patient reminders 24h and 3 min (if enabled)
+- clinic alerts for late/no-show
+- dispatch queue alerts
+
+All notifications must have a manual alternative:
+- dispatcher can trigger reminder manually
+- dispatcher can message clinic/patient manually
+
+========================================================
+PHASE 7 — BILLING (SAFE + CONSISTENT)
+========================================================
+7.1) Private rides:
+- quote endpoint
+- Stripe checkout
+- webhook confirm
+- trip created after payment
+- invoice stored with company_id
+
+7.2) Clinic billing:
+- weekly invoice per clinic, grouped by patient and trip details
+- export PDF/CSV
+- pricing per clinic/company contract
+
+========================================================
+PHASE 8 — SECURITY + PERMISSIONS
+========================================================
+8.1) Server-side RBAC for every endpoint:
+super_admin / dispatch / company_admin / clinic_user / driver
+
+8.2) Data isolation tests:
+- clinic_user cannot see other clinic/company
+- driver cannot see other driver/company
+- dispatch cannot access other company unless allowed by super_admin
+
+8.3) Audit log (minimum viable):
+- who created/edited/deleted: company, clinic, patient, driver, vehicle, trip, invoice
+- includes requestId + timestamp + actor role + company_id
+
+========================================================
+PHASE 9 — VERIFICATION (MANDATORY BEFORE EXIT)
+========================================================
+9.1) Manual UI walkthrough (record steps in report):
+- Create company -> create clinic -> create clinic_user
+- Create driver -> create vehicle -> assign vehicle to driver
+- Create patient -> create trip -> assign driver
+- Driver updates statuses with geofence checks
+- Clinic portal sees live ops + chat + trip details
+- Generate weekly invoice
+- Confirm all views are scoped to the correct company
+
+9.2) Automated smoke test script (must run without DB reset):
+- Create patient
+- Create trip
+- Assign driver/vehicle
+- Post GPS ping inside radius
+- Move trip through statuses
+- Generate invoice
+Save output for report.
+
+========================================================
+FINAL DELIVERABLES
+========================================================
+A) “SYSTEM AUDIT REPORT” (required):
+- tables audited + tenant fields
+- endpoints audited + fixes
+- UI screens audited + fixes
+- list of inconsistencies found + root causes
+- migrations applied (ALTER statements)
+- security changes
+- test evidence (screenshots/log excerpts)
+
+B) “RUNBOOK” (1 page):
+- how to operate manually
+- what automations exist and how to override
+- how to debug common failures
+
+START NOW:
+1) Build the system map and run PHASE 0 inventory.
+2) Fix tenant isolation first.
+3) Then fix CRUD flows + address + trip creation.
+4) Then geofence, ops health, billing.
+5) Verify everything before exit.

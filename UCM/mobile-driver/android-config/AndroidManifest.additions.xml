@@ -1,0 +1,38 @@
+<!--
+  Add these permissions to android/app/src/main/AndroidManifest.xml
+  after running `npx cap add android`.
+
+  Place inside the <manifest> tag, BEFORE the <application> tag.
+-->
+
+<!-- Location Permissions -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+<!-- Foreground Service (required for background location on Android 8+) -->
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+<!-- Wake Lock for reliable background updates -->
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+
+<!-- Push Notifications (Firebase Cloud Messaging) -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+<!-- Request ignore battery optimizations (shown as a toggle in the app) -->
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+<!--
+  Inside the <application> tag, add the foreground service declaration:
+
+  <service
+    android:name="com.equimaps.capacitor_background_geolocation.BackgroundGeolocationService"
+    android:foregroundServiceType="location"
+    android:exported="false" />
+
+  BATTERY OPTIMIZATION NOTE:
+  Many OEMs (Samsung, Xiaomi, Huawei) aggressively kill background apps.
+  The app includes a UI prompt to guide drivers to disable battery optimization.
+  For OEM-specific guidance see: https://dontkillmyapp.com/
+-->

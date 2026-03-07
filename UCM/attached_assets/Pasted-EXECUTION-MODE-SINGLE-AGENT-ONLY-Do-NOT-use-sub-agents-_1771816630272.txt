@@ -1,0 +1,62 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+Do NOT use sub-agents. Do NOT do parallel work.
+Goal: Ensure the orchestrator actually starts at runtime and is observable. Minimal changes only. No DB schema changes. No data deletion. No refactors.
+
+Context:
+We already created server/orchestrator/index.ts with startOrchestrator(). The issue: it is NOT being started from server/index.ts and logs do not show "orchestrator_started".
+
+Tasks (do in order):
+
+1) Wire orchestrator startup
+- Open server/index.ts (the main entrypoint used by npm run dev / prod).
+- Import startOrchestrator from "./orchestrator".
+- After the HTTP server is created and listening (or immediately after app bootstrap, whichever is already used), call startOrchestrator() inside a safe async fire-and-forget block:
+  - It must not crash the server if orchestrator fails.
+  - It must log a clear message if it fails.
+  - It must log a clear message before/after attempt.
+
+Example pattern:
+  (async () => {
+    try {
+      console.log("[BOOT] Starting orchestrator...");
+      await startOrchestrator();
+      console.log("[BOOT] Orchestrator start attempted.");
+    } catch (e) {
+      console.warn("[BOOT] Orchestrator failed to start:", (e as any)?.message || e);
+    }
+  })();
+
+2) Add a diagnostic endpoint (read-only)
+- In server/routes/systemStatus.controller.ts OR wherever system status endpoints exist (use existing pattern), add:
+  GET /api/system/eventbus
+  Response JSON must include:
+    {
+      enabled: boolean,            // from isEventBusEnabled()
+      reason: string,             // "enabled" or "UCM_AGENTIC_ROUTES!=1" or "Redis unavailable"
+      env: { UCM_AGENTIC_ROUTES: string | null, hasRedisUrl: boolean, hasRedisToken: boolean },
+      orchestrator: { consumerName?: string, pollMs?: number }
+    }
+- Import isEventBusEnabled from server/lib/eventBus.
+- For env, check UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN presence (boolean only; do NOT leak values).
+
+3) Ensure the orchestrator module exports light runtime info (optional but preferred)
+- In server/orchestrator/index.ts export:
+  export const ORCHESTRATOR_INFO = { consumer: CONSUMER_NAME, pollMs: POLL_INTERVAL_MS, batchSize: BATCH_SIZE };
+- Use this in the /api/system/eventbus response.
+
+4) Confirm startup logs
+- After code changes, restart dev server.
+- Confirm logs show either:
+  - JSON with event "orchestrator_started" (from orchestrator), OR
+  - "[ORCHESTRATOR] Event bus disabled ..." with the reason.
+- If disabled, print in logs exactly which condition failed (UCM_AGENTIC_ROUTES or Redis).
+
+Constraints:
+- Do not change existing API behavior except adding the new GET endpoint.
+- Do not rename files.
+- Keep changes minimal and localized.
+- If server/index.ts already uses an httpServer.listen callback, place the orchestrator start inside that callback.
+
+Deliverable:
+- Provide a short summary of files changed and exact lines added.
+- Provide the curl command to test: curl -s https://app.unitedcaremobility.com/api/system/eventbus

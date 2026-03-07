@@ -1,0 +1,254 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Make driver subdomain sessions + ETA + geofence + automated patient SMS links work reliably:
+1) Driver app runs on https://driver.unitedcaremobility.com
+2) Admin/Dispatch app runs on https://app.unitedcaremobility.com
+3) Both share the same backend and enforce role scoping
+4) ETA + geofence milestones are server-driven on location updates
+5) Patient receives an SMS tracking link:
+   - T-24h for scheduled trips
+   - Immediately when driver ACCEPTS the trip
+   - When driver is EN_ROUTE_TO_PICKUP (includes ETA)
+6) All SMS respects opt-out (STOP/START) and never crashes if Twilio is not active
+
+------------------------------------------------------------
+A) ENV / SECRETS (Replit Secrets)
+------------------------------------------------------------
+Required:
+- GOOGLE_MAPS_SERVER_KEY
+- GOOGLE_MAPS_BROWSER_KEY
+- SUPABASE_URL
+- SUPABASE_SERVICE_ROLE_KEY
+- PUBLIC_BASE_URL_APP=https://app.unitedcaremobility.com
+- PUBLIC_BASE_URL_DRIVER=https://driver.unitedcaremobility.com
+- PUBLIC_BASE_URL_API=<your replit backend public base url>
+- ALLOWED_ORIGIN_1=https://app.unitedcaremobility.com
+- ALLOWED_ORIGIN_2=https://driver.unitedcaremobility.com
+
+Twilio (if enabled):
+- TWILIO_ACCOUNT_SID
+- TWILIO_AUTH_TOKEN
+- TWILIO_FROM_NUMBER
+- DISPATCH_PHONE_NUMBER
+
+Feature flags:
+- GEOFENCE_ENABLED=true
+- ETA_REFRESH_SECONDS=20
+- LOCATION_STALE_SECONDS=180
+- GEOFENCE_PICKUP_RADIUS_METERS=120
+- GEOFENCE_DROPOFF_RADIUS_METERS=160
+
+SMS automation:
+- SMS_REMINDER_ENABLED=true
+- SMS_T24_WINDOW_MINUTES=20          (send if pickup is ~24h away ± window)
+- SMS_SCHEDULER_INTERVAL_SECONDS=60  (runner cadence)
+- PATIENT_LINK_TTL_HOURS=72
+
+------------------------------------------------------------
+B) MULTI-SUBDOMAIN AUTH + CORS (NO LOGIN BREAKS)
+------------------------------------------------------------
+1) CORS allowlist:
+- Allow only ALLOWED_ORIGIN_1 and ALLOWED_ORIGIN_2
+- Allow credentials if you use cookies; otherwise bearer token is fine
+- Methods: GET, POST, PUT, PATCH, OPTIONS
+- Headers: Content-Type, Authorization
+
+2) Supabase Auth redirect URLs:
+Ensure Supabase Auth settings include BOTH:
+- https://app.unitedcaremobility.com/**
+- https://driver.unitedcaremobility.com/**
+(Do not remove production URLs you use.)
+
+3) If your auth uses cookies:
+Set cookie domain to .unitedcaremobility.com so session can work across subdomains.
+If using bearer tokens only, ensure both frontends store and send token correctly.
+
+4) Add a backend health endpoint:
+GET /api/auth/health
+Return { ok:true, allowedOrigins:[...], appBaseUrl, driverBaseUrl }
+
+------------------------------------------------------------
+C) DATA MODEL: PUBLIC PATIENT TRACKING LINKS
+------------------------------------------------------------
+Create table: trip_public_links
+- id uuid pk default gen_random_uuid()
+- created_at timestamptz default now()
+- trip_id uuid not null unique
+- patient_id uuid not null
+- token text not null unique             -- 32+ chars url-safe
+- expires_at timestamptz not null
+- last_sent_at timestamptz null
+- sent_count int not null default 0
+- is_active boolean not null default true
+
+Index:
+- (token)
+- (expires_at)
+
+Notes:
+- Token must be generated server-side (crypto random), never guessable.
+
+------------------------------------------------------------
+D) PUBLIC PATIENT TRACKING API (NO AUTH, MINIMAL DATA)
+------------------------------------------------------------
+Implement:
+GET /public/trips/:token
+Return only safe fields:
+{
+  ok:true,
+  trip: {
+    id,
+    status,
+    scheduled_pickup_at,
+    pickup_address_short,
+    dropoff_address_short,
+    eta_to_pickup_minutes,
+    driver: { first_name, vehicle_label, vehicle_color },
+    driver_location: { lat, lng, updated_at } (only when trip is active),
+  }
+}
+Rules:
+- Validate token exists, is_active=true, not expired
+- Only show driver location when status in:
+  ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_AT_PICKUP, PICKED_UP, EN_ROUTE_TO_DROPOFF
+- If finalized (COMPLETED/NO_SHOW/CANCELLED), return status but no live tracking
+
+Add:
+GET /public/health -> { ok:true }
+
+Frontends:
+- Patient link can point to app domain (recommended):
+  https://app.unitedcaremobility.com/t/:token
+This route renders a simple tracking page (no login).
+
+------------------------------------------------------------
+E) DRIVER ACCEPT FLOW + AUTO SMS LINK
+------------------------------------------------------------
+1) Define "ACCEPT" action explicitly:
+POST /api/trips/:id/accept
+Auth: DRIVER
+Rules:
+- Trip must be ASSIGNED to this driver
+- Transition:
+  ASSIGNED -> EN_ROUTE_TO_PICKUP
+- Log event: STATUS_CHANGE source=DRIVER_ACCEPT
+
+2) On successful accept:
+- Ensure a trip_public_links record exists:
+  - if not, create token + expires_at = now + PATIENT_LINK_TTL_HOURS
+- Send SMS to patient with tracking link (if phone valid + not opted out):
+Message template:
+"Your ride is confirmed. Track your driver here: {link}. Reply STOP to opt out."
+
+3) If Twilio is not configured:
+- Do NOT fail accept.
+- Log warning and return { smsSent:false, reason:"twilio_not_configured" }
+
+------------------------------------------------------------
+F) T-24H AUTOMATED REMINDER (SCHEDULER)
+------------------------------------------------------------
+1) Add a server-side scheduler loop (safe, idempotent):
+- Runs every SMS_SCHEDULER_INTERVAL_SECONDS
+- Finds trips scheduled ~24h from now:
+  pickup between (now + 24h - window) and (now + 24h + window)
+- Only for trips that are not finalized and have patient phone
+- Send once:
+  - Use trip_public_links.last_sent_at and/or a dedicated reminder log
+
+2) Create table: sms_delivery_log (recommended)
+- id uuid pk
+- created_at timestamptz default now()
+- trip_id uuid
+- phone text
+- type text   -- T24_REMINDER|ACCEPT_LINK|EN_ROUTE|ARRIVED
+- status text -- SENT|SKIPPED|FAILED
+- provider_id text null (twilio sid)
+- error text null
+
+Unique guard:
+- (trip_id, type) unique to prevent duplicates
+
+T-24 message template:
+"Reminder: your ride is scheduled for {pickup_time}. Track here: {link}. Reply STOP to opt out."
+
+------------------------------------------------------------
+G) EN-ROUTE SMS (WITH ETA) + GEOFENCE EVENTS
+------------------------------------------------------------
+1) ETA calculation:
+On each driver location update (rate-limited):
+- If trip active:
+  - compute ETA via Directions driver->pickup
+  - store eta_to_pickup_minutes
+
+2) When trip transitions into EN_ROUTE_TO_PICKUP (either via accept or manual):
+Send SMS:
+"Driver is on the way. ETA: {eta} min. Track: {link}. Reply STOP to opt out."
+
+3) Geofence:
+When driver enters pickup radius:
+- Auto transition:
+  EN_ROUTE_TO_PICKUP -> ARRIVED_AT_PICKUP
+- Send SMS:
+"Driver has arrived. Track: {link}. Reply STOP to opt out."
+(Only if not already sent ARRIVED for this trip; use sms_delivery_log unique.)
+
+All SMS checks:
+- Patient phone must be E.164
+- sms_opt_out must be false
+- Trip must not be locked/finalized
+
+------------------------------------------------------------
+H) DISPATCH MENU ORDER + TRIP LIST STABILITY
+------------------------------------------------------------
+In Dispatch UI ensure this order:
+1) Command Center
+2) Trips
+   - Unassigned
+   - Assigned
+   - Active
+   - Completed (read-only)
+   - All
+3) Drivers (GPS + presence)
+4) Vehicles
+5) Clinics
+6) Billing/Invoices
+7) Ops/Alerts
+8) Settings (city selection)
+
+Trips tabs must be driven by status filters (server-side).
+Ensure clinic-created approved trips appear in Unassigned/Assigned/Active as appropriate.
+
+------------------------------------------------------------
+I) VERIFICATION (MUST DO)
+------------------------------------------------------------
+1) Confirm both origins can login: app + driver subdomain
+2) Create a trip for tomorrow (T-24 window):
+- Scheduler sends T-24 SMS once (check sms_delivery_log)
+3) Assign driver, then driver ACCEPTs:
+- status -> EN_ROUTE_TO_PICKUP
+- accept triggers SMS link once
+4) Simulate location updates near pickup:
+- ETA updates
+- geofence triggers ARRIVED_AT_PICKUP
+- ARRIVED SMS sends once
+5) Open patient tracking link:
+- shows driver marker only while trip active
+- hides location when trip finalized
+6) Ensure Twilio misconfig never breaks trip lifecycle
+
+Return:
+- SQL migrations used
+- Endpoints added/modified
+- Files changed list
+- Curl examples for accept + location update + public link
+
+END.

@@ -1,0 +1,50 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT delete production data
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Recover the codebase to the last known-good state (yesterday ~9pm) AFTER a prompt deleted ~3000 lines and broke parts of the app (metrics and role access issues). We must NOT touch DB data.
+
+IMPORTANT:
+User mentioned a reference "database number eb8a653a" but we must NOT assume it’s a DB rollback key. Use it only if it matches a known checkpoint/commit/deployment id in this repo or Replit history.
+
+STEPS (MUST DO IN ORDER):
+1) Identify what "eb8a653a" is:
+   - Search repository git history for commit hash prefix eb8a653a
+   - Search Replit deployments/checkpoints history for matching id
+   - Search logs/notes for that id
+   - If not found, treat it as non-actionable.
+
+2) Find the last good state:
+   - Check Git history: locate last commit before the massive deletion
+   - Check Replit "Checkpoints" (if enabled): find checkpoint around yesterday 9pm
+   - Compare diff size and confirm metrics + login were working then.
+
+3) Restore ONLY code:
+   - If git commit exists: create a new branch OR revert commit(s) to restore files (do NOT force-push if shared)
+   - If Replit checkpoint exists: restore to that checkpoint
+   - If no history exists: reconstruct critical removed files by comparing with build artifacts/logs and re-adding missing routes/components.
+
+4) Verify with commands:
+   - npm run check
+   - npm run build
+   - npm run dev (server starts and /api/healthz returns ok)
+
+5) Verify core flows quickly:
+   - SUPER_ADMIN login works
+   - /metrics route loads (even if empty, must not 404/blank)
+   - New company login no longer hard-blocked by missing role/tenant mapping (can be fixed fully in next task)
+
+DELIVERABLES:
+- What eb8a653a matched (commit/checkpoint/deploy) or "not found"
+- Exactly what was restored (files + line ranges)
+- Command outputs summary (check/build/dev)
+STOP after restore + verification. Do NOT implement new features.

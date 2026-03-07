@@ -1,0 +1,194 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility dispatch system
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel agents
+- Do NOT reset database
+- Do NOT recreate existing tables
+- Extend current system only
+- Verify before exit
+
+OBJECTIVE
+Implement full driver/vehicle assignment logic and automatic dispatch linking.
+
+We already have:
+- cities
+- profiles (roles)
+- vehicles
+- drivers
+- trips
+- live map
+- Google Maps ETA
+
+Now we need:
+A real dispatch engine.
+
+---------------------------------------------------
+PHASE 1 — DRIVER ↔ VEHICLE LINK (REQUIRED)
+---------------------------------------------------
+
+Ensure:
+
+drivers.vehicle_id exists  
+vehicles.city_id exists  
+drivers.city_id exists  
+
+Rules:
+- A driver can only use ONE vehicle at a time
+- A vehicle can only be assigned to ONE driver at a time
+- Driver + vehicle must belong to same city
+
+Create endpoint:
+
+POST /api/dispatch/assign-driver-vehicle
+
+Body:
+{
+  driver_id,
+  vehicle_id
+}
+
+Logic:
+- verify both exist
+- verify same city
+- verify vehicle not in use by another active driver
+- update driver.vehicle_id
+- return updated driver + vehicle
+
+---------------------------------------------------
+PHASE 2 — TRIP ASSIGNMENT ENGINE
+---------------------------------------------------
+
+Create endpoint:
+
+POST /api/dispatch/assign-trip
+
+Body:
+{
+  trip_id,
+  driver_id
+}
+
+Logic:
+1) verify trip exists
+2) verify driver exists and active
+3) driver must have vehicle assigned
+4) trip.city_id must match driver.city_id
+5) assign:
+
+trip.assigned_driver_id
+trip.assigned_vehicle_id
+trip.status = 'assigned'
+
+6) immediately calculate ETA using Google Directions
+7) store:
+eta_minutes
+distance_miles
+duration_minutes
+
+Return full trip object.
+
+---------------------------------------------------
+PHASE 3 — AUTO DISPATCH (SMART MATCH)
+---------------------------------------------------
+
+Create endpoint:
+
+POST /api/dispatch/auto-assign
+
+Body:
+{
+  city_slug
+}
+
+Logic:
+1) get all unassigned trips in city
+2) get all active drivers with vehicle + location
+3) calculate distance driver → pickup
+4) assign closest driver
+5) update trip
+6) calculate ETA
+
+Return:
+{
+ assigned: number,
+ skipped: number
+}
+
+---------------------------------------------------
+PHASE 4 — DRIVER STATUS SYSTEM
+---------------------------------------------------
+
+Add driver status field if missing:
+
+drivers.status:
+'available'
+'enroute'
+'off'
+'hold'
+
+Endpoint:
+
+POST /api/drivers/status
+
+Body:
+{
+ status
+}
+
+Rules:
+- Only driver can change own status
+- Dispatch can override
+
+If driver not 'available' → auto dispatch must skip.
+
+---------------------------------------------------
+PHASE 5 — MAP VISUAL IMPROVEMENTS
+---------------------------------------------------
+
+On map:
+
+Driver marker should show:
+- vehicle color
+- driver name
+- status color ring:
+  green = available
+  yellow = assigned
+  red = enroute
+  gray = off
+
+Trip markers:
+- scheduled = blue
+- assigned = orange
+- picked_up = green
+
+---------------------------------------------------
+PHASE 6 — SAFETY RULES
+---------------------------------------------------
+
+Never allow:
+- sedan assigned to wheelchair trip if wheelchair_required true
+- driver without vehicle assigned to trip
+- cross-city assignments
+
+---------------------------------------------------
+PHASE 7 — VERIFY BEFORE EXIT
+---------------------------------------------------
+
+Test manually:
+
+1) create vehicle
+2) create driver
+3) assign vehicle to driver
+4) create trip
+5) assign trip
+6) verify ETA calculated
+7) verify map updates
+
+Return summary:
+- endpoints created
+- tests passed
+- sample JSON responses
+
+Do NOT exit until all tests pass.

@@ -1,0 +1,112 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+CONTEXT / BUG
+Trips created "by phone/manual" may have clinic_id = null.
+Invoices table enforces clinic_id NOT NULL, so creating an invoice from that trip fails with:
+"null value in column 'clinic_id' of relation 'invoices' violates not-null constraint"
+
+GOAL
+Support phone/manual/private-pay trips WITHOUT changing DB schema by:
+1) Ensuring a default INTERNAL clinic exists: "UCM Direct / Private Pay"
+2) Auto-assigning that clinic_id to any manual trip missing clinic_id
+3) Ensuring invoice creation ALWAYS inherits clinic_id from the trip (and backfills trip.clinic_id if missing)
+
+------------------------------------------------------------
+TASK 1 — CREATE/ENSURE DEFAULT INTERNAL CLINIC (IDEMPOTENT)
+------------------------------------------------------------
+Implement a server-side helper (idempotent) that returns DEFAULT_PRIVATE_CLINIC_ID:
+
+- Try find clinic by a stable key first (preferred):
+  - if clinics has "code" or "slug" column, use: code="UCM_DIRECT" or slug="ucm-direct"
+- Otherwise fall back to exact name match:
+  - name = "UCM Direct / Private Pay"
+
+If not found, create it with:
+- name: "UCM Direct / Private Pay"
+- active: true
+- type: "internal" OR is_internal=true (use whatever existing field exists; if none exists, just create with name+active)
+Return its id.
+
+IMPORTANT:
+- Do NOT alter schema.
+- Must be safe to run multiple times (no duplicates).
+
+------------------------------------------------------------
+TASK 2 — FIX MANUAL/PHONE TRIP CREATION (NO CLINIC => DEFAULT)
+------------------------------------------------------------
+Locate the backend endpoint that creates trips from admin/dispatch/manual flow
+(e.g. POST /api/trips, createTrip controller/service).
+
+Before inserting the trip:
+- If request clinic_id is missing/null/empty:
+  - set clinic_id = DEFAULT_PRIVATE_CLINIC_ID from Task 1
+- Optionally set trip.source = "phone" or "manual" IF that column already exists; if it does not exist, skip.
+
+Also enforce:
+- clinic_id must be non-null at insert time.
+
+------------------------------------------------------------
+TASK 3 — FIX INVOICE CREATION (DERIVE FROM TRIP, NEVER NULL)
+------------------------------------------------------------
+Locate invoice creation endpoint/service (e.g. POST /api/invoices, createInvoice()).
+
+When request includes trip_id:
+1) Fetch trip: id, clinic_id, patient_id
+2) If trip not found => return 404/400
+3) If trip.clinic_id is null:
+   - set trip.clinic_id = DEFAULT_PRIVATE_CLINIC_ID
+   - persist update to trips table (UPDATE trips SET clinic_id=? WHERE id=?)
+4) Insert invoice using:
+   - trip_id = trip.id
+   - clinic_id = trip.clinic_id (never null)
+   - patient_id = trip.patient_id (if invoices supports it; if not, skip)
+   - amount, notes, created_by as currently implemented
+
+If invoice creation is allowed without trip_id:
+- Then REQUIRE clinic_id in payload; otherwise return 400 "clinic_id required".
+
+------------------------------------------------------------
+TASK 4 — UI (MINIMAL) OPTIONAL BUT RECOMMENDED
+------------------------------------------------------------
+In the "New Trip" modal (dispatch/admin):
+Add a simple Source toggle:
+- "Clinic" (default) / "Private Pay (Phone)"
+
+Behavior:
+- If Private Pay selected => hide/disable clinic selector and send no clinic_id (backend will default)
+- If Clinic selected => require clinic selection and send clinic_id
+
+DO NOT redesign UI; minimal change only.
+
+------------------------------------------------------------
+TASK 5 — VALIDATION / TEST PLAN (MUST EXECUTE)
+------------------------------------------------------------
+1) Create a new trip via manual/phone flow WITHOUT selecting a clinic
+   - Verify trip saved successfully
+   - Verify trip.clinic_id is set (DEFAULT_PRIVATE_CLINIC_ID)
+2) Open that trip and click "Create Invoice"
+   - Verify invoice is created without error
+   - Verify invoice row has clinic_id NOT NULL
+3) Create a clinic trip normally and create an invoice
+   - Ensure no regression
+
+------------------------------------------------------------
+DO NOT
+------------------------------------------------------------
+- Do NOT reset DB
+- Do NOT change invoices schema
+- Do NOT remove NOT NULL constraints
+- Do NOT create duplicates for the default clinic
+
+SUCCESS CRITERIA
+- Phone/manual trips always end up with a non-null clinic_id (default internal clinic)
+- Invoice creation from any trip never fails with clinic_id null
+- Existing clinic workflow remains unchanged

@@ -1,0 +1,63 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+PHASE 2 — AUTHENTICATED DOWNLOADS (Safari iOS FIX)
+
+GOAL:
+Fix authenticated downloads (JSON/CSV/PDF) so Safari iOS does NOT download Unauthorized/404 payloads.
+Downloads must work for clinic_user + dispatch + super_admin according to role permissions.
+
+REQUIREMENTS:
+
+A) FRONTEND (required)
+1) Replace all direct <a href="/api/.../download"> patterns for protected files with an authenticated download helper:
+   - Use fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+   - If res.ok is false:
+       - Try to read res.json() or res.text()
+       - Show a visible error toast/modal (include status code)
+       - DO NOT trigger download
+   - If res.ok:
+       - const blob = await res.blob()
+       - Determine filename:
+           - Prefer Content-Disposition filename if present
+           - Else fallback like `trip_${tripId}.pdf` or `export_${date}.csv`
+       - Create object URL and trigger download:
+           - const a = document.createElement('a')
+           - a.href = URL.createObjectURL(blob)
+           - a.download = filename
+           - document.body.appendChild(a); a.click(); a.remove()
+           - URL.revokeObjectURL(...)
+2) Ensure this helper is used by ALL exports/download buttons:
+   - Trip details PDF for clinics
+   - CSV exports
+   - JSON exports
+   - Any “Download” or “Export” action under authenticated pages
+3) Add a small sanity check:
+   - If blob size < 200 bytes and content-type looks like json/text, treat as error and show message, do not download.
+
+B) BACKEND (required)
+1) For each download endpoint (PDF/CSV/JSON):
+   - Enforce auth + role server-side
+   - Return 401/403 with JSON body {error, message} (not HTML)
+2) Set headers on success:
+   - Content-Type: correct type
+   - Content-Disposition: attachment; filename="..."
+   - Cache-Control: no-store
+3) If user is unauthorized, do NOT return a file-like payload; return JSON error only.
+
+C) VERIFICATION (must do before finishing)
+1) Test on desktop Chrome: download works and file opens correctly.
+2) Test on iPhone Safari (or simulate if available):
+   - When logged in: downloads correct file.
+   - When logged out OR token invalid: user sees error message AND no download file is saved.
+3) Add a short dev note: list endpoints updated + where helper is used.
+
+Deliverables:
+- Code changes committed
+- Brief summary of tests run and results

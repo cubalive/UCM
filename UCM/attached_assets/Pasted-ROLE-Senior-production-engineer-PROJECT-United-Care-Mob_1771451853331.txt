@@ -1,0 +1,72 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- No sub-agents
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT change auth flow unless explicitly requested
+- Do NOT add fallbacks that switch databases
+- Verify before exit
+
+GOAL (NON-NEGOTIABLE):
+We are SUPABASE-ONLY. We want ZERO Neon/Replit DB usage in production.
+We want stable login (no logout loops), stable tariffs page (no blank), and public API endpoints behaving correctly.
+
+CURRENT PROBLEM:
+Replit keeps re-injecting Neon DB secrets (DATABASE_URL, PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE, CONNECTORS_HOSTNAME, REPLIT_CONNECTORS_HOSTNAME) into Deployment, and it causes confusion and sometimes runtime issues. Also, after recent changes, login sometimes returns Unauthorized or loops, and some pages (Tariffs) go blank.
+
+WHAT YOU MUST DO (SEQUENTIAL, NO DETOURS):
+
+PHASE 1 — LOCK DATABASE TO SUPABASE ONLY
+1) In code, ensure the server uses ONLY SUPABASE_DB_URL for Postgres connections.
+   - Remove/disable any code path that reads DATABASE_URL or PG* variables.
+   - If DATABASE_URL exists in env, it must be ignored and never used.
+2) Add a startup log line that prints: dbSource="SUPABASE_DB_URL" and the resolved host/port (redact password).
+3) Add a hard-fail guard:
+   - If SUPABASE_DB_URL is missing, crash with a clear error.
+   - Do NOT fallback to any other DB.
+
+PHASE 2 — REMOVE NEON/REPLIT DB INTEGRATION (UI GUIDANCE + SAFE STATE)
+4) Provide exact UI steps inside Replit to fully remove the Replit Database integration:
+   - Database tool → Production Database → Settings → “Yes, Remove Database”
+5) After removal, provide the exact list of deployment secrets to delete if present:
+   DATABASE_URL, PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE, CONNECTORS_HOSTNAME, REPLIT_CONNECTORS_HOSTNAME
+6) In Deployments settings, ensure “Production database connected” no longer exists/ is not connected.
+   - If it still appears, explain precisely where to disconnect it.
+
+PHASE 3 — FIX AUTH “UNAUTHORIZED / LOGOUT LOOP”
+7) Verify cookie/session/JWT behavior for production:
+   - Ensure NODE_ENV=production is set (or code sets production mode correctly).
+   - Ensure server trusts proxy (if behind Replit) and sets secure cookies correctly.
+   - Ensure CORS + credentials are correct for:
+     https://app.unitedcaremobility.com
+     https://driver.unitedcaremobility.com
+     (and Lovable origin in ALLOWED_PUBLIC_ORIGIN_1)
+8) Add a diagnostic endpoint /api/boot that returns:
+   - nodeEnv, appBaseUrl, allowedOrigins (redacted), cookieMode (secure/samesite), dbSource
+   - Must NOT require auth.
+
+PHASE 4 — FIX “TARIFFS PAGE BLANK / LOGOUT”
+9) Identify and fix the exact runtime/frontend error for the Tariffs page:
+   - Check browser console error and server logs.
+   - Fix without changing unrelated UI.
+   - Add a defensive error boundary + user-friendly message if tariffs query fails.
+
+PHASE 5 — VERIFICATION (REQUIRED)
+10) Provide a checklist and run these tests:
+   - GET /api/health returns db connected via Supabase
+   - POST login works for SUPER_ADMIN and stays logged in (no redirect loop)
+   - Tariffs page loads consistently (no blank)
+   - GET /api/public is accessible as designed (either public endpoints or documented auth requirement)
+11) Show the exact files changed and a short diff summary.
+12) Do not ship until tests pass.
+
+DELIVERABLE:
+- Implement the code changes
+- Give the exact UI steps to remove Replit DB
+- Provide final verification results and where to check logs
+
+START NOW. No extra features. No assumptions. No “fallback DB”. Only what’s described above.

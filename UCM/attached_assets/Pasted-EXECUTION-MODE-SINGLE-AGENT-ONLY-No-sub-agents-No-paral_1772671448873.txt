@@ -1,0 +1,157 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+No sub-agents. No parallel work. Do not change anything unrelated. Preserve all working features.
+
+GOAL
+Prepare UCM for store submission with 3 separate apps (Driver, Clinic, Admin/Dispatch) using our existing subdomains and Team ID. Add icon pipeline + assets, and add verification endpoints/scripts so we can confirm nothing is missing from Replit.
+
+CONSTRAINTS
+- Do NOT touch database schema, RLS, migrations, or seed data.
+- Do NOT modify auth logic except URLs/config if required.
+- Keep existing domains:
+  DRIVER: https://driver.unitedcaremobility.com
+  CLINIC: https://clinic.unitedcaremobility.com
+  ADMIN/DISPATCH: https://app.unitedcaremobility.com
+- Team ID: HVF2V75J4T
+- Bundle IDs:
+  com.unitedcaremobility.driver
+  com.unitedcaremobility.clinic
+  com.unitedcaremobility.admin
+- Everything must be committed in-code (no manual steps inside Replit UI beyond running commands).
+
+TASKS (DO IN ORDER)
+
+1) Create icon source files (SVG) + folders
+Create these folders and files:
+- client/public/app-icons/driver/icon-driver.svg
+- client/public/app-icons/clinic/icon-clinic.svg
+- client/public/app-icons/admin/icon-admin.svg
+
+Use EXACT SVG CONTENT:
+
+--- driver/icon-driver.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <circle cx="512" cy="420" r="170" fill="none" stroke="#0A4DFF" stroke-width="70"/>
+  <circle cx="512" cy="420" r="40" fill="#00C389"/>
+  <path d="M512 600 L512 830" stroke="#0A4DFF" stroke-width="90" stroke-linecap="round"/>
+  <circle cx="512" cy="860" r="60" fill="#00C389"/>
+</svg>
+
+--- clinic/icon-clinic.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <rect x="280" y="300" width="460" height="420" rx="60" fill="#0A4DFF"/>
+  <rect x="480" y="380" width="80" height="260" fill="#ffffff"/>
+  <rect x="400" y="460" width="240" height="80" fill="#ffffff"/>
+  <rect x="460" y="740" width="120" height="120" fill="#00C389"/>
+</svg>
+
+--- admin/icon-admin.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <rect x="250" y="250" width="150" height="150" fill="#0A4DFF"/>
+  <rect x="437" y="250" width="150" height="150" fill="#0A4DFF"/>
+  <rect x="624" y="250" width="150" height="150" fill="#0A4DFF"/>
+  <rect x="250" y="437" width="150" height="150" fill="#0A4DFF"/>
+  <rect x="437" y="437" width="150" height="150" fill="#00C389"/>
+  <rect x="624" y="437" width="150" height="150" fill="#0A4DFF"/>
+  <rect x="250" y="624" width="150" height="150" fill="#0A4DFF"/>
+  <rect x="437" y="624" width="150" height="150" fill="#0A4DFF"/>
+  <rect x="624" y="624" width="150" height="150" fill="#0A4DFF"/>
+</svg>
+
+2) Add an icon build pipeline (sharp) + generate outputs for each app
+- Add dev dependencies at repo root:
+  sharp
+  svgo (optional but fine)
+- Create script: scripts/generate-icons.mjs
+This script must:
+  - Read each SVG
+  - Generate PNG 1024 and 512 and 192
+  - Output folders:
+    client/public/generated-icons/driver/{AppIcon-1024.png, AppIcon-512.png, icon-192.png}
+    client/public/generated-icons/clinic/{...}
+    client/public/generated-icons/admin/{...}
+- Add npm scripts at repo root:
+  "icons:generate": "node scripts/generate-icons.mjs"
+Run it once and ensure files exist.
+
+3) Capacitor multi-app setup (3 wrappers) without breaking current mobile-driver
+We already have mobile-driver/. Keep it. Add TWO more folders:
+- mobile-clinic/
+- mobile-admin/
+
+Each must contain:
+- capacitor.config.ts
+- package.json (minimal)
+- ios/ android/ folders are NOT required inside Replit, but configs must be correct for local build later.
+
+Capacitor config requirements (IMPORTANT):
+- For driver:
+  appId: "com.unitedcaremobility.driver"
+  appName: "UCM Driver"
+  server.url: "https://driver.unitedcaremobility.com"
+- For clinic:
+  appId: "com.unitedcaremobility.clinic"
+  appName: "UCM Clinic"
+  server.url: "https://clinic.unitedcaremobility.com"
+- For admin:
+  appId: "com.unitedcaremobility.admin"
+  appName: "UCM Admin"
+  server.url: "https://app.unitedcaremobility.com"
+
+Common:
+- server.cleartext = false
+- android.allowMixedContent = false
+- plugins.SplashScreen.launchShowDuration = 0 (or minimal) to avoid review issues
+- Ensure each has an associated "appKey" or hostname mapping if already used; do not reinvent.
+
+4) Deep link / reset password / magic link correctness per subdomain
+We already route redirect_to based on role. Add a hard verification endpoint (SUPER_ADMIN only):
+- GET /api/system/auth-redirect-debug?email=... (or role=...) that returns:
+  role inferred, redirect base url, and sample generated Supabase link WITHOUT actually sending email.
+If generating requires service role, do it safely and redact token fields in logs.
+This is ONLY for debugging and must be guarded by SUPER_ADMIN + server-side.
+
+5) Ensure AASA is served for all 3 hostnames (already mostly done)
+Keep existing AASA behavior. Add a small internal check endpoint:
+- GET /api/system/aasa-status (SUPER_ADMIN only)
+It should fetch (server-side) the three AASA URLs and return:
+  status code, content-type, contains expected appID, and host used.
+
+URLs:
+- https://driver.unitedcaremobility.com/.well-known/apple-app-site-association
+- https://clinic.unitedcaremobility.com/.well-known/apple-app-site-association
+- https://app.unitedcaremobility.com/.well-known/apple-app-site-association
+
+Expected appIDs:
+- HVF2V75J4T.com.unitedcaremobility.driver
+- HVF2V75J4T.com.unitedcaremobility.clinic
+- HVF2V75J4T.com.unitedcaremobility.admin
+
+6) Add “release-readiness” one-command verification (SUPER_ADMIN only)
+If it exists already, extend it. If not, create:
+- GET /api/system/release-readiness
+Must return:
+  - teamId, bundles, domains
+  - envPresence booleans for required env vars (do not print secrets)
+  - aasaStatus for the 3 hostnames
+  - iconAssetsPresence: checks generated icon files exist
+  - capacitorConfigsPresence: checks configs exist and have correct server.url/appId/appName
+
+7) Provide smoke-test commands inside replit.md (copy/paste ready)
+Add section:
+- npm run icons:generate
+- curl AASA
+- curl /version.json
+- curl /api/system/release-readiness (requires token)
+
+8) IMPORTANT: Do NOT change UI or routing behavior now. This is release prep only.
+
+DELIVERABLES
+After implementing:
+- Print a short summary of created files
+- Print the exact commands I should run in Replit Shell to verify
+- Provide expected outputs (high-level) so I know PASS/FAIL
+
+NOW IMPLEMENT ALL TASKS.

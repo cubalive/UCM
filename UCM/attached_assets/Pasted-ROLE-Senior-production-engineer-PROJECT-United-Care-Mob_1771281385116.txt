@@ -1,0 +1,55 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM) — Driver subdomain crash fix
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+PROBLEM (CONFIRMED):
+- On https://driver.unitedcaremobility.com login succeeds.
+- Manual call works:
+  fetch("/api/auth/me",{headers:{Authorization:"Bearer "+localStorage.getItem("ucm_driver_token")}}) => 200 with DRIVER user.
+- After login, UI shows DriverErrorBoundary “Something went wrong” or blank.
+- Console shows: [UCM] Realtime error: Channel closed.
+=> Frontend crash happens AFTER auth, likely from realtime/ws init or an unhandled runtime error inside DriverDashboard.
+We must (1) surface the real error, (2) prevent realtime from crashing driver app, (3) ensure SW caching can’t brick the driver portal.
+
+TASKS:
+1) MAKE DRIVER ERROR VISIBLE (PROD-SAFE)
+- In DriverErrorBoundary, implement componentDidCatch and console.error the error + stack ALWAYS (not only in DEV).
+- Render a small expandable “Error details” block in the boundary UI when host is driver.* OR when URL contains ?debug=1 (do not expose secrets).
+- Also add window.onerror and unhandledrejection logging to console for driver host only.
+
+2) HARDEN REALTIME / WEBSOCKET (NO CRASH)
+- Find the realtime client/subscription code used by DriverDashboard (likely "@/lib/realtime" or similar).
+- Ensure any WS/channel setup is wrapped in try/catch and NEVER throws to React render.
+- On “channel closed”:
+  - do NOT throw
+  - log once
+  - retry with exponential backoff (e.g., 1s, 2s, 4s, 8s up to 30s)
+  - if retries exceed N (e.g., 10), fall back to polling every 10s for driver-relevant data.
+- Ensure WS URL uses secure scheme in production (wss://) and correct host/path.
+- Make sure driver origin is allowed (driver.unitedcaremobility.com) wherever realtime auth/origin checks exist.
+
+3) SERVICE WORKER SAFETY (AVOID STALE ASSETS BRICKING APP)
+- Update sw.js strategy so new deployments activate immediately:
+  - self.skipWaiting()
+  - clients.claim()
+- Version cache with build hash (or app version) so old bundles aren’t reused across deploys.
+- Add a “panic reload” if SW detects mismatched asset versions: prompt to refresh.
+
+4) VERIFY
+- After changes, build + deploy.
+- Test on driver.unitedcaremobility.com:
+  A) login → should land on driver dashboard without boundary.
+  B) DevTools console has no uncaught exceptions.
+  C) If WS is blocked, app must still work via polling (no crash).
+- Provide exact files changed and a short checklist of how to validate.
+
+IMPORTANT:
+- Do not modify auth logic (JWT works).
+- Do not change role system.
+- Focus only on preventing driver portal crash and making errors visible.

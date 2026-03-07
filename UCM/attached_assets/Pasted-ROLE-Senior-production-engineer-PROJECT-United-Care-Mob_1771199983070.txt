@@ -1,0 +1,131 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT reset database
+- Do NOT recreate schema
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Harden the system for high-scale production stability.
+
+---------------------------------------
+PHASE 1 — REMOVE HEAVY POLLING
+---------------------------------------
+Clinic trip list must NOT request live GPS.
+
+Trip list:
+- status only
+- no map
+- no directions calls
+- refresh max every 60s
+
+Live tracking ONLY inside Trip Details.
+
+---------------------------------------
+PHASE 2 — TRIP-SCOPED REALTIME CHANNEL
+---------------------------------------
+Implement WebSocket channel per trip:
+
+channel: trip:{tripId}
+
+When clinic opens trip:
+- send snapshot
+- subscribe to channel
+
+Events:
+- driver_location (max every 5s)
+- status_change (instant)
+- ETA_update (max every 60s)
+
+Disconnect when page closes.
+
+---------------------------------------
+PHASE 3 — DRIVER LOCATION INGEST
+---------------------------------------
+Create endpoint:
+
+POST /api/driver/location
+
+Accept:
+- single point OR batch
+
+Validate:
+- reject updates faster than 1 per 2s
+- reject timestamp older than 60s
+- reject impossible jumps
+
+Do NOT write every update to Postgres.
+
+Store last location in memory cache with TTL 120s.
+
+---------------------------------------
+PHASE 4 — CACHE LAYER
+---------------------------------------
+Implement in-memory cache for now.
+
+Structure:
+driver:{id}:last_location
+trip:{id}:driver_last
+trip:{id}:eta
+
+TTL:
+driver last: 120s
+ETA: 60s
+
+Must be swappable to Redis later.
+
+---------------------------------------
+PHASE 5 — ETA THROTTLE
+---------------------------------------
+Google Directions must NOT run on every update.
+
+Recompute ETA only if:
+- driver moved >300m
+OR
+- 45s passed
+
+Cache result 60s.
+
+Fallback:
+haversine distance.
+
+---------------------------------------
+PHASE 6 — DATABASE PROTECTION
+---------------------------------------
+Only write location history:
+- every 60s
+OR
+- on ARRIVED / PICKED_UP / DROPOFF
+
+Never every 5s.
+
+---------------------------------------
+PHASE 7 — JWT ONLY FOR HOT PATHS
+---------------------------------------
+Tracking endpoints must use JWT.
+Do NOT rely on session store.
+
+---------------------------------------
+PHASE 8 — OPS HEALTH
+---------------------------------------
+Ensure endpoint exists:
+/api/ops/health
+
+Return:
+GREEN / YELLOW / RED
+based on:
+- stale GPS
+- queue delays
+- DB errors
+
+---------------------------------------
+DO NOT MODIFY:
+shared/permissions.ts
+---------------------------------------
+VERIFY:
+App runs in Replit
+Build passes
+No DB reset
+Realtime stable

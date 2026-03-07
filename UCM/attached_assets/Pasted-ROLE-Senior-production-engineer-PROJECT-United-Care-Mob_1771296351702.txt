@@ -1,0 +1,151 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+FIX/ENHANCEMENT: TRIP PROGRESS MUST INCLUDE ALL EVENTS + TIMESTAMPS (NOT PARTIAL)
+We already show some progress steps (Arrived at Pickup, Picked Up, En Route to Dropoff, Arrived at Dropoff, Completed) with times.
+Clinics (and all roles where Trip Details appears) need the FULL Trip Progress timeline with EVERYTHING we track, plus the timestamp next to each item.
+
+GOAL
+Trip Progress must show the complete lifecycle of a trip, including:
+- Scheduled / Appointment time
+- Created
+- Assigned to driver
+- Driver accepted (if exists)
+- Driver online / started shift (optional if tracked)
+- En Route to Pickup
+- Arrived at Pickup
+- Picked Up
+- En Route to Dropoff
+- Arrived at Dropoff
+- Completed
+- Cancelled (if cancelled) with reason + time
+- No-show (if no-show) with time
+- Company error (if flagged) with time
+
+Every event shown must have a timestamp displayed on the right, like:
+"Arrived at Pickup .......... 2:03 PM"
+
+If an event timestamp does not exist, the event should NOT appear (no blanks).
+Order must always be the same canonical order, regardless of timestamp.
+
+------------------------------------------------------------
+PHASE 1 — INVENTORY EXISTING TIMESTAMP FIELDS (MUST REUSE)
+------------------------------------------------------------
+Search DB/models for all trip lifecycle timestamps:
+- created_at
+- scheduled_pickup_at / appointment_at
+- assigned_at (or when driver_id first set)
+- accepted_at
+- en_route_pickup_at / en_route_at
+- arrived_pickup_at / arrived_at
+- picked_up_at
+- en_route_dropoff_at
+- arrived_dropoff_at / dropoff_arrived_at
+- completed_at
+- cancelled_at
+- no_show_at
+- outcome_set_at (billing outcome)
+Also check status change audit log if present.
+
+If certain steps are tracked only as status events (not columns), read them from the status history table/log.
+
+DO NOT add new timestamps unless absolutely necessary; first reuse existing sources.
+
+------------------------------------------------------------
+PHASE 2 — BACKEND: RETURN A FULL CANONICAL progress_events LIST
+------------------------------------------------------------
+In Trip Details APIs (both standard and clinic-safe):
+Return progress_events as an ordered list:
+
+progress_events = [
+ {key:'scheduled', label:'Scheduled Pickup', at: scheduled_pickup_at},
+ {key:'created', label:'Created', at: created_at},
+ {key:'assigned', label:'Assigned to Driver', at: assigned_at},
+ {key:'accepted', label:'Driver Accepted', at: accepted_at},
+ {key:'en_route_pickup', label:'En Route to Pickup', at: en_route_pickup_at},
+ {key:'arrived_pickup', label:'Arrived at Pickup', at: arrived_pickup_at},
+ {key:'picked_up', label:'Picked Up', at: picked_up_at},
+ {key:'en_route_dropoff', label:'En Route to Dropoff', at: en_route_dropoff_at},
+ {key:'arrived_dropoff', label:'Arrived at Dropoff', at: arrived_dropoff_at},
+ {key:'completed', label:'Completed', at: completed_at},
+ {key:'cancelled', label:'Cancelled', at: cancelled_at, meta:{reason: cancel_reason}},
+ {key:'no_show', label:'No-Show', at: no_show_at, meta:{reason: no_show_reason}},
+ {key:'company_error', label:'Company Error', at: outcome_set_at, meta:{reason: billing_reason}}
+]
+
+Rules:
+- Include ONLY events where at != null
+- Canonical order is fixed (above)
+- Terminal states:
+  - If cancelled_at exists, include Cancelled and omit Completed (if applicable)
+  - If no_show exists, include No-Show and omit Completed
+- Attach reason text ONLY for cancel/no_show/company_error, clinic-safe.
+
+If assigned_at not stored:
+- derive assigned_at from status history or from first time driver_id was set (if safe).
+If en_route_* not stored:
+- derive from status history table if present.
+
+------------------------------------------------------------
+PHASE 3 — FRONTEND: DISPLAY FULL TIMELINE WITH TIMES
+------------------------------------------------------------
+In Trip Details (clinic + dispatch + driver):
+Render progress_events list exactly:
+- left: label
+- right: formatted time
+- if meta.reason exists: show a subtle second line under label (read-only), e.g. "Reason: Patient not ready"
+
+Formatting:
+- Keep icon checkmark for completed steps
+- Use consistent spacing and typography
+- Must be readable on mobile
+
+Also show:
+- On-site duration: Arrived at Pickup -> Completed (or terminal)
+- Transport duration: Picked Up -> Arrived at Dropoff (if both exist)
+
+------------------------------------------------------------
+PHASE 4 — DATA INTEGRITY: ENSURE EVENTS ARE WRITTEN
+------------------------------------------------------------
+Confirm driver action endpoints set timestamps server-side:
+- En Route to Pickup -> en_route_pickup_at
+- Arrived at Pickup -> arrived_pickup_at
+- Picked Up -> picked_up_at
+- En Route to Dropoff -> en_route_dropoff_at
+- Arrived at Dropoff -> arrived_dropoff_at
+- Completed -> completed_at
+- Cancel/No-show -> cancelled_at/no_show_at
+
+If app currently sets only status but not timestamps:
+- Update backend to write timestamps when status changes, using DB now().
+
+------------------------------------------------------------
+VERIFY (MUST DO)
+------------------------------------------------------------
+1) Completed trip:
+- timeline shows Scheduled, Created, Assigned, En Route Pickup, Arrived Pickup, Picked Up, En Route Dropoff, Arrived Dropoff, Completed with times
+
+2) Cancelled trip:
+- timeline ends with Cancelled + reason + time (no Completed)
+
+3) No-show trip:
+- timeline ends with No-Show + reason + time
+
+4) Clinic view shows same full timeline as dispatch view (read-only)
+
+DO NOT
+- Do NOT reset DB
+- Do NOT show internal-only notes to clinic
+- Do NOT invent timestamps client-side
+
+SUCCESS CRITERIA
+- Trip Progress always shows ALL tracked lifecycle events with timestamps
+- No missing steps when timestamps exist
+- Clinic trip details timeline is complete and dispute-proof

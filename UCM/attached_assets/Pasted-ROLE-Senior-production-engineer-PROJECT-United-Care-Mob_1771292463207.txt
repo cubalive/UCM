@@ -1,0 +1,84 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+TASK (PHASE 3 — CLINIC TRIP DETAILS + PDF EXPORT):
+Goal: Clinics need a dedicated Trip Details view/modal that shows ONLY informational trip data (no action buttons, no notes/messages UI, no patient link actions). It must include a clean A→B summary with map snapshot and a full timeline of timestamps. It must be exportable/downloadable as PDF.
+
+CURRENT PROBLEM:
+- Clicking "Trip completed" (clinic view) does not show complete trip details.
+- Existing trip progress is missing fields and the clinic needs a “Trip Details” designed for them.
+
+REQUIREMENTS:
+1) Create a ClinicTripDetails component/page/modal used in clinic role only.
+   - Must NOT include driver action buttons, messaging UI, internal notes, or editable controls (clinic can’t change trip except via dispatcher flow).
+   - Must show: Patient name (display-only), Trip ID, Clinic name, pickup address, dropoff address, city, service type (sedan/wheelchair), special needs flags, assigned driver + vehicle (if assigned).
+   - Must show status + step progress (Requested/Assigned/En Route/Arrived/Picked Up/In Transit/Arrived Dropoff/Completed/Cancelled) with the same “Trip Progress” richness as admin, but read-only.
+
+2) Add full timeline fields (read-only):
+   - scheduledPickupTime
+   - scheduledDropoffTime (or estimated duration + ETA if dropoff time not stored)
+   - actual: driverDepartedAt, arrivedPickupAt, pickedUpAt, arrivedDropoffAt, completedAt, cancelledAt (show if present)
+   - If a timestamp is missing, show “—”.
+
+3) Map Snapshot:
+   - Show a static map image (A→B) at top of Trip Details:
+     - Use Google Static Maps API OR existing map snapshot approach if already present.
+     - Include markers A and B and a polyline if available.
+   - Must not require live map interaction for clinic.
+
+4) PDF Export:
+   - Add a “Download PDF” button ONLY for clinic users in Trip Details.
+   - Use authenticated download approach (reuse downloadWithAuth from PHASE 2):
+     - Either generate PDF client-side (html-to-canvas/jsPDF) OR server-side endpoint:
+       GET /api/clinic/trips/:id/pdf  (protected, clinic role)
+       - Response headers:
+         Content-Type: application/pdf
+         Content-Disposition: attachment; filename="trip_<tripId>.pdf"
+   - PDF layout:
+     - Header: United Care Mobility + Clinic name + Trip ID
+     - Map snapshot
+     - A→B addresses
+     - Status + timeline table
+     - Driver/vehicle (if assigned)
+     - Footer with generated timestamp
+
+5) Security / Permissions:
+   - Clinics can only access trips belonging to their clinic_id.
+   - Backend must enforce this (do not rely on frontend).
+   - Driver cannot access clinic trip pdf endpoints.
+
+BACKEND CHANGES:
+- Ensure there is a clinic-safe trip details endpoint:
+  GET /api/clinic/trips/:id  (returns ONLY allowed fields)
+- If needed, add:
+  GET /api/clinic/trips/:id/pdf
+- Enforce role middleware + clinic scope checks.
+
+FRONTEND CHANGES:
+- In Clinic Trips list, clicking a trip opens ClinicTripDetails modal/page.
+- Ensure it uses clinic endpoints, not admin ops endpoints.
+- Reuse the same progress visualization but read-only and clinic-safe.
+
+TEST CHECKLIST (MUST RUN):
+A) Clinic user:
+- Open scheduled trip -> sees full Trip Details (no buttons/notes/messages)
+- Map snapshot shows A→B
+- Timeline shows scheduled + actual timestamps correctly
+- Download PDF -> downloads valid PDF with correct filename
+
+B) Clinic user cannot see admin-only data (ops panels, driver live locations, internal logs)
+
+C) Security:
+- Clinic cannot open a trip from a different clinic (should get 403/404)
+- Driver role hitting /api/clinic/trips/:id or /pdf -> 403
+- Logged-out -> 401
+
+VERIFY BEFORE EXIT:
+- Confirm all tests above pass and no console errors in clinic portal.

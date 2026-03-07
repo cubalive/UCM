@@ -1,0 +1,74 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+GOAL (PHASE B):
+Upgrade Trip PDF to “audit-grade” with signatures + QR verification + tamper evidence.
+Must NOT expose patient phone, internal notes, or private links.
+
+ASSUMPTIONS:
+We already have:
+- GET /api/trips/:id/pdf (dispatch/admin)
+- GET /api/clinic/trips/:id/pdf (clinic)
+- Safari-safe authenticated download helper
+If these exist, extend them; do not replace.
+
+REQUIREMENTS:
+1) Add signature capture:
+   - Driver signature (at trip completion)
+   - Clinic signature (optional; can be captured from clinic portal)
+   - Store signatures as base64 PNG (or store URL if you already have storage)
+   - Add to DB:
+     trip_signatures(trip_id PK/FK, driver_sig_base64, clinic_sig_base64, driver_signed_at, clinic_signed_at)
+
+2) Add proof timeline & timestamps:
+   - PDF must include:
+     - Scheduled pickup/dropoff
+     - Actual pickup time, depart time, arrival time, completed time
+     - Driver name + vehicle details
+     - Status timeline with timestamps (already present—keep it)
+
+3) Add QR + verification endpoint:
+   - Create GET /api/public/trips/:id/verify?token=...
+     - Returns minimal JSON verification payload:
+       { trip_id, date, pickup_city, dropoff_city, completed_at, driver_name, vehicle, status, pdf_hash }
+     - NO patient name, phone, addresses.
+   - Token:
+     - Generate per trip “verification_token” (random 32+ chars) stored on trip row or separate table.
+     - Only embedded in PDF QR. Not visible elsewhere.
+
+4) Add tamper evidence (hash):
+   - Compute pdf_hash (SHA-256 of canonical “verification payload” JSON + trip_id + completed_at)
+   - Store pdf_hash on trip record when generating PDF after completion.
+   - Print pdf_hash (short form) on PDF.
+
+5) PDF formatting:
+   - Brand header (UCM)
+   - “Verified Trip Document”
+   - Signatures block at bottom (Driver / Clinic)
+   - QR on last page or footer
+   - Keep the current exclusions (no PHI leakage)
+
+6) Permissions:
+   - Only roles allowed already can download.
+   - Public verify endpoint is token-based only.
+   - Verify endpoint must not leak addresses or patient identifiers.
+
+VERIFICATION:
+- Generate PDF for a completed trip => includes QR + hash + signatures (if present)
+- Hitting verify endpoint with correct token returns 200 JSON
+- Wrong token => 404 JSON (not 401)
+- Confirm verify JSON contains NO addresses, no patient name/phone.
+
+DELIVERABLES:
+- DB migration (safe)
+- Backend endpoints
+- UI signature capture components (driver + clinic)
+- Updated PDF generator
+- Summary + test steps

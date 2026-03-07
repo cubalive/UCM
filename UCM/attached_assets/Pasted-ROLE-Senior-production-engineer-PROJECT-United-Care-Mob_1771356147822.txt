@@ -1,0 +1,175 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate existing tables
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement a “Pre-Load Test Hardening Pack” so we can safely run a 50 drivers / 50 patients simulation without breaking prod behavior.
+
+GOAL:
+Before any load/simulation, ensure:
+1) Observability (logs + request ids)
+2) AuthZ/Scope correctness (role + city + clinic + tenant/company)
+3) Trip lifecycle integrity (server-side guardrails)
+4) Metrics endpoint stability (fix blank /metrics for SUPER_ADMIN)
+5) Safe archive/delete rules (archive for roles, hard delete only SUPER_ADMIN with typed confirmation)
+6) Minimal smoke tests + a single command checklist to verify readiness
+
+HARD REQUIREMENTS:
+- No DB reset, no destructive migrations
+- No downtime changes required
+- Do not change runtime behavior of existing working flows except to prevent invalid actions (guardrails)
+- All new endpoints must be protected and role-scoped
+- Verify with commands at the end (must show results)
+
+========================================================
+STEP 0 — PROJECT DISCOVERY (READ ONLY)
+========================================================
+A) Identify entrypoints and routes:
+- server/index.ts (or server/index)
+- server/routes / api router location
+- auth middleware location (where req.user is set)
+B) Identify current role strings and how role is stored (users.role? JWT claims? session?)
+C) Identify tenant/company scoping fields (companyId / tenantId) used in tables.
+
+Output a short “Current State” summary:
+- Auth method:
+- Role values:
+- City scoping mechanism:
+- Clinic scoping mechanism:
+- Tenant/company mechanism:
+- Where /metrics is implemented and why it’s blank (trace to failing call or missing data).
+
+STOP if you cannot locate these.
+
+========================================================
+STEP 1 — OBSERVABILITY FOUNDATION (LOW RISK)
+========================================================
+Implement:
+1) Request ID middleware:
+- If header x-request-id exists, reuse; else generate uuid
+- Attach to req.requestId
+- Return in response header x-request-id
+2) Structured logging helper:
+- log.info/error({requestId, userId, role, cityId, clinicId, path, method, status, ms, err})
+- Add a basic request logger around API routes (start time, end time, status)
+3) Error handler:
+- Ensure unhandled errors return JSON {error, requestId} and are logged.
+
+Verify by hitting any endpoint and confirming x-request-id returns and logs include it.
+
+========================================================
+STEP 2 — AUTHZ + SCOPING (HARD REQUIREMENT)
+========================================================
+Create/ensure these helpers exist (server-side):
+- getActorContext(req) => { userId, role, companyId/tenantId, clinicId, allowedCityIds, currentCityId }
+- requireAuth(req) throws 401 if missing actor
+- requireRole(...roles) throws 403 if role not allowed
+- requireCityAccess(actor, cityId) validates dispatch city access; SUPER_ADMIN bypass
+- forceClinicScope(actor) returns clinicId (for clinic role), ignores query inputs
+
+Apply these rules to ALL analytics/metrics endpoints:
+- SUPER_ADMIN: any city/clinic
+- DISPATCH: only allowed cities; clinic comparisons allowed ONLY if endpoint explicitly says ok
+- CLINIC_USER: forced clinic_id = actor.clinicId; cannot query other clinics
+- DRIVER: only their driver_id (optional, keep minimal)
+
+Add automated “deny” cases:
+- dispatch querying city not in allowed list => 403
+- clinic passing clinic_id query param => ignored and forced to actor.clinicId
+
+========================================================
+STEP 3 — TRIP LIFECYCLE GUARDRAILS (SERVER-SIDE)
+========================================================
+Implement a single validator used by trip status updates:
+- allowed status transitions map (existing statuses in code)
+- reject invalid transitions with 400 + message
+- prevent COMPLETED unless picked-up/dropoff timestamps or required fields exist (use current schema fields; do not invent new required DB columns)
+- make updates idempotent where applicable (if setting same status, allow no-op)
+
+Add audit log entries for:
+- status changes
+- assignments (driver/vehicle)
+- cancellations/no-show changes
+Fields: actor userId/role, tripId, old->new, requestId, timestamp.
+
+========================================================
+STEP 4 — FIX /metrics BLANK (SUPER_ADMIN ONLY)
+========================================================
+Goal: app.unitedcaremobility/metrics must render with real data or a clear empty-state (never blank).
+
+A) Find the frontend page and the API it calls.
+B) If blank due to API error:
+- fix endpoint path mismatch, auth failure, or exception
+- ensure it returns JSON always
+C) If blank due to empty data:
+- render empty-state UI “No data yet” with guidance
+D) Restrict page + API:
+- Only SUPER_ADMIN can access system metrics
+- Others get 403 with friendly UI message
+
+Verify:
+- Load /metrics as SUPER_ADMIN => not blank
+- Load as non-super admin => blocked
+
+========================================================
+STEP 5 — ARCHIVE + HARD DELETE SAFETY (AS REQUESTED)
+========================================================
+Implement consistent archive semantics:
+- Add/ensure soft-delete fields exist already (active=false and/or deletedAt)
+- Admin (SUPER_ADMIN) and company users (DISPATCH, CLINIC_USER) can ARCHIVE within their scope:
+  - SUPER_ADMIN: can archive any company/clinic/driver/patient/vehicle/trip
+  - DISPATCH: can archive clinics/drivers/patients/vehicles/trips within allowed city and company scope
+  - CLINIC_USER: can archive patients for their clinic only
+Hard delete:
+- Only SUPER_ADMIN can hard delete ANY entity (company, clinic, driver, patient, vehicle, trip, user)
+- Hard delete endpoint requires body.confirmText === "delete" (exact match)
+- If confirmText missing or not exact => 400
+- Always audit log hard deletes with requestId
+- Never allow hard delete if entity has active trips unless already handled by existing guard rules.
+
+Add endpoints (or adapt existing) with clear naming:
+POST /api/admin/archive/:entity/:id
+POST /api/admin/delete/:entity/:id  (SUPER_ADMIN only + confirmText)
+
+========================================================
+STEP 6 — MINIMAL SMOKE TEST SCRIPT (MUST RUN)
+========================================================
+Create a script (node/ts) in /server/scripts or /scripts:
+- Runs 10 key API checks in sequence using fetch:
+  1) auth works (gets actor context)
+  2) /metrics endpoint returns 200 for super admin
+  3) /metrics returns 403 for non-super-admin (mock or use a real dispatch user)
+  4) trip create + assign + valid status transitions
+  5) invalid transition is rejected
+  6) archive patient works (clinic user scoped)
+  7) hard delete rejects without confirmText “delete”
+  8) hard delete accepts with confirmText “delete” on a safe dummy record (create then delete)
+  9) request-id header present
+  10) logs printed include requestId
+
+If you cannot run with real auth tokens, build it as “developer-mode” using env TEST_AUTH_BYPASS=true ONLY when NODE_ENV !== production and document it clearly. Default must be OFF.
+
+========================================================
+VERIFICATION (REQUIRED OUTPUT)
+========================================================
+At the end, you MUST run and paste results:
+1) npm run check (or npx tsc --noEmit)
+2) npm run build
+3) npm run dev (start + hit /health or equivalent)
+
+Deliverables:
+1) List exact files changed with brief description
+2) Any new env vars added (with safe defaults)
+3) Curl examples:
+   - GET /api/metrics (super admin)
+   - POST archive entity
+   - POST hard delete entity with confirmText
+4) If any step fails, STOP and report the error (do not start other work).
+END.

@@ -1,0 +1,163 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Senior Full-Stack / Maps + Fleet Telemetry Engineer (NEMT)
+
+GOAL
+Fix the last major issue: Admin/Dispatcher/Clinic maps only show Point A → Point B with a straight line. We must show:
+1) Live route line while trip is active (Uber-like).
+2) Saved route playback after completion.
+3) Accurate miles/time (total + segments + waiting) stored at end of trip.
+4) Billing lines must never show “—” for route/miles; every invoice line is auditable (Trip → Route → Timeline → Proof).
+
+HARD RULES (DO NOT BREAK WORKING PARTS)
+- No DB reset. No dropping tables. No deleting data.
+- Make changes additive and backwards-compatible.
+- Keep existing RBAC/tenant/city filters intact.
+- Do NOT change Driver app flow that already works.
+- All new features must degrade gracefully if some telemetry is missing.
+
+ASSUMPTIONS (CURRENT STACK)
+- Backend: Node/Express + Supabase Postgres + Drizzle ORM
+- Frontend: React web apps (admin/dispatch/clinic) using Google Maps JS
+- Driver app posts location pings to backend (or Supabase) during trip.
+- We have two Google keys already set in Secrets: WEB key for frontend + SERVER key for backend.
+
+DELIVERABLES
+A) DB additions (safe migrations)
+B) Backend endpoints to: start capture, ingest pings, finalize trip, fetch route polyline, fetch playback
+C) UI updates for admin/dispatch/clinic: live polyline + playback, no straight-line-only
+D) Finalization logic: compute miles/time/waiting, save to trip and billing proof
+E) Tests + verification checklist
+
+PHASE 1 — DATABASE (ADD ONLY)
+1) Create table public.trip_location_points (append-only):
+- id uuid pk default gen_random_uuid()
+- trip_id uuid not null (fk to trips.id)
+- tenant_id uuid not null
+- city_id uuid not null
+- driver_id uuid not null
+- ts timestamptz not null
+- lat double precision not null
+- lng double precision not null
+- accuracy_m double precision null
+- speed_mps double precision null
+- heading_deg double precision null
+- source text default 'gps'
+Indexes:
+- (trip_id, ts)
+- (tenant_id, city_id, trip_id, ts)
+Enable RLS:
+- service_role insert/select
+- authenticated select only when trip is visible to the user’s role/tenant/city (reuse existing tenant isolation logic)
+2) Add columns to trips table (nullable, do not break):
+- route_polyline text null (encoded polyline for the driven route or planned route)
+- route_distance_meters integer null
+- route_duration_seconds integer null
+- actual_distance_meters integer null (computed from driven points or snap-to-roads)
+- actual_duration_seconds integer null
+- waiting_seconds integer null
+- arrived_pickup_at timestamptz null
+- picked_up_at timestamptz null
+- arrived_dropoff_at timestamptz null
+- completed_at timestamptz null
+- route_source text null ('telemetry'|'routes_api'|'fallback')
+- route_quality_score integer null (0-100)
+3) Add columns to trip_stops if exists (pickup/dropoff stops):
+- pickup_place_id text null
+- dropoff_place_id text null
+- pickup_geofence_m integer default 150
+- dropoff_geofence_m integer default 150
+
+PHASE 2 — BACKEND (AUTHORITATIVE ROUTE ENGINE)
+Implement a “Route Engine” module with ONE source of truth:
+- It produces a polyline + distance/time for (a) planned route and (b) actual driven route.
+
+2.1 Location ingest (already exists) — enhance without breaking:
+- Ensure driver location ping includes trip_id when on active trip.
+- Store every ping (throttled): accept 1 point every 5 seconds OR if moved > 20 meters OR heading change > 25°.
+- Insert into trip_location_points with tenant_id/city_id/driver_id from auth context.
+- Add idempotency: reject duplicates for same trip_id + ts.
+
+2.2 Planned route (for admin/dispatch/clinic view):
+- On trip creation or assignment, call Google Routes API from SERVER using:
+  origin: pickup place_id if available else lat/lng
+  destination: dropoff place_id if available else lat/lng
+  travelMode: DRIVE
+  routingPreference: TRAFFIC_AWARE
+  requested fields: polyline.encodedPolyline, distanceMeters, duration
+- Save to trips.route_polyline / route_distance_meters / route_duration_seconds / route_source='routes_api'
+- IMPORTANT: This must be server-side only.
+
+2.3 Actual route (Uber-like playback):
+- When trip is completed, compute actual route:
+  Option A (preferred): Use telemetry points -> Snap to Roads (if enabled) -> build polyline -> compute distance
+  Option B: If Roads API not available, compute haversine distance from points with smoothing + outlier removal.
+- Save to trips.route_polyline (actual) and actual_distance_meters, actual_duration_seconds, route_source='telemetry', route_quality_score.
+- Keep planned route separately if you already store it; if not, add columns planned_polyline/planned_distance/planned_duration OR store planned in new table trip_route_versions.
+
+2.4 Waiting timer + arrived gating
+- Use geofence check using pickup/dropoff coordinates or place_id geometry:
+  When driver within pickup_geofence_m AND status transitions to ARRIVED_PICKUP:
+    set arrived_pickup_at = now()
+  Waiting begins at arrived_pickup_at and ends at picked_up_at
+  waiting_seconds = EXTRACT(EPOCH FROM (picked_up_at - arrived_pickup_at))
+- Similar for dropoff.
+
+2.5 Endpoints (do not break existing routes)
+Add:
+GET /api/trips/:tripId/route
+- returns { polyline, distanceMeters, durationSeconds, source, quality, updatedAt }
+- obeys RBAC/tenant/city
+GET /api/trips/:tripId/playback?from=...&to=...
+- returns compressed points or polyline segments
+POST /api/internal/trips/:tripId/finalize
+- computes route + miles + waiting + timeline and persists (call on completion)
+Make sure static routes are declared before param routes as already learned.
+
+PHASE 3 — FRONTEND MAPS (ADMIN/DISPATCH/CLINIC)
+3.1 Replace straight-line drawing with real polyline:
+- For any trip card “Open Trip”: fetch /api/trips/:tripId/route
+- Render Google Maps Polyline with decoded path.
+- If route not ready, show fallback (A->B) but label “Calculating route…” and auto-refresh every 10s until ready.
+3.2 Live tracking:
+- Subscribe to driver last location (existing) and update marker.
+- Keep polyline as planned until completion, then switch to actual polyline automatically.
+3.3 Trip details UI:
+- Show Miles (actual_distance_meters -> miles) and Duration + Waiting
+- Show Route quality badge (Good/OK/Poor)
+- Every invoice line: add “View proof” -> opens trip with map + timeline.
+
+PHASE 4 — BILLING “AUDIT PROOF”
+4.1 When generating invoices:
+- Never display “—”.
+- If actual miles missing, compute immediately (finalize job) before invoice render.
+- Invoice line must include:
+  Trip ID (clickable)
+  Driver
+  Pickup/Dropoff address + place_id
+  Actual miles
+  Waiting minutes
+  Timeline events (arrived/pickup/dropoff/complete)
+  Geofence confirmations (true/false)
+4.2 Add a “route capture health” check:
+- If route_quality_score < 50 OR points < N, flag line with “Needs review” but still show best available miles.
+
+PHASE 5 — GPS BACKGROUND RELIABILITY (CAPACITOR / PWA -> stores)
+Even if driver app is web/PWA now, implement:
+- Foreground location watch (high accuracy) + background mode in native (Capacitor):
+  - iOS: enable Background Modes → Location Updates
+  - Android: Foreground Service + ACCESS_BACKGROUND_LOCATION
+- If not native yet, implement offline queue:
+  - Store pings locally (IndexedDB) when network drops
+  - Flush when online
+This phase must not block the map fix; do after route engine works.
+
+TESTS / CHECKLIST (MUST DO)
+- Create a trip, assign driver, start trip.
+- Confirm admin/dispatch/clinic trip detail shows polyline route (not straight line).
+- During trip: marker moves; polyline persists.
+- Complete trip: actual route saved; miles populated; invoice shows miles.
+- Regression: driver app navigation still correct (pickup vs dropoff).
+- RLS: clinic only sees their trips; tenant/city isolation holds.
+
+NOW DO IT
+Implement PHASE 1–4 in the codebase with minimal risk, commit cleanly, and produce a short “What changed / How to verify” note at the end.

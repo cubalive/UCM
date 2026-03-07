@@ -1,0 +1,86 @@
+ROLE: Senior production engineer (NEMT enterprise)
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Zero regression: do not break what already works
+- Work in small commits, verify each step with a checklist
+
+GOAL
+Upgrade Driver App v3 to “elite” reliability and UX:
+1) Fix navigation target bug: “Go to Pickup” must ALWAYS navigate to pickup (never dropoff) until the driver confirms PICKED_UP.
+2) Implement an enterprise-grade deterministic trip state machine (single source of truth) with strict transitions and phase-aware UI buttons.
+3) Add navigation provider chooser (Google Maps / Apple Maps / Waze) + save driver preference for future trips.
+4) Ensure Shift + Connected both exist and represent different concepts (Connected != On Shift). No replacing/removing one to add the other.
+5) Add sounds (and haptic fallback) for: new trip assigned, trip phase change, notification/alert.
+6) Make publish updates reliable (no stale UI after publish): versioning + service worker update flow + cache busting.
+
+CONSTRAINTS
+- Do not change existing DB meaning for trip statuses; map existing statuses into the state machine without breaking production data.
+- Never auto-skip pickup. No automatic phase jumps. Only:
+  a) driver action buttons, or
+  b) optional geofence gate that only ENABLES buttons (does not auto-transition).
+- Navigation must be decoupled from status transitions.
+
+DELIVERABLES
+A) Code changes:
+- A single trip state engine module:
+  - getTripPhase(trip) -> 'PICKUP' | 'DROPOFF' | 'DONE'
+  - allowedActions(phase, status) -> array of action keys
+  - nextStatus(currentStatus, action) -> newStatus (or throw)
+  - UI mapping: action key -> button label
+- Update Driver TripDetail + Home ActiveTrip card to:
+  - show correct button label(s) per phase
+  - call a single action dispatcher that validates transitions
+- Navigation chooser:
+  - openNavChooser(destination, driverPreferredNav)
+  - supports google/apple/waze deep links
+  - persist preference in DB (driver_settings table) or existing driver profile settings if present
+- Navigation destination resolver:
+  - if phase is PICKUP => use pickup coords/address only
+  - if phase is DROPOFF => use dropoff coords/address only
+  - if coords missing => geocode ONLY the needed address and store coords back (safe upsert)
+- Sounds:
+  - lightweight audio assets + user setting “Sound On/Off”
+  - haptic fallback when audio blocked
+- Publish reliability:
+  - add VITE_APP_VERSION and show it in Settings
+  - ensure assets are hashed
+  - service worker update flow: skipWaiting + clientsClaim + show “Update available” banner and auto reload on accept
+
+B) Documentation:
+- Create/Update docs/driver-trip-workflow.md with:
+  - status transition table
+  - phase derivation rules
+  - UI button mapping
+  - navigation deep link formats
+  - smoke test checklist (driver + dispatch)
+
+C) Verification (must be executed and reported in output):
+1) Unit tests for state engine:
+- ensure pickup never routes to dropoff before PICKED_UP
+- ensure invalid transitions are blocked
+2) Manual smoke test script (steps + expected results):
+- assigned trip -> Go to Pickup opens correct destination
+- after Picked Up -> Navigate goes to dropoff
+- chooser shows 3 apps; preference saves and is reused
+- Connected and On Shift both appear and behave correctly
+- publish: version changes and UI updates immediately; no stale cached build
+
+IMPLEMENTATION PLAN (do exactly)
+1) Locate current driver trip UI components (TripDetail modal/page, Home ActiveTrip card, navigate handler).
+2) Add state engine module and wire UI to it.
+3) Fix navigation destination resolver with strict phase gating.
+4) Add chooser + preference persistence.
+5) Add sounds/haptics.
+6) Add versioning + SW update flow.
+7) Run tests + smoke checklist and report results.
+
+OUTPUT FORMAT
+- List changed files
+- Provide the exact test commands run and results
+- Provide screenshots/console logs references if available in Replit preview
+- Confirm no regressions in existing driver availability / live map tracking

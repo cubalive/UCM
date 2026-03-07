@@ -1,0 +1,130 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM) — Replit + Supabase
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+GOAL (ONE PROMPT):
+Implement a complete “Clinic Cancel / Unexpected Return” workflow that:
+1) Clinic can REQUEST cancel (never cancels directly)
+2) Dispatch approves/rejects
+3) If clinic fault → billable (auto invoice)
+4) If driver/dispatch fault → non-billable (no invoice)
+5) Add “Unexpected Return Trip” button for dispatch to avoid leaving patient stranded
+6) Billing rules for late cancel and return trips are automatic + overrideable with audit
+
+========================================================
+PHASE 0 — DB (SAFE MIGRATIONS ONLY)
+========================================================
+A) Add columns to trips (nullable + default-safe):
+- billable boolean DEFAULT true NOT NULL
+- fault_party text NULL  -- allowed: 'clinic','driver','patient','dispatch','unknown'
+- cancel_stage text NULL -- e.g. 'pre_assign','assigned','enroute_pickup','arrived_pickup','picked_up','enroute_dropoff','completed'
+- parent_trip_id integer NULL REFERENCES trips(id)  -- for return trips (return_of)
+
+B) Add columns to invoices (optional but recommended):
+- reason text NULL
+- fault_party text NULL
+- related_trip_id integer NULL (if not using trip_id)
+
+NOTE: Do NOT delete existing columns; do NOT reset data.
+
+========================================================
+PHASE 1 — CLINIC: REQUEST CANCEL (NEVER DIRECT CANCEL)
+========================================================
+1) Clinic UI: add button "Request Cancel" on trip detail (Live/Scheduled/Pending)
+Show only if trip.status NOT IN ('COMPLETED','CANCELLED').
+
+2) On click: modal fields (required):
+- Reason dropdown:
+  * Clinic schedule change
+  * Patient not ready
+  * Duplicate request
+  * No longer needed
+  * Other
+- Notes (optional)
+
+3) Submit action does NOT cancel.
+Server must set:
+- trips.approval_status = 'cancel_requested'
+- trips.cancelled_reason = "<reason> | <notes>"
+- trips.cancelled_at = now()
+- trips.cancel_stage computed from status/assignment timestamps
+- trips.fault_party default = 'clinic' (clinic-requested is presumed clinic-fault unless dispatch reclassifies)
+- trips.billable = true (default)
+
+4) Write audit_log:
+action='clinic_cancel_request' entity='trip' entity_id=trip.id details include reason/notes clinic_id user_id
+
+5) Clinic UI: show chip "Cancel Requested" and disable button if already requested.
+
+SECURITY: backend must enforce clinic_id match; clinic cannot request cancel for any other clinic.
+
+========================================================
+PHASE 2 — DISPATCH: CANCEL REQUEST QUEUE + DECISION
+========================================================
+1) Dispatch view: "Cancel Requests" queue filters:
+approval_status='cancel_requested'
+
+2) Dispatch actions on each:
+A) Approve
+B) Reject
+
+3) On Approve: open modal (required):
+- Fault party (required):
+  * clinic
+  * driver
+  * patient
+  * dispatch
+  * unknown
+- Billable? auto-derived:
+  If fault_party IN ('driver','dispatch') => billable=false
+  Else billable=true
+- Show auto-calculated fee preview if billable (see Phase 3)
+- Allow amount override (optional) BUT require override_note if used
+
+Approve behavior:
+- trips.approval_status='cancelled'
+- trips.status='CANCELLED'
+- trips.fault_party = selected
+- trips.billable = computed (or forced if override)
+- trips.updated_at=now()
+
+If trips.billable=true:
+- Create invoice and attach trips.invoice_id (see Phase 3)
+If trips.billable=false:
+- Ensure no invoice is created; if invoice exists, mark invoice notes "Non-billable" and set amount 0 only if explicitly needed.
+
+Audit:
+action='dispatch_cancel_approve' with details (fault_party, billable, fee, override)
+
+4) On Reject:
+- trips.approval_status='approved'
+- keep trip.status unchanged
+- audit_log action='dispatch_cancel_reject'
+
+========================================================
+PHASE 3 — BILLING POLICY (AUTO FEES)
+========================================================
+Implement a simple, transparent cancel fee policy (constants for now, city-based later):
+
+Define cancel_stage from current trip state:
+- pre_assign: driver_id is null
+- assigned: driver_id not null, not enroute
+- enroute_pickup: status='EN_ROUTE_TO_PICKUP'
+- arrived_pickup: status='ARRIVED_PICKUP'
+- picked_up: status IN ('PICKED_UP','EN_ROUTE_TO_DROPOFF','ARRIVED_DROPOFF','IN_PROGRESS')
+
+Fee rules (billable ONLY):
+- pre_assign => $0
+- assigned => $25
+- enroute_pickup => $50
+- arrived_pickup => $75
+- picked_up => NOT a "cancel fee" (service started). Require dispatch to choose one:
+   a) mark trip completed with partial/flat charge
+   b) create return trip if needed (Phase

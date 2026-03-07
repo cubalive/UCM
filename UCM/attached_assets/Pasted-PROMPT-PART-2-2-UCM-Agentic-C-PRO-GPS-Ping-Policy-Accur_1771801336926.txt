@@ -1,0 +1,95 @@
+PROMPT (PART 2/2) — UCM Agentic C (PRO) — GPS Ping Policy + Accuracy + Background Resilience
+
+EXECUTION MODE: SINGLE AGENT ONLY.
+No sub-agents.
+
+Objective:
+Make GPS tracking reliable and “Uber-like” given constraints:
+- Current system includes PWA + Capacitor builds later.
+- We want to avoid losing GPS when app not foreground, but we can’t force iOS Safari PWA to run background GPS.
+So we implement:
+A) Correct server-side state so admin/dispatch/clinic never shows driver “Available” while in-trip.
+B) Ping policy and quality scoring.
+C) Best-effort background resilience for Capacitor (future) without breaking current PWA.
+
+Tasks:
+
+1) Fix driver availability vs trip state (critical bug shown in screenshot):
+- Investigate driver status logic used on admin map markers and driver list.
+- Ensure: if driver has an ACTIVE trip (non-terminal trip assigned to them), they must be shown as Busy/In Trip regardless of “available” flag.
+- Source of truth: trips table/state machine (ASSIGNED/EN_ROUTE/ARRIVED/PICKED_UP/IN_PROGRESS etc.)
+- Implement a helper in server/lib/driverStatus.ts:
+   computeDriverOperationalStatus(driverId) -> { status: 'AVAILABLE'|'BUSY'|'OFFLINE', activeTripId? }
+- Update endpoints that power:
+   - scheduled drivers list
+   - driver status panel
+   - live map markers
+to use this computed status and not stale flags.
+- Add caching (short TTL) if needed but must be correct.
+
+2) Geofence gating for “Arrived” and waiting timer (bug: arrival button doesn’t activate):
+- Find the “Arrived” enablement logic in driver UI.
+- Ensure it checks:
+   - distance to pickup geofence radius (default 150m, configurable per company/clinic)
+   - accuracy threshold (e.g., <= 50m) OR allow override with “I’m here” + audit reason
+- Implement server-side validation on status transition endpoint:
+   - If status=ARRIVED requires within geofence OR explicit override flag with reason.
+- Make driver UI:
+   - show distance-to-pickup live
+   - enable ARRIVED when inside
+   - start waiting timer automatically on ARRIVED
+- Ensure dispatch/admin can force status change (with audit ledger record).
+
+3) GPS ping policy:
+- Define recommended ping intervals:
+   - In-trip: 5–10 seconds
+   - Idle/online: 25–30 seconds
+   - Offline: no pings needed
+- Implement server-side “ping health” and “gps_quality_score”:
+   - For each trip, compute:
+     - avg ping interval
+     - % pings with accuracy <= 50m
+     - stale periods > 60s
+   - Save to trip_route_summary.gps_quality_score (0–100)
+- In UI (admin/dispatch/clinic trip detail), show a small badge:
+   - GPS: Great/OK/Poor based on score.
+
+4) Background resilience strategy (PWA now, Capacitor later):
+- PWA reality:
+   - iOS Safari PWA severely limits background GPS. We cannot guarantee continuous tracking.
+   - So we implement server reconciliation:
+     - when driver app returns foreground, immediately send a “burst” of pings (current + last known)
+     - keep route proof stable by using planned route + partial breadcrumbs
+- Capacitor future readiness (do not fully implement native plugins unless already in repo):
+   - Add a stub interface in shared/telemetry.ts describing a “BackgroundLocationProvider”
+   - Add config notes and TODO for:
+     - iOS: significant location change / background modes (requires native)
+     - Android: foreground service for location
+   - Keep current web implementation working.
+
+5) Notifications sounds/haptics support (web safe):
+- For PWA:
+   - Add in-app sound for:
+     - new trip assigned
+     - status changed
+     - new message
+   - Must respect user gesture restrictions: require one-time “Enable Sounds” toggle in settings.
+- For Capacitor later:
+   - Provide abstraction so native haptics can be used.
+
+6) Security & performance:
+- Do not expose raw GPS history to roles that shouldn’t see it.
+- Limit route data payload sizes:
+   - Return only last N chunks by default; provide pagination if needed.
+- Add rate limit to location ping endpoint (already exists; verify correct).
+
+Output requirements:
+- List of exact files changed.
+- Clear explanation of the fixes:
+   - why driver was shown available while busy
+   - why ARRIVED didn’t activate and how it now works
+- Verification checklist:
+   - Assign driver to trip → driver shows BUSY everywhere
+   - Driver reaches pickup → ARRIVED enables + waiting timer starts
+   - Complete trip → miles populate (planned + actual if pings exist)
+   - Clinic/admin can view trip on map with polyline.

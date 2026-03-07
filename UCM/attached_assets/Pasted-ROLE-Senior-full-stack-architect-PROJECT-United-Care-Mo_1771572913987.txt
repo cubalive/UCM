@@ -1,0 +1,174 @@
+ROLE: Senior full-stack architect
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel agents
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- No breaking changes
+- Preserve RBAC
+- Verify with proof
+
+OBJECTIVE
+Make the entire platform fully navigable, searchable, and filter-driven like a professional enterprise system.
+
+PART 1 — EVERYTHING CLICKABLE (CRITICAL)
+
+Trips:
+- Every trip row clickable → opens TripDetailsDrawer or /trips/:id
+- Completed trips must open normally
+- Canceled / No-show must open normally
+- Trips inside invoices must be clickable
+- Trips inside dashboard cards must be clickable
+- Trips inside imports must be clickable
+- Trips inside scheduler must be clickable
+- Patient profile → trip list → clickable
+- Driver profile → trip history → clickable
+
+Invoices:
+- Invoice rows clickable → opens InvoiceDetailsDrawer
+- Trips inside invoice clickable
+- Company → invoices clickable
+- Clinic → invoices clickable
+
+Patients:
+- Patient rows clickable
+- From trip → patient name clickable
+- From clinic → patient clickable
+
+Drivers:
+- Driver rows clickable
+- From trip → driver clickable
+- From vehicle → driver clickable
+
+Vehicles:
+- Vehicle rows clickable
+- From trip → vehicle clickable
+
+Companies & Clinics:
+- Always clickable from any reference
+
+If a reference exists visually, it must be navigable.
+
+---
+
+PART 2 — GLOBAL SEARCH SYSTEM
+
+Create UniversalSearch component:
+
+<Location: Top bar globally>
+
+Features:
+- Debounced search (300ms)
+- Multi-entity search
+- Results grouped by:
+  - Trips
+  - Patients
+  - Drivers
+  - Vehicles
+  - Clinics
+  - Companies
+  - Invoices
+
+Typing:
+- “John” → shows patient + trips + driver
+- “INV-2026” → invoice
+- “Fresenius” → clinic + related trips
+- “Las Vegas” → trips, drivers, vehicles in city
+
+Must:
+- Use server-side search
+- Paginated results
+- Role scoped (SUPER_ADMIN sees all, clinic sees only own)
+
+---
+
+PART 3 — SMART FILTER SYSTEM (APPLY TO ALL LISTS)
+
+Every list must have:
+
+Search bar  
+Filter button  
+Active filter chips  
+Clear all  
+Result count  
+
+Trips filters:
+- Status (multi)
+- Date range
+- Company (super admin only)
+- Clinic
+- City
+- Driver
+- Vehicle type
+- Late only
+- No-show only
+- Assigned / Unassigned
+- Billed / Unbilled
+
+Patients:
+- Company
+- Clinic
+- Active/Archived
+- City
+
+Invoices:
+- Status
+- Date range
+- Company
+- Clinic
+
+Drivers:
+- Active
+- Company
+- City
+- Online/offline (if applicable)
+
+All filters:
+- Persist per user (localStorage)
+- Server-side filtering
+- Indexed DB columns
+- Query params standardization
+
+---
+
+PART 4 — SEARCHABLE DROPDOWNS
+
+Convert to searchable combobox:
+- City picker
+- Clinic picker
+- Company picker
+- Patient picker
+- Driver picker
+
+Must:
+- Type-to-filter
+- Keyboard navigation
+- Show metadata (e.g. Clinic + Company)
+- Handle large datasets
+
+---
+
+PART 5 — UX HARDENING
+
+- Show "Showing X of Y results"
+- Show empty state explanation when filtered
+- Mobile friendly
+- No layout breaking
+- No performance regression
+
+---
+
+VERIFICATION REQUIRED
+
+Provide:
+- File list changed
+- Proof that:
+  - Trips fully clickable
+  - Invoices fully clickable
+  - Global search working
+  - Filters applied server-side
+  - One dropdown searchable
+- Build passes
+- Publish passes

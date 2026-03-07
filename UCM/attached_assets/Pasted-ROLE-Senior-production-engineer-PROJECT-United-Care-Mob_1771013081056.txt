@@ -1,0 +1,200 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Implement complete SUPER_ADMIN management for:
+- Clinics
+- Drivers
+- Patients
+- Dispatch accounts (internal users)
+
+This must include:
+1) Full EDIT (update) capability
+2) Two-level deletion:
+   - Archive (soft delete) removes from dashboards but keeps recoverable in Admin → Archive
+   - Permanent delete only from Archive with irreversible confirmation
+3) Password reset without token for clinic/driver/dispatch accounts (admin-only)
+4) Strict server-side RBAC and guardrails (no UI-only protection)
+
+------------------------------------------------------------
+A) DATABASE (SAFE MIGRATIONS)
+------------------------------------------------------------
+1) Add soft-delete fields if missing:
+For clinics, drivers, patients, profiles/users tables used by app:
+
+- Add columns (if not exist):
+  is_active boolean default true
+  deleted_at timestamptz null
+
+2) Ensure driver license formatting support:
+- license_number stored uppercase (enforce on write)
+
+3) Add audit log table:
+audit_log(
+  id uuid pk,
+  actor_user_id uuid,
+  action text,
+  entity_type text,
+  entity_id uuid,
+  metadata jsonb,
+  created_at timestamptz default now()
+)
+
+------------------------------------------------------------
+B) BACKEND: ADMIN CRUD ENDPOINTS (SUPER_ADMIN ONLY)
+------------------------------------------------------------
+
+1) Clinics
+- PUT /api/admin/clinics/:id
+  Editable:
+    name, contact_name, contact_phone, contact_email,
+    address fields (street/city/state/zip/lat/lng),
+    city_id, notes, is_active
+  Enforce city lock: clinic address city/state MUST match selected city_id.
+
+- PATCH /api/admin/clinics/:id/archive
+  Set is_active=false, deleted_at=now()
+  Guardrail: block if clinic has ACTIVE trips (not completed/canceled) -> 409
+
+- PATCH /api/admin/clinics/:id/restore
+  Set is_active=true, deleted_at=null
+
+- DELETE /api/admin/clinics/:id/permanent
+  Allowed only if is_active=false
+  Guardrails:
+    - block if active trips exist -> 409
+    - do NOT delete trips; preserve trip history
+  Log to audit_log
+
+2) Drivers
+- PUT /api/admin/drivers/:id
+  Editable:
+    name, phone, email, license_number (force uppercase),
+    city_id, vehicle_id (if applicable), notes, is_active
+
+- PATCH /api/admin/drivers/:id/archive
+  Guardrail: block if driver has ACTIVE trips assigned -> 409
+  Set is_active=false, deleted_at=now()
+
+- PATCH /api/admin/drivers/:id/restore
+  Set is_active=true, deleted_at=null
+
+- DELETE /api/admin/drivers/:id/permanent
+  Allowed only if is_active=false
+  Guardrail: block if active trips exist -> 409
+  Preserve trips; remove only driver record and dependent non-trip rows if safe
+  Log to audit_log
+
+3) Patients
+- PUT /api/admin/patients/:id
+  Editable:
+    name, phone, email(optional),
+    address fields (street/city/state/zip/lat/lng),
+    clinic_id, city_id, notes, is_active
+
+- PATCH /api/admin/patients/:id/archive
+  Guardrail: block if patient has ACTIVE trips -> 409
+  Set is_active=false, deleted_at=now()
+
+- PATCH /api/admin/patients/:id/restore
+  Set is_active=true, deleted_at=null
+
+- DELETE /api/admin/patients/:id/permanent
+  Allowed only if is_active=false
+  Guardrail: block if active trips exist -> 409
+  Preserve trips; remove only patient record and safe dependent rows
+  Log to audit_log
+
+4) Dispatch Accounts (internal users)
+Assume internal users are represented in profiles table with role='dispatch'.
+
+- PUT /api/admin/users/:id
+  Editable:
+    name, email, role (dispatch/clinic_user/driver only), city_id (if used), is_active
+  SUPER_ADMIN only.
+
+- PATCH /api/admin/users/:id/archive
+  Set is_active=false, deleted_at=now()
+  Also disable sign-in:
+    - set profiles.is_active=false and mark auth user disabled if supported,
+      or block in backend middleware if profiles.is_active=false
+
+- PATCH /api/admin/users/:id/restore
+  Re-enable.
+
+- DELETE /api/admin/users/:id/permanent
+  Allowed only if is_active=false
+  Must warn irreversible
+  Log to audit_log
+
+------------------------------------------------------------
+C) ADMIN PASSWORD RESET (NO TOKEN) — SUPER_ADMIN ONLY
+------------------------------------------------------------
+Implement:
+POST /api/admin/users/:id/reset-password
+Body: { newTempPassword?: string }
+
+Behavior:
+- Generate strong temp password if not provided
+- Use Supabase Admin API (service role) to update auth user's password
+- Set profiles.must_change_password=true
+Return:
+{ ok:true, tempPassword:"..." }
+
+Add UI buttons:
+- Clinic detail: "Reset Password"
+- Driver detail: "Reset Password"
+- Dispatch user detail: "Reset Password"
+Show temp password ONCE with Copy button + warning.
+
+------------------------------------------------------------
+D) FRONTEND: ENABLE EDIT / ARCHIVE / RESTORE / PERMANENT DELETE
+------------------------------------------------------------
+1) Admin screens for Clinics, Drivers, Patients, Users:
+- Add Edit forms (prefilled) -> calls PUT endpoints
+- Add "Archive" button -> calls PATCH archive endpoint
+- Add Archive page (Admin → Archive):
+  Tabs: Clinics / Drivers / Patients / Users
+  Shows only is_active=false items
+  Actions per row:
+    - Restore
+    - Delete permanently
+
+2) Permanent delete confirmation modal:
+Title: "Permanent deletion"
+Message:
+"This action cannot be undone. Type DELETE to permanently remove this record."
+Require typing exact word: DELETE
+Only then allow calling /permanent endpoint.
+
+3) Filtering:
+All normal dashboards/lists must show only is_active=true.
+Archive shows only is_active=false.
+
+------------------------------------------------------------
+E) RBAC (SERVER-SIDE ENFORCEMENT)
+------------------------------------------------------------
+- All endpoints above SUPER_ADMIN only.
+- Dispatch cannot delete or reset passwords.
+- Clinic users cannot access any admin endpoints.
+- Ensure middleware checks profiles.role and profiles.is_active.
+
+------------------------------------------------------------
+F) VERIFICATION (MUST DO BEFORE EXIT)
+------------------------------------------------------------
+1) Edit an existing clinic contact_name -> persists after refresh.
+2) Archive clinic -> disappears from active list, appears in Admin → Archive.
+3) Restore clinic -> returns to active list.
+4) Permanent delete clinic from Archive -> requires typing DELETE, then removes.
+5) Same archive/restore/permanent behavior for drivers and patients.
+6) Reset password for clinic/driver/dispatch -> returns temp password; user can login and is forced to change password.
+7) Attempt delete when active trips exist -> blocked with 409 and clear message.
+8) Confirm trips/history remain intact after deletes (no trip rows removed).
+Provide curl examples for each endpoint.

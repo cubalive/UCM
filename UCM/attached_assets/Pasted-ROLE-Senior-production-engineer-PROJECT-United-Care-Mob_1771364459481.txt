@@ -1,0 +1,98 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Integrate Stripe TEST mode into clinic billing so clinics can view invoices and pay the correct company invoice end-to-end (Checkout or PaymentIntent), including webhook confirmation and strict role scoping.
+
+CONTEXT:
+Stripe is already configured in TEST mode.
+We need a stable billing payment flow:
+- Clinic user sees their invoices
+- Clicks “Pay” -> Stripe hosted checkout
+- On payment success -> invoice marked as PAID in DB
+- Must be tenant/company safe (no paying wrong tenant invoice)
+- Must not break existing invoice generation.
+
+HARD REQUIREMENTS:
+1) No DB resets, no removing tables/columns.
+2) Role scoping:
+   - SUPER_ADMIN: can view/pay/test any invoice
+   - COMPANY_ADMIN/DISPATCH: can manage invoices only inside their tenant/city scope
+   - CLINIC_USER: can ONLY access/pay invoices for their clinicId, ignore user-provided clinicId
+3) Prevent “pay wrong invoice”:
+   - invoice must belong to actor’s clinic (unless super_admin)
+   - invoice must belong to actor’s tenant/company (if tenant exists)
+4) Webhook required:
+   - On payment success, write invoice_payments row + set invoice/paymentStatus to PAID
+   - Idempotent webhook (no double payment rows)
+5) Provide curl examples + UI link integration.
+
+IMPLEMENTATION PLAN:
+A) Confirm Stripe keys are in env:
+- STRIPE_SECRET_KEY
+- STRIPE_WEBHOOK_SECRET
+- APP_BASE_URL (for success/cancel redirect)
+
+B) Add server routes:
+1) POST /api/billing/invoices/:invoiceId/checkout
+   - Auth: requirePermission("billing","write") OR requireRole(SUPER_ADMIN, COMPANY_ADMIN, DISPATCH, CLINIC_USER)
+   - Enforce invoice ownership by role:
+     - if CLINIC_USER: invoice.clinicId must equal actor.clinicId
+     - else if dispatch/company_admin: invoice.city/tenant scope enforced
+   - Create Stripe Checkout Session:
+     - mode=payment
+     - line item from invoice amount + currency
+     - metadata: invoiceId, clinicId, tenantId/companyId, cityId
+     - success_url = APP_BASE_URL + "/billing/success?invoiceId=..."
+     - cancel_url  = APP_BASE_URL + "/billing/cancel?invoiceId=..."
+   - Return { url } to client
+
+2) POST /api/stripe/webhook
+   - Raw body required (do not JSON parse before verifying signature)
+   - Verify signature using STRIPE_WEBHOOK_SECRET
+   - Handle:
+     - checkout.session.completed -> mark invoice paid
+     - payment_intent.succeeded (if used) -> mark invoice paid
+   - Idempotency:
+     - if payment reference already exists (session.id or payment_intent.id), do nothing
+   - Writes:
+     - invoicePayments row with reference + stripePaymentIntentId + paidAt + amount
+     - update invoice paymentStatus=paid (and/or status finalized->paid depending schema)
+
+C) Client/UI:
+- On clinic invoice list, add “Pay” button:
+  - calls POST /api/billing/invoices/:invoiceId/checkout
+  - redirects window.location = returned url
+- After success redirect, show “Payment received” and refetch invoice.
+
+D) Verification:
+1) Create one unpaid invoice for a seeded clinic.
+2) Login as CLINIC_USER for that clinic -> open invoice -> click Pay -> complete Stripe test card:
+   - 4242 4242 4242 4242, any future exp, any CVC, any ZIP
+3) Confirm:
+   - invoice marked PAID
+   - invoicePayments row created once
+4) Negative test:
+   - login as different clinic user -> attempt to pay other clinic invoice -> must be 403
+5) Webhook test:
+   - Provide local/dev instructions with Stripe CLI OR a test endpoint log confirming webhook hit.
+
+DELIVERABLES:
+- Exact files changed + line ranges
+- curl examples:
+  - create checkout
+  - webhook sample (explain using Stripe CLI)
+- Confirm:
+  - npm run check
+  - npm run build
+  - server starts
+
+STOP if any error remains and report it.
+END.

@@ -1,0 +1,55 @@
+ROLE: Senior production engineer
+PROJECT: UCM Driver App + Live Map
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Zero ambiguity, zero regressions
+
+PROBLEM
+You removed/replaced the CONNECT button with START SHIFT. That is wrong.
+CONNECT and START SHIFT are two different actions and BOTH must exist.
+
+REQUIREMENT: TWO-SEPARATE ACTIONS
+1) CONNECT = connects driver session (socket/availability) -> does NOT start payroll
+2) START SHIFT (CLOCK IN) = starts shift for hourly payroll + live tracking
+
+STATE MACHINE (must implement exactly)
+- DISCONNECTED
+- CONNECTED_OFF_SHIFT
+- ON_SHIFT
+- ON_BREAK
+
+Transitions:
+- CONNECT: DISCONNECTED -> CONNECTED_OFF_SHIFT
+- START_SHIFT/CLOCK_IN: CONNECTED_OFF_SHIFT -> ON_SHIFT
+- BREAK: ON_SHIFT -> ON_BREAK
+- RESUME: ON_BREAK -> ON_SHIFT
+- END_SHIFT/CLOCK_OUT: ON_SHIFT/ON_BREAK -> CONNECTED_OFF_SHIFT
+- DISCONNECT: any -> DISCONNECTED (stop tracking and session)
+
+UI RULES (Driver Home)
+- If DISCONNECTED: show primary button "CONNECT"
+- If CONNECTED_OFF_SHIFT: show "START SHIFT (Clock In)" and "DISCONNECT"
+- If ON_SHIFT: show "END SHIFT (Clock Out)" and "BREAK"
+- If ON_BREAK: show "RESUME" and "END SHIFT"
+
+BACKEND
+- Persist shift state in DB (driver_shift table or drivers.on_shift + timestamps).
+- Persist connect state separately (drivers.is_connected / last_seen / socket presence).
+- Location updates must only stream while ON_SHIFT (or also ON_BREAK if we choose; document it).
+- Live map endpoint must show only ON_SHIFT drivers (and optionally ON_BREAK) with recent location.
+
+VERIFICATION (must provide proof)
+1) Screenshot of Driver Home for each state (Disconnected, Connected off shift, On shift, On break).
+2) Network logs show:
+   - /api/driver/connect returns 200
+   - /api/driver/shift/start returns 200
+   - /api/driver/location posts succeed after shift start
+3) Admin live map shows driver after Start Shift + first location update.
+4) End Shift removes driver from “active” list (still can stay connected).
+5) Nothing else in the driver app is removed (keep the 3 map options).
+
+DELIVERABLE
+List files changed + exact endpoints used + confirmation that publish reflects changes via version.json.

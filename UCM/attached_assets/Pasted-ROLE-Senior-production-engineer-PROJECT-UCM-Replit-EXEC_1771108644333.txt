@@ -1,0 +1,89 @@
+ROLE: Senior production engineer
+PROJECT: UCM (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Implement real route polyline (Google Directions) + auto-reroute for Driver map and Clinic selected-trip map, with smooth updates (no map flicker).
+
+ENV:
+- Use VITE_GOOGLE_MAPS_API_KEY from Replit Secrets.
+
+---------------------------------------
+PHASE 1 — DRIVER ROUTE (PICKUP vs DROPOFF)
+---------------------------------------
+1) Determine destination by trip status:
+- If status in (SCHEDULED, ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP): destination = pickup lat/lng (fallback pickup_address)
+- If status in (PICKED_UP, EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF, IN_PROGRESS): destination = dropoff lat/lng (fallback dropoff_address)
+
+2) Origin:
+- driver current GPS position (from navigator.geolocation)
+- fallback to drivers.last_lat/lng if available
+
+3) Use Google Directions API to compute route:
+Option A (preferred for simplicity): use client-side DirectionsService:
+- new google.maps.DirectionsService().route({origin, destination, travelMode:'DRIVING'})
+- render using DirectionsRenderer OR manually draw polyline from overview_polyline
+
+4) Persist route on trips:
+- route_polyline = overview_polyline (encoded)
+- duration_minutes, distance_miles, last_eta_minutes, last_eta_updated_at
+
+Add/extend endpoint:
+POST /api/trips/:id/route/recompute
+Auth: assigned driver OR dispatch OR owning clinic (clinic only for its trips)
+Input: origin lat/lng
+Server calls Google Directions (or accept client response if key is client-restricted) and persists fields.
+(Choose one approach and implement consistently.)
+
+---------------------------------------
+PHASE 2 — AUTO-REROUTE (THROTTLED)
+---------------------------------------
+Recompute route when ANY:
+- moved >= 120 meters since last compute
+- OR 20 seconds elapsed since last compute
+- OR trip status changed (pickup->dropoff)
+Throttle strictly to avoid spam + billing.
+
+If driver is logged out OR not on active trip:
+- stop recompute loop and stop location watch.
+
+---------------------------------------
+PHASE 3 — SMOOTH MAP (NO BLINK)
+---------------------------------------
+Key requirement: DO NOT remount the map component on interval updates.
+- Create map instance once
+- Create markers once
+- Create one polyline (or one DirectionsRenderer) and update it:
+  - If using DirectionsRenderer: reuse same renderer and call setDirections(newDirections)
+  - If using polyline: reuse same google.maps.Polyline and setPath(decodedPath)
+
+Keep previous route visible while fetching a new one; replace when new data arrives.
+
+---------------------------------------
+PHASE 4 — CLINIC: SELECTED TRIP ONLY
+---------------------------------------
+Clinic Live Trips:
+- list active trips for that clinic
+- selecting a trip shows ONLY that trip route on the map:
+  - driver marker + pickup + dropoff + polyline + ETA
+- clinic reads persisted route from DB (trips.route_polyline, last_eta_minutes)
+- clinic triggers recompute only if:
+  last_eta_updated_at older than 60s AND driver last_seen_at <= 5 min
+
+No other drivers shown. If no live trips, show banner and hide map.
+
+---------------------------------------
+PHASE 5 — VERIFY
+---------------------------------------
+1) Driver sees curved route line, not straight A-B
+2) If driver deviates, route updates within ~20–30s without flicker
+3) Switching status to PICKED_UP reroutes to dropoff immediately
+4) Clinic sees one selected trip route only
+5) No reroute when driver logged out
+6) No API key missing errors

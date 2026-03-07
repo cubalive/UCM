@@ -1,0 +1,187 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+FEATURE: SUPER_ADMIN ONLY → INTELLIGENCE → INDEXES (10 INDEXES) + GENERAL/STATE/CITY + PDF EXPORT
+
+HARD REQUIREMENT
+This entire module (UI + APIs + PDF export) is SUPER_ADMIN ONLY.
+No DISPATCH, no CLINIC_USER, no DRIVER access. Enforce server-side.
+
+------------------------------------------------------------
+PHASE 0 — AUTHZ HARD LOCK
+------------------------------------------------------------
+- Implement/ensure requireRole('super_admin') middleware
+- Protect:
+  UI: /admin/intelligence/indexes
+  APIs: /api/intelligence/indexes/* (including export.pdf)
+- Hide nav item unless SUPER_ADMIN
+- Non-super_admin direct URL/API -> 403
+
+------------------------------------------------------------
+PHASE 1 — SCOPE FILTERING (GENERAL / STATE / CITY)
+------------------------------------------------------------
+Indexes must compute by filters:
+- dateFrom, dateTo
+- scope = general | state | city
+- state (optional)
+- city (optional)
+
+Trip location mapping (reuse existing):
+Trip -> clinic -> {state, city}
+Fallback: Trip -> city_id -> {state, city}
+Do NOT reset DB; add state field only if absolutely necessary.
+
+------------------------------------------------------------
+PHASE 2 — IMPLEMENT EXACTLY THESE 10 INDEXES
+------------------------------------------------------------
+
+INDEX #1: Transport Reliability Index Nevada™ (TRI) 0–100
+Uses:
+scheduled_pickup_at, arrived_pickup_at, completed_at, billing_outcome/status
+Definitions:
+OnTime = arrived_pickup_at <= scheduled_pickup_at + grace_minutes
+Late   = arrived_pickup_at  > scheduled_pickup_at + grace_minutes
+NoShow = outcome/status no_show
+TRI = 100*(OnTimeCompleted/Completed) - late_weight*100*(LateCompleted/Completed) - noshow_weight*100*(NoShow/(Completed+NoShow))
+Return: score + counts (completed, ontime, late, noshow)
+
+INDEX #2: Clinic Trust Score (CTS) 0–100
+Composite (weights normalized if some components missing):
+- TRI (normalized)
+- Return Reliability (on-time returns %)
+- Proof Completeness (timestamp completeness + proof photo presence %)
+- Dispute Rate (if tracked) else omit
+Return: score + component breakdown
+
+INDEX #3: Driver Stability Index 0–100
+Stability = completed/assigned
+Penalize late pickups and driver-attributed cancels if data exists
+Return: score + counts
+
+INDEX #4: Driver Utilization Index %
+Utilization = active_trip_minutes / scheduled_minutes
+active_trip_minutes = picked_up_at→completed_at (fallback arrived_pickup_at→completed_at)
+Return: percent + minutes
+
+INDEX #5: Dispatch Efficiency Score %
+Efficiency = auto_assigned / total_assigned
+Track manual overrides/reassignments via existing flags or status history inference
+Return: efficiency% + manual_override_count + reassignment_count
+
+INDEX #6: Revenue Leakage Index ($)
+Leakage = sum of:
+- no_show not billed
+- cancelled billable but not billed
+- return legs missing billing record when trip exists
+- private completed unpaid (if private module exists)
+Return: leakage_total + leakage_by_reason + leakage_by_clinic
+
+INDEX #7: Clinic Load Index (ratio + level)
+Load = active_trips / scheduled_drivers
+Return: ratio + level (low/med/high) + thresholds used
+
+INDEX #8: Weekly Profit Index ($ + margin%)
+Profit = revenue - driver_cost - vehicle_cost_estimate
+Revenue source: clinic billing runs/invoices preferred; else sum billed amounts
+Costs: use existing pay model; else configurable estimates
+Return: revenue$, cost$, profit$, margin%
+
+INDEX #9: Replacement Pressure Index (risk)
+Pressure = scheduled_drivers - active_drivers
+active_drivers = online OR assigned trips
+Return: shortage_count, risk level, recommended action
+
+INDEX #10: Late Risk Predictor (0–100 risk + reasons)
+Light heuristic (no external APIs):
+Risk factors:
+- historical lateness for same city/time bucket
+- driver schedule buffer tightness
+- clinic load high
+- driver stability low
+- long distance vs time to appointment
+Return:
+- summary: red/yellow/green counts
+- top 20 at-risk trips with reason list
+
+------------------------------------------------------------
+PHASE 3 — INDEX ENGINE + API
+------------------------------------------------------------
+Create:
+services/intelligence/indexEngine.ts
+computeIndexes({dateFrom,dateTo,scope,state?,city?}) -> {
+ meta,
+ summary: { TRI, CTS, DriverStability, DriverUtilization, DispatchEfficiency, Leakage, Load, Profit, ReplacementPressure, LateRisk },
+ breakdown:
+  - by_state (for general scope)
+  - by_city (for state scope)
+  - by_clinic (for city scope)
+  - risky_trips (for late risk)
+}
+
+Expose SUPER_ADMIN-only APIs:
+GET /api/intelligence/indexes?dateFrom&dateTo&scope&state&city
+GET /api/intelligence/indexes/export.pdf?dateFrom&dateTo&scope&state&city
+
+------------------------------------------------------------
+PHASE 4 — UI: SUPER_ADMIN → Intelligence → Indexes
+------------------------------------------------------------
+Filters:
+- Date range (default last 7 days)
+- Scope selector: General / State / City
+- State dropdown (scope!=general)
+- City dropdown (scope==city)
+
+Top 10 cards (must show all 10 index values):
+1 TRI Nevada™
+2 Clinic Trust Score
+3 Driver Stability
+4 Driver Utilization
+5 Dispatch Efficiency
+6 Revenue Leakage $
+7 Clinic Load
+8 Weekly Profit $
+9 Replacement Pressure
+10 Late Risk (red count + score)
+
+Tables:
+- General: breakdown by State
+- State: breakdown by City
+- City: breakdown by Clinic
+
+Late Risk section:
+- list of top at-risk trips with reasons
+
+------------------------------------------------------------
+PHASE 5 — PDF EXPORT (SUPER_ADMIN ONLY)
+------------------------------------------------------------
+Export button generates professional PDF with:
+- Header + scope + date range
+- 10 index summary (with counts)
+- Breakdown table (state/city/clinic)
+- Late risk top list (optional)
+- TRI definition + thresholds footer
+Keep 1–3 pages max.
+
+------------------------------------------------------------
+VERIFY (MUST DO)
+------------------------------------------------------------
+1) SUPER_ADMIN sees all 10 indexes for general/state/city
+2) Export PDF works for all scopes
+3) Non-super_admin cannot access UI or APIs (403)
+4) Uses real data; no external APIs; no DB reset
+5) Performance acceptable (add snapshot cache only if needed)
+
+DO NOT
+- reset DB
+- expose intelligence data to non-super_admin
+- break scheduler/trips/invoices
+
+SUCCESS
+SUPER_ADMIN-only Intelligence → Indexes with 10 proprietary indexes, scope drilldowns, and PDF export.

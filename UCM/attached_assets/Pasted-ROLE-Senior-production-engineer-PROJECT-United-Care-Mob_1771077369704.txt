@@ -1,0 +1,138 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Clinic experience must be trip-centric (clear list + per-trip detail), NOT a full fleet map.
+Clinics need:
+1) Active Trips list (their patients only)
+2) Trip Detail view per trip with:
+   - Driver name + vehicle + status
+   - Mini map showing route from driver current location -> destination (pickup or center depending on status)
+   - ETA (updates every ~60–120s)
+3) No ability to view the entire map of all drivers.
+
+---------------------------------------------------------
+PHASE 1 — CLINIC TRIPS IA (INFORMATION ARCHITECTURE)
+---------------------------------------------------------
+1) Add Clinic sidebar/menu:
+- Active Trips
+- Scheduled
+- Completed (read-only)
+
+2) Active Trips list must be the default landing page for clinic_user.
+Show cards/rows with:
+- Patient name (or masked: First + last initial if needed)
+- Pickup address (or origin) + Destination (facility)
+- Appointment time
+- Current status (SCHEDULED / ASSIGNED / EN_ROUTE_TO_PICKUP / ARRIVED_PICKUP / PICKED_UP / EN_ROUTE_TO_DROPOFF / ARRIVED_DROPOFF / COMPLETED / CANCELLED)
+- Driver name (if assigned)
+- ETA badge (if driver en route)
+
+3) Clicking a trip opens Trip Detail (clinic-only).
+
+---------------------------------------------------------
+PHASE 2 — BACKEND: CLINIC-SAFE ENDPOINTS (CITY + CLINIC SCOPED)
+---------------------------------------------------------
+4) Implement/ensure server-side enforcement:
+- clinic_user can only access trips belonging to their clinic_id
+- must also respect active_city_id if the system uses it
+
+Endpoints:
+A) GET /api/clinic/trips?status=ACTIVE|SCHEDULED|COMPLETED
+- Returns only trips for that clinic
+- ACTIVE = not completed/cancelled and relevant statuses
+
+B) GET /api/clinic/trips/:tripId
+- Returns trip details + latest driver location (if assigned) + destination coordinates
+
+C) GET /api/clinic/trips/:tripId/eta
+- Returns { etaMinutes, distanceMiles, routePolyline, updatedAt }
+- Must return 404/400 if trip not in clinic scope
+
+---------------------------------------------------------
+PHASE 3 — ETA + ROUTE CALCULATION (NO GOOGLE ROUTE OPT API REQUIRED)
+---------------------------------------------------------
+5) Use a simple approach that works now:
+- If you already have Google Maps JS on frontend:
+   - Use Google Directions API (or Directions Service in browser) to compute route
+- If no backend key available:
+   - Compute ETA client-side using Maps DirectionsService (preferred) with minimal exposure
+- Refresh cadence:
+   - On Trip Detail: recalc every 60–120 seconds
+   - Also recalc immediately when status changes
+
+Logic for destination based on status:
+- If status is before pickup (ASSIGNED/EN_ROUTE_TO_PICKUP/ARRIVED_PICKUP):
+   destination = pickup location
+- If status is after pickup (PICKED_UP/EN_ROUTE_TO_DROPOFF/ARRIVED_DROPOFF):
+   destination = dropoff/facility location
+
+Origin:
+- driver latest location if available
+- else show “Waiting for driver location permission” or “Driver location unavailable”
+
+6) Route + ETA display:
+- Show ETA minutes big and clear
+- Show "Last updated X sec ago"
+- Show distance too
+
+---------------------------------------------------------
+PHASE 4 — FRONTEND: TRIP DETAIL VIEW (CLINIC)
+---------------------------------------------------------
+7) Trip Detail UI sections:
+Header:
+- Patient + Trip ID + Status chip
+- Driver name + vehicle + phone (optional)
+- ETA + last updated
+
+Map panel (ONLY for this trip):
+- Marker A: Driver (car icon)
+- Marker B: Destination (pickup/facility)
+- Polyline route
+- If driver location missing: show destination only + message
+
+Timeline / Progress:
+- Scheduled
+- Assigned
+- Driver En Route
+- Arrived Pickup
+- Picked Up
+- En Route Dropoff
+- Arrived Dropoff
+- Completed
+(Highlight current step)
+
+Actions for clinic:
+- Read-only. No dispatch controls.
+- Option: “Message Dispatch about this trip” (not driver) if messaging exists.
+- If trip is COMPLETED/CANCELLED: disable messaging.
+
+---------------------------------------------------------
+PHASE 5 — REMOVE FULL MAP FOR CLINIC
+---------------------------------------------------------
+8) Ensure clinic_user cannot access Live Map or fleet view:
+- Hide menu item
+- Backend must return 403 if they hit those endpoints
+
+---------------------------------------------------------
+PHASE 6 — TESTS (MUST PASS)
+---------------------------------------------------------
+9) Clinic user tests:
+- Logs in and lands on Active Trips list
+- Sees only their clinic trips
+- Click trip -> Trip Detail loads
+- ETA appears when driver assigned + location exists
+- Route updates every 60–120s
+- Completed trip appears only in Completed tab and is read-only
+- Clinic cannot see global map or other clinics trips
+
+DELIVERABLE:
+A clinic workflow that is “list-first, trip-detail second” with per-trip route + ETA, no fleet map exposure.

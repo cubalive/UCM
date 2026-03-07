@@ -1,0 +1,129 @@
+PROMPT 2/2 — Driver App v3 Elite (B + C) + Dispatch UX + IA-ready Telemetry
+ROLE: Senior mobile/web engineer (Capacitor + PWA) + NEMT domain expert
+EXECUTION MODE: SINGLE AGENT ONLY
+NO PARALLEL TASKS. DO NOT BREAK CURRENT TRIP FLOW.
+EXTEND ONLY. FEATURE-FLAG NEW FEATURES BY COMPANY/CITY.
+
+GOALS
+B) Driver Performance (Shift Score + Smart Prompts)
+C) Premium Experience (Offline-safe queue + sounds/haptics + background GPS strategy)
+PLUS: Driver Profile screen (company, vehicle category sedan/wheelchair, assigned vehicle)
+PLUS: Dispatch usability improvements (drawer details, searchable lists everywhere)
+PLUS: IA-ready data capture (telemetry + events) without adding risky ML yet.
+
+PART 1 — DRIVER APP v3 (ELITE)
+1) Driver Profile screen
+   - Add a “Profile” tab or Settings section:
+     * Driver name, phone/email (if available)
+     * Company name + city
+     * Vehicle category: sedan / wheelchair (from assigned vehicle)
+     * Assigned vehicle details (plate, make/model, internal id)
+     * Shift status (on shift/off shift), last GPS timestamp, GPS quality
+   - Data source: existing driver endpoint or create GET /api/driver/me
+   - Must be cached locally for offline viewing.
+
+2) Shift Score (Performance)
+   - Create “Shift Score” card on Home:
+     Score components (0–100):
+       * On-time rate
+       * Acceptance rate
+       * Cancel count
+       * Idle time (between trips while on shift)
+       * Compliance (geofence arrived events, required confirmations)
+       * GPS quality (gaps, accuracy)
+   - Implement v1 as rules computed from event_log + telemetry over last 24h or current shift window.
+   - Store in driver_facts_shift (optional) or compute on server and return.
+   - Add tooltip “why score changed” (top 3 contributors).
+
+3) Smart Prompts (Coaching)
+   - When trip pickup time is within 30 min:
+     show banner: “Leave now” if ETA > minutes_to_pickup - buffer
+     show “You’re close — Mark Arrived” if within geofence radius
+   - Prompts must be derived from telemetry + trip times; never change trip state automatically.
+   - All prompts are non-invasive suggestions.
+
+4) Offline-safe event queue
+   - Implement a local queue (IndexedDB/localStorage) for:
+     * status transitions requests
+     * gps pings (sampled)
+   - If network fails:
+     * queue events with timestamps and idempotency_key
+     * retry with exponential backoff
+     * show UI badge “Sync pending”
+   - Ensure server idempotency so duplicates do not corrupt state.
+   - Add dead_letter_events on server for events that fail validation after retries.
+
+5) Sounds + Haptics + Notifications
+   - On: new trip assigned, trip status changed, new message/notification, trip completed
+   - For web PWA: use Audio API with user gesture enable; fallback gracefully.
+   - For Capacitor builds: use native haptics + notifications plugin where possible.
+   - Add a Settings toggle: Sounds ON/OFF, Haptics ON/OFF.
+
+6) Navigation chooser (Google Maps / Apple Maps / Waze) + saved preference
+   - Provide explicit chooser modal with the 3 apps.
+   - Save preference per driver (local + server optional):
+     “Always use: Google/Apple/Waze” with “Ask each time” option.
+   - Ensure destination respects phase:
+     Pickup phase -> pickup coords/address
+     Dropoff phase -> dropoff coords/address
+   - Add a quick fix guard: if pickup selected but dropoff passed, block and log an error event.
+
+7) Background GPS strategy for Capacitor (pre-store readiness)
+   - Implement optional Capacitor path behind flag:
+     * background geolocation plugin for Android foreground service
+     * iOS significant location changes + background modes docs
+   - Add UI notice in driver settings: “Enable background location for accurate dispatch.”
+   - Keep PWA behavior intact (do not degrade).
+
+PART 2 — DISPATCH UX (QUALITY OF LIFE)
+1) Trip details drawer
+   - When dispatch clicks a trip row, open a right-side drawer (desktop) or bottom sheet (mobile)
+   - Must be closable and not block the list
+   - Include:
+     * trip summary
+     * patient info
+     * driver/vehicle info
+     * quick actions
+     * timeline (from event_log)
+
+2) Search everywhere
+   - Any list page must have a search bar:
+     Trips, Drivers, Patients, Clinics, Vehicles
+   - Support: id, name, phone, address partials
+   - Debounced; no heavy queries.
+
+3) Manual assignment “assisted”
+   - During trip creation and scheduling:
+     show available drivers ranked by:
+       proximity, vehicle category match, performance score, current workload
+   - Confirm the driver’s assigned vehicle automatically (and let dispatch override with audit reason).
+
+PART 3 — IA-READY (NO ML YET, JUST DATA + METRICS)
+1) Telemetry signals
+   - Capture:
+     app_state (foreground/background), battery, network type, gps accuracy, speed
+   - Store in driver_telemetry with timestamps.
+2) Risk scores v1 (rules)
+   - late_risk_score computed from ETA vs pickup window
+   - spoof_risk_score from gps anomalies (huge jumps, impossible speed)
+   - Store in risk_scores table and show in dispatch (badge).
+
+TESTING + RELEASE SAFETY
+- Add feature flags per company/city for new driver v3 features.
+- Add smoke tests:
+  * offline queue: simulate offline -> queue -> online -> flush
+  * sounds/haptics toggles
+  * navigation mapping pickup vs dropoff
+  * dispatch drawer open/close on long lists
+- Do not change existing endpoints unless backward compatible.
+
+DOCUMENTATION
+- docs/driver-v3.md (profile, score, prompts, offline queue, sounds/haptics, nav chooser)
+- docs/dispatch-ux.md (drawer, search, assisted assignment)
+- docs/capacitor-ready.md (steps, plugins, permissions, store notes)
+
+NOW EXECUTE
+1) Inspect current driver app screens and dispatch pages.
+2) Implement above with minimal diffs + flags.
+3) Confirm existing trip state flow still passes.
+4) Provide final report and how to verify in production.

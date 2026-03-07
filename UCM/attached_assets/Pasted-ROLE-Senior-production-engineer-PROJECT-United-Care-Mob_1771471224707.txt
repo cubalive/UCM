@@ -1,0 +1,49 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Make CSV import resilient and easy. The importer currently fails with "Row 1 required".
+We need a canonical schema + header normalization + aliases + defaults + dry-run.
+
+REQUIREMENTS:
+1) Create canonical Zod schemas per entity:
+- clinics: name, service_city, email, address, facility_type, phone, contact_name
+- drivers: email, first_name, last_name, phone, license_number, city
+- vehicles: city, name, license_plate, color, make, model, year, capacity, wheelchair_accessible, capability
+- patients: first_name, last_name, phone, email, address, dob, insurance_id, mobility_type
+
+2) Add header normalization:
+- trim, lowercase, replace spaces with _, remove non-alphanum/_.
+3) Add per-entity alias maps (e.g. "clinic name"->name, "vehicle name"->name, "license plate"->license_plate, "service city"->service_city, etc).
+4) Add defaults for missing required fields where safe:
+- service_city default to company default city or "Las Vegas"
+- facility_type default "Clinic"
+- color default "#3B82F6"
+- capacity default 4
+- wheelchair_accessible default false
+- capability default "Sedan"
+- if email required and missing, generate seed.<entity>.<row>@ucm.test
+
+5) Implement dry-run mode:
+- endpoint returns: detected headers, mapped headers, missing required fields, row-level errors, and preview first 10 mapped rows
+- commit only if dry-run passes or if user confirms.
+
+6) Improve Event Log:
+- show errors as "entity row N: field X missing/invalid"
+- keep per-file counts inserted/updated/errors.
+
+DELIVERABLES:
+- Code changes with clear file paths.
+- Minimal UI addition: "Download template" buttons for each entity (canonical headers).
+- Add tests: parse+map+validate for one sample CSV per entity.
+
+VERIFY:
+- Import works with friendly headers and missing optional columns.
+- No DB schema changes.

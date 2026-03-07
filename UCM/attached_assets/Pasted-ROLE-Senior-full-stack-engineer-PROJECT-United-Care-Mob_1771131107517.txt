@@ -1,0 +1,206 @@
+ROLE: Senior full-stack engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Fix dispatcher confusion.
+Drivers must be clearly separated by REAL operational state.
+Drivers who logged out must be isolated and never mixed with assignable drivers.
+
+We also need a simple manual assign workflow.
+
+---------------------------------------
+CORE RULES (NON-NEGOTIABLE)
+---------------------------------------
+
+1) LOGOUT drivers must:
+- NEVER appear in assignable driver lists
+- NEVER appear on live map
+- Be shown only inside a separate section: "LOGGED OUT"
+- Not counted as active drivers
+
+2) ONLINE drivers = last_seen_at within 120 seconds AND dispatch_status != 'off'
+
+3) OFFLINE / LOGOUT = 
+   dispatch_status='off'
+   OR last_seen_at older than 120 seconds
+
+4) AVAILABLE FOR ASSIGN =
+   ONLINE AND dispatch_status='available'
+
+5) BUSY =
+   ONLINE AND (dispatch_status='enroute' OR active trip in progress)
+
+6) HOLD/BREAK =
+   ONLINE AND dispatch_status='hold'
+
+7) UNASSIGNED vehicle ≠ driver status.
+Vehicle null is just a label.
+
+---------------------------------------
+PHASE 1 — DRIVER STATUS API (backend truth)
+---------------------------------------
+
+Create or adjust endpoint:
+
+GET /api/dispatch/drivers/status?city_id=&company_id=
+
+Return grouped structure:
+
+{
+  available: [],
+  busy: [],
+  hold: [],
+  logged_out: []
+}
+
+Driver object:
+
+{
+  id,
+  name,
+  phone,
+  dispatch_status,
+  is_online,
+  last_seen_at,
+  vehicle_id,
+  vehicle_name,
+  vehicle_color_hex,
+  active_trip_id,
+  active_trip_public_id,
+  active_trip_status
+}
+
+IMPORTANT:
+logged_out group must include:
+- dispatch_status='off'
+- OR last_seen_at too old
+
+But logged_out drivers must NEVER appear in:
+available
+busy
+hold
+map feed
+
+---------------------------------------
+PHASE 2 — MAP VISIBILITY FIX
+---------------------------------------
+
+Update map query:
+
+Only show drivers where:
+is_online = true
+AND dispatch_status != 'off'
+
+If driver logs out:
+- immediately remove from map
+- set dispatch_status='off'
+- set visible=false in map feed
+
+---------------------------------------
+PHASE 3 — DISPATCH UI (clean separation)
+---------------------------------------
+
+On Dispatch dashboard and Daily Assignments:
+
+Create DRIVER PANEL with 4 sections:
+
+1) AVAILABLE NOW (ONLINE)
+   assignable
+   show vehicle + color
+   show label if no vehicle
+
+2) ON TRIP / BUSY
+   show trip badge
+   no assign unless override
+
+3) HOLD / BREAK
+   visible
+   not assignable
+
+4) LOGGED OUT
+   separate section at bottom
+   greyed out
+   not clickable
+   not counted as active
+
+Remove any UI that mixes:
+online + logout + unassigned
+
+---------------------------------------
+PHASE 4 — MANUAL ASSIGN WORKFLOW
+---------------------------------------
+
+Add easy assign from 2 places.
+
+A) From PATIENT:
+Button: "Assign Driver"
+Flow:
+select date
+select pickup time
+choose driver from AVAILABLE only
+create + assign trip
+
+B) From TRIP:
+Button: "Assign Driver"
+default list = AVAILABLE only
+toggle "Show all" if override needed
+
+---------------------------------------
+PHASE 5 — DAILY ASSIGNMENTS PAGE
+---------------------------------------
+
+Add tabs:
+
+TAB 1: Scheduler
+TAB 2: Manual Assign
+
+Manual Assign layout:
+LEFT: Unassigned trips today
+RIGHT: Drivers panel (4 sections)
+
+Click trip → click driver → assign
+
+---------------------------------------
+PHASE 6 — LOGOUT BEHAVIOR (CRITICAL)
+---------------------------------------
+
+When driver presses LOGOUT:
+
+1) Set dispatch_status='off'
+2) Clear last_seen_at
+3) Remove from live map instantly
+4) Move to LOGGED OUT section
+5) Cannot receive requests
+
+When driver logs back in:
+dispatch_status='available'
+returns to AVAILABLE section
+
+---------------------------------------
+VERIFY BEFORE EXIT
+---------------------------------------
+
+1) Logged-out drivers never appear on map
+2) Logged-out drivers only appear in LOGGED OUT section
+3) Only AVAILABLE drivers appear for assignment
+4) Busy drivers separated
+5) Hold drivers separated
+6) Manual assign works from patient and trip
+7) No DB schema changes
+8) UI clear and impossible to confuse
+
+DELIVERABLE:
+Clear dispatcher panel with strict separation:
+AVAILABLE
+BUSY
+HOLD
+LOGGED OUT
+
+Manual assign fully functional.

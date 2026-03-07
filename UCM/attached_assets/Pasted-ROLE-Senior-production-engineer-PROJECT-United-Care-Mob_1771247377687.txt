@@ -1,0 +1,170 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Upgrade the driver experience to “Uber-level” on driver.unitedcaremobility.com:
+Home Today screen, 1-hand trip flow, bonuses+metrics, support quick actions, offline queue,
+connection robustness, navigation UX, and safety hardening. Keep app/admin unaffected.
+
+CONSTRAINTS:
+- Keep RBAC server-side. Do not weaken permissions.
+- Do not modify shared/permissions.ts unless strictly necessary.
+- No maps/directions spam; use existing throttles/caches.
+
+---------------------------------------
+PHASE A — DRIVER HOME “TODAY” (what drivers actually use)
+---------------------------------------
+On /driver home, create a "Today" dashboard with 4 blocks:
+
+1) Next Pickup Card:
+- countdown (go-time)
+- pickup address + scheduled time
+- status badge
+- BIG "Navigate" button
+
+2) Active Trip Card (if any):
+- phase (to pickup / at pickup / in transit / at dropoff)
+- BIG primary action button for next step (see Phase B)
+- ETA text (cached)
+
+3) Today's Schedule (list):
+- upcoming scheduled trips (cards)
+- tap opens driver trip details
+- pull-to-refresh (mobile-friendly)
+
+4) Weekly Bonus Progress:
+- current week bonus estimate + progress bar
+- “View breakdown” link
+
+Ensure this page is fast and works without maps loading until details are opened.
+
+---------------------------------------
+PHASE B — 1-HAND TRIP FLOW (no friction, no skipping steps)
+---------------------------------------
+In driver trip details:
+- Implement a single primary button that changes by phase:
+  EN_ROUTE_TO_PICKUP -> "Arrived Pickup"
+  ARRIVED_PICKUP     -> "Picked Up"
+  PICKED_UP/IN_TRANSIT -> "Arrived Dropoff"
+  ARRIVED_DROPOFF    -> "Complete Trip"
+
+Rules:
+- Prevent skipping steps; server enforces valid transitions.
+- On each click:
+  - show quick confirm
+  - record timestamp + optional quick note
+- Keep secondary actions small (call dispatch, report issue)
+
+---------------------------------------
+PHASE C — OFFLINE-FIRST (driver never gets stuck)
+---------------------------------------
+Add an offline queue (localStorage/IndexedDB):
+- Queue items:
+  - status transitions
+  - support events
+  - GPS updates (only keep last N; don’t explode storage)
+- When offline:
+  - UI shows "Offline — saving changes"
+  - actions write to queue and update UI optimistically
+- On reconnect:
+  - flush queue in order with backoff
+  - show “Synced” toast
+
+---------------------------------------
+PHASE D — CONNECT/DISCONNECT robustness
+---------------------------------------
+- CONNECT button starts:
+  - presence heartbeat
+  - GPS sending (web)
+  - sets driver “in service”
+- DISCONNECT stops all.
+
+Persist "in service" state:
+- store in Redis (authoritative) + local flag
+- on app reopen, restore if still active in Redis.
+
+Add reconnection logic:
+- if network drops, keep trying and show “Reconnecting…”
+- never crash the UI.
+
+---------------------------------------
+PHASE E — SUPPORT QUICK ACTIONS (reduces calls)
+---------------------------------------
+Add “Need Help” panel with quick actions:
+- Patient not ready
+- Patient no-show
+- Address incorrect
+- Vehicle issue
+- Traffic delay
+
+Each creates a server-side event with:
+- tripId (if active)
+- driverId
+- type
+- note (optional)
+- timestamp
+
+Notify dispatch:
+- email via Resend (or existing notification channel)
+- show in dispatch queue (simple list in admin app)
+
+---------------------------------------
+PHASE F — BONUSES + METRICS (motivate + retention)
+---------------------------------------
+Driver pages:
+- Weekly Bonus:
+  - estimate + breakdown by rule
+  - “what to do to increase” hints (based on metrics)
+- Metrics:
+  - trips completed
+  - on-time %
+  - cancellations/no-shows
+  - avg pickup delay
+  - score trend (7/30 days)
+Use recharts with light rendering.
+
+---------------------------------------
+PHASE G — SCHEDULE + CHANGE REQUEST
+---------------------------------------
+Driver schedule view:
+- weekly availability view (simple)
+- “Request schedule change” form
+Workflow:
+- request -> pending -> dispatch approve/deny
+- driver receives email on decision
+- driver sees status list
+Use existing tables/endpoints if already implemented; otherwise create minimal Drizzle tables.
+
+---------------------------------------
+PHASE H — NAVIGATION UX
+---------------------------------------
+- Keep nav chooser (Apple/Google/Waze)
+- Auto choose destination based on phase (pickup vs dropoff)
+- Add "Copy address" fallback
+- Persist preference
+
+---------------------------------------
+PHASE I — SECURITY HARDENING (practical)
+---------------------------------------
+- Optional device binding (feature-flag):
+  store deviceId hash on first login; allow 2 devices max
+- Anti-spoofing guard enhancements:
+  reject impossible jumps (already)
+  record suspicious flag for dispatch view
+
+---------------------------------------
+VERIFY
+---------------------------------------
+1) driver host shows only driver UI.
+2) Today page is fast and doesn’t load maps unless details opened.
+3) Trip flow primary button works and cannot skip.
+4) Offline queue works (toggle airplane mode).
+5) Support actions create events + dispatch notified.
+6) Bonuses/metrics pages load and update.
+7) CONNECT/DISCONNECT persists and recovers after reload.
+8) app host unaffected.

@@ -1,0 +1,110 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+URGENT TASK:
+Dispatch currently only sees counts for Unassigned trips in dashboard and must go to Trips page to work.
+Create a real "Dispatch Operations Board" with actionable queues and end-to-end flow:
+Approve -> Assign Driver -> Driver Progress -> Complete -> Lock.
+
+----------------------------------------------------
+A) DISPATCH OPERATIONS BOARD (NEW PAGE / IMPROVE DASH)
+----------------------------------------------------
+Create/Update Dispatch dashboard to include 4 interactive tabs with real lists (not counts):
+
+TAB 1: Unassigned
+- Trips that are approved/accepted but have no assigned driver.
+- Show: patient name, clinic name, pickup time, pickup address, dropoff address, city, trip type, wheelchair flag
+- Actions:
+  1) "Assign Driver" button (opens modal)
+  2) "Message Clinic" / "Notify Clinic accepted" (reuse existing accept function)
+
+TAB 2: Scheduled
+- Trips assigned to a driver but not started.
+- Show driver name + vehicle label.
+
+TAB 3: Active
+- Trips in progress (en_route/arrived/picked_up/en_route_dropoff).
+- Show: driver name, last GPS update age, ETA (if available), status badge.
+- Include "View on Map" quick view.
+
+TAB 4: Completed
+- Completed trips. Read-only. Locked.
+
+Also add a quick search and city filter at top (dispatch selects city).
+
+----------------------------------------------------
+B) SERVER-SIDE FILTERS (NO CLIENT-SIDE FILTERING)
+----------------------------------------------------
+Implement backend endpoints (or extend existing) that return lists per tab:
+- GET /api/dispatch/trips/unassigned?city=...
+- GET /api/dispatch/trips/scheduled?city=...
+- GET /api/dispatch/trips/active?city=...
+- GET /api/dispatch/trips/completed?city=...
+
+Rules:
+Unassigned = approved/accepted AND driver_id IS NULL AND not canceled/completed.
+Scheduled = driver_id NOT NULL AND status in schedulable states AND not started.
+Active = status in progress states.
+Completed = status completed.
+
+Must include clinic-created trips after approval (no filtering by source/created_by_role).
+
+----------------------------------------------------
+C) ASSIGN DRIVER (DISPATCH)
+----------------------------------------------------
+From Unassigned tab, "Assign Driver" modal must work:
+- Driver list must be filtered by:
+  - same city
+  - active=true (if availability system exists)
+  - not on_hold
+- Optional: show recommended vehicle if exists
+- Confirm -> calls PATCH /api/trips/:id/assign
+
+Backend rules:
+- dispatch/super_admin only
+- enforce same city
+- wheelchair rule: wheelchair trips require wheelchair-capable vehicle/driver
+
+On success:
+- trip moves from Unassigned -> Scheduled automatically
+
+----------------------------------------------------
+D) DRIVER TRIP PROGRESS MUST MOVE TABS
+----------------------------------------------------
+Ensure driver workflow updates trip status and it reflects on Dispatch board:
+- Start Trip -> Active tab
+- Complete -> Completed tab
+
+If driver app buttons are missing, add:
+Start, Arrived, Picked Up, Start Dropoff, Complete
+with valid status transitions server-side.
+
+----------------------------------------------------
+E) LOCK COMPLETED
+----------------------------------------------------
+Once completed:
+- no edits
+- no reassignment
+- no messaging
+- no status changes
+Server-side enforced.
+
+----------------------------------------------------
+F) VERIFICATION CHECKLIST (MUST PASS)
+----------------------------------------------------
+1) Clinic creates trip for today -> Dispatch accepts -> appears in Unassigned list with full details.
+2) Dispatch assigns driver -> trip moves to Scheduled.
+3) Driver starts trip -> appears in Active.
+4) Driver completes -> moves to Completed and becomes locked.
+5) Ensure Dispatch does NOT need to go to Trips page to operate.
+
+DELIVERABLE:
+- Confirm the Dispatch board is the operational center.
+- Provide the exact UI paths and what each tab shows.
+- Confirm no regression for clinic/admin.

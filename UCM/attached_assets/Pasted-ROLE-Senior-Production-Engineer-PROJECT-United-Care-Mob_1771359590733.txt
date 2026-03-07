@@ -1,0 +1,128 @@
+ROLE: Senior Production Engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT modify production data
+- Extend / fix existing system only
+- Verify before exit
+
+TASK:
+Fix blank screen on /metrics caused by failing request to:
+GET /api/admin/metrics/system
+
+Context:
+- /metrics loads.
+- Other endpoints return 200.
+- /api/admin/metrics/system is being called.
+- Network shows request cancelled.
+- Page turns blank.
+- Authorization header is present.
+- User is SUPER_ADMIN.
+- Backend healthz = OK.
+- This worked before recent auth scoping changes.
+
+GOAL:
+Make /metrics fully functional again without breaking role security.
+
+========================================================
+STEP 1 — BACKEND ROUTE VERIFICATION
+========================================================
+
+1. Locate route: /api/admin/metrics/system
+2. Ensure it exists and returns JSON.
+3. Wrap handler in try/catch.
+4. On error, return structured JSON:
+   { ok:false, error:"SYSTEM_METRICS_FAILED" }
+
+5. Confirm route is protected by:
+   requireRole("SUPER_ADMIN")
+
+NOT company_admin.
+NOT dispatch.
+SUPER_ADMIN only.
+
+========================================================
+STEP 2 — AUTH CONTEXT VALIDATION
+========================================================
+
+Inspect getActorContext().
+
+Ensure:
+- role === "SUPER_ADMIN"
+- tenantId is defined
+- No incorrect company scope restriction is blocking SUPER_ADMIN
+
+If tenant scoping blocks global metrics:
+Allow SUPER_ADMIN to bypass tenant restriction for system metrics.
+
+========================================================
+STEP 3 — FIX FRONTEND CRASH
+========================================================
+
+In client metrics page:
+
+1. Wrap system fetch in try/catch.
+2. If response not ok:
+   - Do NOT crash.
+   - Show fallback UI.
+3. Guard against undefined:
+   - system?.cpu
+   - system?.memory
+   - system?.dbConnections
+
+Never destructure undefined.
+
+========================================================
+STEP 4 — ENSURE RESPONSE SHAPE
+========================================================
+
+Return JSON format:
+
+{
+  ok: true,
+  cpu: number,
+  memory: number,
+  uptime: number,
+  dbLatency: number,
+  activeUsers: number
+}
+
+Even if some values are 0.
+
+Never return empty body.
+
+========================================================
+STEP 5 — VERIFY
+========================================================
+
+Run:
+
+npx tsc --noEmit
+npm run build
+npm run dev
+
+Then test:
+
+1) Login as SUPER_ADMIN
+2) Open /metrics
+3) Confirm:
+   - No blank page
+   - /api/admin/metrics/system returns 200
+   - JSON valid
+   - Page renders
+
+========================================================
+EXIT CRITERIA
+========================================================
+
+- /metrics loads without white screen
+- system endpoint returns valid JSON
+- SUPER_ADMIN can see metrics
+- Other roles cannot access endpoint
+- No new TypeScript errors
+
+STOP after verification report.
+Do NOT implement unrelated changes.

@@ -1,0 +1,183 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Create an idempotent “UCM Seed Kit” to generate realistic large datasets for FULL manual functional testing (billing + scheduling + auto-assignment + metrics + role gating) without breaking existing data.
+
+GOAL:
+I need enough data volume to confidently test:
+- Scheduling (single + recurring)
+- Auto-assignment (drivers/vehicles)
+- Clinic workflows (view trips, invoices, pay links)
+- Dispatch workflows (queue, assignment, ops dashboards)
+- Metrics pages (system + intelligence rollups if present)
+- Role scoping (SUPER_ADMIN / COMPANY_ADMIN / DISPATCH / CLINIC_USER / DRIVER)
+All with realistic times, multiple cities, multiple clinics, multiple companies/tenants.
+
+HARD REQUIREMENTS:
+1) Do NOT delete existing data.
+2) Do NOT change existing production-like configs.
+3) Must be idempotent: re-running should not create duplicates. Use “seedTag” strategy.
+4) Must run in < 3 minutes in dev/preview environment with safe default volumes.
+5) Must provide a single command to run the seed and a single command to clean ONLY seeded data (optional but recommended).
+6) Must output a summary report with counts + sample logins + URLs to test.
+7) Must not require external paid APIs.
+
+------------------------------------------------------------
+PHASE 1 — DISCOVER CURRENT SCHEMA + AUTH MODEL
+------------------------------------------------------------
+A) Identify current auth model and how roles are stored (users.role, tenants, clinicId, cityId).
+B) Identify the existing tables you will use:
+- tenants/companies (whatever exists)
+- cities
+- clinics
+- drivers
+- vehicles
+- patients
+- trips
+- invoices / billingCycleInvoices / invoicePayments / tariffs / clinicBillingSettings (if exist)
+C) Identify required columns for trips scheduling:
+- scheduledDate / scheduledTime OR scheduled_pickup_at etc.
+D) Confirm existing enums/status values used by the trip lifecycle.
+
+If any table is missing (e.g., “tenants”), adapt by using the existing model (companyId, tenantId, etc.) but keep the same seeding goal.
+
+------------------------------------------------------------
+PHASE 2 — IMPLEMENT SEED KIT (SAFE + IDEMPOTENT)
+------------------------------------------------------------
+Create ONE script:
+- Path: server/scripts/seed-ucm.ts (or equivalent server/scripts)
+- It must accept ENV overrides:
+  - SEED_TAG=UCM_SEED_V1 (default)
+  - SEED_TENANTS=2
+  - SEED_CITIES_PER_TENANT=2
+  - SEED_CLINICS_PER_CITY=5
+  - SEED_VEHICLES_PER_CITY=30
+  - SEED_DRIVERS_PER_CITY=40
+  - SEED_PATIENTS_PER_CLINIC=200
+  - SEED_TRIPS_DAYS=7
+  - SEED_TRIPS_PER_PATIENT=2   (round trip: pickup + return)
+  - SEED_COMPLETION_RATE=0.80
+  - SEED_CANCEL_RATE=0.10
+  - SEED_NOSHOW_RATE=0.05
+  - SEED_LATE_RATE=0.20
+  - SEED_WITH_BILLING=1
+  - SEED_WITH_RECURRING=1
+Defaults must be safe and fast.
+
+IDEMPOTENCY STRATEGY:
+- Add a “seedTag” field if schema supports metadata, OR
+- Use deterministic unique keys (name/email/plate) prefixed with SEED_TAG, OR
+- Create a dedicated audit row in a seedRuns table if exists.
+Goal: re-run does not duplicate.
+
+DATA TO CREATE (realistic):
+1) Tenants/Companies (2) with different billing settings and branding-friendly names.
+2) Each tenant has 2 cities:
+   - City A: “Las Vegas”
+   - City B: “Henderson”
+   (Or use existing cities table; just create if missing)
+3) Each city:
+   - 5 clinics
+   - 30 vehicles (with colors + types: sedan/wheelchair if supported)
+   - 40 drivers (mix of statuses ACTIVE/ON_HOLD)
+4) Each clinic:
+   - 200 patients with realistic phone/email
+   - Include wheelchair vs ambulatory flags if present
+5) Trips:
+   - Create 7 days of schedules
+   - Each patient gets 2 trips/day (pickup + return) for dialysis-like pattern:
+     - pickup window morning (06:00–10:00)
+     - return window afternoon (12:00–18:00)
+   - Include a mix of statuses across lifecycle:
+     - SCHEDULED, ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, PICKED_UP, EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF, COMPLETED
+     - Include CANCELLED and NO_SHOW based on rates
+   - Populate scheduled times AND actual timestamps (for on-time/late metrics):
+     - On-time: actual_pickup_at <= scheduled + 5m
+     - Late: actual_pickup_at scheduled + 6–25m
+   - Set gps_verified true for most trips; false for some to test gaps.
+   - Set distanceMiles / durationMinutes if columns exist; otherwise fill the system’s existing fields.
+
+6) Auto-assignment test readiness:
+   - Ensure enough unassigned SCHEDULED trips exist for dispatch queue.
+   - Ensure driver/vehicle assignment coverage for a subset of trips, leaving some unassigned.
+   - If there is a driverVehicleAssignments table, seed daily assignments for 7 days.
+
+7) Billing:
+   - If invoices/billingCycleInvoices exist:
+     - For completed trips, create billing rows:
+       - price_cents populated for ~90% and missing for ~10% to test pricing gaps
+     - Generate at least:
+       - 1 weekly invoice per clinic (or billing cycle invoice)
+       - invoice items that link trips
+       - payment objects for some invoices to test “paid/unpaid/overdue”
+     - Create clinic billing settings + tariff rows if required (simple defaults).
+   - Ensure clinics can see “pay link” or a payment flow stub:
+     - If Stripe isn’t live, generate an internal payment URL route like /billing/pay/:invoiceId that shows an instruction page.
+
+8) Roles / accounts for manual testing:
+   Create test users with deterministic credentials:
+   - super admin: seed.superadmin@ucm.test
+   - company admin per tenant: seed.companyadmin+TENANT@ucm.test
+   - dispatch per city: seed.dispatch+CITY@ucm.test
+   - clinic user per clinic: seed.clinic+CLINIC@ucm.test
+   - driver user per driver: seed.driver+DRIVER@ucm.test
+All passwords should be: UCM!Test1234 (or env override SEED_PASSWORD).
+Ensure correct links: user.clinicId, user.driverId, user.city access.
+
+------------------------------------------------------------
+PHASE 3 — EXPOSE SAFE RUNNERS (NO UI REQUIRED)
+------------------------------------------------------------
+Add:
+A) NPM script:
+- "seed:ucm": tsx server/scripts/seed-ucm.ts
+B) Optional cleanup script (ONLY seeded rows):
+- "seed:ucm:cleanup": tsx server/scripts/seed-ucm-cleanup.ts
+Cleanup must ONLY remove rows created by SEED_TAG (never touch real data).
+
+------------------------------------------------------------
+PHASE 4 — VERIFICATION (MUST DO)
+------------------------------------------------------------
+After seeding, run:
+1) npm run check
+2) npm run build
+3) Start server and hit:
+   - /metrics page
+   - clinic billing/invoices page
+   - dispatch trips queue
+   - auto-assign screens (if exist)
+4) Run at least 5 DB sanity checks:
+   - total seeded tenants/cities/clinics/drivers/vehicles/patients/trips
+   - count by trip status
+   - invoices count
+   - pricing gaps count
+   - gps_verified rate
+5) Confirm role gating:
+   - CLINIC_USER cannot see other clinic’s invoices/trips
+   - DISPATCH cannot access other city
+   - COMPANY_ADMIN stays within their tenant
+   - SUPER_ADMIN sees all
+
+OUTPUT REQUIREMENT:
+Print a final summary table:
+- Counts per entity
+- Counts per status
+- Invoice stats
+- Example URLs to test
+- The 10 most useful login accounts + passwords
+
+STOP CONDITION:
+If any errors occur (schema mismatch, missing tables), STOP and report:
+- exact failing step
+- proposed minimal adaption
+Do NOT proceed to other tasks.
+
+END.

@@ -1,0 +1,259 @@
+EXECUTION MODE: SINGLE AGENT ONLY  
+No sub-agents. No parallel tasks.  
+Do NOT modify database schema, migrations, RLS policies, or existing API routes.  
+Do NOT change current business logic.  
+Add new code in isolated modules only.
+
+GOAL  
+Implement a production-grade Route Optimizer Service for NEMT dialysis transportation in the UCM platform.
+
+STACK CONTEXT  
+Backend: Node / Next.js API  
+Database: Supabase PostgreSQL  
+Cache: Redis  
+Queue: BullMQ  
+
+FEATURES TO IMPLEMENT
+
+1) Route clustering for dialysis trips  
+2) Route construction (pickup ordering)  
+3) Route validation (capacity, time windows)  
+4) Driver assignment  
+5) Preview optimization endpoint  
+6) Execute optimization endpoint  
+7) Background optimization job  
+
+--------------------------------
+
+STEP 1 — Create service folder
+
+Create:
+
+server/services/route-optimizer/
+
+Files:
+
+clusterTrips.ts  
+buildRoute.ts  
+validateRoute.ts  
+assignDrivers.ts  
+optimizeDailyRoutes.ts  
+
+--------------------------------
+
+STEP 2 — Implement clustering
+
+File:
+clusterTrips.ts
+
+Logic:
+
+Group trips by proximity (radius 3 miles) and pickup time window.
+
+Trips come from database.
+
+Export:
+
+export function clusterTrips(trips, radiusMiles = 3)
+
+Use simple distance comparison between coordinates.
+
+--------------------------------
+
+STEP 3 — Build route ordering
+
+File:
+buildRoute.ts
+
+Export:
+
+export function buildRoute(trips, clinic)
+
+Algorithm:
+
+Nearest-neighbor heuristic.
+
+Process:
+
+1 start from clinic  
+2 find closest pickup  
+3 repeat until no trips remain  
+
+Return ordered list of stops.
+
+--------------------------------
+
+STEP 4 — Validate route
+
+File:
+validateRoute.ts
+
+Export:
+
+export function validateRoute(route, vehicle)
+
+Check:
+
+vehicle capacity  
+wheelchair capacity  
+max route time < 60 minutes  
+
+Return boolean.
+
+--------------------------------
+
+STEP 5 — Assign drivers
+
+File:
+assignDrivers.ts
+
+Use Redis GEO index:
+
+drivers:{city}
+
+Example:
+
+GEORADIUS drivers:lasvegas lng lat 10 mi
+
+Select nearest available driver.
+
+Validate driver shift time.
+
+Return driver_id.
+
+--------------------------------
+
+STEP 6 — Optimization orchestrator
+
+File:
+optimizeDailyRoutes.ts
+
+Export main function:
+
+export async function optimizeDailyRoutes()
+
+Process:
+
+1 fetch clinics
+2 fetch pending trips
+3 cluster trips
+4 build routes
+5 validate routes
+6 assign drivers
+7 save routes
+8 update trip status
+
+--------------------------------
+
+STEP 7 — Add preview endpoint
+
+Create API route:
+
+server/routes/routes.preview.ts
+
+Endpoint:
+
+POST /api/routes/preview
+
+Input:
+
+{
+  city_id,
+  clinic_id,
+  date
+}
+
+Response:
+
+optimized route proposals without saving to DB.
+
+--------------------------------
+
+STEP 8 — Add execution endpoint
+
+Create:
+
+server/routes/routes.optimize.ts
+
+Endpoint:
+
+POST /api/routes/optimize
+
+Only SUPER_ADMIN.
+
+Runs optimizeDailyRoutes().
+
+Returns:
+
+{
+  routesCreated,
+  tripsAssigned
+}
+
+--------------------------------
+
+STEP 9 — Background job
+
+Create queue worker:
+
+server/workers/routeOptimizerWorker.ts
+
+Use BullMQ.
+
+Queue:
+
+route-optimization
+
+Schedule daily job:
+
+02:00 AM
+
+Worker calls:
+
+optimizeDailyRoutes()
+
+--------------------------------
+
+STEP 10 — Logging
+
+Log optimization results:
+
+routes created  
+drivers assigned  
+failed clusters  
+
+--------------------------------
+
+STEP 11 — Safety constraints
+
+Do not overwrite trips already assigned.
+
+Only optimize:
+
+status = 'pending'
+
+--------------------------------
+
+STEP 12 — Verification commands
+
+After implementation output:
+
+Available endpoints:
+
+POST /api/routes/preview  
+POST /api/routes/optimize  
+
+Example curl:
+
+curl -X POST https://app.unitedcaremobility.com/api/routes/preview 
+-H "Authorization: Bearer SUPER_ADMIN_TOKEN"
+
+--------------------------------
+
+SUCCESS CRITERIA
+
+New service folder exists  
+Preview endpoint returns routes  
+Optimize endpoint creates routes  
+Daily worker scheduled  
+Existing dispatch system unaffected

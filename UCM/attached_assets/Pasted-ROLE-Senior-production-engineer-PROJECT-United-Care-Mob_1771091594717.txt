@@ -1,0 +1,138 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit (self-check + manual test steps)
+
+OBJECTIVE (ONE PASS):
+Implement 3 fixes to make operations reliable:
+1) Remove/disable any “Edit” capability on terminal trips (COMPLETED, CANCELLED, NO_SHOW) across the app (UI + API guard).
+2) Prevent duplicate Trip Events (e.g., Driver No-Show / Patient No-Show) from being recorded multiple times due to double taps or retries (UI debounce + backend idempotency).
+3) Dashboard: split driver counts into 3 buckets so “Active Drivers” matches reality:
+   - ONLINE (connected + active + not in trip)
+   - IN_ROUTE (connected + in an active trip)
+   - OFF/HOLD (not connected OR dispatch_status in hold/off)
+And update the dashboard widgets/list accordingly.
+
+-----------------------------------------------------
+CONSTRAINTS / DEFINITIONS
+-----------------------------------------------------
+A) Terminal trip statuses:
+- COMPLETED
+- CANCELLED
+- NO_SHOW
+Terminal trips must be READ-ONLY by default everywhere.
+If there is any existing override like ALLOW_COMPLETED_EDIT=true, keep it supported for SUPER_ADMIN only, but default remains locked.
+
+B) Driver “connected” definition:
+Use existing presence threshold (PRESENCE_TIMEOUT_SEC = 120 or current constant already in server).
+Connected means lastSeenAt is within threshold.
+
+C) “Active trip” definition:
+Trip status is one of:
+ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, PICKED_UP, EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF, IN_PROGRESS
+(Use existing active-status helper if present; do not invent new statuses.)
+
+D) Duplicate Trip Events:
+For each (trip_id, event_type), do not allow duplicates within a cooldown window.
+Implement:
+- UI: disable event buttons immediately on click; show loading; re-enable on success/failure after 2–3 seconds.
+- Backend: idempotency check. If a trip_event exists with same (trip_id, event_type) within last 5 minutes, return 200 OK with {ok:true, deduped:true} and DO NOT insert again.
+If the event type is terminal (Driver No-Show / Patient No-Show), you may enforce “only once ever” for that trip if preferred.
+
+-----------------------------------------------------
+TASK 1 — TERMINAL TRIP LOCK (UI + API)
+-----------------------------------------------------
+1) Locate server-side enforcement for trip status transitions and locks.
+   - Find tripLockGuard or similar (e.g., server/lib/tripLockGuard.ts).
+   - Confirm LOCKED_STATUSES include COMPLETED, CANCELLED, NO_SHOW.
+2) Enforce lock for ALL mutation routes, not just status transitions:
+   - Any endpoint that updates trip details (notes, pickup_time, addresses, driver/vehicle assignment edits, sms send side-effects, etc.) must call the lock guard first.
+   - If locked and not allowed override -> return 409 with message “Trip is terminal/locked”.
+   - Only SUPER_ADMIN may override if ALLOW_COMPLETED_EDIT=true (keep this behavior if already exists).
+3) UI:
+   - Find trip detail page and any list row actions that show Edit.
+   - Replace any “role-only” gating with a single helper:
+     canEditTrip(tripStatus, userRole, allowOverrideFlag)
+   - If trip is terminal -> hide Edit button + disable editable fields + show small badge “Locked (Completed/Cancelled/No-show)”.
+   - Ensure this applies in Dispatch, Clinic portal, and any Admin views that show Edit.
+
+DELIVERABLE:
+- A single shared helper used by every UI location that decides editability.
+- Backend guard applied to every trip mutation route.
+
+-----------------------------------------------------
+TASK 2 — PREVENT DUPLICATE TRIP EVENTS
+-----------------------------------------------------
+1) UI debounce:
+   - In trip events section (Driver Late, Patient Late, Driver No-Show, Patient No-Show):
+     - After clicking, disable the button and show spinner/text “Recording…”.
+     - Prevent multiple clicks while request in flight.
+2) Backend idempotency:
+   - In the trip event creation route, before insert:
+     - Query trip_events where trip_id = X and event_type = Y and created_at >= now() - interval '5 minutes'
+     - If exists: return {ok:true, deduped:true, existingEventId:<id>}
+     - Else: insert and return {ok:true, deduped:false}
+   - Optional (recommended): Add a unique partial constraint for terminal event types (if safe):
+     - If you do this, do it carefully to avoid breaking existing data. Prefer app-level idempotency first.
+3) Verify:
+   - Confirm screenshot scenario cannot happen: multiple No-Show entries created back-to-back.
+
+DELIVERABLE:
+- UI cannot double-submit.
+- Backend guarantees idempotency even if UI fails.
+
+-----------------------------------------------------
+TASK 3 — DASHBOARD DRIVER BUCKETS (ONLINE / IN_ROUTE / OFF-HOLD)
+-----------------------------------------------------
+1) Add a backend endpoint (or extend existing dashboard endpoint) to return:
+   - onlineCount
+   - inRouteCount
+   - offHoldCount
+   - plus lists for each bucket (for “Active Drivers” area), each driver object including:
+     id, name, city_id, lastSeenAt, dispatch_status, hasActiveTrip(boolean)
+2) Bucket logic:
+   - OFF/HOLD: not connected OR dispatch_status in ('off','hold')
+   - IN_ROUTE: connected AND hasActiveTrip = true AND dispatch_status not off/hold
+   - ONLINE: connected AND hasActiveTrip = false AND dispatch_status not off/hold
+3) UI changes:
+   - Replace existing “Active Drivers” count with three chips/cards:
+     - ONLINE
+     - IN ROUTE
+     - OFF/HOLD
+   - “Active Drivers” list should default to show ONLINE + IN_ROUTE (connected drivers),
+     and allow toggling to OFF/HOLD list.
+   - Ensure the top metric matches “connected reality” (your issue: shows 3 but only 1 connected).
+
+DELIVERABLE:
+- Dashboard counts match actual presence and trip engagement.
+
+-----------------------------------------------------
+VERIFICATION — MUST DO BEFORE EXIT
+-----------------------------------------------------
+A) Terminal lock test:
+1) Create a trip.
+2) Progress it to COMPLETED.
+3) Confirm:
+   - No “Edit” button visible anywhere for that trip.
+   - Any attempt to edit via API returns 409 locked (unless SUPER_ADMIN override flag is ON).
+B) Trip event dedupe test:
+1) Open a trip details page.
+2) Tap “Driver No-Show” rapidly 5 times.
+3) Confirm only 1 row appears in trip_events (or at most 1 per 5 min window).
+C) Dashboard bucket test:
+1) Have 1 driver logged in and online, no trip -> ONLINE increments.
+2) Assign that driver an active trip -> moves to IN_ROUTE.
+3) Make driver go offline / hold -> moves to OFF/HOLD.
+D) Provide a short summary of touched files + why.
+
+OUTPUT FORMAT:
+- Summary of changes
+- Files modified
+- Exact bucket logic used
+- Confirmation that A/B/C tests pass

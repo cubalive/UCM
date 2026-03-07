@@ -1,0 +1,289 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+FINAL FEATURE: DRIVER SCHEDULE + SUBSTITUTE SYSTEM + CONTROLLED REASSIGN
+
+This is the FINAL behavior required by operations.
+
+========================================================
+CORE OPERATIONAL RULES
+========================================================
+
+1) Weekly schedule exists Monday–Saturday.
+2) Sunday is OFF by default.
+3) Dispatch can enable Sunday and manually add drivers.
+4) Each day can also have SUBSTITUTE DRIVERS ("suplentes").
+5) Substitutes are NOT part of the main schedule unless used to replace someone.
+6) If a scheduled driver cannot work:
+   - If there is time: dispatch edits schedule and swaps driver.
+   - If shift already started: dispatch marks driver OUT and assigns a substitute.
+7) When pressing "REASSIGN ROUTES":
+   - ONLY trips for the OUT driver that have NOT STARTED move to substitute.
+   - Trips already started (en route, picked up, arrived) remain untouched.
+   - Other drivers remain untouched.
+8) Logged-out drivers must NEVER appear in "Unassigned Drivers".
+9) Only drivers BOTH:
+   - scheduled for that date
+   - AND logged in
+   appear in Unassigned.
+10) Substitutes can be used only if:
+   - in substitute pool for that date
+   - logged in
+
+========================================================
+PHASE 1 — DATA MODEL
+========================================================
+
+Search existing tables first:
+- schedule
+- availability
+- shifts
+- assignments
+
+If no substitute system exists, create MINIMAL tables:
+
+TABLE: driver_weekly_schedule
+- id uuid pk
+- driver_id uuid
+- city text
+- mon_enabled bool, mon_start time, mon_end time
+- tue_enabled bool, tue_start time, tue_end time
+- wed_enabled bool, wed_start time, wed_end time
+- thu_enabled bool, thu_start time, thu_end time
+- fri_enabled bool, fri_start time, fri_end time
+- sat_enabled bool, sat_start time, sat_end time
+- updated_by uuid
+- updated_at timestamp
+
+TABLE: sunday_roster
+- id uuid pk
+- date date
+- city text
+- enabled bool default false
+- updated_by uuid
+- updated_at timestamp
+UNIQUE(date, city)
+
+TABLE: sunday_roster_drivers
+- id uuid pk
+- roster_id uuid
+- driver_id uuid
+UNIQUE(roster_id, driver_id)
+
+TABLE: substitute_pool
+- id uuid pk
+- date date
+- city text
+- driver_id uuid
+- added_by uuid
+- added_at timestamp
+UNIQUE(date, city, driver_id)
+
+TABLE: driver_replacements
+- id uuid pk
+- date date
+- city text
+- out_driver_id uuid
+- substitute_driver_id uuid
+- status text default 'active'
+- created_by uuid
+- created_at timestamp
+UNIQUE(date, city, out_driver_id)
+
+========================================================
+PHASE 2 — PERMISSIONS
+========================================================
+
+Dispatch must be able to:
+- Edit weekly schedule
+- Enable Sunday
+- Add Sunday drivers
+- Add/remove substitutes
+- Replace drivers
+- Trigger reassignment
+
+super_admin same permissions.
+
+Drivers/clinics: no access.
+
+========================================================
+PHASE 3 — SCHEDULE TAB UI
+========================================================
+
+Add new tab: SCHEDULE
+
+SECTION A — WEEKLY (Mon–Sat)
+- City selector
+- Driver list
+- Toggles per day + start/end
+- Editable by dispatch
+- Save updates
+
+SECTION B — SUNDAY
+- City selector
+- Date selector (must be Sunday)
+- Toggle enable Sunday
+- Add drivers for that Sunday
+
+SECTION C — SUBSTITUTES
+- City + Date selector
+- Add/remove substitute drivers
+- Show login status badge
+
+SECTION D — REPLACE DRIVER
+Workflow:
+- select date/city
+- select OUT driver (from scheduled drivers)
+- select substitute (from substitute pool)
+- save mapping
+
+========================================================
+PHASE 4 — LOGIN STATUS
+========================================================
+
+Use existing session/heartbeat logic.
+
+Create helper:
+isDriverLoggedIn(driverId)
+
+Only logged-in drivers are eligible for:
+- Unassigned
+- Scheduler
+- Replacement
+
+========================================================
+PHASE 5 — DAILY ASSIGNMENTS LOGIC
+========================================================
+
+For selected (city, date):
+
+scheduledDrivers =
+Mon–Sat → weekly schedule enabled
+Sunday → sunday_roster if enabled
+
+eligibleDrivers =
+scheduledDrivers WHERE logged in
+
+driversWithTrips =
+distinct drivers assigned that day
+
+unassignedDrivers =
+eligibleDrivers MINUS driversWithTrips
+
+UI must show:
+Unassigned Drivers = unassignedDrivers ONLY
+
+Logged-out drivers must never appear.
+
+Substitutes must not appear in Unassigned by default.
+
+========================================================
+PHASE 6 — CONTROLLED REASSIGN SYSTEM
+========================================================
+
+Add button:
+"REASSIGN AFFECTED ROUTES"
+
+When pressed:
+
+For each replacement mapping:
+(out_driver → substitute_driver)
+
+Find trips for that date where:
+trip.driver_id = out_driver
+AND trip.status IN:
+- scheduled
+- assigned
+- pending
+
+DO NOT move trips where status IN:
+- en_route
+- arrived
+- picked_up
+- completed
+- cancelled
+
+Reassign eligible trips:
+trip.driver_id = substitute_driver
+
+Do NOT touch:
+- other drivers
+- already started trips
+
+If substitute logged out:
+BLOCK and show:
+"Substitute must be logged in."
+
+========================================================
+PHASE 7 — MANUAL ASSIGN ENFORCEMENT
+========================================================
+
+Manual assign dropdown shows:
+- scheduled + logged in drivers
+- substitutes (optional toggle)
+
+Server validation:
+cannot assign to:
+- logged-out
+- not scheduled
+- not substitute
+
+========================================================
+PHASE 8 — SCHEDULER ENGINE
+========================================================
+
+When scheduler runs:
+- only eligibleDrivers
+- ignore logged-out
+- ignore OUT drivers with replacement mapping
+
+========================================================
+PHASE 9 — VERIFY
+========================================================
+
+TEST 1:
+Driver scheduled but logged out → not in Unassigned
+
+TEST 2:
+Driver scheduled + logged in → appears
+
+TEST 3:
+Add substitute → not in Unassigned
+
+TEST 4:
+Replace driver → mapping saved
+
+TEST 5:
+Press Reassign →
+only that driver's NOT STARTED trips move
+
+TEST 6:
+Trips already en route remain untouched
+
+TEST 7:
+Multiple replacements work independently
+
+========================================================
+DO NOT
+========================================================
+Do NOT reset DB  
+Do NOT reshuffle all routes  
+Do NOT allow logged-out drivers in Unassigned  
+Do NOT move started trips  
+
+========================================================
+SUCCESS CRITERIA
+========================================================
+
+• Dispatch fully controls schedule  
+• Substitute system works  
+• Reassign moves only safe trips  
+• Metrics reflect reality  
+• System stable for real operations

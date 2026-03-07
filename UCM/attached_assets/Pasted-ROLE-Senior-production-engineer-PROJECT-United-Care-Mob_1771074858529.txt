@@ -1,0 +1,120 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT rebuild project
+- Do NOT reset database
+- Fix deployment pipeline only
+- Verify before exit
+
+PROBLEM:
+Deployment loop. App builds but production container serves stale process.
+start.js is killing wrong ports and not guaranteeing clean boot.
+
+OBJECTIVE:
+Force a clean production start and ensure Cloud Run/Deploy runs latest build.
+
+-----------------------------------
+STEP 1 — FIX start.js PORT HANDLING
+-----------------------------------
+
+Open start.js
+
+REMOVE any hardcoded port kills like:
+kill-port 5000
+kill-port 3000
+
+REPLACE with:
+
+const port = process.env.PORT || 3000;
+
+Only kill FastAPI port 5001 if exists.
+Do NOT kill process.env.PORT.
+
+Ensure order:
+1. Start FastAPI on 5001
+2. Wait 2s
+3. Start Node gateway on process.env.PORT
+
+-----------------------------------
+STEP 2 — FORCE CLEAN BUILD
+-----------------------------------
+
+Delete build cache:
+
+rm -rf server_dist
+rm -rf frontend_dist
+rm -rf node_modules/.cache
+
+Rebuild:
+
+npm install
+npm run build
+
+Ensure exists:
+server_dist/index.js
+frontend_dist/index.html
+
+-----------------------------------
+STEP 3 — VERIFY START SCRIPT
+-----------------------------------
+
+package.json must have:
+
+"start": "node start.js"
+
+NOT tsx
+NOT dev
+NOT nodemon
+
+-----------------------------------
+STEP 4 — HEALTH ROUTE FIRST
+-----------------------------------
+
+In server entry (Express):
+
+app.get("/health", (req,res)=>{
+  res.json({ok:true,service:"node",time:Date.now()});
+});
+
+Place BEFORE any proxy.
+
+-----------------------------------
+STEP 5 — FORCE DEPLOY REFRESH
+-----------------------------------
+
+Important:
+Deployment container is stale.
+
+Do this:
+
+1. Bump version:
+   change package.json version to 2.0.2
+
+2. Commit rebuild
+3. Publish again
+
+-----------------------------------
+STEP 6 — VERIFY LIVE
+-----------------------------------
+
+After publish:
+
+https://app.unitedcaremobility.com/health
+
+Must return JSON instantly.
+
+If OK → login page must load.
+If white screen → stop and print logs.
+
+-----------------------------------
+EXIT CONDITIONS
+-----------------------------------
+
+Only exit when:
+
+/health returns ok:true  
+login loads  
+no white screen  
+no port conflict  

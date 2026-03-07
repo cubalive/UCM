@@ -1,0 +1,97 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Harden Driver security:
+1) Device binding (max 2 devices per driver)
+2) Remote logout / revoke sessions by DISPATCH
+3) Prevent simultaneous sessions (optional strict mode)
+4) Basic anti-spoofing flags + Android mock-location hint for native
+No breaking changes. Feature-flagged.
+
+CONSTRAINTS:
+- Keep server RBAC as source of truth
+- Do not modify shared/permissions.ts
+- Do not lock out SUPER_ADMIN
+
+---------------------------------------
+PHASE 1 — DB TABLES (MINIMAL)
+---------------------------------------
+Add Drizzle tables:
+A) driver_devices
+- id, driver_id, company_id
+- device_fingerprint_hash
+- device_label (optional)
+- last_seen_at
+- created_at
+
+B) revoked_tokens (or session_revocations)
+- id, user_id, company_id
+- revoked_after (timestamp)
+- reason
+- created_by_user_id
+- created_at
+
+---------------------------------------
+PHASE 2 — DEVICE FINGERPRINT
+---------------------------------------
+Client (driver app only):
+- Generate stable fingerprint:
+  userAgent + platform + timezone + screen + random install id
+- Store install id in localStorage (web) and secure storage (native)
+- Send fingerprint with login and connect requests in header:
+  X-UCM-Device: <hash>
+
+Server:
+- On driver login/refresh/connect:
+  - if driver has <2 devices -> register if new
+  - if already 2 and new device -> deny with clear message
+Feature flag:
+- DRIVER_DEVICE_BINDING=true
+
+---------------------------------------
+PHASE 3 — REMOTE LOGOUT / TOKEN REVOCATION
+---------------------------------------
+JWT validation middleware:
+- Check if user has a revoked_after timestamp in revoked_tokens:
+  If token.iat < revoked_after -> reject 401 "Session revoked"
+
+Endpoints:
+- POST /api/dispatch/drivers/:id/revoke-sessions  (DISPATCH/SUPER_ADMIN)
+  Body: { reason }
+  Action: set revoked_after=now for that driver user_id
+
+UI (admin/dispatch):
+- Add button on driver profile: "Force Logout"
+- Confirmation modal + reason
+
+---------------------------------------
+PHASE 4 — OPTIONAL SINGLE-SESSION MODE
+---------------------------------------
+Feature flag:
+- DRIVER_SINGLE_SESSION=true
+If enabled:
+- Store last_active_jti in DB/Redis per driver
+- On new login, invalidate previous by updating revoked_after or rotating jti store
+
+---------------------------------------
+PHASE 5 — ANTI-SPOOF FLAGS
+---------------------------------------
+Server:
+- Flag impossible jumps (already) -> write driver_suspicious_events:
+  type=impossible_jump, delta_m, delta_s, speed_est
+- If repeated, mark driver “GPS suspicious” visible to dispatch.
+
+Driver UI:
+- Show warning banner if device binding denial or suspicious GPS.
+
+VERIFY:
+- Driver can use up to 2 devices
+- 3rd device denied gracefully
+- Dispatch can force logout and driver is kicked next request
+- Flags recorded without breaking tracking

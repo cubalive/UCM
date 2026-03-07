@@ -1,0 +1,97 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Fix SSL/HTTPS and PWA readiness for subdomain driver.unitedcaremobility.com (and app.unitedcaremobility.com if applicable).
+Problem: iPhone Safari shows NO lock (Not Secure) on driver subdomain, breaking geolocation + PWA.
+
+SCOPE:
+A) Verify domain attachment to the ACTIVE production deployment
+B) Verify DNS records required for Replit custom domains
+C) Force SSL issuance / renewal
+D) Remove mixed content + enforce HTTPS redirects
+E) Verify PWA endpoints (manifest, service worker, icons) and iOS installability
+
+--------------------------------------------
+A) REPLIT DEPLOYMENT DOMAIN CONFIG
+--------------------------------------------
+1) Open Replit Deployments and identify the ACTIVE production deployment that serves the app.
+2) In that active deployment, go to Domains:
+   - Ensure driver.unitedcaremobility.com is added there (not only in project settings).
+   - If already present, REMOVE it and RE-ADD it to force revalidation/SSL issuance.
+3) Also verify app.unitedcaremobility.com if used.
+
+--------------------------------------------
+B) DNS VALIDATION (MUST CHECK)
+--------------------------------------------
+Provide exact DNS record values Replit expects for these hostnames.
+- Confirm whether Replit requires CNAME to a specific target or A records.
+- Verify current DNS resolves correctly:
+  - driver.unitedcaremobility.com -> should resolve to Replit deployment endpoint
+  - app.unitedcaremobility.com -> same
+If using Cloudflare:
+  - set SSL/TLS mode to FULL (strict preferred if cert works; otherwise Full)
+  - ensure proxy status matches Replit requirements (if proxy breaks issuance, set DNS only temporarily)
+Return the exact DNS changes needed, with record type/name/value and TTL.
+
+--------------------------------------------
+C) SSL / CERTIFICATE ISSUANCE
+--------------------------------------------
+1) Trigger certificate issuance:
+   - Re-add domain in deployment
+   - Wait for domain status to become “Secure / Issued”
+2) If issuance stuck:
+   - check for conflicting DNS records
+   - check Cloudflare proxy
+   - check CAA records blocking issuance
+3) Output status and resolution steps.
+
+--------------------------------------------
+D) ENFORCE HTTPS + REMOVE MIXED CONTENT
+--------------------------------------------
+1) Add HTTP->HTTPS redirect at the server layer:
+   - If Express/Node backend: redirect when x-forwarded-proto != https
+2) Scan for mixed content:
+   - Ensure all API/base URLs, websocket URLs, assets use https and correct host.
+   - No http:// calls anywhere.
+3) Ensure cookies used for auth are Secure + SameSite settings correct under HTTPS.
+
+--------------------------------------------
+E) PWA VERIFICATION (MUST DO)
+--------------------------------------------
+1) Confirm these endpoints return 200 on https://driver.unitedcaremobility.com:
+   - /manifest.webmanifest (or /manifest.json)
+   - /service-worker.js (or correct sw path)
+   - icons (192, 512) reachable over https
+2) Verify response headers for SW are correct:
+   - Content-Type application/javascript
+   - no-cache pitfalls avoided
+3) Ensure page includes:
+   - <link rel="manifest" href="...">
+   - correct scope/start_url
+4) Ensure iOS install readiness:
+   - apple-touch-icon present
+   - meta tags for apple-mobile-web-app-capable etc.
+
+--------------------------------------------
+F) VERIFICATION (PROVE IT)
+--------------------------------------------
+Provide proof with:
+1) A curl showing HTTPS is served and redirects from HTTP:
+   - curl -I http://driver.unitedcaremobility.com
+   - curl -I https://driver.unitedcaremobility.com
+2) A curl showing manifest is reachable:
+   - curl -I https://driver.unitedcaremobility.com/manifest.webmanifest
+3) A statement: “Safari shows lock” after fix (explain what to test on iPhone).
+
+STOP CONDITIONS:
+Do not stop until:
+- Domain shows secure in Replit deployment
+- HTTPS lock appears in iPhone Safari
+- manifest + service worker return 200 over HTTPS

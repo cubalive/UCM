@@ -1,0 +1,61 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Add “Download JSON” and “Export CSV” actions to the Admin Metrics tab/page.
+
+CONTEXT:
+Admin Metrics page already fetches:
+- GET /api/ops/health
+- GET /api/ops/metrics
+- GET /api/ops/metrics/google
+- (optional) GET /api/ops/metrics/routes
+
+REQUIREMENTS:
+1) UI Buttons (top-right of Metrics page):
+   - "Download JSON"
+   - "Export CSV"
+
+2) Download JSON:
+   - Combine the latest in-memory responses from the metrics queries into one object:
+     {
+       generatedAt: ISO timestamp,
+       health,
+       metrics,
+       google,
+       routes (optional)
+     }
+   - Download as file: ucm-metrics-YYYYMMDD-HHMM.json
+   - No secrets included (only aggregated stats).
+
+3) Export CSV:
+   - Create 2 CSV downloads:
+     A) ucm-metrics-summary-YYYYMMDD-HHMM.csv
+        Columns: generatedAt, healthStatus, p95LatencyMs, errorRate, reqPerMin, cacheHitRate, redisOk,
+                 realtimePublishesPerMin_location, realtimePublishesPerMin_eta, directionsCallsPerMin, breakerOn
+     B) ucm-metrics-routes-YYYYMMDD-HHMM.csv (if routes endpoint exists)
+        Columns: route, count, p95Ms, errorCount (or whatever fields exist)
+
+   - CSV generation must be client-side (no server changes required).
+   - If routes data not available, disable the routes CSV button gracefully.
+
+4) Implementation details:
+   - Use a small helper to convert array-of-objects -> CSV string with proper escaping:
+     - wrap fields with quotes if they contain commas or quotes
+     - replace " with "" inside quoted fields
+   - Use Blob + URL.createObjectURL + hidden <a download> to trigger downloads.
+
+5) RBAC:
+   - Keep page RBAC as-is (SUPER_ADMIN only unless already expanded).
+   - No new endpoints required.
+
+VERIFY:
+- Clicking Download JSON downloads the file with correct content.
+- Clicking Export CSV downloads at least the summary CSV.
+- Works on mobile and desktop.
+- No performance regression (use existing cached query results, do not refetch just to export).

@@ -1,0 +1,59 @@
+ROLE: Principal Engineer
+PROJECT: UCM Driver App — Arrival + Waiting Timer must trigger at pickup
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Zero regressions
+
+BUG:
+Driver reaches the pickup address physically but:
+- "Mark Arrived" does not enable
+- Waiting timer (5/10/15 min) does not start
+- No arrival flow triggers
+
+REQUIREMENTS (must be deterministic):
+A) The "Arrived at Pickup" action becomes enabled when driver is within PICKUP_GEOFENCE_RADIUS_METERS of pickup coordinates.
+   - If pickup coordinates missing, geocode once (server-side) and cache.
+B) Arrival should never depend on the map app; it must use our own GPS location.
+C) The waiting timer starts immediately after successful ARRIVED_PICKUP transition, using company-configured wait_minutes.
+D) Provide manual fallback: "Mark Arrived (Manual)" available only if:
+   - driver is within a larger fallback radius (e.g. 300m) OR
+   - dispatcher toggles an override flag for that trip.
+   All overrides must be logged.
+
+TASKS:
+1) Find where pickup geofence is computed today:
+   - Identify any getTripPhase(), getNavLabel(), geofence gating logic, and the TripDetailModal button enable rules.
+   - Output file paths + current logic.
+
+2) Ensure driver location updates are available even when app is backgrounded in PWA/APK:
+   - Use existing location ingest/ping endpoint.
+   - In driver UI, show a small "GPS: fresh/stale" indicator and last update time.
+   - Do NOT add new heavy background tech here; only ensure we are using the latest known location reliably.
+
+3) Implement geofence check function:
+   - haversineMeters(driverLatLng, pickupLatLng)
+   - Use pickup for ARRIVED_PICKUP gating, dropoff for ARRIVED_DROPOFF gating.
+   - Radius source:
+     company_settings.pickup_geofence_meters (default 120m)
+     company_settings.dropoff_geofence_meters (default 120m)
+
+4) Make ARRIVED_PICKUP button enable exactly when:
+   - trip.status in {ASSIGNED, EN_ROUTE, SCHEDULED(if assigned to driver)} AND
+   - distanceToPickup <= pickup_geofence_meters AND
+   - gpsFresh <= 30 seconds (configurable)
+   If gps stale, show CTA "Resume GPS" with instructions.
+
+5) On button press:
+   - Call POST /api/driver/trips/:tripId/status with nextStatus=ARRIVED_PICKUP plus idempotencyKey
+   - Backend must accept if gating passes and enforce pickup-before-dropoff rule.
+
+OUTPUT REQUIRED:
+- Modified files list
+- Exact geofence thresholds used
+- Console logs or server logs demonstrating:
+  distanceToPickup, gpsFreshSeconds, enable=true
+- Short QA checklist

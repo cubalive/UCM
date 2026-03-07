@@ -1,0 +1,137 @@
+ROLE: Distributed systems architect
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- No DB reset
+- No breaking changes
+- Extend only
+- Verify before exit
+
+TASK: PHASE 6 — HARD MULTI-TENANT + ASYNC ENGINE
+
+GOAL:
+Transform current system into enterprise-ready multi-company architecture.
+
+========================================================
+PHASE 6.1 — HARD MULTI-TENANT ENFORCEMENT
+========================================================
+
+1) Enforce company_id isolation at middleware level:
+- Every request must resolve company_id from JWT.
+- Reject if missing.
+- Inject company_id automatically into all DB queries.
+- Add safety guard: if query returns row without company_id, log error.
+
+2) Add query guard utility:
+- prevent cross-company access even if developer forgets filter.
+
+3) Add tenant-scoped cache keys:
+- redis key prefix: company:{companyId}:...
+
+========================================================
+PHASE 6.2 — BACKGROUND JOB QUEUE (CRITICAL)
+========================================================
+
+Implement Redis-backed job queue.
+
+Create queue types:
+- pdf_generation
+- invoice_generation
+- email_delivery
+- map_snapshot
+- billing_rollup
+
+Add:
+- enqueueJob(type, payload)
+- worker processor
+- retry with exponential backoff
+- max retries
+- dead letter log
+
+Convert these to async jobs:
+- PDF creation
+- Invoice batch generation
+- Weekly/monthly billing rollups
+- Bulk notifications
+
+API should return:
+202 Accepted
+jobId
+
+Add:
+GET /api/jobs/:id/status
+
+========================================================
+PHASE 6.3 — READ / WRITE SPLIT READY
+========================================================
+
+Prepare DB layer abstraction:
+- primary client
+- read client (future replica)
+- select queries routed to read client if safe
+- writes always primary
+
+Even if replica not active, code must support it.
+
+========================================================
+PHASE 6.4 — IDEMPOTENCY KEYS
+========================================================
+
+For:
+- Trip creation
+- Billing creation
+- Payment webhooks
+
+Require Idempotency-Key header.
+Store keys in Redis (TTL 24h).
+Reject duplicate payloads.
+
+========================================================
+PHASE 6.5 — COMPANY QUOTAS
+========================================================
+
+Add per-company limits:
+- max drivers
+- max active trips
+- max API RPM
+- max maps RPM
+
+Reject with 429 + structured message if exceeded.
+
+========================================================
+PHASE 6.6 — EVENT STREAM LOG
+========================================================
+
+Create append-only event log table:
+system_events
+- id
+- company_id
+- entity_type
+- entity_id
+- event_type
+- payload (jsonb)
+- created_at
+
+Log:
+- trip_created
+- trip_assigned
+- driver_location_update
+- invoice_generated
+- payment_received
+
+========================================================
+PHASE 6.7 — ACCEPTANCE CRITERIA
+========================================================
+
+1) No sync PDF or invoice generation.
+2) Company isolation impossible to bypass.
+3) Duplicate trip create prevented.
+4) Load test shows API thread time reduced.
+5) Jobs retry works.
+6) No breaking endpoints.
+
+Deliver:
+- Job queue
+- Middleware enforcement
+- Idempotency layer
+- Event stream
+- Verification results

@@ -1,0 +1,58 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+EXECUTION MODE: SINGLE AGENT ONLY
+
+CRITICAL:
+All logins (super_admin/dispatch/clinic/driver) now fail with "Invalid credential".
+Supabase URL config is already correct.
+
+DO NOT reset database.
+DO NOT delete users.
+DO NOT recreate tables.
+
+GOAL:
+Fix auth so sign-in works in production for all roles.
+Add precise diagnostics to identify env/session issues.
+Keep RBAC checks AFTER successful auth only.
+
+TASKS:
+
+1) ENV VALIDATION (MOST LIKELY)
+- Ensure the frontend and backend read the correct env vars in BOTH Preview and Deployment:
+  - SUPABASE_URL
+  - SUPABASE_ANON_KEY
+  - SUPABASE_SERVICE_ROLE_KEY (server only)
+- Add /api/auth/health route returning:
+  { ok:true, hasSupabaseUrl:boolean, hasAnonKey:boolean, hasServiceRole:boolean, siteUrl: string }
+  Do NOT leak secrets.
+
+2) SUPABASE CLIENT SINGLETON
+- Ensure there is exactly one Supabase client in the frontend created from SUPABASE_URL + SUPABASE_ANON_KEY.
+- Ensure the client is NOT created with undefined/empty values in production.
+- If missing, show a clear UI error: "Supabase env missing" (do not attempt login).
+
+3) LOGIN FLOW (MUST BE)
+- signInWithPassword(email.trim().toLowerCase(), password)
+- If auth fails: return/show exact Supabase error message.
+- If auth succeeds: THEN load internal profile/role and route accordingly.
+- Remove any role/clinic_id checks that run before auth success.
+
+4) SESSION PERSISTENCE
+- Ensure auth session is persisted (localStorage) and not being cleared by route guards.
+- Route guards should check: "isAuthenticated" first; if not, redirect to /login.
+- They must NOT call protected APIs before session exists.
+
+5) DOMAIN / REDIRECT SAFETY
+- Remove any hardcoded redirectTo pointing to old domains.
+- If using redirectTo for magic links/reset, use window.location.origin dynamically.
+
+6) VERIFY (MUST DO)
+- Test super_admin login in Preview and Deployment.
+- Test clinic_user login.
+- Test driver login.
+- Confirm session remains after refresh (no blank screen).
+
+OUTPUT:
+- State the root cause found (env missing vs flow bug vs guards).
+- List files changed.
+- Provide the /api/auth/health URL to check in browser.

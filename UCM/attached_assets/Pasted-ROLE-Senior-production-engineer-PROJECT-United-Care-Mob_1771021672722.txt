@@ -1,0 +1,100 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Implement full delete permissions by role:
+
+SUPER_ADMIN:
+- Can delete/archive: users, clinics, drivers, patients, vehicles, trips (with protections)
+DISPATCH:
+- Can delete/archive: drivers, patients, trips
+CLINIC:
+- Can delete/edit: patients
+- Can create/edit/delete trips (routes) ONLY before dispatch approval
+- After approval: clinic cannot delete/edit core fields; only "request cancel"
+
+NON-NEGOTIABLE:
+All permissions must be enforced server-side (not UI-only).
+Prefer soft delete + archived view + optional hard delete from archived with irreversible confirmation.
+
+DATA MODEL (if missing, add safely):
+1) Soft delete columns (apply to: users, drivers, patients, vehicles, clinics, trips):
+- deleted_at timestamptz null
+- deleted_by uuid/user_id null
+- delete_reason text null
+- is_deleted boolean generated OR (deleted_at not null) OR keep as boolean
+
+2) Trips approval lock:
+- trips.approval_status enum('pending','approved','cancel_requested','cancelled') default 'pending'
+- trips.approved_at timestamptz null
+- trips.approved_by uuid null
+
+3) Ownership/scoping:
+- patients.clinic_id (required for clinic scoping)
+- trips.clinic_id and trips.patient_id
+- drivers.city_id and vehicles.city_id enforced already (do not break)
+
+SERVER-SIDE AUTH RULES:
+A) SUPER_ADMIN
+- May delete/archive anything.
+- Trips: if approval_status='approved', do not hard-delete in main UI. Allow archive; hard delete only from Archived with 2-step confirm.
+
+B) DISPATCH
+- May delete/archive drivers, patients, trips within selected city scope if you have city scoping.
+- Trips: can cancel approved trips (approval_status='cancelled' + reason). Hard delete only from Archived if allowed by super_admin policy.
+
+C) CLINIC_USER
+- Patients: can create/edit/delete patients ONLY within their clinic_id.
+- Trips:
+  - can create trips with approval_status='pending'
+  - can edit/delete ONLY while pending
+  - once approved: cannot delete or edit core fields (date/time/pickup/dropoff/patient/vehicle/driver)
+  - can only "request cancel" -> approval_status='cancel_requested' + reason
+
+ENDPOINTS (must update):
+- DELETE /api/users/:id => super_admin only (soft delete + archived)
+- DELETE /api/drivers/:id => dispatch OR super_admin (soft delete)
+- DELETE /api/patients/:id => dispatch OR super_admin; clinic_user only if patient.clinic_id matches
+- DELETE /api/trips/:id =>
+   * super_admin always can archive; hard delete only in archived flow
+   * dispatch can archive/cancel (with rules)
+   * clinic_user only if trip.clinic_id matches AND approval_status='pending'
+- PATCH/PUT trips =>
+   * clinic_user only if pending (full edit)
+   * after approved, clinic_user only notes fields + request cancel endpoint
+- Add POST /api/trips/:id/request-cancel (clinic_user) and POST /api/trips/:id/approve (dispatch)
+- Ensure list endpoints exclude deleted rows by default; add ?includeDeleted=true for super_admin archived screens.
+
+UI RULES:
+1) Users screen (super_admin):
+- Add actions: Archive user, Restore, Delete forever (only from Archived tab)
+2) Dispatch:
+- Drivers list: add Delete/Archive
+- Patients list: add Delete/Archive
+- Trips list: add Delete/Archive (pending + approved rules)
+3) Clinic:
+- Patients: add Delete + Edit
+- Trips: show Pending/Approved badge
+   - Pending: Edit + Delete
+   - Approved: hide Edit/Delete; show Request Cancel
+
+CONFIRMATIONS:
+- Any Delete shows modal:
+  - "Archive (recommended)" primary
+  - "Delete forever" only in Archived and only for super_admin (2-step confirm: type DELETE)
+
+VERIFY (must run):
+- Super admin can delete users
+- Dispatch can delete drivers/patients/trips
+- Clinic can delete/edit patients in their clinic only
+- Clinic can edit/delete trip only before approval; after approval only request cancel
+- No role can delete outside scope
+- Backend returns 403 on unauthorized attempts
+Verify before exit.

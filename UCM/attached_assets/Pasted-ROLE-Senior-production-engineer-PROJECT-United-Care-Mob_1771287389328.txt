@@ -1,0 +1,185 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- Sequential execution only
+- Do NOT reset database
+- Do NOT recreate existing tables
+- Extend existing system only
+- Verify before exit
+
+GOAL (DO BOTH)
+A) Vehicle Compatibility Lock (hard safety rules)
+B) Automatic Clinic Billing (trip_billing + monthly invoice export)
+
+========================================================
+A) VEHICLE COMPATIBILITY LOCK (HARD SAFETY)
+========================================================
+
+A1) Data model (minimal + scalable)
+- Add to trips table:
+  - mobility_requirement: enum/text with allowed values: "STANDARD" | "WHEELCHAIR"
+    - default "STANDARD"
+- Add to vehicles table:
+  - capability: enum/text with allowed values: "SEDAN" | "WHEELCHAIR"
+    - default "SEDAN"
+NOTE: do NOT break existing columns; if existing trip_type/vehicle_type exist, map them internally.
+
+A2) Compatibility rules (server-side truth)
+- function isCompatible(trip, vehicle):
+  - if trip.mobility_requirement === "WHEELCHAIR" then vehicle.capability must be "WHEELCHAIR"
+  - if trip.mobility_requirement === "STANDARD" then both capabilities allowed
+
+A3) Enforce in ALL assignment paths (backend)
+- Auto-assign scheduler must filter out incompatible vehicles BEFORE scoring.
+- Manual dispatch assignment endpoint must reject incompatible pair with:
+  - 400 { message: "Vehicle not compatible with wheelchair trip", code: "VEHICLE_INCOMPATIBLE" }
+- Any endpoint that changes trip vehicle/driver must re-validate compatibility.
+- Any endpoint that changes trip mobility_requirement must re-validate against current assigned vehicle; if incompatible:
+  - reject OR require unassign first (prefer reject with clear message).
+
+A4) Audit logging
+- On any rejected assignment due to incompatibility, write audit event:
+  - action: "vehicle_incompatible_block"
+  - include tripId, vehicleId, userId, role, requirement, capability
+
+A5) Frontend (dispatch UI)
+- In Trip Assign modal and any vehicle dropdown:
+  - If trip.mobility_requirement === "WHEELCHAIR":
+    - disable all SEDAN vehicles
+    - show tooltip "Not compatible with wheelchair transport"
+- In Trip Create/Edit:
+  - add mobility requirement selector STANDARD/WHEELCHAIR
+
+A6) Verification
+- Create wheelchair trip, attempt assign sedan -> blocked (400 + UI message)
+- Auto-assign never assigns sedan to wheelchair
+- Wheelchair vehicle can take standard trip
+- Audit logs appear for blocked attempts
+
+========================================================
+B) AUTOMATIC CLINIC BILLING (MONEY ENGINE)
+========================================================
+
+B1) Tables (new, do not alter existing invoices unless necessary)
+1) clinic_tariffs
+- id
+- clinic_id (FK)
+- city_id (optional if tariffs differ per city)
+- base_fee_cents (int)
+- per_mile_cents (int)
+- wait_minute_cents (int)
+- wheelchair_extra_cents (int)
+- effective_from (date) default now
+- active (boolean) default true
+- created_at
+
+2) trip_billing
+- id
+- trip_id (FK unique)
+- clinic_id
+- city_id
+- mobility_requirement ("STANDARD"|"WHEELCHAIR")
+- distance_miles (numeric)
+- wait_minutes (int)
+- base_fee_cents
+- mileage_cents
+- wait_cents
+- wheelchair_cents
+- total_cents
+- status ("pending"|"invoiced"|"paid"|"void") default "pending"
+- created_at
+
+3) clinic_invoices_monthly
+- id
+- clinic_id
+- city_id
+- period_month (YYYY-MM)
+- subtotal_cents
+- adjustments_cents default 0
+- total_cents
+- status ("draft"|"sent"|"paid"|"void") default "draft"
+- generated_at
+- sent_at (nullable)
+- paid_at (nullable)
+
+4) clinic_invoice_items
+- id
+- invoice_id (FK)
+- trip_id (FK)
+- amount_cents
+- line_json (json/text) with breakdown snapshot (distance, wait, rates)
+- created_at
+
+B2) Billing computation on trip completion
+- Find the code path where trip status becomes COMPLETED.
+- After marking completed (and ONLY once), compute billing:
+  - Fetch clinic tariff (most recent active for that clinic, optionally city-aware)
+  - Determine distance_miles:
+    - Prefer persisted trip.distance_miles or trip.route_distance_meters if exists
+    - Else compute from stored route distance or haversine fallback
+  - Determine wait_minutes:
+    - If you track arrived/picked_up timestamps, compute wait as (picked_up - arrived_pickup) in minutes, clamp >=0
+    - Else default 0 (but store)
+  - Compute:
+    base_fee
+    mileage = distance * per_mile
+    wait = wait_minutes * wait_rate
+    wheelchair = requirement==="WHEELCHAIR" ? wheelchair_extra : 0
+    total = sum
+  - Insert into trip_billing with trip_id unique (idempotent).
+- If clinic has no tariff:
+  - Do NOT fail completion
+  - Create trip_billing with zeros and status "pending"
+  - Log audit: "billing_missing_tariff"
+
+B3) Monthly invoice generation (admin/dispatch)
+Endpoints (JWT, roles: SUPER_ADMIN/ADMIN/DISPATCH + company isolation):
+- POST /api/billing/clinics/:clinicId/invoices/generate?period=YYYY-MM
+  - Collect trip_billing rows for clinic within month where status="pending"
+  - Create clinic_invoices_monthly (or upsert draft)
+  - Create clinic_invoice_items for each trip_billing
+  - Mark those trip_billing rows status="invoiced"
+  - Return invoice summary
+
+- GET /api/billing/clinics/:clinicId/invoices?period=YYYY-MM
+  - Return invoice + items + totals
+
+- GET /api/billing/clinics/:clinicId/invoices/export.csv?period=YYYY-MM
+  - CSV with trip_id, date, pickup, dropoff, distance, wait, requirement, total_cents
+
+- GET /api/billing/clinics/:clinicId/invoices/export.json?period=YYYY-MM
+  - Full JSON export
+
+B4) Admin UI
+- Add Billing tab for dispatch/admin/super_admin:
+  - Clinic picker
+  - Month picker
+  - Button: "Generate Invoice"
+  - Table: invoice items
+  - Buttons: Download CSV / Download JSON
+  - Show totals
+
+B5) Verification
+- Complete a trip for a clinic with tariff -> trip_billing created with correct cents
+- Generate invoice for month -> invoice created + items + totals
+- Exports download correctly
+- Regenerating same period is idempotent (no duplicates)
+
+========================================================
+NON-NEGOTIABLE CONSTRAINTS
+========================================================
+- Do NOT modify shared/permissions.ts without explicit instruction
+- Do NOT reset DB
+- Extend existing schema safely via drizzle migrations
+- Keep company isolation + city enforcement
+- Ensure all new endpoints are RBAC protected server-side
+- Add minimal tests or runtime verification logs
+
+DELIVERABLES
+1) Files changed list
+2) Migration(s) created
+3) Endpoints implemented + sample responses
+4) UI screenshots notes (what to click)
+5) Verification checklist results

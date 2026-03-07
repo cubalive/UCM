@@ -1,0 +1,186 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE
+Implement flow B:
+Validate → show confirmation → Run Import (commit).
+Fix current issue where Run Import fails with "offline" and inserts nothing.
+Add progress bar (0–100%), then remove it and show:
+“✅ Todo fue transferido exitosamente.”
+Verify specifically on Company #7 (and Company #6 if needed).
+
+WHAT’S BROKEN NOW
+- Validation succeeds (counts show 5/280/2500/300)
+- Run Import fails showing “offline”
+- Company Data Health remains 0 (meaning DB commit never happened)
+
+We must fix backend execution + UI error handling + post-import refresh.
+
+---------------------------------------------------------
+PHASE 1 — BACKEND: MAKE RUN IMPORT RELIABLE (NO “OFFLINE”)
+---------------------------------------------------------
+
+1) Locate the endpoint called by the “Run Import” button.
+Search frontend for fetch/axios call containing:
+- "run-import"
+- "execute"
+- "commit"
+- "/import-jobs/"
+Then locate matching backend route.
+
+2) Fix API responses:
+Ensure Run Import endpoint ALWAYS returns JSON with proper status code.
+
+On success:
+HTTP 200
+{ ok:true, status:"completed", summary:{ clinics:{inserted}, drivers:{inserted}, vehicles:{inserted}, patients:{inserted} } }
+
+On failure:
+HTTP 400/500
+{ ok:false, status:"failed", error:"<real error message>" }
+
+No empty responses. No HTML. No silent fails.
+The “offline” banner in UI likely appears when fetch throws or response body is missing.
+
+3) Wrap the import execution in try/catch and log the real error:
+- console.error with stack
+- include jobId and companyId
+Return the error message to the client.
+
+4) Ensure DB commit really happens:
+- Use a transaction (recommended)
+- Insert in deterministic order:
+  clinics -> drivers -> vehicles -> patients
+- IMPORTANT: force company scope:
+  every row inserted must include company_id = job.company_id
+  (Do not rely on CSV containing company_id)
+
+If your schema uses patients.clinic_id instead of patients.company_id:
+- Insert clinics first
+- Build map clinic email/name -> clinic_id
+- Set patient.clinic_id
+Also still store company_id if the column exists.
+
+5) Update import_jobs row:
+When execution starts:
+status="running", progress_pct=0
+When completed:
+status="completed", progress_pct=100, completed_at=now(), summary saved
+When failed:
+status="failed", progress_pct stays, error saved
+
+---------------------------------------------------------
+PHASE 2 — BACKEND: PROGRESS SUPPORT (POLLING)
+---------------------------------------------------------
+
+Add endpoint:
+GET /api/import-jobs/:jobId/status
+Returns:
+{ status, progress_pct, step, message, summary, error }
+
+During execution update progress like:
+- clinics: 0 -> 10
+- drivers: 10 -> 40
+- vehicles: 40 -> 70
+- patients: 70 -> 100
+
+Update message examples:
+“Importing drivers 120/280”
+“Importing patients 1800/2500”
+
+---------------------------------------------------------
+PHASE 3 — UI: FLOW B (CONFIRMATION) + PROGRESS + SUCCESS
+---------------------------------------------------------
+
+1) Validate button:
+- calls validate endpoint
+- renders “Validated — No data inserted yet”
+- shows counts (already exists)
+
+2) Add confirmation modal BEFORE Run Import actually executes:
+When user taps Run Import:
+Show modal:
+
+Title: “Confirmar importación”
+Body:
+“Se van a insertar:
+- 5 clinics
+- 280 drivers
+- 300 vehicles
+- 2500 patients
+en Company #7.
+¿Deseas continuar?”
+
+Buttons:
+- Cancel
+- Confirmar e importar
+
+Only if confirmed:
+Call POST /execute.
+
+3) Progress bar UI:
+When execution begins:
+- disable buttons
+- show progress bar + percent + step label
+- poll /status every ~1s
+- update percent smoothly to server progress
+
+4) Completion UX:
+When status becomes "completed":
+- remove/hide progress bar
+- show green success banner or toast:
+  “✅ Todo fue transferido exitosamente.”
+- refresh Company Data Health counts (refetch)
+- job badge changes to “completed”
+
+5) Failure UX:
+When status becomes "failed":
+- hide progress bar
+- show red banner with backend error:
+  “Import failed: <error>”
+- re-enable buttons
+
+6) IMPORTANT: Fix “offline” mislabel:
+If fetch fails or timeout occurs, show:
+“Network error. Try again.”
+But if backend returned {ok:false,error}, show that error.
+Do not label everything “offline”.
+
+---------------------------------------------------------
+PHASE 4 — VERIFY ON COMPANY #7 (MANDATORY)
+---------------------------------------------------------
+
+After implementing:
+1) Create validated job for Company #7 (already exists)
+2) Tap Run Import -> modal -> confirm
+3) Watch progress go to 100%
+4) Success message appears
+5) Company Data Health updates to non-zero
+6) Open company dashboard: lists visible
+
+Hard verify via DB counts using companyId7 (uuid):
+SELECT count(*) FROM clinics WHERE company_id = companyId7;
+SELECT count(*) FROM drivers WHERE company_id = companyId7;
+SELECT count(*) FROM vehicles WHERE company_id = companyId7;
+SELECT count(*) FROM patients WHERE company_id = companyId7;
+
+If UI still 0 but DB counts >0 then it’s a read/RLS/query issue—fix immediately.
+
+---------------------------------------------------------
+DELIVERABLES
+---------------------------------------------------------
+- Backend: execute endpoint returns real JSON, no silent failures
+- Backend: status endpoint for progress
+- UI: confirmation modal (flow B)
+- UI: progress bar 0–100% then removed
+- UI: success message “Todo fue transferido exitosamente.”
+- Verified working on Company #7
+
+DO NOT EXIT UNTIL VERIFIED IN UI (MOBILE SAFARI) AND COUNTERS UPDATE.

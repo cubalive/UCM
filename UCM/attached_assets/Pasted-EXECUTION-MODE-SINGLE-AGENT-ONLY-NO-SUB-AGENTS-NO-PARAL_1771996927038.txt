@@ -1,0 +1,83 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+NO SUB-AGENTS. NO PARALLEL WORK. ONE CHANGESET.
+
+PROBLEM
+Route polyline now renders, but Miles and Drive time show “—”.
+That means: frontend is receiving/using the route geometry, but NOT getting (or not parsing/mapping) distance + duration fields.
+
+GOAL
+When a trip has a computed route, UI must show:
+- Miles: <number> mi
+- Drive: <number> min
+Consistently across Admin/Dispatch/Clinic/Driver.
+
+DO NOT
+- Change auth/RLS
+- Change styling
+- Add new paid services
+- Touch unrelated code
+
+INVESTIGATE (in this order)
+1) DB fields: confirm the trip row actually has distance/duration values set.
+   - Look for columns like:
+     distance_miles, duration_minutes, drive_minutes, route_distance_meters, route_duration_seconds
+2) API mapping: confirm the GET trip(s) endpoints include these fields in the JSON.
+   - Common bug: route saved in DB but serializer omits them.
+3) Frontend mapping: confirm the UI reads the right keys.
+   - Common bug: UI expects `trip.miles` and `trip.driveMinutes` but API returns `distance_miles` + `duration_minutes` (or vice versa).
+4) Units: ensure values aren’t NaN/0 due to parsing meters/seconds.
+
+IMPLEMENTATION (REQUIRED)
+A) Make server return canonical fields (backwards compatible)
+- Ensure every trip payload includes BOTH:
+  - distance_miles (number|null)
+  - duration_minutes (number|null)
+  - ALSO alias fields if UI expects them:
+    - miles (same as distance_miles)
+    - drive_minutes (same as duration_minutes)
+    - driveMinutes (same as duration_minutes)
+Do NOT break existing clients; add, don’t replace.
+
+B) Ensure computeRouteForTrip persists distance + duration
+- If we’re using Google:
+  - distance meters: route.legs[].distance.value
+  - duration seconds: route.legs[].duration.value
+  - distance_miles = meters / 1609.344
+  - duration_minutes = seconds / 60
+Round nicely:
+  - miles: 1 decimal (e.g., 7.4)
+  - minutes: integer (Math.round)
+
+C) Frontend: display logic must use whichever is present
+- miles = trip.distance_miles ?? trip.miles ?? (trip.route?.distance_miles?) ?? null
+- drive = trip.duration_minutes ?? trip.drive_minutes ?? trip.driveMinutes ?? null
+If null -> show “—” (current behavior). If number -> show formatted.
+
+WHAT TO CHANGE (minimal)
+1) Server
+- Find the route compute persistence file (routeCompute / directions client)
+  - Ensure it sets distance_miles + duration_minutes on trip update.
+- Find trip list/get handlers (admin/clinic/driver endpoints)
+  - Ensure JSON includes those fields (and aliases).
+
+2) Client
+- Find the Trip details card where “Miles” and “Drive” render
+  - Update to use the canonical fallback keys above.
+
+TESTS (must run and report)
+1) Create a new trip with pickup/dropoff in Las Vegas.
+2) Confirm in DB trip row now has:
+   - distance_miles not null and > 0
+   - duration_minutes not null and > 0
+3) Confirm API response for that trip contains:
+   - distance_miles, duration_minutes (and aliases if added)
+4) Confirm UI shows non-dash Miles and Drive.
+
+RETURN FORMAT
+- Root cause (DB missing vs API missing vs UI mismatch)
+- Files modified
+- Evidence (DB snapshot + API JSON snippet + UI confirmation)
+
+START NOW — DO THIS FIRST
+Locate the UI component rendering “Miles” and “Drive” and identify the exact field names it expects.
+Then match the server response to those names by adding canonical fields + aliases.

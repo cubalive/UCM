@@ -1,0 +1,103 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT create sub agents
+- Do NOT run parallel tasks
+- Extend existing system only
+- Do NOT reset DB
+- Verify before exit
+
+OBJECTIVE:
+Implement Clinic Portal simplified live map + metrics dashboard
+without affecting dispatch map logic.
+
+-------------------------------------------------
+CLINIC MAP MODE
+-------------------------------------------------
+Clinic portal must show simplified operational map.
+
+Clinic sees:
+- Clinic marker (center)
+- Trips TO_CLINIC and FROM_CLINIC
+- Driver marker ONLY when ETA < 15 minutes
+- Pickup/Dropoff markers as simple points
+- Status + ETA card
+
+Clinic must NOT see:
+- route_polyline
+- turn-by-turn path
+- full route visualization
+
+Dispatch keeps full map with polyline.
+
+-------------------------------------------------
+VISIBILITY RULES
+-------------------------------------------------
+Driver marker visible only when:
+trip.status IN (
+EN_ROUTE_TO_PICKUP,
+ARRIVED_PICKUP,
+PICKED_UP,
+EN_ROUTE_TO_DROPOFF
+)
+AND trip.last_eta_minutes IS NOT NULL
+AND trip.last_eta_minutes < 15
+
+If ETA >= 15:
+- show ETA text
+- hide driver marker
+
+If ETA null:
+- show "Calculating ETA"
+- hide driver marker
+
+-------------------------------------------------
+CLINIC TABS STRUCTURE
+-------------------------------------------------
+Create tabs in clinic portal:
+
+1) LIVE NOW
+   trips today live
+
+2) SCHEDULED
+   upcoming trips
+
+3) COMPLETED
+   completed today
+
+4) RECURRING
+   dialysis / repeating patients
+
+-------------------------------------------------
+CLINIC METRICS HEADER
+-------------------------------------------------
+Top cards:
+- patients arriving today
+- avg delay
+- on time rate
+- completed today
+- drivers active for clinic
+
+-------------------------------------------------
+API RULE
+-------------------------------------------------
+Create clinic-specific endpoint:
+GET /api/clinic/live-trips
+
+Must NOT return route_polyline field.
+
+-------------------------------------------------
+SAFETY
+-------------------------------------------------
+Do NOT modify dispatch map
+Do NOT change trip schema
+Do NOT break existing GPS updates
+
+-------------------------------------------------
+VERIFY
+-------------------------------------------------
+Confirm:
+- clinic sees simplified map
+- driver appears at <15 ETA
+- dispatch unchanged
+- no console errors

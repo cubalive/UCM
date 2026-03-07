@@ -1,0 +1,193 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Sequential execution only
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT delete data
+- Extend existing system only
+- No breaking changes
+- Verify before exit
+
+MISSION:
+Run a FULL SECURITY + MULTI-TENANT + ROLE-SCOPING AUDIT (non-destructive), find why:
+1) New company login gets Access Denied
+2) /metrics loads then becomes blank
+3) Some endpoints return Unauthorized/Forbidden unexpectedly
+4) Safari download flows sometimes save Unauthorized JSON instead of real files
+
+Deliver a structured report with proofs (screenshots/log excerpts are fine) and a minimal fix plan.
+DO NOT implement fixes until audit is complete (unless it's a 1-line safe fix that only adds logging).
+
+========================================================
+PHASE A — BASELINE HEALTH & BUILD CHECK (NO CHANGES)
+========================================================
+1) Run:
+- npm run check (or npx tsc --noEmit)
+- npm run build
+- npm run dev (smoke)
+2) Hit:
+- GET /api/healthz
+- GET /api/version (if exists)
+Collect results, timings, and any errors.
+
+Output:
+- Command results (pass/fail)
+- Any TS errors (exact)
+- Server logs for errors/warnings
+
+========================================================
+PHASE B — AUTH MODEL IDENTIFICATION
+========================================================
+Identify current auth:
+- Supabase JWT? Internal JWT? Cookie session?
+Find exact files:
+- auth middleware
+- token verification
+- role mapping
+- actor context builder
+
+Output:
+- Where auth is verified (file + function)
+- Where role is read (DB / JWT claims)
+- Where tenant_id / clinic_id / city_id is derived
+
+========================================================
+PHASE C — ROLE & SCOPE ENFORCEMENT AUDIT (SERVER-SIDE)
+========================================================
+Create (or confirm) these helpers exist:
+- requireAuth()
+- requireRole(...roles)
+- getActorContext() => { userId, role, tenantId, clinicId, cityId, allowedCityIds }
+
+Then audit ALL API routes:
+- server/routes/*.routes.ts
+- server/lib/*Routes.ts
+- anything under /api/admin/*, /api/clinic/*, /api/dispatch/*, /api/driver/*, /api/metrics/*
+
+For each route, confirm:
+1) Auth required?
+2) Role gating correct?
+3) Tenant scope enforced server-side (NOT trusting query/body)?
+4) Clinic scope enforced server-side for clinic users?
+5) Dispatch city scoping enforced?
+
+Output a table:
+Route | Method | Required Role(s) | Tenant Scoped? | Clinic Scoped? | City Scoped? | Risk Level | Notes
+
+Critical:
+- Find any route that allows client to pass tenant_id/clinic_id/city_id without verification.
+
+========================================================
+PHASE D — NEW COMPANY LOGIN "ACCESS DENIED" ROOT CAUSE
+========================================================
+Reproduce:
+1) Create tenant/company
+2) Create company admin user
+3) Login as that user
+4) Observe redirect/access denied
+
+Trace:
+- What route is blocking (frontend route guard? backend 403? missing RBAC mapping?)
+- Confirm user row has role + tenant_id assigned
+- Confirm tenant exists and is active
+- Confirm session contains correct role and tenant_id
+
+Output:
+- The exact failing request (URL, status, response)
+- The route guard logic (file)
+- The backend permission check (file)
+- The missing/incorrect data (if any)
+
+Do NOT “fix by disabling security”.
+Fix must preserve strict role scoping.
+
+========================================================
+PHASE E — /metrics WHITE SCREEN ROOT CAUSE (SUPER_ADMIN)
+========================================================
+Reproduce /metrics as SUPER_ADMIN.
+
+Use browser/devtools approach inside app if available:
+- Identify which API call causes the blank page (network tab)
+- Confirm if it returns 401/403/500/canceled
+- Inspect console errors
+
+Server-side:
+- Find /api/admin/metrics/* routes
+- Check requireRole(super_admin) and return shape
+- Ensure response is JSON with correct headers
+
+Common causes to check:
+- fetch abort/cancel due to redirect
+- CORS or auth cookie mismatch
+- client expects fields but API returns {message:"Forbidden"}
+- unhandled exception in metrics route
+- infinite redirect in route guard
+
+Output:
+- Exact failing request(s)
+- Response payload
+- JS console error
+- Server logs (stack trace)
+
+========================================================
+PHASE F — MULTI-TENANT DATA INTEGRITY AUDIT (DB SAFE READS)
+========================================================
+Run read-only queries to validate data integrity:
+- users with NULL tenant_id
+- trips with NULL tenant_id
+- clinic_user with missing clinic_id
+- dispatch user missing allowed cities
+- role values outside enum
+
+Output counts and examples (limit 20):
+- orphan_users
+- orphan_trips
+- role_mismatches
+
+If missing columns exist, propose non-destructive migrations (ADD COLUMN only).
+
+========================================================
+PHASE G — DOWNLOADS SAFARI BUG AUDIT (AUTHENTICATED DOWNLOADS)
+========================================================
+Audit CSV/JSON export endpoints.
+Verify:
+- They require auth
+- They return proper Content-Type and Content-Disposition
+- They do NOT return 401 JSON as a file download
+
+Client-side:
+- Ensure downloads use authenticated fetch + blob
+- If status is not ok, show error toast and DO NOT download blob
+- Confirm Safari iOS behavior
+
+Output:
+- Which endpoints are used for export
+- Current headers for responses
+- Whether client checks response.ok before blob
+
+========================================================
+PHASE H — AUDIT REPORT + MINIMAL FIX PLAN
+========================================================
+Deliver:
+1) Findings summary (top 10 issues by severity)
+2) Exact root causes for:
+   - company login denied
+   - metrics white screen
+   - unauthorized/forbidden inconsistencies
+   - safari downloads saving unauthorized payload
+3) Proposed fixes (minimal diffs):
+   - file + function
+   - what to change and why
+4) Verification checklist:
+   - curl commands for each role
+   - expected status codes
+5) Only after presenting plan, ask for a single "YES" to apply fixes.
+
+EXIT CRITERIA:
+- Audit completed with evidence
+- No schema/data changes executed
+- No fixes applied without explicit YES

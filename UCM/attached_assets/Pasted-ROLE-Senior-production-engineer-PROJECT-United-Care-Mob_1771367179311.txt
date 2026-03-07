@@ -1,0 +1,150 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement Time & Pay v1 with ONLY TWO input modes per company:
+A) CSV import of timesheets
+B) Manual time entry
+NO in-app clock-in/out.
+All entries go through approve → payroll run → pay. Enforce strict company isolation.
+
+HARD RULES (MUST):
+- Every company-level query must be scoped to actor.companyId unless SUPER_ADMIN.
+- Companies cannot see drivers/entries/vehicles/clinics/patients of other companies.
+- Drivers can only see their own time entries (read-only).
+- Only COMPANY_ADMIN/DISPATCH can create/edit/approve time entries and run payroll.
+- Add audit logs for denied access: role + userId + companyId + endpoint + method.
+
+DATA MODEL (non-destructive additions):
+
+1) time_entries
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null
+- driver_id uuid not null
+- work_date date not null
+- start_time text null  -- optional (HH:MM)
+- end_time text null    -- optional (HH:MM)
+- break_minutes int not null default 0
+- hours_numeric numeric not null default 0
+- pay_type text not null default 'HOURLY' -- HOURLY|PER_TRIP (keep for future; v1 uses HOURLY)
+- hourly_rate_cents int null
+- notes text not null default ''
+- source_type text not null -- MANUAL|CSV
+- source_ref text null -- import_batch_id or external row id
+- status text not null default 'DRAFT' -- DRAFT|SUBMITTED|APPROVED|REJECTED|PAID
+- created_by uuid not null
+- approved_by uuid null
+- approved_at timestamptz null
+- paid_at timestamptz null
+- created_at timestamptz default now()
+- updated_at timestamptz default now()
+Unique/index: (company_id, driver_id, work_date, source_type, source_ref)
+
+2) time_import_batches
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null
+- uploaded_by uuid not null
+- filename text not null
+- row_count int not null default 0
+- created_count int not null default 0
+- skipped_count int not null default 0
+- status text not null default 'DRAFT' -- DRAFT|PROCESSED|FAILED
+- error_summary text not null default ''
+- created_at timestamptz default now()
+
+3) payroll_runs (optional but recommended to keep payments clean)
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null
+- period_start date not null
+- period_end date not null
+- status text not null default 'DRAFT' -- DRAFT|FINALIZED|PAID
+- created_by uuid not null
+- created_at timestamptz default now()
+
+4) payroll_items
+- id uuid pk default gen_random_uuid()
+- run_id uuid not null fk payroll_runs(id)
+- company_id uuid not null
+- driver_id uuid not null
+- total_hours numeric not null default 0
+- total_cents int not null default 0
+- currency text not null default 'USD'
+- status text not null default 'DRAFT' -- DRAFT|PAID
+- created_at timestamptz default now()
+
+AUTHZ:
+- Use existing requirePermission / ROLE_PERMISSIONS.
+- Ensure all time/payroll endpoints require permissions:
+  - time_entries: read/write/approve
+  - payroll: read/write/pay
+- SUPER_ADMIN bypasses company scope.
+- For non-superadmin: force company_id = actor.companyId, ignore any company_id from client.
+
+CSV FORMAT (strict, simple):
+Required:
+- driver_email (or driver_external_id)  [choose ONE as required; prefer driver_email]
+- work_date (YYYY-MM-DD)
+- hours (decimal)
+Optional:
+- hourly_rate (decimal dollars)
+- notes
+- start_time (HH:MM)
+- end_time (HH:MM)
+- break_minutes (int)
+
+CSV IMPORT ENDPOINT:
+POST /api/company/time/import (multipart upload)
+- Parse CSV
+- For each row:
+  - match driver by email within same company (or external id)
+  - validate date/hours
+  - create time_entry source_type=CSV status=DRAFT
+- Create time_import_batch with summary
+- Idempotency: if same batch uploaded twice, allow but prevent duplicate rows using unique (company_id, driver_id, work_date, source_type, source_ref) where source_ref = `${batchId}:${lineNumber}`
+
+MANUAL ENTRY ENDPOINTS:
+POST /api/company/time/manual-create
+PATCH /api/company/time/:id/edit (requires edit_reason in body; store to audit)
+POST /api/company/time/:id/submit
+POST /api/company/time/:id/approve
+POST /api/company/time/:id/reject
+
+READ ENDPOINTS:
+GET /api/company/time/entries?from&to&driver_id
+GET /api/company/time/import-batches?limit
+GET /api/driver/time?from&to  (driver sees only own entries)
+
+PAYROLL:
+POST /api/company/payroll/generate?periodStart&periodEnd
+- Pull APPROVED time_entries in period for company
+- Group by driver_id, compute total_hours and total_cents:
+  - total_cents = sum(hours_numeric * hourly_rate_cents). If hourly_rate missing, use driver default rate if exists, else reject.
+- Create payroll_run + payroll_items
+
+POST /api/company/payroll/:runId/finalize
+POST /api/company/payroll/:runId/pay
+- Integrate with Stripe Connect payouts if driver payouts exist later.
+- For now: mark run PAID and entries PAID ONLY after payment confirmation hook if payment rail exists.
+- If not implementing payout now, keep pay endpoint stubbed and return “Not configured” safely.
+
+UI:
+- Company → Timecards: list entries + approve/reject + create manual
+- Import CSV modal + “Download template”
+- Payroll page: generate run, view totals per driver
+
+VERIFICATION (MUST DO):
+1) Create company A and company B.
+2) Create driver A1 in company A and driver B1 in company B.
+3) Import CSV for company A with A1. Confirm company B cannot see it.
+4) Manual entry for company A. Confirm driver A1 sees only own.
+5) Generate payroll for company A. Confirm only APPROVED entries included.
+6) Provide curl examples for import, manual-create, approve, payroll generate.
+
+END

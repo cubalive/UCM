@@ -1,0 +1,86 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables unless absolutely required
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Make “Send Clinic Login Link” actually send an email and allow clinic/driver to login via a one-time magic link.
+
+CURRENT PROBLEM:
+UI shows the button and “sent”, but no email is actually sent. We already have Resend.
+We want two separate systems:
+- Supabase SMTP handles Supabase Auth system emails (already configured in Supabase)
+- Resend API handles application transactional emails (login links, invites)
+
+ENV / SECRETS (must exist in Replit Deploy Secrets):
+RESEND_API_KEY = (Resend token for app)
+EMAIL_FROM = no-reply@unitedcaremobility.com
+EMAIL_FROM_NAME = United Care Mobility
+APP_PUBLIC_URL = https://app.unitedcaremobility.com
+
+REQUIREMENTS:
+1) Implement a server-side email sender using Resend
+- Add a backend module/service email.ts (or similar) that sends emails with Resend.
+- NEVER call Resend from frontend.
+- Return clear JSON errors if token missing, from missing, invalid recipient, or Resend fails.
+
+2) One-time magic link tokens
+- Create DB table if missing: login_tokens
+  columns:
+    id (uuid pk)
+    token_hash (text unique)
+    user_id (uuid nullable)
+    clinic_id (text nullable)
+    driver_id (text nullable)
+    role (text)
+    expires_at (timestamptz)
+    used_at (timestamptz nullable)
+    created_by (uuid nullable)
+    created_at (timestamptz default now())
+- Hash token with SHA-256 before storing (store only hash). Never store raw token.
+- Token TTL: 15 minutes. One-time use.
+
+3) Backend endpoints
+A) POST /api/admin/send-login-link
+- Auth required: super_admin only (server-side enforced)
+- Input: { targetType: "clinic"|"driver", targetId: string }
+- Look up target record -> must have email.
+- Create raw token, hash it, insert into login_tokens with role and target references.
+- Build link: `${APP_PUBLIC_URL}/login?token=${rawToken}`
+- Send email via Resend including link.
+- Audit log record: action, target, status, timestamp.
+- Rate limit: max 1 per recipient per 60 seconds.
+
+B) POST /api/auth/token-login
+- Input: { token: string }
+- Hash token; find login_tokens where token_hash matches AND expires_at>now AND used_at is null
+- Mark used_at = now
+- Sign in user:
+   Option 1 (preferred): use Supabase Admin (service_role) to create a Supabase Auth session for that user if system supports it
+   Option 2: if app already uses JWT mode, mint app JWT and set cookie/session consistent with existing auth
+- Return success + redirect info.
+
+4) Frontend wiring
+- Hook “Send Clinic Login Link” button to call POST /api/admin/send-login-link
+- Show proper toasts: missing email disables button; success shows “Login link sent”; errors show reason.
+- Update /login page:
+   If token query param exists, call POST /api/auth/token-login then route user to their dashboard.
+
+5) Diagnostics
+- Add /api/debug/email-health (super_admin only) to return:
+  { hasResendKey: boolean, from: string, appPublicUrl: string }
+- Log failures with enough detail (but never print secrets).
+
+VERIFY (must be tested):
+- Click button -> Resend dashboard shows email sent
+- Email arrives at recipient inbox
+- Link logs in clinic/driver successfully
+- Link cannot be reused
+- Expired link fails with clear message
+- Works on production domain app.unitedcaremobility.com

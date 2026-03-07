@@ -1,0 +1,223 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+No sub-agents. No parallel work. Zero collateral changes. Preserve everything working.
+
+MISSION (PROMPT #2)
+Create a production-ready visual asset pack for ALL 3 UCM apps (Driver, Clinic, Admin) for Google Play + App Store:
+- Android adaptive icons (foreground/background + monochrome)
+- Web/PWA icons (192/512 + maskable)
+- Capacitor resources (icons + splash) using @capacitor/assets
+- Ensure each app points to its correct subdomain (server.url) and each build uses the correct icon set.
+- Add strict verification commands + a single report endpoint (SUPER_ADMIN) that confirms assets exist for each app.
+
+CONSTRAINTS
+- Do NOT modify database/schema/RLS.
+- Do NOT change business logic, routing, or UI behavior.
+- Only add assets, scripts, config files, and verification endpoints.
+- Domains:
+  DRIVER: https://driver.unitedcaremobility.com
+  CLINIC: https://clinic.unitedcaremobility.com
+  ADMIN: https://app.unitedcaremobility.com
+- App IDs:
+  com.unitedcaremobility.driver
+  com.unitedcaremobility.clinic
+  com.unitedcaremobility.admin
+
+STEP 1 — Install tooling (root)
+Add dev deps:
+- @capacitor/assets
+- sharp (if not already)
+Add scripts to root package.json:
+- "assets:driver": "node scripts/cap-assets.mjs driver"
+- "assets:clinic": "node scripts/cap-assets.mjs clinic"
+- "assets:admin": "node scripts/cap-assets.mjs admin"
+- "assets:all": "npm run assets:driver && npm run assets:clinic && npm run assets:admin"
+
+STEP 2 — Create icon sources for adaptive icons (per app)
+Create these folders:
+client/public/app-icons/driver/
+client/public/app-icons/clinic/
+client/public/app-icons/admin/
+
+Create these NEW SVG files (exact names):
+- icon-foreground.svg
+- icon-background.svg
+- icon-monochrome.svg
+- icon-maskable.svg
+
+Use these EXACT SVG contents:
+
+A) DRIVER
+--- driver/icon-foreground.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g fill="none" stroke="#0A4DFF" stroke-width="78" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="512" cy="410" r="190"/>
+    <path d="M512 600 L512 835"/>
+  </g>
+  <g fill="#00C389">
+    <circle cx="512" cy="410" r="46"/>
+    <circle cx="512" cy="865" r="64"/>
+  </g>
+</svg>
+
+--- driver/icon-background.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+</svg>
+
+--- driver/icon-monochrome.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g fill="none" stroke="#111111" stroke-width="78" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="512" cy="410" r="190"/>
+    <path d="M512 600 L512 835"/>
+  </g>
+  <g fill="#111111">
+    <circle cx="512" cy="410" r="46"/>
+    <circle cx="512" cy="865" r="64"/>
+  </g>
+</svg>
+
+--- driver/icon-maskable.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <g transform="translate(0,0)">
+    <g fill="none" stroke="#0A4DFF" stroke-width="78" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="512" cy="410" r="190"/>
+      <path d="M512 600 L512 835"/>
+    </g>
+    <g fill="#00C389">
+      <circle cx="512" cy="410" r="46"/>
+      <circle cx="512" cy="865" r="64"/>
+    </g>
+  </g>
+</svg>
+
+B) CLINIC
+--- clinic/icon-foreground.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="280" y="290" width="464" height="444" rx="72" fill="#0A4DFF"/>
+  <rect x="486" y="370" width="84" height="284" fill="#ffffff"/>
+  <rect x="402" y="458" width="252" height="84" fill="#ffffff"/>
+  <rect x="456" y="744" width="128" height="128" rx="32" fill="#00C389"/>
+</svg>
+
+--- clinic/icon-background.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+</svg>
+
+--- clinic/icon-monochrome.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="280" y="290" width="464" height="444" rx="72" fill="#111111"/>
+  <rect x="486" y="370" width="84" height="284" fill="#ffffff"/>
+  <rect x="402" y="458" width="252" height="84" fill="#ffffff"/>
+  <rect x="456" y="744" width="128" height="128" rx="32" fill="#111111"/>
+</svg>
+
+--- clinic/icon-maskable.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <rect x="280" y="290" width="464" height="444" rx="72" fill="#0A4DFF"/>
+  <rect x="486" y="370" width="84" height="284" fill="#ffffff"/>
+  <rect x="402" y="458" width="252" height="84" fill="#ffffff"/>
+  <rect x="456" y="744" width="128" height="128" rx="32" fill="#00C389"/>
+</svg>
+
+C) ADMIN
+--- admin/icon-foreground.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g fill="#0A4DFF">
+    <rect x="252" y="252" width="160" height="160" rx="28"/>
+    <rect x="432" y="252" width="160" height="160" rx="28"/>
+    <rect x="612" y="252" width="160" height="160" rx="28"/>
+    <rect x="252" y="432" width="160" height="160" rx="28"/>
+    <rect x="612" y="432" width="160" height="160" rx="28"/>
+    <rect x="252" y="612" width="160" height="160" rx="28"/>
+    <rect x="432" y="612" width="160" height="160" rx="28"/>
+    <rect x="612" y="612" width="160" height="160" rx="28"/>
+  </g>
+  <rect x="432" y="432" width="160" height="160" rx="28" fill="#00C389"/>
+</svg>
+
+--- admin/icon-background.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+</svg>
+
+--- admin/icon-monochrome.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <g fill="#111111">
+    <rect x="252" y="252" width="160" height="160" rx="28"/>
+    <rect x="432" y="252" width="160" height="160" rx="28"/>
+    <rect x="612" y="252" width="160" height="160" rx="28"/>
+    <rect x="252" y="432" width="160" height="160" rx="28"/>
+    <rect x="432" y="432" width="160" height="160" rx="28"/>
+    <rect x="612" y="432" width="160" height="160" rx="28"/>
+    <rect x="252" y="612" width="160" height="160" rx="28"/>
+    <rect x="432" y="612" width="160" height="160" rx="28"/>
+    <rect x="612" y="612" width="160" height="160" rx="28"/>
+  </g>
+</svg>
+
+--- admin/icon-maskable.svg ---
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <g fill="#0A4DFF">
+    <rect x="252" y="252" width="160" height="160" rx="28"/>
+    <rect x="432" y="252" width="160" height="160" rx="28"/>
+    <rect x="612" y="252" width="160" height="160" rx="28"/>
+    <rect x="252" y="432" width="160" height="160" rx="28"/>
+    <rect x="612" y="432" width="160" height="160" rx="28"/>
+    <rect x="252" y="612" width="160" height="160" rx="28"/>
+    <rect x="432" y="612" width="160" height="160" rx="28"/>
+    <rect x="612" y="612" width="160" height="160" rx="28"/>
+  </g>
+  <rect x="432" y="432" width="160" height="160" rx="28" fill="#00C389"/>
+</svg>
+
+STEP 3 — Create a single generator script for Capacitor assets
+Create: scripts/cap-assets.mjs
+Requirements:
+- Argument: driver|clinic|admin
+- Input folder: client/public/app-icons/<app>/
+- Outputs:
+  - client/public/generated-icons/<app>/ (pngs for web/pwa)
+  - mobile-driver/resources/ (for driver)
+  - mobile-clinic/resources/ (for clinic)
+  - mobile-admin/resources/ (for admin)
+- Must generate:
+  - AppIcon 1024 png
+  - PWA icons 192/512 + maskable 512
+  - Android adaptive icon assets via @capacitor/assets:
+    Use: npx @capacitor/assets generate --iconBackgroundColor '#FFFFFF' --icon <path-to-foreground-or-maskable> (choose proper)
+  - Ensure output doesn't fail if ios/android folders are not present (just generate resources/).
+
+STEP 4 — Wire each mobile wrapper to its icon set
+For each mobile-* folder:
+- Ensure capacitor.config.* exists
+- Ensure there is a resources/ folder
+- Do NOT run sync here; just prepare resources for local Android Studio/Xcode.
+
+STEP 5 — Add release verification for assets
+If /api/system/release-readiness exists, extend it with:
+- icons: presence checks for each expected generated file
+- mobileResources: presence checks for each resources folder outputs
+If it doesn't exist, create minimal SUPER_ADMIN-only endpoint:
+GET /api/system/release-readiness-assets
+Return: { driver: { ok, missing: [] }, clinic: {...}, admin: {...} }
+
+STEP 6 — Update replit.md with exact commands
+Add:
+- npm run assets:all
+- ls checks
+- curl readiness-assets endpoint
+
+STEP 7 — RUN scripts ONCE and ensure committed generated files exist
+In Replit, after implementing, run:
+npm run assets:all
+
+DELIVERABLES
+- Provide a concise summary of created files
+- Provide commands + expected PASS signals
+
+IMPLEMENT NOW.

@@ -1,0 +1,206 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+NEW FEATURE: CLINIC-SAFE TRIP DETAILS + PDF EXPORT (COMPLETED TRIPS)
+
+PROBLEM
+When a clinic clicks a completed trip, they need a clean, read-only Trip Details view:
+- Full information
+- No buttons
+- No chat
+- No internal notes
+- Must include route image
+- Must include full timeline with times
+- Must be downloadable as PDF
+
+GOAL
+Create a dedicated "Clinic Trip Details" layout and API that shows ONLY informational data and can generate a professional PDF.
+
+-----------------------------------------------------
+PHASE 1 — BACKEND: CLINIC-SAFE TRIP DETAILS ENDPOINT
+-----------------------------------------------------
+Create endpoint:
+GET /api/clinic/trips/:tripId/details
+
+Must return ONLY safe info:
+
+tripId
+clinicName
+patientName
+driverName
+vehicleName (optional)
+date
+city
+
+pickup_address
+dropoff_address
+
+scheduled_pickup_time
+arrived_pickup_time
+picked_up_time
+arrived_dropoff_time
+completed_time
+
+total_miles
+total_duration_minutes
+wait_time_minutes
+
+progress_events[] (full ordered timeline with timestamps)
+
+route_image_url
+(static map image from pickup → dropoff)
+
+billing:
+trip_type (single / group / return)
+status (completed / no-show / cancelled)
+billable (true/false)
+
+IMPORTANT:
+Do NOT return:
+internal_notes
+dispatcher_notes
+chat
+tracking link
+driver phone
+
+-----------------------------------------------------
+PHASE 2 — GENERATE ROUTE IMAGE
+-----------------------------------------------------
+For completed trips generate static map image:
+
+Use:
+pickup_lat/lng
+dropoff_lat/lng
+
+Create:
+route_image_url
+
+If route polyline exists → use it  
+If not → draw simple line between A and B
+
+Must render:
+- Start marker
+- End marker
+- Route line
+
+Store temporarily or generate on request.
+
+-----------------------------------------------------
+PHASE 3 — FRONTEND: CLINIC TRIP DETAILS VIEW
+-----------------------------------------------------
+When clinic clicks completed trip:
+
+Open new layout:
+TripDetailsClinic
+
+Design:
+HEADER
+Trip ID
+Patient
+Clinic
+Driver
+Date
+City
+
+ADDRESSES
+Pickup
+Dropoff
+
+MAP IMAGE
+Show route image
+
+TIMELINE
+Show full progress timeline with times:
+Scheduled
+En Route Pickup
+Arrived Pickup
+Picked Up
+En Route Dropoff
+Arrived Dropoff
+Completed
+
+METRICS
+Total miles
+Total duration
+Wait time
+
+No buttons except:
+"Download PDF"
+
+No editing
+No messaging
+No tracking link
+
+-----------------------------------------------------
+PHASE 4 — PDF EXPORT
+-----------------------------------------------------
+Create:
+GET /api/clinic/trips/:tripId/pdf
+
+Generate PDF with same layout:
+
+Logo: United Care Mobility
+Trip ID
+Clinic
+Patient
+Driver
+Date
+City
+
+Addresses
+Route map image
+
+Timeline with timestamps
+
+Miles
+Duration
+Wait time
+Billing status
+
+Use server-side PDF generator (existing stack if present).
+If none exists → add minimal PDF generator without affecting other services.
+
+PDF must be:
+A4
+Clean
+Professional
+Downloadable
+
+-----------------------------------------------------
+PHASE 5 — PERMISSIONS
+-----------------------------------------------------
+Clinic user:
+Can only access trips belonging to their clinic
+
+Dispatch/Admin:
+Can access all
+
+Driver:
+No access to clinic PDF endpoint
+
+-----------------------------------------------------
+VERIFY (MUST DO)
+-----------------------------------------------------
+1) Click completed trip → opens clean details view
+2) No buttons except PDF
+3) Map image visible
+4) Timeline full with times
+5) Miles + duration visible
+6) PDF downloads correctly
+7) Clinic cannot see internal notes
+
+DO NOT
+- reset DB
+- change invoice system
+- break existing trip details for dispatch
+
+SUCCESS CRITERIA
+Clinic sees a professional, dispute-proof trip report with:
+map + timeline + metrics + PDF export

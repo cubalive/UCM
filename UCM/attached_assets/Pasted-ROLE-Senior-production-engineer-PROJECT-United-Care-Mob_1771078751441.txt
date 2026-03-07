@@ -1,0 +1,85 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK:
+Implement PRIVATE auto-pricing using the approved tariff model (Option A) with mileage + time + wait + surcharges + cap + rounding.
+
+APPROVED PRIVATE PRICING CONFIG (USD):
+- base_fee_cents = 2500
+- per_mile_cents = 275
+- per_minute_cents = 55
+- wait_fee_per_5min_cents = 350
+- minimum_cents = 4000
+- maximum_cents = 18000
+- wav_surcharge_cents = 2000
+- peak_surcharge_percent = 10
+- rounding = nearest $0.50
+
+PEAK WINDOWS (local city timezone):
+- 07:00–09:00
+- 15:00–18:00
+
+DEFINITIONS:
+- miles = route distance in miles (prefer Google Directions distance; fallback to haversine estimate)
+- minutes = route duration in minutes (prefer Directions duration; fallback to distance-based estimate if needed)
+- wait_blocks = ceil(wait_minutes / 5), where wait_minutes is measured from ARRIVED_PICKUP -> PICKED_UP (and optionally ARRIVED_DROPOFF waiting if implemented)
+
+IMPLEMENTATION REQUIREMENTS:
+1) Pricing profile
+- Ensure clinic_pricing_profiles supports pricing_type='PRIVATE' and stores above values.
+- Add fields if missing: per_minute_cents, peak_surcharge_percent, rounding_mode.
+
+2) Pricing calculation function
+Implement calculatePrivatePrice(trip, profile, routeMetrics):
+- compute subtotal as:
+  base + miles*per_mile + minutes*per_minute + wait_blocks*wait_fee
+- If trip requires WAV (wheelchair trip), add wav_surcharge
+- Determine peak:
+  - Use scheduled_pickup_time in city's timezone
+  - If within peak window, apply +10% to subtotal
+- Apply min/max clamp
+- Apply rounding to nearest $0.50:
+  - cents -> round to nearest 50 cents (50 = 50 cents) i.e. nearest 50 in dollars means 50 cents => 50 in cents is 50? NO:
+    rounding step = 50 cents = 50 * 1 = 50 cents => 50 cents = 50? In cents it's 50.
+    BUT dollars are in cents: $0.50 = 50 cents = 50. Use step=50.
+    Round: rounded = round(subtotal_cents / 50) * 50
+
+Return:
+- final_price_cents
+- breakdown json:
+  { base, miles, per_mile, minutes, per_minute, wait_minutes, wait_blocks, wait_fee, wav_surcharge, peak_applied, peak_percent, min_applied, max_applied, rounding_step_cents:50, subtotal_before_rounding, final }
+
+3) Where to compute
+- On trip approval OR when trip becomes billable (choose the earliest point that ensures visibility for dispatch).
+- If routeMetrics not available yet, compute with fallback estimate and mark breakdown. Recompute later when real metrics exist (before invoice finalization).
+
+4) Invoice integration
+- When invoice is finalized, lock price_locked=true.
+- Allow dispatch/admin to override price only BEFORE invoice finalization.
+
+5) UI
+- Dispatch/Admin trip detail shows:
+  - computed price (AUTO)
+  - breakdown expandable
+  - label if peak applied
+  - label if WAV applied
+  - shows whether value is estimated or real
+- Clinic can view final invoice after completion; read-only.
+
+6) Verification
+- Add a dev test route or script to simulate:
+  10 miles, 25 min, 10 min wait, non-peak, non-WAV:
+  expected:
+  base 25 + 27.50 + 13.75 + 7.00 = 73.25 -> rounds to 73.50
+- Peak example:
+  same trip during peak => 73.25*1.10=80.575 -> clamp ok -> round to 80.50 or 81.00 depending rounding; must be nearest 0.50 => 80.50
+- Ensure cap applies: totals above $180 are capped then rounded.
+
+DELIVERABLE:
+Confirm PRIVATE auto-pricing works, is stored in cents, shows breakdown, and locks on invoice finalization.

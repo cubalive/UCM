@@ -1,0 +1,76 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT reset database
+- Do NOT recreate schema
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Stabilize driver GPS ingestion and prevent overload.
+
+---------------------------------------
+PHASE 1 — DRIVER LOCATION ENDPOINT
+---------------------------------------
+Ensure endpoint exists and is used by driver app:
+
+POST /api/driver/location
+
+Support:
+- single point payload
+- optional batch payload (array of points)
+
+Payload fields must stay compact:
+driverId, tripId, ts, lat, lng, heading(optional), speed(optional), accuracy(optional), status(optional)
+
+---------------------------------------
+PHASE 2 — HARD RATE LIMIT PER DRIVER
+---------------------------------------
+Reject updates faster than:
+1 update per 2 seconds per driver
+
+Return 429 with clear message.
+
+---------------------------------------
+PHASE 3 — VALIDATION (ANTI-SPAM / ANTI-SPOOF)
+---------------------------------------
+Reject:
+- timestamps older than 60 seconds (unless batch mode, then accept but mark as historical)
+- impossible jumps (distance too large vs time delta)
+- missing lat/lng
+- NaN values
+
+---------------------------------------
+PHASE 4 — CACHE LAST LOCATION (NOT DB)
+---------------------------------------
+Do NOT write each update to Postgres.
+
+Store last location in TTL cache:
+driver:{id}:last_location TTL 120s
+trip:{id}:driver_location TTL 120s
+
+Persist to DB only:
+- every 60 seconds per active trip
+OR
+- on status milestones (arrived/picked_up/arrived_dropoff/completed)
+
+---------------------------------------
+PHASE 5 — GPS STALE FLAGS
+---------------------------------------
+If last update > 120s:
+mark gps_stale=true
+If > 5 minutes:
+hide ETA (eta=null) and expose stale_reason
+
+---------------------------------------
+PHASE 6 — VERIFY
+---------------------------------------
+Add lightweight counters/logs:
+- gps_ingest_requests_per_min
+- gps_ingest_rejected_rate_limit
+- gps_ingest_rejected_validation
+- db_location_writes_per_min (must be low)
+
+DONE WHEN:
+Server remains stable with high-frequency updates and DB writes are capped.

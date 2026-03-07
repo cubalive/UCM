@@ -1,0 +1,301 @@
+import { Redis } from "@upstash/redis";
+import { cache } from "./cache";
+
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+let redis: Redis | null = null;
+let lastError: string | null = null;
+let connected = false;
+
+const redisMetrics = {
+  hits: 0,
+  misses: 0,
+  sets: 0,
+  gets: 0,
+  errors: 0,
+  rateLimited: 0,
+  lockContention: 0,
+};
+
+const keyCategoryHits: Record<string, number> = {
+  "trip:eta": 0,
+  "trip:polyline": 0,
+  "trip:driver_location": 0,
+};
+const keyCategoryMisses: Record<string, number> = {
+  "trip:eta": 0,
+  "trip:polyline": 0,
+  "trip:driver_location": 0,
+};
+
+function classifyKey(key: string): string | null {
+  if (key.match(/^trip:\d+:eta/)) return "trip:eta";
+  if (key.match(/^trip:\d+:polyline/)) return "trip:polyline";
+  if (key.match(/^trip:\d+:driver_location/)) return "trip:driver_location";
+  return null;
+}
+
+const redisConfig = {
+  hasRestUrl: !!UPSTASH_URL,
+  hasRestToken: !!UPSTASH_TOKEN,
+  clientType: "upstash-rest" as const,
+  envVarsExpected: ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"],
+};
+
+if (UPSTASH_URL && UPSTASH_TOKEN) {
+  try {
+    redis = new Redis({ url: UPSTASH_URL, token: UPSTASH_TOKEN });
+    connected = true;
+    console.log(JSON.stringify({
+      event: "redis_init",
+      status: "connected",
+      ...redisConfig,
+    }));
+  } catch (err: any) {
+    lastError = err.message;
+    console.warn(JSON.stringify({
+      event: "redis_init",
+      status: "init_error",
+      error: err.message,
+      ...redisConfig,
+    }));
+  }
+} else {
+  console.warn(JSON.stringify({
+    event: "redis_init",
+    status: "not_configured",
+    fallback: "in-memory",
+    ...redisConfig,
+  }));
+}
+
+export function getRedisConfig() {
+  return {
+    ...redisConfig,
+    connected,
+    lastError,
+  };
+}
+
+export async function getJson<T>(key: string): Promise<T | null> {
+  redisMetrics.gets++;
+  const cat = classifyKey(key);
+  if (!redis) {
+    return cache.get<T>(key);
+  }
+  try {
+    const val = await redis.get<T>(key);
+    if (val !== null && val !== undefined) {
+      redisMetrics.hits++;
+      if (cat) keyCategoryHits[cat]++;
+      return val;
+    }
+    redisMetrics.misses++;
+    if (cat) keyCategoryMisses[cat]++;
+    return null;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    console.warn(`[REDIS] getJson error for "${key}": ${err.message}`);
+    return cache.get<T>(key);
+  }
+}
+
+export async function setJson<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+  cache.set(key, value, ttlSeconds * 1000);
+
+  if (!redis) return;
+  try {
+    await redis.set(key, value, { ex: ttlSeconds });
+    redisMetrics.sets++;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    console.warn(`[REDIS] setJson error for "${key}": ${err.message}`);
+  }
+}
+
+export async function del(key: string): Promise<void> {
+  cache.delete(key);
+  if (!redis) return;
+  try {
+    await redis.del(key);
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+  }
+}
+
+export async function incr(key: string, ttlSeconds: number): Promise<number> {
+  if (!redis) {
+    const current = cache.get<number>(key) || 0;
+    const next = current + 1;
+    cache.set(key, next, ttlSeconds * 1000);
+    return next;
+  }
+  try {
+    const pipeline = redis.pipeline();
+    pipeline.incr(key);
+    pipeline.expire(key, ttlSeconds);
+    const results = await pipeline.exec();
+    const val = results[0] as number;
+    return val;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    console.warn(`[REDIS] incr error for "${key}": ${err.message}`);
+    const current = cache.get<number>(key) || 0;
+    const next = current + 1;
+    cache.set(key, next, ttlSeconds * 1000);
+    return next;
+  }
+}
+
+export async function getString(key: string): Promise<string | null> {
+  if (!redis) {
+    return cache.get<string>(key) ?? null;
+  }
+  try {
+    const val = await redis.get<string>(key);
+    return val ?? null;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    return cache.get<string>(key) ?? null;
+  }
+}
+
+export async function compareAndDelete(key: string, expectedValue: string): Promise<boolean> {
+  if (!redis) {
+    const current = cache.get<string>(key);
+    if (current === expectedValue) {
+      cache.delete(key);
+      return true;
+    }
+    return false;
+  }
+  try {
+    const current = await redis.get<string>(key);
+    if (current === expectedValue) {
+      await redis.del(key);
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    return false;
+  }
+}
+
+export async function compareAndRenew(key: string, expectedValue: string, ttlSeconds: number): Promise<boolean> {
+  if (!redis) {
+    const current = cache.get<string>(key);
+    if (current === expectedValue) {
+      cache.set(key, expectedValue, ttlSeconds * 1000);
+      return true;
+    }
+    return false;
+  }
+  try {
+    const current = await redis.get<string>(key);
+    if (current === expectedValue) {
+      await redis.set(key, expectedValue, { ex: ttlSeconds });
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    return false;
+  }
+}
+
+export async function setNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+  if (!redis) {
+    if (cache.has(key)) return false;
+    cache.set(key, value, ttlSeconds * 1000);
+    return true;
+  }
+  try {
+    const result = await redis.set(key, value, { nx: true, ex: ttlSeconds });
+    return result === "OK";
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    console.warn(`[REDIS] setNx error for "${key}": ${err.message}`);
+    if (cache.has(key)) return false;
+    cache.set(key, value, ttlSeconds * 1000);
+    return true;
+  }
+}
+
+export async function setWithTtl(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+  if (!redis) {
+    cache.set(key, value, ttlSeconds * 1000);
+    return true;
+  }
+  try {
+    await redis.set(key, value, { ex: ttlSeconds });
+    return true;
+  } catch (err: any) {
+    redisMetrics.errors++;
+    lastError = err.message;
+    cache.set(key, value, ttlSeconds * 1000);
+    return true;
+  }
+}
+
+export function isRedisConnected(): boolean {
+  return connected && redis !== null;
+}
+
+export function getLastRedisError(): string | null {
+  return lastError;
+}
+
+export function getRedisMetrics() {
+  const total = redisMetrics.hits + redisMetrics.misses;
+  return {
+    redis_connected: isRedisConnected(),
+    redis_get_count: redisMetrics.gets,
+    redis_set_count: redisMetrics.sets,
+    cache_hit_rate: total > 0 ? Math.round((redisMetrics.hits / total) * 100) : 0,
+    cache_hits: redisMetrics.hits,
+    cache_misses: redisMetrics.misses,
+    cache_errors: redisMetrics.errors,
+    gps_rate_limited_count: redisMetrics.rateLimited,
+    eta_lock_contention_count: redisMetrics.lockContention,
+    cache_by_key: {
+      "trip:eta": { hits: keyCategoryHits["trip:eta"], misses: keyCategoryMisses["trip:eta"] },
+      "trip:polyline": { hits: keyCategoryHits["trip:polyline"], misses: keyCategoryMisses["trip:polyline"] },
+      "trip:driver_location": { hits: keyCategoryHits["trip:driver_location"], misses: keyCategoryMisses["trip:driver_location"] },
+    },
+    last_error: lastError,
+  };
+}
+
+export function recordRateLimited() {
+  redisMetrics.rateLimited++;
+}
+
+export function recordLockContention() {
+  redisMetrics.lockContention++;
+}
+
+export async function pingRedis(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  if (!redis) {
+    return { ok: false, latencyMs: 0, error: "Redis not configured" };
+  }
+  const start = Date.now();
+  try {
+    await redis.ping();
+    connected = true;
+    return { ok: true, latencyMs: Date.now() - start };
+  } catch (err: any) {
+    connected = false;
+    lastError = err.message;
+    return { ok: false, latencyMs: Date.now() - start, error: err.message };
+  }
+}

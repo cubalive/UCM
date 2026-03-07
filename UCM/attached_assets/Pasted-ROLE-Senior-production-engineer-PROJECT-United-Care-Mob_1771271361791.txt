@@ -1,0 +1,77 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Make driver subdomain auth work without cookies:
+- Driver uses JWT Bearer tokens stored in localStorage
+- All /api/driver/* and /api/me accept Authorization header
+- Keep existing cookie/session auth for app host unchanged (if present)
+
+CONSTRAINTS:
+- Do not modify shared/permissions.ts
+- Keep RBAC enforced server-side
+- Do not remove existing auth paths; add compatibility
+
+---------------------------------------
+PHASE 1 — VERIFY/ADD /api/me
+---------------------------------------
+Ensure GET /api/me exists:
+- If Authorization: Bearer token present -> validate JWT -> return {ok:true, role, userId, companyId}
+- Else fall back to existing session/cookie auth (if present)
+- Else 401
+
+---------------------------------------
+PHASE 2 — DRIVER LOGIN RETURNS JWT
+---------------------------------------
+If you already have a JWT login endpoint, reuse it.
+If login currently relies on cookies/session only:
+- Add POST /api/auth/login-jwt
+  Body: { email, password }
+  Response: { token, user: {id, role, companyId, name} }
+- Use existing bcrypt password check and existing JWT_SECRET.
+
+Do NOT break existing /api/login or session login.
+
+---------------------------------------
+PHASE 3 — DRIVER FRONTEND AUTH MODE
+---------------------------------------
+On driver host:
+1) Login page submits to /api/auth/login-jwt
+2) Store token in localStorage key: ucm_driver_token
+3) Set API client wrapper so that:
+   - Always sends Authorization: Bearer <token> if present
+   - Does NOT rely on cookies
+4) On app load:
+   - If token exists, call /api/me
+   - If ok, proceed; else clear token and go to /login
+
+Add "Logout" clears token.
+
+---------------------------------------
+PHASE 4 — API CLIENT ISOLATION
+---------------------------------------
+Implement a minimal fetch wrapper in client:
+- attach Authorization header when token exists
+- handle 401 by redirecting to /login and clearing token
+Use this wrapper only for driver host OR safely for all hosts (token optional).
+
+---------------------------------------
+PHASE 5 — POST-LOGIN ROUTING
+---------------------------------------
+On driver host:
+- After successful login, navigate to "/driver"
+- Ensure "/" redirects to "/driver"
+
+---------------------------------------
+VERIFY
+---------------------------------------
+1) On iOS Safari driver.unitedcaremobility.com/login works without Reduce Protections
+2) After login, driver stays logged in on refresh
+3) /api/me works on driver host (200)
+4) app subdomain login unaffected
+5) No changes to shared/permissions.ts

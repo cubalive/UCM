@@ -1,0 +1,242 @@
+ROLE: Senior production engineer  
+PROJECT: United Care Mobility  
+EXECUTION MODE: SINGLE AGENT ONLY  
+- One agent only  
+- No parallel tasks  
+- Do NOT reset database  
+- Do NOT recreate tables  
+- Extend existing system only  
+- Verify before exit  
+
+OBJECTIVE  
+Fix the city duplication problem permanently and redesign the location system so it is clean, scalable, and easy to use.
+
+CURRENT PROBLEM  
+Every time a company is created, a city is entered manually.  
+Cities are being stored as plain text in multiple tables.  
+This causes:  
+- duplicated cities  
+- messy dropdowns  
+- impossible navigation  
+- no state grouping  
+
+We need a proper U.S. location system.
+
+FINAL RESULT REQUIRED  
+1) Cities never duplicate  
+2) User selects State → City  
+3) Dropdown grouped by state  
+4) UI always shows: City, ST  
+5) Top-left filter shows selected state next to city  
+6) All major U.S. cities available  
+7) Nevada fully populated  
+8) No database reset  
+9) Existing data preserved  
+
+-----------------------------------------------------  
+PHASE 1 — MASTER LOCATION TABLES  
+-----------------------------------------------------  
+
+Create two new tables.
+
+TABLE: us_states  
+- id uuid pk  
+- code text UNIQUE (NV, CA, TX etc)  
+- name text  
+
+TABLE: us_cities  
+- id uuid pk  
+- state_code text (FK → us_states.code)  
+- city text  
+- city_normalized text  
+- population int optional  
+- is_major boolean default true  
+
+CONSTRAINT  
+UNIQUE(state_code, city_normalized)
+
+INDEX  
+(state_code, city_normalized)
+
+-----------------------------------------------------  
+PHASE 2 — SEED UNITED STATES DATA  
+-----------------------------------------------------  
+
+Seed ALL 50 states.
+
+Seed major U.S. cities for every state.  
+Must include at minimum:  
+- Top 200 U.S. cities  
+- ALL Nevada cities  
+- Las Vegas  
+- North Las Vegas  
+- Henderson  
+- Boulder City  
+- Pahrump  
+
+Seeding must be idempotent.  
+Use UPSERT.  
+Never duplicate.
+
+-----------------------------------------------------  
+PHASE 3 — ADD REFERENCES TO BUSINESS TABLES  
+-----------------------------------------------------  
+
+Add nullable columns:
+
+companies  
+- state_code text  
+- city_id uuid  
+
+clinics  
+- state_code text  
+- city_id uuid  
+
+drivers  
+- state_code text  
+- city_id uuid  
+
+vehicles  
+- state_code text  
+- city_id uuid  
+
+DO NOT delete existing "city" text column yet.
+
+-----------------------------------------------------  
+PHASE 4 — BACKFILL EXISTING DATA  
+-----------------------------------------------------  
+
+For each existing record:
+
+Normalize current city text  
+Try to match with us_cities  
+
+If match found → set city_id and state_code  
+If multiple matches → leave null  
+If none → leave null  
+
+Log summary.
+
+-----------------------------------------------------  
+PHASE 5 — API ENDPOINTS  
+-----------------------------------------------------  
+
+GET /locations/states  
+→ return all states sorted  
+
+GET /locations/cities?state=NV  
+→ return cities for that state  
+
+GET /locations/cities?state=NV&search=las  
+→ search cities  
+
+GET /locations/resolve?cityId=  
+→ return city + state  
+
+-----------------------------------------------------  
+PHASE 6 — COMPANY CREATION UI  
+-----------------------------------------------------  
+
+Replace current city field.
+
+NEW FLOW:
+
+Dropdown 1: State  
+Dropdown 2: City (filtered by state)
+
+City dropdown searchable.  
+Shows:  
+Las Vegas, NV  
+Henderson, NV  
+
+Store:  
+state_code  
+city_id  
+
+Display everywhere:  
+City, ST  
+
+-----------------------------------------------------  
+PHASE 7 — TOP LEFT GLOBAL FILTER  
+-----------------------------------------------------  
+
+Top left location filter must show:
+
+All Cities · NV  
+or  
+Las Vegas, NV  
+
+When state selected but no city →  
+“All Cities · NV”
+
+When city selected →  
+“Las Vegas, NV”
+
+-----------------------------------------------------  
+PHASE 8 — REMOVE DUPLICATES FOREVER  
+-----------------------------------------------------  
+
+Dropdowns must NEVER use:
+
+SELECT DISTINCT city FROM companies  
+
+ALL dropdowns must use:
+
+us_states  
+us_cities  
+
+-----------------------------------------------------  
+PHASE 9 — IMPORT SYSTEM SUPPORT  
+-----------------------------------------------------  
+
+When CSV import includes city:
+
+Accept:  
+city  
+state  
+or  
+"Las Vegas, NV"
+
+Resolve to city_id.
+
+If ambiguous → return row error.
+
+-----------------------------------------------------  
+PHASE 10 — UI DISPLAY  
+-----------------------------------------------------  
+
+Everywhere in UI show:
+
+City, ST  
+
+Never show city alone.
+
+-----------------------------------------------------  
+VERIFY  
+-----------------------------------------------------  
+
+Create 5 companies in Las Vegas.  
+Dropdown must show Las Vegas once.  
+
+Select Nevada →  
+Cities filtered correctly.  
+
+Top left shows:  
+All Cities · NV  
+
+Select Las Vegas →  
+Shows: Las Vegas, NV  
+
+No duplicates anywhere.
+
+-----------------------------------------------------  
+DELIVERABLE  
+-----------------------------------------------------  
+
+• Database migration  
+• Seed script  
+• API endpoints  
+• UI dropdown changes  
+• Backfill script  
+• No database reset  
+• Production safe  

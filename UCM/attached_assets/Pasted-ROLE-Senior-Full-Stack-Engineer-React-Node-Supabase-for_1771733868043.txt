@@ -1,0 +1,185 @@
+ROLE: Senior Full-Stack Engineer (React + Node + Supabase) for Healthcare NEMT
+EXECUTION MODE: SINGLE AGENT ONLY
+NO SUB-AGENTS
+NO PARALLEL TASKS
+DO NOT RESET DATABASE
+DO NOT DELETE EXISTING DATA
+BACKWARD COMPATIBLE CHANGES ONLY
+
+GOAL:
+Fix Clinic Portal (clinic.unitedcaremobility.com) so clinics can:
+1) Create Trip Requests (not direct trips)
+2) Create/Manage Patients assigned to the correct Transport Company and City
+3) Chat bi-directionally with Dispatch (and optionally tied to a trip request / trip)
+
+All must respect multi-tenant isolation (company/city/clinic filtering) + RBAC.
+
+---------------------------------------------------------
+PHASE 1 — DATABASE / SCHEMA (SAFE MIGRATIONS)
+---------------------------------------------------------
+
+1) Create table: trip_requests
+Columns:
+- id (uuid pk)
+- tenant_id (uuid) OR company_id depending on existing tenancy model
+- company_id (uuid, transport company that will service it)
+- clinic_id (uuid)
+- created_by_user_id (uuid)
+- patient_id (uuid nullable if new)
+- pickup_address (text)
+- dropoff_address (text)
+- pickup_lat (numeric) pickup_lng (numeric) nullable
+- dropoff_lat (numeric) dropoff_lng (numeric) nullable
+- pickup_time (timestamptz)
+- service_level (text: ambulatory/wheelchair/stretcher)
+- is_round_trip (bool)
+- recurrence_rule (text nullable; for dialysis schedules)
+- notes (text)
+- status (text enum: 'PENDING_APPROVAL','NEEDS_INFO','APPROVED','REJECTED','CANCELLED')
+- dispatch_notes (text nullable)
+- approved_trip_id (uuid nullable; links to trips table when approved)
+- created_at, updated_at
+
+Index: (company_id, clinic_id, status, pickup_time)
+
+2) Add/ensure patient associations:
+If patients table already exists, enforce these columns (add if missing):
+- company_id (uuid) NOT NULL (transport company)
+- clinic_id (uuid) NOT NULL
+- city_id (uuid) NOT NULL (or derivable from company)
+Add index: (company_id, clinic_id, city_id)
+
+3) Create chat tables:
+- chat_threads
+- id uuid pk
+- scope_type text ('TRIP_REQUEST','TRIP','CLINIC_GENERAL')
+- scope_id uuid
+- company_id uuid
+- clinic_id uuid
+- created_at
+Unique constraint: (scope_type, scope_id)
+
+- chat_messages
+- id uuid pk
+- thread_id uuid fk
+- sender_user_id uuid
+- sender_role text
+- message text
+- created_at
+Indexes: (thread_id, created_at)
+
+4) RLS policies:
+- Clinics can read/write only where clinic_id matches their clinic.
+- Dispatch/company admins can read/write threads/messages for their company_id.
+- NO cross-company access.
+- Service role bypass only as needed.
+
+---------------------------------------------------------
+PHASE 2 — BACKEND API / SERVICES
+---------------------------------------------------------
+
+Implement endpoints (or RPC) with RBAC checks:
+
+Clinic side:
+- POST /api/clinic/trip-requests (create request)
+- GET /api/clinic/trip-requests (list)
+- GET /api/clinic/trip-requests/:id (details)
+- POST /api/clinic/patients (create patient with company_id + clinic_id + city_id)
+- GET /api/clinic/patients (list/search filtered)
+- POST /api/chat/threads (get-or-create thread by scope)
+- GET /api/chat/threads/:id/messages
+- POST /api/chat/threads/:id/messages
+
+Dispatch side:
+- GET /api/dispatch/trip-requests (list by status/company/city)
+- POST /api/dispatch/trip-requests/:id/approve
+Behavior:
+- Create real trip in trips table using request data
+- Set trip_requests.status='APPROVED'
+- Save approved_trip_id
+- POST /api/dispatch/trip-requests/:id/reject (store reason)
+- POST /api/dispatch/trip-requests/:id/needs-info (set status and message)
+
+IMPORTANT:
+Approval must be idempotent: cannot create multiple trips for same request.
+
+---------------------------------------------------------
+PHASE 3 — FRONTEND (CLINIC PORTAL)
+---------------------------------------------------------
+
+Add navigation items:
+- "Request Trip" (or "New Trip")
+- "Patients"
+- "Messages" (or chat entry points from each request)
+
+Implement screens:
+
+1) Trip Requests list:
+- Tabs: Pending / Needs Info / Approved / Rejected
+- Each item opens details + chat + status timeline
+
+2) New Trip Request form:
+- Select patient (search)
+- If patient not found: create inline patient (requires company + clinic + city)
+- Pickup/dropoff, date/time, service level, roundtrip, notes
+- Submit => status PENDING_APPROVAL
+- Show success toast + redirect to request details
+
+3) Patients:
+- List + search
+- Create patient: company_id REQUIRED (only companies linked to clinic or allowed list)
+
+4) Chat:
+- Within a request details page show chat thread
+- Realtime using Supabase realtime subscriptions on chat_messages by thread_id
+- Typing indicator optional, but message send/receive must work
+
+---------------------------------------------------------
+PHASE 4 — FRONTEND (DISPATCH / ADMIN PORTAL)
+---------------------------------------------------------
+
+Add a "Trip Requests" queue view:
+- Filter by company + city + status
+- Detail view with:
+- Approve (creates trip)
+- Needs info (sets status)
+- Reject (reason)
+- Chat thread visible on right
+
+When Approved:
+- Redirect to created trip detail page.
+
+---------------------------------------------------------
+PHASE 5 — MULTI-TENANT RULES (NON-NEGOTIABLE)
+---------------------------------------------------------
+
+- Clinic users only see:
+- their clinic_id
+- patients tied to their clinic_id
+- trip_requests tied to their clinic_id
+- chat threads for those scopes
+
+- Dispatch/company admins only see:
+- their company_id (and optionally city filter)
+- trip_requests for companies they manage
+- chat threads tied to those requests/trips
+
+Ensure queries ALWAYS include company_id and clinic_id filters.
+Add server-side enforcement, not just UI.
+
+---------------------------------------------------------
+PHASE 6 — QA CHECKLIST
+---------------------------------------------------------
+
+1) Clinic creates patient with company_id + clinic_id + city_id
+2) Clinic creates trip request for that patient
+3) Dispatch sees request immediately
+4) Dispatch sets NEEDS_INFO and sends message
+5) Clinic receives message realtime, replies
+6) Dispatch approves request -> trip created exactly once
+7) Clinic sees status Approved and can view the created trip reference
+8) No clinic can see other clinic data
+9) Dallas company cannot see Vegas data
+
+DELIVERABLE:
+Implement with minimal UI, fully working flow end-to-end, and no breaking changes.

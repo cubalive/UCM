@@ -1,0 +1,23 @@
+{
+  "name": "ucm-driver-mobile",
+  "version": "1.0.0",
+  "description": "UCM Driver - Native mobile wrapper with background GPS tracking",
+  "private": true,
+  "scripts": {
+    "cap:sync": "npx cap sync",
+    "cap:ios": "npx cap open ios",
+    "cap:android": "npx cap open android",
+    "cap:add:ios": "npx cap add ios",
+    "cap:add:android": "npx cap add android",
+    "cap:build:ios": "npx cap sync ios",
+    "cap:build:android": "npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/ios": "^6.2.0",
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/preferences": "^6.0.0",
+    "@capacitor-community/background-geolocation": "^1.2.18"
+  }
+}

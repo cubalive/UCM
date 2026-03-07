@@ -1,0 +1,96 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT reset database
+- Do NOT recreate schema
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Harden Trip Details (the ONLY place maps + live tracking are allowed).
+Stop any remaining Google Directions / route / ETA spam and ensure controlled updates.
+
+---------------------------------------
+STEP 1 — LOCATE TRIP DETAILS PAGES
+---------------------------------------
+Using global search, locate the pages/components that render:
+- Google Map
+- A/B markers (pickup/dropoff)
+- route polyline
+- “Trip Details” for clinic/dispatch/driver
+
+Search keywords:
+- "DirectionsService"
+- "Polyline"
+- "google.maps"
+- "StaticMap"
+- "/tracking"
+- "recompute"
+- "ETA"
+- "fitBounds"
+
+Identify the Trip Details pages for:
+- Clinic trip details / tracking view
+- Dispatch trip details view
+- Driver active trip map view
+
+---------------------------------------
+STEP 2 — SNAPSHOT + CONTROLLED UPDATES ONLY
+---------------------------------------
+On Trip Details open:
+- Fetch 1 snapshot (trip + cached route + cached ETA + last driver location)
+Then updates must be controlled:
+
+If using polling:
+- driver location: every 5 seconds MAX
+- ETA: every 60 seconds MAX
+
+If using WebSocket/SSE:
+- location event: max every 5 seconds
+- ETA event: max every 60 seconds
+- status changes: instant
+
+---------------------------------------
+STEP 3 — REMOVE ROUTE/ETA TRIGGERS ON EVERY GPS UPDATE
+---------------------------------------
+Ensure no code recomputes:
+- route polyline
+- Directions
+- ETA
+on every GPS tick.
+
+Recompute allowed ONLY if:
+(A) >=45 seconds since last recompute
+OR
+(B) driver moved >=300 meters
+OR
+(C) trip phase changed (enroute/arrived/picked_up/in_transit/arrived_dropoff)
+
+Otherwise reuse cached values.
+
+---------------------------------------
+STEP 4 — SERVER SIDE CACHE REQUIRED
+---------------------------------------
+Implement/ensure server caches per trip:
+- ETA cache TTL 60s
+- polyline cache TTL 5 minutes (or until phase change)
+- fallback if Google fails: haversine + avg speed (no crash)
+
+Trip list pages must NEVER trigger Directions/route.
+
+---------------------------------------
+STEP 5 — VERIFY WITH LOGGING
+---------------------------------------
+Add lightweight counters/logs:
+- directions_calls_per_min
+- recompute_blocked_by_throttle
+- tracking_requests_per_min
+
+Verify:
+- Trip Details triggers at most 1 Directions call at open
+- Then at most 1 call each 45-60s per open trip
+- Trips list triggers 0 Directions calls
+
+DO NOT MODIFY:
+shared/permissions.ts

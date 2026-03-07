@@ -1,0 +1,145 @@
+ROLE: Senior mobile/full-stack engineer (production-grade)
+PROJECT: United Care Mobility (UCM) - Driver App
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT recreate tables
+- Do NOT remove existing features
+- Implement minimal changes with maximum correctness
+- Produce documentation and smoke tests
+- Margin of error: ZERO
+
+PROBLEM
+Assigned trips in Driver App do not show the correct action buttons by ride moment:
+- Missing "Go to Pickup"
+- Missing stage actions (Arrived Pickup, Picked Up, Start Trip, Go to Dropoff, Arrived Dropoff, Complete)
+- Navigation chooser no longer offers Google Maps / Apple Maps / Waze
+- Need "Remember my choice" for future trips
+
+GOAL
+Implement a deterministic trip state machine + UI actions that ALWAYS render based on trip status + timestamps + location context (optional).
+Add a navigation chooser with:
+- Google Maps
+- Apple Maps
+- Waze
+Include "Remember my choice" stored locally and used as default next time.
+Document everything: states, transitions, UI mapping, and tests.
+
+SCOPE
+Driver App only (Trip Detail screen + shared navigation helper).
+Do not change admin/dispatch logic except if required for status fields already existing.
+
+A) DEFINE A SINGLE SOURCE OF TRUTH: Trip Status Model
+1) Add/confirm a canonical enum (client-side mapping) for trip status:
+   - SCHEDULED
+   - EN_ROUTE_TO_PICKUP
+   - ARRIVED_PICKUP
+   - PICKED_UP
+   - EN_ROUTE_TO_DROPOFF (or IN_PROGRESS)
+   - ARRIVED_DROPOFF
+   - COMPLETED
+   - CANCELED (if exists)
+2) Create a small pure function:
+   getTripPhase(trip, now) -> phase
+   - If backend already stores status, use it.
+   - If backend stores timestamps (arrived_pickup_at, picked_up_at, started_at, arrived_dropoff_at, completed_at), derive phase from timestamps.
+   - Never guess dropoff actions before pickup is completed.
+
+B) UI BUTTONS MUST ALWAYS MATCH PHASE
+On Trip Detail, show action buttons exactly as follows:
+
+PHASE: SCHEDULED
+- Primary: "Go to Pickup" (opens nav to pickup)
+- Secondary: "Mark Arrived at Pickup" (enabled only if within geofence OR always allowed with confirm)
+- Show pickup and dropoff addresses; show timeline dots.
+
+PHASE: EN_ROUTE_TO_PICKUP
+- Primary: "Go to Pickup"
+- Secondary: "Mark Arrived at Pickup"
+
+PHASE: ARRIVED_PICKUP
+- Primary: "Picked Up"
+- Secondary: "Go to Pickup" (still allowed)
+- Optional: show waiting timer policy if exists (not required)
+
+PHASE: PICKED_UP
+- Primary: "Start Trip" (sets status to EN_ROUTE_TO_DROPOFF / IN_PROGRESS)
+- Secondary: "Go to Dropoff" visible but disabled until Start Trip if you prefer; OR allow both but Start Trip must be available.
+
+PHASE: EN_ROUTE_TO_DROPOFF / IN_PROGRESS
+- Primary: "Go to Dropoff"
+- Secondary: "Mark Arrived at Dropoff"
+
+PHASE: ARRIVED_DROPOFF
+- Primary: "Complete Trip"
+- Secondary: "Go to Dropoff"
+
+PHASE: COMPLETED
+- No action buttons except "View Receipt/Details" if exists.
+
+Rules:
+- Never show "Go to Dropoff" as the only action while still SCHEDULED/EN_ROUTE_TO_PICKUP.
+- Never allow "Complete" before Arrived Dropoff.
+- Each button must call one clear API/mutation and update UI immediately (optimistic update ok).
+
+C) NAVIGATION WITH 3 MAPS + REMEMBER CHOICE
+1) Implement a NavigationPicker modal/bottom-sheet:
+   - Options: Google Maps, Apple Maps, Waze
+   - Toggle: "Remember my choice" (default ON once user picks)
+2) Persist preference locally:
+   - Use localStorage (web/PWA) or AsyncStorage (React Native) depending on app.
+   - Key: driver.nav_provider = "google" | "apple" | "waze"
+3) Behavior:
+   - If preference exists, pressing "Go to Pickup" directly opens preferred provider.
+   - Add a small "Change" link to open picker again.
+4) Deep links:
+   - Apple Maps: http://maps.apple.com/?daddr=LAT,LNG or address encoded
+   - Google Maps: https://www.google.com/maps/dir/?api=1&destination=LAT,LNG
+   - Waze: https://waze.com/ul?ll=LAT,LNG&navigate=yes
+5) Coordinates:
+   - Prefer using lat/lng from trip if stored.
+   - If only address exists, geocode once (if existing geocoding utility exists) and cache per trip in memory for session; do not introduce heavy new services.
+
+D) BACKEND STATUS UPDATES (ONLY IF ALREADY SUPPORTED)
+1) Identify existing endpoint/mutation for trip status updates.
+2) If missing, add minimal endpoints:
+   - POST /api/driver/trips/:id/arrived-pickup
+   - POST /api/driver/trips/:id/picked-up
+   - POST /api/driver/trips/:id/start
+   - POST /api/driver/trips/:id/arrived-dropoff
+   - POST /api/driver/trips/:id/complete
+Each should:
+   - Validate driver owns trip
+   - Set status + timestamp columns (use existing columns if present)
+   - Return updated trip
+Do NOT change schema. Reuse existing columns.
+
+E) FIX WHY BUTTONS DISAPPEARED
+1) Audit TripDetail component conditions. Remove any incorrect condition that hides pickup actions for assigned trips.
+2) Ensure assigned trips render the same action area even if map fails to load.
+3) Add a UI fallback: if phase cannot be derived, show SCHEDULED actions with a warning banner.
+
+F) DOCUMENTATION (MANDATORY)
+Create /docs/driver-trip-workflow.md containing:
+- Status enum
+- Transition table
+- Button mapping table
+- Navigation provider links + storage key
+- Common failure modes and how prevented
+
+G) TESTS (MANDATORY)
+1) Add unit tests for getTripPhase() with multiple scenarios.
+2) Add a simple UI smoke checklist in docs:
+   - Assigned trip shows "Go to Pickup"
+   - After Arrived Pickup -> shows "Picked Up"
+   - After Picked Up -> shows "Start Trip"
+   - After Start Trip -> shows "Go to Dropoff"
+   - Arrived Dropoff -> shows "Complete Trip"
+   - Navigation picker shows 3 providers and remember choice works
+
+DELIVERABLES
+1) List of files changed
+2) Screenshots or logs demonstrating each phase renders correct buttons
+3) docs/driver-trip-workflow.md
+4) Tests passing

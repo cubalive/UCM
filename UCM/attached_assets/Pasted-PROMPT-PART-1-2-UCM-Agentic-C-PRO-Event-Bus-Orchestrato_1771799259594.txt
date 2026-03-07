@@ -1,0 +1,157 @@
+PROMPT (PART 1/2) — UCM Agentic C (PRO) — Event Bus + Orchestrator + Route Proof (NO BREAKING CHANGES)
+
+EXECUTION MODE: SINGLE AGENT ONLY.
+Do NOT create sub-agents. Do NOT run parallel work.
+Hard rules:
+- Do NOT reset the DB.
+- Do NOT remove or rename existing tables/columns/APIs.
+- Do NOT change existing behavior unless explicitly requested.
+- Additive changes only, behind feature flags, with safe fallbacks.
+Goal:
+Fix the #1 production issue: admin/dispatch/clinic maps show a straight A→B line and completed trips do not store real route + miles.
+Implement “C (Pro)” agentic foundation using Upstash Redis Streams, plus a route proof pipeline that stores:
+- planned route polyline + planned distance/duration (from Google Routes/Directions)
+- actual path breadcrumbs (driver GPS points) with compression
+- computed actual distance + duration at trip completion
+So the portals can render Uber-like trip playback and billing-proof miles.
+
+Tech context (do not assume Next.js):
+- Express 5 backend + React/Vite frontend
+- WebSockets already exist
+- Redis is Upstash REST client
+- Google APIs enabled (Routes/Directions, etc.)
+- Supabase/Postgres via Drizzle
+
+DELIVERABLES in this PR:
+1) Redis Streams event bus:
+   - Create server/lib/eventBus.ts using Upstash Redis Streams (XADD/XREADGROUP/XACK).
+   - Stream keys:
+     - ucm:events
+     - ucm:actions
+   - Consumer group names:
+     - orchestrator-group
+     - worker-routes-group
+     - worker-notify-group (scaffold only)
+   - Add robust retry/backoff and dead-letter stream ucm:deadletters.
+   - Ensure idempotency keys for each event/action.
+
+2) DB schema additions (Drizzle + SQL migration) — additive only:
+   Create these tables (or columns if they already exist; detect before create):
+   A) trip_route_plans
+      - id (pk)
+      - trip_id (fk trips.id)
+      - provider ('google')
+      - origin_place_id, destination_place_id (nullable)
+      - polyline (text)  // encoded polyline
+      - distance_meters (int)
+      - duration_seconds (int)
+      - bounds_json (jsonb)
+      - created_at
+   B) trip_route_points
+      - id (pk)
+      - trip_id (fk)
+      - chunk_index (int)
+      - polyline_chunk (text) // encoded polyline chunk of breadcrumbs
+      - point_count (int)
+      - started_at, ended_at (timestamptz)
+      - created_at
+   C) trip_route_summary
+      - trip_id (pk, fk)
+      - planned_distance_meters, planned_duration_seconds
+      - actual_distance_meters, actual_duration_seconds
+      - points_total (int)
+      - gps_quality_score (numeric) // optional
+      - computed_at
+   D) ops_audit_ledger
+      - id (pk)
+      - entity_type ('trip'|'driver'|'clinic')
+      - entity_id
+      - event_type
+      - inputs_json (jsonb)
+      - decision_json (jsonb)
+      - actions_json (jsonb)
+      - created_at
+   Also add safe indexes on trip_id.
+
+3) Events emitted from existing flows (minimal touch):
+   - When a trip is created: emit event trip.created with trip_id, city_id, company_id, clinic_id, scheduled_time, origin/destination place_id/latlng.
+   - When a trip is assigned to a driver: emit trip.assigned with trip_id, driver_id, vehicle_id.
+   - When driver location ping arrives: emit driver.location with driver_id, trip_id (if active), lat,lng,accuracy,speed,heading,ts.
+   - When trip status changes: emit trip.status_changed with from,to,ts, trip_id, driver_id.
+
+Do NOT break current endpoints. Add emission as side-effects only; if Redis unavailable, fail open (log and continue).
+
+4) Orchestrator process (separate module but same repo):
+   - Create server/orchestrator/index.ts:
+     - Connect to event bus
+     - Consume events with consumer group orchestrator-group
+     - For events of types trip.created and trip.assigned, enqueue action route.compute with trip_id and latest origin/destination info.
+     - For trip.status_changed to COMPLETED, enqueue action route.finalize with trip_id.
+     - Write an ops_audit_ledger row for each decision (even if no action).
+   - Expose health endpoint /api/orchestrator/health (optional) or log startup banner.
+
+5) Route Worker (separate module):
+   - Create server/workers/routesWorker.ts:
+     - Consume from ucm:actions in group worker-routes-group
+     - Handle actions:
+       A) route.compute:
+          - Call Google Routes API (preferred) or Directions API
+          - Store trip_route_plans row
+          - Upsert trip_route_summary planned_* values
+          - Also broadcast via WebSocket to subscribed clients that route plan is ready.
+       B) route.finalize:
+          - Aggregate trip_route_points chunks for trip, decode+measure distance (use a local polyline decode + haversine sum; optional snap-to-road can be a later improvement)
+          - Compute actual_distance_meters and duration from timestamps
+          - Upsert trip_route_summary actual_* values
+          - Mark billing-ready flags if your existing billing model supports it (do not change billing logic, only store summary).
+     - ACK messages only after DB write succeeds. On failure, move to deadletter with error context.
+
+6) Breadcrumb storage (actual route):
+   - Implement a “breadcrumbs buffer” in memory per (trip_id, driver_id) that:
+     - collects points while trip is active
+     - flushes to DB every 30–60 seconds OR when buffer size reaches N (e.g., 50 points)
+     - stores encoded polyline chunks into trip_route_points
+   - IMPORTANT: PWA + background issues exist; still accept any pings and store them.
+   - Only store breadcrumbs for trips in non-terminal states.
+   - If no active trip_id is provided in ping, attempt lookup driver’s active trip.
+
+7) API endpoints (read only for UI):
+   Add:
+   - GET /api/trips/:tripId/route
+     Returns:
+       planned: { polyline, distance_meters, duration_seconds }
+       actual: { polyline_chunks[], total_distance_meters, total_duration_seconds }
+       summary: { planned_*, actual_* }
+   Ensure RBAC:
+   - SUPER_ADMIN can access any trip
+   - DISPATCH/COMPANY_ADMIN only within tenant/company/city
+   - CLINIC only trips belonging to clinic
+   - DRIVER only own trips
+   Use existing permission utilities; do not invent new RBAC system.
+
+8) UI minimal update hooks (no redesign yet):
+   - In admin/dispatch/clinic trip detail map component, if /route exists, render planned polyline and optional actual breadcrumbs path.
+   - If not, keep current behavior (straight line fallback).
+
+9) Feature flags:
+   - Add env flag: UCM_AGENTIC_ROUTES=1
+   - If disabled, do nothing (no bus, no worker) and existing system continues.
+
+10) Scripts:
+   - Add npm scripts:
+     - "orchestrator": tsx server/orchestrator/index.ts
+     - "worker:routes": tsx server/workers/routesWorker.ts
+   - Ensure prod build works (dist output). If you can’t add separate processes in Replit, at least keep modules ready; but do not block compilation.
+
+11) Tests / verification checklist (must provide in output):
+   - Create a trip → verify trip_route_plans created after assigned
+   - Driver sends location pings → trip_route_points chunks created
+   - Complete trip → trip_route_summary actual_distance_meters is populated
+   - Admin/clinic can view route and miles
+   - If Redis down: trip creation/dispatch still works.
+
+Proceed:
+- First, scan existing code for current trip status transitions, driver ping endpoint, and any existing polyline storage.
+- Then implement the above additively.
+- Keep code style consistent with repo, TypeScript strict, and add concise Spanish comments only where logic is complex.
+- Output: list files changed + what to run + verification steps.

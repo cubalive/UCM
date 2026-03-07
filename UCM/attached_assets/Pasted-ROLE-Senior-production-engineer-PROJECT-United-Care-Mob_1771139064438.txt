@@ -1,0 +1,169 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+BUG + FEATURE: CLINIC COMPLETED TRIPS MUST OPEN A READ-ONLY TRIP DETAILS + EXPORT PDF
+
+PROBLEM
+In Clinic Operations Overview (mobile), tapping a completed trip row does not open Trip Details.
+Clinics need a dedicated Trip Details view that is READ-ONLY and informational only (no dispatch/admin controls).
+
+GOALS
+1) Fix click/tap so clinic can open Trip Details from Completed list.
+2) Create a CLINIC-SAFE Trip Details layout (read-only, no buttons/notes/messages/tracking link).
+3) Show full operational proof info:
+   - Pickup + Dropoff addresses (Point A → Point B)
+   - Map/route snapshot or route preview image
+   - Miles traveled
+   - On-site duration (Arrived → Completed)
+   - Timeline with timestamps: Scheduled pickup, En route, Arrived, Picked up (if exists), Completed
+   - Driver name + vehicle
+   - Outcome badge (completed/no-show/cancelled/company_error) + reason (read-only)
+   - Proof photo (completed trips)
+4) Add "Download PDF" button for clinic users that generates a clean PDF receipt/report.
+
+SECURITY
+Clinic users must only access trips belonging to their clinic_id.
+No patient phone link, no internal notes, no SMS tools, no tracking link, no invoice buttons.
+
+------------------------------------------------------------
+TASK 1 — FIX THE CLICK (ROOT CAUSE, NOT HACK)
+------------------------------------------------------------
+Locate the Clinic Ops Completed list component.
+Ensure the row is actually clickable on mobile:
+- Wrap row with <button> or clickable container
+- Avoid overlay layers blocking taps
+- Ensure onClick/onTap triggers navigation:
+  /clinic-trips/:tripId (or modal)
+
+Verify in iOS Safari.
+Add cursor/pointer and active feedback.
+
+------------------------------------------------------------
+TASK 2 — ADD A DEDICATED ENDPOINT FOR CLINIC TRIP DETAILS
+------------------------------------------------------------
+Create/confirm:
+GET /api/clinic/trips/:id
+
+This must:
+- Verify authenticated clinic_user
+- Verify trip.clinic_id == user.clinic_id
+- Return ONLY clinic-safe fields:
+
+{
+  id,
+  clinic_name,
+  patient_first_name, patient_last_name (optional if allowed),
+  service_date,
+  scheduled_pickup_at,
+  pickup_address_text,
+  pickup_lat, pickup_lng,
+  dropoff_address_text,
+  dropoff_lat, dropoff_lng,
+  distance_miles,
+  arrived_at,
+  completed_at,
+  onsite_minutes,
+  progress_events: [{label, at}],
+  driver: {name},
+  vehicle: {make, model, color, plate_optional},
+  billing_outcome, billing_reason,
+  proof_photo_url (SIGNED URL if private),
+  route_polyline_or_snapshot_data (if available)
+}
+
+Do NOT include:
+- patient phone
+- patient tracking link
+- internal dispatch notes
+- SMS buttons
+- invoice creation controls
+
+------------------------------------------------------------
+TASK 3 — CLINIC TRIP DETAILS UI (READ-ONLY)
+------------------------------------------------------------
+Create a separate UI component/page used only for clinic role:
+ClinicTripDetails
+
+Layout (mobile-first):
+HEADER (bold):
+**Feb 14, 2026 — 8:29 AM**
+Trip ID: 01UCM000024
+Outcome badge
+
+SECTION: ROUTE (Point A → Point B)
+- Pickup address (A)
+- Dropoff address (B)
+- Mini map snapshot or route preview (no interactive tracking)
+- Miles: X.X mi
+
+SECTION: TIMELINE (with times)
+- Scheduled Pickup: hh:mm
+- En Route: hh:mm (if exists)
+- Arrived: hh:mm (if exists)
+- Picked Up: hh:mm (if exists)
+- Completed: hh:mm (if exists)
+- On-site duration: N min (Arrived → Completed)
+
+SECTION: DRIVER
+- Driver name
+- Vehicle summary (color + type)
+
+SECTION: PROOF PHOTO (Completed only)
+- Show photo preview
+- Tap to view full screen
+
+NO buttons except:
+- Download PDF
+
+------------------------------------------------------------
+TASK 4 — PDF EXPORT (CLINIC RECEIPT/REPORT)
+------------------------------------------------------------
+Add:
+GET /api/clinic/trips/:id/pdf
+
+Server generates a PDF containing exactly what clinic sees:
+- Clinic name
+- Trip ID
+- Date/time (bold)
+- Pickup A and Dropoff B
+- Route snapshot image (or static map image)
+- Miles
+- Timeline timestamps
+- Driver + vehicle
+- Proof photo (embedded if exists)
+- Outcome + reason
+
+Return PDF as download.
+PDF must be clean, 1–2 pages max.
+
+Implementation options:
+- Use server-side PDF generation (recommended) so it works on iOS reliably.
+- If route snapshot unavailable, include addresses + (optional) a static map image.
+
+------------------------------------------------------------
+TASK 5 — VERIFY (MUST DO)
+------------------------------------------------------------
+1) Clinic logs in on iPhone Safari
+2) Completed tab shows trip list
+3) Tap row opens ClinicTripDetails
+4) Data matches trip record
+5) Proof photo visible for completed trips
+6) Download PDF works and matches UI
+7) Attempt to access another clinic trip id -> 403
+
+DO NOT
+- Do NOT expose patient phone or tracking link
+- Do NOT show internal notes, invoice tools, SMS tools
+- Do NOT reset DB
+
+SUCCESS CRITERIA
+- Clinic can open completed trip details reliably
+- Clinic trip details is read-only and information-rich
+- PDF export works on mobile and is dispute-proof

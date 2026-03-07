@@ -1,0 +1,150 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+DO NOT USE SUB-AGENTS. DO NOT DO PARALLEL WORK.
+
+TASK: Fix Password Reset end-to-end for ALL portals (driver / clinic / app) so it works BOTH ways:
+(1) Reset via emailed link token
+(2) Reset after logging in with a temporary password (force-change flow)
+Also ensure the reset link ALWAYS opens on the correct subdomain for that user type (drivers → driver., clinics → clinic., admins/dispatch → app.).
+Return: root cause(s), files changed, and proof (build passes + manual flow test checklist executed).
+
+CONTEXT (what user sees now):
+- “Failed to fetch” on Change Password screen (network call failing).
+- Some reset links open the wrong subdomain and/or show 404.
+- “Login Link Failed / Invalid or expired login link” sometimes appears.
+- Driver portal had React error #310 earlier (hooks order), but now we focus on auth/reset stability.
+
+NON-NEGOTIABLES:
+- Keep security: tokens must be single-use + expiry + hashed-at-rest.
+- Do not break existing login.
+- No silent failures: show clear UI errors.
+- Same codebase supports 3 subdomains.
+
+STEP 0 — Identify current architecture (DO THIS FIRST)
+1) Find where reset emails are generated:
+   - search for: "reset", "recovery", "token=", "type=recovery", "Reset Password", "Forgot your password"
+2) Confirm how auth is implemented:
+   - Is it Supabase Auth resetPasswordForEmail / updateUser?
+   - Or custom JWT + users table?
+3) Confirm where API lives:
+   - Same origin per subdomain (driver.* serves /api too) OR app.* is the only API host.
+4) Confirm routing:
+   - Does the frontend router define /login and /reset-password (or equivalent) on ALL portals?
+   - Does the server rewrite unknown routes to index.html (SPA fallback) on ALL subdomains?
+
+STEP 1 — Fix the immediate “Failed to fetch” (network/root cause)
+Most common causes in this setup:
+A) Frontend calls a hardcoded API base (e.g., appBaseUrl) that doesn’t match the current subdomain → CORS/blocked.
+B) Reset endpoint path differs across portals → 404.
+C) Reset uses fetch to a URL missing https or wrong host → fails.
+D) Missing CORS headers if cross-origin is required.
+
+Implement this rule:
+- Frontend MUST call API using a single helper that is correct for the current deployment.
+- If API is same-origin: use relative URLs only: fetch("/api/...") never absolute.
+- If API is centralized on app.*: set ONE canonical API_BASE_URL and configure CORS on server to allow driver.* and clinic.*.
+
+Deliverable:
+- Patch the API client helper (likely resolveUrl / api.ts) so every portal hits the correct API consistently.
+- Add a runtime assertion/log in non-prod to print the resolved API base.
+
+STEP 2 — Portal-aware reset link generation (the core requirement)
+Goal: reset links must open on the correct subdomain based on user role/type.
+
+Implement a deterministic “portal resolver”:
+- DRIVER -> https://driver.unitedcaremobility.com
+- CLINIC -> https://clinic.unitedcaremobility.com
+- ADMIN/DISPATCH/SUPER_ADMIN -> https://app.unitedcaremobility.com
+
+Where to implement:
+- In the server function that creates/sends the reset email:
+  - Determine user role/type from DB by email (or userId).
+  - Choose portalBaseUrl = portalForRole(role).
+  - Build link: `${portalBaseUrl}/login?token=${token}&type=recovery&reset=true`
+    OR `${portalBaseUrl}/reset-password?token=${token}` (preferred for clarity).
+
+If you are using Supabase reset emails:
+- Do NOT rely on a single SiteURL for all portals.
+- Instead pass redirectTo explicitly when generating the reset:
+  supabase.auth.resetPasswordForEmail(email, { redirectTo: `${portalBaseUrl}/auth/callback?next=/reset-password` })
+- Ensure each portal has the callback route implemented.
+
+If you are using custom tokens:
+- Create/confirm table password_reset_tokens:
+  - id (uuid)
+  - user_id
+  - token_hash (sha256)
+  - portal (enum: driver|clinic|app)
+  - expires_at (e.g., now + 30 min)
+  - used_at nullable
+  - created_at
+- Email contains raw token; DB stores only hash.
+- Verify: hash(token) == token_hash AND used_at is null AND now < expires_at.
+
+STEP 3 — Make reset work in BOTH modes
+MODE 1: Reset via email link
+- When portal loads with token query param:
+  - Frontend calls POST /api/auth/reset/verify (token) → returns ok + user context + “allowReset”.
+  - Then user enters new password → POST /api/auth/reset/confirm (token, newPassword).
+  - Server validates token again, sets password, marks used_at.
+
+MODE 2: Temporary password login (force change)
+- If user logs in with temporary password:
+  - Server issues session BUT with flag: must_change_password = true.
+  - Frontend detects flag and forces Change Password screen.
+  - On submit, call POST /api/auth/password/change with (currentTempPassword, newPassword).
+  - Server validates current password, updates to new password, clears must_change_password.
+
+Important:
+- Do NOT mix temp-password reset with email token validation.
+- Both should end in the same “set password” code path with shared validator.
+
+STEP 4 — Fix “Invalid/expired login link” and 404 behaviors
+- Expired link should show a clean UI:
+  - “Link expired. Request a new reset link.” with a button that triggers request reset.
+- 404 on reset routes must never happen:
+  - Ensure router includes the reset route in EACH portal build.
+  - Ensure server rewrites:
+    any GET that is not /api/* or /assets/* → serve index.html (SPA fallback).
+- If you use /login for recovery:
+  - Ensure /login handles recovery params and routes to reset UI.
+
+STEP 5 — Tests and proof
+1) Add automated tests:
+- Unit: portalForRole(role)
+- Unit: token hashing/verify logic
+- Integration: request reset → creates token (hashed) → confirm reset consumes token
+2) Add a “golden” smoke test command already used elsewhere (you have /api/ops/smoke-run):
+- Extend it to cover reset token verification endpoint returns expected status.
+
+MANUAL TEST CHECKLIST (must be executed and reported)
+- Driver:
+  - Request reset from driver portal → email link opens driver.* → set new password → login works.
+  - Temp password login → forced change → set new password → login works.
+- Clinic:
+  - Same two flows, link stays clinic.*
+- Admin:
+  - Same two flows, link stays app.*
+- Negative:
+  - Use link twice → second time rejected (“already used”).
+  - Expired token → rejected.
+  - Wrong subdomain token (driver token opened on clinic) → either:
+    a) hard redirect to correct portal, OR
+    b) refuse with message and a button “Open correct portal”.
+
+FILES TO EXPECT YOU’LL TOUCH (examples; adjust to real repo)
+- server/controllers/auth.controller.ts (or similar)
+- server/services/email.service.ts
+- server/services/auth.service.ts
+- server/routes/auth.routes.ts
+- shared/api.ts (resolveUrl / api client)
+- client/*/Login.tsx (recovery handling)
+- client/*/ResetPassword.tsx (new page if needed)
+- server/migrations/* (password_reset_tokens)
+- tests/*
+
+OUTPUT REQUIRED
+Return exactly:
+1) Root cause(s) for why it worked yesterday but broke today (be specific: wrong baseUrl, CORS, route missing, template changed, etc.)
+2) List of files modified
+3) Confirmation build compiles
+4) Screenshot-free proof in text: which manual checklist items were executed and passed (with timestamps/log lines)

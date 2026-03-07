@@ -1,0 +1,166 @@
+ROLE: Principal payments/compliance architect (Stripe Connect + Ledger + Reconciliation) + full-stack engineer
+PROJECT: UCM — Enterprise Billing vNext (Clinic→Company direct pay) + Fee Rules Engine
+EXECUTION MODE: SINGLE AGENT ONLY
+NO PARALLEL TASKS
+DO NOT RESET DATABASE
+DO NOT DROP TABLES
+EXTEND ONLY (additive schema changes ok)
+ZERO REGRESSION TOLERANCE
+KEEP DRIVER/DISPATCH FLOWS UNCHANGED
+MULTI-TENANT SECURITY MUST REMAIN INTACT
+
+========================================================
+GOAL
+========================================================
+Implement a configurable “Fee Rules Engine” for Stripe Connect direct payments (Clinic→Company),
+so UCM can charge:
+- % fee (0–100%)
+- fixed fee (cents)
+- minimum fee / maximum fee
+- rules per Company, per Clinic, and optional per Service Type (wheelchair/ambulatory)
+- effective date ranges and enable/disable toggles
+- SUPER_ADMIN-only control panel
+This must integrate into PaymentIntent creation as application_fee_amount.
+Must be auditable, deterministic, and never break existing billing.
+
+========================================================
+SECTION 1 — DATA MODEL (ADD ONLY)
+========================================================
+
+Create tables:
+
+fee_rules(
+  id uuid pk,
+  scope_type text check (global, company, clinic, company_clinic),
+  company_id uuid null,
+  clinic_id uuid null,
+  service_level text null,         -- optional: 'ambulatory'|'wheelchair'|null
+  fee_type text check (percent, fixed, percent_plus_fixed),
+  percent_bps int default 0,       -- percent in basis points (0–10000 = 0–100%)
+  fixed_fee_cents int default 0,
+  min_fee_cents int null,
+  max_fee_cents int null,
+  is_enabled boolean default true,
+  priority int default 100,        -- lower number = higher priority
+  effective_from timestamptz null,
+  effective_to timestamptz null,
+  notes text null,
+  created_by uuid null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+)
+
+fee_rule_audit(
+  id uuid pk,
+  rule_id uuid,
+  actor_user_id uuid,
+  actor_role text,
+  action text,                     -- CREATED|UPDATED|DISABLED|DELETED (soft)
+  before jsonb,
+  after jsonb,
+  created_at timestamptz default now()
+)
+
+Add to companies/clinics (optional but useful):
+companies.default_fee_rule_id uuid null
+clinics.default_fee_rule_id uuid null
+
+========================================================
+SECTION 2 — RULE RESOLUTION LOGIC (DETERMINISTIC)
+========================================================
+
+Implement server function:
+resolveFeeRule({clinic_id, company_id, service_level, amount_cents, timestamp}) -> {rule, fee_cents}
+
+Rule selection order (highest priority wins):
+1) company_clinic match (company_id + clinic_id)
+2) clinic match
+3) company match
+4) global fallback
+Within same scope, prefer:
+- enabled rules only
+- timestamp within effective_from/effective_to window (if set)
+- lowest priority value first
+- newest updated_at tie-breaker
+
+Fee calculation:
+- percent: fee = round(amount_cents * percent_bps / 10000)
+- fixed: fee = fixed_fee_cents
+- percent_plus_fixed: fee = percent part + fixed part
+Apply min/max clamps if present.
+Final clamp:
+- fee_cents cannot exceed amount_cents (prevent invalid fee > charge)
+- fee_cents cannot be negative
+
+Persist the resolved fee on billing period/payment record for audit:
+payments.fee_rule_id uuid null
+payments.fee_cents int default 0
+
+========================================================
+SECTION 3 — STRIPE INTEGRATION (PAYMENTINTENT)
+========================================================
+
+When creating PaymentIntent for a billing period:
+- compute fee using resolveFeeRule
+- set application_fee_amount = fee_cents
+- set metadata:
+  fee_rule_id
+  fee_cents
+  fee_type
+  percent_bps
+  fixed_fee_cents
+
+Also create ledger_entries:
+- PLATFORM_REVENUE credit = fee_cents
+- (Optional) AR/AP accounts if you use double-entry
+
+Add audit_events:
+- FEE_RULE_APPLIED on payment creation
+
+========================================================
+SECTION 4 — SUPER_ADMIN UI (CONTROL PANEL)
+========================================================
+
+Create SUPER_ADMIN-only screens:
+- Fee Rules list (search/filter by scope/company/clinic/enabled/service_level)
+- Create/Edit rule modal
+- Enable/Disable toggle (soft disable)
+- “Test fee calculation” tool:
+    input: clinic, company, amount, service_level
+    output: selected rule + computed fee
+- “Effective dates” calendar controls
+
+========================================================
+SECTION 5 — SECURITY (RBAC + RLS)
+========================================================
+
+- Only SUPER_ADMIN can CRUD fee_rules and view fee_rule_audit.
+- Clinics/companies must NOT access fee rules directly.
+- All fee calculations occur server-side.
+
+========================================================
+SECTION 6 — SMOKE TESTS (MUST RUN)
+========================================================
+
+1) Create global rule 3% -> verify fee on PaymentIntent
+2) Create company rule 5% -> overrides global
+3) Create company_clinic rule 2% + $100 -> overrides company
+4) Test min/max clamps
+5) Verify application_fee_amount equals computed fee
+6) Verify metadata contains fee details
+7) Verify audit logs written on create/update/disable
+8) Verify no regressions to existing billing and trip flows
+
+========================================================
+DELIVERABLES
+========================================================
+
+Return:
+- Files changed
+- Migrations SQL
+- resolveFeeRule implementation details
+- Admin UI routes/components added
+- Smoke test results
+- How to verify in Stripe dashboard (test mode)
+
+DO NOT modify unrelated flows. Keep system stable.

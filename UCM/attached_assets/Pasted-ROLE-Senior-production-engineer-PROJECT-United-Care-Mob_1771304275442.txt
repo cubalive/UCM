@@ -1,0 +1,85 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+TASK:
+Host Android Digital Asset Links (PWABuilder) for the driver app so app links work and the endpoint is PUBLIC (no auth, no redirects).
+
+-----------------------------------------------------
+PHASE 1 — CREATE STATIC FILE
+-----------------------------------------------------
+1) Create folder:
+public/.well-known/
+
+2) Create file:
+public/.well-known/assetlinks.json
+
+3) Set file content EXACTLY to:
+
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.unitedcaremobility.driver",
+      "sha256_cert_fingerprints": [
+        "0C:34:66:B4:36:FD:CC:8D:8C:8E:7C:B1:31:B9:94:D7:E7:A7:06:AD:B3:F4:68:59:33:0E:3C:CA:17:14:EF:2A"
+      ]
+    }
+  }
+]
+
+-----------------------------------------------------
+PHASE 2 — ENSURE PUBLIC ACCESS (NO LOGIN)
+-----------------------------------------------------
+In server/index.ts (or wherever Express app is created), add an explicit route BEFORE any auth / SPA catch-all:
+
+- It must return 200
+- Must NOT redirect to /login
+- Must NOT require cookies or bearer token
+- Must set headers:
+  Content-Type: application/json
+  Cache-Control: public, max-age=3600
+
+Implementation:
+
+- Import path:
+  import path from "path";
+
+- Add route near the top (after app initialization, before registerRoutes / auth protections):
+
+app.get("/.well-known/assetlinks.json", (_req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  return res.sendFile(path.resolve(process.cwd(), "public", ".well-known", "assetlinks.json"));
+});
+
+Also ensure static hosting includes dotfolders:
+- If you use serveStatic/app.use(express.static(...)), keep it, but the explicit route above is the hard guarantee.
+
+-----------------------------------------------------
+PHASE 3 — VERIFY (MUST PASS)
+-----------------------------------------------------
+After republish, verify these URLs in an INCOGNITO window:
+
+1) https://driver.unitedcaremobility.com/.well-known/assetlinks.json
+
+Expected:
+- HTTP 200
+- Shows JSON (the exact content)
+- No redirect to login
+
+Optional (only if you also want app subdomain deep links):
+2) https://app.unitedcaremobility.com/.well-known/assetlinks.json
+If this host uses the same server, add a second static file or reuse the same route; if not, ignore.
+
+Test checklist:
+- curl -I https://driver.unitedcaremobility.com/.well-known/assetlinks.json shows Content-Type: application/json
+- Endpoint accessible without auth
+- No redirects

@@ -1,0 +1,147 @@
+ROLE: Senior production engineer  
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK:
+Resume PHASE 2 — AUTHENTICATED DOWNLOADS (Safari iOS Fix).
+
+OBJECTIVE:
+Fix all authenticated JSON/CSV downloads so:
+1) Safari iOS downloads work correctly.
+2) No Unauthorized / 404 HTML payloads get saved as files.
+3) Role-based access control is enforced server-side.
+4) Behavior is stable and non-breaking.
+
+=====================================================
+STEP 1 — IDENTIFY EXPORT ENDPOINTS
+=====================================================
+Locate all endpoints that:
+- Return CSV
+- Return downloadable JSON
+- Use Content-Disposition attachment
+- Are used by Intelligence / Rankings / Reports
+
+List them before modifying.
+
+=====================================================
+STEP 2 — SERVER HARDENING
+=====================================================
+
+For each export endpoint:
+
+A) Enforce role gating:
+- Use requireRole(...)
+- SUPER_ADMIN: full access
+- DISPATCH: only allowed city_id
+- CLINIC_USER: only their clinic_id (ignore user-supplied clinic_id)
+
+B) Enforce strict scoping:
+- Never trust client city_id or clinic_id blindly.
+- Validate against actor context.
+
+C) Fix headers (REQUIRED):
+
+Before sending file:
+
+res.setHeader("Content-Type", "text/csv; charset=utf-8"); 
+// or application/json
+
+res.setHeader(
+  "Content-Disposition",
+  `attachment; filename="ucm-${reportType}-${Date.now()}.csv"`
+);
+
+res.setHeader("Cache-Control", "no-store");
+
+D) Ensure error responses are JSON only:
+
+return res.status(403).json({ error: "Forbidden" });
+
+NEVER return HTML for protected routes.
+
+=====================================================
+STEP 3 — SAFARI-SAFE FRONTEND DOWNLOAD
+=====================================================
+
+Replace any:
+window.location.href = "/api/..."
+
+WITH authenticated fetch + blob pattern:
+
+async function downloadFile(url, filename) {
+  const token = await getAuthToken();
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "text/csv"
+    }
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error("Download failed:", text);
+    alert("Download failed");
+    return;
+  }
+
+  const blob = await res.blob();
+
+  const contentType = res.headers.get("Content-Type") || "";
+  if (contentType.includes("application/json")) {
+    const text = await blob.text();
+    console.error("Server returned JSON instead of file:", text);
+    alert("Unauthorized or error response");
+    return;
+  }
+
+  const blobUrl = window.URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  window.URL.revokeObjectURL(blobUrl);
+}
+
+Must be triggered from user click event.
+
+=====================================================
+STEP 4 — VALIDATION
+=====================================================
+
+Test:
+
+1) SUPER_ADMIN export → success
+2) DISPATCH wrong city → 403 JSON, no file
+3) Expired token → 401 JSON, no file
+4) Valid CSV download opens properly in Safari iOS
+5) No HTML saved as .csv
+
+=====================================================
+EXIT CRITERIA
+=====================================================
+
+- All export endpoints hardened
+- Safari iOS download works
+- No unauthorized payloads saved as files
+- Role scoping enforced
+- Server builds successfully
+
+Provide:
+1) Files modified
+2) Exact changes
+3) Verification results
+4) Remaining issues (if any)
+
+END.

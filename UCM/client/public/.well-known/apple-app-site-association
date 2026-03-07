@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "HVF2V75J4T.com.unitedcaremobility.driver",
+        "paths": ["/*"]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "HVF2V75J4T.com.unitedcaremobility.driver"
+    ]
+  }
+}

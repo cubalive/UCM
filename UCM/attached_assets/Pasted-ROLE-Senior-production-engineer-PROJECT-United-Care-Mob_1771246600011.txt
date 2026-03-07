@@ -1,0 +1,101 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Create a native wrapper app for drivers using Capacitor that supports background GPS tracking
+and posts locations to the existing backend endpoint.
+
+SCOPE:
+- Create new folder: mobile-driver/
+- This is a separate build target; do not break existing web app.
+- Use driver.unitedcaremobility.com as the app URL.
+- No App Store submission steps yet; just build-ready.
+
+---------------------------------------
+PHASE 1 — SETUP CAPACITOR PROJECT
+---------------------------------------
+1) In /mobile-driver:
+   - initialize npm project
+   - install @capacitor/core @capacitor/cli @capacitor/ios @capacitor/android
+   - add Capacitor config:
+     appId: com.unitedcaremobility.driver
+     appName: UCM Driver
+     server.url: https://driver.unitedcaremobility.com
+     server.cleartext: false
+
+2) Add scripts:
+   - npm run cap:ios
+   - npm run cap:android
+   - npm run cap:sync
+
+---------------------------------------
+PHASE 2 — BACKGROUND LOCATION PLUGIN
+---------------------------------------
+Install a stable Capacitor background geolocation solution:
+Preferred:
+- @capacitor-community/background-geolocation (or best-maintained equivalent)
+If not viable, use:
+- capacitor-background-geolocation plugin (document clearly)
+
+Implement:
+- start/stop background tracking
+- configure accuracy and distance filter
+- handle permission prompts
+- on location event -> POST to https://app.unitedcaremobility.com/api/driver/location
+  using stored auth token (reuse existing JWT if stored in localStorage/cookies).
+
+If token is not accessible in native layer:
+- implement a secure bridge:
+  - web app exposes a method to provide current JWT to Capacitor via plugin call
+  - native stores it in secure storage
+  - native uses it in Authorization header "Bearer <token>"
+
+---------------------------------------
+PHASE 3 — iOS CONFIG
+---------------------------------------
+In iOS project:
+- Add Info.plist keys:
+  NSLocationWhenInUseUsageDescription
+  NSLocationAlwaysAndWhenInUseUsageDescription
+  NSLocationAlwaysUsageDescription (compat)
+- Enable Background Modes:
+  UIBackgroundModes: location
+- Ensure permission flow requests "Always" after "When In Use"
+
+---------------------------------------
+PHASE 4 — ANDROID CONFIG
+---------------------------------------
+- Add permissions:
+  ACCESS_FINE_LOCATION
+  ACCESS_COARSE_LOCATION
+  ACCESS_BACKGROUND_LOCATION
+  FOREGROUND_SERVICE
+- Add foreground service notification (required for background)
+
+---------------------------------------
+PHASE 5 — DRIVER UI INTEGRATION
+---------------------------------------
+In driver dashboard web UI:
+- Add a "Background Tracking" card visible only on native builds:
+  - Detect Capacitor platform (Capacitor.isNativePlatform())
+  - Buttons: Start Tracking / Stop Tracking
+  - Show last location sent time
+- On Start, call Capacitor plugin to start tracking.
+- On Stop, stop tracking.
+
+---------------------------------------
+VERIFY
+---------------------------------------
+1) Web app still works as before.
+2) iOS build runs, loads driver site.
+3) Background tracking starts, app can be backgrounded, and locations still post.
+4) Backend receives driver/location with 200 responses; rate limiting respected.
+
+OUTPUT:
+- Provide exact commands to build iOS and Android projects locally.
+- List files created/changed.

@@ -1,0 +1,70 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Implement deletion rules:
+- Clinic and Super Admin can delete what they can create,
+  EXCEPT clinic-created trips cannot be deleted once DISPATCH approves them.
+
+DEFINITIONS:
+Trip approval state:
+- pending = created by clinic, not approved by dispatch
+- approved = dispatch approved/assigned or marked as approved
+- locked = any state >= approved
+If an approval field does not exist, add a minimal safe one:
+- trips.approval_status ENUM('pending','approved','cancel_requested','cancelled') default 'pending'
+- trips.approved_at timestamp nullable
+- trips.approved_by uuid/user_id nullable
+
+RULES (SERVER-SIDE ENFORCED):
+1) Clinic can:
+- Create trips (approval_status='pending')
+- Edit trip ONLY while pending
+- Delete/Cancel trip ONLY while pending:
+  - Prefer soft-delete or set approval_status='cancelled' + cancelled_by + cancelled_reason
+- After approved:
+  - Clinic cannot delete
+  - Clinic cannot edit core fields (time/address/patient/vehicle/driver)
+  - Clinic can only:
+    a) request cancellation -> approval_status='cancel_requested' + reason
+    b) add notes/messages fields (non-operational) if we have them
+
+2) Dispatch can:
+- Approve trips: set approval_status='approved', approved_at, approved_by
+- Cancel approved trips (with reason) -> approval_status='cancelled'
+- Optionally unlock for correction (admin-only) if needed
+
+3) Super Admin can:
+- Delete/Archive anything created by anyone
+- For approved trips:
+  - Do NOT hard delete from main UI
+  - Allow "Archive" (soft delete) with irreversible confirmation only in Archived screen
+  - Hard delete only from Archived view with second confirmation (“This cannot be undone”)
+
+UI CHANGES:
+- In Clinic Trips list/details:
+  - Show status badge: Pending / Approved / Cancel Requested / Cancelled
+  - If Pending: show buttons Edit + Cancel Trip
+  - If Approved: hide Edit/Delete; show button "Request Cancel" + reason modal
+- In Dispatch Trips:
+  - Show pending queue with Approve button
+  - Show cancel requests queue with Approve Cancel / Deny (optional) actions
+- In Admin:
+  - Add Archived tab for Trips with Restore + Delete Forever (confirm)
+
+VERIFY:
+- Clinic creates trip -> can delete while pending
+- Dispatch approves -> clinic can no longer delete or edit core fields
+- Clinic request cancel -> dispatch sees it
+- Super admin can archive and can hard delete only from Archived
+- All enforced by backend authorization (not only UI)
+
+Do not break existing trips. Migrate safely.
+Verify before exit.

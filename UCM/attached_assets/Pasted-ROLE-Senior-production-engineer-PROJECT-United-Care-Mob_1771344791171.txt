@@ -1,0 +1,283 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+FEATURE: INTELLIGENCE → INDEXES TAB (CORE METRIC ENGINE)
+
+We need a new SUPER ADMIN tab that calculates operational indices using existing trip data.
+These are INTERNAL intelligence metrics to control the company and later show to clinics.
+
+Create new top-level tab:
+SUPER ADMIN → Intelligence → Indexes
+
+This must NOT break scheduler, trips, invoices, or dispatch.
+
+------------------------------------------------------------
+PHASE 1 — CREATE INDEXES ENGINE (READ-ONLY CALCULATION)
+------------------------------------------------------------
+Create a service layer:
+services/intelligence/indexEngine.ts
+
+All indices must calculate from existing tables:
+trips
+drivers
+driver_schedule
+vehicles
+invoices
+trip_events
+statuses
+
+Do NOT create heavy tables.
+Use cached calculations (daily snapshot table only if needed).
+
+------------------------------------------------------------
+PHASE 2 — INDEXES TO IMPLEMENT
+------------------------------------------------------------
+
+1) TRANSPORT RELIABILITY INDEX (TRI)
+Measures reliability per clinic and system-wide.
+
+TRI =
+(On-time arrivals ÷ completed trips)
+− late arrivals %
+− no-show %
+
+Use:
+arrived_pickup_at
+scheduled_pickup_time
+completed_at
+status
+
+Return:
+0–100 score
+
+Scopes:
+- per clinic
+- per day
+- per week
+- global
+
+------------------------------------------------------------
+
+2) DRIVER STABILITY INDEX
+Measures driver reliability.
+
+Stability =
+completed trips ÷ assigned trips
+
+Penalize:
+cancelled_by_driver
+late > threshold
+no-show responsibility
+
+Return:
+0–100
+
+Scopes:
+per driver
+per week
+
+------------------------------------------------------------
+
+3) DRIVER UTILIZATION INDEX
+Measures real working time.
+
+Utilization =
+time in active trips
+÷
+time scheduled
+
+Use:
+driver_schedule
+picked_up_at
+completed_at
+
+Return:
+%
+
+------------------------------------------------------------
+
+4) REVENUE LEAKAGE INDEX
+Detect lost money.
+
+Leakage =
+no-show not billed
+cancelled not billed
+return trips missing
+private trips unpaid
+
+Return:
+$ lost per day/week
+
+Also return:
+leakage_by_clinic
+
+------------------------------------------------------------
+
+5) CLINIC LOAD INDEX
+Pressure per clinic.
+
+Load =
+active trips ÷ scheduled drivers
+
+Return:
+low / medium / high
+
+------------------------------------------------------------
+
+6) DISPATCH EFFICIENCY INDEX
+Measures automation vs manual.
+
+Efficiency =
+auto_assigned ÷ total trips
+
+Track:
+manual overrides
+reassignments
+
+Return:
+%
+
+------------------------------------------------------------
+
+7) WEEKLY PROFIT INDEX
+Per clinic.
+
+Profit =
+clinic billed
+− driver pay
+− vehicle cost estimate
+
+Use:
+invoice totals
+trip mileage
+driver rates
+
+Return:
+$
+and margin %
+
+------------------------------------------------------------
+
+8) REPLACEMENT PRESSURE INDEX
+Detect staffing risk.
+
+Pressure =
+drivers scheduled
+− drivers active
+
+If < threshold → show alert
+
+------------------------------------------------------------
+PHASE 3 — SNAPSHOT TABLE (LIGHT)
+------------------------------------------------------------
+If performance needed create:
+
+daily_index_snapshots
+date
+city
+clinic_id
+tri
+utilization
+leakage
+profit
+load
+created_at
+
+Populate nightly via job.
+DO NOT remove raw calculations.
+
+------------------------------------------------------------
+PHASE 4 — UI TAB
+------------------------------------------------------------
+Create new page:
+
+/admin/intelligence/indexes
+
+Visible to:
+SUPER_ADMIN only
+
+Layout:
+
+TOP CARDS:
+Transport Reliability
+Revenue Leakage Today
+Profit Today
+Active Drivers
+Late Risk
+
+SECTIONS:
+
+A) RELIABILITY
+table per clinic
+score
+trend
+
+B) DRIVERS
+stability
+utilization
+risk
+
+C) REVENUE
+profit per clinic
+leakage
+weekly
+
+D) DISPATCH
+efficiency
+manual overrides
+
+E) PRESSURE
+replacement risk
+load index
+
+------------------------------------------------------------
+PHASE 5 — COLOR SYSTEM
+------------------------------------------------------------
+Green:
+healthy
+
+Yellow:
+warning
+
+Red:
+critical
+
+All scores must color-code.
+
+------------------------------------------------------------
+PHASE 6 — PERMISSIONS
+------------------------------------------------------------
+SUPER_ADMIN:
+full access
+
+DISPATCH:
+read-only limited
+(no profit numbers)
+
+CLINIC:
+no access yet
+
+------------------------------------------------------------
+VERIFY
+------------------------------------------------------------
+1) Tab loads without errors
+2) Uses real trip data
+3) No schema breaks
+4) Works per city
+5) Works with historical trips
+6) No external APIs needed
+
+DO NOT
+- change trip logic
+- change invoices
+- reset DB
+
+SUCCESS CRITERIA
+A fully functional Intelligence → Indexes tab that calculates all operational metrics from real system data and updates daily.

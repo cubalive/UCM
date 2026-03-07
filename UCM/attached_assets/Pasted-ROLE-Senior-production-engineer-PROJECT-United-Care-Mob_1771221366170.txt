@@ -1,0 +1,116 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Add Upstash Redis to make realtime stability production-grade:
+1) shared TTL cache for last driver location + trip ETA
+2) distributed rate limiting for driver GPS ingestion
+3) distributed locks to prevent duplicate Directions/ETA recompute
+Keep existing logic, just replace in-memory cache where appropriate.
+
+---------------------------------------
+PHASE 0 — ENV VARS
+---------------------------------------
+Add Replit Secrets:
+- UPSTASH_REDIS_REST_URL
+- UPSTASH_REDIS_REST_TOKEN
+
+(Use Upstash REST, not TCP, for easiest Replit deploy.)
+
+---------------------------------------
+PHASE 1 — REDIS CLIENT (SERVER ONLY)
+---------------------------------------
+Create server lib: server/lib/redis.ts
+- initialize Upstash Redis client using REST URL + TOKEN
+- export helpers:
+  getJson(key)
+  setJson(key, value, ttlSeconds)
+  del(key)
+  incr(key, ttlSeconds)
+  setNx(key, value, ttlSeconds)  // for locks
+
+Fallback:
+If env missing, use existing in-memory cache (do not crash).
+
+---------------------------------------
+PHASE 2 — MIGRATE LIVE CACHE KEYS
+---------------------------------------
+Replace in-memory cache for these keys with Redis:
+
+- driver:{driverId}:last_location   TTL 120s
+- trip:{tripId}:driver_location     TTL 120s
+- trip:{tripId}:eta                 TTL 60s
+- trip:{tripId}:polyline            TTL 300s (5 min)
+
+Reads must prefer Redis; write to Redis; optional write-through to memory for speed is fine.
+
+---------------------------------------
+PHASE 3 — DISTRIBUTED RATE LIMIT (GPS INGEST)
+---------------------------------------
+In POST /api/driver/location:
+Enforce per-driver rate limit with Redis:
+
+Key: rl:driver:{driverId}
+Rule: max 1 update per 2 seconds
+Implementation:
+- use INCR with TTL=2
+- if value > 1 -> reject 429
+
+Also add per-IP guard:
+Key: rl:ip:{ip}
+Rule: max 60 requests per minute (tuneable)
+TTL 60
+
+---------------------------------------
+PHASE 4 — DIRECTIONS/ETA RECOMPUTE LOCK
+---------------------------------------
+Wherever Directions/ETA recompute occurs server-side:
+Before calling Google Directions, acquire lock:
+
+Key: lock:eta:{tripId}
+Method: SETNX with TTL 10 seconds
+
+If lock not acquired:
+- return cached ETA/polyline immediately
+- do NOT call Directions
+
+This prevents stampedes when multiple viewers open same trip.
+
+---------------------------------------
+PHASE 5 — OPS HEALTH ADD REDIS CHECK
+---------------------------------------
+Update /api/ops/health to include:
+- redis: OK/FAIL
+- lastRedisError (if any)
+
+Overall status:
+- RED if DB down or Redis down
+- YELLOW if Google failures high or GPS stale high
+- GREEN otherwise
+
+---------------------------------------
+PHASE 6 — VERIFY
+---------------------------------------
+Add debug logs (dev only):
+- redis_connected true/false
+- gps_rate_limited_count
+- eta_lock_contention_count
+- cache_hit_rate (rough)
+
+Verification checklist:
+1) Realtime still CONNECTED and receiving events
+2) driver/location rejects spam with 429
+3) Directions calls do not spike with multiple viewers
+4) Restarting server does not lose live cache state (Redis persists TTL keys)
+
+DO NOT MODIFY:
+shared/permissions.ts
+
+DONE WHEN:
+Upstash Redis is used for cache + rate limiting + recompute locks, with safe fallback if env missing.

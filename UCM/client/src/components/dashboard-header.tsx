@@ -1,0 +1,201 @@
+import { useState, useEffect } from "react";
+import { useAuth } from "@/lib/auth";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { LogOut, Settings, MapPin, Crosshair, X, Volume2, VolumeX } from "lucide-react";
+import { useSoundNotifications } from "@/hooks/use-sound-notifications";
+import { Link } from "wouter";
+import { queryClient } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { UniversalSearchBar } from "@/components/universal-search";
+import { useTranslation } from "react-i18next";
+import { getStoredCompanyScopeId, setStoredCompanyScopeId } from "@/lib/api";
+import type { Company } from "@shared/schema";
+
+const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: "Super Admin",
+  ADMIN: "Admin",
+  DISPATCH: "Dispatch",
+  DRIVER: "Driver",
+  VIEWER: "Viewer",
+};
+
+function TenantScopeBadge() {
+  const [scopeId, setScopeId] = useState<string | null>(() => getStoredCompanyScopeId());
+
+  const { data: companies = [] } = useQuery<Company[]>({
+    queryKey: ["/api/companies"],
+    enabled: !!scopeId,
+  });
+
+  useEffect(() => {
+    const handler = () => setScopeId(getStoredCompanyScopeId());
+    window.addEventListener("ucm-scope-changed", handler);
+    return () => window.removeEventListener("ucm-scope-changed", handler);
+  }, []);
+
+  if (!scopeId) return null;
+
+  const companyName = companies.find(c => String(c.id) === scopeId)?.name || `#${scopeId}`;
+
+  const handleClear = () => {
+    setStoredCompanyScopeId(null);
+    setScopeId(null);
+    queryClient.invalidateQueries();
+    window.dispatchEvent(new CustomEvent("ucm-scope-changed"));
+  };
+
+  return (
+    <div className="flex items-center gap-1.5" data-testid="tenant-scope-badge">
+      <Crosshair className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+      <Badge variant="default" className="text-xs" data-testid="badge-tenant-scope">
+        {companyName}
+      </Badge>
+      <Button size="sm" variant="ghost" onClick={handleClear} data-testid="button-clear-scope-header">
+        <X className="w-3 h-3" />
+      </Button>
+    </div>
+  );
+}
+
+export function DashboardHeader() {
+  const { user, selectedCity, cities, setSelectedCity, isSuperAdmin, logout } = useAuth();
+  const { t } = useTranslation();
+  const { enabled: soundEnabled, toggle: soundToggle } = useSoundNotifications(user?.role);
+  const roleLabel = ROLE_LABELS[user?.role?.toUpperCase() || ""] || user?.role || "";
+
+  const needsCitySwitcher =
+    user &&
+    ["SUPER_ADMIN", "ADMIN", "DISPATCH"].includes(user.role.toUpperCase());
+
+  const activeCities = cities.filter((c) => c.active !== false);
+
+  const handleCityChange = (val: string) => {
+    if (val === "all") {
+      setSelectedCity(null);
+    } else {
+      const city = cities.find((c) => String(c.id) === val);
+      if (city) setSelectedCity(city);
+    }
+    queryClient.invalidateQueries();
+  };
+
+  return (
+    <header
+      className="flex items-center gap-3 h-16 px-4 border-b bg-background/80 backdrop-blur-xl flex-shrink-0 shadow-sm sticky top-0"
+      style={{ zIndex: 50 }}
+      data-testid="dashboard-header"
+    >
+      <SidebarTrigger data-testid="button-sidebar-toggle" />
+
+      <div className="flex items-center gap-2 ml-1">
+        <img
+          src="/branding/logo-small.png"
+          alt="UCM"
+          className="h-8 w-auto flex-shrink-0"
+          data-testid="img-header-logo"
+        />
+        <span
+          className="text-sm font-semibold hidden sm:inline truncate"
+          data-testid="text-header-title"
+        >
+          {t("app.title")}
+        </span>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center gap-3 min-w-0">
+        {needsCitySwitcher ? (
+          <div className="flex items-center gap-1.5 flex-shrink-0" data-testid="city-switcher">
+            <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            <Select
+              value={selectedCity ? String(selectedCity.id) : "all"}
+              onValueChange={handleCityChange}
+            >
+              <SelectTrigger className="w-[180px] h-8 text-sm" data-testid="select-header-city">
+                <SelectValue placeholder={t("common.selectCity")} />
+              </SelectTrigger>
+              <SelectContent>
+                {isSuperAdmin && (
+                  <SelectItem value="all" data-testid="select-header-city-all">
+                    {t("common.allCities")}
+                  </SelectItem>
+                )}
+                {Object.entries(
+                  activeCities.reduce<Record<string, typeof activeCities>>((acc, city) => {
+                    const st = city.state || "Other";
+                    if (!acc[st]) acc[st] = [];
+                    acc[st].push(city);
+                    return acc;
+                  }, {})
+                )
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([state, stateCities]) => (
+                    <SelectGroup key={state}>
+                      <SelectLabel>{state}</SelectLabel>
+                      {stateCities.map((city) => (
+                        <SelectItem key={city.id} value={String(city.id)} data-testid={`select-header-city-${city.id}`}>
+                          {city.name}, {city.state}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : selectedCity ? (
+          <span
+            className="text-sm text-muted-foreground font-medium truncate flex-shrink-0"
+            data-testid="text-header-city"
+          >
+            {selectedCity.name}, {selectedCity.state}
+          </span>
+        ) : null}
+        <div className="hidden md:block flex-1 max-w-md min-w-0">
+          <UniversalSearchBar />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {isSuperAdmin && <TenantScopeBadge />}
+        <Badge variant="secondary" className="hidden sm:inline-flex" data-testid="badge-header-role">
+          {roleLabel}
+        </Badge>
+        <LanguageSwitcher />
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => soundToggle()}
+          title={soundEnabled ? "Mute sounds" : "Enable sounds"}
+          data-testid="button-header-sound-toggle"
+        >
+          {soundEnabled ? (
+            <Volume2 className="w-4 h-4" />
+          ) : (
+            <VolumeX className="w-4 h-4 text-muted-foreground" />
+          )}
+        </Button>
+        <ThemeToggle />
+        <Link href="/users">
+          <Button size="icon" variant="ghost" data-testid="button-header-settings">
+            <Settings className="w-4 h-4" />
+          </Button>
+        </Link>
+        <Button size="icon" variant="ghost" onClick={logout} data-testid="button-header-logout">
+          <LogOut className="w-4 h-4" />
+        </Button>
+      </div>
+    </header>
+  );
+}

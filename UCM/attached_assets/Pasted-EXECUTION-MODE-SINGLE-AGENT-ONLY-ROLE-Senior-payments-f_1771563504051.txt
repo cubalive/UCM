@@ -1,0 +1,164 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+ROLE: Senior payments + full-stack engineer
+PROJECT: United Care Mobility (UCM)
+TASK: Implement SaaS monthly subscription (Stripe) for Platform Fee ($1200/mo) with ON/OFF toggles, per-company customer mapping, webhook sync, and access control.
+
+NON-NEGOTIABLE CONSTRAINTS
+- DO NOT reset database
+- DO NOT drop/recreate tables
+- DO NOT delete/modify existing business rows
+- Extend existing system only
+- Keep production stable
+- No collateral changes outside billing/platform fees + Stripe integration
+- Do NOT expose secrets in logs
+- Provide code diff only + verification checklist + rollback notes
+
+GOAL (Option C)
+Charge companies via Stripe subscription (SaaS):
+- Default: $1200/month per company
+- Toggle to enable/disable subscription per company
+- Auto-billing by Stripe (not manual invoice creation)
+- Keep UCM internal billing pages in sync (status, next bill date, unpaid handling)
+- Super Admin controls + Company Admin read-only view (or scoped control)
+
+REQUIRED INPUTS (use existing Secrets)
+- STRIPE_SECRET_KEY (server only)
+- STRIPE_WEBHOOK_SECRET (server only)
+- STRIPE_PRICE_ID_PLATFORM_1200 (recommended) OR auto-create product/price if missing
+- APP_BASE_URL (for webhook + return URLs)
+
+SCOPE
+
+1) DATABASE / DRIZZLE SCHEMA
+A) stripe_customers table (new)
+- id uuid pk
+- company_id uuid unique not null
+- stripe_customer_id text unique not null
+- created_at, updated_at
+
+B) company_subscription table (new)
+- id uuid pk
+- company_id uuid unique not null
+- stripe_subscription_id text unique
+- stripe_price_id text not null
+- status text not null  -- active|trialing|past_due|canceled|incomplete|unpaid|paused
+- current_period_start timestamptz null
+- current_period_end timestamptz null
+- cancel_at_period_end boolean default false
+- canceled_at timestamptz null
+- last_event_id text null
+- created_at, updated_at
+
+C) platform_billing_settings table (existing or create if missing)
+- monthly_subscription_enabled boolean default false
+- monthly_subscription_price_id text default 'STRIPE_PRICE_ID_PLATFORM_1200' value at runtime
+- subscription_required_for_access boolean default true (optional)
+- grace_period_days int default 0 (optional)
+- (keep existing toggles for per-trip fee engine; do not remove)
+
+Indexes/constraints:
+- unique(company_id) on stripe_customers and company_subscription
+- index on status
+
+2) STRIPE SETUP (SERVER)
+A) Ensure Product/Price exists:
+- Prefer using STRIPE_PRICE_ID_PLATFORM_1200 from Secrets.
+- If missing, create Product "UCM Platform" and recurring monthly Price $1200.
+- Store price id in settings default or use env.
+
+B) Customer creation:
+- On enabling subscription for a company:
+  - Create/reuse Stripe Customer with company name + billing email (admin email).
+  - Persist stripe_customer_id.
+
+C) Subscription creation:
+- Create subscription for the customer using the monthly price id.
+- Use Stripe’s automatic invoice + payment collection.
+- If you have Stripe Checkout already, implement Checkout flow; otherwise implement Billing Portal for payment method management.
+
+3) WEBHOOKS (MUST)
+A) Create POST /api/stripe/webhook
+- Verify signature using STRIPE_WEBHOOK_SECRET
+- Handle events at minimum:
+  - customer.subscription.created
+  - customer.subscription.updated
+  - customer.subscription.deleted
+  - invoice.paid
+  - invoice.payment_failed
+  - checkout.session.completed (if using Checkout)
+- Update company_subscription row deterministically (idempotent):
+  - Use event.id (last_event_id) to avoid double processing.
+
+B) Security:
+- Webhook route must bypass normal auth but must verify signature.
+- Never log full payload.
+
+4) UI (Tarifas Plataforma → Subscription tab)
+A) SUPER_ADMIN view:
+- Select company
+- Toggle: “Subscription enabled”
+- Show:
+  - status badge
+  - next billing date (current_period_end)
+  - manage billing button (Stripe Billing Portal)
+  - cancel at period end toggle
+  - reactivate flow if canceled
+
+B) COMPANY_ADMIN/DISPATCH:
+- View-only: status + next billing date + “Manage billing” button (optional)
+
+5) ACCESS CONTROL ENFORCEMENT (IMPORTANT)
+Implement a server-side guard used by protected endpoints:
+- If platform_billing_settings.subscription_required_for_access = true:
+  - Allow access only when company_subscription.status in ('active','trialing')
+  - If past_due/unpaid/canceled:
+    - Restrict specific modules (e.g., creating trips/invoices) OR restrict whole app except billing page (choose minimal disruption).
+- Must be configurable (SUPER_ADMIN can disable enforcement temporarily).
+
+6) INTERNAL BILLING LINK (AUDITABLE)
+- Add an internal read-only “Platform Subscription” record for each company:
+  - display Stripe status, last payment date, next due
+- Do NOT attempt to replicate Stripe invoices; just mirror status + key dates.
+
+7) VERIFICATION ENDPOINTS (SUPER_ADMIN ONLY)
+A) GET /api/system/stripe-subscription-check?companyId=...
+Return JSON:
+- has_customer
+- stripe_customer_id (masked)
+- has_subscription
+- status
+- current_period_end
+- enforcement_active
+- allowed_access (true/false)
+- error
+
+8) CHECKLIST + TESTS
+A) Add minimal smoke script or tests:
+- Create customer
+- Create subscription
+- Webhook updates status
+- Past_due triggers enforcement
+- Re-enable subscription restores access
+B) Provide step-by-step manual test plan in UI.
+
+DELIVERABLES
+- Drizzle schema + migrations
+- Stripe service module (createCustomer, createSubscription, portalLink, checkoutLink optional)
+- Webhook handler + event mapping
+- UI updates: Subscription tab under “Tarifas Plataforma”
+- Enforcement middleware + config toggle
+- Verification endpoint
+- Rollback instructions (disable enforcement + keep subscription intact)
+
+IMPORTANT IMPLEMENTATION NOTES
+- Use Stripe Billing Portal if possible (fastest, safest).
+- Store only Stripe IDs + status; do not store card details.
+- Keep everything idempotent.
+
+OUTPUT FORMAT
+1) Summary
+2) Files changed
+3) Migrations
+4) API routes added
+5) Verification checklist (exact clicks + expected results)

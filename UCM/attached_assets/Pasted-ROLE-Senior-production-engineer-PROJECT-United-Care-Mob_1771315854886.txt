@@ -1,0 +1,145 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM) — Enterprise Ops Intelligence
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- Sequential execution only
+- Do NOT spawn sub-agents
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+CONTEXT (already built)
+- Multi-tenant enforcement via tenantGuard middleware + checkCrossCompanyAccess utility
+- Redis-backed job queue + worker (server/worker.ts) with retries + visibility timeout
+- Async PDF generation (202 enqueue → worker generates → download streams)
+- Idempotency layer via Idempotency-Key header
+- Company quotas + per-company RPM limiting wired into driver + trip creation routes
+- System event stream (append-only audit log)
+- Ops/metrics dashboard with JSON/CSV downloads, breaker states, backpressure/adaptive publish
+
+GOAL (PHASE 7A) — Driver Intelligence Engine (Production-ready)
+Implement an “Ops Intelligence Layer” that:
+1) Computes Driver Performance Score (0–100) per driver, rolling windows (7d + 30d), per company/tenant
+2) Detects operational anomalies (drivers/clinics/routes) automatically
+3) Surfaces results in existing Ops/Metrics UI + CSV/JSON exports
+4) Runs safely at scale with Redis + worker, multi-tenant safe, and minimal DB load
+
+HARD REQUIREMENTS
+- Multi-tenant safe: all reads/writes must be scoped to company_id (and clinic_id where applicable).
+- No heavy synchronous work in request path. All scoring/anomaly recomputation must run in background jobs.
+- Add an admin/dispatch-only endpoint to trigger recompute (enqueues jobs), but normal operation is scheduled.
+- Add a scheduled recompute cadence of 60 seconds ONLY for “light” anomaly checks that are incremental and cheap.
+  - Heavier score recompute should be every 15 minutes (or hourly) depending on cost; choose the best default.
+  - Provide a single config switch to change cadences: UCM_OPS_ANOMALY_INTERVAL_MS and UCM_SCORE_RECOMPUTE_INTERVAL_MS
+- Exports must not download Unauthorized/404 payloads. Use existing Safari-safe downloadWithAuth helper (fetch+blob).
+- Add DB indexes needed for speed.
+- Add verification steps and output results.
+
+DATA MODEL (create minimal new tables)
+A) driver_scores
+- id (uuid pk)
+- company_id (uuid, indexed)
+- driver_id (uuid, indexed)
+- window (text: '7d'|'30d')
+- score (int 0..100)
+- components (jsonb)  // breakdown: punctuality, cancellations, gps_quality, acceptance, completion
+- computed_at (timestamptz)
+- UNIQUE(company_id, driver_id, window)
+
+B) ops_anomalies
+- id (uuid pk)
+- company_id (uuid, indexed)
+- entity_type (text: 'driver'|'clinic'|'route'|'system')
+- entity_id (uuid nullable for system)
+- severity (text: 'info'|'warning'|'critical')
+- code (text) // e.g. DRIVER_STALE_GPS, DRIVER_LATE_SPIKE, CLINIC_CANCEL_SPIKE, ETA_DEGRADE
+- title (text)
+- details (jsonb) // numbers, thresholds, sample trips, time window
+- first_seen_at (timestamptz)
+- last_seen_at (timestamptz)
+- is_active (bool default true)
+- UNIQUE(company_id, code, entity_type, entity_id, is_active)  (or implement upsert logic)
+
+SCORING (implement a clear, explainable formula)
+Compute per driver per window:
+- Punctuality (0–40): % trips where pickup_actual <= pickup_scheduled + grace (default 10 min)
+- Completion (0–25): completed / assigned
+- Cancellations (0–15): penalty for cancel/no-show
+- GPS quality (0–10): based on stale GPS rate (>5 min) and jitter rate
+- Acceptance/Responsiveness (0–10): accepted within X minutes of assignment (default 2 min)
+
+Clamp to 0..100. Store components JSON. Make thresholds configurable with env vars.
+
+ANOMALY DETECTION (incremental + cheap)
+Implement these initial anomaly rules (all tenant-scoped):
+1) DRIVER_STALE_GPS: driver has no GPS update for >5 minutes while marked online or assigned active trip
+2) DRIVER_LATE_SPIKE: driver late rate today is > (30d avg + 20%) and has >= N trips today
+3) CLINIC_CANCEL_SPIKE: clinic cancellations today > (30d avg + threshold) and >= N
+4) ETA_DEGRADE: p95 latency for ETA engine or directions calls exceeds threshold for last 5 minutes OR breaker trips > 0
+5) QUOTA_NEAR_LIMIT: company at >= 85% of driver limit OR active trip limit
+
+Each anomaly should:
+- Upsert active anomaly row (update last_seen_at, details)
+- Auto-resolve: mark is_active=false if not observed for 2 consecutive intervals
+
+JOBS / WORKER
+- Add two job types:
+  - SCORE_RECOMPUTE(company_id, window)
+  - ANOMALY_SWEEP(company_id)
+- Scheduler:
+  - In server start, if UCM_OPS_SCHEDULER=true, enqueue periodic jobs with intervals.
+  - Ensure only one scheduler leader runs (use Redis lock with TTL).
+- ANOMALY_SWEEP must be incremental:
+  - Query only drivers with online=true or active assignments; only clinics with trips today.
+  - Query summarized aggregates (COUNTs) using indexed columns.
+- SCORE_RECOMPUTE can be heavier but still bounded:
+  - Process per company, paginate drivers, compute aggregates via SQL (GROUP BY) rather than per-driver loops.
+
+API ENDPOINTS (role-gated)
+- GET /api/ops/driver-scores?window=7d|30d  (ADMIN/DISPATCH/SUPER_ADMIN/COMPANY_ADMIN)
+- GET /api/ops/anomalies?active=true (same roles)
+- POST /api/ops/recompute (enqueues recompute for current company; ADMIN/DISPATCH)
+- GET /api/ops/anomalies.csv and /api/ops/driver-scores.csv (same roles, proper headers)
+
+FRONTEND (Ops/Metrics UI)
+Add a new section in System Metrics page:
+- “Driver Intelligence”
+  - Top anomalies list (severity badge, title, entity, last seen)
+  - Driver score table (driver name, score 7d, score 30d, components tooltip)
+  - Buttons:
+    - CSV: Driver Scores
+    - CSV: Anomalies
+    - Recompute Now (dispatch/admin)
+Use existing downloadWithAuth helper for downloads.
+
+HEADERS (downloads)
+For CSV/JSON:
+- Content-Type: text/csv or application/json
+- Content-Disposition: attachment; filename="..."
+- Cache-Control: no-store
+Ensure unauthorized returns JSON with 401 and does NOT stream as “file”.
+
+INDEXES (add migrations)
+- trips(company_id, driver_id, status, scheduled_pickup_at)
+- trips(company_id, clinic_id, status, created_at)
+- driver_locations(company_id, driver_id, updated_at)
+- assignments/company linkage tables as needed for “active trip” detection
+
+VERIFICATION (must do and report)
+1) With invalid token: CSV endpoints return 401 JSON (not a downloaded file)
+2) With valid dispatch/admin: clicking CSV downloads produces real CSV (non-empty), correct headers
+3) ANOMALY_SWEEP:
+   - Create a fake stale GPS driver (or simulate) and confirm anomaly appears then auto-resolves when GPS updates
+4) SCORE_RECOMPUTE:
+   - Run recompute now and confirm driver_scores populated for both windows
+5) Scheduler leader:
+   - Confirm only one scheduler runs via Redis lock (log line once)
+
+DELIVERABLES
+- Code changes + migrations
+- Updated replit.md with Phase 7A docs, env vars, and how to verify
+- A short “Ops Playbook” section: what actions dispatch should take per anomaly
+
+START NOW
+Implement Phase 7A end-to-end as described.

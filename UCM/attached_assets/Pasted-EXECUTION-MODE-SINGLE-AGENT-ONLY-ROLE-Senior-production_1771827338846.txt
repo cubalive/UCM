@@ -1,0 +1,70 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Senior production engineer (Node/Express + Replit Deployments + Supabase + Upstash Redis)
+
+GOAL
+Finish what’s missing: run UCM in a stable “enterprise” setup by splitting API and Worker into TWO Replit Deployments using the existing RUN_MODE system (api/worker). Do NOT change product logic. Do NOT break current domains/subdomains.
+
+NON-NEGOTIABLES
+- Do NOT reset or modify production DB data.
+- Do NOT change schema unless absolutely required for this split (it should not be).
+- Keep current routes, auth, WebSocket, schedulers, orchestrator exactly as implemented.
+- Replit must end with two working deployments:
+  1) API Deployment (public HTTP) serving app + ws + all API routes
+  2) WORKER Deployment (no public traffic needed) running schedulers/orchestrator/route worker only
+- Keep secrets secure; do not print secret values in logs.
+
+WHAT TO DO (STEP BY STEP, NO SKIPPING)
+1) Verify current code supports RUN_MODE:
+   - Confirm server/index.ts reads RUN_MODE and maps:
+     - api => start HTTP server only, no schedulers, no orchestrator, no route worker loops
+     - worker => do NOT start HTTP listener, only background jobs (schedulers + orchestrator + route worker)
+     - all => current behavior
+   - If any of those behaviors are missing, implement the minimum changes to enforce them.
+
+2) Add clear boot logs (no secrets) so I can verify each deployment mode in Replit logs:
+   - One JSON log at boot:
+     { "event":"boot_complete", "roleMode":"api|worker|all", "env": "...", "ts": "..."}
+   - If RUN_MODE=api, ensure logs NEVER show:
+     - "Starting orchestrator..."
+     - "routes_worker_started"
+     - any scheduler start messages
+   - If RUN_MODE=worker, ensure logs DO show orchestrator/worker start, but do NOT bind HTTP port.
+
+3) Ensure WebSocket behavior:
+   - WebSocket server should run ONLY in api mode (since it needs the HTTP server).
+   - Worker must never attempt WS bind.
+
+4) Replit Deployments setup instructions (write them explicitly):
+   - Create/duplicate a second deployment named "ucm-worker" (or similar).
+   - API deployment:
+     - RUN_MODE=api
+     - PORT stays whatever Replit expects
+     - keep existing public domains/subdomains pointing here (dispatch/clinic/driver)
+   - Worker deployment:
+     - RUN_MODE=worker
+     - it does not need custom domains
+     - it should run continuously
+   - Tell me exactly where to set these in Replit Publishing → Secrets / Deployment settings.
+
+5) Health checks:
+   - API: confirm /api/boot and /api/system/agentic return OK in production.
+   - Worker: add a lightweight internal heartbeat log every 60s:
+     { "event":"worker_heartbeat", "ts":"..." }
+   - If worker needs an HTTP health endpoint, add one ONLY if necessary, bound to localhost or guarded; otherwise avoid.
+
+6) Prevent double-start issues:
+   - Ensure orchestrator/route worker/schedulers only start in one place and only once.
+   - If there is any code path that starts them on import, refactor to explicit start calls gated by RUN_MODE.
+
+7) Final verification checklist (must complete and report):
+   - API logs show roleMode=api and no orchestrator/scheduler starts.
+   - Worker logs show roleMode=worker, “Starting orchestrator…”, and periodic worker_heartbeat.
+   - Trips still create/assign normally via API.
+   - Worker processes route.compute/route.finalize events (prove by creating a trip and showing a route compute action log or audit row insert if present).
+
+OUTPUT REQUIRED
+- List of files changed with a short reason for each.
+- Exact Replit deployment configuration I must set (RUN_MODE values, which deployment gets which, any other env vars needed).
+- A final “GO/NO-GO” based on the checklist.
+
+START NOW.

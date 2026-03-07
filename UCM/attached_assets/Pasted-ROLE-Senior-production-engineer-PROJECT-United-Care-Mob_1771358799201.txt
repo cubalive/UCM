@@ -1,0 +1,58 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT delete production data
+- Do NOT run destructive scripts (DROP/TRUNCATE/DELETE without WHERE)
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Everything broke after a prior prompt deleted ~3000 lines. Recover the codebase to last known-good state (yesterday ~9pm) WITHOUT touching database data.
+
+GOAL:
+Restore app access on app.unitedcaremobility.com, fix blank/404 pages, and get build + typecheck passing.
+
+STEP 1 — STATUS REPORT (MUST OUTPUT FIRST):
+A) Identify current runtime status:
+- Can server start? (npm run dev)
+- Does /api/healthz return ok?
+- What does / (homepage) do? 200/404/redirect?
+- What does /metrics do? 200/404/blank?
+- What does login do for SUPER_ADMIN and new company user?
+
+B) Identify what changed:
+- Show `git status`
+- Show last 10 commits (`git log -10 --oneline`)
+- If there is no git history, report that explicitly.
+- Check Replit "Checkpoints" / "Deployments" rollback UI and list available restore points with timestamps.
+
+C) Find the "last known good" candidate:
+- If a commit/checkpoint exists around yesterday 9pm, select it.
+- If not, choose the last commit before the massive deletion (largest diff).
+
+STEP 2 — RECOVERY (CODE ONLY):
+- If Git exists: revert the destructive commit(s) OR reset to the last-good commit on a new branch.
+- If Checkpoints exist: restore to checkpoint around yesterday 9pm.
+- If Deployments rollback exists: rollback to last working deployment.
+DO NOT run any DB migrations or drizzle push during recovery.
+
+STEP 3 — VERIFY (MUST RUN AND REPORT RESULTS):
+1) npm run check  (or npx tsc --noEmit)
+2) npm run build
+3) npm run dev  (confirm server starts)
+4) Smoke tests:
+- /api/healthz ok
+- SUPER_ADMIN login works
+- /metrics loads (even if minimal, must not be blank/404)
+- new company login does not show Access Denied due to missing tenant mapping (if still denied, report exact reason, do not "guess")
+
+DELIVERABLES:
+- The exact restore method used (commit hash / checkpoint time / deployment id)
+- Exact files restored or commits reverted
+- Results of the 3 commands above
+STOP after recovery + verification. Do not implement new features.

@@ -1,0 +1,146 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Vehicle creation/edit must use controlled dropdown lists for:
+- Make (brand)
+- Model (filtered by make)
+
+No free-text typing.
+
+PHASE 1 — VEHICLE MAKES TABLE
+Create table if not exists:
+
+vehicle_makes
+- id uuid pk
+- name text unique not null
+- is_active boolean default true
+- created_at timestamptz default now()
+
+Seed with:
+Toyota
+Honda
+Ford
+Chevrolet
+Kia
+Hyundai
+Nissan
+Dodge
+Chrysler
+GMC
+Ram
+Tesla
+Other
+
+PHASE 2 — VEHICLE MODELS TABLE
+vehicle_models
+- id uuid pk
+- make_id uuid references vehicle_makes(id)
+- name text not null
+- is_active boolean default true
+- created_at timestamptz default now()
+
+Seed common NEMT vehicles:
+
+Toyota:
+Camry
+Corolla
+RAV4
+Sienna
+
+Honda:
+Civic
+Accord
+CR-V
+Odyssey
+
+Ford:
+Fusion
+Escape
+Explorer
+Transit
+Transit Connect
+
+Chevrolet:
+Malibu
+Equinox
+Traverse
+Express
+
+Kia:
+Forte
+Optima (K5)
+Sorento
+Sedona (Carnival)
+
+Hyundai:
+Elantra
+Sonata
+Santa Fe
+Tucson
+
+Dodge:
+Grand Caravan
+
+Chrysler:
+Pacifica
+
+Tesla:
+Model 3
+Model Y
+
+Add "Other" per make.
+
+PHASE 3 — VEHICLES TABLE UPDATE
+Ensure vehicles table has:
+
+make_id uuid
+model_id uuid
+
+Keep legacy text fields optional but not primary:
+make_text text null
+model_text text null
+
+When dropdown used:
+store make_id + model_id
+
+If user selects "Other":
+allow manual text entry for model_text
+
+PHASE 4 — API
+GET /api/vehicle-makes
+GET /api/vehicle-models?make_id=
+
+Return only active.
+
+PHASE 5 — UI
+Vehicle create/edit screen:
+
+1) Make dropdown
+2) Model dropdown (disabled until make selected)
+3) If model == "Other":
+   show manual text field
+
+Existing vehicles:
+auto-map text values if possible
+if not → show "Other"
+
+PHASE 6 — VALIDATION
+- make_id required
+- model_id required OR model_text when "Other"
+- prevent invalid combinations
+
+VERIFY:
+- Make dropdown loads
+- Model filters by make
+- Existing vehicles still visible
+- Can edit vehicle with dropdown
+- No crashes
+Verify before exit.

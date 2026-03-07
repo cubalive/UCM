@@ -1,0 +1,145 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+ROLE: Senior backend infrastructure engineer
+PROJECT: United Care Mobility (UCM)
+
+OBJECTIVE:
+Force the entire backend to use ONLY Supabase via DATABASE_URL.
+Remove any Neon, PG* fallback, or Replit internal database usage.
+System must be fully production-safe and deployment-ready.
+
+NON-NEGOTIABLE RULES:
+- Do NOT reset database
+- Do NOT recreate tables
+- Do NOT modify data
+- Do NOT touch Stripe
+- Do NOT touch Redis
+- Only modify DB connection logic and related environment usage
+
+----------------------------------------------------
+STEP 1 — REMOVE ALL PG* FALLBACKS
+----------------------------------------------------
+
+Search entire project for:
+
+process.env.PGHOST
+process.env.PGUSER
+process.env.PGPASSWORD
+process.env.PGDATABASE
+process.env.PGPORT
+process.env.PGSSLMODE
+process.env.CONNECTORS_
+process.env.REPLIT_
+
+Remove any fallback logic using those variables.
+
+If any connection object uses:
+
+host:
+user:
+password:
+database:
+port:
+
+Replace it with a single connectionString approach.
+
+----------------------------------------------------
+STEP 2 — FORCE SUPABASE CONNECTION
+----------------------------------------------------
+
+Database connection must be EXACTLY:
+
+import { Pool } from "pg";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+No conditionals.
+No fallbacks.
+No environment branching.
+No alternate config.
+
+----------------------------------------------------
+STEP 3 — ADD HARD SAFETY CHECK
+----------------------------------------------------
+
+Before creating Pool, add this:
+
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL is required. Supabase connection missing.");
+}
+
+If DATABASE_URL contains:
+"neon"
+Throw error immediately:
+"Neon connection detected. Only Supabase is allowed."
+
+----------------------------------------------------
+STEP 4 — REMOVE ANY AUTO DB DETECTION
+----------------------------------------------------
+
+If project uses:
+drizzle config
+knex config
+custom db config
+
+Ensure it ONLY reads DATABASE_URL.
+
+Remove any code attempting to detect:
+Replit DB
+Neon DB
+Local Postgres
+
+----------------------------------------------------
+STEP 5 — STARTUP VERIFICATION LOG
+----------------------------------------------------
+
+On successful connection, log ONLY:
+
+console.log("[DB] Connected — source: DATABASE_URL");
+console.log("[DB] Host:", new URL(process.env.DATABASE_URL).hostname);
+
+This allows verification in production logs.
+
+----------------------------------------------------
+STEP 6 — VERIFY BUILD OUTPUT
+----------------------------------------------------
+
+Ensure build produces:
+dist/index.js
+
+If not, adjust build config accordingly.
+Do NOT assume .cjs unless generated.
+
+----------------------------------------------------
+STEP 7 — FINAL VALIDATION
+----------------------------------------------------
+
+After changes:
+
+1. Run npm run build
+2. Start server
+3. Confirm logs show:
+   - Connected — source: DATABASE_URL
+   - host: *.supabase.co
+   - port: 6543
+
+If host contains:
+neon
+localhost
+replit
+Abort and report error.
+
+----------------------------------------------------
+DELIVERABLES:
+----------------------------------------------------
+
+1. List of files modified
+2. Confirmation no PG* variables remain in code
+3. Confirmation Neon removed
+4. Confirmation Supabase host detected
+5. Safe for production deployment
+
+END.

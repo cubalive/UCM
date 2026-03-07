@@ -1,0 +1,137 @@
+PROMPT 1/3 (Replit) — FIX MAPS: real route polyline, placeId, geofence, miles + timeline saved (NO more “A→B straight line”)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+You are a senior full-stack engineer. This is an Express 5 + React(Vite) monorepo with PostgreSQL (Supabase) via Drizzle, ws realtime, and Google Maps APIs. 
+Goal: Admin/Dispatcher/Clinic MUST see the real route + live vehicle movement, and the system MUST store route + traveled miles at trip end. Keep current structure; do not break existing features.
+
+NON-NEGOTIABLE OUTCOMES
+1) Every trip has:
+   - pickup_place_id, dropoff_place_id (Google Places)
+   - pickup_lat/lng, dropoff_lat/lng (canonical from Place Details)
+   - route_polyline (encoded), route_distance_meters, route_duration_seconds (planned route)
+   - traveled_distance_meters (actual, computed from GPS breadcrumbs)
+   - timeline JSON (status changes + timestamps + geofence proofs)
+2) Admin/Dispatcher/Clinic map shows:
+   - Planned route polyline (glow line)
+   - Live driver marker
+   - Breadcrumb trail (last 30–60 mins) optional overlay
+3) “Arrived” button gating (driver) uses geofence:
+   - cannot mark ARRIVED_PICKUP unless within pickup geofence
+   - cannot mark ARRIVED_DROPOFF unless within dropoff geofence
+4) Billing page must NEVER show “—” for route/miles if trip completed. If GPS data missing, show “Estimated miles (route)” and flag it.
+
+IMPLEMENTATION PLAN (do it now)
+A) DB / Drizzle schema changes (safe, additive)
+- In shared/schema.ts (Drizzle):
+  Add columns to trips table:
+    pickup_place_id text
+    dropoff_place_id text
+    pickup_lat double precision
+    pickup_lng double precision
+    dropoff_lat double precision
+    dropoff_lng double precision
+    pickup_geofence_m integer default 150
+    dropoff_geofence_m integer default 150
+    route_polyline text
+    route_distance_m integer
+    route_duration_s integer
+    traveled_distance_m integer
+    timeline jsonb default '[]'::jsonb
+    route_source text default 'google_routes_v2'
+    traveled_source text default 'gps_breadcrumbs'
+    last_location_at timestamptz
+- Create new table trip_gps_points:
+    id uuid pk default gen_random_uuid()
+    trip_id uuid references trips(id) on delete cascade
+    driver_id uuid
+    ts timestamptz default now()
+    lat double precision
+    lng double precision
+    accuracy_m integer
+    speed_mps double precision
+    heading_deg integer
+    source text default 'driver_ping'
+  Indexes:
+    (trip_id, ts desc)
+    (driver_id, ts desc)
+
+B) Google “PlaceId → canonical lat/lng”
+- In server/lib/google/places.ts create:
+  - resolvePlace(placeId): returns lat,lng,formatted_address
+  - optional: findPlaceIdFromText(addressString) for legacy trips without placeId
+- If you already store addresses only, when a trip is created/edited:
+  - If placeId missing, call Places Text Search to get placeId
+  - Then call Place Details to get canonical lat/lng and store.
+
+C) Planned route polyline + distance using Google Routes API (preferred)
+- In server/lib/google/routes.ts create:
+  - getRoute({originLatLng, destLatLng}): returns encodedPolyline + distanceMeters + durationSeconds
+  Use Routes API (or Directions if already used), but MUST return polyline.
+- When trip becomes ASSIGNED (driver assigned) OR when trip is created with both endpoints:
+  - compute and store planned route fields.
+- If API fails, fallback to straight-line (Haversine) but mark route_source='fallback_haversine' and still store something.
+
+D) Live breadcrumb ingestion
+- Ensure existing POST /api/driver/location (or /api/driver/location/ping) writes:
+  - driver current location table (if exists)
+  - AND if driver has an “active trip” OR “accepted future trip within X hours”, also insert into trip_gps_points for that trip when relevant.
+- Set trips.last_location_at on each ping for the relevant trip.
+
+E) Traveled distance computation (actual miles)
+- In server/lib/tripDistance.ts:
+  - computeTraveledDistance(tripId):
+     fetch gps points (ordered by ts) for trip
+     filter out junk:
+       ignore points with accuracy_m > 50 (configurable)
+       ignore jumps > 0.5 miles in < 30s unless speed validates
+     sum haversine distances between consecutive filtered points
+  - store traveled_distance_m
+- Trigger computeTraveledDistance on:
+  - status transition to COMPLETED
+  - also on CANCELLED/NO_SHOW optionally store partial traveled
+- If gps points < N (ex: < 10), set traveled_distance_m = route_distance_m and label traveled_source='estimated_route'
+
+F) Timeline + audit proof
+- On every status change (existing state machine), append to trips.timeline:
+  {ts, status, actorRole, actorId, lat, lng, withinGeofence:boolean, geofenceType:'pickup'|'dropoff'|null}
+- Geofence proof:
+  - On ARRIVED_PICKUP and ARRIVED_DROPOFF, compute distance to the canonical point and store withinGeofence + distance_m.
+
+G) Frontend map rendering fix (Admin/Dispatcher/Clinic)
+- Identify map component used in those portals.
+- When opening trip details or live view:
+  - request trip.route_polyline and decode it in client
+  - draw polyline; show markers for pickup/dropoff
+  - subscribe to WS for driver location updates; update driver marker
+- Add “Route: Planned vs Actual” toggle:
+  - Planned uses route_polyline
+  - Actual draws last X gps points polyline (from /api/trips/:id/gps?limit=2000)
+
+H) APIs to add (minimal)
+- GET /api/trips/:tripId/route  -> returns planned + traveled fields + timeline
+- GET /api/trips/:tripId/gps?limit=... -> returns gps points (scoped by role/tenant)
+- PATCH /api/trips/:tripId/places -> admin/dispatcher can repair placeId/latlng if wrong.
+
+SECURITY / SCOPING
+- Respect tenant/company/clinic scoping exactly as current.
+- Clinic can only access trips belonging to its clinic.
+- Driver only access own trips.
+
+DELIVERABLES
+- Implement code + migrations (Drizzle)
+- Add tests or minimal runtime checks
+- Update billing UI to show:
+  Planned miles, Traveled miles, “Estimated” badge if estimated
+- Provide a checklist to verify.
+
+TEST CHECKLIST (must run/verify)
+1) Create trip with pickup & dropoff → placeId stored → lat/lng stored
+2) Trip gets assigned → route_polyline stored
+3) Admin/clinic map shows real route polyline (not a straight line)
+4) Driver pings location → gps points stored → live marker moves
+5) Complete trip → traveled_distance_m computed and stored
+6) Invoice line shows miles (no “—”), trip row clickable to timeline + map proof
+7) Arrived buttons only enable inside geofence (within 150m default)
+8) If API down → fallback still stores something and UI shows badge
+
+Do the work directly in the repo. Avoid refactors unrelated to this scope.

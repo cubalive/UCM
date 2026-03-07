@@ -1,0 +1,121 @@
+ROLE: Principal production engineer
+PROJECT: United Care Mobility
+MODE: KING-STATE EXECUTION
+
+RULES:
+- SINGLE AGENT ONLY
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT recreate schema
+- Make minimal safe migrations only if required
+- Verify before exit
+
+OBJECTIVE:
+Implement Round-Trip + Recurring Return (ida/vuelta) for ALL trips.
+Return trip is created immediately when round-trip is selected.
+
+-------------------------------------------------
+PHASE 0 — MINIMAL MIGRATION (REQUIRED)
+-------------------------------------------------
+Add a minimal link between outbound and return trips.
+
+1) Add column:
+trips.linked_trip_id integer NULL references trips(id)
+
+2) Add index on trips.linked_trip_id
+
+Migration must be safe for existing data.
+
+-------------------------------------------------
+PHASE 1 — UI: CREATE/EDIT TRIP
+-------------------------------------------------
+In trip create UI (dispatch/admin, clinic if allowed):
+- Add checkbox: "Round Trip"
+- If checked → show "Return pickup time" field (required)
+- Optional: "Return scheduled date" defaults to same day (for dialysis typically same day)
+
+Validation:
+- Round Trip requires return pickup time.
+- Must prevent creating if return time is earlier than outbound pickup_time (unless explicitly allowed).
+
+-------------------------------------------------
+PHASE 2 — SERVER: CREATE TRIP WITH ROUND TRIP
+-------------------------------------------------
+When creating a trip and round_trip=true:
+1) Create Outbound trip normally.
+2) Immediately create Return trip:
+   - patient_id same
+   - company_id same
+   - clinic_id same
+   - city_id same
+   - pickup = outbound.dropoff
+   - dropoff = outbound.pickup
+   - pickup_time = return_pickup_time
+   - scheduled_date = outbound.scheduled_date (default)
+   - status = SCHEDULED
+   - trip_type:
+       if outbound.trip_type in (recurring, dialysis) keep same
+       else one_time
+3) Link them:
+   - outbound.linked_trip_id = return.id
+   - return.linked_trip_id = outbound.id
+
+Ensure any address lat/lng and place_id fields are swapped accordingly:
+- pickup_lat/lng/place_id from outbound dropoff
+- dropoff_lat/lng/place_id from outbound pickup
+
+-------------------------------------------------
+PHASE 3 — RECURRING / DIALYSIS SERIES (IDA + VUELTA)
+-------------------------------------------------
+Wherever recurring trips are generated (scheduler/job):
+If series indicates round_trip=true (add to series creation flow):
+- For every generated outbound occurrence, also generate matching return occurrence.
+- Must avoid duplicates (idempotent):
+  - Use trip_series_id + scheduled_date + pickup_time + direction marker logic
+- Link outbound and return via linked_trip_id for each date.
+
+If you do not currently store round_trip flag on trip_series:
+- Add minimal boolean column trip_series.round_trip default false (ONLY if necessary).
+- If you can derive from existing schedule UI, implement that instead.
+
+-------------------------------------------------
+PHASE 4 — DISPATCH + CLINIC DISPLAY (GROUPED)
+-------------------------------------------------
+List views must group linked trips:
+- Show as one block "Round Trip" with two rows:
+  Outbound (To Clinic)
+  Return (From Clinic)
+- In trip details, show "Linked Return Trip" button.
+
+Clinic portal:
+- Scheduled / Live / Completed tabs must include return trips.
+- For Clinic Ops Map rules:
+  - TO_CLINIC and FROM_CLINIC should be detected.
+  - Return trip should show as FROM_CLINIC.
+
+-------------------------------------------------
+PHASE 5 — SAFETY RULES
+-------------------------------------------------
+- Terminal trips remain locked.
+- Editing outbound after creation must NOT silently desync return.
+Provide explicit action:
+  "Update linked return trip too" checkbox in edit dialog (optional),
+  otherwise keep stable.
+
+-------------------------------------------------
+VERIFICATION (MANDATORY)
+-------------------------------------------------
+1) Create one-time round trip for today:
+   - Confirm 2 trips created
+   - Confirm linked_trip_id set both ways
+2) Ensure dispatch sees both and grouping works
+3) Ensure clinic sees both in Scheduled and Live logic
+4) Run recurring generation (dialysis day):
+   - confirm ida + vuelta created
+   - confirm no duplicates on re-run
+5) Ensure no existing trips were modified
+
+OUTPUT:
+- SQL migration(s)
+- Files changed
+- Screens/notes confirming tests pass

@@ -1,0 +1,147 @@
+ROLE: Senior performance engineer
+PROJECT: United Care Mobility (PRODUCTION)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel agents
+- Do NOT modify database schema
+- Do NOT reset database
+- Do NOT change environment secrets
+- Read-only stress testing only
+- Verify before exit
+
+OBJECTIVE:
+Run a full-scale production-grade load test covering:
+
+1. Health endpoint
+2. Auth endpoint
+3. Trips listing
+4. Billing listing
+5. Ops endpoints (SUPER_ADMIN only)
+6. WebSocket concurrency simulation
+7. Database connection pool stability
+8. Route cache behavior under stress
+
+-------------------------------------
+PHASE 1 — VALIDATE ENVIRONMENT
+-------------------------------------
+
+1. Confirm:
+   - DATABASE_URL is using port 6543
+   - PGPORT is 6543
+   - NODE_ENV=production
+   - Supabase pooler detected
+
+2. Hit:
+   GET /api/healthz
+   GET /api/ops/db-info
+   GET /api/auth/me
+
+Return latency metrics.
+
+-------------------------------------
+PHASE 2 — EXTREME HTTP LOAD TEST
+-------------------------------------
+
+Create scripts/load-test-extreme.mjs
+
+Use autocannon with:
+
+- 200 concurrent connections
+- 120 seconds duration
+- pipelining 1
+- include:
+   /api/healthz
+   /api/trips
+   /api/invoices
+   /api/ops/readyz
+
+Then run:
+
+CONNECTIONS=200 DURATION=120 node scripts/load-test-extreme.mjs
+
+Collect:
+
+- avg latency
+- p95
+- p99
+- req/sec
+- error rate
+
+-------------------------------------
+PHASE 3 — MAX STRESS TEST
+-------------------------------------
+
+Run:
+
+CONNECTIONS=500 DURATION=180 node scripts/load-test-extreme.mjs
+
+Goal:
+Simulate 500 active users.
+
+Monitor:
+
+- DB pool usage
+- memory usage
+- CPU usage
+- crash loops
+- timeout errors
+- 5xx responses
+
+-------------------------------------
+PHASE 4 — WEBSOCKET STRESS
+-------------------------------------
+
+Simulate:
+
+- 200 persistent WebSocket connections
+- heartbeat every 30s
+- 60 messages per minute per connection
+
+Verify:
+
+- rate limiting works
+- dead connections auto-terminate
+- no memory leak
+
+-------------------------------------
+PHASE 5 — ROUTE CACHE VALIDATION
+-------------------------------------
+
+Hammer route calculation endpoint with:
+1000 repeated route requests
+
+Verify:
+- DB route_cache hits
+- TTL working
+- No external Google Maps spike
+
+-------------------------------------
+PHASE 6 — REPORT
+-------------------------------------
+
+Return structured JSON report including:
+
+{
+  maxConnectionsTested,
+  peakReqPerSecond,
+  p99Latency,
+  dbPoolStatus,
+  memoryUsageMB,
+  cpuUsagePercent,
+  websocketStability,
+  errorRatePercent,
+  bottlenecksDetected,
+  safeProductionCapacityEstimate
+}
+
+-------------------------------------
+IMPORTANT
+-------------------------------------
+
+Do NOT deploy.
+Do NOT modify infra.
+Do NOT alter secrets.
+Read-only load testing only.
+
+Finish only after delivering full report.

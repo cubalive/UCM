@@ -1,0 +1,18 @@
+{
+  "name": "ucm-admin-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "UCM Admin mobile app wrapper (Capacitor)",
+  "scripts": {
+    "cap:sync": "npx cap sync",
+    "cap:open:ios": "npx cap open ios",
+    "cap:open:android": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/ios": "^8.1.0",
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/cli": "^7.5.0",
+    "@capacitor/splash-screen": "^6.0.0"
+  }
+}

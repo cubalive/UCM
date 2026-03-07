@@ -1,0 +1,210 @@
+OLE: Senior FinTech Architect – Healthcare SaaS (NEMT)
+EXECUTION MODE: SINGLE AGENT ONLY
+NO SUB-AGENTS
+NO PARALLEL TASKS
+DO NOT RESET DATABASE
+DO NOT DELETE EXISTING DATA
+BACKWARD COMPATIBLE MIGRATION ONLY
+
+OBJECTIVE:
+Rebuild the financial linkage between:
+- Fee Rules Engine
+- Trip financial breakdown
+- Stripe payments
+- Driver payouts
+- Company subscription billing
+
+Implement a clean HYBRID MODEL:
+
+1) SaaS subscription billing (fixed recurring)
+2) Trip-based revenue share (percentage/fixed)
+3) Optional driver fee
+
+Everything must reconcile cleanly in accounting.
+
+-----------------------------------------------------
+PHASE 1 — UPGRADE FEE RULES STRUCTURE
+-----------------------------------------------------
+
+Extend fee_rules table with:
+
+- calculation_base ENUM:
+('trip_total', 'clinic_invoice', 'driver_payout')
+
+- fee_direction ENUM:
+('add', 'subtract')
+
+- beneficiary ENUM:
+('platform', 'clinic', 'driver')
+
+- settlement_stage ENUM:
+('invoice_generation', 'driver_payout', 'payment_capture')
+
+Default legacy rows:
+calculation_base = 'clinic_invoice'
+fee_direction = 'subtract'
+beneficiary = 'platform'
+settlement_stage = 'invoice_generation'
+
+SAFE MIGRATION ONLY.
+
+-----------------------------------------------------
+PHASE 2 — CREATE MASTER FINANCIAL ENGINE
+-----------------------------------------------------
+
+Create new service:
+
+processTripFinancials(tripId)
+
+This function must:
+
+1) Load trip
+2) Calculate:
+- trip_total
+- clinic_invoice_total
+- driver_payout
+3) Retrieve active fee rules (by scope + priority)
+4) Apply rules sequentially
+
+Each rule must:
+- Determine base from calculation_base
+- Calculate percentage or fixed
+- Respect min/max
+- Apply add/subtract logic
+- Assign amount to beneficiary
+
+Return structured object:
+
+{
+tripTotal,
+clinicInvoice,
+platformFeeTotal,
+driverNet,
+companyNet,
+appliedRules: []
+}
+
+-----------------------------------------------------
+PHASE 3 — LINK TO PAYMENT FLOW
+-----------------------------------------------------
+
+When Stripe payment intent is created:
+
+Use clinicInvoice as the charge amount.
+
+After successful payment:
+
+Create financial ledger entry:
+
+financial_ledger table:
+- id
+- trip_id
+- company_id
+- clinic_invoice_amount
+- platform_fee_amount
+- driver_payout_amount
+- company_net_amount
+- stripe_payment_intent_id
+- status
+- timestamp
+
+Ensure ledger is immutable once payment is captured.
+
+-----------------------------------------------------
+PHASE 4 — DRIVER PAYOUT INTEGRATION
+-----------------------------------------------------
+
+When payout is triggered:
+
+Use driverNet from financial engine.
+Never recalculate fee at payout time.
+Use stored ledger value.
+
+Prevent:
+- Double fee application
+- Recalculation after capture
+
+-----------------------------------------------------
+PHASE 5 — SEPARATE SaaS BILLING MODULE
+-----------------------------------------------------
+
+Create:
+
+company_subscriptions table
+subscription_transactions table
+
+Stripe subscription webhooks must:
+- Update subscription status
+- NOT interact with fee engine
+- NOT modify trip revenue logic
+
+Completely isolated billing logic.
+
+-----------------------------------------------------
+PHASE 6 — UPDATE UI FINANCIAL BREAKDOWN
+-----------------------------------------------------
+
+Trip details must display:
+
+Trip Total: $X
+Clinic Invoice: $X
+Platform Fee (2%): -$X
+Driver Payout: $X
+Company Net: $X
+
+All values sourced from financial_ledger.
+
+-----------------------------------------------------
+PHASE 7 — ADD ACCOUNTING SAFEGUARDS
+-----------------------------------------------------
+
+- Prevent negative totals
+- Prevent driver payout below zero
+- Prevent duplicate ledger entries
+- Log every rule applied in financial_audit_log
+
+-----------------------------------------------------
+PHASE 8 — TEST SCENARIOS
+-----------------------------------------------------
+
+Create automated tests:
+
+Scenario 1:
+Trip $100
+Platform 3%
+Expect:
+Clinic charged $100
+Platform $3
+Driver unchanged
+Company net adjusted
+
+Scenario 2:
+Trip $100
+$2 fixed fee
+Verify ledger correct
+
+Scenario 3:
+Driver payout fee 1%
+Verify driver net reduced correctly
+
+Scenario 4:
+Hybrid multiple rules
+Ensure correct priority execution
+
+-----------------------------------------------------
+CONSTRAINTS
+-----------------------------------------------------
+
+- Maintain multi-tenant isolation
+- Respect RBAC
+- No schema resets
+- No production data loss
+- Incremental commits only
+
+DELIVERABLE:
+- Updated schema
+- Financial engine service
+- Payment integration linkage
+- Ledger persistence
+- UI breakdown updates
+- Test coverage

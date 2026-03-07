@@ -1,0 +1,183 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement UCM Universal Data Import v1 (Onboarding Data Gateway) to import datasets from multiple sources (CSV, XLSX/Excel, JSON, Supabase exports) into UCM with mapping + dry-run + idempotent upsert + rollback. SUPER_ADMIN only.
+
+NON-NEGOTIABLES:
+1) Do NOT change existing DB data except through controlled import run.
+2) Do NOT remove tables/columns.
+3) Must be stable, non-breaking, and keep existing runtime behavior.
+4) Strict RBAC: SUPER_ADMIN only for all import endpoints and UI.
+
+==================================================
+PHASE A — DATA MODEL (NON-DESTRUCTIVE)
+==================================================
+
+Add new Drizzle tables in shared/schema.ts + migrations:
+
+1) import_jobs
+- id uuid pk default gen_random_uuid()
+- company_id int not null
+- city_id int null
+- source_system text not null  (e.g. "excel", "supabase", "uber_health", "other")
+- status text not null default 'draft'  (draft|validated|running|completed|failed|rolled_back)
+- created_by int not null
+- created_at timestamptz default now()
+- updated_at timestamptz default now()
+- consent_confirmed boolean not null default true
+- summary_json jsonb null
+
+2) import_job_files
+- id uuid pk default gen_random_uuid()
+- import_job_id uuid not null fk import_jobs(id)
+- entity text not null  (clinics|patients|drivers|vehicles|trips)
+- filename text not null
+- mime_type text not null
+- storage_json jsonb not null   (store base64 or server path; choose simplest that works in Replit)
+- created_at timestamptz default now()
+
+3) external_id_map
+- id uuid pk default gen_random_uuid()
+- company_id int not null
+- entity text not null
+- source_system text not null
+- external_id text not null
+- ucm_id int not null
+- created_at timestamptz default now()
+Unique(company_id, entity, source_system, external_id)
+
+4) import_job_events (audit)
+- id uuid pk default gen_random_uuid()
+- import_job_id uuid not null
+- level text not null (info|warn|error)
+- message text not null
+- payload jsonb null
+- created_at timestamptz default now()
+
+==================================================
+PHASE B — AUTHZ
+==================================================
+Use existing auth and implement requireRole("super_admin") server-side.
+All endpoints below must reject non-super_admin.
+
+==================================================
+PHASE C — CANONICAL FORMAT + MAPPING
+==================================================
+
+Define canonical schemas (Zod) for:
+- ClinicCanonical
+- PatientCanonical
+- DriverCanonical
+- VehicleCanonical
+
+Also implement:
+- detectFileType(mime/extension)
+- parseCSV(buffer)
+- parseXLSX(buffer) (use xlsx library)
+- parseJSON(buffer)
+
+Mapping system v1:
+- Presets: { source_system: "supabase", "excel_generic", "uber_health_like" }
+- Each preset maps source columns to canonical keys.
+- If unknown columns, allow UI mapping minimally.
+
+Normalization utilities:
+- normalizePhone(E164-ish)
+- normalizeDate(YYYY-MM-DD)
+- normalizeState(2 letters)
+- trim strings, uppercase license_plate
+- mobility requirement normalization: STANDARD/WHEELCHAIR/...
+- required field validation per entity
+
+==================================================
+PHASE D — ENDPOINTS
+==================================================
+
+Implement endpoints:
+
+1) POST /api/admin/imports
+Body: { companyId, cityId?, sourceSystem, consentConfirmed:true }
+-> create import_job
+
+2) POST /api/admin/imports/:id/upload?entity=...
+- Accept multipart file upload (CSV/XLSX/JSON)
+- Store into import_job_files.storage_json
+- Return file metadata
+
+3) POST /api/admin/imports/:id/validate
+- For each uploaded entity file:
+  - parse
+  - map to canonical
+  - validate required fields
+  - dedupe in-file
+  - check duplicates vs DB using external_id_map and natural keys (email/phone/license_plate)
+- Must NOT write to main tables
+- Save summary_json + import_job_events (errors/warnings)
+Return:
+{ status:'validated', counts:{ok,error,skipped}, preview:{entity:[first20]}, errorsDownloadToken }
+
+4) POST /api/admin/imports/:id/run
+- Must require job status validated
+- Execute in safe order:
+  a) clinics
+  b) patients
+  c) drivers
+  d) vehicles
+- Upsert logic:
+  - If row has external_id and exists in external_id_map -> update existing (safe fields only)
+  - Else attempt match by natural key:
+     clinics: name + city + phone/email
+     patients: (first+last+dob) OR phone; plus clinic match
+     drivers: phone or email
+     vehicles: license_plate
+  - If match found -> update + optionally backfill external_id_map
+  - If no match -> insert + insert external_id_map
+- Record per-row results in import_job_events
+- Set job status completed/failed
+
+5) POST /api/admin/imports/:id/rollback
+- Rollback only rows created by this import job:
+  - Use auditLog entries OR import_job_events payload to track inserted ids
+- Must NOT delete any rows that pre-existed.
+- Set status rolled_back
+
+6) GET /api/admin/imports
+7) GET /api/admin/imports/:id
+
+==================================================
+PHASE E — UI (MINIMAL)
+==================================================
+Add /admin/imports page (SUPER_ADMIN only):
+- Create Job
+- Upload per entity (4 cards)
+- Validate (shows counts + preview + error export)
+- Run Import
+- Rollback
+- History list
+
+==================================================
+PHASE F — VERIFICATION (MUST DO)
+==================================================
+Provide evidence:
+1) Create job
+2) Upload CSV and XLSX sample (can generate small dummy files in code if needed)
+3) Validate: confirm NO DB writes (check counts)
+4) Run: inserts records
+5) Run again with same external ids: no duplicates created (idempotent)
+6) Rollback: removes only inserted rows and keeps pre-existing data
+7) Build and start server
+
+DELIVERABLES:
+- List of exact files changed
+- Migration summary
+- curl examples for create/upload/validate/run/rollback
+- Verification output logs
+END.

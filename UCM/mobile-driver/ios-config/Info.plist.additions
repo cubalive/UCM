@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Add these keys to ios/App/App/Info.plist after running `npx cap add ios`.
+  Merge into the existing <dict> block; do not duplicate the outer tags.
+
+  PERMISSION FLOW:
+  1. App requests WhenInUse first (system dialog).
+  2. After granting WhenInUse, app requests Always (second dialog).
+  3. If user declines Always, background GPS is unavailable;
+     the watcher fires NOT_AUTHORIZED and the app prompts to open Settings.
+-->
+<dict>
+  <!-- Location Permission Descriptions -->
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>UCM Driver needs your location to navigate to pickups and track your position during active trips.</string>
+
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>UCM Driver needs background location access to continue sending your position to dispatch while the app is in the background during active trips. This ensures accurate ETAs for patients.</string>
+
+  <key>NSLocationAlwaysUsageDescription</key>
+  <string>UCM Driver needs always-on location access so dispatch can track your position during active trips, even when the app is backgrounded.</string>
+
+  <!-- Background Modes -->
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>location</string>
+    <string>fetch</string>
+    <string>processing</string>
+    <string>remote-notification</string>
+  </array>
+</dict>

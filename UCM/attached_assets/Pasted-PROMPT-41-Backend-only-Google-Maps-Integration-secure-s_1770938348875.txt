@@ -1,0 +1,89 @@
+PROMPT 41 — Backend-only Google Maps Integration (secure, scalable)
+
+ROLE: Senior Silicon Valley Backend Engineer
+PROJECT: United Care Mobility (new stable rebuild)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT create sub-agents
+- No parallel tasks
+- Implement sequentially
+- Verify each step with real HTTP calls before finishing
+
+OBJECTIVE
+Implement Google Maps features strictly in BACKEND (server-side) so the frontend never calls Google directly and never sees the API key.
+
+GOALS (Top 4 Features)
+1) Real-time ETA ("Arriving in X min") using traffic-aware routing
+2) Route building + optional waypoint optimization for multi-stop trips
+3) Address validation + Geocoding (store lat/lng)
+4) Places autocomplete for clean address entry
+
+SECURITY REQUIREMENTS
+- Add secret GOOGLE_MAPS_API_KEY (server only)
+- Never expose the key to frontend
+- Do not log the key
+- Add basic rate limiting per IP/user on these endpoints
+- Add caching to reduce cost
+
+IMPLEMENTATION PLAN (DO NOW)
+A) ENV + Config
+- Read GOOGLE_MAPS_API_KEY from secrets/env
+- Create server/lib/googleMaps.ts (or similar) as the single integration module
+
+B) GoogleMapsService methods
+Implement:
+- geocodeAddress(address: string) -> { formattedAddress, lat, lng }
+- placesAutocomplete(input: string) -> suggestions[]
+- etaMinutes(origin: {lat,lng} | string, dest: {lat,lng} | string) -> { minutes, distance_miles, usedTraffic: true }
+- buildRoute(origin, dest, waypoints?) -> { polyline, legs[], totalMinutes, totalMiles }
+
+Prefer:
+- Use Directions API for ETA/route if already enabled
+- Use Places API for autocomplete
+- Use Geocoding API for validation/geocode
+(If Routes API exists in codebase or is enabled, you may implement an adapter, but keep a working Directions-based implementation as baseline.)
+
+C) API Endpoints (backend)
+Create routes:
+- GET  /api/maps/health  -> { ok: true }
+- POST /api/maps/geocode -> { ok, result }
+- POST /api/maps/places/autocomplete -> { ok, results }
+- POST /api/maps/eta -> { ok, result }
+- POST /api/maps/route -> { ok, result }
+
+All endpoints must:
+- validate inputs
+- return friendly errors (no blank screen)
+- respond JSON only
+
+D) Caching
+- Add in-memory cache first (Map with TTL)
+- TTL suggestions:
+  - geocode: 30 days (addresses stable)
+  - autocomplete: 10 minutes
+  - eta/route: 30–120 seconds
+- Cache key must be deterministic (origin+dest+waypoints)
+
+E) DB integration (minimal, safe)
+- If trips table exists, add nullable columns ONLY if missing:
+  - pickup_lat, pickup_lng, dropoff_lat, dropoff_lng (or store in patient/clinic if that’s where addresses live)
+  - last_eta_minutes, last_eta_updated_at
+- If patient/clinic tables store addresses, add lat/lng there (preferred)
+- Do NOT delete or recreate any tables
+
+F) Verification (MUST DO)
+Provide exact curl commands and show expected JSON:
+- /api/maps/health
+- /api/maps/geocode (test with a Las Vegas address)
+- /api/maps/eta (two points in Las Vegas)
+- /api/maps/places/autocomplete (input: "Sunrise Hospital Las Vegas")
+- /api/maps/route (origin/dest with optional waypoint)
+
+OUTPUT REQUIREMENTS
+- Summarize what files changed
+- Show the curl tests and sample outputs
+- Confirm the frontend does NOT contain any direct Google API calls
+- Confirm key is only in backend env
+
+STOP CONDITION
+Do not proceed to UI work. Finish backend integration + verified endpoints only.

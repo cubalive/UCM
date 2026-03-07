@@ -1,0 +1,136 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+DECISION CONFIRMED: FULLY AUTOMATED CLINIC BILLING (NO MANUAL)
+We will automatically bill every clinic trip leg using editable tariffs based on:
+- passenger_count (1..4)
+- leg_type (outbound/return)
+- outcome (completed/no_show/cancelled/company_error)
+- cancel timing window (advance vs same-day vs late)
+
+Invoices must be transparent and grouped:
+Clinic -> Week -> Day -> Patient -> Outbound then Return (one under the other)
+
+============================================================
+NON-NEGOTIABLE RULES
+============================================================
+1) Only clinic trips included (exclude private/internal UCM Direct).
+2) Every trip leg gets a BILLING OUTCOME with reason + audit.
+3) Cancel/No-show fees must respect time windows (editable).
+4) Company Error default fee = $0 (editable).
+5) Invoice lines must store SNAPSHOT rates so past invoices never change.
+6) Returns included and displayed under outbound; legs billed independently by outcome.
+
+============================================================
+PHASE 1 — STANDARDIZE BILLING OUTCOME (AUDITABLE)
+============================================================
+If not already present, add additive fields (or a trip_billing_outcomes table):
+- billing_outcome: 'completed'|'no_show'|'cancelled'|'company_error'
+- billing_reason: text
+- billing_set_by: uuid
+- billing_set_at: timestamp
+- billing_override: bool default false
+
+Auto-set billing_outcome from trip status/reason.
+Allow dispatch/super_admin to override with reason (must log changes).
+
+Add billing audit log (table) if none exists:
+- trip_id, old_outcome, new_outcome, old_reason, new_reason, changed_by, changed_at
+
+============================================================
+PHASE 2 — PRICES TAB (EDITABLE TARIFF MATRIX + TIME WINDOWS)
+============================================================
+Finance -> Clinic Billing -> PRICES (dispatch + super_admin editable)
+
+Pricing profile per clinic+city, active.
+
+Pricing rules must support:
+- passenger_count 1..4
+- leg_type outbound/return/both
+- outcome completed/no_show/cancelled/company_error
+- cancel_window for cancelled (advance/same_day/late) OPTIONAL for others
+
+Minimal flexible rule table:
+clinic_billing_pricing_rules:
+- profile_id
+- outcome
+- passenger_count
+- leg_type
+- cancel_window NULL or 'advance'|'same_day'|'late'
+- unit_rate
+- enabled
+UNIQUE(profile_id, outcome, passenger_count, leg_type, cancel_window)
+
+UI:
+Rows: passenger_count 1..4
+Columns grouped:
+- Completed (Outbound, Return)
+- No Show (Outbound, Return)
+- Cancelled: Advance / Same-day / Late (Outbound, Return)
+- Company Error (Outbound, Return) [default 0]
+"Same as outbound" toggles optional.
+
+============================================================
+PHASE 3 — CANCEL WINDOW CLASSIFICATION
+============================================================
+Define cancel_window ONLY when outcome=cancelled:
+- advance: cancelled >= X hours before scheduled pickup
+- same_day: cancelled < X hours but before pickup time
+- late: cancelled after pickup time (or within Y minutes of pickup)
+
+Make thresholds editable per clinic (profile-level settings) OR global defaults:
+- cancel_advance_hours (default 24)
+- cancel_late_minutes (default 0 or 15)
+
+============================================================
+PHASE 4 — TRIPS LOG TAB (AUDIT + EXACT INVOICE ORDER)
+============================================================
+Finance -> Clinic Billing -> TRIPS LOG
+Filters: clinic, week/date range, passenger_count, outcome, cancel_window
+Display grouped: Date -> Patient -> Outbound row -> Return row
+Each leg row shows:
+- time
+- pickup->dropoff
+- miles
+- trip_id
+- billing_outcome badge (+ cancel_window if cancelled)
+- unit_rate used (live from PRICES)
+- computed line price
+Trip Details opens with proof photo (completed) and timestamp timeline.
+
+============================================================
+PHASE 5 — WEEKLY INVOICE GENERATION (SNAPSHOT)
+============================================================
+Generate Draft (idempotent) per clinic/week:
+For each trip leg in week:
+- classify passenger_count, leg_type, billing_outcome
+- if cancelled: compute cancel_window
+- lookup unit_rate with fallback to leg_type='both'
+- save invoice line with SNAPSHOT:
+  - outcome, cancel_window, passenger_count, unit_rate_snapshot, line_total
+- group display by Date -> Patient -> Outbound then Return
+
+Totals required:
+- by passenger_count (1/2/3/4)
+- by outcome (completed/no_show/cancelled/company_error)
+- by cancel_window for cancelled
+- outbound subtotal, return subtotal, grand total
+
+Finalize locks run; do not recompute unless explicit Reopen.
+
+============================================================
+VERIFY (MUST DO)
+============================================================
+1) Set tariffs for all outcomes + cancel windows + passenger counts 1..4
+2) Create sample trips for each scenario
+3) Trips Log shows correct classification + pricing
+4) Invoice draft matches grouping and totals
+5) Finalize + export PDF/CSV
+6) Change tariffs after finalize -> finalized invoice unchanged (snapshot)

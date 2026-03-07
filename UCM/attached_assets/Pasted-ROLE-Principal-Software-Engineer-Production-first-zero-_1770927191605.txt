@@ -1,0 +1,180 @@
+ROLE: Principal Software Engineer (Production-first, zero failures)
+PROJECT: United Care Mobility — Clean Rebuild (NEW APP, NEW SUPABASE)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT use multiple servers
+- Do NOT create sub-agents
+- Do NOT implement extra features
+- Build a stable production foundation only
+- Verify before exit
+
+OBJECTIVE:
+Create a brand-new, stable production-ready web app on Replit with:
+
+• Node.js + Express single server
+• React + Vite frontend
+• Supabase NEW database (already created)
+• Multi-city system
+• SUPER_ADMIN global access
+• public_id system (01UCMXXXXXX)
+• No white screens after publish
+• No service worker
+• Single start command
+• Production-safe architecture
+
+ENV (from Replit Secrets):
+DATABASE_URL
+JWT_SECRET
+ADMIN_EMAIL
+ADMIN_PASSWORD
+
+---------------------------------------
+PHASE 1 — PROJECT STRUCTURE
+---------------------------------------
+
+Create folders:
+
+server/
+frontend/
+scripts/
+frontend_dist/
+
+Root package.json must include:
+
+"scripts": {
+  "build": "cd frontend && npm install && npm run build && cd .. && node scripts/verify-dist.js",
+  "start": "node server/index.js"
+}
+
+---------------------------------------
+PHASE 2 — EXPRESS SERVER (PRODUCTION LOCK)
+---------------------------------------
+
+Create server/index.js with:
+
+• Express app
+• Connect to Supabase via DATABASE_URL
+• JWT auth middleware
+• RBAC system
+• Serve frontend_dist
+• SPA fallback
+• Health endpoint
+
+CRITICAL STATIC RULES:
+
+- Serve assets from /frontend_dist
+- index.html must use Cache-Control: no-store
+- assets use max-age=1y
+- Any route not starting with /api returns index.html
+- NO service worker allowed
+
+---------------------------------------
+PHASE 3 — DATABASE SCHEMA (NEW SUPABASE)
+---------------------------------------
+
+Create tables:
+
+cities
+users
+user_city_access
+vehicles
+drivers
+clinics
+patients
+trips
+audit_log
+
+RULES:
+
+• Every table has city_id except SUPER_ADMIN
+• SUPER_ADMIN sees ALL cities
+• Dispatch sees assigned cities
+• Drivers locked to one city
+• Vehicles locked to one city
+• Trips must have city_id
+
+---------------------------------------
+PHASE 4 — PUBLIC ID SYSTEM
+---------------------------------------
+
+Implement server-side public_id generator:
+
+Format:
+01UCM000001
+
+Apply to:
+users
+vehicles
+drivers
+clinics
+patients
+trips
+
+Must be:
+• unique
+• stored in DB
+• never generated in frontend
+
+---------------------------------------
+PHASE 5 — SUPER ADMIN CREATION
+---------------------------------------
+
+On first server start:
+
+If no SUPER_ADMIN exists:
+create using ADMIN_EMAIL + ADMIN_PASSWORD
+
+Role: SUPER_ADMIN
+Access: all cities
+
+---------------------------------------
+PHASE 6 — VERIFY BUILD GUARD
+---------------------------------------
+
+Create scripts/verify-dist.js
+
+Must:
+• confirm frontend_dist/index.html exists
+• confirm asset paths valid
+• exit with error if missing
+
+Server must refuse to start if build missing.
+
+---------------------------------------
+PHASE 7 — HEALTH ENDPOINT
+---------------------------------------
+
+GET /health returns:
+
+{
+ ok: true,
+ db: "connected",
+ frontend: "served",
+ version: "1.0"
+}
+
+---------------------------------------
+PHASE 8 — FINAL VERIFICATION
+---------------------------------------
+
+Before finishing:
+
+1. npm run build works
+2. npm start works
+3. /health returns ok
+4. root loads UI
+5. refresh works
+6. deep links work
+7. no white screen
+8. login works
+9. SUPER_ADMIN created
+
+Do NOT exit until ALL pass.
+
+FINAL OUTPUT REQUIRED:
+
+SYSTEM BASE COMPLETE
+READY FOR DEPLOY
+NO WHITE SCREEN RISK

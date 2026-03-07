@@ -1,0 +1,74 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement driver presence + correct dashboard buckets:
+Active (connected+online, not on trip), In Route (connected+online, on trip),
+and Offline/Paused (offline or on_hold/break).
+
+DEFINITIONS:
+- connected = driver last_seen_at within 120 seconds
+- online = driver.is_online == true
+- paused = driver.on_hold == true OR driver.break_status == true (if exists)
+- onTrip = driver has an assigned trip with status in:
+  ['ASSIGNED','ENROUTE','ARRIVED','PICKED_UP'] (exclude COMPLETED/CANCELLED)
+
+BUCKET RULES (mutually exclusive):
+1) IN_ROUTE:
+   connected && online && onTrip
+2) ACTIVE:
+   connected && online && !onTrip && !paused
+3) OFFLINE_OR_PAUSED:
+   everything else (includes paused, offline, disconnected)
+
+REQUIREMENTS:
+A) Presence (source of truth):
+1) Ensure driver app sends heartbeat every 30 seconds while open and online:
+   POST /api/driver/presence/heartbeat
+   Body: { driver_id, lat?, lng?, accuracy? }
+2) Server updates driver.last_seen_at = now()
+   (If last_seen_at does not exist, add it with a lightweight migration.)
+3) If is_online toggle exists, keep it; heartbeat does not auto-set online unless specified.
+
+B) Dashboard stats endpoint:
+GET /api/dashboard/driver-stats
+Return:
+{
+  activeCount,
+  inRouteCount,
+  offlineOrPausedCount,
+  activeDrivers:[{id,name,lastSeenAt}],
+  inRouteDrivers:[{id,name,tripId,tripStatus,lastSeenAt}],
+  offlineOrPausedDrivers:[{id,name,isOnline,onHold,lastSeenAt,reason}]
+}
+
+C) UI changes:
+1) Replace current "Active Drivers" card with:
+   - Active
+   - In Route
+   - Offline/Paused
+2) Driver list section shows 3 tabs with counts matching the above buckets.
+3) In list rows, show badge:
+   ACTIVE / IN ROUTE / OFFLINE / PAUSED
+   plus "Last seen: Xm ago"
+
+D) Verification:
+- Create 3 drivers:
+  Driver A: online + heartbeat + no trip => ACTIVE
+  Driver B: online + heartbeat + trip ASSIGNED => IN ROUTE
+  Driver C: offline OR on_hold => OFFLINE/PAUSED
+- Confirm dashboard counts and lists match exactly.
+
+OUTPUT:
+- Files changed
+- Any migration SQL (if last_seen_at added)
+- Example JSON from /api/dashboard/driver-stats

@@ -1,0 +1,80 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+
+TASK 2 — MAKE IT APP STORE READY (iOS + Android), MINIMAL RISK, NO REGRESSIONS
+Goal: Prepare the app for App Store submission (and keep Android ready), WITHOUT breaking existing production behavior.
+
+Context:
+We have 3 portals/subdomains and we will ship a dedicated iOS app for at least DRIVER first, and keep CLINIC/APP ready.
+We are using Capacitor (already) and have working web portals.
+
+Non-negotiables:
+- Do NOT remove existing features.
+- Do NOT change business logic.
+- Do NOT rename routes unless strictly necessary.
+- No “big refactors”.
+- Anything you change must include validation steps.
+
+Deliverables:
+1) iOS packaging setup (Capacitor)
+A) Create/verify per-app Capacitor config (driver app first):
+- ios/App/App/Info.plist configured
+- Bundle ID: com.passkal.driver (or existing one—report it)
+- App name: Passkal Driver (or existing)
+- Versioning: CFBundleShortVersionString + CFBundleVersion
+- Allowed navigation: only to https://driver.unitedcaremobility.com
+- Universal Links not required now unless we decide (report recommendation)
+
+B) Ensure WKWebView + navigation is locked:
+- Only allow our subdomain + required auth endpoints
+- Block everything else
+
+C) Deep links for reset password (required):
+- When opening reset/magic links from email, it must land inside the Driver app and complete flow.
+Implement ONE of these (choose safest and document):
+Option 1 (fastest): Use a dedicated in-app “Paste link / Open link” screen that drivers can use (no universal links needed).
+Option 2 (App Store-grade): Universal Links + Associated Domains for driver.unitedcaremobility.com + proper apple-app-site-association.
+If you choose Option 2, implement it fully and list DNS/hosting requirements.
+
+2) App Store compliance checklist (must be implemented / verified)
+- Privacy Policy URL (must exist and be reachable)
+- Terms of Service URL (must exist)
+- Support URL / Contact
+- App tracking transparency (only if tracking; otherwise explicitly state “no tracking”)
+- Data safety disclosures guidance (what data we collect: location, contact, identifiers)
+- In-app emergency/safety disclosures if present
+
+3) Performance & stability (App Review killers)
+- Offline behavior: if no internet show a friendly offline screen (no blank page).
+- Error boundary: show an error screen with “Report issue” and retry.
+- Loading states: never stuck on spinner.
+- Permissions: request location permissions with clear rationale text.
+
+4) Service worker / caching (critical)
+- If PWA service worker exists, ensure it does NOT break iOS WKWebView updates.
+- Add a “build version” display in settings and an auto-hard-refresh strategy when version changes.
+
+5) Build & Release steps (copy/paste)
+Provide exact step-by-step commands:
+- npm scripts to build web
+- npx cap sync ios
+- open Xcode, set signing, archive
+- TestFlight upload
+- Google Play AAB steps (keep ready even if we ship iOS later)
+
+6) Verification checklist (must be runnable)
+- Driver login works
+- Reset password works (both link and temp password flow)
+- Trips load
+- Maps load
+- Notifications (if applicable) do not crash
+- Location permission prompts correct
+
+Output format:
+A) “WHAT I CHANGED” (file list)
+B) “HOW TO BUILD iOS” (exact commands)
+C) “APP STORE CHECKLIST” (pass/fail)
+D) “RISKS & MITIGATIONS”
+E) “NEXT OPTIONAL” (universal links, push, background GPS)
+
+Start with DRIVER app only, but keep the architecture ready to clone for CLINIC and APP later.
+Proceed to implement Task 2 after Task 1 audit confirms current state, and keep changes minimal.

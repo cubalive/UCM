@@ -1,0 +1,67 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Make it obvious inside the UI whether Supabase Realtime is connected and receiving events,
+and provide a safe dev-only test event to verify end-to-end publishing.
+
+---------------------------------------
+TASK 1 — ALWAYS SHOW REALTIME STATUS ON TRIP DETAILS (DEV ONLY)
+---------------------------------------
+On Trip Details pages (clinic tracking, dispatch trip details, driver active trip),
+render a small non-intrusive badge at the top (or corner):
+
+Realtime: CONNECTING / CONNECTED / DISCONNECTED
+Last event: <type> <seconds ago>
+Polling fallback: ON/OFF (+ interval)
+
+Enable this badge when:
+- VITE_UCM_DEBUG=true (frontend flag already present)
+Do not require a separate backend flag.
+
+---------------------------------------
+TASK 2 — LOGIC: REALTIME FIRST, POLLING ONLY IF REALTIME FAILS
+---------------------------------------
+If Supabase channel subscription is successful:
+- disable any location polling loop
+- keep ONLY ETA polling at 60s (optional)
+If realtime disconnects or errors:
+- enable fallback polling:
+  location every 10s
+  ETA every 60s
+
+---------------------------------------
+TASK 3 — DEV TEST EVENT (END-TO-END)
+---------------------------------------
+Create a server endpoint (JWT-protected, super_admin/dispatch only):
+
+POST /api/realtime/test
+Body: { tripId }
+
+Server publishes to Supabase Realtime channel "trip:{tripId}" using SERVICE_ROLE_KEY:
+event: "test_ping"
+payload: { ts, message: "ok" }
+
+On Trip Details client, when receiving "test_ping":
+- update badge "Last event: test_ping"
+
+Also add a UI button visible only when VITE_UCM_DEBUG=true:
+"Send Test Ping"
+that calls /api/realtime/test for the currently open trip.
+
+---------------------------------------
+TASK 4 — VERIFY
+---------------------------------------
+- Open Trip Details with VITE_UCM_DEBUG=true
+- Badge shows CONNECTED
+- Tap "Send Test Ping" -> badge updates instantly with test_ping
+- While connected, polling fallback shows OFF
+- If disconnected, polling fallback shows ON at 10s
+
+DO NOT MODIFY:
+shared/permissions.ts

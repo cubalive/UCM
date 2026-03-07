@@ -1,0 +1,83 @@
+ROLE: Senior production engineer
+PROJECT: UCM (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+1) Add route lines (DirectionsRenderer) for Driver active trip and Clinic selected-trip.
+2) Make driver “online” status accurate on iOS/PWA where background GPS pauses:
+   - Use heartbeat + last_seen_at + stale detection.
+   - Remove drivers from “online” lists/maps when stale or logged out.
+3) No map flicker.
+
+---------------------------------------
+PHASE 1 — DRIVER ROUTE LINE (DirectionsRenderer)
+---------------------------------------
+- Create map once.
+- Create DirectionsService + DirectionsRenderer once.
+- suppressMarkers=true; preserveViewport=true.
+- Destination logic:
+  * To pickup when status in (SCHEDULED,ASSIGNED,EN_ROUTE_TO_PICKUP,ARRIVED_PICKUP)
+  * To dropoff when status in (PICKED_UP,EN_ROUTE_TO_DROPOFF,ARRIVED_DROPOFF,IN_PROGRESS)
+- Origin = current GPS.
+- Recompute route throttled:
+  * moved >=120m OR 20s elapsed OR status changed
+  * never more frequent than 10s
+- Update renderer with setDirections(result) without clearing previous route first.
+
+---------------------------------------
+PHASE 2 — CLINIC MAP (ONLY SELECTED TRIP)
+---------------------------------------
+- Clinic sees list of its live trips.
+- Selecting a trip shows one map + one DirectionsRenderer:
+  * driver marker + pickup/dropoff + route line + ETA
+- No other drivers. If no live trips: show banner and hide map.
+- Clinic recompute throttle: only if last_eta_updated_at > 60s AND driver last_seen_at <= 90s.
+
+---------------------------------------
+PHASE 3 — DRIVER GPS HEARTBEAT + STALE LOGIC
+---------------------------------------
+Backend:
+- Ensure drivers.last_seen_at is updated on each GPS update.
+- Define ONLINE if (dispatch_status != 'off') AND (last_seen_at within 90s).
+- If last_seen_at > 90s => considered STALE (not online).
+- Dispatch/Clinic should not count STALE as online and should not show them on maps.
+
+Frontend (Driver):
+- Use navigator.geolocation.watchPosition() with high accuracy when trip active.
+- On each update:
+  POST /api/driver/location {lat,lng,accuracy,ts}
+  Update last_seen_at server-side.
+- If no GPS update received for 45s:
+  show banner: “Location paused by iOS. Keep the app open.”
+- Stop watchPosition when:
+  * driver logs out
+  * driver goes OFF/HOLD
+  * no active trip and driver toggles offline
+
+Logout rule:
+- On logout, immediately set dispatch_status='off' and mark offline.
+- Ensure offline drivers never appear on any map.
+
+---------------------------------------
+PHASE 4 — DISPATCH UI: SEPARATE STATUSES
+---------------------------------------
+In Dispatch dashboard and daily assignments:
+- ONLINE (last_seen_at <=90s AND dispatch_status in available/enroute)
+- ON_TRIP (has active trip status)
+- HOLD/BREAK (dispatch_status=hold or break)
+- OFFLINE/STALE (dispatch_status=off OR last_seen_at >90s)
+Do not mix these lists.
+
+---------------------------------------
+VERIFY
+---------------------------------------
+1) Driver sees curved route line; reroutes smoothly without flicker.
+2) Clinic sees route line only for selected trip; banner when none.
+3) If driver app goes background and GPS pauses -> driver becomes STALE within 90s and disappears from online counts/maps.
+4) Logout immediately removes from maps.

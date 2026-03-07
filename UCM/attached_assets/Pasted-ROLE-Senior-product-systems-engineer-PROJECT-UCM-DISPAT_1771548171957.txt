@@ -1,0 +1,150 @@
+ROLE: Senior product+systems engineer
+PROJECT: UCM DISPATCH (Driver workflow + patient notifications)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Do NOT drop/recreate tables
+- Extend existing system only
+- All logic must be enforced server-side (UI is just a client)
+- Manual override always available for dispatch/super_admin
+
+OBJECTIVE:
+Implement the FULL driver trip workflow + patient notifications with correct timing rules, geofence gating, and audit logs.
+
+REQUIREMENTS (MUST IMPLEMENT EXACTLY)
+A) PATIENT NOTIFICATIONS (TWILIO SMS)
+1) 24-hour reminder:
+- When a trip is scheduled >= 24 hours in advance, send SMS exactly 24 hours before scheduled_pickup_at.
+- Message contains: pickup time, pickup address, dropoff address, vehicle info (if assigned), driver name (if assigned), tracking link (if available), and "reply HELP" instructions.
+- Must be idempotent: never send twice for the same trip notification type.
+
+2) Short-notice trips (<24 hours):
+- Do NOT wait for 24-hour reminder.
+- If scheduled_pickup_at is within next 24 hours, send a "Trip scheduled" SMS immediately upon trip creation (or upon patient being attached), including same info and tracking link.
+
+3) "Driver on the way" (en-route) alert:
+- When driver presses "On My Way" (status = en_route_pickup), send an SMS immediately:
+  "Your driver is on the way. ETA: X minutes. Track here: <link>"
+
+4) "Arrived at pickup" alert:
+- When driver reaches geofence and confirms arrival (status = arrived_pickup), send SMS:
+  "Your driver has arrived."
+
+5) "Trip started" alert:
+- When driver presses Start Trip (status = in_progress), send SMS:
+  "Your trip has started."
+
+6) "Trip completed" alert:
+- When driver presses Finish Trip (status = completed), send SMS:
+  "Your trip is complete. Thank you. Rate your ride: <link>"
+
+B) DRIVER APP BUTTON WORKFLOW (STATE MACHINE)
+Driver UI must show ONLY one primary action button at a time, based on current trip status:
+
+1) Button: "On My Way"
+- Visible when trip is assigned and status = scheduled/assigned
+- On press -> backend transition to status = en_route_pickup
+- Must record timestamp: en_route_pickup_at
+
+2) Button: "Arrived at Pickup"
+- Visible ONLY when status = en_route_pickup
+- Enabled ONLY when driver location is within pickup geofence radius (default 150m, configurable per company)
+- On press -> transition to status = arrived_pickup
+- Record: arrived_pickup_at
+- If not within geofence, show clear message: "You must be near the pickup location to mark arrival."
+
+3) Button: "Start Trip"
+- Visible ONLY when status = arrived_pickup
+- On press -> transition to status = in_progress
+- Record: trip_started_at
+
+4) Button: "Finish Trip"
+- Visible ONLY when status = in_progress
+- Enabled ONLY when driver location is within dropoff geofence radius (default 150m, configurable per company)
+- On press -> transition to status = completed
+- Record: completed_at
+
+C) NOTES / ANNOTATIONS
+- Driver must have an optional notes field at completion (and/or anytime):
+  - "Add note" opens text area
+  - Notes saved to trips.driver_notes (append-only log with timestamp + driver_id)
+- Dispatch/super_admin can view notes.
+- Notes are included in audit trail.
+
+D) GEOFENCE + LOCATION PINGS
+- Driver app must send location pings every 15–30 seconds while:
+  - status in (en_route_pickup, arrived_pickup, in_progress)
+- Store to gps_pings table: trip_id, driver_id, lat, lng, ts, company_id
+- Geofence check uses the latest ping (or current reading) to validate distance.
+
+E) SERVER-SIDE ENFORCEMENT
+- Implement a strict status state machine on the server:
+  assigned/scheduled -> en_route_pickup -> arrived_pickup -> in_progress -> completed
+- Reject invalid transitions with JSON error:
+  { ok:false, code:"INVALID_TRANSITION", error:"..." }
+
+- Implement geofence checks server-side for arrival + completion:
+  If outside radius -> reject with { ok:false, code:"GEOFENCE_REQUIRED", error:"..." }
+
+F) MANUAL OVERRIDE (DISPATCH/SUPER_ADMIN)
+- Add endpoint + UI control for dispatch/super_admin:
+  - Override status transition with reason code (dropdown + free text)
+  - Must write to audit_logs with who/why/when
+- Override is the manual fallback; automation remains default.
+
+G) CONFIGURATION
+- Add company settings:
+  - geofence_radius_meters (default 150)
+  - send_sms_enabled (default true)
+  - short_notice_sms_enabled (default true)
+  - 24h_reminder_enabled (default true)
+
+H) IMPLEMENTATION DETAILS (MUST DO)
+1) Add/verify DB fields:
+- trips.status (string/enum)
+- trips.en_route_pickup_at
+- trips.arrived_pickup_at
+- trips.trip_started_at
+- trips.completed_at
+- trips.pickup_lat/lng, dropoff_lat/lng (required)
+- trips.driver_notes (jsonb/text log) OR create trip_notes table
+- notifications table:
+  - id, trip_id, type, sent_at, provider_message_id, status, company_id
+- gps_pings table if missing
+
+2) Create backend endpoints:
+- POST /api/trips/:id/on-my-way
+- POST /api/trips/:id/arrived-pickup
+- POST /api/trips/:id/start
+- POST /api/trips/:id/finish
+- POST /api/trips/:id/note
+- POST /api/trips/:id/override-status (dispatch/super_admin)
+
+3) Create a scheduler/worker for reminders:
+- A cron job (or background worker) runs every 5 minutes:
+  - find trips needing 24h reminder and send once
+  - ensure idempotency via notifications table unique (trip_id,type)
+
+4) UI updates:
+- Driver app shows primary action button based on status
+- Show disabled state + message when geofence not satisfied
+- Show ETA and patient/clinic info
+- Add Notes UI
+
+I) VERIFICATION (MANDATORY)
+- Create a trip scheduled >24h: verify 24h SMS scheduled and sent once
+- Create short-notice trip (<24h): verify immediate SMS
+- Assign driver and press "On My Way": verify status + SMS
+- Simulate GPS near pickup and press "Arrived": verify geofence gating + SMS
+- Press "Start Trip": verify status + SMS
+- Simulate GPS near dropoff and press "Finish": verify geofence gating + SMS
+- Add note: verify stored and visible to dispatch
+- Verify dispatch override logs correctly
+
+DELIVERABLES:
+1) List of files changed
+2) DB migrations SQL
+3) Screenshots/logs showing each verification step passing
+4) Summary of logic implemented and any remaining TODOs

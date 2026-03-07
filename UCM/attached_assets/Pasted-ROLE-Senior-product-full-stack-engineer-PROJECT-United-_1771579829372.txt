@@ -1,0 +1,74 @@
+ROLE: Senior product + full-stack engineer
+PROJECT: United Care Mobility (Driver Portal)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify with UI + logs + DB checks
+
+GOAL:
+Upgrade driver.unitedcaremobility.com into a professional driver tool while keeping the 3 map modes. DO NOT use iOS “Always” location. Use only “When In Use” and track location only while the app is open (foreground). Add Shift Mode, Trip Center workflow, in-app geofence, no-show protocol, digital signature, hourly payroll automation, real-time earnings, and global search + smart filters.
+
+REQUIREMENTS (must implement):
+1) Shift Mode (no background):
+- Add Start Shift / End Shift toggle.
+- Store shift sessions (start/end timestamps, breaks).
+- Driver can only accept trips when On Shift.
+- Show online/offline banner and status.
+
+2) Trip Center:
+- Create a single Trip Center screen for the current assigned/active trip.
+- Add sequential status buttons: En route → Arrived → Picked up → Start Trip → Drop off → Complete.
+- Each transition writes timestamps and audit log.
+- Make all trip cards clickable everywhere (dashboard recent activity, trips list, invoices/trip references) to open Trip Details / Trip Center as appropriate.
+
+3) In-app Geofence (foreground only):
+- While Trip Center is open, compute distance to pickup/dropoff.
+- If within configurable radius (default 150m), show “You’re at pickup/dropoff” and enable the next action.
+- Do not rely on background location or OS geofencing.
+
+4) No-show protocol:
+- On Arrived, start configurable countdown (5/10/15 min per company).
+- Provide Call/Text/Notify Dispatch actions.
+- Allow Mark No-Show only after countdown OR with override permission + reason.
+- Record evidence (call attempt, SMS attempt, note).
+
+5) Digital signature / proof of service:
+- Capture signature at pickup or dropoff (configurable).
+- Support “refused to sign” with reason.
+- Save signature artifact and attach to trip record.
+- Show signature status in trip details and invoices.
+
+6) Payroll by hour:
+- Auto time tracking using shift sessions + optional breaks.
+- Allow manual corrections by dispatch/admin with audit log.
+- Weekly payroll run: aggregate hours, compute gross pay using driver hourly rate, show summary and per-driver breakdown.
+- Add driver-facing Earnings tab with Today/Week totals and breakdown.
+
+7) Search + Smart Filters everywhere:
+- Add a consistent search bar component on all list pages (Trips, Patients, Drivers, Vehicles, Invoices, Timecards).
+- Search should filter locally with debounced input AND support server-side query for large datasets.
+- Add smart filter chips: Today, Tomorrow, Week, Status, Clinic, City, Needs Attention.
+- Persist filters in URL query params.
+
+8) Stripe payout wiring (prepare, not full launch):
+- Add DB fields to store stripeConnectedAccountId for drivers and stripeCustomerId for clinics/companies if not present.
+- Add UI placeholders + status (not configured / pending / active).
+- Do NOT break existing subscription billing.
+- Keep Upstash usage unchanged.
+
+APPLE SUBMISSION SAFETY:
+- Do NOT request “Always” location.
+- Ensure permission text is for “When In Use”.
+- Ensure the app works if user denies location (show limited mode and prompt to enable).
+
+VERIFICATION CHECKLIST:
+- Confirm: driver can start shift, accept trip only on shift, complete status workflow, and signature saved.
+- Confirm: geofence prompts appear only while Trip Center open.
+- Confirm: no-show flow enforces timer and logs evidence.
+- Confirm: weekly payroll run produces totals and earnings view updates.
+- Confirm: every trip card and any trip reference in invoices is clickable and opens trip details.
+- Confirm: search + filters work on Trips and Invoices at minimum.
+- Provide screenshots or console logs showing each requirement.

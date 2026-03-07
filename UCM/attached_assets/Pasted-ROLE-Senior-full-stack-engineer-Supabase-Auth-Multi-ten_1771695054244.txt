@@ -1,0 +1,69 @@
+ROLE: Senior full-stack engineer (Supabase Auth + Multi-tenant portals)
+PROJECT: UCM — Fix Magic Link redirect_to for Clinic subdomain
+EXECUTION MODE: SINGLE AGENT ONLY
+NO PARALLEL TASKS
+DO NOT RESET DB
+DO NOT BREAK EXISTING FLOWS
+MINIMAL DIFFS ONLY
+
+PROBLEM
+When creating a user + sending a magic link, the URL currently includes:
+redirect_to=https://app.unitedcaremobility.com/
+But CLINIC users must land on:
+https://clinic.unitedcaremobility.com/
+
+GOALS
+1) Ensure all CLINIC invites/magiclinks redirect to clinic.unitedcaremobility.com
+2) Keep other roles redirecting to the correct portal (app., dispatch., admin. if used)
+3) Add a single source of truth function that decides redirect base by role
+4) Add logs and a small test to prevent regression
+
+REQUIRED ENV VARS
+- APP_BASE_URL=https://app.unitedcaremobility.com
+- CLINIC_APP_URL=https://clinic.unitedcaremobility.com
+(Optional) DISPATCH_APP_URL, ADMIN_APP_URL
+
+TASKS
+A) Locate where user creation / invite / magic link is generated.
+Search for:
+- inviteUserByEmail
+- generateLink
+- magiclink
+- redirectTo / redirect_to
+- /auth/v1/verify
+- "type=magiclink"
+
+B) Implement helper:
+getPortalBaseUrlByRole(role: string): string
+Rules:
+- role === 'CLINIC' -> CLINIC_APP_URL
+- role === 'SUPER_ADMIN' -> APP_BASE_URL (or ADMIN_APP_URL if present)
+- role === 'DISPATCH' -> APP_BASE_URL (or DISPATCH_APP_URL)
+- default -> APP_BASE_URL
+
+C) When creating a CLINIC user, always pass redirectTo explicitly:
+If using inviteUserByEmail:
+supabase.auth.admin.inviteUserByEmail(email, { redirectTo: `${baseUrl}/` })
+
+If using generateLink:
+supabase.auth.admin.generateLink({
+  type: 'magiclink' or 'invite',
+  email,
+  options: { redirectTo: `${baseUrl}/` }
+})
+
+D) Also fix password setup flows:
+If you send password reset or set-password links, apply the same redirectTo logic.
+
+E) Add safety logging (server-side):
+Log role, chosen baseUrl, and whether redirectTo was passed.
+
+F) Add a minimal test or script:
+Create a CLINIC user in test and assert generated link contains:
+redirect_to=https://clinic.unitedcaremobility.com/
+
+OUTPUT
+- Files changed
+- Exact function used (inviteUserByEmail or generateLink)
+- Example generated URL for CLINIC and for non-CLINIC
+- How to verify in Supabase Auth logs

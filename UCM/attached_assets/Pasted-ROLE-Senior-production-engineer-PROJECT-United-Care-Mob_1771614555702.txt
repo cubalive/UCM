@@ -1,0 +1,51 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify end-to-end
+
+GOAL:
+Make strict multi-tenant separation so NOTHING mixes across companies/cities.
+Every driver, vehicle, trip, patient must show and enforce their Company + City.
+
+DATABASE REQUIREMENTS:
+1) Add/ensure REQUIRED columns:
+- drivers.companyId (FK companies.id), drivers.cityId (FK cities.id)
+- vehicles.companyId, vehicles.cityId
+- trips.companyId, trips.cityId
+- patients.companyId (transport company), patients.clinicId
+2) Add indexes on (companyId, cityId) for drivers/vehicles/trips/patients.
+3) Backfill:
+- drivers.companyId = users.companyId when users.driverId matches
+- vehicles.companyId from existing company assignment
+- trips.companyId derived from driver or patient company
+- If cannot infer, mark as unassigned and require admin assignment.
+4) Add validation constraints in code:
+- trip.companyId must match driver.companyId, vehicle.companyId, patient.companyId
+- trip.cityId must match driver.cityId and vehicle.cityId (or pickup city)
+
+API:
+- All list endpoints accept optional filters (companyId, cityId) for SUPER_ADMIN.
+- For non-superadmin roles, FORCE server-side WHERE companyId = session.user.companyId.
+- Update /api/me to return {companyId, companyName, cityId, cityName}.
+
+UI:
+- Add Company + City columns to Drivers and Vehicles tables.
+- Add Company and City filter dropdowns for SUPER_ADMIN.
+- Company admins auto-filtered (no ability to see other companies).
+- On create/edit Driver + Vehicle require Company + City.
+- On trip create/edit, block selection of driver/vehicle from other companies/cities.
+
+VERIFICATION (must do):
+- Create Company A and Company B, each with City X.
+- Create drivers/vehicles in both.
+- Confirm Company Admin of A cannot see B records.
+- Confirm trips cannot assign driver/vehicle from other company.
+- Confirm driver settings shows Company + City.
+
+DELIVERABLE:
+List exact files changed and prove with screenshots/logs that filters and enforcement work.

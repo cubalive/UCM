@@ -1,0 +1,68 @@
+ROLE: Senior production engineer
+PROJECT: UCM (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Clinic Live view uses a single-trip map (selected trip), showing a real Google Directions polyline + ETA. No multi-trip polylines on the same map.
+
+CLINIC UX (STRICT):
+1) Add Clinic page: Operations -> Live Trips
+2) Layout (mobile-first):
+   - Top segment control tabs: Live / Scheduled / Pending / Completed
+   - Left/top: Trip list (compact cards)
+   - Right/bottom: Map panel
+3) Behavior:
+   - Default: if Live list not empty, auto-select the first trip.
+   - Selecting a trip updates the map to ONLY that trip.
+   - If no live trips: hide map and show banner:
+     “No live routes for your clinic right now.”
+4) Data restrictions:
+   - Clinic user can only query trips where trips.clinic_id = current user's clinic_id.
+   - Clinic must never see other clinics' trips or fleet drivers.
+
+LIVE DEFINITION:
+Live trips are those with status in:
+ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, PICKED_UP,
+EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF, IN_PROGRESS
+
+MAP CONTENT (for selected trip only):
+- Driver marker (if driver has last_lat/lng and is currently active for this trip)
+- Pickup marker + Dropoff marker
+- Route polyline (Google Directions) based on:
+  - If status before PICKED_UP -> route from driver/current position to pickup
+  - If status PICKED_UP or later -> route from driver/current position to dropoff
+- Show ETA minutes and distance in a small overlay.
+
+ROUTE LOGIC:
+1) Persist route data on trips table:
+   route_polyline, duration_minutes, distance_miles, last_eta_minutes, last_eta_updated_at
+2) Add endpoint:
+   POST /api/trips/:id/route/recompute
+   AuthZ:
+     - driver assigned to trip OR dispatch OR clinic that owns trip
+   Input:
+     origin lat/lng (driver pos), destination based on trip status
+   Output:
+     polyline + eta + distance; persist on trip row
+3) Clinic reads persisted route.
+   - Clinic triggers recompute only if last_eta_updated_at older than 60s AND driver has a newer last_seen_at.
+   - Otherwise just display current persisted route.
+
+SMOOTH UI (NO FLICKER):
+- Reuse the same Google Map instance.
+- Reuse a single Polyline object and update its path.
+- Reuse marker objects; only update positions.
+- Do NOT unmount/remount map on refresh.
+
+VERIFY:
+- Clinic can see only its trips.
+- Selecting a trip updates map to that trip only.
+- Banner shows if no live trips.
+- Polyline is a real route (curves), not a straight line.
+- Updates are smooth with no flashing.

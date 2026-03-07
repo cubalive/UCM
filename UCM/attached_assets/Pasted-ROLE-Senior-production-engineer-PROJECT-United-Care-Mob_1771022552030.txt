@@ -1,0 +1,129 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+1) Allow deleting (archiving) vehicles and drivers with proper role permissions.
+2) Implement fast vehicle reassignment / driver swap for same-day failures:
+   - Dispatch + Super Admin can reassign vehicles and swap drivers safely without breaking trips.
+   - Keep audit trail.
+
+PERMISSIONS (server-side enforced):
+A) SUPER_ADMIN
+- Can archive/restore/hard-delete vehicles and drivers (hard-delete only from Archived)
+- Can reassign vehicles and swap drivers
+
+B) DISPATCH
+- Can archive vehicles and drivers (soft delete only)
+- Can reassign vehicles and swap drivers
+- Cannot hard-delete
+
+C) CLINIC_USER
+- No access to vehicles/drivers deletion
+- Only sees assigned drivers for their trips as already defined
+
+DATA MODEL (add if missing):
+1) Soft delete fields on vehicles and drivers:
+- deleted_at timestamptz null
+- deleted_by uuid null
+- delete_reason text null
+
+2) Assignment model (must exist or create minimal):
+- driver_vehicle_assignments
+  id uuid pk
+  city_id text
+  driver_id text/uuid
+  vehicle_id text/uuid
+  shift_date date
+  shift_type enum('am','pm','custom') default 'am'
+  start_time time null
+  end_time time null
+  status enum('active','reassigned','cancelled') default 'active'
+  created_at timestamptz default now()
+  created_by uuid
+  updated_at timestamptz default now()
+  updated_by uuid
+  notes text null
+
+3) Trips must reference:
+- trips.driver_id
+- trips.vehicle_id
+(keep existing)
+
+CORE FEATURES:
+
+PHASE 1 — ARCHIVE VEHICLES & DRIVERS
+- Add DELETE /api/vehicles/:id
+  allowed: super_admin or dispatch
+  action: soft delete (set deleted_at, deleted_by)
+- Add POST /api/vehicles/:id/restore (super_admin only)
+- Add POST /api/vehicles/:id/hard-delete (super_admin only, archived only)
+- Add DELETE /api/drivers/:id
+  allowed: super_admin or dispatch
+  action: soft delete
+- Add restore + hard-delete for drivers (super_admin only)
+
+Rules:
+- If a vehicle/driver has active future assignments or active trips:
+  - Do not hard delete
+  - For soft delete, require a reason and block new assignments
+  - Return clear warning list of affected assignments/trips
+
+PHASE 2 — QUICK REASSIGN / SWAP (DISPATCH + ADMIN)
+A) Reassign a vehicle for a driver for today
+- Endpoint: POST /api/dispatch/assignments/reassign-vehicle
+  body: { city_id, shift_date, driver_id, from_vehicle_id, to_vehicle_id, apply_to_trips: boolean }
+  rules:
+  - validate driver and vehicle belong to same city_id
+  - ensure to_vehicle is not already assigned for that shift_date (or handle override with warning + confirm)
+  - update driver_vehicle_assignments row: set vehicle_id = to_vehicle_id, updated_by, notes
+  - if apply_to_trips=true:
+     update all trips for that driver on shift_date that are not completed/cancelled to use new vehicle_id
+
+B) Swap drivers (driver A fails; driver B covers)
+- Endpoint: POST /api/dispatch/assignments/swap-driver
+  body: { city_id, shift_date, from_driver_id, to_driver_id, apply_to_trips: boolean, keep_vehicle: 'from'|'to'|'manual', manual_vehicle_id?: id }
+  rules:
+  - validate both drivers same city_id and available (not deleted, not on hold, not already maxed)
+  - update driver_vehicle_assignments:
+     move assignment from from_driver -> to_driver (status='reassigned', audit)
+  - if apply_to_trips=true:
+     update trips scheduled that day:
+       trips.driver_id = to_driver_id
+       vehicle_id depends on keep_vehicle setting
+  - log audit record of swap
+
+PHASE 3 — UI
+Dispatch/Admin:
+- Add “Assignments” screen for selected city + date:
+  - list drivers + vehicles assigned
+  - actions:
+     - Reassign Vehicle
+     - Swap Driver
+- On Driver detail: show today assignment + button “Reassign Vehicle”
+- On Trip detail (dispatch/admin): allow changing driver and vehicle with safeguards:
+  - only for non-completed trips
+  - update triggers patient notification later (separate feature)
+
+AUDIT LOGGING (required):
+- Write audit events for:
+  - vehicle archived/restored/hard-deleted
+  - driver archived/restored/hard-deleted
+  - vehicle reassigned
+  - driver swapped
+Include: actor_user_id, city_id, entity ids, timestamp, before/after snapshot (minimal JSON)
+
+VERIFY:
+- Dispatch can archive vehicle/driver; cannot hard delete (403)
+- Admin can archive/restore/hard delete from archived only
+- Reassign vehicle works for same-day and updates assignments (and trips if selected)
+- Swap driver works and updates trips if selected
+- City mismatch is blocked (400/403)
+- No crashes, lists exclude deleted by default
+Verify before exit.

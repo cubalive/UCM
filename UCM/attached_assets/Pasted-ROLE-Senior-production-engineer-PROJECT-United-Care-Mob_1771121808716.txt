@@ -1,0 +1,87 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset DB
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+TASK:
+Add Scheduled Trip "Go-Time" alerts + auto-ready navigation and allow driver to open the route in Google Maps / Waze / Apple Maps.
+
+GOALS:
+1) When a scheduled trip is approaching, notify the driver to leave now.
+2) Auto-generate the pickup route context when it becomes "go-time".
+3) Driver can choose preferred navigation app (Google Maps, Waze, Apple Maps) and launch it with the correct destination.
+4) Works on iOS + Android PWA.
+
+DEFINITIONS:
+- scheduled_time is the appointment/pickup time (use trips.pickup_time if present; fallback trips.scheduled_time).
+- "Go-Time" = scheduled pickup time minus lead_time_minutes (default 20, configurable per city).
+- Only notify for trips that are: status IN ('SCHEDULED','ASSIGNED') and driver_id matches logged-in driver.
+
+BACKEND:
+A) Add city setting (no DB reset; safe migration only):
+   - city_settings.driver_go_time_minutes INT DEFAULT 20
+   - city_settings.driver_go_time_repeat_minutes INT DEFAULT 5
+B) Add endpoint:
+   - GET /api/driver/upcoming-go-time
+     returns trips within next 60 minutes + computed go_time + whether already notified.
+C) Add lightweight notification log table OR reuse existing patterns (preferred minimal):
+   - driver_trip_alerts(trip_id, driver_id, kind, sent_at)
+   - kind: 'go_time'
+   - Ensure idempotent: only one go_time alert per trip; optional repeat every X minutes until accepted.
+D) Server enforces time calculations using city timezone.
+E) When go-time triggers, mark trip "ready_to_navigate" (virtual computed flag ok, no schema needed).
+
+DRIVER UI (Map-first screen):
+1) GO-TIME BANNER
+   - When within go-time window: show sticky banner:
+     "Scheduled pickup soon — time to leave" + countdown + [Start Route]
+   - If driver taps [Start Route]:
+     a) Set trip status to 'EN_ROUTE_TO_PICKUP' (only if allowed by workflow)
+     b) Show route card with destination = pickup_address (or pickup_lat/lng if available)
+2) NAVIGATION APP CHOOSER
+   - On [Start Route] or route card, show "Open in" buttons:
+     [Google Maps] [Waze] [Apple Maps]
+   - Save preference locally (localStorage) + allow "Always use this app" toggle.
+3) LINKS (must open correct app):
+   - Use coordinates if available else encoded address.
+   - Google Maps:
+     https://www.google.com/maps/dir/?api=1&destination=LAT,LNG
+     or destination=ENCODED_ADDRESS
+   - Apple Maps:
+     https://maps.apple.com/?daddr=LAT,LNG
+     or daddr=ENCODED_ADDRESS
+   - Waze:
+     https://waze.com/ul?ll=LAT,LNG&navigate=yes
+     or https://waze.com/ul?q=ENCODED_ADDRESS&navigate=yes
+   - After launching, keep route card visible in-app with:
+     [Arrived Pickup] [Picked Up] etc.
+
+AUTOMATION / POLLING:
+- Driver app polls /api/driver/upcoming-go-time every 60s while online.
+- If a go-time trip is detected and not yet alerted:
+  show in-app notification/toast + optional vibration on mobile (where supported).
+- Repeat reminder every driver_go_time_repeat_minutes until driver taps Start Route OR trip moves to terminal status.
+
+GUARDS:
+- Do not alert if trip is CANCELLED/NO_SHOW/COMPLETED.
+- Do not alert if driver is OFFLINE/logged out.
+- If pickup_lat/lng missing, still allow address-based navigation.
+- No clinic/dispatch sees extra driver data; this is driver-only.
+
+TESTS (must pass):
+1) Scheduled trip 20 min away → banner appears and one alert logged.
+2) Tap Start Route → opens selected nav app with correct destination.
+3) Preference persists across reload.
+4) No duplicate alerts within repeat window; idempotency enforced.
+5) Timezone correctness (Las Vegas) validated.
+6) Works on iOS Safari PWA and Android Chrome PWA.
+
+DELIVERABLE:
+- Backend endpoint + idempotent alert tracking
+- Driver UI banner + nav chooser + saved preference
+- Verified end-to-end.

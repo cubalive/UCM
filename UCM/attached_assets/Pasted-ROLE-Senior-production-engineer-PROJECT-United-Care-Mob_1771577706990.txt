@@ -1,0 +1,285 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only. No parallel work.
+- Do NOT reset database.
+- Do NOT recreate tables.
+- Do NOT change existing env var names unless absolutely required.
+- Extend existing system only. Minimal diffs.
+- Keep RBAC strict (SUPER_ADMIN > COMPANY_ADMIN/DISPATCH > CLINIC > DRIVER).
+- Every new feature must be accessible on mobile.
+
+GOAL
+1) Make the entire product “click-through”: anywhere a Trip/Invoice/Driver/Patient/Vehicle/Clinic appears, the user can click and land on the right detail view (or open a detail drawer) with context.
+2) Add global search + smart filters to every list page (Super Admin and Clinic scopes).
+3) Implement weekly automatic billing flows + Stripe payments:
+   - Clinics/Hospitals pay Companies via Stripe
+   - Private patients pay Companies via Stripe
+   - Companies pay Drivers hourly via Stripe
+4) Use Upstash (Redis) for background job coordination (locks, idempotency, job state) and (if available) scheduled triggers; otherwise implement a safe in-app scheduler that runs on production.
+
+SCOPE (PAGES / MODULES)
+- Trips (all tabs, including Completed)
+- Invoices + Billing (Weekly Invoices + Clinic Invoices)
+- Timecards + Time & Pay Payroll
+- Drivers / Vehicles / Patients / Clinics lists
+- Ops Health (already clickable) must be consistent with the same linking system
+- Any “Recent Activity” cards (dashboard)
+
+DELIVERABLES
+A) Universal “Click-Through Navigation System”
+B) Global Search + Smart Filters Framework
+C) Billing Automation + Stripe Payment Architecture (company ⇄ clinic/private, company ⇄ driver hourly)
+D) Upstash-backed job coordination + idempotency
+E) Verification checklist + screenshots/notes of what changed
+
+========================================
+A) UNIVERSAL CLICK-THROUGH NAVIGATION
+========================================
+Implement a consistent pattern:
+
+1) Entity routes (if not already present):
+- /trips/:tripId
+- /invoices/:invoiceId
+- /drivers/:driverId
+- /patients/:patientId
+- /vehicles/:vehicleId
+- /clinics/:clinicId
+- /payroll/runs/:runId
+- /timecards/:timecardId (or drawer view if you prefer)
+If any of these pages don’t exist, create them with minimal UI: header + key fields + related entities list.
+
+2) “EntityLink” component:
+- <EntityLink type="trip" id="..." label="01UCM004766" />
+- Works as:
+  - on desktop: navigates to detail page
+  - on mobile: can open a Drawer/Sheet (preferred for speed) OR navigate (either is fine, but be consistent)
+- Must preserve current filters/search state in the URL so Back returns user to same list state.
+
+3) Make list rows/cards clickable (not just the “eye” icon):
+- Trips cards: clicking anywhere except action buttons opens trip details.
+- Invoice rows/cards: clicking opens invoice details + shows line items + linked trips clickable.
+- Completed trips in Billing/Invoices must show as clickable chips/list items; clicking opens Trip details.
+
+4) Deep-link from error/health cards:
+- Ops Health cards already done; apply the same mechanism everywhere:
+  - Clicking an error state opens detail drawer with:
+    - full message
+    - last seen timestamp
+    - affected count
+    - “Go to module” button
+  - And it navigates with query params to auto-apply the relevant filters.
+Example:
+- /trips?status=completed&alertCode=late_pickups&severity=critical
+- /imports?status=failed&jobId=...
+- /system?section=sms&severity=critical
+
+5) “Related entity” sections:
+- Trip detail shows: patient, driver, vehicle, clinic, invoice (if any) all clickable.
+- Invoice detail shows: clinic/company, time window, list of trips all clickable.
+- Payroll Run detail shows: driver list, hours, approvals, payout status all clickable.
+
+ACCEPTANCE TESTS (A)
+- From Dashboard “Recent Activity”: tap a trip → opens trip detail.
+- From Trips list: tap any card → opens trip detail (actions still work).
+- From Invoice detail: tap a trip line item → opens that trip.
+- From Payroll Run: tap a driver → opens driver detail.
+- From Ops Health “SMS Not Configured”: tap → opens System Status tab + Twilio section details.
+
+========================================
+B) GLOBAL SEARCH + SMART FILTERS
+========================================
+Implement a reusable “ListToolbar” framework used on every list page:
+- Search input (debounced 250–400ms)
+- Filters button opens a Drawer/Sheet with advanced filters
+- Active filter chips shown under the toolbar; each chip removable
+- “Clear all” button
+- Persist state in URL query params (so shareable links work)
+
+1) Search behavior
+- Server-side filtering whenever possible (avoid loading thousands client-side).
+- Search fields per entity:
+  - Trips: trip code, patient name, phone (if present), pickup/dropoff addresses, clinic name, driver name, status
+  - Invoices: invoice number, clinic name, company name, date range, status (draft/sent/paid/void)
+  - Drivers: name, phone/email, company, city, status, vehicle assigned
+  - Vehicles: plate, vin, make/model, company, city, type (sedan/wheelchair)
+  - Patients: name, phone, address, clinic, company, city
+  - Clinics: name, address, city, company relationship
+  - Timecards: driver, date range, status (pending/approved/paid)
+  - Payroll runs: date range, status (draft/approved/paid), driver
+
+2) Smart filters (minimum set)
+- Shared:
+  - Company (required when user is scoped)
+  - City
+  - Date range (where applicable)
+  - Status (entity-specific)
+- Trips:
+  - Status: unassigned/scheduled/active/completed/cancelled/no-show
+  - Source: clinic/internal/private
+  - Assigned driver
+  - Vehicle type required (wheelchair, etc.)
+  - Late pickup flag, no-show flag
+- Invoices:
+  - clinic, date range, payment status, stripe status
+- Payroll:
+  - driver, date range, approved-only, paid-only, missing rate
+
+3) UX requirement
+- Every list page must have:
+  - visible search bar
+  - Filters drawer
+  - Sort (at least: newest/oldest, and for trips: pickup time)
+
+ACCEPTANCE TESTS (B)
+- Trips page shows Search + Filters; typing “01UCM00” filters immediately.
+- Opening /trips?status=completed&source=clinic restores UI state.
+- Invoices page can filter by clinic + date range.
+- Drivers list search “Driver108” returns that driver quickly.
+
+========================================
+C) BILLING AUTOMATION + STRIPE PAYMENTS (WEEKLY)
+========================================
+You must design this cleanly (no hacks), but implement in incremental safe steps.
+
+BUSINESS RULES
+- Clinics/Hospitals pay Companies weekly (invoice-based).
+- Private patients can pay per trip or weekly invoice (configurable per company).
+- Drivers are paid hourly (based on approved timecards) by the Company weekly.
+- Platform (UCM) may take a configurable fee % (already exists “Platform Fees” screen) from Stripe payments.
+
+STRIPE ARCHITECTURE (recommended)
+Use Stripe Connect:
+- Each Company = Stripe Connect Account (Express or Standard)
+- Each Driver who receives payouts = Stripe Connect Account (Express)
+- Clinics/Private patients pay via Checkout/Invoice/PaymentIntent.
+- Money flow:
+  - Clinic → (Stripe) → Company (destination charge or separate charge+transfer)
+  - Company → Driver payout (transfer to driver connected account, or Stripe payouts via driver account)
+- Platform fee:
+  - application_fee_amount (or application_fee_percent if using Invoices with Connect)
+  - Track fees in DB for audit.
+
+DATA MODEL (additive, no breaking changes)
+Create new tables if they don’t exist (Drizzle migrations):
+1) billing_profiles
+- id, company_id, billing_cycle ('weekly'), timezone, default_terms_days, enabled
+2) clinic_billing_configs
+- id, clinic_id, company_id, weekly_rate_rules (json), invoice_day_of_week, enabled
+3) invoices (if already exists, extend carefully)
+- add: billing_period_start, billing_period_end, stripe_invoice_id, stripe_payment_intent_id, payment_status, totals, currency
+4) invoice_line_items
+- id, invoice_id, trip_id nullable, description, qty, unit_amount, amount, metadata json
+5) driver_pay_profiles
+- id, driver_id, company_id, hourly_rate, overtime_rules json, enabled
+6) payroll_runs
+- id, company_id, period_start, period_end, status (draft/approved/paid), totals
+7) payroll_items
+- id, payroll_run_id, driver_id, hours, rate, amount, stripe_transfer_id, payout_status
+8) stripe_accounts
+- id, owner_type ('company'|'driver'), owner_id, stripe_account_id, onboarding_status, charges_enabled, payouts_enabled
+9) jobs
+- id, type, scope, status, run_at, started_at, finished_at, error, attempts, idempotency_key
+
+WEEKLY AUTOMATION
+1) Weekly Clinic Invoices
+- For each company that has billing enabled:
+  - For each clinic with weekly billing enabled:
+    - Determine billing period (Mon–Sun or configurable)
+    - Collect billable trips in that range (completed, not already invoiced)
+    - Generate invoice draft in DB + line items referencing trips
+    - Provide Preview Trips list (already exists UI) but also allow “Auto-generate”
+2) Payment Collection
+- Provide “Pay Now” for clinics:
+  - If using Stripe Invoices: create Stripe invoice with line items, finalize, send invoice OR create hosted invoice URL.
+  - If using Checkout Session: create session for invoice amount and redirect.
+- Store stripe ids + webhook updates (paid/failed).
+3) Private Patient Payments
+- For trips flagged as private-pay:
+  - On trip completion, generate a payable item (single trip invoice or add to weekly private invoice).
+  - Offer Pay link to patient (SMS/email) later; store payment status.
+4) Driver Payroll (Hourly)
+- Timecards are already present: rely on “Approved” entries.
+- Weekly payroll run:
+  - Period start/end
+  - Aggregate approved hours by driver
+  - Calculate amounts using driver hourly_rate + rules
+  - Create payroll_run + payroll_items
+- Payout via Stripe:
+  - Company must have Connect enabled and sufficient balance OR use separate charge model.
+  - For initial version: implement “Mark as Paid” + “Send payout” (Stripe transfer) when driver has connected account.
+  - Track failures and show in Ops Health.
+
+WEBHOOKS + SECURITY
+- Implement Stripe webhooks endpoint:
+  - invoice.paid, invoice.payment_failed (if using invoices)
+  - checkout.session.completed (if using checkout)
+  - account.updated (connect onboarding)
+- Verify Stripe signature.
+- RBAC:
+  - SUPER_ADMIN can see all.
+  - Company Admin sees only their company billing + payroll.
+  - Clinic sees only their invoices and pay links (no company-wide data).
+  - Driver sees only their timecards + payroll history.
+
+ACCEPTANCE TESTS (C)
+- Company admin can enable billing profile and connect Stripe account (onboarding link).
+- Clinic billing: generate weekly invoice draft → preview trips list → finalize → Pay Now opens Stripe hosted page.
+- After payment, invoice status updates to PAID via webhook.
+- Payroll: generate payroll run from approved timecards → shows per-driver hours & amount → payout attempts create Stripe transfers for drivers who completed onboarding.
+
+========================================
+D) UPSTASH (REDIS) FOR JOBS + IDEMPOTENCY
+========================================
+Use Upstash Redis for:
+- distributed locks (avoid double-running weekly invoice generation)
+- idempotency keys (stripe calls, invoice generation)
+- job state caching (optional)
+
+IMPLEMENTATION
+1) Add env vars (do not break existing):
+- UPSTASH_REDIS_REST_URL
+- UPSTASH_REDIS_REST_TOKEN
+(If these already exist, use them.)
+
+2) Job runner
+- Implement a small job system:
+  - enqueueJob(type, payload, runAt, idempotencyKey)
+  - runDueJobs() runs periodically (every 1–5 minutes) in production
+- Use Redis lock: lock:job_runner with TTL 60s so only one instance runs.
+- Each job row in DB stores attempts and last error.
+- If Upstash QStash is available in this project, you may add it later; for now Redis lock + DB jobs is enough.
+
+3) Ops Health integration
+- Show Billing Jobs + Payroll Jobs status and failure rate
+- Clicking takes user to job list filtered by failed jobs.
+
+ACCEPTANCE TESTS (D)
+- Trigger “Run weekly billing now” → creates a job, locks prevent duplicates.
+- Repeated clicks do not create duplicate invoices (idempotent).
+- Failures appear in Ops Health and are clickable to the job detail.
+
+========================================
+E) VERIFICATION + RETURN FORMAT
+========================================
+Before finishing:
+1) Run typecheck + build.
+2) Add/extend minimal unit tests for:
+- query param parsing for filters
+- invoice generation idempotency
+3) Manual verification steps with short notes.
+
+RETURN TO ME (as your final output)
+1) A bullet list of every page updated with “what is now clickable”.
+2) The list of new/updated routes.
+3) The list of added filter/search capabilities by module.
+4) The DB tables added/changed (with migration names).
+5) The Stripe flow chosen (Invoices vs Checkout) and why.
+6) Proof it works:
+   - console logs or screenshots notes
+   - example URLs with query params that deep-link correctly.
+
+IMPORTANT
+- Do not remove working features.
+- Do not remove existing Stripe subscription management; extend it to support weekly billing and payroll.
+- Keep UI consistent with existing Tailwind/shadcn patterns (Sheet/Drawer, Buttons, Badges).

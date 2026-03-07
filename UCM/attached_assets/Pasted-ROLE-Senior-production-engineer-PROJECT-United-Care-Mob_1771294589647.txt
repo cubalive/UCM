@@ -1,0 +1,192 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+TASK (PHASE 5 — SHIFT SWAP: DRIVER↔DRIVER + DISPATCH FINAL APPROVAL)
+
+Goal:
+Implement a full “Shift Swap” workflow:
+1) Driver A requests a swap with Driver B for a specific day/shift.
+2) Driver B can ACCEPT or DECLINE.
+3) If accepted, Dispatch must APPROVE/REJECT final.
+4) Both drivers get email notifications at each stage.
+5) Full RBAC + company isolation + audit trail.
+
+-------------------------------------------------------
+A) DATABASE
+-------------------------------------------------------
+Create table: driver_shift_swap_requests
+
+Columns:
+- id (serial/uuid)
+- company_id (nullable; follow your multi-company convention)
+- city_id (nullable)
+- requester_driver_id (FK drivers)          // Driver A
+- target_driver_id (FK drivers)             // Driver B
+- shift_date (date, required)
+- shift_start (time, nullable)
+- shift_end (time, nullable)
+- reason (text, required)
+- status enum:
+  ("PENDING_TARGET","DECLINED_TARGET","ACCEPTED_TARGET","PENDING_DISPATCH","APPROVED_DISPATCH","REJECTED_DISPATCH","CANCELLED")
+- target_decision_note (text, nullable)
+- dispatch_user_id (FK users, nullable)
+- dispatch_decision_note (text, nullable)
+- created_at, updated_at
+- target_decided_at (timestamp, nullable)
+- dispatch_decided_at (timestamp, nullable)
+
+Indexes:
+- (target_driver_id, status)
+- (requester_driver_id, created_at)
+- (company_id, status)
+- (shift_date)
+
+Optional anti-abuse:
+- unique constraint to prevent duplicates:
+  (requester_driver_id, target_driver_id, shift_date, shift_start, shift_end, status in pending states)
+
+-------------------------------------------------------
+B) BACKEND API (RBAC enforced server-side)
+-------------------------------------------------------
+DRIVER (requester):
+1) Create swap request
+POST /api/driver/swaps
+Body:
+{
+  "targetDriverId": 123,
+  "shiftDate": "2026-02-20",
+  "shiftStart": "08:00",
+  "shiftEnd": "16:00",
+  "reason": "Medical appointment"
+}
+Rules:
+- requester must be DRIVER
+- target driver must be in same company (and city if enforced)
+- status = PENDING_TARGET
+Audit: "DRIVER_SWAP_REQUEST_CREATED"
+
+2) Cancel own swap (only before dispatch decision)
+POST /api/driver/swaps/:id/cancel
+Allowed statuses:
+- PENDING_TARGET, ACCEPTED_TARGET, PENDING_DISPATCH
+Set status=CANCELLED
+Audit: "DRIVER_SWAP_REQUEST_CANCELLED"
+
+DRIVER (target):
+3) List swap requests awaiting target
+GET /api/driver/swaps/inbox?status=pending|all
+Returns only where target_driver_id = me
+
+4) Target decision
+POST /api/driver/swaps/:id/decide
+Body:
+{ "decision":"ACCEPT"|"DECLINE", "note":"..." }
+Rules:
+- Only target driver can decide
+- Only if status=PENDING_TARGET
+If DECLINE:
+  status=DECLINED_TARGET, target_decided_at set
+  Audit: "DRIVER_SWAP_DECLINED"
+If ACCEPT:
+  status=PENDING_DISPATCH (or ACCEPTED_TARGET then immediately PENDING_DISPATCH)
+  target_decided_at set
+  Audit: "DRIVER_SWAP_ACCEPTED"
+
+DISPATCH:
+5) Dispatch queue
+GET /api/dispatch/swaps?status=pending|all&cityId=...
+Pending = PENDING_DISPATCH
+
+6) Dispatch final decision
+POST /api/dispatch/swaps/:id/decide
+Body:
+{ "decision":"APPROVE"|"REJECT", "note":"..." }
+Rules:
+- Only if status=PENDING_DISPATCH
+If APPROVE:
+  status=APPROVED_DISPATCH
+  dispatch_user_id, dispatch_decided_at set
+  Audit: "DISPATCH_SWAP_APPROVED"
+If REJECT:
+  status=REJECTED_DISPATCH
+  dispatch_user_id, dispatch_decided_at set
+  Audit: "DISPATCH_SWAP_REJECTED"
+
+IMPORTANT (integration):
+- If your schedule system exists: apply the swap to schedule entries on dispatch APPROVE.
+- If schedule system does NOT exist yet: still complete workflow + mark as approved and show “Approved (manual schedule update)” note. Do NOT block approval.
+
+-------------------------------------------------------
+C) EMAIL NOTIFICATIONS (Resend)
+-------------------------------------------------------
+On create:
+- Email target driver: "UCM — Shift Swap Request"
+On target accept/decline:
+- Email requester: accepted/declined
+On dispatch approve/reject:
+- Email both drivers with final decision + note + date/time
+
+Email links:
+- driver portal: https://driver.unitedcaremobility.com/schedule (or swaps page)
+Store minimal delivery logging (log + audit is enough if you prefer).
+
+-------------------------------------------------------
+D) FRONTEND — DRIVER PORTAL UI
+-------------------------------------------------------
+Add section: Schedule → “Swaps”
+Tabs:
+1) Create Swap
+   - Select shift date
+   - Select target driver (dropdown filtered to same company/city)
+   - Reason
+   - Submit
+2) My Requests (as requester)
+   - Status + target driver + date/time
+   - Cancel button if allowed
+3) Inbox (as target)
+   - Pending requests with Accept/Decline + optional note
+
+UX:
+- Clear status badges:
+  Pending driver, Declined, Pending dispatch, Approved, Rejected, Cancelled
+
+-------------------------------------------------------
+E) FRONTEND — DISPATCH UI
+-------------------------------------------------------
+Add page: /dispatch-swaps (dispatch only)
+- Table: Date, Requester, Target, Reason, Status
+- Approve/Reject modal with note required on reject
+
+-------------------------------------------------------
+F) SECURITY / STABILITY
+-------------------------------------------------------
+- Company isolation enforced in ALL queries
+- Driver cannot view swaps not involving them
+- Target cannot decide if not target
+- Dispatch only sees their company/city
+- Rate limit create swap: 10/day per driver
+- Full audit logs for all state changes
+
+-------------------------------------------------------
+G) TEST CHECKLIST (must pass)
+-------------------------------------------------------
+1) Driver A creates swap -> target gets email, status=PENDING_TARGET
+2) Driver B sees in inbox -> accepts -> requester email, status=PENDING_DISPATCH
+3) Dispatch approves -> both email, status=APPROVED_DISPATCH
+4) Target declines path -> status=DECLINED_TARGET, no dispatch action possible
+5) Cancel path works before dispatch decision
+6) Cross-company access blocked (403)
+7) Logged out -> 401
+
+DELIVERABLES:
+- Files changed
+- Migrations created
+- Endpoint list + sample payloads
+- Verified test results

@@ -1,0 +1,86 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- Sequential execution only
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+GOAL
+Implement a production-grade "System Metrics" tab for SUPER_ADMIN only.
+Route already exists: /metrics (SuperAdminRoute -> MetricsPage). Make it fully functional.
+
+SCOPE (must deliver all)
+1) Backend: create a secure metrics API under /api/admin/metrics (JWT auth required; SUPER_ADMIN only)
+2) Frontend: build MetricsPage UI that polls metrics every 10s and displays status cards + tables
+3) Provide export actions: Download JSON + Export CSV for key tables
+4) Add health checks that reflect real runtime status (not hardcoded)
+
+BACKEND REQUIREMENTS
+A) Add endpoints:
+- GET /api/admin/metrics/summary
+- GET /api/admin/metrics/requests (last 15 min buckets)
+- GET /api/admin/metrics/system (process/runtime)
+- GET /api/admin/metrics/ws (websocket status)
+- GET /api/admin/metrics/db (db ping + latency)
+- GET /api/admin/metrics/jobs (eta engine + auto-assign scheduler status)
+- GET /api/admin/metrics/counts (today counts: trips, drivers online, active clinics, etc.)
+
+B) Auth:
+- Use existing authMiddleware + requireRole("SUPER_ADMIN") OR equivalent super-admin gate.
+- No public exposure. Return 403 for non-super-admin.
+
+C) Data sources:
+- Use existing recordRequest metric collector in ./lib/requestMetrics if present.
+  If it currently stores in-memory metrics, expose them via API.
+- If ws/realtime has state, expose a small status object (connected clients, last heartbeat).
+- DB ping: run a cheap SELECT 1 and measure latency.
+- Jobs: instrument startEtaEngine() and startVehicleAutoAssignScheduler() to update an in-memory heartbeat:
+  { running: true, lastTickAt: ISO, lastError?: string }.
+  Add tick every N seconds inside each scheduler loop/interval without changing job logic.
+
+D) Output format (strict):
+/summary returns:
+{
+  ok: boolean,
+  ts: ISO,
+  env: "production"|"development",
+  version?: string,
+  uptimeSec: number,
+  requests: { rpm: number, p50ms: number, p95ms: number, errors5xx: number, errors4xx: number },
+  db: { ok: boolean, latencyMs: number },
+  ws: { ok: boolean, clients: number },
+  jobs: { eta: { ok: boolean, lastTickAt: ISO|null, lastError: string|null }, autoAssign: { ok: boolean, lastTickAt: ISO|null, lastError: string|null } },
+  counts: { tripsToday: number, tripsInProgress: number, driversOnline: number, activeClinics: number }
+}
+
+FRONTEND REQUIREMENTS (MetricsPage)
+- Accessible from sidebar only for SUPER_ADMIN (already gated by route).
+- Layout:
+  1) Top row: status cards (API ok, DB ok/latency, WS ok/clients, ETA ok, AutoAssign ok, RPM, p95)
+  2) Middle: Requests chart/table (15-min window buckets)
+  3) Bottom: Counts + Export buttons (JSON + CSV)
+- Poll /summary every 10s, and refresh detailed endpoints on demand.
+- Handle failures gracefully with retry button (use existing ErrorPanel pattern).
+
+EXPORTS
+- Download JSON: combined object (summary + requests + counts + jobs)
+- Export CSV: requests buckets + counts row
+
+VERIFICATION (mandatory before finishing)
+1) Login as SUPER_ADMIN -> /metrics loads and shows cards populated (not placeholders)
+2) Non-super-admin -> /metrics route blocked OR API returns 403
+3) /api/admin/metrics/summary returns correct structure
+4) DB latency measured (number >0)
+5) Jobs heartbeat updates over time (lastTickAt changes)
+6) Export JSON downloads valid JSON
+7) Export CSV downloads valid CSV
+
+DO NOT BREAK EXISTING ROUTES
+No changes to /api/public behavior. No changes to driver subdomain auth.
+
+DELIVERABLE
+Commit changes with clear file list + brief notes on where job heartbeat lives and where requestMetrics is read.

@@ -1,0 +1,252 @@
+import { useState, useEffect, useRef } from "react";
+import { useAuth } from "@/lib/auth";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
+import { apiFetch } from "@/lib/api";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { MessageSquare, Send, Plus, Loader2, AlertTriangle } from "lucide-react";
+import { getStoredCompanyScopeId } from "@/lib/api";
+
+export default function SupportChatPage() {
+  const { token, user } = useAuth();
+  const { toast } = useToast();
+  const [selectedThread, setSelectedThread] = useState<number | null>(null);
+  const [newMessage, setNewMessage] = useState("");
+  const [newSubject, setNewSubject] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const isClinic = user?.role === "VIEWER" || user?.role === "CLINIC_USER";
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const hasCompanyScope = isSuperAdmin ? !!getStoredCompanyScopeId() : true;
+
+  if (!isClinic && isSuperAdmin && !hasCompanyScope) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="support-no-company">
+        <AlertTriangle className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Company Scope Required</h2>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          As a Super Admin, please select a company from the Companies page first to access support threads.
+        </p>
+      </div>
+    );
+  }
+
+  const threadsQuery = useQuery<any[]>({
+    queryKey: isClinic ? ["/api/clinic/support/thread"] : ["/api/company/support/threads"],
+    queryFn: () => apiFetch(isClinic ? "/api/clinic/support/thread" : "/api/company/support/threads", token),
+    enabled: !!token,
+    refetchInterval: 10000,
+  });
+
+  const messagesQuery = useQuery<any>({
+    queryKey: isClinic
+      ? ["/api/clinic/support/thread", selectedThread, "messages"]
+      : ["/api/company/support/threads", selectedThread, "messages"],
+    queryFn: () =>
+      apiFetch(
+        isClinic
+          ? `/api/clinic/support/thread/${selectedThread}/messages`
+          : `/api/company/support/threads/${selectedThread}/messages`,
+        token
+      ),
+    enabled: !!token && selectedThread !== null,
+    refetchInterval: 5000,
+  });
+
+  const createThreadMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/clinic/support/thread", token, {
+        method: "POST",
+        body: JSON.stringify({ subject: newSubject || "Support Request" }),
+      }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/support/thread"] });
+      setSelectedThread(data.id);
+      setNewSubject("");
+      toast({ title: "Support thread created" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: (body: string) => {
+      const url = isClinic
+        ? "/api/clinic/support/message"
+        : `/api/company/support/threads/${selectedThread}/message`;
+      return apiFetch(url, token, {
+        method: "POST",
+        body: JSON.stringify(isClinic ? { threadId: selectedThread, body } : { body }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: isClinic
+          ? ["/api/clinic/support/thread", selectedThread, "messages"]
+          : ["/api/company/support/threads", selectedThread, "messages"],
+      });
+      setNewMessage("");
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const closeThreadMutation = useMutation({
+    mutationFn: (threadId: number) =>
+      apiFetch(`/api/company/support/threads/${threadId}/close`, token, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/support/threads"] });
+      toast({ title: "Thread closed" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messagesQuery.data]);
+
+  const threads = threadsQuery.data || [];
+  const messages = messagesQuery.data?.messages || [];
+  const currentThread = messagesQuery.data?.thread;
+
+  const handleSend = () => {
+    if (!newMessage.trim()) return;
+    sendMessageMutation.mutate(newMessage.trim());
+  };
+
+  return (
+    <div className="p-4 max-w-5xl mx-auto" data-testid="support-chat-page">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
+        <h1 className="text-2xl font-bold" data-testid="text-page-title">
+          {isClinic ? "Support" : "Support Threads"}
+        </h1>
+        {isClinic && (
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Subject (optional)"
+              value={newSubject}
+              onChange={(e) => setNewSubject(e.target.value)}
+              className="w-48"
+              data-testid="input-new-subject"
+            />
+            <Button
+              onClick={() => createThreadMutation.mutate()}
+              disabled={createThreadMutation.isPending}
+              data-testid="button-new-thread"
+            >
+              {createThreadMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+              New Thread
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-[calc(100vh-12rem)]">
+        <Card className="md:col-span-1 overflow-hidden flex flex-col">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-base">Threads</CardTitle>
+            <MessageSquare className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="flex-1 overflow-y-auto p-2 space-y-1">
+            {threadsQuery.isLoading ? (
+              <div className="space-y-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+            ) : threads.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-2" data-testid="text-no-threads">No support threads yet.</p>
+            ) : (
+              threads.map((t: any) => (
+                <button
+                  key={t.id}
+                  onClick={() => setSelectedThread(t.id)}
+                  className={`w-full text-left p-3 rounded-md transition-colors ${
+                    selectedThread === t.id ? "bg-accent" : "hover-elevate"
+                  }`}
+                  data-testid={`button-thread-${t.id}`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-medium text-sm truncate">{t.clinicName || t.subject}</span>
+                    <Badge variant={t.status === "OPEN" ? "default" : "secondary"} className="text-xs">
+                      {t.status}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 truncate">{t.subject}</p>
+                  <p className="text-xs text-muted-foreground">{new Date(t.lastMessageAt).toLocaleString()}</p>
+                </button>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="md:col-span-2 overflow-hidden flex flex-col">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+            <CardTitle className="text-base">
+              {currentThread ? currentThread.subject : "Select a thread"}
+            </CardTitle>
+            {!isClinic && currentThread?.status === "OPEN" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => closeThreadMutation.mutate(currentThread.id)}
+                disabled={closeThreadMutation.isPending}
+                data-testid="button-close-thread"
+              >
+                Close Thread
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
+            {selectedThread === null ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-select-thread">Select a thread to view messages.</p>
+            ) : messagesQuery.isLoading ? (
+              <div className="space-y-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+            ) : messages.length === 0 ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-no-messages">No messages yet. Send the first message.</p>
+            ) : (
+              messages.map((m: any) => (
+                <div
+                  key={m.id}
+                  className={`flex ${m.senderRole === "CLINIC" ? "justify-end" : "justify-start"}`}
+                  data-testid={`message-${m.id}`}
+                >
+                  <div
+                    className={`max-w-[75%] rounded-md p-3 ${
+                      m.senderRole === "CLINIC"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
+                    }`}
+                  >
+                    <p className="text-xs opacity-70 mb-1">
+                      {m.senderRole === "CLINIC" ? "You" : "Dispatch"} - {new Date(m.createdAt).toLocaleTimeString()}
+                    </p>
+                    <p className="text-sm whitespace-pre-wrap">{m.body}</p>
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </CardContent>
+          {selectedThread !== null && currentThread?.status === "OPEN" && (
+            <div className="p-3 border-t flex gap-2">
+              <Input
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type a message..."
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+                data-testid="input-message"
+              />
+              <Button
+                onClick={handleSend}
+                disabled={!newMessage.trim() || sendMessageMutation.isPending}
+                data-testid="button-send-message"
+              >
+                {sendMessageMutation.isPending ? <Loader2 className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+              </Button>
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}

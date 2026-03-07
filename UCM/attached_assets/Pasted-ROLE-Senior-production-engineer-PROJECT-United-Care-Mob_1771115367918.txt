@@ -1,0 +1,134 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Add a complete "Invoice / Billing" section inside the Trip Details screen when a trip is in a terminal status (COMPLETED / CANCELLED / NO_SHOW), with full backend support and strict permissions. Use existing DB columns:
+- trips.invoice_id (FK to invoices.id)
+- invoices.trip_id (FK to trips.id)
+- invoices fields: clinic_id, trip_id, patient_name, service_date, amount, status, pdf_url, notes, created_at
+
+SCOPE:
+1) Trip Details UI (Dispatch + Super Admin)
+2) Trip Details UI (Clinic user)
+3) Backend endpoints + validation + audit log events
+
+RULES:
+- Do NOT modify DB schema.
+- Do NOT introduce breaking changes.
+- Enforce role permissions server-side.
+- If trip is terminal, trip editing remains locked (keep existing lock logic).
+
+---------------------------------------
+PHASE 1 — BACKEND: INVOICE ENDPOINTS
+---------------------------------------
+Implement these endpoints (or equivalent routes if your server structure differs):
+
+A) GET /api/trips/:id/invoice
+- Returns invoice if trips.invoice_id exists OR invoice found by invoices.trip_id = trip.id
+- If found by trip_id but trips.invoice_id is null, set trips.invoice_id to that invoice.id (safe backfill)
+
+B) POST /api/trips/:id/invoice (Create/Attach)
+- Allowed roles: SUPER_ADMIN, DISPATCH
+- Preconditions:
+  - Trip must be COMPLETED (only completed can generate billable invoice)
+  - Trip must belong to same company_id as user (if enforced)
+- Behavior:
+  - If invoice already exists, return it (idempotent)
+  - Else create invoices row using:
+    - clinic_id from trip.clinic_id (required)
+    - trip_id = trip.id
+    - patient_name from patients first+last (join via trip.patient_id)
+    - service_date from trip.scheduled_date (or completed_at date if available; pick one and document)
+    - amount from request body (required > 0)
+    - status default 'pending'
+    - notes optional
+  - Set trips.invoice_id = created invoice id
+  - Write audit_log entry: action='invoice_created', entity='trip', entity_id=trip.id, details includes invoice id and amount
+
+C) PATCH /api/invoices/:id
+- Allowed roles: SUPER_ADMIN, DISPATCH
+- Update: amount, status (pending/approved/paid), notes
+- Write audit_log entry: action='invoice_updated', entity='invoice', entity_id=invoice.id
+
+D) POST /api/invoices/:id/pdf
+- Allowed roles: SUPER_ADMIN, DISPATCH, CLINIC_USER (clinic can download their own invoice PDF)
+- If pdf_url already exists and file exists, return url.
+- Otherwise generate the PDF using the existing PDFKit implementation already added in billing.
+- Store resulting pdf_url back to invoices.pdf_url.
+- Return download url.
+
+E) Security for clinic:
+- Clinic user can only access invoices where invoice.clinic_id = users.clinic_id (or from auth context).
+- Never allow clinic to update invoice fields (read/download only).
+
+---------------------------------------
+PHASE 2 — UI: TRIP DETAILS "INVOICE" PANEL
+---------------------------------------
+Add a new section in Trip Details page:
+
+Visibility rules:
+- If trip.status != COMPLETED: show Invoice section in read-only mode (or hidden). For CANCELLED/NO_SHOW show "Not billable".
+- If COMPLETED: show Invoice section always.
+- If invoice exists: show invoice summary + actions.
+- If no invoice: show creation UI for Dispatch/SuperAdmin; show "Not generated yet" for clinic.
+
+UI elements (Dispatch/SuperAdmin):
+- Invoice Status badge (pending/approved/paid)
+- Amount input (currency)
+- Notes textarea
+- Buttons:
+  1) Create Invoice (only if none exists)
+  2) Save Changes (PATCH)
+  3) Generate/Download PDF (calls /pdf)
+- Show invoice id + created date.
+- Disable all invoice editing if user role is not allowed.
+
+UI elements (Clinic user):
+- Read-only invoice summary:
+  - Amount, status, service_date, patient_name
+  - Button: Download PDF (if allowed; otherwise show "PDF not generated")
+- No ability to edit amount/status/notes.
+- No full route details (keep clinic privacy scope).
+
+Add clear empty states:
+- COMPLETED trip but no invoice: "Invoice not generated yet."
+- CANCELLED/NO_SHOW: "Trip not billable. No invoice."
+
+---------------------------------------
+PHASE 3 — RELIABILITY + IDEMPOTENCY
+---------------------------------------
+- Creating invoice must be idempotent:
+  - If existing invoice for trip exists, return it (do not create duplicates).
+- Generating PDF must be idempotent:
+  - If pdf_url exists, reuse it.
+- Add server-side validation errors with clear messages.
+
+---------------------------------------
+PHASE 4 — VERIFY (MANDATORY CHECKLIST)
+---------------------------------------
+1) Create a COMPLETED trip with a clinic + patient.
+2) Open Trip Details as DISPATCH:
+   - Create invoice -> trips.invoice_id populated
+   - Edit amount/notes/status -> persists
+   - Generate PDF -> returns downloadable pdf, pdf_url saved
+3) Open same Trip as CLINIC_USER:
+   - Sees invoice summary read-only
+   - Can download PDF
+   - Cannot edit amount/status/notes (server denies)
+4) CANCELLED trip:
+   - Shows "Not billable", no create invoice
+5) NO_SHOW trip:
+   - Shows "Not billable", no create invoice
+6) Confirm audit_log rows created for invoice_created and invoice_updated.
+7) Ensure no DB schema changes were made.
+
+DELIVERABLE:
+- Code changes committed in existing structure (server routes + UI)
+- Short summary of files changed and what was verified.

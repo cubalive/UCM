@@ -1,0 +1,56 @@
+ROLE: Senior Frontend Engineer (React/Vite)
+PROJECT: United Care Mobility (Driver subdomain)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Fix production crash on https://driver.unitedcaremobility.com after login.
+Current error: React Minified error #310 ("Rendered more hooks than during the previous render").
+Backend auth is OK (GET /api/auth/me returns 200 with DRIVER).
+
+CONTEXT:
+- Driver subdomain uses JWT in localStorage (TOKEN_KEY resolves to ucm_driver_token).
+- getCredentials() returns "omit" on driver host (no cookies).
+- /api/auth/me works with Authorization: Bearer <token>.
+
+TASKS (do in order):
+1) Reproduce in dev:
+   - Run locally/preview with driver host simulation.
+   - Force isDriverHost=true for dev OR add a temporary dev flag so DriverSubdomainRouter + DriverDashboard path is used.
+   - Ensure we can hit /api/auth/me with bearer and render driver dashboard.
+
+2) Identify component causing hook order change:
+   - Add a temporary DEV-only error overlay that prints full stack + component name.
+   - Enable sourcemaps for production build if currently disabled (Vite build.sourcemap = true) so stack traces map to source.
+   - Search codebase for patterns that violate hooks rules, especially in driver-only components:
+     - DriverDashboard, driver pages/components, app-sidebar variants, hostDetection-dependent branches.
+     - Look for hooks inside if/for/map/try or early returns before all hooks.
+   - Add ESLint rule enforcement (react-hooks/rules-of-hooks) if missing and fix reported violations.
+
+3) Fix the bug properly:
+   - Ensure every React component calls hooks unconditionally at top level.
+   - Refactor conditional logic to be AFTER hooks:
+     BAD: if (!user) return <X/>; const [s,setS]=useState(...)
+     GOOD: const [s,setS]=useState(...); if (!user) return <X/>
+   - If a hook is needed only sometimes, still declare it, but gate its EFFECT BODY with conditions.
+
+4) Add hardening so driver can’t blank-screen silently:
+   - In DriverErrorBoundary, show the real error message when VITE_UCM_DEBUG=true even in production.
+   - Log a single structured error to console with driver host, token presence, and current route.
+
+5) Verification checklist (must pass):
+   - driver.unitedcaremobility.com: login succeeds, stays logged, renders DriverDashboard.
+   - Refresh page keeps session via localStorage token.
+   - No React error #310 in console.
+   - /api/auth/me returns 200 from the app using Bearer token.
+   - Build + deploy succeeds.
+
+OUTPUT:
+- List the exact files changed and why.
+- Provide the commit-style diff summary.
+- Confirm the verification checklist with evidence (console output / screenshots text).

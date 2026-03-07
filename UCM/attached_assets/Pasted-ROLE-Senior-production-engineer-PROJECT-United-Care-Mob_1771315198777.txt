@@ -1,0 +1,67 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+PHASE 4 — ENTERPRISE HARDENING (Health + Metrics + PDF Power)
+
+GOAL:
+We already have authenticated PDF jobs + downloads working end-to-end (worker running, jobId created, real PDF downloaded).
+Now implement a “deep health + metrics + advanced PDF” layer suitable for 50k drivers and 9k clinics.
+
+PART 1 — Deep Health Endpoint (ADMIN ONLY)
+1) Add GET /api/admin/health/deep
+2) Must require JWT + role gating (SUPER_ADMIN, ADMIN, DISPATCH only)
+3) Return JSON:
+   - status: GREEN|YELLOW|RED
+   - checks: db, redis, worker, queue, externalApis(optional), cache(optional)
+   - each check includes ok boolean, latencyMs, details string, and lastUpdated ISO
+4) Checks:
+   - db: run a fast SELECT 1 + one representative query (e.g., recent trips count) and measure latency
+   - redis: ping + set/get temporary key with 10s ttl
+   - worker: expose worker heartbeat updated every 10s (in Redis or DB) with lastBeatAt and queueLag estimate
+   - queue: count jobs queued/working/failed in last 15 minutes, and oldest queued age seconds
+5) Determine overall status:
+   - RED if db down OR worker heartbeat stale >60s OR failed_jobs spike > threshold
+   - YELLOW if latency p95 high or queue lag high
+   - GREEN otherwise
+
+PART 2 — Metrics Summary (ADMIN ONLY)
+1) Add GET /api/admin/metrics/summary
+2) Return:
+   - requestCount, avgDbTimeMs, cacheHitRate
+   - slowestRoutes: top 10 by p95 if profiling exists (UCM_PROFILE=true)
+   - queue throughput/min, failures/min
+3) If profiling is disabled, return graceful “profilingDisabled:true” and minimal metrics.
+
+PART 3 — Advanced PDF Features (SAFE EXTENSIONS)
+1) Add optional watermark param to existing PDF download endpoint(s):
+   - watermark: "CompanyName • TripID • GeneratedAt"
+   - OFF by default, ON for admin downloads via query (?watermark=1)
+2) Add batch download:
+   - POST /api/trips/pdf/batch
+   - body: { tripIds: string[] }
+   - auth: same as PDF rules (must only include trips caller can access)
+   - creates a job to generate a ZIP of PDFs
+   - GET /api/trips/pdf/batch/:jobId/download returns application/zip with correct headers
+3) Ensure Safari/iOS download safety:
+   - reuse existing downloadWithAuth blob logic
+   - server must set Content-Disposition: attachment; filename=...
+
+VERIFICATION (MANDATORY)
+- Provide curl commands for:
+  1) /api/admin/health/deep (authorized and unauthorized)
+  2) simulate stale worker heartbeat and show status changes
+  3) batch zip job create + download
+- Confirm no endpoints leak data cross-company/clinic.
+- Confirm correct headers: Content-Type + Content-Disposition + Cache-Control no-store.
+
+Deliverables:
+- Exact files changed + short summary
+- Verification outputs/steps

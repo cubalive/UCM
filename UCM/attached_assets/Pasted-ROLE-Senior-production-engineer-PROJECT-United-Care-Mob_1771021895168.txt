@@ -1,0 +1,67 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+1) SUPER_ADMIN can delete (archive + optional hard delete) any internal users created (dispatch users, clinic users, driver users).
+2) CLINIC_USER can delete patients belonging to their clinic.
+
+RULES:
+A) USERS (internal accounts)
+- SUPER_ADMIN only:
+  - Archive user (soft delete) from Users panel
+  - Restore user from Archived tab
+  - Hard delete user ONLY from Archived tab with irreversible confirmation (type DELETE)
+- DISPATCH cannot delete users.
+- If user has linked auth record (Supabase Auth), handle both:
+  - App user/profile row (soft delete)
+  - Supabase auth user: either disable/ban user OR delete auth user only when hard deleting (preferred: disable on archive; delete on hard delete)
+
+B) PATIENTS
+- CLINIC_USER can delete patients ONLY where patients.clinic_id == clinic_user.clinic_id
+- Use soft delete by default (deleted_at, deleted_by, reason optional)
+- Provide Archived patients view for SUPER_ADMIN; clinic may have "Archived" within their clinic scope (optional)
+
+IMPLEMENTATION DETAILS:
+1) DB (safe migrations if missing)
+- For users table and patients table add:
+  deleted_at timestamptz null
+  deleted_by uuid null
+  delete_reason text null
+
+2) Backend endpoints (server-side enforced)
+- DELETE /api/users/:id
+   allowed: super_admin only
+   action: soft delete (set deleted_at, deleted_by)
+- POST /api/users/:id/restore
+   allowed: super_admin only
+- POST /api/users/:id/hard-delete
+   allowed: super_admin only
+   requires body { ack: "I understand this cannot be undone", confirm: "DELETE" }
+   deletes auth user (Supabase Admin) + deletes/cleans related profile rows safely
+
+- DELETE /api/patients/:id
+   allowed:
+     super_admin OR dispatch OR (clinic_user if same clinic_id)
+   action: soft delete
+
+3) Frontend UI
+- Users panel (super_admin):
+  - Actions: Archive, Restore (if archived), Delete forever (archived only)
+- Clinic Patients:
+  - Add Delete button
+  - Confirm modal (Archive)
+  - Remove from active list immediately after success
+
+VERIFY:
+- super_admin can archive/restore/hard-delete users
+- clinic_user can delete patients only within their clinic
+- clinic_user cannot delete other clinics’ patients (403)
+- dispatch cannot delete users (403)
+Verify before exit.

@@ -1,0 +1,70 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+GOAL (PHASE A):
+Harden driver GPS + live tracking + ETA refresh that clinics can trust.
+
+REQUIREMENTS:
+1) Driver app must detect Location Services state:
+   - If location permission denied OR location services off:
+     - show blocking modal “Enable Location to go Online”
+     - provide instructions (OS-level) and a “Retry” button
+   - Allow “Offline mode” only for browsing schedule, NOT for accepting/starting trips.
+
+2) Background-safe tracking strategy (PWA constraints):
+   - Implement “foreground tracking loop” while the driver is ON DUTY / ONLINE:
+     - send location ping every 10–15 seconds when moving, 30–60 seconds when stationary.
+   - Use a simple motion heuristic:
+     - if distance from last point > 25m => “moving” cadence, else “stationary”
+   - Must be resilient on iOS Safari and Android WebView/PWA:
+     - never crash if geolocation fails; show toast + keep trying.
+
+3) Backend endpoints:
+   - POST /api/driver/location
+     - Auth: DRIVER role only
+     - Body: { lat, lng, accuracy, heading?, speed?, timestamp_client }
+     - Server stores timestamp_server.
+   - GET /api/trips/:id/live
+     - Auth: DISPATCH, CLINIC_USER, COMPANY_ADMIN, SUPER_ADMIN
+     - Returns latest driver location for that trip, plus computed ETA to pickup/dropoff depending on trip state.
+
+4) Data model:
+   - If a location table already exists, reuse it.
+   - If not, create minimal table:
+     driver_locations(id, driver_id, trip_id nullable, lat, lng, accuracy, heading nullable, speed nullable,
+       timestamp_client, timestamp_server default now())
+   - Indexes: (driver_id, timestamp_server desc), (trip_id, timestamp_server desc)
+
+5) ETA computation:
+   - If Google Maps Directions API already configured, use it.
+   - If not available, implement a fallback ETA based on straight-line distance + assumed speed (25 mph city),
+     but structure code so it can be swapped to real Directions later.
+   - Clinic portal trip view: show “Arriving in ~X min” refreshed every 60 seconds.
+   - Dispatch map: show driver marker updates, and ETA.
+
+6) UI:
+   - Driver: Online/Offline toggle.
+     - Going Online requires GPS available.
+   - Clinic: Trip Details shows:
+     - Driver last seen time (e.g., “Last update 12s ago”)
+     - ETA line
+     - Small map preview if available (do not block if map fails)
+
+VERIFICATION (must do):
+- With driver role: location ping returns 200.
+- With clinic role: /api/trips/:id/live returns 200 and includes ETA.
+- If token missing: endpoints return 401 JSON (not HTML).
+- If location off: driver cannot go Online; sees clear message.
+- Confirm pings do not spam server while stationary.
+
+DELIVERABLES:
+- Code changes backend + frontend
+- Summary of files modified
+- Exact endpoints + example curl calls

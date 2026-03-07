@@ -1,0 +1,123 @@
+You are a senior production engineer building the United Care Mobility platform from scratch on a clean Supabase project.
+
+EXECUTION MODE: SINGLE AGENT ONLY
+* Do NOT create sub-agents
+* Do NOT run parallel tasks
+* Do NOT reset database
+* Extend current clean system only
+* Verify before finishing
+
+OBJECTIVE
+Lock in a production-grade backend foundation (Supabase + Replit) that will not break after publish:
+* Multi-city architecture (admin can add cities; roles can be scoped by city)
+* Stable auth + roles (super_admin global; dispatch/clinic/driver per city)
+* Strict RLS (default deny; explicit allow)
+* Clean API endpoints for the frontend to read current user context
+* No demo/seed/reset behavior in production
+* Add verification endpoints to confirm DB + auth are working
+
+IMPORTANT
+* Speak in English only in code and identifiers.
+* If any item already exists, DO NOT recreate it; only add missing pieces.
+* Use migrations-style SQL where appropriate (idempotent).
+* At the end, provide a checklist of what was verified and how.
+
+PHASE 1 — SUPABASE: REQUIRED TABLES + COLUMNS (IDEMPOTENT)
+1) Ensure table public.cities exists with columns:
+   - id uuid primary key default gen_random_uuid()
+   - slug text unique not null
+   - name text not null
+   - state text not null
+   - is_active boolean not null default true
+   - created_at timestamptz not null default now()
+
+2) Ensure table public.profiles exists with columns:
+   - id uuid primary key references auth.users(id) on delete cascade
+   - email text unique
+   - role text not null default 'driver'
+   - city_id uuid null references public.cities(id)
+   - created_at timestamptz not null default now()
+
+3) Insert initial city:
+   slug='las-vegas', name='Las Vegas', state='NV'
+   (do nothing if already exists)
+
+4) Ensure the current admin user exists in profiles and is super_admin:
+   - Insert from auth.users where email='admin@unitedcaremobility.com'
+   - If conflict, update role to 'super_admin'
+   NOTE: Do NOT assume updated_at exists anywhere.
+
+PHASE 2 — SUPABASE: HELPER FUNCTIONS (IDEMPOTENT)
+Create or replace these SQL functions:
+* public.current_uid() returns uuid (auth.uid())
+* public.current_role() returns text (select role from public.profiles where id=auth.uid())
+* public.is_super_admin() returns boolean (current_role() = 'super_admin')
+* public.is_dispatch() returns boolean (current_role() = 'dispatch')
+* public.current_city_id() returns uuid (select city_id from public.profiles where id=auth.uid())
+
+All functions must be SECURITY DEFINER, with stable/simple SQL, and safe when auth.uid() is null.
+
+PHASE 3 — SUPABASE: RLS DEFAULT-DENY + POLICIES
+1) Enable RLS on public.cities and public.profiles (and any existing business tables if present).
+2) Policies:
+* cities:
+  - SELECT: allow authenticated users to read active cities
+  - INSERT/UPDATE/DELETE: super_admin only
+* profiles:
+  - SELECT:
+      super_admin can read all profiles
+      otherwise a user can read their own profile only
+  - UPDATE:
+      user can update only their own non-privileged fields (email optional)
+      super_admin can update any profile role/city_id
+  - INSERT/DELETE:
+      super_admin only
+
+Use DROP POLICY IF EXISTS before creating policies (idempotent).
+Do NOT reference columns that do not exist (no updated_at, no active on profiles unless added).
+Ensure policies do not break if city_id is null.
+
+PHASE 4 — REPLIT BACKEND: SINGLE SUPABASE CLIENT + SAFE ENV
+1) Ensure these Replit Secrets are used:
+   SUPABASE_URL
+   SUPABASE_ANON_KEY
+   SUPABASE_SERVICE_ROLE_KEY
+2) Create a single shared supabase client module (lib/supabaseClient.ts):
+   - export anon client for user-context reads
+   - export service-role client for admin-only server operations
+   - lazy init + clear error if env missing
+
+PHASE 5 — API ENDPOINTS (FASTAPI OR EXPRESS — USE EXISTING STACK)
+Implement these endpoints:
+* GET /api/health
+  returns { ok: true, db: "connected"|"error", supabase: "connected"|"error", version: "<git or hardcoded>" }
+
+* GET /api/me
+  Reads Authorization Bearer token (supabase access token) from request.
+  Validates token with Supabase.
+  Returns:
+  { id, email, role, city_id }
+
+Rules:
+* If no token: return 401 with JSON error
+* If profile missing: return 404 with JSON error
+* Do not leak service role key to client
+
+PHASE 6 — FRONTEND WIRING (MINIMUM)
+Ensure frontend calls /api/me on load to get role + city_id and stores it in app state.
+No UI redesign. Just ensure there is no blank screen if /api/me fails:
+* Show a simple error panel with the error message + a “Retry” button.
+
+PHASE 7 — VERIFICATION (MUST DO)
+Provide steps and also actually run:
+* curl /api/health
+* curl /api/me (explain how to test with a real token)
+* Confirm profiles table contains the admin row with role super_admin
+* Confirm cities table contains las-vegas row
+* Confirm RLS enabled + policies created without errors
+
+FINAL RESPONSE MUST INCLUDE
+1) What changed (files + SQL)
+2) Exactly what to click in Supabase to verify (Tables, SQL Editor, Auth Users, Policies)
+3) Exactly what to click in Replit to verify (Secrets, Run, Logs)
+4) A short “If blank screen happens again, do X” checklist

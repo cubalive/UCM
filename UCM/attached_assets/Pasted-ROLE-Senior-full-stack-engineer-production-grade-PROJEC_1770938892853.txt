@@ -1,0 +1,176 @@
+ROLE: Senior full-stack engineer (production-grade)
+PROJECT: United Care Mobility — Dispatch Platform (Las Vegas + multi-city)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only. No parallel tasks. No sub-agents.
+- Do NOT reset Supabase.
+- Do NOT recreate existing tables unless explicitly required and you first verify they do not exist.
+- Extend current system only.
+- Verify every step with real endpoints before finishing.
+- Keep changes minimal, stable, and reversible.
+
+OBJECTIVE
+Implement the core Google Maps features end-to-end:
+1) Live Driver Map (vehicle icons + driver name + vehicle color)
+2) Route Optimization baseline (ETA + distance/time calculations)
+3) Clinic-facing ETA and trip status updates (auto-refresh)
+
+CURRENT CONTEXT / CONSTRAINTS
+- Supabase is connected and working.
+- There is a SUPER_ADMIN profile already.
+- Cities table exists and Las Vegas is seeded.
+- Environment secrets exist in Replit:
+  SUPABASE_URL
+  SUPABASE_ANON_KEY
+  SUPABASE_SERVICE_ROLE_KEY
+  GOOGLE_MAPS_API_KEY
+  ADMIN_EMAIL / ADMIN_PASSWORD / JWT_SECRET / SESSION_SECRET (if used)
+- Frontend is React, backend is Node/Express (or equivalent).
+- App must not blank-screen; keep SPA routing stable.
+
+========================================================
+PHASE 1 — DATA MODEL (Supabase) — EXTEND ONLY IF MISSING
+========================================================
+A) Verify tables exist: profiles, cities, vehicles, drivers, trips.
+If any are missing, create ONLY the missing ones.
+
+B) Ensure these minimum columns exist (add via ALTER TABLE if missing):
+1) public.vehicles
+- id (uuid pk)
+- city_id (uuid fk -> cities.id)
+- name (text)            -- e.g., "Tesla 3 - Black"
+- color_hex (text)       -- e.g., "#000000"
+- plate (text nullable)
+- is_active (boolean default true)
+- created_at (timestamptz default now())
+
+2) public.drivers
+- id (uuid pk)
+- city_id (uuid fk)
+- name (text)
+- vehicle_id (uuid fk -> vehicles.id, nullable)
+- is_active (boolean default true)
+- last_lat (double precision nullable)
+- last_lng (double precision nullable)
+- last_seen_at (timestamptz nullable)
+- created_at (timestamptz default now())
+
+3) public.trips
+- id (uuid pk)
+- city_id (uuid fk)
+- clinic_name (text nullable)
+- patient_name (text nullable)
+- pickup_address (text)
+- dropoff_address (text)
+- pickup_time (timestamptz nullable)
+- status (text default 'scheduled')  -- scheduled, assigned, en_route, arrived, picked_up, completed, canceled
+- assigned_driver_id (uuid fk -> drivers.id, nullable)
+- assigned_vehicle_id (uuid fk -> vehicles.id, nullable)
+- eta_minutes (integer nullable)
+- distance_miles (numeric nullable)
+- duration_minutes (integer nullable)
+- route_polyline (text nullable)
+- updated_at (timestamptz default now())
+- created_at (timestamptz default now())
+
+C) Add/ensure an updated_at trigger ONLY if missing:
+- If a trigger references columns that don’t exist, fix the table columns first (do not guess).
+
+========================================================
+PHASE 2 — BACKEND API (Express)
+========================================================
+Implement these endpoints with clean validation and safe auth checks:
+
+1) GET /api/map/bootstrap?city=las-vegas
+Return:
+- active drivers with last location + driver name
+- joined vehicle info (vehicle name + color_hex)
+- active trips for today with status + eta_minutes
+
+2) POST /api/drivers/location
+Body: { lat, lng }
+Auth: driver session required (or token)
+Store driver last_lat/last_lng/last_seen_at.
+
+3) GET /api/trips/:id/eta
+Compute ETA + distance/time using Google Directions API.
+Store results into trips: eta_minutes, distance_miles, duration_minutes, route_polyline, updated_at.
+
+4) POST /api/trips/:id/recalc
+Auth: dispatch or super_admin
+Recalculate route metrics for that trip using Google Directions.
+Return updated values.
+
+5) GET /api/clinic/trips?city=las-vegas
+Auth: clinic_user (or public read if you haven’t built clinic auth yet — if not built, keep it behind auth for now)
+Return trips with: status + eta_minutes + “arriving in X min” string.
+
+SECURITY RULES (simple + stable for now):
+- super_admin can read/write all cities.
+- dispatch can read/write within selected city scope.
+- drivers can only update their own location and read their assigned trips.
+If role middleware exists, use it. If not, implement minimal role checks based on profiles.role.
+
+GOOGLE API USAGE RULES:
+- Use GOOGLE_MAPS_API_KEY server-side for Directions/Geocoding/Places calls.
+- Never expose server key in client code beyond Maps JS usage. For client map display use the same key only if it is restricted by HTTP referrers (already configured).
+
+========================================================
+PHASE 3 — FRONTEND (React)
+========================================================
+A) Live Map Page (Dispatch)
+Create/Update a page: /dispatch/map
+Features:
+- Google Map centered on selected city
+- Driver markers rendered as “car icons” (simple marker is fine first)
+- Marker label shows driver name
+- Marker color uses vehicle.color_hex (fallback: blue)
+- Trip markers: pickup/dropoff pins (optional first pass)
+
+Update frequency:
+- Poll /api/map/bootstrap every 10 seconds OR use a lightweight /api/map/drivers endpoint if you prefer.
+- Ensure no white screens; show loading skeleton + retry button on error.
+
+B) Clinic View
+Create/Update: /clinic/trips
+Features:
+- list of trips with status
+- “Arriving in X min” based on eta_minutes
+- auto-refresh every 60 seconds
+
+C) Settings
+Ensure there is a City selector (super_admin can add cities later):
+- For now: use query param ?city=las-vegas and store selection in localStorage.
+
+========================================================
+PHASE 4 — VERIFICATION (MUST DO)
+========================================================
+1) Backend health:
+- GET /api/health returns ok true
+
+2) Map bootstrap:
+- GET /api/map/bootstrap?city=las-vegas returns drivers + vehicles + trips JSON
+
+3) Driver location update:
+- POST /api/drivers/location updates last_seen_at and lat/lng
+
+4) ETA calc:
+- Create one trip with pickup/dropoff and run:
+  POST /api/trips/:id/recalc
+  Confirm eta_minutes/distance_miles/duration_minutes set
+
+5) Frontend:
+- /dispatch/map loads without errors
+- Drivers appear on map (even if only 1)
+- Clinic trips page shows ETA string
+
+========================================================
+FINAL OUTPUT REQUIREMENTS
+========================================================
+When done, respond with:
+- A short list of files changed
+- Exact endpoints tested + sample JSON response for each
+- Any new SQL migrations applied (only if you had to add missing columns/tables)
+- A note on how to add a second city in the database (manual for now)
+
+DO NOT stop until Phase 4 verification passes.

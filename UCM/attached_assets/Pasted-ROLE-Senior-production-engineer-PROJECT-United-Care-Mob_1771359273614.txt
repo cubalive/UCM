@@ -1,0 +1,85 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT modify DB data
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+The prior report is insufficient. We must reproduce and fix the REAL issues:
+1) Newly created company user login gets Access Denied / Forbidden
+2) /metrics must be SUPER_ADMIN only and must load in production domain
+3) TypeScript check must PASS (no timeout, no errors)
+4) Ensure production domain serves HTML at "/" (not JSON Unauthorized/Forbidden)
+
+HARD REQUIREMENTS:
+- Do NOT reset DB
+- Do NOT delete tables/columns
+- Do NOT break existing trip lifecycle
+- Fix must be stable and verified on BOTH:
+  a) local dev
+  b) production domain https://app.unitedcaremobility.com
+
+STEP 1 — REPRODUCTION (MANDATORY)
+A) Create a NEW company/tenant from SUPER_ADMIN UI.
+B) Create a NEW company admin user for that company (or use the auto-created one).
+C) Log out.
+D) Log in as that new company user and navigate to:
+   - / (home)
+   - company dashboard pages
+   - any required company-only page
+Record exactly where Access Denied happens (route + API call + status code + response).
+
+STEP 2 — DIAGNOSE ROOT CAUSE
+Investigate role/tenant scoping:
+- Determine what role string the company user has (e.g. COMPANY_ADMIN, clinic_user, dispatch, etc.)
+- Verify getActorContext() returns { userId, role, tenant_id/company_id, clinic_id, city_id }
+- Check server-side authorization middleware and route guards:
+  - Ensure company user role is included where appropriate
+  - Ensure tenant/company scope is enforced correctly (not accidentally requiring SUPER_ADMIN)
+
+Common failure modes to check:
+- frontend route guard uses wrong role list
+- backend requireRole(...) missing company role
+- tenant_id is null for company user due to join/query bug
+- middleware blocks /app pages incorrectly and redirects to /unauthorized
+- default role fallback = forbidden
+
+STEP 3 — FIX
+Implement the minimal fix so that:
+- Company user can access ONLY their allowed tenant-scoped pages
+- Company user cannot access /metrics or other SUPER_ADMIN pages
+- SUPER_ADMIN can access everything including /metrics
+- / (root) and static assets never return JSON Unauthorized/Forbidden (SPA must load)
+
+STEP 4 — TYPESCRIPT CHECK MUST PASS
+- Run: npm run check OR npx tsc --noEmit
+- It must finish and output 0 TS errors.
+If it times out, fix by:
+- using correct script (npm run check) that includes tsconfig references
+- ensuring tsc uses incremental cache if configured
+- but do NOT weaken type safety (no "skipLibCheck" unless already present)
+
+STEP 5 — PRODUCTION VERIFICATION (MANDATORY)
+After implementing fix, publish and verify using real domain:
+A) curl -i https://app.unitedcaremobility.com/
+   - Must return HTML (content-type text/html) and status 200
+B) curl -i https://app.unitedcaremobility.com/api/healthz
+   - Must return 200 JSON ok:true
+C) Login as SUPER_ADMIN on production:
+   - /metrics must load (no blank, no forbidden)
+D) Login as NEW company user on production:
+   - Must not show Access Denied on allowed pages
+   - Must be denied on /metrics with proper UI message
+
+DELIVERABLES (REQUIRED):
+1) Exact files changed (paths)
+2) Output logs for:
+   - npm run check (must pass)
+   - npm run build
+3) Evidence of production checks (curl outputs summarized + which user role tested)
+Stop after this single task is complete.

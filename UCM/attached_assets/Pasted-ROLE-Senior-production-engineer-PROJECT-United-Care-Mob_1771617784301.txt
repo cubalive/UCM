@@ -1,0 +1,64 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+
+NON-NEGOTIABLES
+- Do NOT reset database
+- Do NOT recreate existing tables
+- Extend/fix existing system only
+- Keep production stable; minimal invasive changes
+- After each fix: verify with explicit tests and screenshots/log output
+
+GOALS (fix everything that was working a few days ago)
+A) Google Maps broken in Admin/SuperAdmin ("Maps unavailable / key not configured or invalid")
+B) Driver live tracking not showing; Driver App missing "Start Shift" button (so drivers never appear online)
+C) Data separation: every Driver/Vehicle/Patient must belong to a Company and (where applicable) City/Clinic; add filters & display so nothing mixes
+
+-----------------------------------------
+A) GOOGLE MAPS KEY: make production work
+1) Confirm what env vars the code expects in BOTH frontend and backend:
+   - Frontend must use import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+   - Backend must use process.env.GOOGLE_MAPS_API_KEY (or existing name)
+2) Ensure the code FAILS LOUDLY with a clear error if the key is missing (console + UI message),
+   but does not crash the app.
+3) Add a small diagnostics endpoint and UI indicator:
+   - GET /api/config/maps -> { hasViteKey: boolean, hasServerKey: boolean, domain: string }
+   - Only accessible to SUPER_ADMIN.
+4) Replit deployment config:
+   - Verify secrets exist BOTH in workspace secrets AND in Publishing/Deployment secrets.
+   - Required secrets to exist in Deployment secrets:
+     - VITE_GOOGLE_MAPS_API_KEY
+     - GOOGLE_MAPS_API_KEY
+   - If the app uses any alternative names, keep them but standardize the two above.
+5) Build-time vs runtime:
+   - Vite injects VITE_* at build time. Ensure the production build step receives VITE_GOOGLE_MAPS_API_KEY.
+   - Ensure republish triggers a rebuild with the new deployment secrets.
+
+Acceptance test A:
+- In production, open Live Map as Company Admin + Super Admin. Map loads without "Maps unavailable".
+- Hit /api/config/maps as super admin and confirm hasViteKey=true and (if used) hasServerKey=true.
+
+-----------------------------------------
+B) DRIVER APP: restore Start Shift + location publishing
+Problem: Driver can be CONNECTED but there is no "Start Shift" button, so driver never becomes "online/active"
+and does not send location updates; admin map shows "No drivers online for this city".
+
+1) Identify the intended state machine:
+   - OFFLINE (not connected)
+   - CONNECTED (socket/session connected)
+   - ON_SHIFT (driver actively broadcasting; should appear on map)
+2) Restore UI controls on Driver Home:
+   - If not connected: show CONNECT button
+   - If connected and not on shift: show "Start Shift"
+   - If on shift: show "End Shift" + status indicator
+   - Keep Break button if it exists, but Break must not hide Start Shift permanently.
+3) Ensure Start Shift triggers:
+   - backend mutation (DB + event) that marks driver as on_shift=true, last_seen=now
+   - begins sending geolocation to backend at the existing interval
+4) Ensure superadmin/company admin map queries:
+   - Only show drivers where on_shift=true and last_seen within threshold
+   - AND driver.company_id matches the selected company context (or show all by company filter)
+   - AND driver.city_id matches city filter when city is selected
+5) Add a dev-only fallback for testing:
+   - If geolocation fails (permissions), show a clear UI prompt to enable location
+   -

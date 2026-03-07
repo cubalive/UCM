@@ -1,0 +1,257 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Extend existing system only
+- Verify before exit
+
+TASK LIST (SEQUENTIAL) — UCM NATIONAL MEASUREMENT SYSTEM™ (DONE = SHIPPED + VERIFIED)
+Build and finish the full system:
+Indexes + Certification + Ranking + Audit + Prediction
+SUPER_ADMIN sees everything always.
+Clinics see NOTHING until SUPER_ADMIN publishes it (Publish Center).
+Everything exportable to PDF.
+Must not break scheduler, trips, invoices, or dispatch.
+No external APIs required.
+
+============================================================
+STEP 0 — BASELINE SAFETY
+============================================================
+0.1 Confirm current auth model (Supabase JWT or internal JWT).
+0.2 Confirm actor context exists or implement:
+getActorContext() -> { userId, role, clinicId, cityId, state }
+0.3 Implement server middleware:
+requireRole(...roles)
+requireSuperAdmin() = requireRole('super_admin')
+
+VERIFY:
+- A non-auth user cannot access protected routes.
+- Actor context returns correct role/clinicId.
+
+============================================================
+STEP 1 — HARD LOCK INTELLIGENCE (SUPER_ADMIN ONLY DEFAULT)
+============================================================
+1.1 Protect ALL existing /api/intelligence/* routes with requireSuperAdmin().
+1.2 Create new base router: /api/intelligence (super_admin only).
+1.3 Frontend route guard:
+- Hide all Intelligence nav for non-super_admin.
+- If non-super_admin hits /admin/intelligence/* -> render 403.
+
+VERIFY:
+- dispatch/clinic/driver -> 403 on any intelligence endpoint.
+- nav item does not appear for them.
+
+============================================================
+STEP 2 — STATE/CITY CANONICAL MAPPING (NO GUESSING)
+============================================================
+2.1 Identify canonical source for {state, city}:
+Preferred:
+Trip -> clinic_id -> clinics.{state, city}
+Fallback:
+Trip -> city_id -> cities.{state, city}
+
+2.2 If state missing anywhere:
+Add minimal state column to the canonical location table ONLY:
+- cities.state (preferred) OR clinics.state (if cities not present)
+Do NOT rename columns; add only.
+
+2.3 Add utility:
+getTripGeoScope(trip) -> { state, city }
+
+VERIFY:
+- Random sample trips resolve to correct state/city.
+- No breaking changes in existing pages.
+
+============================================================
+STEP 3 — TRIP PROGRESS TIMELINE COMPLETENESS (DISPUTE-PROOF)
+============================================================
+3.1 Inventory all trip lifecycle timestamps (columns + status history).
+3.2 Ensure backend writes timestamps server-side when status changes:
+- en_route_pickup_at
+- arrived_pickup_at
+- picked_up_at
+- en_route_dropoff_at
+- arrived_dropoff_at
+- completed_at
+- cancelled_at
+- no_show_at
+Use now() on server on transition.
+
+3.3 Implement canonical ordered progress_events[] builder:
+Only include events with at != null.
+Return with each Trip Details API (dispatch + clinic-safe).
+
+VERIFY:
+- Completed trip shows full timeline with times.
+- Cancelled/no_show show terminal event and omit completed.
+
+============================================================
+STEP 4 — INDEX ENGINE (10 INDEXES) FILTERABLE BY GENERAL/STATE/CITY
+============================================================
+4.1 Create:
+services/intelligence/indexEngine.ts
+
+4.2 Implement:
+computeIndexes({dateFrom, dateTo, scope, state?, city?})
+Return:
+meta, summary(10), breakdown(by_state/by_city/by_clinic), risky_trips(top 20)
+
+4.3 Implement EXACT 10 index calculations:
+1 TRI Nevada™ 0–100 (grace_minutes configurable)
+2 Clinic Trust Score 0–100 (composite; normalize if missing components)
+3 Driver Stability 0–100
+4 Driver Utilization %
+5 Dispatch Efficiency %
+6 Revenue Leakage $ (super_admin-only; never published by default)
+7 Clinic Load ratio + level
+8 Weekly Profit $ + margin (super_admin-only; never published by default)
+9 Replacement Pressure risk
+10 Late Risk Predictor (risk counts + top reasons)
+
+4.4 Add SUPER_ADMIN-only endpoint:
+GET /api/intelligence/indexes?dateFrom&dateTo&scope&state&city
+
+VERIFY:
+- Works for general, state, city.
+- Returns real data and counts behind each index.
+
+============================================================
+STEP 5 — SUPER_ADMIN UI: INTELLIGENCE → INDEXES + PDF EXPORT
+============================================================
+5.1 Create page:
+ /admin/intelligence/indexes
+
+Controls:
+- date range
+- scope (general/state/city)
+- state/city dropdowns
+
+Show 10 cards + breakdown table + late risk list.
+
+5.2 Add PDF export:
+GET /api/intelligence/indexes/export.pdf?dateFrom&dateTo&scope&state&city
+Server-side generated PDF (branding, 1–3 pages).
+
+VERIFY:
+- PDF downloads and matches UI for each scope.
+
+============================================================
+STEP 6 — QUARTERLY SNAPSHOTS (FREEZE RESULTS)
+============================================================
+6.1 Create tables:
+clinic_quarterly_reports
+clinic_quarterly_report_metrics
+clinic_certifications
+quarterly_rankings
+quarterly_ranking_entries
+
+6.2 Implement quarterly compute job:
+- Determine quarter boundaries
+- For each clinic:
+  - compute clinic-safe metrics (subset) + ranking fields + audit readiness summary
+  - store snapshots
+- Compute rankings for city/state/national (TRI primary, CTS secondary)
+- Compute certification level (PLATINUM/GOLD/SILVER/AT_RISK) based on:
+  TRI, Audit Readiness, Return Reliability, Treatment Continuity (if available)
+Store breakdown_json.
+
+VERIFY:
+- Snapshots do not change after computed.
+- Rankings have stable ranks and percentiles.
+
+============================================================
+STEP 7 — PUBLISH CENTER (SUPER_ADMIN CONTROLS WHAT CLINICS SEE)
+============================================================
+7.1 Create tables:
+intelligence_publications
+intelligence_publication_targets
+
+7.2 Build SUPER_ADMIN UI:
+ /admin/intelligence/publish-center
+
+Features:
+- Create publication:
+  module: quarterly_report | certification | ranking | audit | prediction
+  quarter_key
+  scope (city/state/national if ranking)
+  targets: single clinic / selected clinics / all_clinics (optional)
+  config_json:
+    - allow_pdf_download (default true)
+    - show_full_ranking_list (default false)
+    - show_peer_names (default false)
+    - visible_metrics whitelist
+    - show_trends/counts/thresholds toggles
+- Preview (super_admin only)
+- Publish ON/OFF (revokes instantly)
+- Audit log of actions
+
+VERIFY:
+- Without publication: clinic sees nothing and APIs return 404.
+- Publish to one clinic: only that clinic gains access.
+- Unpublish: access revoked instantly.
+
+============================================================
+STEP 8 — CLINIC PORTAL: SHOW ONLY PUBLISHED CONTENT
+============================================================
+8.1 Add clinic routes (hidden unless published exists):
+/clinic/performance (Quarterly report)
+/clinic/certification
+/clinic/ranking
+/clinic/audit
+/clinic/prediction-summary
+
+8.2 Clinic API endpoints must:
+- verify clinic_user role
+- verify publication exists + enabled for that clinic + quarter_key
+- return 404 if not published
+
+8.3 Implement “view once per quarter” (optional but recommended):
+- Allow 1 interactive view per quarter (view_count)
+- After that: lock interactive view but allow PDF download if config allows
+
+VERIFY:
+- Before publish: menu hidden + direct URL shows “Not available” + API 404.
+- After publish: clinic sees only their data.
+- Ranking: clinic sees only their rank unless config says show full list.
+
+============================================================
+STEP 9 — CLINIC PDF EXPORTS (GATED)
+============================================================
+9.1 Create clinic PDFs (server-side) ONLY IF published and allow_pdf_download=true:
+- /api/clinic/quarterly/:quarter_key/pdf
+- /api/clinic/certification/:quarter_key/pdf
+- /api/clinic/ranking/:quarter_key/pdf
+- /api/clinic/audit/:quarter_key/pdf
+- /api/clinic/prediction/:quarter_key/pdf (summary)
+
+VERIFY:
+- Clinic can download PDFs only when published.
+- PDFs match snapshot data.
+
+============================================================
+STEP 10 — FINAL QA (MUST PASS)
+============================================================
+10.1 Permissions:
+- SUPER_ADMIN: full access to all modules + exports
+- DISPATCH/DRIVER: cannot access intelligence routes/APIs (403)
+- CLINIC_USER: can only see published modules for their clinic; otherwise 404
+
+10.2 Data integrity:
+- Progress timeline complete and timestamped
+- Index calculations match snapshot numbers
+
+10.3 Non-breaking:
+- Trips lifecycle unchanged
+- Scheduler runToday unchanged
+- Invoices unchanged
+
+SUCCESS CRITERIA
+- Intelligence system complete and stable
+- SUPER_ADMIN is the only global viewer
+- Clinics see only what SUPER_ADMIN publishes, exactly as configured
+- PDF exports work for all modules within scope
+- No DB reset, no breaking changes

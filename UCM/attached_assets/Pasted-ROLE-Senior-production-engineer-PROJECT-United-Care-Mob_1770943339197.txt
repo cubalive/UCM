@@ -1,0 +1,72 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT create sub-agents
+- Do NOT run parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK: Add Twilio SMS notifications for patients and dispatch using existing Supabase data.
+
+REQUIREMENTS
+1) Use Replit Secrets (do not hardcode):
+   - TWILIO_ACCOUNT_SID
+   - TWILIO_AUTH_TOKEN
+   - TWILIO_FROM_NUMBER
+   - DISPATCH_PHONE_NUMBER (optional; default to TWILIO_FROM_NUMBER)
+
+2) Backend
+   A) Create a Twilio helper (server-side only) that sends SMS:
+      - input: toE164, message
+      - from: TWILIO_FROM_NUMBER
+      - handle errors and log Twilio SID on success
+
+   B) Add endpoints (protected):
+      - POST /api/sms/send
+        body: { to: string, message: string }
+        auth: SUPER_ADMIN or DISPATCH only
+        validates E.164 format
+
+      - POST /api/trips/:id/notify
+        auth: SUPER_ADMIN or DISPATCH only
+        sends patient notifications based on trip status changes:
+          statuses: scheduled, driver_assigned, en_route, arrived, picked_up, completed, canceled
+        message templates:
+          scheduled: "Your ride is scheduled for {pickup_time}. Reply STOP to opt out."
+          driver_assigned: "{driver_name} is assigned. Vehicle: {vehicle_label}."
+          en_route: "{driver_name} is on the way. ETA: {eta_minutes} minutes."
+          arrived: "{driver_name} has arrived."
+          picked_up: "You are now picked up."
+          completed: "Trip completed. Thank you."
+          canceled: "Trip canceled. Call dispatch: {dispatch_phone}."
+
+   C) Compute ETA
+      - If Google Directions API is already integrated, use it to compute ETA from driver current location to pickup.
+      - If not available, send messages without ETA and do not break.
+
+3) Frontend (Dispatch)
+   - Add a "Send SMS" button in Trip details (visible only to DISPATCH/SUPER_ADMIN):
+     - shows patient phone
+     - quick templates (Arriving, Driver assigned, Arrived, Canceled)
+     - calls /api/sms/send or /api/trips/:id/notify
+
+4) Patient data
+   - Read patient phone from existing patient record.
+   - If missing/invalid phone: show clear error "Patient phone missing" and do not attempt send.
+
+5) Compliance basics
+   - Include "Reply STOP to opt out" in the first outbound message for a patient.
+   - Add a simple opt-out table in Supabase if not existing:
+     table: sms_opt_out (phone text primary key, opted_out boolean default true, updated_at timestamptz default now())
+   - Before sending any SMS, check if the phone is opted out; if opted out, skip send and return a clear message.
+   - Add webhook endpoint POST /api/twilio/inbound to process inbound SMS:
+     - If body contains STOP, UNSUBSCRIBE, CANCEL: mark opted_out=true
+     - If body contains START, YES: mark opted_out=false
+     - Respond with valid TwiML.
+
+6) Verification (must do)
+   - Add a test route GET /api/sms/health that returns { ok: true, twilioConfigured: boolean }
+   - Show example curl commands in the final output
+   - Ensure production build still works (no blank screen, no crashes if secrets missing)

@@ -1,0 +1,177 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Implement an end-to-end Uber-like map experience across Driver + Dispatch + Clinic/Patient:
+- Vehicle-colored car marker (uses existing vehicle.color)
+- Driver name label + status badge above marker
+- Real-time location updates (10s on trip, 30–60s idle online)
+- Accurate dashboard driver buckets: ACTIVE / IN_ROUTE / OFFLINE_HOLD
+- Dispatch live fleet map with filtering and click details
+- Clinic/Patient tracking limited to assigned trip only (RBAC strict)
+- Fix any accidental geolocation requests outside driver/tracking flows
+
+NON-NEGOTIABLE RULES:
+- Do NOT reset DB
+- Do NOT recreate existing tables
+- If new columns are required, add minimal migration only
+- All access control enforced server-side (not UI-only)
+- Provide verification evidence (API outputs + screenshots/logs)
+
+---------------------------------------
+PHASE 1 — DATA + PRESENCE (SOURCE OF TRUTH)
+---------------------------------------
+1) Confirm existing fields:
+- vehicles.color (hex like "#FF5733") OR vehicle_color field already exists
+- drivers references vehicle_id (or equivalent)
+- trips has assigned_driver_id + status + pickup/dropoff + pickup_datetime
+
+2) Presence storage:
+- Ensure drivers table has:
+  last_seen_at (timestamp),
+  last_lat (float),
+  last_lng (float),
+  last_accuracy (float)
+If missing, add minimal migration to add these nullable columns.
+
+3) Presence endpoints:
+A) POST /api/driver/presence/heartbeat
+- Auth: driver only
+- Body: { lat, lng, accuracy }
+- Updates drivers.last_seen_at=now(), last_lat/last_lng/last_accuracy
+- Rate-limit per driver (reasonable)
+B) Optional reuse: if an existing GPS/telemetry endpoint exists, reuse it as the heartbeat.
+
+4) Presence definition:
+- connected = last_seen_at within 120 seconds
+
+---------------------------------------
+PHASE 2 — DRIVER STATUS LOGIC (MUTUALLY EXCLUSIVE)
+---------------------------------------
+Define these buckets (mutually exclusive):
+- IN_ROUTE:
+  connected && is_online==true && has active trip
+- ACTIVE:
+  connected && is_online==true && !has active trip && on_hold!=true
+- OFFLINE_HOLD:
+  everything else (includes on_hold true, offline, disconnected)
+
+Active trip statuses:
+['ASSIGNED','ENROUTE','ARRIVED','PICKED_UP'] (exclude COMPLETED/CANCELLED)
+
+Implement a shared server-side function to compute driver bucket and return it to UI.
+
+---------------------------------------
+PHASE 3 — DRIVER APP (MAP-FIRST LIKE UBER)
+---------------------------------------
+1) Driver home screen becomes map-first:
+- Fullscreen map on load
+- Center on driver location
+- Request geolocation ONLY after user tap (Enable GPS / Try Again)
+- If permission denied/timeouts, show actionable iOS instructions
+
+2) Vehicle-colored car marker + label:
+- Render a car marker colored with vehicle.color (existing)
+- Above marker show:
+  - driver name
+  - status badge (ACTIVE/IN_ROUTE/OFFLINE/HOLD)
+Badge colors:
+ACTIVE=green, IN_ROUTE=blue, OFFLINE=gray, HOLD=orange
+
+3) If driver has assigned active trip:
+- show pickup + dropoff markers
+- draw route
+- show ETA + distance
+- show trip card: patient name, pickup time, addresses
+
+4) Driver action panel (bottom sheet):
+- Go Online / Offline
+- Start Trip -> set status ENROUTE
+- Arrived -> ARRIVED
+- Picked Up -> PICKED_UP
+- Complete -> COMPLETED (only allowed after PICKED_UP)
+Enforce transitions server-side.
+
+5) GPS update cadence:
+- If on active trip: heartbeat every 10 seconds
+- Else if online and app open: heartbeat every 30–60 seconds
+- If offline: stop heartbeat
+
+---------------------------------------
+PHASE 4 — DISPATCH LIVE FLEET MAP + DASHBOARD BUCKETS
+---------------------------------------
+1) Create/Update endpoint:
+GET /api/dashboard/driver-stats
+Return:
+{
+  activeCount,
+  inRouteCount,
+  offlineHoldCount,
+  activeDrivers:[{id,name,vehicleColor,lastSeenAt,lat,lng,bucket}],
+  inRouteDrivers:[{id,name,vehicleColor,lastSeenAt,lat,lng,bucket,tripId,tripStatus}],
+  offlineHoldDrivers:[{id,name,vehicleColor,lastSeenAt,isOnline,onHold,bucket,reason}]
+}
+
+2) UI:
+- Replace single “Active Drivers” metric with 3 cards:
+  ACTIVE / IN ROUTE / OFFLINE-HOLD
+- Add tabs for each list with counts matching exactly
+- Add a live fleet map:
+  - Show all connected drivers with car marker colored by vehicle.color
+  - Label with driver name + status badge
+  - Click marker opens details: last_seen_at, accuracy, current trip summary
+
+3) Prevent “phantom actives”:
+- Active driver count must be based on connected+online, not total enabled drivers.
+
+---------------------------------------
+PHASE 5 — CLINIC/PATIENT TRACKING (LIMITED ACCESS)
+---------------------------------------
+1) Tracking page:
+- Shows ONLY assigned driver for that specific trip:
+  driver colored car marker + name + status
+  route + ETA
+- No fleet map exposure
+
+2) RBAC server-side:
+- clinic_user can only access trips with their clinic_id
+- patient can only access their own trips
+- If unauthorized -> 403
+- Tracking automatically disabled/hidden when trip status COMPLETED/CANCELLED
+
+---------------------------------------
+PHASE 6 — REMOVE GPS REQUESTS FROM WRONG SCREENS
+---------------------------------------
+- Patient creation, recurring schedule, and admin settings must NOT request geolocation.
+- Geolocation only allowed in:
+  - Driver map/tracking
+  - Dispatch live fleet map (viewer only; no need to request user GPS)
+
+---------------------------------------
+PHASE 7 — VERIFICATION (MUST PROVIDE EVIDENCE)
+---------------------------------------
+1) Driver opens app:
+- taps Enable GPS -> map centers and shows colored car icon + label + status badge
+2) Assign trip:
+- driver sees route + ETA
+- driver heartbeat updates every 10s while on trip
+3) Dispatch:
+- sees driver moving within 10–20 seconds
+- counts show ACTIVE/IN_ROUTE/OFFLINE-HOLD correctly (no mismatch)
+4) Clinic/Patient:
+- can view tracking only for their trip; any other trip returns 403
+- after COMPLETED/CANCELLED tracking is disabled
+5) Provide:
+- files changed
+- migration SQL (if any)
+- sample JSON from /api/dashboard/driver-stats
+- screenshots or logs proving cadence and bucket accuracy

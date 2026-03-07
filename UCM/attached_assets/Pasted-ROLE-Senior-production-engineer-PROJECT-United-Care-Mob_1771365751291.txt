@@ -1,0 +1,201 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement Company-to-Driver payroll inside UCM with two global payment modes:
+(A) Pay per Trip and (B) Pay per Hour.
+Company Admin can configure rules and cadence, UCM auto-creates pay runs and pays drivers via Stripe on the due date.
+Strict multi-tenant + role gating. Non-breaking.
+
+========================================
+SCOPE / ROLES
+========================================
+- SUPER_ADMIN: view/override any company, force-run payruns, audit.
+- COMPANY_ADMIN: manage payroll settings for their company, run/approve payruns, view only their drivers.
+- DISPATCH: read-only operational view (no payout execution).
+- DRIVER: onboarding to Stripe + view own earnings/payout history only.
+
+========================================
+PHASE 1 — DATA MODEL (ADDITIVE MIGRATIONS)
+========================================
+Create tables (do NOT modify existing data; additive only):
+
+1) company_payroll_settings
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null unique
+- cadence text not null  -- WEEKLY|BIWEEKLY|MONTHLY
+- payday_weekday int null         -- 0=Sun..6=Sat for WEEKLY
+- payday_day_of_month int null    -- 1..28 for MONTHLY
+- timezone text not null default 'America/Los_Angeles'
+- pay_mode text not null          -- PER_TRIP|HOURLY
+- hourly_rate_cents int null
+- per_trip_flat_cents int null
+- per_trip_percent_bps int null   -- optional, 10000=100%
+- require_trip_finalized boolean not null default true
+- require_clinic_paid boolean not null default false (v1 default false to avoid blocking)
+- minimum_payout_cents int not null default 0
+- holdback_days int not null default 0
+- created_at timestamptz default now()
+- updated_at timestamptz default now()
+
+2) driver_stripe_accounts
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null
+- driver_id uuid not null
+- stripe_account_id text not null
+- status text not null default 'PENDING' -- PENDING|RESTRICTED|ACTIVE
+- payouts_enabled boolean not null default false
+- details_submitted boolean not null default false
+- created_at timestamptz default now()
+Unique(company_id, driver_id)
+
+3) driver_earnings_ledger
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null
+- driver_id uuid not null
+- trip_id uuid null
+- earning_type text not null -- TRIP|HOURLY|ADJUSTMENT
+- units numeric null         -- hours or trips count
+- amount_cents int not null
+- currency text not null default 'USD'
+- earned_at timestamptz not null
+- eligible_at timestamptz not null
+- status text not null default 'EARNED' -- EARNED|ELIGIBLE|IN_PAYRUN|PAID|VOID
+- payrun_id uuid null
+- created_at timestamptz default now()
+Indexes: (company_id, driver_id, status), (eligible_at)
+
+4) payroll_payruns
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null
+- period_start date not null
+- period_end date not null
+- pay_mode text not null -- PER_TRIP|HOURLY
+- cadence text not null
+- scheduled_payday date not null
+- status text not null default 'DRAFT' -- DRAFT|APPROVED|PROCESSING|PAID|FAILED|VOID
+- created_by uuid not null
+- approved_by uuid null
+- approved_at timestamptz null
+- processed_at timestamptz null
+- idempotency_key text not null unique
+- created_at timestamptz default now()
+
+5) payroll_payrun_items
+- id uuid pk default gen_random_uuid()
+- payrun_id uuid not null
+- driver_id uuid not null
+- amount_cents int not null
+- stripe_transfer_id text null
+- paid_at timestamptz null
+Unique(payrun_id, driver_id)
+
+========================================
+PHASE 2 — EARNINGS GENERATION (NON-BREAKING)
+========================================
+Implement earnings generation using existing trip lifecycle:
+- For PER_TRIP mode:
+  When trip is finalized (finalized_at set) OR status COMPLETED:
+  create ledger row TRIP with amount = per_trip_flat OR percent of trip price (if price exists), else fallback per_trip_flat.
+- For HOURLY mode:
+  Use trip duration if available:
+  duration_minutes = (actual_dropoff_at - actual_pickup_at) OR existing duration field OR 0.
+  hours = duration_minutes / 60.
+  amount = round(hours * hourly_rate_cents).
+  create ledger HOURLY row per trip (v1) so no new timesheet UI is required.
+
+Eligible rules:
+eligible_at = earned_at + holdback_days
+If require_trip_finalized=true: only generate when finalized_at not null.
+If require_clinic_paid=true: only eligible when invoice marked paid (if available).
+
+Ensure idempotency: do not duplicate ledger rows for same (trip_id, earning_type) per company+driver.
+
+========================================
+PHASE 3 — PAYRUN CREATION + APPROVAL
+========================================
+Endpoints (role-gated):
+- GET  /api/company/payroll/settings (COMPANY_ADMIN + SUPER_ADMIN)
+- PUT  /api/company/payroll/settings (COMPANY_ADMIN + SUPER_ADMIN)
+
+- POST /api/company/payroll/payruns/generate?periodStart=YYYY-MM-DD&periodEnd=YYYY-MM-DD
+  Creates a DRAFT payrun for that period:
+  - selects ledger rows status ELIGIBLE for that company within eligible_at <= periodEnd
+  - groups by driver, sums amount
+  - applies minimum_payout_cents filter (below => keep ELIGIBLE, not included)
+  - creates payrun + items
+  - marks included ledger rows IN_PAYRUN with payrun_id
+
+- POST /api/company/payroll/payruns/{id}/approve
+  Changes status to APPROVED (COMPANY_ADMIN only for their company)
+
+========================================
+PHASE 4 — STRIPE PAYOUT EXECUTION
+========================================
+Execution endpoint:
+- POST /api/company/payroll/payruns/{id}/process
+  Auth: COMPANY_ADMIN (own company) or SUPER_ADMIN
+  Behavior:
+  - validates payrun APPROVED
+  - for each item:
+     - verify driver_stripe_accounts ACTIVE + payouts_enabled
+     - create Stripe Transfer to driver connected account
+     - store stripe_transfer_id, paid_at
+  - set ledger rows PAID
+  - set payrun status PAID if all succeeded else FAILED
+Idempotency:
+  - use payrun.idempotency_key with Stripe requests
+  - if already PAID, return success without re-paying
+
+========================================
+PHASE 5 — SCHEDULER (AUTO PAY ON DUE DATE)
+========================================
+Create a server cron job endpoint (protected by internal secret):
+- POST /api/internal/payroll/run-due
+Logic:
+  - find payruns with scheduled_payday = today and status APPROVED
+  - process them
+Schedule:
+  - Use existing Replit cron / scheduled task mechanism.
+  - Ensure runs once daily in each company timezone by computing “today” per timezone.
+
+========================================
+PHASE 6 — DRIVER STRIPE ONBOARDING (IN-APP)
+========================================
+Driver endpoints:
+- POST /api/driver/stripe/connect/create
+- POST /api/driver/stripe/connect/onboarding-link
+- GET  /api/driver/stripe/connect/status
+Store driver_stripe_accounts.
+Driver UI:
+- Payments tab: Setup payouts button, status badge, payout history.
+
+========================================
+PHASE 7 — VERIFICATION (MUST DO)
+========================================
+1) Create company with payroll settings PER_TRIP (flat) and HOURLY (hourly rate) in separate companies.
+2) Create 2 drivers per company; onboard with Stripe test.
+3) Create 10 trips completed/finalized for each; verify ledger rows created once (no duplicates).
+4) Generate payrun for a period, approve, process:
+   - verify transfers created
+   - ledger PAID
+5) Scheduler run-due processes APPROVED payruns due today.
+6) Role checks:
+   - COMPANY_ADMIN cannot see other company’s payruns/drivers/ledger
+   - DRIVER sees only own payouts
+   - SUPER_ADMIN sees all
+7) npm run check, npm run build, server starts.
+
+DELIVERABLES:
+- List of new files + modified files
+- Migration SQL or drizzle schema updates
+- Curl examples for generate/approve/process/run-due
+- Screenshot or console output proving payrun paid in test mode
+END.

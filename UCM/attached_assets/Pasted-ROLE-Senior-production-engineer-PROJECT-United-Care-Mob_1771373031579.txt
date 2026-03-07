@@ -1,0 +1,101 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Add Platform Fee (Stripe Connect application fee) as a feature-flag with global + per-company override, integrated into the existing clinic invoice payment flow, without changing runtime behavior when disabled.
+
+HARD REQUIREMENTS:
+- Default behavior must remain identical: platform fee OFF by default, companies receive full amount.
+- No DB reset, no destructive migrations.
+- Strict role scoping:
+  - SUPER_ADMIN manages platform fee settings
+  - Company/dispatch cannot see or change global settings
+- Must work with existing Stripe Connect destination charge implementation.
+
+IMPLEMENTATION:
+
+1) DB (non-destructive):
+A) Create table platform_billing_settings (single row):
+- id int pk default 1
+- enabled boolean not null default false
+- default_fee_type text not null default 'PERCENT'  -- PERCENT|FIXED
+- default_fee_percent numeric not null default 0
+- default_fee_cents int not null default 0
+- updated_at timestamptz default now()
+Ensure row id=1 exists (seed on boot if missing).
+
+B) Create table company_platform_fees:
+- company_id uuid pk
+- enabled boolean null  -- null means inherit global
+- fee_type text null
+- fee_percent numeric null
+- fee_cents int null
+- updated_at timestamptz default now()
+
+C) Add columns to billing invoices (or invoicePayments) to store the fee used at charge time:
+- platform_fee_cents int not null default 0
+- platform_fee_type text null
+- platform_fee_rate numeric null
+- net_to_company_cents int null
+
+2) Backend logic:
+A) Implement resolver getEffectivePlatformFee(companyId):
+- Read global settings row id=1
+- Read company override row (if any)
+- Apply inheritance rules:
+  - enabled = company.enabled ?? global.enabled
+  - fee_type = company.fee_type ?? global.default_fee_type
+  - percent/cents similarly
+Return normalized { enabled, type, percent, cents }
+
+B) In the existing endpoint that creates Stripe Checkout for clinic invoice payment:
+- Compute total_amount_cents from invoice
+- Resolve effective fee for invoice.company_id
+- If fee disabled => create Checkout session exactly as today
+- If fee enabled:
+  - application_fee_amount = 
+    - PERCENT: round(total_amount_cents * percent/100)
+    - FIXED: cents
+  - Clamp to [0, total_amount_cents]
+  - Pass payment_intent_data.application_fee_amount
+  - Keep transfer_data.destination as company connected account
+- Store fee details on invoice BEFORE redirecting (platform_fee_cents/type/rate/net_to_company)
+
+3) API endpoints (SUPER_ADMIN only):
+- GET  /api/admin/platform-fee/settings
+- POST /api/admin/platform-fee/settings  (update global)
+- GET  /api/admin/platform-fee/companies
+- POST /api/admin/platform-fee/companies/:companyId  (set override or clear to inherit)
+
+All endpoints must use requireRole(SUPER_ADMIN) or requirePermission equivalent.
+
+4) Frontend:
+Add SUPER_ADMIN page Settings → Platform Fees:
+- Global toggle
+- Fee type selector (Percent/Fixed)
+- Input for percent or cents
+- Company list with:
+  - Inherit toggle
+  - Override enabled + fee values
+- Save actions call endpoints above
+
+5) Verification:
+- With global OFF: pay invoice -> Stripe session has NO application_fee_amount; company receives full amount.
+- With global ON (2.5%): pay invoice -> session includes application_fee_amount; fee stored on invoice; webhook marks paid.
+- Company override ON/OFF works and inherits correctly.
+
+Run and report:
+- npm run check
+- npm run build
+- start server and confirm endpoints respond
+Provide:
+- files changed + line ranges
+- curl examples to toggle global + set company override
+END

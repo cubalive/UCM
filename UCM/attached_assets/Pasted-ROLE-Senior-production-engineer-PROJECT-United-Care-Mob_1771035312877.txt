@@ -1,0 +1,154 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+OBJECTIVE:
+Implement a NO-API route grouping + auto assignment system for two cities:
+Las Vegas and Pahrump. The system must never mix cities.
+Use ZIP clustering inside each city, then assign drivers/vehicles based on rules.
+This is a "pre-optimization" engine (not Google Route Optimization yet).
+
+-----------------------------------------------------
+PHASE 0 — SAFETY + DATA CHECKS (NO BREAKING CHANGES)
+-----------------------------------------------------
+1) Identify existing tables for:
+- trips (or trip_requests)
+- patients
+- clinics
+- drivers
+- vehicles
+- dispatch approvals / statuses
+- holds (driver hold)
+- recurring trips (if any)
+2) Do NOT change existing columns unless necessary; prefer adding new columns/tables.
+
+-----------------------------------------------------
+PHASE 1 — DATA MODEL EXTENSION (MINIMAL)
+-----------------------------------------------------
+Add these fields if missing (via safe migrations):
+A) trips table:
+- city (text)  // required for all trips
+- pickup_zip (text) // derived from pickup address when available
+- dropoff_zip (text) // optional
+- trip_type (text) // "dialysis" | "recurring" | "one_time"
+- status (text) // ensure includes: draft, pending, approved, assigned, in_progress, completed, cancelled
+- approved_by_dispatch (boolean default false)
+- approved_at (timestamp)
+- assignment_batch_id (uuid nullable)
+- assigned_driver_id (uuid nullable)
+- assigned_vehicle_id (uuid nullable)
+- assignment_source (text) // "auto" | "manual"
+- assignment_reason (text nullable)
+
+B) drivers table:
+- home_city (text)
+- preferred_zips (text[] nullable) OR preferred_zip_prefix (text nullable)
+- is_on_hold (boolean) OR reuse existing hold system
+
+C) vehicles table:
+- home_city (text)
+- vehicle_type (text) // "sedan" | "wheelchair"
+- active (boolean)
+- assigned_driver_id (uuid nullable) // current shift pairing
+- color (text nullable)
+- make (text nullable)
+- model (text nullable)
+
+Create a new table if needed:
+assignment_batches:
+- id uuid pk
+- run_at timestamp
+- city text
+- created_by uuid nullable (system)
+- status text ("proposed"|"applied"|"cancelled")
+- notes text
+
+-----------------------------------------------------
+PHASE 2 — RULE ENGINE (CITY + ZIP CLUSTERING)
+-----------------------------------------------------
+Implement a backend service function:
+generateAssignmentPlan({runAt, cities:["Las Vegas","Pahrump"]})
+
+Rules:
+1) Hard rule: NEVER mix cities in grouping or assignment.
+2) Within each city:
+   - group trips by pickup_zip (fallback: derive zip from pickup address if we store it; if unavailable, group as "unknown_zip")
+   - prioritize trip_type order:
+       dialysis first
+       recurring second
+       one_time last
+3) Only include trips that are:
+   - status in ("pending","approved") AND not cancelled/completed
+   - if clinic-created trips: they can be "pending" but must NOT be assigned unless approved_by_dispatch=true
+4) Driver eligibility:
+   - driver.home_city must match city
+   - driver not on hold
+5) Vehicle eligibility:
+   - vehicle.home_city matches city
+   - vehicle.active=true
+   - vehicle_type must match trip needs (wheelchair trips require wheelchair vehicle; sedan trips cannot use wheelchair-only if you have such flag; if wheelchair vehicle can do sedan trips allow it via config)
+6) Preference:
+   - keep same patient->driver pairing if we have last_assigned_driver_id or prior trip history
+   - keep driver->vehicle pairing if available
+7) Output:
+   - create assignment_batch row per city
+   - write proposed assignments onto trips (assigned_driver_id/vehicle_id) ONLY IF "apply" action confirmed, otherwise store proposals in memory or a proposals table.
+   - include assignment_reason text for transparency.
+
+-----------------------------------------------------
+PHASE 3 — UI (DISPATCH/ADMIN) "Assignment Center"
+-----------------------------------------------------
+Add a new page for super_admin + dispatch:
+Operations → Auto Assignment
+
+Features:
+- Select city: Las Vegas / Pahrump
+- Button: "Generate Plan" (creates proposed batch)
+- Table of proposed assignments:
+  trip_id, pickup time, patient, pickup_zip, trip_type, status, proposed driver, proposed vehicle
+- Buttons:
+  - "Apply Batch" (writes assignments to trips + sets assignment_source="auto")
+  - "Cancel Batch"
+  - Per-row override: change driver/vehicle dropdown then save (assignment_source="manual")
+- Safety:
+  - If trip is not approved_by_dispatch=true, show it but lock assignment (cannot apply), with warning "Needs dispatch approval"
+
+-----------------------------------------------------
+PHASE 4 — PERMISSIONS
+-----------------------------------------------------
+Enforce server-side:
+- super_admin: can generate/apply/cancel batches and override
+- dispatch: can generate/apply/cancel batches and override
+- clinic_user: can view only their trips; cannot generate or apply batches
+- driver: view own assignments only
+
+-----------------------------------------------------
+PHASE 5 — SCHEDULER (OPTIONAL NOW, READY LATER)
+-----------------------------------------------------
+Implement a job hook that can run at 5:30am local time:
+- generateAssignmentPlan for both cities
+- but do NOT auto-apply unless ENV AUTO_APPLY_ASSIGNMENTS=true
+
+-----------------------------------------------------
+PHASE 6 — VERIFICATION CHECKLIST (MUST DO)
+-----------------------------------------------------
+1) Create test trips in Vegas + Pahrump and verify:
+   - no cross-city mixing
+2) Create wheelchair trip and ensure only wheelchair vehicle assigned
+3) Clinic-created trip pending approval:
+   - appears but cannot be assigned until approved_by_dispatch=true
+4) Hold driver:
+   - never assigned
+5) Override works and persists
+6) No existing endpoints break; all changes are additive
+
+DELIVERABLE:
+- PR-ready code changes
+- brief notes: new tables/fields, endpoints, UI path, how to test

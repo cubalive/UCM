@@ -1,0 +1,74 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Update seed script to output deterministic login emails + create missing test accounts, then print a credentials table.
+
+CONTEXT:
+Seed script exists at: server/scripts/seed-ucm.ts
+It seeds multiple companies, cities, users, clinics, drivers, etc.
+We have passwords:
+- Staff users: SeedPass123!
+- Drivers: DriverPass123!
+- Clinic users: ClinicPass123!
+
+PROBLEM:
+Seed ran but we don’t have the EMAILS to log in. We need a deterministic, copy-paste credential list every time seed runs.
+
+HARD REQUIREMENTS:
+1) Do NOT reset DB or delete data.
+2) Seed must remain idempotent (re-run safe, no duplicates).
+3) Do NOT change existing runtime behavior besides seed output + ensuring accounts exist.
+4) Print results at end in a clear table (console) and also write to a file: server/scripts/seed-credentials.json
+5) Ensure at least:
+   - 1 SUPER_ADMIN (global)
+   - For EACH company: 1 COMPANY_ADMIN + 1 DISPATCH
+   - For EACH clinic: 1 CLINIC_USER tied to that clinic
+   - For EACH driver: 1 DRIVER tied to that driver
+6) Emails MUST be deterministic and unique, derived from company slug + role (+ clinic/driver id):
+   Examples:
+   - superadmin@ucm.test
+   - <companySlug>.admin@ucm.test
+   - <companySlug>.dispatch@ucm.test
+   - <companySlug>.clinic.<clinicId>@ucm.test
+   - <companySlug>.driver.<driverId>@ucm.test
+
+IMPLEMENTATION STEPS:
+A) Open server/scripts/seed-ucm.ts and locate user creation logic.
+B) Create helpers:
+   - slugifyCompany(name) -> safe slug
+   - ensureUser({email, role, companyId, cityId, clinicId, driverId, firstName, lastName, password})
+     - checks by email first; if exists, update role bindings if missing; else insert.
+C) For each seeded company:
+   - ensure COMPANY_ADMIN and DISPATCH users with SeedPass123!
+D) For each seeded clinic:
+   - ensure CLINIC_USER with ClinicPass123! and clinicId set
+E) For each seeded driver:
+   - ensure DRIVER with DriverPass123! and driverId set
+F) Ensure global SUPER_ADMIN: superadmin@ucm.test with SeedPass123!
+G) Print a console table at the end with columns:
+   email | role | company | city | clinicId | driverId | password
+H) Also write JSON file: server/scripts/seed-credentials.json with the same records.
+
+VERIFICATION (MUST DO):
+1) Run seed twice:
+   npx tsx server/scripts/seed-ucm.ts
+   npx tsx server/scripts/seed-ucm.ts
+   Confirm counts don’t explode and users are not duplicated (emails stay same).
+2) Show the printed credentials table.
+3) Confirm file exists and show first 20 lines:
+   cat server/scripts/seed-credentials.json | head -n 20
+
+DELIVERABLES:
+- Exact file(s) changed + summary
+- Output credentials table
+- Confirmation of the 2 seed runs + JSON file evidence
+
+END

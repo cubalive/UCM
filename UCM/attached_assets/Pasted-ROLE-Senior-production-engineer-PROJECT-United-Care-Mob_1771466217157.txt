@@ -1,0 +1,146 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT create sub-agents
+- Sequential execution only
+- Finish current task fully before anything else
+- Verify before exit
+
+NON-NEGOTIABLE SAFETY
+- Do NOT reset database
+- Do NOT drop/recreate tables
+- Do NOT change production secrets
+- Extend existing system only
+- Use ONLY Supabase DB connection (SUPABASE_DB_URL). Ignore DATABASE_URL/PG* if present.
+- Seeding must be idempotent (safe to re-run). Use deterministic IDs or an idempotency key.
+
+GOAL (TERRAIN TEST DATA — LAS VEGAS ONLY)
+Populate the system with realistic, end-to-end test data so we can run field tests tomorrow.
+Create:
+- 5 clinic/companies in Las Vegas (NV)
+- For EACH company:
+  - 30 drivers
+  - 60 patients
+- Ensure all core workflows are testable and ACTIVE with this data.
+
+SCOPE OF DATA TO CREATE (ALL LEVELS)
+1) Companies/Clinics (5)
+   - Name format: "UCM Test Clinic 01..05"
+   - Las Vegas addresses (realistic street/city/state/zip) and phone numbers
+   - Operating hours + notes
+   - Each clinic must have a login user (role: clinic_user) with temp password and force reset on first login (if system supports it)
+
+2) Dispatch users
+   - 1 global DISPATCH user per clinic OR 3 total dispatch users system-wide (choose what matches current RBAC design)
+   - Must be able to view and manage trips for assigned clinic(s)
+
+3) Drivers (30 per clinic; 150 total)
+   For each driver:
+   - Profile: name, phone, email
+   - Role: driver
+   - Driver status: active
+   - Shift availability: create a schedule for next 7 days (Mon–Sun) with staggered start times
+   - Vehicle assignment:
+     - Create/assign a vehicle record with real-ish plate format, make/model (mix: Tesla Model 3, Sienna, Transit, etc.)
+     - Vehicle color must be set (so map icons/colors can be tested)
+     - Capability flags:
+       - 70% sedan-only
+       - 30% wheelchair-capable (or whatever your schema supports)
+   - Home base: Las Vegas
+   - GPS: if the system has “driver live location” table, seed initial last-known positions around Las Vegas (Strip, Summerlin, Henderson, NLV)
+
+4) Patients (60 per clinic; 300 total)
+   For each patient:
+   - Profile: name, phone, email (if required), DOB (adult), notes
+   - Mobility type: mix of ambulatory + wheelchair (match clinic’s expected case mix)
+   - Pickup/home address: Las Vegas area (spread across city)
+   - Common destinations: Dialysis centers / clinics / hospitals (Las Vegas only)
+
+5) Trips / Schedules (ACTIVE & TESTABLE)
+Create trips that exercise every feature:
+- Create trips for next 3 days + same-day trips
+- Include:
+  - One-way trips
+  - Round trips with return time editable by clinic/dispatch (per your rules)
+  - Recurring schedules (e.g., dialysis: Mon/Wed/Fri)
+  - Wheelchair trips only assigned to wheelchair-capable vehicles/drivers
+- Status distribution:
+  - 40% scheduled
+  - 20% assigned
+  - 20% enroute/picked-up (if your system supports in-progress state seeding)
+  - 20% completed (with timestamps, distance, cost, payment status)
+- Assign drivers to trips with realistic routing proximity (driver home base near pickup)
+
+6) Billing / Payments / Invoices (if present)
+- Generate sample invoices per clinic (weekly/monthly)
+- Create invoice payments for some trips (paid_at set) and some unpaid
+- Include a few edge cases: late pickup, no-show, cancel with reason, cost adjustment
+
+7) Ops/Monitoring (ALL FUNCTIONS ACTIVE)
+- Ensure feature flags enable schedulers/engines:
+  - ETA_ENGINE_ENABLED = true
+  - AUTO_ASSIGN_ENABLED = true
+  - Any OPS health / alerts engine enabled
+- Seed a few ops alerts/anomalies so dashboards aren’t empty:
+  - “late pickup risk”
+  - “driver idle too long”
+  - “route deviation” (if supported)
+  - “no-show risk”
+- IMPORTANT: Do NOT spam real SMS/email/Stripe in production.
+  - In seed mode, either:
+    (A) write records without sending, OR
+    (B) gate side effects behind a SEED_MODE=true check.
+
+IMPLEMENTATION REQUIREMENTS
+A) Add a dedicated script:
+   - server/scripts/seed_vegas_field_test.ts (or similar)
+   - Runnable via npm script: "seed:vegas"
+   - Uses existing ORM/DB layer and respects RBAC schema
+
+B) Idempotency rules:
+   - Use a fixed "seed_batch" tag value like "VEGAS_FIELDTEST_2026_02_18"
+   - Before inserting, check if records with that seed_batch already exist; if yes, skip or update safely
+
+C) Realism rules:
+   - Use plausible phone formats and emails (never real people)
+   - Addresses must all be Las Vegas/Henderson/NLV area
+   - Spread locations so mapping/ETA is meaningful
+
+D) Verification checklist (MUST RUN AND REPORT)
+1) Script run output: counts created per table/entity
+2) API smoke tests:
+   - /api/healthz ok
+   - Login works for:
+     - SUPER_ADMIN
+     - a clinic_user from Clinic 01
+     - a driver from Clinic 01
+     - a dispatch user
+3) UI checks (if possible via logs/API):
+   - Clinics list shows 5 clinics
+   - Each clinic has 30 drivers + 60 patients
+   - Trips list populated for next 3 days
+   - Auto-assign runs without errors (or logs show it evaluated trips)
+   - ETA engine produces ETAs for assigned trips (if feature exists)
+
+OUTPUT FORMAT (REQUIRED)
+- Files changed (paths)
+- Command to run seeding
+- Summary counts:
+  - clinics created
+  - clinic users created
+  - dispatch users created
+  - drivers created
+  - vehicles created
+  - patients created
+  - trips created (by status)
+  - invoices/payments created (if applicable)
+  - ops alerts created
+- Proof:
+  - logs showing "Seed batch already exists" on second run
+  - screenshots not needed, but include API responses (sanitized)
+
+START NOW
+Implement the seed script, add npm command, run it once, then re-run to prove idempotency, then report results.

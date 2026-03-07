@@ -1,0 +1,85 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+Do NOT use sub-agents. Do NOT do parallel work.
+
+Goal:
+Prepare UCM for store submission with 3 separate apps (Driver, Clinic, Admin/Dispatch) and consistent icons + manifests.
+Each app must point to its own domain:
+- Driver: https://driver.unitedcaremobility.com
+- Clinic: https://clinic.unitedcaremobility.com
+- Admin/Dispatch: https://app.unitedcaremobility.com
+
+Hard constraints:
+- Do not break anything currently working.
+- No DB/RLS changes.
+- Only code + assets + config.
+- Keep existing routing and subdomain logic.
+
+Tasks:
+1) Create an assets structure for icons:
+   client/public/app-icons/driver/
+   client/public/app-icons/clinic/
+   client/public/app-icons/admin/
+   Add placeholder files (empty or sample) with the exact expected names:
+   - ios/AppIcon-1024.png
+   - android/AppIcon-512.png
+   - android/ic_launcher_foreground.png
+   - android/ic_launcher_background.png
+   - pwa/icon-192.png, pwa/icon-512.png
+   - pwa/maskable-192.png, pwa/maskable-512.png
+   Also add README.md in each folder describing which file is used for iOS/Android/PWA.
+
+2) Ensure 3 PWA manifests exist (or are generated dynamically per hostname):
+   - /manifest.driver.json
+   - /manifest.clinic.json
+   - /manifest.admin.json
+   Each manifest must use:
+   name: "Driver UCM" / "Clinic UCM" / "UCM"
+   short_name: "UCM Driver" / "UCM Clinic" / "UCM"
+   start_url: "/" and scope: "/" (host-based separation)
+   icons array includes 192/512 and maskable 192/512 pointing to the correct per-app icon paths.
+
+3) Serve the correct manifest per subdomain:
+   If hostname starts with driver. -> serve /manifest.driver.json
+   If hostname starts with clinic. -> serve /manifest.clinic.json
+   Else -> serve /manifest.admin.json
+   Make sure Content-Type is application/json and no caching (no-store).
+
+4) Ensure each Capacitor package can be built for 3 apps:
+   Under mobile-driver/ (or create mobile-admin/ and mobile-clinic/ if needed),
+   create 3 capacitor config files:
+   - capacitor.driver.config.ts
+   - capacitor.clinic.config.ts
+   - capacitor.admin.config.ts
+   Each must set:
+   appId: com.unitedcaremobility.driver / com.unitedcaremobility.clinic / com.unitedcaremobility.admin
+   appName: Driver UCM / Clinic UCM / UCM
+   server.url: correct domain
+   server.cleartext: false
+   Include ios scheme/allowNavigation only for the specific domain + api calls as required.
+
+5) Add a release readiness endpoint check (if not already present) that verifies:
+   - Manifests reachable per hostname
+   - AASA reachable (already done)
+   - Version.json reachable
+   - Required env vars present
+   Return PASS/FAIL with actionable messages.
+
+Verification checklist (must run and report results in output):
+A) curl:
+- curl -i https://driver.unitedcaremobility.com/manifest.json or the routed manifest endpoint
+- curl -i https://clinic.unitedcaremobility.com/manifest.json
+- curl -i https://app.unitedcaremobility.com/manifest.json
+(Whatever path you implement, show final paths and curl outputs.)
+B) Build sanity:
+- Typecheck passes
+- App boots in dev without blank screen
+C) No regressions:
+- Driver login still redirects to driver subdomain
+- Clinic login still redirects to clinic subdomain
+- Admin/dispatch still uses app.unitedcaremobility.com
+
+Output required:
+- List every file changed/created
+- Exact manifest URLs + sample JSON snippets
+- Exact Capacitor config filenames and where to use them for each build
+- The commands to build Android and iOS for each app

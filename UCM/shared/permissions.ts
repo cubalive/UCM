@@ -1,0 +1,200 @@
+export type AppRole = "SUPER_ADMIN" | "ADMIN" | "COMPANY_ADMIN" | "DISPATCH" | "DRIVER" | "VIEWER" | "CLINIC_ADMIN" | "CLINIC_USER" | "CLINIC_VIEWER";
+
+export type Resource =
+  | "dashboard"
+  | "dispatch"
+  | "trips"
+  | "patients"
+  | "drivers"
+  | "vehicles"
+  | "clinics"
+  | "invoices"
+  | "cities"
+  | "users"
+  | "audit"
+  | "time_entries"
+  | "payroll"
+  | "billing"
+  | "support";
+
+export type Permission = "read" | "write" | "self";
+
+const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
+  SUPER_ADMIN: {
+    dashboard: ["read"],
+    dispatch: ["read", "write"],
+    trips: ["read", "write"],
+    patients: ["read", "write"],
+    drivers: ["read", "write"],
+    vehicles: ["read", "write"],
+    clinics: ["read", "write"],
+    invoices: ["read", "write"],
+    cities: ["read", "write"],
+    users: ["read", "write"],
+    audit: ["read"],
+    time_entries: ["read", "write"],
+    payroll: ["read", "write"],
+    billing: ["read", "write"],
+    support: ["read", "write"],
+  },
+  ADMIN: {
+    dashboard: ["read"],
+    dispatch: ["read", "write"],
+    trips: ["read", "write"],
+    patients: ["read", "write"],
+    drivers: ["read", "write"],
+    vehicles: ["read", "write"],
+    clinics: ["read", "write"],
+    invoices: ["read", "write"],
+    cities: ["read", "write"],
+    users: ["read", "write"],
+    audit: ["read"],
+    time_entries: ["read", "write"],
+    payroll: ["read", "write"],
+    billing: ["read", "write"],
+    support: ["read", "write"],
+  },
+  COMPANY_ADMIN: {
+    dashboard: ["read"],
+    dispatch: ["read", "write"],
+    trips: ["read", "write"],
+    patients: ["read", "write"],
+    drivers: ["read", "write"],
+    vehicles: ["read", "write"],
+    clinics: ["read", "write"],
+    invoices: ["read", "write"],
+    cities: ["read"],
+    users: ["read", "write"],
+    audit: ["read"],
+    time_entries: ["read", "write"],
+    payroll: ["read", "write"],
+    billing: ["read", "write"],
+    support: ["read", "write"],
+  },
+  DISPATCH: {
+    dashboard: ["read"],
+    dispatch: ["read", "write"],
+    trips: ["read", "write"],
+    patients: ["read", "write"],
+    drivers: ["read", "write"],
+    vehicles: ["read", "write"],
+    clinics: ["read"],
+    invoices: ["read"],
+    cities: [],
+    users: [],
+    audit: ["read"],
+    time_entries: ["read", "write"],
+    payroll: ["read"],
+    billing: ["read", "write"],
+    support: ["read", "write"],
+  },
+  DRIVER: {
+    dashboard: [],
+    dispatch: [],
+    trips: ["self"],
+    patients: [],
+    drivers: ["self"],
+    vehicles: [],
+    clinics: [],
+    invoices: [],
+    cities: [],
+    users: [],
+    audit: ["read"],
+    time_entries: ["self"],
+    payroll: [],
+    billing: [],
+    support: [],
+  },
+  VIEWER: {
+    dashboard: [],
+    dispatch: [],
+    trips: ["read"],
+    patients: ["read"],
+    drivers: [],
+    vehicles: [],
+    clinics: [],
+    invoices: ["read"],
+    cities: [],
+    users: [],
+    audit: ["read"],
+    time_entries: [],
+    payroll: [],
+    billing: ["read"],
+    support: ["read", "write"],
+  },
+  CLINIC_ADMIN: {
+    dashboard: ["read"],
+    dispatch: [],
+    trips: ["read", "write"],
+    patients: ["read", "write"],
+    drivers: [],
+    vehicles: [],
+    clinics: ["read"],
+    invoices: ["read"],
+    cities: [],
+    users: ["read", "write"],
+    audit: ["read"],
+    time_entries: [],
+    payroll: [],
+    billing: ["read"],
+    support: ["read", "write"],
+  },
+  CLINIC_USER: {
+    dashboard: ["read"],
+    dispatch: [],
+    trips: ["read", "write"],
+    patients: ["read", "write"],
+    drivers: [],
+    vehicles: [],
+    clinics: ["read"],
+    invoices: [],
+    cities: [],
+    users: [],
+    audit: ["read"],
+    time_entries: [],
+    payroll: [],
+    billing: [],
+    support: ["read", "write"],
+  },
+  CLINIC_VIEWER: {
+    dashboard: ["read"],
+    dispatch: [],
+    trips: ["read"],
+    patients: ["read"],
+    drivers: [],
+    vehicles: [],
+    clinics: ["read"],
+    invoices: ["read"],
+    cities: [],
+    users: [],
+    audit: ["read"],
+    time_entries: [],
+    payroll: [],
+    billing: ["read"],
+    support: ["read"],
+  },
+};
+
+export const CLINIC_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"] as const;
+
+export function isClinicRole(role: string): boolean {
+  return CLINIC_ROLES.includes(role.toUpperCase() as any);
+}
+
+export function can(role: string, resource: Resource, permission: Permission = "read"): boolean {
+  const normalizedRole = role.toUpperCase() as AppRole;
+  const perms = ROLE_PERMISSIONS[normalizedRole];
+  if (!perms) return false;
+  const resourcePerms = perms[resource];
+  if (!resourcePerms) return false;
+  return resourcePerms.includes(permission);
+}
+
+export function getVisibleNavItems(role: string): Resource[] {
+  const normalizedRole = role.toUpperCase() as AppRole;
+  const perms = ROLE_PERMISSIONS[normalizedRole];
+  if (!perms) return [];
+  return (Object.keys(perms) as Resource[]).filter((r) => perms[r].length > 0);
+}
+
+export { ROLE_PERMISSIONS };

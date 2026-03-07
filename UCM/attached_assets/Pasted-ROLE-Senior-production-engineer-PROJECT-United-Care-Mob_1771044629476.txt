@@ -1,0 +1,148 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+PRIORITY: URGENT OPS FIXES
+We need a complete minimal operational flow:
+Driver availability → Dispatch assignment → Trip progress → Location mandatory → Status-based tabs → Messaging rules → Lock completed trips.
+
+-----------------------------------------------------
+PHASE 1 — DRIVER AVAILABILITY (ACTIVE/INACTIVE)
+-----------------------------------------------------
+1) Add driver status toggle in Driver app:
+   - Button: "Go Active" / "Go Offline"
+   - When Active: driver appears in Dispatch "Active Drivers" list
+2) Persist driver availability server-side:
+   - drivers.is_active boolean (or reuse existing field)
+   - drivers.last_active_at timestamp
+3) Backend endpoints:
+   - POST /api/driver/me/active { active: true|false }
+   - GET /api/dispatch/drivers/active?city=...
+   Permissions:
+   - driver can only change self
+   - dispatch/super_admin can view active drivers in selected city
+
+-----------------------------------------------------
+PHASE 2 — ASSIGN DRIVER BUTTON (DISPATCH)
+-----------------------------------------------------
+1) In Dispatch Trip detail + Trips list:
+   - Button "Assign Driver"
+   - Visible if trip.status in ("APPROVED","SCHEDULED","PENDING_ASSIGNMENT") and trip not completed/cancelled
+2) Modal:
+   - list drivers filtered by:
+     - same city
+     - is_active=true
+     - not on hold
+   - optionally show recommended vehicle
+3) Backend:
+   - PATCH /api/trips/:id/assign { driverId, vehicleId? }
+   - Only dispatch/super_admin
+   - Enforce same city
+   - Enforce vehicle type if wheelchair
+4) After assign:
+   - trip.status becomes "ASSIGNED" (or existing equivalent)
+   - driver sees trip in Driver app immediately
+
+-----------------------------------------------------
+PHASE 3 — TRIP PROGRESS (DRIVER BUTTONS)
+-----------------------------------------------------
+Driver must have progress buttons with server-side enforcement:
+
+Statuses (must exist):
+- ASSIGNED
+- EN_ROUTE_TO_PICKUP
+- ARRIVED_PICKUP
+- PICKED_UP
+- EN_ROUTE_TO_DROPOFF
+- COMPLETED
+- CANCELED
+
+Driver UI buttons on trip:
+- "Start Trip" -> sets EN_ROUTE_TO_PICKUP
+- "Arrived Pickup" -> sets ARRIVED_PICKUP
+- "Picked Up" -> sets PICKED_UP
+- "Start Dropoff" -> sets EN_ROUTE_TO_DROPOFF
+- "Complete Trip" -> sets COMPLETED
+(Keep existing "Finalize" but map it to COMPLETED)
+
+Backend:
+- POST /api/trips/:id/status { status }
+Rules:
+- Only assigned driver OR dispatch/super_admin can change status
+- Must follow valid transitions (no skipping)
+- Record timestamps:
+  started_at, arrived_pickup_at, picked_up_at, en_route_dropoff_at, completed_at
+
+-----------------------------------------------------
+PHASE 4 — LOCATION IS MANDATORY
+-----------------------------------------------------
+1) On Driver app load:
+   - request geolocation permission immediately
+   - show blocking message if denied:
+     "Location required to operate trips"
+2) While driver is Active OR has Active Trip:
+   - send location heartbeat every 10-15 seconds:
+     POST /api/driver/me/location { lat, lng, heading?, speed? }
+3) Backend stores last location on driver record (or separate table):
+   - drivers.current_lat, drivers.current_lng, drivers.location_updated_at
+4) Map must render driver only when location_updated_at is recent; otherwise show "GPS stale"
+
+-----------------------------------------------------
+PHASE 5 — TRIPS TABS (DISPATCH + DRIVER)
+-----------------------------------------------------
+Add tabs with server-side filters:
+- Unassigned (APPROVED/SCHEDULED but no driver)
+- Scheduled (future trips assigned or not, not started)
+- Active (EN_ROUTE*, ARRIVED*, PICKED_UP)
+- Completed (COMPLETED)
+- All (everything except archived/deleted)
+
+Ensure completed trips are not mixed with active lists.
+
+-----------------------------------------------------
+PHASE 6 — COMMUNICATION DRIVER <-> DISPATCH
+-----------------------------------------------------
+1) Add "Contact Dispatch" button in Driver trip screen:
+   - opens chat panel or SMS panel (existing messaging system)
+2) Dispatch sees messages per trip in Trip detail
+3) If SMS not active, implement in-app messages stored in DB (trip_messages):
+   - id, trip_id, sender_role, sender_id, message, created_at
+
+Permissions:
+- driver can message only on assigned trip
+- dispatch/admin can message on any trip in their city
+
+-----------------------------------------------------
+PHASE 7 — LOCK COMPLETED TRIPS (NO CHANGES)
+-----------------------------------------------------
+Once trip.status = COMPLETED:
+- disable status updates
+- disable edits to pickup/dropoff/time
+- disable assignment changes
+- disable messaging (read-only thread)
+Only super_admin can "Reopen Trip" (optional) with confirmation:
+"This cannot be reverted" (if implemented)
+
+Backend must enforce lock server-side (not only UI).
+
+-----------------------------------------------------
+VERIFY BEFORE EXIT (MANDATORY)
+-----------------------------------------------------
+1) Create trip -> approve -> appears in Unassigned tab
+2) Driver toggles Active -> appears in Active Drivers list
+3) Dispatch assigns driver -> driver sees trip
+4) Driver presses Start/Arrived/PickedUp/Dropoff/Complete -> statuses update in dispatch UI
+5) Location permission prompts; without location driver cannot operate
+6) Completed trip moves to Completed tab and is locked
+7) Messaging works during active trip; locked after completion
+
+DELIVERABLES
+- List of new/updated endpoints
+- Where the tabs appear
+- Confirm no regression for clinic/admin

@@ -1,0 +1,429 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Implement Clinic Billing v2 + Shared Trip (Multi-Patient) Billing v1 + Full Transparency + Clinic↔Dispatch Support (Chat + Call),
+with STRICT company isolation and Safari-safe authenticated downloads.
+This must be production-grade, deterministic, idempotent, and non-breaking.
+
+ABSOLUTE RULES (HARD REQUIREMENTS):
+1) Company isolation:
+   - SUPER_ADMIN: can see all.
+   - Non-superadmin (DISPATCH / COMPANY_ADMIN / etc): MUST be scoped by actor.companyId on EVERY query.
+   - CLINIC_USER: MUST be scoped by actor.clinicId (derive companyId from that clinic). Ignore any client-supplied clinic_id/company_id.
+   - DRIVER: can only see their own data (minimal).
+2) Clinics remain VIEWER-only for operations (no creating/modifying trips/drivers/etc). Billing + support allowed.
+3) Do NOT change existing trip lifecycle. Extend only.
+4) Do NOT reset DB, do NOT delete tables/columns/data. Add only non-destructive migrations.
+5) All /api routes MUST be protected by requirePermission() OR an explicit requireRole() (SUPER_ADMIN-only). No unguarded endpoints.
+6) Downloads must NOT save Unauthorized/404 payloads:
+   - Frontend must use authenticated fetch + blob
+   - Must check response.ok before saving
+   - Server must send proper Content-Disposition headers
+   - Must work on Safari iOS
+
+DELIVERABLES (must show):
+- Exact files changed + line ranges
+- SQL migration(s) added (non-destructive)
+- curl examples for key endpoints
+- Confirm: npm run check, npm run build, server starts
+
+========================================================
+PHASE 0 — BASELINE + GUARDRAILS (MANDATORY FIRST)
+========================================================
+A) Identify current auth model and actor context.
+- Implement getActorContext(req) => { userId, role, companyId, clinicId, cityId }
+- Implement requirePermission(resource, action) using centralized ROLE_PERMISSIONS (single source of truth)
+
+B) Add a DEV-ONLY route guard:
+- If any /api route is registered without requirePermission/requireRole, throw a clear error in dev.
+- In prod, log ERROR and block request (safe default).
+
+C) Add deny logging (server-side):
+- On any 403/401, log: timestamp, userId, role, companyId, clinicId, method, path.
+- Store optional DB log table if exists; otherwise console log with consistent prefix.
+
+========================================================
+PHASE 1 — DATA MODEL EXTENSIONS (NON-DESTRUCTIVE)
+========================================================
+1) Ensure trips has fields needed (add if missing, keep legacy):
+- company_id uuid not null (if not present, derive/backfill from clinic or tenant logic; do NOT break existing)
+- clinic_id uuid null
+- patient_id uuid null
+- city_id uuid not null (if system uses cities)
+- distance_miles numeric null (or existing equivalent)
+- duration_minutes numeric null (or existing equivalent)
+- wheelchair boolean default false
+- passengers_count int default 1 (or existing)
+- status text not null
+- scheduled_pickup_at timestamptz (if exists keep; else add nullable then backfill if possible)
+- actual_pickup_at timestamptz null
+- actual_dropoff_at timestamptz null
+- no_show boolean default false
+- cancelled boolean default false
+- cancel_reason text null
+- no_show_reason text null
+(Do NOT enforce NOT NULL if existing data would break; use safe nullable + backfill.)
+
+2) Shared trip fields (add if missing):
+- shared_group_id uuid null             -- same for all patient legs in one physical ride
+- shared_passenger_count int not null default 1
+- shared_pricing_mode text not null default 'PER_PATIENT'  -- PER_PATIENT|SPLIT
+- primary_trip_id uuid null             -- optional master reference
+
+3) Tariffs (company default + optional clinic override):
+Create/extend clinic_tariffs (preferred) with:
+- id uuid pk default gen_random_uuid()
+- company_id uuid not null
+- clinic_id uuid null        -- null = company default
+- city_id uuid null
+- name text not null default 'Default'
+- active boolean not null default true
+- effective_from date not null
+- pricing_model text not null default 'MILES_TIME'     -- MILES_TIME|FLAT|CONTRACT
+- base_fee_cents int not null default 0
+- per_mile_cents int not null default 0
+- per_minute_cents int not null default 0
+- wheelchair_surcharge_cents int not null default 0
+- shared_trip_mode text not null default 'PER_PATIENT'  -- PER_PATIENT|SPLIT
+- shared_trip_discount_pct numeric not null default 0
+- no_show_fee_cents int not null default 0
+- cancel_fee_cents int not null default 0
+- minimum_fare_cents int not null default 0
+- currency text not null default 'USD'
+- created_at timestamptz default now()
+Indexes:
+- (company_id, clinic_id, active, effective_from desc)
+
+Pricing rule:
+- Effective tariff = clinic override active most recent with effective_from <= service_date, else company default.
+
+4) Clinic billing settings:
+Create/extend clinic_billing_settings:
+- clinic_id uuid pk
+- company_id uuid not null
+- payment_terms_days int not null default 7
+- billing_cycle text not null default 'WEEKLY' -- WEEKLY|BIWEEKLY|MONTHLY
+- invoice_delivery text not null default 'IN_APP' -- IN_APP|EMAIL
+- po_required boolean not null default false
+- created_at timestamptz default now()
+- updated_at timestamptz default now()
+
+5) Contract pricing (recurring):
+If recurring_schedules exists, extend:
+- pricing_mode text not null default 'TARIFF' -- TARIFF|CONTRACT
+- contract_price_cents int null              -- PER PATIENT per occurrence
+- contract_currency text not null default 'USD'
+- contract_notes text not null default ''
+- allow_manual_override boolean not null default true
+If recurring_schedules does NOT exist, create recurring_pricing_overrides table:
+- id uuid pk
+- company_id uuid not null
+- clinic_id uuid not null
+- patient_id uuid not null
+- schedule_id uuid null
+- effective_from date not null
+- effective_to date null
+- price_cents int not null
+- currency text not null default 'USD'
+Unique: (company_id, clinic_id, patient_id, schedule_id, effective_from)
+
+6) Trip billing snapshot (TRANSPARENCY) — IMPORTANT UNIQUE RULE:
+Create/extend trip_billing so it can represent ONE OR MORE billed rows per physical/shared trip:
+- id uuid pk default gen_random_uuid()
+- trip_id uuid not null
+- company_id uuid not null
+- clinic_id uuid not null              -- billed clinic
+- patient_id uuid not null             -- billed patient
+- service_date date not null
+- status_at_bill text not null         -- COMPLETED|CANCELLED|NO_SHOW
+- pricing_mode text not null default 'TARIFF' -- TARIFF|CONTRACT|SPLIT
+- tariff_id uuid null
+- contract_price_cents int null
+- base_fee_cents int not null default 0
+- miles numeric not null default 0
+- per_mile_cents int not null default 0
+- minutes numeric not null default 0
+- per_minute_cents int not null default 0
+- wheelchair_surcharge_cents int not null default 0
+- shared_passengers int not null default 1
+- shared_discount_cents int not null default 0
+- no_show_fee_cents int not null default 0
+- cancel_fee_cents int not null default 0
+- adjustments_cents int not null default 0
+- subtotal_cents int not null default 0
+- total_cents int not null default 0
+- currency text not null default 'USD'
+- components jsonb not null default '{}'::jsonb   -- MUST include tariff_snapshot + formulas + reasons
+- created_at timestamptz default now()
+- updated_at timestamptz default now()
+
+UNIQUE CONSTRAINT MUST BE:
+- unique(trip_id, patient_id)
+(Do NOT use trip_id unique.)
+
+Backfill rule:
+- For legacy trip_billing rows without patient_id, set patient_id = trips.patient_id (if available) safely.
+
+7) Invoices:
+Reuse existing invoices/billingCycleInvoices if present.
+If missing, ensure a clinic_invoices table exists with:
+- id uuid pk
+- company_id uuid not null
+- clinic_id uuid not null
+- period_start date not null
+- period_end date not null
+- status text not null default 'DRAFT' -- DRAFT|READY|SENT|PAID|VOID
+- locked boolean not null default false   -- ENTERPRISE: once paid, lock
+- amount_cents int not null default 0
+- currency text not null default 'USD'
+- due_date date null
+- stripe_checkout_session_id text null
+- stripe_payment_intent_id text null
+- receipt_url text null
+- paid_at timestamptz null
+- created_at timestamptz default now()
+
+Invoice lines (for transparency):
+clinic_invoice_lines:
+- id uuid pk
+- invoice_id uuid not null
+- trip_id uuid not null
+- patient_id uuid not null
+- description text not null
+- amount_cents int not null
+- created_at timestamptz default now()
+Unique: (invoice_id, trip_id, patient_id)
+
+8) Support Chat + Call:
+Company dispatch contact fields (companies or company_settings):
+- dispatch_phone text null
+- dispatch_chat_enabled boolean default true
+- dispatch_call_enabled boolean default true
+
+Chat tables:
+support_threads:
+- id uuid pk
+- company_id uuid not null
+- clinic_id uuid not null
+- status text not null default 'OPEN' -- OPEN|CLOSED
+- last_message_at timestamptz default now()
+- created_at timestamptz default now()
+Unique: (company_id, clinic_id, status) where status=OPEN (enforce by logic)
+
+support_messages:
+- id uuid pk
+- thread_id uuid not null
+- company_id uuid not null
+- clinic_id uuid not null
+- sender_role text not null
+- sender_user_id uuid not null
+- body text not null
+- created_at timestamptz default now()
+
+========================================================
+PHASE 2 — BILLING COMPUTE ENGINE (DETERMINISTIC + IDEMPOTENT)
+========================================================
+Implement computeTripBilling(tripId):
+- Load trip and determine if shared:
+  - if shared_group_id exists: load all legs (trips) in that group
+  - else: one leg
+
+For EACH billed leg:
+- billed patient_id = leg.patient_id
+- billed clinic_id  = leg.clinic_id (must exist or mark pricing_missing in components; do NOT invoice)
+- Determine service_date from scheduled_pickup_at date (or trip date field)
+
+PRICING PRIORITY (v1 production-safe):
+1) If status_at_bill = NO_SHOW: total = no_show_fee_cents (from effective tariff)
+2) Else if CANCELLED: total = cancel_fee_cents
+3) Else if recurring schedule pricing_mode=CONTRACT and contract_price_cents set:
+   total = contract_price_cents; pricing_mode='CONTRACT'
+4) Else:
+   TARIFF (base + miles*per_mile + minutes*per_minute + wheelchair surcharge; enforce minimum fare)
+
+Shared handling:
+- PER_PATIENT: each leg uses its own computed total
+- SPLIT:
+   - Compute route_total ONCE (use primary_trip_id if present else first leg)
+   - Split cents without losing pennies:
+       split = floor(route_total / passenger_count)
+       remainder = route_total - split*passenger_count
+       first leg gets split + remainder, others get split
+   - pricing_mode='SPLIT'
+   - components must show split math
+
+Snapshot rules:
+- Always write/update trip_billing with unique(trip_id, patient_id) (upsert).
+- components MUST include:
+  - tariff_snapshot (all tariff fields used)
+  - miles/minutes source + missing flags
+  - wheelchair/passengers/shared flags
+  - formulas + final numbers
+  - status_at_bill + reasons (cancel/no_show)
+
+Trigger points:
+- When trip enters finalized state (COMPLETED/CANCELLED/NO_SHOW): compute + upsert.
+- Provide backfill endpoint:
+POST /api/company/billing/backfill?from=YYYY-MM-DD&to=YYYY-MM-DD&city_id=...
+Auth: SUPER_ADMIN or DISPATCH/COMPANY scoped
+- Computes trip_billing for any finalized trips missing billing rows.
+
+========================================================
+PHASE 3 — INVOICE GENERATION + PAYMENT (STRIPE CONNECT)
+========================================================
+Invoice generation rules:
+- Invoice lines come from trip_billing rows (NOT raw trips).
+- Create invoice per clinic per period:
+  - includes COMPLETED/CANCELLED/NO_SHOW rows in period not yet billed
+  - one line per trip_billing row (per patient)
+- Compute amount_cents = sum(lines)
+
+Locking:
+- When invoice becomes PAID: set locked=true and block recompute changes to billed rows for that invoice period.
+
+Stripe Connect:
+- Reuse existing destination charges flow.
+- Webhook must be idempotent (stripe_webhook_events table).
+- On checkout.session.completed:
+   - verify invoice.company_id matches the connected account used
+   - mark invoice paid, store receipt_url and paid_at, locked=true
+
+========================================================
+PHASE 4 — ROLE-SCOPED ENDPOINTS (STRICT)
+========================================================
+Clinic (CLINIC_USER only; clinic-scoped):
+GET  /api/clinic/billing/invoices
+GET  /api/clinic/billing/invoices/:id
+GET  /api/clinic/billing/invoices/:id/export.csv
+GET  /api/clinic/billing/invoices/:id/export.json
+POST /api/clinic/billing/invoices/:id/pay
+- Force clinic_id from actor context and company_id derived from clinic. Ignore user input.
+
+Company/Dispatch (company-scoped):
+GET  /api/company/billing/tariffs?clinic_id=...
+POST /api/company/billing/tariffs
+PATCH /api/company/billing/tariffs/:id
+POST /api/company/billing/settings/clinic/:clinicId
+POST /api/company/billing/backfill?from=...&to=...&city_id=...
+
+Support (Clinic):
+POST /api/clinic/support/thread
+GET  /api/clinic/support/thread
+POST /api/clinic/support/message
+
+Support (Company/Dispatch):
+GET  /api/company/support/threads?status=
+GET  /api/company/support/threads/:id/messages
+POST /api/company/support/threads/:id/message
+POST /api/company/support/threads/:id/close
+
+All endpoints MUST enforce:
+- company_id = actor.companyId for non-superadmin
+- clinic endpoints: clinicId=actor.clinicId
+
+========================================================
+PHASE 5 — SAFARI-SAFE AUTHENTICATED DOWNLOADS (MANDATORY)
+========================================================
+Server:
+- CSV headers:
+  Content-Type: text/csv; charset=utf-8
+  Content-Disposition: attachment; filename="invoice_<id>.csv"
+  Cache-Control: no-store
+- JSON headers similarly with application/json
+
+Client:
+- Use authenticated fetch (include token)
+- If !response.ok: read text/json and show error; DO NOT download
+- If ok: blob -> createObjectURL -> anchor click
+- Safari iOS: allow window.open fallback if needed; revoke URL after 30s on Safari
+
+========================================================
+PHASE 6 — UI SURFACES
+========================================================
+Clinic Billing page:
+- Invoice list with status, period, due date, total, Pay button, Receipt link
+- Invoice detail:
+  - Full ledger table (one row per trip_billing line):
+    trip id, patient, date/time, pickup->dropoff, status, shared flags, pricing mode, miles, minutes,
+    base/per-mile/per-minute/wheelchair/fees/discounts, total, cancel/no_show reasons
+  - Download CSV + JSON buttons (Safari-safe)
+  - Print-friendly HTML invoice view
+  - Support buttons:
+    "Chat with Dispatch" + "Call Dispatch" (tel:dispatch_phone)
+
+Company Billing config pages:
+- Tariffs CRUD
+- Clinic billing settings
+- Recurring pricing mode + contract price (if recurring schedules exist)
+
+========================================================
+PHASE 7 — VERIFICATION (MUST RUN + REPORT)
+========================================================
+A) Seed minimal test data (NON-DESTRUCTIVE) in one company:
+- Company A with Stripe Connect status (if already exists, reuse)
+- 2 clinics under Company A
+- 3 drivers, 3 vehicles
+- Patients for each clinic
+
+B) Create trips:
+1) Completed normal trip (miles+minutes present)
+2) Cancelled trip
+3) No-show trip
+4) Wheelchair trip
+5) Shared ride with 2 patients:
+   - Create two trip legs with same shared_group_id and shared_passenger_count=2
+   - Test PER_PATIENT mode
+   - Test SPLIT mode (verify penny remainder logic)
+
+C) Run backfill and confirm trip_billing rows created:
+- unique(trip_id, patient_id) enforced
+- components include tariff_snapshot and formulas
+
+D) Generate invoice for last week:
+- invoice lines come from trip_billing rows
+- clinic A sees ONLY their invoice + their rows
+- clinic B sees ONLY theirs
+- other companies cannot see anything
+
+E) Stripe payment:
+- Clinic pays invoice -> webhook marks paid -> invoice locked=true
+- Confirm locked blocks retroactive recompute affecting paid invoice
+
+F) Downloads:
+- CSV/JSON download on Safari iOS does NOT save Unauthorized/404 payloads (response.ok gate)
+
+G) Support chat:
+- Clinic creates thread and sends message
+- Dispatch sees only company A threads/messages
+- Company B cannot see
+
+COMMANDS TO CONFIRM:
+- npm run check
+- npm run build
+- start server (dev or prod) with no errors
+
+DELIVERABLES REQUIRED:
+1) List of exact changes: files + line ranges
+2) SQL migrations added
+3) curl examples:
+   - create tariff
+   - backfill billing
+   - clinic list invoices
+   - invoice detail
+   - export csv
+   - create support thread
+   - post support message
+4) Output/results of:
+   - npm run check
+   - npm run build
+   - server start
+
+END

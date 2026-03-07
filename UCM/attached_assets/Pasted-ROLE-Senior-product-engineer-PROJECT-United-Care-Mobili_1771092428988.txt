@@ -1,0 +1,108 @@
+ROLE: Senior product engineer
+PROJECT: United Care Mobility (UCM)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- Sequential execution only
+- Do NOT create sub-agents
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Keep production working at all times
+- Verify before exit
+
+OBJECTIVE (PHASE A):
+Implement "Uber-style Live Map + ETA" for CLINIC portal and DISPATCH:
+- Clinics must see live driver position for their trips
+- Clinics must see live trip status + ETA that refreshes automatically
+- Must be secure: clinic can ONLY see trips linked to their clinicId
+- Must work on mobile + desktop
+- Must not require installing an app (PWA works)
+
+------------------------------------------
+SCOPE
+------------------------------------------
+1) DATA SOURCES (use existing tables/fields)
+- drivers.last_lat, drivers.last_lng, drivers.last_seen_at, drivers.dispatch_status
+- trips: status, last_eta_minutes, last_eta_updated_at, route_polyline, pickup/dropoff lat/lng, driver_id, clinic_id
+- Existing presence logic: PRESENCE_TIMEOUT_SEC=120 already exists
+- Existing status transitions + trip locks already exist
+
+2) NEW APIs (server/routes.ts)
+A) GET /api/clinic/map
+- Auth: CLINIC_USER only
+- Returns ONLY trips where trip.clinic_id == user.clinicId AND trip.status NOT IN (COMPLETED, CANCELLED, NO_SHOW)
+- For each trip return:
+  tripId, publicId, status, pickup_lat/lng, dropoff_lat/lng,
+  driver { id, first_name, last_name, last_lat/lng, last_seen_at, dispatch_status, isOnline },
+  eta { minutes, updatedAt },
+  polyline (route_polyline if available)
+- isOnline = last_seen_at within 120 seconds AND dispatch_status != 'off' AND != 'hold'
+
+B) GET /api/clinic/trips/:id/tracking (existing?) must include:
+- latest driver position
+- trip status
+- ETA
+Ensure clinic ownership check returns 403 if mismatch
+
+C) Optional: GET /api/dispatch/map
+- Auth: DISPATCH + SUPER_ADMIN
+- Returns all active trips in city filter with driver position, status, ETA
+
+3) ETA ENGINE (reuse existing)
+- If eta engine exists, ensure it updates last_eta_minutes every 2 minutes for active trips:
+  statuses: ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, PICKED_UP, EN_ROUTE_TO_DROPOFF, IN_PROGRESS
+- If it currently only updates sometimes, fix scheduler cadence to 120s
+- Must NOT call Google Directions on every client refresh (server caches ETA per trip by last_eta_updated_at)
+
+4) FRONTEND (Clinic Portal)
+Add a "Live Map" page/tab for clinics:
+- Map shows:
+  - Pickup marker
+  - Dropoff marker
+  - Driver marker (car icon if possible)
+- Header card shows:
+  - Trip status (human readable)
+  - ETA: "Arriving in X min" (if driver online + eta available)
+  - "Last update: <relative time>"
+- List view below map: clinic trips with status + ETA + driver name
+- Auto-refresh every 10 seconds for driver position + status
+- Auto-refresh ETA display from API response (server keeps caching)
+- If driver offline: show "Driver offline / last seen X min ago" and hide ETA confidence label
+
+5) DISPATCH UI (optional in same pass if fast)
+- Add "Live Operations Map" view with filters:
+  - Online drivers
+  - In-route drivers
+  - Active trips
+- Clicking a trip highlights driver + route
+
+6) SECURITY / RBAC
+- All clinic map endpoints must scope to user.clinicId
+- Never return other clinic trips
+- Never accept clinicId from client input
+- Add tests or at minimum manual verification steps
+
+------------------------------------------
+DELIVERABLES
+------------------------------------------
+- Working Clinic Live Map page showing live trips and driver location
+- ETA + status visible and refreshing
+- Verified clinic scoping (403 on cross-clinic)
+- Minimal but clean UI (no demo buttons, no placeholder text)
+- Mobile-friendly layout
+
+------------------------------------------
+VERIFICATION CHECKLIST (must perform)
+1) Login as clinic user for Clinic A:
+   - Live map shows ONLY Clinic A trips
+2) Attempt to access Clinic B trip tracking:
+   - returns 403
+3) With driver online:
+   - map updates driver dot within 10s refresh
+   - ETA shows "Arriving in X min" and updatedAt changes every ~2 min
+4) Turn driver offline (stop sending GPS / set dispatch_status off):
+   - clinic view shows offline message
+5) Confirm production build passes and app loads
+
+Stop only when all checklist items pass and you report what files were changed.

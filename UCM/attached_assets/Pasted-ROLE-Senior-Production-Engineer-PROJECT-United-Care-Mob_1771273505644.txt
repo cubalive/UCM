@@ -1,0 +1,95 @@
+ROLE: Senior Production Engineer
+PROJECT: United Care Mobility (Driver Subdomain)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- No parallel tasks
+- Do NOT reset database
+- Do NOT modify admin system
+- Only fix driver authentication flow
+- Verify before exit
+
+PROBLEM:
+Driver app returns:
+{ "message": "No token provided" }
+
+Backend is working.
+Frontend is NOT sending Authorization header.
+
+OBJECTIVE:
+Fix the complete driver JWT flow.
+
+-----------------------------------------
+PHASE 1 — VERIFY LOGIN STORES TOKEN
+-----------------------------------------
+1. Locate driver login logic.
+2. Ensure backend returns JWT token.
+3. After successful login:
+   localStorage.setItem("ucm_driver_token", token)
+
+If not implemented → implement it.
+
+-----------------------------------------
+PHASE 2 — GLOBAL FETCH / AXIOS INTERCEPTOR
+-----------------------------------------
+Ensure ALL driver API calls automatically attach:
+
+Authorization: Bearer <token>
+
+If using fetch:
+Create wrapper:
+
+export async function driverFetch(url, options = {}) {
+  const token = localStorage.getItem("ucm_driver_token")
+
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      Authorization: token ? `Bearer ${token}` : "",
+    },
+  })
+}
+
+Replace all driver fetch calls to use driverFetch.
+
+If using axios:
+Implement interceptor:
+
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem("ucm_driver_token")
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+-----------------------------------------
+PHASE 3 — ROUTE GUARD
+-----------------------------------------
+Before rendering protected driver routes:
+
+If no token:
+Redirect to /login
+
+-----------------------------------------
+PHASE 4 — VERIFY
+-----------------------------------------
+After login:
+
+Open:
+https://driver.unitedcaremobility.com/api/me
+
+Must return 200 with driver data.
+
+If 401 → fail.
+
+-----------------------------------------
+IMPORTANT:
+Do NOT modify backend.
+Do NOT touch admin domain.
+Only fix driver token flow.
+
+Confirm:
+- Token saved
+- Authorization header attached
+- /api/me returns 200

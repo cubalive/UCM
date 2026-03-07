@@ -1,0 +1,83 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT create sub-agents
+- Do NOT run parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK:
+Implement (A) temp password flow for Driver + Clinic users and (B) recurring schedule UI with preset options (MWF/TTS/Custom). No free-text schedules.
+
+A) TEMP PASSWORD + FIRST LOGIN PASSWORD CHANGE
+1) On Create Driver and Create Clinic User screens:
+   - Add email field (required)
+   - Generate a strong temp password client-side (12-16 chars, letters+numbers+symbols)
+   - Call backend endpoint to create Auth user with that temp password
+   - Show a modal “Temp password (shown once)” with copy button
+   - Do not store temp password in DB (never). Only store metadata.
+
+2) Backend:
+   - Create POST /api/users/create (SUPER_ADMIN only)
+     body: { name, email, role, tempPassword, clinic_id?, driver_id? }
+   - Validate email unique per role rules
+   - Use Supabase Admin (service role) to create user in Supabase Auth with provided tempPassword
+   - Ensure user is linked to internal profile table (users/app_users) with:
+       id (auth user id)
+       role
+       name
+       email
+       clinic_id nullable
+       driver_id nullable
+       force_password_change boolean default true
+       temp_password_created_at timestamptz default now()
+   - Return { ok:true, authUserId, role } (never return password)
+
+3) First login:
+   - After successful login, if force_password_change=true:
+     - redirect to Change Password screen
+     - require user to set new password
+     - call backend POST /api/users/change-password (authenticated)
+       -> uses Supabase Auth updateUser password
+       -> sets force_password_change=false
+
+4) Verification:
+   - Add GET /api/users/health returning { ok:true, canCreateUsers:boolean }
+   - Provide manual test steps in final output:
+     - Create driver user -> modal shows temp password -> login -> forced change -> access
+
+B) RECURRING SCHEDULE OPTIONS (NO FREE TEXT)
+1) Trip creation UI (Clinic + Dispatch):
+   - Add Schedule Type: One-time / Recurring
+   - If Recurring:
+     - Presets buttons: Mon/Wed/Fri, Tue/Thu/Sat, Custom
+     - If Custom: multi-select weekdays
+     - Start date (cannot be before today)
+     - Pickup time required
+     - Estimated dropoff time required
+     - Return time optional (if return trip enabled)
+   - Ensure date defaults to today and prevents past dates.
+
+2) Database:
+   - Ensure trips table supports:
+     recurring_enabled boolean default false
+     recurring_days text[] nullable
+     recurring_start_date date nullable
+     pickup_time time required
+     eta_dropoff_time time required
+   - Migrate safely; do not delete data.
+
+3) API:
+   - Ensure trip create/update endpoints validate:
+     - pickup_time and eta_dropoff_time are required always
+     - if recurring_enabled=true then recurring_days non-empty and recurring_start_date not in past
+
+4) Verification:
+   - Create recurring trip MWF starting today
+   - Create recurring trip TTS starting next week
+   - Create custom days trip
+   - Confirm no free-text schedule fields exist
+
+Do not break production. Add clear UI errors instead of crashing.

@@ -1,0 +1,73 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit) — Driver Portal
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Fix driver.unitedcaremobility.com crash after login:
+"Minified React error #310" = "Rendered more hooks than during the previous render."
+This happens when hooks are called conditionally and the render path changes after login.
+JWT is working: /api/auth/me returns 200 with Bearer token from localStorage ucm_driver_token.
+
+TASKS (SEQUENTIAL):
+
+1) Reproduce in dev with same host logic:
+- Run locally or in Replit preview while simulating driver host.
+- Ensure VITE_UCM_DEBUG=true for visibility (temporary ok).
+- Add temporary logging to console to confirm which component throws (DriverDashboard or child).
+
+2) Find the offending component:
+- Search in codebase for driver pages/components:
+  - src/pages/driver-dashboard.tsx (or similar), and all components it renders.
+- Look specifically for ANY of these patterns:
+  a) Hooks after early return:
+     if (!something) return <...>;
+     const [x, setX] = useState(...)
+  b) Hooks inside conditional blocks:
+     if (cond) { useEffect(...); }
+  c) Hooks in loops or nested functions that are called conditionally
+  d) Hook calls gated by host role logic, token, user, city, trip selection, etc.
+
+3) Fix rules-of-hooks violations:
+- Ensure ALL hooks are called unconditionally at the top level of each component.
+- Convert conditional logic to:
+  - call hooks first
+  - then conditionally render inside JSX
+  - or split into child components so hooks live in always-mounted components.
+Example fix pattern:
+  const [x,setX]=useState(...)
+  if (!ready) return <Loading/>
+NOT:
+  if (!ready) return <Loading/>
+  const [x,setX]=useState(...)
+
+4) Hardening to prevent silent loop-to-login:
+- In driver host, auth is Bearer-only (credentials omit). Keep that.
+- Ensure driver dashboard does not call logout/redirect on non-auth errors.
+- In apiFetch/apiRequest handlers, only redirect to /login on 401/403; for 5xx show an error UI instead.
+- In AuthProvider.fetchUser(), keep behavior: if 401 -> clear token -> show login.
+
+5) Improve observability (keep lightweight):
+- Keep DriverErrorBoundary but show real error message when VITE_UCM_DEBUG=true (already exists). Ensure it actually receives the error and prints it.
+- Add window.onerror + window.onunhandledrejection in driver host only (guarded by VITE_UCM_DEBUG) to console.log the stack.
+
+6) Verify with these tests (MUST DO):
+A) Open https://driver.unitedcaremobility.com
+B) Login as a DRIVER user
+C) Confirm:
+   - No React #310
+   - Driver dashboard renders
+   - /api/auth/me returns 200 using Authorization: Bearer <ucm_driver_token>
+D) Hard refresh and confirm it stays logged in (token persists) and still renders.
+E) Confirm main app subdomains still work:
+   - https://app.unitedcaremobility.com
+   - https://admin.unitedcaremobility.com
+
+DELIVERABLE:
+- Commit the hook-order fix (and any necessary refactor) so Driver portal no longer crashes.
+- Provide a short note in the PR/commit message describing which component violated hooks and how it was fixed.

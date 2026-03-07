@@ -1,0 +1,175 @@
+ROLE: Senior full-stack architect
+PROJECT: UCM DISPATCH (Multi-tenant RBAC + Clinic-as-Company UX)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No sub-agents
+- No parallel tasks
+- Do NOT reset database
+- Do NOT drop/recreate tables
+- Use safe migrations only (ALTER TABLE + backfills)
+- Server-side RBAC enforced everywhere (no client-only checks)
+- Maintain SUPER_ADMIN global control across all companies/clinics
+
+GOAL (WHAT USER WANTS):
+Clinics should feel like “their own company” inside the platform:
+- A clinic admin can manage their own users/roles (including VIEWER roles)
+- A clinic can create/view patients and trips (within its scope)
+- Everything remains isolated and secure
+- SUPER_ADMIN can always see/control everything
+
+KEY DESIGN DECISION:
+Keep the existing top-level tenant as company_id.
+Clinics operate as a scoped sub-tenant: clinic_id within company_id.
+Clinic users should have autonomy *inside their clinic*, without becoming global company admins.
+
+IMPLEMENT THIS MODEL:
+A) Company = Transport operator tenant (top level)  [company_id]
+B) Clinic   = Customer site within a company        [clinic_id + company_id]
+C) Users belong to company_id, and optionally clinic_id:
+   - SUPER_ADMIN: global
+   - DISPATCH: company-wide (all clinics under company)
+   - COMPANY_ADMIN: company-wide admin
+   - CLINIC_ADMIN: clinic-scoped admin (can manage clinic users)
+   - CLINIC_USER: clinic-scoped operator
+   - CLINIC_VIEWER: clinic-scoped read-only
+
+=====================================================================
+PHASE 1 — DB CHANGES (SAFE MIGRATIONS)
+=====================================================================
+1) Add/verify users fields:
+- users.company_id NOT NULL
+- users.clinic_id NULLABLE (null means company-wide user)
+- users.role ENUM/string supports: CLINIC_ADMIN, CLINIC_USER, CLINIC_VIEWER
+- users.permissions JSONB (optional; for future fine-grained controls)
+
+2) Ensure clinics table has:
+- clinics.id
+- clinics.company_id NOT NULL
+
+3) Backfill existing clinic users:
+- Any user created by clinic creation must have:
+  role = CLINIC_ADMIN (or CLINIC_USER if you prefer)
+  company_id = clinics.company_id
+  clinic_id = clinics.id
+
+4) Add indexes:
+- users(company_id)
+- users(company_id, clinic_id)
+- patients(company_id, clinic_id)
+- trips(company_id, clinic_id)
+- drivers(company_id)
+- vehicles(company_id)
+
+=====================================================================
+PHASE 2 — RBAC + SCOPE ENFORCEMENT (SERVER-SIDE)
+=====================================================================
+Create a single scope helper and use it in ALL endpoints:
+
+- SUPER_ADMIN: access all companies/clinics
+- DISPATCH / COMPANY_ADMIN: must have company_id; can access all clinics in their company
+- CLINIC_ADMIN / CLINIC_USER / CLINIC_VIEWER:
+  must have company_id AND clinic_id
+  can only access data WHERE company_id AND clinic_id match
+
+Implement middleware:
+- requireAuth
+- requireRole([...])
+- requireCompanyScope
+- requireClinicScope (for clinic-scoped roles)
+
+Rules:
+- Clinic-scoped roles cannot access drivers/vehicles outside what you choose.
+  Default:
+  - Clinic can view assigned driver/vehicle for a trip
+  - Clinic cannot manage drivers/vehicles
+  - Clinic can manage patients/trips within clinic
+  - Clinic admin can manage clinic users
+
+=====================================================================
+PHASE 3 — CLINIC “AS A COMPANY” UX (WITHOUT BREAKING TENANCY)
+=====================================================================
+In the Clinic Portal, present a “Clinic Admin Console” that looks like a mini-company:
+
+Add pages:
+1) Clinic Settings (read-only or limited fields)
+2) Users & Roles (CLINIC_ADMIN only)
+   - Create user
+   - Set role: CLINIC_ADMIN, CLINIC_USER, CLINIC_VIEWER
+   - Activate/deactivate user
+   - Reset password flow
+3) Patients (clinic scoped)
+4) Trips (clinic scoped)
+5) Ops Health Monitor (clinic scoped)
+6) Billing / Invoices (clinic scoped view)
+
+Important:
+- A clinic admin can create VIEWERS that have read-only access to Ops Health + Trips.
+- Viewer cannot create/edit patients or trips.
+- Clinic user can create/edit patients and trips.
+
+=====================================================================
+PHASE 4 — CLINIC USER MANAGEMENT ENDPOINTS
+=====================================================================
+Add endpoints (server):
+- POST /api/clinic/users            (CLINIC_ADMIN only)
+- GET  /api/clinic/users            (CLINIC_ADMIN only)
+- PATCH /api/clinic/users/:id       (CLINIC_ADMIN only)
+- POST /api/clinic/users/:id/reset  (CLINIC_ADMIN only)
+
+All must:
+- force company_id = requester.company_id
+- force clinic_id  = requester.clinic_id
+- prevent creating users outside their clinic
+- audit log every action
+
+When creating a clinic user:
+- role must be one of CLINIC_ADMIN/CLINIC_USER/CLINIC_VIEWER
+- default role = CLINIC_USER
+- never allow VIEWER to be created as company-wide user (clinic_id cannot be null)
+
+=====================================================================
+PHASE 5 — PERMISSION MATRIX (MUST IMPLEMENT)
+=====================================================================
+CLINIC_VIEWER:
+- Can read: Ops Health, Trips list/details, Patient list/details (optional)
+- Cannot create/edit/archive anything
+- Cannot see other clinics
+
+CLINIC_USER:
+- Can create/edit patients
+- Can create/edit trips (within clinic)
+- Can message dispatch
+- Cannot manage users
+
+CLINIC_ADMIN:
+- All CLINIC_USER permissions
+- Can manage clinic users (create/edit/deactivate/reset)
+- Can view billing/invoices
+
+DISPATCH/COMPANY_ADMIN:
+- Company-wide operations (all clinics in company)
+- Assign drivers, manage vehicles/drivers, override status
+
+SUPER_ADMIN:
+- Everything across all companies
+
+=====================================================================
+PHASE 6 — VERIFICATION (MANDATORY)
+=====================================================================
+1) Create a company + clinic as SUPER_ADMIN
+2) Auto-create the first clinic admin user:
+   - role must be CLINIC_ADMIN (not VIEWER)
+   - company_id and clinic_id must be set
+3) Login as CLINIC_ADMIN:
+   - Create CLINIC_USER and CLINIC_VIEWER
+4) Login as CLINIC_VIEWER:
+   - Confirm read-only: can view ops/trips but cannot edit/create
+5) Confirm clinic users cannot see other clinics or other companies
+6) Confirm dispatch can see all clinics within company
+7) Confirm SUPER_ADMIN can see everything
+
+DELIVERABLES:
+- SQL migrations + backfill queries
+- List of files changed
+- Permission matrix implemented
+- Screenshots/log proof for verification steps

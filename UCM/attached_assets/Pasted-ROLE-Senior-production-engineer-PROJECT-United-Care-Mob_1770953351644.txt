@@ -1,0 +1,88 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Do NOT create sub-agents
+- Do NOT run parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+GOAL:
+Drivers can log in using their email/password.
+Currently driver email is saved in drivers table, but driver cannot log in because Auth user + profile link is not created.
+
+REQUIREMENTS
+
+1) DATA MODEL (extend only if missing)
+- Ensure drivers table has:
+  - email (text, unique, nullable allowed for existing rows)
+  - user_id (uuid, nullable) -> links to auth.users.id (store uuid)
+  - active (boolean default true)
+
+- Ensure profiles/users table exists (whatever the project uses):
+  - id (uuid = auth.users.id)
+  - role (text: super_admin, dispatch, clinic_user, driver)
+  - name (text)
+  - email (text)
+  - created_at
+
+2) BACKEND: DRIVER AUTH PROVISIONING (server-side, service role key)
+Implement a single helper:
+- ensureAuthUserForDriver({name, email}) -> returns { userId, isNew }
+Behavior:
+A) Validate email format.
+B) Look up existing auth user by email (admin API).
+C) If not found: create auth user with email.
+   - Use email_confirm = true (or equivalent) so they can login immediately.
+D) Upsert profile record with role='driver', name, email.
+E) Return userId.
+
+3) DRIVER CRUD FLOW CHANGES
+- On CREATE driver:
+  - require email
+  - call ensureAuthUserForDriver
+  - save drivers.user_id = userId and drivers.email=email
+- On UPDATE driver:
+  - if email changed:
+    - provision/ensure auth user for new email
+    - update drivers.user_id + drivers.email
+    - update profile email/name
+  - if email removed: block (drivers must have email to login)
+
+4) PASSWORD SETUP / FIRST LOGIN
+Provide one safe option (pick the simplest that already exists in codebase):
+Option A (preferred): send password reset link to driver email via Supabase auth (generate recovery link / invite link).
+- Add endpoint POST /api/admin/drivers/:id/send-invite
+  - auth: SUPER_ADMIN or DISPATCH
+  - sends driver a set-password email
+  - returns success message
+Option B: generate temp password and show it once in UI (only for super_admin/dispatch), force change on first login.
+Choose A unless project already has temp-password flows.
+
+5) UI (Admin/Dispatch)
+- Drivers form:
+  - show email required
+  - Add button: "Send Driver Login Link" (visible to super_admin/dispatch)
+  - Call POST /api/admin/drivers/:id/send-invite
+  - Toast success/fail
+
+6) FIX EXISTING DRIVERS (migration/backfill)
+Create a protected endpoint:
+POST /api/admin/drivers/backfill-auth
+- For each driver with email and NULL user_id:
+  - ensureAuthUserForDriver
+  - set drivers.user_id
+Return counts: {processed, created, linked, skipped}
+
+7) VERIFICATION (must do)
+- Add GET /api/auth/health that returns:
+  { ok:true, supabase:true, canCreateUsers: boolean }
+- Manual tests checklist:
+  1) Create driver with email -> driver.user_id is set
+  2) Click "Send Driver Login Link" -> email sent
+  3) Driver sets password -> logs into driver app successfully
+  4) Existing driver without user_id -> backfill -> can log in
+
+Do not break existing roles. Do not change clinic logic except shared helper reuse.

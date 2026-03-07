@@ -1,0 +1,65 @@
+ROLE: Senior full-stack engineer (Forecasting + Analytics)
+PROJECT: UCM Clinic Portal — Dialysis Load Predictor + Capacity Forecast
+EXECUTION MODE: SINGLE AGENT ONLY
+NO DB RESET
+NO TABLE DROPS
+EXTEND ONLY
+ZERO REGRESSION
+
+PART 2 DELIVERABLES (Forecast + Capacity + Admin toggle + paid feature)
+A) Dialysis Load Predictor (V1 = “IA ligera real”)
+- Implement forecast for each clinic for next 180 minutes in 15-min buckets.
+- Model V1 (no external ML infra):
+  1) Build historical baseline from completed/scheduled trips grouped by:
+     - day_of_week
+     - time_bucket_15m
+     - service_level (ambulatory/wheelchair)
+     - inbound vs outbound
+  2) Use rolling adjustment from last 7 days (recent drift).
+  3) Output forecast with confidence:
+     - LOW if low history count
+     - MEDIUM if >= N samples
+     - HIGH if >= M samples
+- Create endpoint or RPC:
+  - get_clinic_forecast(clinic_id, horizon_minutes=180, bucket=15)
+  returns [{bucket_start, inbound_amb, inbound_wc, outbound_amb, outbound_wc, confidence}]
+- Add UI card “Predictive Load”:
+  - “Next 60m” + “Next 180m”
+  - highlight peak window
+  - show confidence badge
+
+B) Capacity Forecast (drivers needed)
+- Convert forecast to drivers required:
+  - Define capacity_per_driver per service_level (config table):
+    wheelchair: avg_cycle_minutes_wc
+    ambulatory: avg_cycle_minutes_amb
+  - drivers_needed = ceil(demand_in_bucket * avg_cycle_minutes / bucket_minutes)
+- Output:
+  - “Need +X wheelchair drivers 7–10am”
+  - “Shortage risk” if available drivers < needed
+- Create endpoint/RPC:
+  - get_clinic_capacity_forecast(clinic_id) -> includes shortages + recommended drivers
+
+C) Monetization (Super Admin controlled subscription feature)
+- These features (Forecast + Capacity + Root Cause) must be paywalled:
+  - Create feature flag in DB: clinic_features {clinic_id, feature_key, enabled, plan, price}
+  - Add super_admin UI toggle to enable/disable per clinic.
+  - When disabled, show preview card + “Contact Admin” and block data calls.
+- Integrate Stripe (if existing): create subscription product “Clinic Intelligence Pack”
+  - Admin can activate/deactivate and set price.
+  - Clinic sees billing status and invoices.
+
+D) Auditability
+- Every forecast output should have “why” metadata:
+  - baseline_samples_count
+  - last7days_adjustment_factor
+  - confidence reason
+- Store daily snapshots: clinic_forecast_snapshots for later accuracy evaluation.
+
+E) Testing
+- Add test dataset fallback: if no history, forecast uses schedule only + generic baseline and confidence LOW.
+- Add smoke test:
+  - forecast endpoint returns buckets
+  - capacity forecast computes drivers needed
+  - feature flag blocks/unblocks properly
+OUTPUT: implementation + schema migrations (additive only) + tests.

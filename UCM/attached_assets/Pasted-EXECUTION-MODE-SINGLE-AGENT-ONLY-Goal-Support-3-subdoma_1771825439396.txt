@@ -1,0 +1,52 @@
+EXECUTION MODE: SINGLE AGENT ONLY.
+
+Goal: Support 3 subdomains (driver/dispatch/clinic) cleanly with ONE backend API and stable auth redirects, plus a WORKER deployment for background jobs.
+
+Current:
+- driver.unitedcaremobility.com
+- dispatch.unitedcaremobility.com
+- clinic.unitedcaremobility.com
+- backend currently on app.unitedcaremobility.com (keep it)
+
+Tasks:
+
+1) Centralize API base URL
+- Add VITE_API_BASE_URL and use it everywhere client calls the backend.
+- Default to https://app.unitedcaremobility.com in production.
+
+2) CORS + WebSocket origin allowlist
+- Update backend CORS to allow these origins only:
+  https://driver.unitedcaremobility.com
+  https://dispatch.unitedcaremobility.com
+  https://clinic.unitedcaremobility.com
+  https://app.unitedcaremobility.com
+- Ensure WS handshake also validates Origin.
+
+3) Supabase Auth callback routing (role-based)
+- Implement /auth/callback route in the frontend (shared) that:
+  a) completes the Supabase session
+  b) fetches current user role (clinic/driver/dispatch/admin)
+  c) redirects to the correct app home (within the same subdomain)
+- On backend, when creating users, set user_metadata.role and tenant/company/clinic ids as needed.
+
+4) Magic link redirect strategy (simple + reliable)
+- Always generate magic links with redirect_to=https://app.unitedcaremobility.com/auth/callback
+- The callback then routes the user to the right subdomain based on role:
+  clinic -> https://clinic.unitedcaremobility.com/...
+  driver -> https://driver.unitedcaremobility.com/...
+  dispatch -> https://dispatch.unitedcaremobility.com/...
+
+5) Add a SUPER_ADMIN endpoint to validate configuration:
+GET /api/system/origins
+- returns allowedOrigins, siteUrl, appPublicUrl, and detected request origin
+GET /api/system/auth-health
+- returns whether required env vars are set and whether redirects are expected to work.
+
+6) Worker separation (most stable)
+- Create server/worker.ts and package scripts start:api and start:worker.
+- Worker starts orchestrator + schedulers; API does not.
+
+Deliverables:
+- Files changed
+- Exact env vars required for backend + each subdomain
+- Confirmation that login links work for clinic/driver/dispatch and do not get blocked by Supabase redirect rules

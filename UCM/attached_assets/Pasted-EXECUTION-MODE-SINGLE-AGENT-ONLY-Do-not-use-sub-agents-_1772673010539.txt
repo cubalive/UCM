@@ -1,0 +1,256 @@
+EXECUTION MODE: SINGLE AGENT ONLY  
+Do not use sub-agents. Do not run parallel tasks.  
+Do not modify database schema, migrations, or RLS.  
+Do not change routing or existing business logic.
+
+GOAL  
+Prepare Android production readiness for three apps:
+
+1. UCM Driver  
+2. UCM Clinic  
+3. UCM Dispatch (Admin)
+
+Bundle IDs must remain:
+
+com.unitedcaremobility.driver  
+com.unitedcaremobility.clinic  
+com.unitedcaremobility.admin
+
+Domains:
+
+driver.unitedcaremobility.com  
+clinic.unitedcaremobility.com  
+app.unitedcaremobility.com
+
+TEAM ID  
+HVF2V75J4T
+
+--------------------------------
+
+STEP 1 — Verify Android project
+
+Ensure Android platform exists.
+
+If missing:
+
+npx cap add android
+
+Then run:
+
+npx cap sync android
+
+--------------------------------
+
+STEP 2 — Verify Android permissions
+
+Open:
+
+android/app/src/main/AndroidManifest.xml
+
+Ensure these permissions exist.
+
+Driver app must include:
+
+ACCESS_FINE_LOCATION  
+ACCESS_COARSE_LOCATION  
+FOREGROUND_SERVICE  
+INTERNET
+
+Clinic and Admin must include:
+
+INTERNET
+
+Do not remove existing permissions.
+
+--------------------------------
+
+STEP 3 — Verify target SDK
+
+Open:
+
+android/app/build.gradle
+
+Ensure:
+
+compileSdkVersion 34  
+targetSdkVersion 34  
+minSdkVersion 24
+
+--------------------------------
+
+STEP 4 — Create Play Store assets folder
+
+Create:
+
+playstore-assets/
+
+Subfolders:
+
+playstore-assets/driver  
+playstore-assets/clinic  
+playstore-assets/admin
+
+--------------------------------
+
+STEP 5 — Generate Feature Graphics
+
+Create files:
+
+driver-feature.png  
+clinic-feature.png  
+admin-feature.png
+
+Size:
+
+1024x500
+
+Design:
+
+white background  
+blue #0A4DFF  
+green accent #00C389  
+minimal icon centered
+
+Text overlays:
+
+Driver:
+
+UCM Driver  
+Medical Transport Navigation
+
+Clinic:
+
+UCM Clinic  
+Patient Trip Management
+
+Admin:
+
+UCM Dispatch  
+Transportation Control System
+
+--------------------------------
+
+STEP 6 — Generate screenshots placeholders
+
+Create folder:
+
+playstore-assets/screenshots/
+
+Inside each app folder create 5 PNG screenshots.
+
+Size:
+
+1080x1920
+
+Mock screens:
+
+login screen  
+map view  
+trip management  
+patient details  
+dispatch dashboard
+
+Use existing UI pages where possible.
+
+--------------------------------
+
+STEP 7 — Prepare Play Store metadata
+
+Create:
+
+playstore-assets/metadata.json
+
+Structure:
+
+{
+ "driver":{
+  "title":"UCM Driver",
+  "shortDescription":"Driver navigation for medical transportation",
+  "fullDescription":"UCM Driver allows medical transport drivers to manage dialysis and clinic trips, receive dispatch updates, and navigate safely."
+ },
+ "clinic":{
+  "title":"UCM Clinic",
+  "shortDescription":"Clinic transportation management",
+  "fullDescription":"UCM Clinic enables healthcare clinics to schedule and monitor patient transportation in real time."
+ },
+ "admin":{
+  "title":"UCM Dispatch",
+  "shortDescription":"Dispatch and fleet control",
+  "fullDescription":"UCM Dispatch provides real-time control over drivers, trips, clinics and patient transportation logistics."
+ }
+}
+
+--------------------------------
+
+STEP 8 — Prepare Android App Bundle builds
+
+Add package.json scripts:
+
+"build:android:driver": "npx cap sync android && cd android && ./gradlew bundleRelease",
+"build:android:clinic": "npx cap sync android && cd android && ./gradlew bundleRelease",
+"build:android:admin": "npx cap sync android && cd android && ./gradlew bundleRelease"
+
+--------------------------------
+
+STEP 9 — Output build locations
+
+After building, ensure bundles exist:
+
+android/app/build/outputs/bundle/release/
+
+Files:
+
+driver-release.aab  
+clinic-release.aab  
+admin-release.aab
+
+--------------------------------
+
+STEP 10 — Create Play readiness endpoint
+
+Create endpoint:
+
+GET /api/system/playstore-readiness
+
+Return:
+
+{
+ androidProject:true,
+ targetSdk34:true,
+ permissionsValid:true,
+ iconsGenerated:true,
+ screenshotsGenerated:true,
+ featureGraphics:true
+}
+
+Only SUPER_ADMIN may access.
+
+--------------------------------
+
+STEP 11 — Verification commands
+
+Display commands to verify:
+
+ls playstore-assets/driver  
+ls playstore-assets/clinic  
+ls playstore-assets/admin  
+
+curl https://app.unitedcaremobility.com/api/system/playstore-readiness
+
+--------------------------------
+
+SUCCESS CRITERIA
+
+Android platform present  
+Target SDK 34 verified  
+Permissions correct  
+Feature graphics created  
+Screenshots created  
+Metadata generated  
+AAB build scripts prepared  
+
+No DB changes  
+No API behavior changes  
+System continues functioning normally
+
+IMPLEMENT NOW.

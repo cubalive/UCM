@@ -1,0 +1,189 @@
+ROLE: Senior full-stack engineer (product + UX + QA)
+PROJECT: United Care Mobility (Admin + Driver portals)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Keep the 3 map modes (DO NOT remove)
+- Verify with UI + DB checks + logs
+
+CONTEXT:
+We already have Trips list search (“Search trips…”) and some filters. But:
+1) Trips are NOT consistently clickable when viewed from Completed, Invoices, Billing previews, Payroll/Timecards links, and other modules.
+2) We need a consistent “search + smart filters” system across all list pages.
+3) Driver portal needs the missing “professional tool” parts: Shift Mode, Trip Center workflow, in-app geofence, No-show protocol, digital signature, hourly payroll automation, and real-time earnings. We will NOT use iOS “Always” location; only “When In Use” and only while app is open.
+
+PRIMARY GOALS (DELIVER ALL):
+A) UNIVERSAL CLICK-THROUGH (Admin + Driver)
+B) GLOBAL SEARCH + SMART FILTERS (Admin + Driver)
+C) DRIVER APP: Shift + Trip Center + Geofence + No-show + Signature + Hourly Payroll + Earnings
+
+========================================================
+A) UNIVERSAL CLICK-THROUGH (NO DEAD ENDS)
+========================================================
+1) Define a single canonical route for trip details:
+- /trips/:tripId (Trip Details)
+- If driver role and trip is active/assigned -> open Trip Center view inside trip details (or /driver/trips/:tripId/center)
+
+2) Make every trip reference clickable everywhere:
+- Dashboard “Recent Activity” rows -> open /trips/:tripId
+- Trips list cards (Scheduled/Assigned/Completed) -> clicking the card opens /trips/:tripId
+- Invoices:
+  - Invoice line items that reference tripId -> clickable -> /trips/:tripId
+  - “Preview Trips” results in Billing weekly invoice generator -> each row clickable -> /trips/:tripId
+  - Completed trips inside invoice details -> clickable
+- Payroll/Timecards:
+  - Any reference to a trip inside a time entry -> clickable -> /trips/:tripId
+- Driver portal:
+  - Offers/Today/Scheduled/Completed list items -> open Trip Center / Trip Details for that trip
+
+3) Add a consistent affordance:
+- Entire card row clickable + keep existing action buttons (Cancel/Assign/etc) working without triggering navigation (stopPropagation).
+- Add a small “Open” icon button as fallback.
+
+4) Add “Back to source” behavior:
+- Preserve returnUrl in query params when navigating from invoices/payroll, so user returns to where they came from.
+
+========================================================
+B) GLOBAL SEARCH + SMART FILTERS (ADMIN + DRIVER)
+========================================================
+1) Build reusable components:
+- <SmartSearchBar /> with:
+  - debounced input (300ms)
+  - optional server-side search support for large lists
+  - keyboard-friendly
+- <SmartFilterBar /> with:
+  - chips (Today, Tomorrow, Week, Needs Attention)
+  - dropdown filters (Status, Clinic, Company, City, Driver, Source, Vehicle type)
+  - clear-all
+  - saved views (optional but recommended)
+
+2) Persist filters in URL query params for every list page:
+- Example: ?q=oak+lawn&status=scheduled&city=Dallas&from=2026-02-14&to=2026-02-20&source=clinic
+- On load, read query params and restore UI state.
+
+3) Implement on these pages at minimum:
+ADMIN:
+- Trips
+- Invoices (weekly invoices + clinic invoices)
+- Drivers
+- Vehicles
+- Patients
+- Clinics
+- Timecards
+- Payroll Runs
+
+DRIVER:
+- Trips (Offers/Today/Scheduled/Completed)
+- Earnings history (if present)
+- Schedule (if present)
+
+4) “Smart” filters that save time:
+Trips:
+- Needs Attention = late pickup OR no-show pending OR signature missing OR GPS paused
+Invoices:
+- Unpaid / Paid / Failed / Draft
+Timecards:
+- Pending approval / Approved / Exceptions
+
+========================================================
+C) DRIVER PORTAL: PROFESSIONAL OPERATION MODE
+========================================================
+IMPORTANT: NO “Always” location. Only “When In Use”. Track only while the app is open.
+
+1) SHIFT MODE
+- Add Start Shift / End Shift on Home.
+- While shift is ON:
+  - driver status becomes “Available/Online”
+  - can accept trips
+- While shift is OFF:
+  - driver status becomes “Offline”
+  - cannot accept new trips
+- Persist shift sessions in DB:
+  - id, driverId, companyId, startAt, endAt, breaks[], totalMinutes, createdAt
+- Add Break toggle (Start break/End break).
+
+2) TRIP CENTER (single place to work)
+- For any active/assigned trip, show Trip Center with:
+  - pickup time, ETA, countdown
+  - addresses, patient name (if allowed), clinic name, notes
+  - action buttons in sequence:
+    En route -> Arrived -> Picked up -> Start Trip -> Drop off -> Complete
+- Each action writes timestamp fields + audit log row:
+  - enRouteAt, arrivedAt, pickupAt, tripStartAt, dropoffAt, completedAt
+- Add “Open Navigation” (Apple/Google maps deep link).
+
+3) IN-APP GEOFENCE (foreground only)
+- While Trip Center is open, poll current position (foreground).
+- Compute distance to pickup and dropoff.
+- Configurable radius (default 150m) per company:
+  - If within radius of pickup: show “You’re at pickup” + enable Arrived.
+  - If within radius of dropoff: enable Drop off.
+- If location denied:
+  - show “Limited mode: enable location to unlock auto-arrival”
+  - still allow manual Arrived with confirmation modal.
+
+4) NO-SHOW PROTOCOL
+- When driver taps Arrived:
+  - start a configurable wait timer (5/10/15 minutes per company)
+  - show buttons: Call patient, Text patient, Notify dispatch
+  - log attempts as evidence
+- Mark No-Show:
+  - allowed only after timer reaches 0 OR if override permission with reason
+  - capture reason + evidence (at least one attempt or note)
+
+5) DIGITAL SIGNATURE / PROOF OF SERVICE
+- At Picked up and/or Drop off (company config):
+  - signature pad capture
+  - “patient refused to sign” option + reason
+- Store signature artifact (image) + link on trip record.
+- Show signature status on Trip Center and Trip Details.
+
+6) HOURLY PAYROLL + REAL-TIME EARNINGS
+- Hourly payroll is driven by Shift Sessions + Breaks.
+- Generate timecards automatically:
+  - shift start/end -> time entries
+  - allow admin/dispatch edits with audit logs
+- Driver Earnings tab:
+  - Today / Week / Month
+  - breakdown: hours * rate, bonuses, adjustments
+- Admin Payroll:
+  - Weekly payroll run aggregates hours and computes gross pay
+  - export CSV (optional) without breaking anything
+
+========================================================
+DATA / DB CHANGES (SAFE MIGRATIONS ONLY)
+========================================================
+- Add tables if missing (OK): shift_sessions, shift_breaks, trip_audit_logs, signature_artifacts, no_show_events
+- Add columns if missing (OK): trip timestamps + signature status fields
+- Do NOT drop anything.
+- Add indexes on tripId, driverId, companyId, createdAt.
+
+========================================================
+QA / VERIFICATION (MUST DO BEFORE FINISHING)
+========================================================
+1) Click-through:
+- From Invoice -> trip row -> Trip Details opens
+- From Dashboard Recent Activity -> Trip Details opens
+- From Completed trips -> Trip Details opens
+
+2) Search + filters:
+- Trips page: q + status + city works, and URL preserves it after refresh
+- Invoices page: Unpaid filter works
+- Driver trips: search works
+
+3) Driver flow:
+- Start Shift enables accepting trip; End Shift disables
+- Trip Center actions update timestamps in DB
+- Geofence prompts appear only when Trip Center is open
+- No-show timer enforces rules and logs evidence
+- Signature captured and visible in trip details
+- Earnings reflects hours from shift sessions
+
+DELIVERABLES:
+- List of files changed
+- DB migration summary
+- Screenshots of: Trip click-through from invoice, Trip Center, No-show timer, signature capture, earnings tab
+- Short “How to test” checklist for me

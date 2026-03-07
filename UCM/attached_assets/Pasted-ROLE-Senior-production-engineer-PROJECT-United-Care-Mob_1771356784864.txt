@@ -1,0 +1,119 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility (Replit)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Extend existing system only
+- Verify before exit
+
+TASK (SINGLE TASK ONLY):
+Fix and restore the "System Load Metrics" page (the one we built yesterday) so it renders reliably and shows real runtime load/health stats (CPU/RAM/event-loop/req rate/latency/errors/DB health). SUPER_ADMIN only. The page currently appears blank.
+
+HARD REQUIREMENTS:
+1) Do NOT reset database.
+2) Do NOT change DB data.
+3) Do NOT remove features; only restore/repair.
+4) Page must never render blank. If API fails, show a readable error panel with status code + message.
+5) SUPER_ADMIN only (UI + server).
+6) Must work on Safari iOS too (no silent JSON parse crashes).
+
+========================================================
+STEP 1 — FIND WHAT WE "DID YESTERDAY"
+========================================================
+A) Search codebase for:
+- "metrics", "ops", "system", "health", "uptime", "dbStatus", "version", "AiEngineSnapshot", "opsAlertLog", "getDailyFinancialStats"
+- routes that look like /metrics, /ops, /health, /api/metrics, /api/ops
+
+B) Identify:
+- Frontend route path used for system load metrics (e.g. /metrics or /ops/metrics)
+- Backend endpoint it calls
+- Any middleware/role gating used
+
+OUTPUT (must paste):
+- frontend file path of the page component
+- backend file path registering the route
+- exact endpoint URL used by the page
+
+========================================================
+STEP 2 — FIX THE BLANK PAGE ROOT CAUSE
+========================================================
+A) Open browser console errors (or server logs) and identify why it's blank:
+- JS runtime error? JSON parse error? fetch 401/404? component crash?
+B) Patch UI to handle:
+- non-200 responses
+- non-JSON payloads
+- timeouts
+- showing an error UI instead of blank
+
+Must implement a safe fetch helper:
+- reads response.text() first
+- tries JSON.parse guarded
+- if fails, show text payload snippet
+
+========================================================
+STEP 3 — ENSURE ROUTING WORKS (NO 404 ON DIRECT URL)
+========================================================
+If SPA:
+- Ensure server has SPA fallback serving index.html for non-API GET routes
+- Must NOT intercept /api routes
+This prevents /metrics from 404 when opened directly or refreshed.
+
+========================================================
+STEP 4 — IMPLEMENT/REPAIR SYSTEM LOAD METRICS API (NO EXTERNAL APIS)
+========================================================
+Create or restore:
+GET /api/ops/metrics/system
+Auth: SUPER_ADMIN only
+
+Return JSON:
+- app: { version, uptimeSec, nodeVersion, env }
+- cpu: { load1, load5, load15 } (os.loadavg)
+- memory: { rssMB, heapUsedMB, heapTotalMB }
+- eventLoop: { lagMs } (simple interval-based measurement)
+- http: { reqPerMin, errPerMin, p50Ms, p95Ms } (in-memory rolling window)
+- db: { ok, latencyMs, poolInfo? } (run a lightweight SELECT 1 with timing)
+- build: { commit? } (if exists)
+- timestamp
+
+Implementation details:
+- Add a global lightweight request timing middleware ONLY for /api (do not break existing).
+- Keep a ring buffer for last N request durations and status>=500 counts.
+- Compute p50/p95 from buffer.
+- DB health: time a single query; do NOT scan tables.
+
+========================================================
+STEP 5 — FRONTEND PAGE: "System Load"
+========================================================
+- Route: keep existing path used yesterday (do not rename)
+- Poll every 5s (setInterval) with abort controller to avoid overlapping
+- Render cards: CPU, Memory, Event Loop Lag, Requests/min, Errors/min, p95 latency, DB OK/latency, Uptime, Version
+- If API fails: show error panel with:
+  - status
+  - parsed message or text snippet
+  - last successful snapshot cached (if any)
+
+SUPER_ADMIN only:
+- Hide link for others
+- Route guard: if role not SUPER_ADMIN show "Not authorized"
+
+========================================================
+STEP 6 — VERIFY (MUST)
+========================================================
+Run and paste outputs:
+1) npx tsc --noEmit (or npm run check)
+2) npm run build
+3) npm run dev
+
+Manual checks:
+- Open the system load metrics page by typing URL directly -> must load (no 404)
+- With SUPER_ADMIN -> shows numbers updating
+- Simulate backend failure -> UI must show error panel, not blank
+- Verify /api/ops/metrics/system returns 403 for non SUPER_ADMIN
+
+DELIVERABLES:
+1) Exact files changed + short description
+2) Endpoint implemented + sample JSON response
+3) Proof the page is no longer blank and updates every 5 seconds
+END

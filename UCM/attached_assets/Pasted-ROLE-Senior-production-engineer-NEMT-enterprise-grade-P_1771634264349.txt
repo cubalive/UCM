@@ -1,0 +1,154 @@
+ROLE: Senior production engineer (NEMT enterprise-grade)
+PROJECT: United Care Mobility (UCM)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only. No parallel tasks. No sub-agents.
+- Do NOT reset database. Do NOT recreate tables. Do NOT change existing data.
+- Do NOT remove or rename working UI/flows. Extend and fix surgically.
+- Preserve all current roles/RBAC/multi-company logic.
+- Any change must include: (1) exact file/line edits, (2) a smoke test, (3) rollback note.
+
+GOAL (single task):
+Blindar el workflow del Driver (Shift + Trip) con una state machine determinística (single source of truth), arreglar el bug de navegación (Go to Pickup manda al Dropoff), restaurar/asegurar los botones correctos por fase (Start Shift + Connected + acciones de trip), reactivar selector de 3 navegadores (Google/Apple/Waze) con preferencia guardada, y mejorar Dispatch UI (abrir/cerrar listas, buscador en listas, asignación manual más simple, sonidos de eventos). Además, asegurar que después de Publish todo se actualice sin excepción (cache/service-worker/versioning) para que no “desaparezcan” cambios.
+
+CONTEXT (lo que está pasando ahora):
+1) Driver App: “Go to Pickup” abre navegación pero está usando dropoff en vez de pickup (skip).
+2) Driver App: faltan o se mezclan botones (“Connected” vs “Start Shift/Clock In”). Deben existir ambos y con lógica clara:
+   - “Connected” = conexión/GPS tracking activo.
+   - “Start Shift (Clock In)” = estado laboral ON SHIFT.
+   - No se deben reemplazar entre sí.
+3) Driver App: en Trip Detail a veces no aparecen acciones por fase (Arrived Pickup, Picked Up, Start Trip to Dropoff, etc.) o no están estrictamente ligadas al estado.
+4) Driver App: debe ofrecer 3 navegadores (Google Maps / Apple Maps / Waze) y permitir guardar preferencia para próximos viajes.
+5) Dispatch: al tocar un trip debe abrir detalles siempre; listas deben poder colapsarse/expandirse para no ocupar pantalla; donde exista lista debe existir buscador.
+6) Dispatch asignación manual: al crear/programar un viaje, la UI debe sugerir driver disponible y confirmar vehicle asignado del driver antes de finalizar; si pickup es <30 min debe disparar notificación in-app al driver (“Go to Pickup”) como antes.
+7) Sonidos: cuando entra un viaje, cuando termina, y cuando hay notificaciones.
+8) Publish inconsistente: después de publicar no siempre se ve lo último (cache, SW, build, CDN).
+
+DELIVERABLES (obligatorio):
+A) State Engine enterprise-grade (Driver Trip + Shift) con:
+   - Un único “source of truth” para fase/estado.
+   - Transiciones estrictas y validadas (sin saltos automáticos).
+   - UI derivada 100% del estado (botones por fase).
+   - Documentación: docs/driver-trip-workflow.md actualizada (o creada) con tabla de estados/transiciones y mapeo de botones.
+B) Fix de navegación: Go to Pickup SIEMPRE usa pickupAddress/coords; Go to Dropoff usa dropoffAddress/coords.
+C) Selector de navegadores (Google/Apple/Waze) + guardar preferencia (persistencia en storage).
+D) Shift UI: “Connected” y “Start Shift” coexistiendo con reglas claras, sin romper tracking.
+E) Dispatch UI: colapsable panels + search en listas + abrir detalle al tap + flujo de asignación manual mejorado.
+F) Sonidos: eventos definidos y testeados.
+G) Publish reliability: cache-busting + SW update strategy + versión visible + verificación post-publish.
+
+IMPLEMENTATION PLAN (hazlo en este orden, sin inventar):
+1) AUDIT (read-only):
+   - Identifica archivos actuales de Driver app: Home/Trips/TripDetailModal/Navigate helper/Shift controls/Tracking.
+   - Identifica cómo se guarda estado de shift (server vs local) y cómo se guarda “connected/GPS”.
+   - Identifica modelo/enum de trip.status en backend y en frontend.
+   - Identifica helper actual que construye deep links de mapas y de dónde saca pickup/dropoff.
+   - Identifica si hay Service Worker/PWA caching (Vite + SW) y si se usa version string.
+   Output: lista exacta de archivos y funciones tocadas (sin código aún).
+
+2) STATE MACHINE (single source of truth):
+   - Crea un módulo único, por ejemplo:
+     src/shared/state/tripState.ts
+     src/shared/state/shiftState.ts
+   - tripState:
+     - derivePhase(trip): "PICKUP" | "DROPOFF" | "DONE"
+     - allowedActions(trip, now, driverContext): acciones permitidas
+     - nextStatus(currentStatus, action): valida transición o rechaza con error claro
+   - shiftState:
+     - shiftStatus: OFF_SHIFT | ON_SHIFT
+     - connectionStatus: DISCONNECTED | CONNECTED (tracking activo)
+     - Reglas: se puede estar CONNECTED sin ON_SHIFT y viceversa si el producto lo permite, pero UI debe guiar (ideal: ON_SHIFT requiere CONNECTED o pide activar).
+   - NO cambies la DB. Si hoy existe driver_status o shift table, reutiliza.
+
+3) UI DRIVER (botones por fase):
+   - En Home (Active Trip card) y en TripDetailModal:
+     - Renderiza botones usando allowedActions().
+     - Debe aparecer “Go to Pickup” SOLO si fase = PICKUP.
+     - Debe aparecer “Go to Dropoff” SOLO si fase = DROPOFF.
+     - Debe aparecer “Arrived Pickup”, “Picked Up”, “Start Trip to Dropoff”, “Arrived Dropoff”, “Complete Trip” según transiciones estrictas.
+   - Importante: NO auto-advance. Solo cambia estado cuando el driver toque acción (o cuando geofence sugiera y el driver confirme).
+
+4) FIX NAVEGACIÓN (bug principal):
+   - Encuentra el punto exacto donde se arma el destino para “Go to Pickup”.
+   - Asegura que:
+     - goToPickup() usa pickupLatLng si existe; si no, pickupAddress string.
+     - goToDropoff() usa dropoffLatLng si existe; si no, dropoffAddress string.
+   - Añade test manual + log debug temporal (feature-flag) para confirmar qué destino se manda.
+
+5) SELECTOR 3 MAPAS + PREFERENCIA:
+   - Implementa un “NavigationProviderChooser”:
+     - Opciones: Google Maps, Apple Maps, Waze.
+     - Detecta plataforma (iOS vs Android vs web) y ofrece igual las 3 (si una no aplica, muestra disabled con explicación).
+     - Persistencia: localStorage (web) + storage nativo/PWA (si ya hay wrapper, usa el mismo storage).
+     - En Settings: “Default Navigation App” para guardarlo.
+     - En TripDetail: al pulsar Navigate, si hay default → abre directo; si no → muestra chooser y checkbox “Recordar”.
+   - No rompas lo que ya abre mapas; solo encapsula.
+
+6) DISPATCH UI MEJORAS:
+   - En pantallas con listas (trips/drivers/vehicles/patients):
+     - Añade SearchBar consistente (debounced).
+     - Añade panel colapsable/expandible para listas largas (ej. drawer lateral o accordion).
+   - Al tocar un trip en Dispatch:
+     - Siempre abre Trip Detail Drawer/Modal con info completa.
+     - Permite cerrar con X o swipe.
+   - Asignación manual:
+     - En Create/Assign Trip: mientras selecciono pickup/dropoff/time, muestra:
+       - “Suggested Driver” (disponible + misma ciudad + compañía) con ETA
+       - “Assigned Vehicle” del driver (confirm visible)
+       - Botón “Confirm Assign” que no permita finalizar sin confirmar.
+     - Mantén la regla de <30 min: en cuanto se programe y falten <30 min al pickup, dispara in-app alert al driver (“Go to Pickup”) sin romper el resto.
+
+7) SONIDOS (web + driver app):
+   - Define Audio cues:
+     - New Trip Assigned
+     - Trip Completed
+     - New Notification/In-app alert
+   - Implementa con respeto a autoplay policies:
+     - Precarga tras primer gesto del usuario (unlock audio).
+     - Fallback: vibración (mobile) si está permitido.
+   - Añade setting para on/off por usuario.
+
+8) PUBLISH RELIABILITY (para que siempre se actualice):
+   - Añade VERSION visible en UI (footer o settings) leído de env (VITE_APP_VERSION) o commit hash.
+   - Cache busting:
+     - Asegura filenames hashed (Vite default) y que SW (si existe) haga skipWaiting + clientsClaim + prompt de update.
+     - Si hay SW: implementa “New version available → Refresh” toast.
+     - Si NO hay SW: añade meta no-cache solo para index.html y revisa headers en deploy.
+   - Verifica que Publish en Replit apunte al build correcto (production) y que no exista doble env con keys diferentes.
+   - Resultado: después de publish, al recargar debe mostrar VERSION nueva siempre.
+
+ACCEPTANCE CRITERIA (no negocies):
+1) Driver: “Go to Pickup” navega al pickup (100% reproducible). Nunca al dropoff.
+2) Driver: botones por fase aparecen SIEMPRE y solo los correctos.
+3) Driver: selector Google/Apple/Waze funciona y guarda preferencia.
+4) Shift: se ven “Connected” y “Start Shift/Clock In” (y End Shift/Break), sin reemplazarse.
+5) Dispatch: tap en trip abre detalle; listas colapsables; search en listas.
+6) Sonidos: suenan en 3 eventos (con setting).
+7) Publish: VERSION cambia post-publish y se refleja al recargar; no hay “cambios fantasma”.
+
+SMOKE TEST CHECKLIST (ejecuta y pega resultados):
+- Driver:
+  - ON SHIFT + trip scheduled: Go to Pickup → abre pickup.
+  - Acción Arrived Pickup → status cambia y UI muestra Picked Up.
+  - Picked Up → UI muestra Start Trip to Dropoff.
+  - Start Trip → Go to Dropoff navega a dropoff.
+- Dispatch:
+  - Seleccionar trip → abre panel detalle.
+  - Buscar driver por nombre/ID → filtra.
+  - Crear trip manual → sugiere driver + muestra vehicle + confirma.
+- Publish:
+  - Publicar, recargar, confirmar VERSION nueva en 2 dispositivos (desktop + mobile).
+
+DO NOT DO:
+- No “refactors” masivos.
+- No renombres endpoints.
+- No cambies schema.
+- No sustituyas botones existentes por otros; si hay conflicto, conserva ambos y documenta.
+
+NOW DO IT:
+Implementa los cambios con commits pequeños y verificables. Después de cada bloque (State Engine, Nav Fix, Chooser, Dispatch UI, Sounds, Publish reliability) corre el smoke test mínimo y reporta resultados en consola/logs.
+
+OUTPUT FORMAT:
+1) Lista de archivos tocados.
+2) Resumen de cambios por bloque.
+3) Evidencia: screenshots/console logs del destino de navegación y VERSION.
+4) Checklist completado.

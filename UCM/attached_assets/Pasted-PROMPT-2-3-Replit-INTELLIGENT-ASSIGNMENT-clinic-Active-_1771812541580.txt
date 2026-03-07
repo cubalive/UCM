@@ -1,0 +1,108 @@
+PROMPT 2/3 (Replit) — INTELLIGENT ASSIGNMENT + clinic “Active now” logic + driver availability that feels natural (no “control”, only smart timing)
+
+EXECUTION MODE: SINGLE AGENT ONLY
+Context: UCM is NEMT with scheduled trips. We need coherent logic:
+- Clinic “Today’s trips” = all scheduled/assigned for the day.
+- Clinic “Active now” = ONLY trips currently happening (driver en route / arrived / on trip / en route dropoff).
+- Driver stays AVAILABLE after accepting a future trip until it’s actually time to leave (depart_at). The system must notify the driver based on real ETA (Google) + buffer.
+- Auto assignment must prefer the “same driver” for recurring dialysis and must check time between trips.
+
+GOALS (must be true)
+1) Trip lifecycle categories:
+   - SCHEDULED: trip date is today, not started (SCHEDULED or ASSIGNED)
+   - ACTIVE_NOW: EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, ON_TRIP, EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF
+   - COMPLETED/CANCELLED/NO_SHOW terminal
+2) Driver states:
+   - AVAILABLE: can accept new offers
+   - RESERVED: has accepted a future trip but depart_at not reached; still can accept other trips IF no conflict
+   - BUSY: only when trip is active (en route / waiting / on trip)
+3) depart_at calculation:
+   - depart_at = pickup_time - (ETA(driver->pickup) + buffer)
+   - buffer default 5 min (config)
+   - If driver is far, depart_at moves earlier automatically.
+4) Notification logic:
+   - When driver accepts future trip: show “Reserved” card, not “Active trip”.
+   - At (depart_at - 5 min): push alert “Get ready”
+   - At depart_at: alert “Leave now” + optionally auto-switch trip to EN_ROUTE_TO_PICKUP if driver confirms “Start”
+5) Conflict checking:
+   - When offering/auto-assigning, ensure no overlap:
+     previousTripEnd + travelTimeToNextPickup <= nextPickupTime
+   - Add minimum buffer between trips (ex 10 min) configurable.
+
+IMPLEMENTATION (do it now)
+A) Data model (additive)
+- Add to trips:
+   scheduled_pickup_at timestamptz (or existing)
+   scheduled_dropoff_at timestamptz (if known)
+   depart_at timestamptz
+   reserved_driver_id uuid nullable
+- Add to drivers:
+   preferred_service_type (ambulatory/wheelchair/etc)
+   home_city_id
+- If recurring dialysis:
+   add “recurring_group_id” on trips OR existing recurrence key
+   store “preferred_driver_id” on patient or recurring profile
+
+B) Status semantics fix for clinic portal
+- Update clinic queries:
+  - todaysTripsCount = all trips where scheduled_pickup_at::date = today and status NOT IN (COMPLETED,CANCELLED,NO_SHOW)
+  - activeNowCount = trips where status IN (EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, ON_TRIP, EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF)
+  - completedCount, cancelledCount as normal
+- Add new cards:
+  - ArrivingNext15 = count trips with ETA_to_clinic <= 15 min AND direction = “to clinic”
+  - DepartingNext15 = count trips leaving clinic within 15 min (return legs)
+  - ArrivalsLast60 = count trips ARRIVED_DROPOFF at clinic in last 60 min
+  - DeparturesLast60 = count trips STARTED from clinic in last 60 min
+  You must distinguish trip direction:
+   - “to clinic” if dropoff is clinic location
+   - “from clinic” if pickup is clinic location
+  Use placeId match or clinic_id linkage.
+
+C) Auto-assignment upgrade (priority order)
+When a trip is approved/created:
+1) If recurring + patient has preferred_driver_id AND that driver is eligible and conflict-free → assign them.
+2) Else pick best driver by scoring:
+   score = w1*eta_to_pickup + w2*on_time_rate + w3*service_match + w4*idle_balance + w5*distance_deadhead
+   Must respect:
+    - service type match (wheelchair vs ambulatory)
+    - city/company/tenant scope
+    - shift on/off
+    - conflict-free schedule window
+3) Once assigned, compute depart_at via Google ETA and store.
+4) Publish WS updates to clinic/admin/driver.
+
+D) Driver “Reserved vs Busy” behavior
+- When driver accepts a trip:
+  - If pickup_time is soon (<= eta + buffer + 10 min), mark as active immediately (BUSY) and show “Active Trip”.
+  - Otherwise:
+     status stays ASSIGNED (or RESERVED) but driver availability stays AVAILABLE, plus an internal “reservation” record.
+  - Driver app shows it under “Upcoming / Reserved”, not Active.
+- Add scheduler job:
+  every 60s:
+    - for each assigned trip within next X hours:
+       recompute ETA(driver->pickup) (use last driver location)
+       update depart_at if needed
+       if now >= depart_at - 5 min and not notified_ready -> notify
+       if now >= depart_at and not notified_leave -> notify
+- Add “No GPS for > 60s” alert:
+  if driver on shift and last ping older than threshold:
+    send notification + in-app banner “Open app to keep GPS active”
+  (PWA limitation acknowledged; do best-effort.)
+
+E) Clinic requirement: always collect return
+- In clinic trip creation UI:
+  - Force return trip creation toggle:
+     default ON
+     if OFF, require note “No return because…”
+- Ensure backend validates this.
+
+TEST CHECKLIST
+1) Trip at 5:30pm should NOT show “Active now” at 3pm; should show under Today’s Trips.
+2) Driver accepts 7:30pm trip at 6:20pm and is 20min away:
+   - no “leave now” until depart_at
+   - driver remains AVAILABLE for other non-conflicting trips
+3) depart_at updates when driver moves far/near
+4) Auto-assignment respects recurring preferred driver
+5) Clinic cards: arriving/leaving next 15, last 60 behave correctly
+
+Make minimal changes, add only what’s needed, keep existing endpoints stable.

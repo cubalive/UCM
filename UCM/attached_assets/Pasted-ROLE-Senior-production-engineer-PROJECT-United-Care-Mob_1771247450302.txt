@@ -1,0 +1,95 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- Extend existing system only
+- Do NOT reset database
+- Verify before exit
+
+GOAL:
+Create a native driver wrapper (iOS + Android) with REAL background location.
+The web driver app remains the UI; native layer provides background GPS + permissions.
+
+SCOPE:
+- New folder: mobile-driver/
+- app loads https://driver.unitedcaremobility.com
+- Native background location posts to backend /api/driver/location with Bearer JWT
+
+---------------------------------------
+PHASE 1 — CAPACITOR PROJECT
+---------------------------------------
+- Initialize Capacitor app:
+  appId: com.unitedcaremobility.driver
+  appName: UCM Driver
+  server.url: https://driver.unitedcaremobility.com
+
+Add scripts:
+- cap:sync
+- cap:ios
+- cap:android
+
+---------------------------------------
+PHASE 2 — AUTH TOKEN BRIDGE
+---------------------------------------
+Implement secure token handoff:
+- Web app (driver) exposes a bridge call to pass JWT to native:
+  Native calls into web to request token OR web pushes token on login.
+- Native stores token in secure storage.
+- Native uses token in Authorization header for location posts.
+
+---------------------------------------
+PHASE 3 — BACKGROUND LOCATION
+---------------------------------------
+Use a maintained Capacitor background geolocation plugin.
+Implement:
+- Start tracking on CONNECT
+- Stop tracking on DISCONNECT
+Config:
+- distanceFilter 25–50m
+- desiredAccuracy high when moving, lower when stationary
+- adaptive intervals:
+  moving: 2–5s
+  stationary: 15–30s
+  low battery: 30–60s
+
+---------------------------------------
+PHASE 4 — iOS CONFIG (Always + background modes)
+---------------------------------------
+- Info.plist:
+  NSLocationWhenInUseUsageDescription
+  NSLocationAlwaysAndWhenInUseUsageDescription
+  NSLocationAlwaysUsageDescription (compat)
+- Background modes:
+  UIBackgroundModes = location
+- Permission flow:
+  request WhenInUse -> then request Always
+
+---------------------------------------
+PHASE 5 — ANDROID CONFIG
+---------------------------------------
+- Permissions:
+  ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION, ACCESS_BACKGROUND_LOCATION
+  FOREGROUND_SERVICE (and required variants)
+- Foreground service notification (required)
+- Ensure battery optimizations guidance shown to driver
+
+---------------------------------------
+PHASE 6 — DRIVER UI INTEGRATION
+---------------------------------------
+In driver web UI:
+- Detect native platform (Capacitor.isNativePlatform())
+- Show "Background Tracking" status:
+  Running/Stopped + last sent time + accuracy
+- CONNECT triggers native start; DISCONNECT triggers stop.
+- If not native, web-only GPS continues as fallback.
+
+---------------------------------------
+VERIFY
+---------------------------------------
+- iOS build runs, requests Always, keeps sending while app backgrounded.
+- Android build runs with foreground service and continues sending.
+- Backend accepts updates and rate limiting respected.
+- Driver sees “GPS active” + stale indicator in UI.
+OUTPUT:
+- exact build/run commands
+- list of files created/changed

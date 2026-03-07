@@ -1,0 +1,101 @@
+ROLE: Senior Geospatial Engineer – Production SaaS
+EXECUTION MODE: SINGLE AGENT ONLY
+DO NOT RESET DATABASE
+DO NOT BREAK EXISTING MAP
+
+OBJECTIVE:
+Replace straight-line rendering with real driving route.
+Store and render real polyline + real distance + real duration.
+
+---------------------------------------
+STEP 1 — ADD ROUTING PROVIDER
+---------------------------------------
+
+Use Google Directions API (driving mode).
+If Google key already exists, use that.
+
+Endpoint:
+https://maps.googleapis.com/maps/api/directions/json
+
+Parameters:
+origin=pickup_lat,pickup_lng
+destination=dropoff_lat,dropoff_lng
+mode=driving
+key=GOOGLE_MAPS_API_KEY
+
+---------------------------------------
+STEP 2 — UPDATE BACKEND TRIP CREATION
+---------------------------------------
+
+When trip is created or approved:
+
+Call Directions API.
+Extract:
+
+- route.overview_polyline.points
+- route.legs[0].distance.value (meters)
+- route.legs[0].duration.value (seconds)
+
+Convert meters to miles:
+miles = meters * 0.000621371
+
+Store in trips table:
+
+- route_polyline TEXT
+- route_distance_miles NUMERIC
+- route_duration_seconds INT
+
+If route fails:
+fallback ONLY for display, not storage.
+
+---------------------------------------
+STEP 3 — FRONTEND MAP RENDERING
+---------------------------------------
+
+Replace straight line drawing logic.
+
+Instead of:
+drawLine(pickup, dropoff)
+
+Use:
+decodePolyline(route_polyline)
+renderPolyline(decodedCoordinates)
+
+Use Google Maps Polyline or Mapbox equivalent.
+
+---------------------------------------
+STEP 4 — UPDATE TRIP DETAILS PANEL
+---------------------------------------
+
+Replace:
+Miles: —
+
+With:
+Miles: {route_distance_miles.toFixed(2)}
+
+Add:
+Estimated Drive Time: {route_duration_seconds / 60} min
+
+---------------------------------------
+STEP 5 — DO NOT RECALCULATE ON EVERY LOAD
+---------------------------------------
+
+Route must be calculated ONCE at creation.
+Persist it.
+Never call Directions API on every page load.
+
+---------------------------------------
+STEP 6 — VALIDATION
+---------------------------------------
+
+Test case:
+Las Vegas pickup → dropoff
+Expect:
+- Curved real route
+- Real road path
+- Miles populated
+- No straight line message
+
+---------------------------------------
+DELIVERABLE:
+Fully working road route with stored polyline and accurate miles.

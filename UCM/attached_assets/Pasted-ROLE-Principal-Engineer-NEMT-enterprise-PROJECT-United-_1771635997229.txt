@@ -1,0 +1,164 @@
+ROLE: Principal Engineer (NEMT enterprise)
+PROJECT: United Care Mobility (UCM) — Driver App v3 (Profile + Company + Vehicle Category)
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Zero regressions: do not change working behavior unless explicitly required
+- Add behind feature flags (company-level + global)
+- Add docs + Postman + QA checklist
+
+OBJECTIVE:
+Add a Driver Profile screen (Driver App) showing:
+1) Driver personal/work data
+2) Company they work for
+3) Vehicle category capability (Sedan vs Wheelchair vs both)
+4) Link to assigned vehicle + shift state
+All must be RLS-safe and not expose other drivers.
+
+================================================================================
+A) DATA + SOURCE OF TRUTH (NO BREAKING CHANGES)
+================================================================================
+
+A1) Determine current source:
+- Check if drivers are stored in: drivers table, profiles, users metadata, or driver_profiles.
+- Check if company relationship is: drivers.company_id OR user_company_roles OR memberships.
+- Check vehicle capability exists:
+  - driver.vehicle_type / capability flags OR
+  - assigned vehicle record includes vehicle_type (sedan/wheelchair) OR
+  - driver has allowed_vehicle_categories array/json.
+
+If missing, implement minimal extension:
+
+A2) Minimal schema additions (ONLY if needed):
+Option 1 (preferred): add columns to existing driver profile table:
+- driver_profiles.vehicle_capability text NOT NULL default 'sedan'
+  allowed values: 'sedan' | 'wheelchair' | 'both'
+- driver_profiles.company_id uuid NOT NULL (if missing)
+- driver_profiles.display_name text
+- driver_profiles.phone text
+- driver_profiles.email text (or read from auth)
+- driver_profiles.photo_url text (optional)
+Option 2: if driver_profiles doesn’t exist, create driver_profiles:
+- user_id uuid PK references auth.users(id)
+- company_id uuid not null references companies(id)
+- vehicle_capability text not null default 'sedan'
+- created_at/updated_at
+
+A3) RLS policies:
+- Driver can SELECT/UPDATE own profile (limited fields)
+- Company admin/dispatch can SELECT drivers in their company
+- Super admin SELECT all
+
+A4) Company info:
+Expose company name + city/region:
+- companies(id, name, city_id/state_id, phone, dispatch_phone, address) minimal read-only for driver
+
+A5) Vehicle info:
+Show assigned vehicle (if system supports):
+- vehicle_id, plate, make/model, color, wheelchair_accessible boolean or category
+- If driver can be assigned to different vehicles, show current active assignment only.
+
+================================================================================
+B) API ENDPOINTS (DRIVER APP)
+================================================================================
+
+B1) Add a single “me” endpoint:
+GET /api/driver/me
+Returns:
+{
+  user: { id, email },
+  driver: {
+    id,
+    displayName,
+    phone,
+    photoUrl,
+    vehicleCapability: "sedan"|"wheelchair"|"both",
+    company: { id, name, cityName, stateCode },
+    assignedVehicle: { id, name, plate, category, color } | null,
+    shift: { status: "OFF_SHIFT"|"ON_SHIFT"|"BREAK", startedAt } | null
+  }
+}
+
+B2) Update endpoint (safe fields only):
+PATCH /api/driver/me
+Body allowed:
+- displayName
+- phone
+- photoUrl (optional)
+- vehicleCapability (only if company allows driver to self-edit)
+Enforce:
+- if company_settings.lock_driver_capability = true → driver cannot change capability.
+
+B3) Postman folder:
+"55 - Driver Profile"
+- GET /api/driver/me
+- PATCH /api/driver/me (example)
+- Tests: 200, has driver.company.name, vehicleCapability enum.
+
+================================================================================
+C) DRIVER APP UI
+================================================================================
+
+C1) Add "Profile" tab or Settings → Profile:
+- Header: photo + name
+- Company card: company name + city/state + “Working for”
+- Capability card: “Category” → Sedan / Wheelchair / Both
+- Vehicle card: assigned vehicle + category badge
+- Shift card: ON/OFF shift status + started time
+- Actions:
+  - Edit Profile (name/phone/photo)
+  - (Optional) Request capability change (if locked): sends message to dispatch/admin
+
+C2) Capability display rules:
+- If assignedVehicle exists, show:
+  - “Current vehicle: Wheelchair Van” (vehicle category)
+  - “Your capability: Both” (driver capability)
+- If mismatch, show warning (admin-only):
+  - “Vehicle category doesn’t match driver capability” (hidden for driver)
+
+C3) Feature flag:
+- company_settings.driver_profile_enabled default true
+- If false, hide UI entry point.
+
+================================================================================
+D) DOCUMENTATION + QA
+================================================================================
+
+D1) Docs:
+- docs/driver-profile.md
+  - fields shown
+  - source tables
+  - RLS rules
+  - edit permissions
+  - examples of responses
+
+D2) Manual QA checklist (must pass):
+1) Driver logs in → Profile visible
+2) Company name appears correctly
+3) Vehicle capability shows correct value
+4) Assigned vehicle shows correct category (if assigned)
+5) PATCH displayName updates and persists after refresh
+6) Driver cannot access other driver profiles (RLS)
+7) Company admin can view driver capability in admin panel (if exists)
+8) No regression in shift/trip flows
+9) Works on iOS PWA + Android PWA
+10) Works offline (Profile loads cached last-known data; shows Offline pill)
+
+================================================================================
+IMPLEMENTATION ORDER
+================================================================================
+1) Inspect existing driver/company/vehicle schema + current auth mapping
+2) Implement /api/driver/me + RLS-safe queries
+3) Add UI screen and wire to endpoint
+4) Add PATCH with validation + company lock
+5) Add Postman + docs + QA checklist
+
+DELIVERABLES REQUIRED:
+- Files changed list
+- Endpoints list
+- Any DB migrations (only if needed)
+- Postman updates
+- docs/driver-profile.md

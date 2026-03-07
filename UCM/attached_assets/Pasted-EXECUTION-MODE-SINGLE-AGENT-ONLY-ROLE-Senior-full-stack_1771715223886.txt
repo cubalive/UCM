@@ -1,0 +1,213 @@
+EXECUTION MODE: SINGLE AGENT ONLY
+ROLE: Senior full-stack engineer (React + Node/Express + Supabase/Postgres).
+PROJECT: United Care Mobility (UCM)
+
+GOAL
+Extend the Company Driver Pay Policy system with OPTIONAL ON/OFF earnings modifiers:
+A) Daily Minimum Guarantee (min per driver per day)
+B) On-time Bonus (weekly or per-trip)
+C) No-show Penalty (per incident)
+All toggles must be configurable per company and reflected in real-time weekly earnings estimates.
+
+CRITICAL CONSTRAINTS
+- Do NOT reset/drop tables.
+- Do NOT change DB connection/secrets/env vars.
+- Do NOT break existing bonus system (if present). Reuse it if it already computes bonuses; otherwise implement this as a separate “earnings modifiers” layer.
+- Deterministic + auditable: store inputs + outputs for each trip and each day/weekly summary.
+- Strict tenant/company isolation everywhere.
+- Clinics must NOT see any payroll data.
+
+ORGANIZATION REQUIREMENT (must follow)
+Create these modules with clear boundaries:
+1) db/migrations/*
+2) server/services/payroll/*
+3) server/controllers/payroll.controller.ts
+4) client/pages/(admin)/settings/payroll*
+5) client/pages/(driver)/earnings*
+No scattered logic across unrelated controllers.
+
+--------------------------------------------
+STEP 1 — DATABASE (idempotent Supabase SQL)
+--------------------------------------------
+1) Create table driver_pay_rules (1 row per company, ON/OFF switches + params):
+- id uuid PK default gen_random_uuid()
+- company_id uuid not null unique
+- daily_min_enabled boolean not null default false
+- daily_min_cents integer null
+- daily_min_applies_days text[] null  -- e.g. {'MON','TUE','WED','THU','FRI','SAT'}
+- on_time_bonus_enabled boolean not null default false
+- on_time_bonus_mode text null check in ('PER_TRIP','WEEKLY')
+- on_time_bonus_cents integer null
+- on_time_threshold_minutes integer null default 5
+- on_time_requires_confirmed_pickup boolean not null default true
+- no_show_penalty_enabled boolean not null default false
+- no_show_penalty_cents integer null
+- no_show_penalty_reason_codes text[] null
+- created_at timestamptz default now()
+- updated_at timestamptz default now()
+
+2) Add columns to trips (if missing) to support punctuality and penalties:
+- pickup_scheduled_at timestamptz null (or reuse existing)
+- pickup_actual_at timestamptz null (arrived_pickup_at or picked_up_at fallback)
+- is_no_show boolean not null default false
+- no_show_reason text null
+
+3) Create table driver_earnings_adjustments (auditable):
+- id uuid PK default gen_random_uuid()
+- company_id uuid not null
+- driver_id uuid not null
+- related_trip_id uuid null
+- period_date date null          -- for daily minimum adjustments
+- week_start date null
+- type text not null check in ('DAILY_MIN_TOPUP','ON_TIME_BONUS','NO_SHOW_PENALTY','MANUAL_ADJUSTMENT')
+- amount_cents integer not null  -- can be negative
+- metadata jsonb not null default '{}'
+- created_at timestamptz default now()
+
+Indexes:
+- driver_earnings_adjustments(company_id, driver_id, created_at)
+- driver_earnings_adjustments(company_id, driver_id, week_start)
+
+All migrations must be idempotent.
+
+--------------------------------------------
+STEP 2 — BACKEND SERVICES (server/services/payroll/*)
+--------------------------------------------
+Create services:
+
+A) payPolicyService.ts
+- existing computeTripDriverPayout(tripId) remains source of base payout (no modifiers).
+
+B) payrollRulesService.ts
+- getCompanyPayRules(companyId)
+- upsertCompanyPayRules(companyId, payload)
+
+C) modifiersEngine.ts
+Function:
+computeTripModifiers(tripId) -> adjustments[]
+Applies:
+1) On-time bonus (if enabled)
+   - Determine on-time:
+     pickup_actual_at - pickup_scheduled_at <= threshold
+     Use arrived_pickup_at or picked_up_at as actual (prefer arrived_pickup_at)
+   - If on_time_bonus_mode=PER_TRIP: create adjustment ON_TIME_BONUS +amount
+   - If WEEKLY: defer to weekly job (see below) unless existing bonus system already does weekly bonuses.
+2) No-show penalty (if trip is_no_show=true and enabled):
+   create NO_SHOW_PENALTY as negative amount_cents
+
+D) dailyMinimumEngine.ts
+computeDailyMinimumTopups(companyId, date) -> adjustments[]
+- For each driver in company with on_shift activity or completed trips that day:
+  dailyEarnings = sum(base payouts + per-trip modifiers) for that date
+  if daily_min_enabled and dailyEarnings < daily_min_cents and date is in applies_days:
+     create DAILY_MIN_TOPUP for difference
+
+E) weeklySummaryService.ts
+getWeeklyEarnings(driverId, weekStart)
+Return:
+- baseEarningsCents (sum trips.driver_payout_cents)
+- modifiersCents (sum adjustments for week)
+- totalCents = base + modifiers
+- breakdown arrays (trip payouts + adjustments)
+
+IMPORTANT:
+- Ensure idempotency: never duplicate adjustments.
+  Use a deterministic key in metadata (e.g. {key:"ON_TIME_BONUS:tripId"}), check before insert.
+
+--------------------------------------------
+STEP 3 — WHEN TO APPLY MODIFIERS
+--------------------------------------------
+A) On trip completion:
+- compute base payout and store on trip (already)
+- computeTripModifiers(tripId) and upsert adjustments (idempotent)
+- emit realtime event to update driver earnings UI
+
+B) Daily minimum:
+- run a scheduled job (existing scheduler pattern) at e.g. 23:59 local time per company city/timezone
+- OR compute on-demand when driver opens earnings and cache results
+Prefer scheduled job if system already has cron/scheduler.
+
+C) Weekly on-time bonus (if enabled and mode=WEEKLY):
+- at week end (Sunday 23:59) compute if driver meets threshold criteria:
+   e.g. % on-time >= configured percent (add optional field if needed)
+If existing bonus module already does weekly driver bonus:
+- integrate by reading its outputs instead of duplicating logic.
+
+--------------------------------------------
+STEP 4 — CONTROLLERS (server/controllers/payroll.controller.ts)
+--------------------------------------------
+Endpoints:
+GET /api/company/payroll/config
+PUT /api/company/payroll/config
+Payload includes:
+- pay policy fields (hourly/per-trip/hybrid) (if already implemented, reuse existing endpoint)
+- pay rules fields (daily min/on-time/no-show toggles + params)
+
+RBAC:
+- SUPER_ADMIN: any company (with company override header)
+- COMPANY_ADMIN: own company only
+- DRIVER: read-only own earnings endpoints only
+
+Driver endpoints:
+GET /api/drivers/me/weekly-earnings?weekStart=YYYY-MM-DD
+Return:
+{
+  weekStart, weekEnd,
+  baseEarningsCents,
+  modifiersCents,
+  totalCents,
+  completedTrips: [{tripId, payoutCents, status, completedAt}],
+  adjustments: [{type, amountCents, relatedTripId, periodDate, metadata}],
+  projectedOpenTripsCents
+}
+
+--------------------------------------------
+STEP 5 — FRONTEND UI (organized + clickable)
+--------------------------------------------
+Admin/Company Settings -> Payroll:
+Section 1: Pay Policy (Hourly / Per Trip / Hybrid)
+Section 2: Earnings Modifiers (toggles)
+- Toggle: Daily Minimum Guarantee (ON/OFF)
+  - input $ amount
+  - days of week multi-select
+- Toggle: On-time Bonus (ON/OFF)
+  - mode: per-trip or weekly
+  - amount
+  - threshold minutes
+- Toggle: No-show Penalty (ON/OFF)
+  - amount
+  - optional reason codes
+
+Driver -> Earnings:
+- “This week (live)”:
+  - Base earnings
+  - Bonuses/Adjustments
+  - Total
+- Clickable lists:
+  - Trips list (payout per trip)
+  - Adjustments list (bonus/top-up/penalty)
+- Tooltips explaining why each adjustment happened.
+
+--------------------------------------------
+STEP 6 — REALTIME UPDATES
+--------------------------------------------
+On trip completion OR adjustment insert:
+- emit event to driver channel: EARNINGS_UPDATED
+Driver UI updates totals without refresh.
+
+--------------------------------------------
+STEP 7 — VERIFICATION CHECKLIST
+--------------------------------------------
+1) Daily min OFF: no topups created.
+2) Daily min ON: driver makes $50, min is $80 -> topup $30 appears.
+3) On-time per trip ON: on-time trip adds bonus.
+4) No-show penalty ON: marked no-show creates negative adjustment.
+5) Idempotency: completing same trip event twice does NOT duplicate adjustments.
+6) Clinics cannot access payroll endpoints.
+7) Driver only sees own totals.
+
+DELIVERABLES
+- SQL migration snippet
+- payroll services folder + controller
+- frontend Payroll settings page + Driver earnings page
+- realtime event wiring

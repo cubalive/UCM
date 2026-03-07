@@ -1,0 +1,262 @@
+ROLE: Senior production engineer
+PROJECT: United Care Mobility
+
+EXECUTION MODE: SINGLE AGENT ONLY
+- One agent only
+- No parallel tasks
+- Do NOT create sub-agents
+- Do NOT run parallel work
+- Do NOT reset database
+- Do NOT recreate tables
+- Extend existing system only
+- Verify before exit
+
+MISSION:
+Turn UCM into a “no-confusion, no-dead-ends” production product.
+Fix the driver workflow + dispatch assignment + trip lifecycle + location + tabs + closure rules + clinic clarity.
+Everything must be consistent across roles (super_admin, dispatch, clinic_user, driver).
+If something is missing, add it. If something is ambiguous, enforce it server-side.
+
+NON-NEGOTIABLE RULES:
+1) City is mandatory for admin/dispatch session (choose at login). No city = no operations.
+2) Clinic sees ONLY their trips. No fleet map.
+3) Driver can ONLY see trips assigned to them (in their active city).
+4) Completed/Canceled trips become READ-ONLY (no edits, no messages, no status changes).
+5) Every trip must have scheduled pickup time (and optional appt time). No blank critical times.
+6) All status transitions must be validated server-side.
+
+========================================================
+PHASE 0 — DATA + STATUS MODEL (FOUNDATION)
+========================================================
+A) Enforce canonical Trip Status enum (backend constant):
+- SCHEDULED
+- UNASSIGNED
+- ASSIGNED
+- EN_ROUTE_TO_PICKUP
+- ARRIVED_PICKUP
+- PICKED_UP
+- EN_ROUTE_TO_DROPOFF
+- ARRIVED_DROPOFF
+- COMPLETED
+- CANCELLED
+- NO_SHOW (optional)
+
+B) Define “Active vs Completed vs Scheduled”:
+- ACTIVE: UNASSIGNED, ASSIGNED, EN_ROUTE_TO_PICKUP, ARRIVED_PICKUP, PICKED_UP, EN_ROUTE_TO_DROPOFF, ARRIVED_DROPOFF
+- SCHEDULED: SCHEDULED (future) and optionally UNASSIGNED (future)
+- COMPLETED: COMPLETED, CANCELLED, NO_SHOW
+
+C) Trip must include:
+- city_id (required)
+- clinic_id (required if created by clinic)
+- patient_id (required)
+- pickup_address + pickup_lat/lng (required)
+- dropoff_address + dropoff_lat/lng (required)
+- scheduled_pickup_time (required)
+- appointment_time (optional)
+- assigned_driver_id (nullable)
+- assigned_vehicle_id (nullable)
+
+If any required field is missing in UI, block submit and show error.
+
+========================================================
+PHASE 1 — CITY SELECTION AT LOGIN (ADMIN/DISPATCH)
+========================================================
+Goal: prevent “agent tested Dallas cityId=2 but operations are Vegas” confusion.
+
+1) After login for roles super_admin and dispatch:
+- Show modal “Select your working city”
+- Fetch cities from backend: GET /api/cities
+- User picks one city -> store activeCityId in:
+  - server session or JWT claim (preferred) AND
+  - localStorage as fallback
+- Block navigation until selected
+
+2) All admin/dispatch operational endpoints must require activeCityId.
+If missing -> 400 with message “Active city required”.
+
+========================================================
+PHASE 2 — DRIVER: ACTIVE / ON-HOLD + LOCATION PERMISSIONS
+========================================================
+Goal: driver must clearly indicate availability, and location must work.
+
+1) Driver availability:
+- Driver has status: ACTIVE or ON_HOLD
+- Driver app has a big toggle:
+  - “Go Active” / “Go On Hold”
+- Backend endpoints:
+  - POST /api/driver/status { status: "ACTIVE"|"ON_HOLD" }
+  - GET /api/driver/me (includes status)
+- Dispatch can override:
+  - POST /api/dispatch/drivers/:driverId/status
+
+2) Location:
+- On driver app start, request geolocation permission.
+- If denied, show blocking banner: “Location required to run trips” with retry button.
+- Start sending location updates when driver is ACTIVE:
+  - every 10–15 seconds while app is open OR every 20–30s if battery-saving
+- Backend:
+  - POST /api/driver/location { lat, lng, heading?, speed?, accuracy?, ts }
+  - Store latest location per driver (table or in drivers table)
+- Security:
+  - Driver can only update their own location.
+  - Dispatch/admin can read location for drivers in active city.
+  - Clinic can read ONLY the assigned driver’s location for their trips.
+
+========================================================
+PHASE 3 — DISPATCH: ASSIGN BUTTON + DAILY ASSIGNMENTS FIX
+========================================================
+Problem: approved trip cannot be assigned + clinic-created trips not showing in daily assignment.
+
+1) Add “Assign Driver” button on every trip card in UNASSIGNED or SCHEDULED state (dispatch/admin).
+- Opens modal:
+  - Select driver (ACTIVE only, same city)
+  - Optional vehicle selection (same city, correct type)
+  - Confirm
+
+2) Backend:
+- POST /api/dispatch/trips/:tripId/assign { driverId, vehicleId? }
+Validations:
+- trip city_id == activeCityId
+- driver city_id == activeCityId
+- driver status == ACTIVE
+- trip not COMPLETED/CANCELLED/NO_SHOW
+- if wheelchair trip => require wheelchair-capable vehicle OR allow WAV vehicle for sedan (but never sedan for wheelchair)
+On success:
+- set status = ASSIGNED
+- notify driver (in-app + optional SMS later)
+
+3) Daily Assignments page:
+- Must include trips created by clinic that are in city_id == activeCityId and scheduled for that day (or next 24h)
+- Show UNASSIGNED list with full rows (patient, times, pickup, dropoff) not just counts.
+- Provide quick “Assign” from the list.
+
+========================================================
+PHASE 4 — DRIVER TRIP WORKFLOW (PROGRESS BUTTONS)
+========================================================
+Driver must have a clean progression, not only “Finish”.
+
+Driver Trip Detail must show ONE primary button at a time:
+- If ASSIGNED -> “Start Trip (En Route to Pickup)” sets EN_ROUTE_TO_PICKUP
+- If EN_ROUTE_TO_PICKUP -> “Arrived at Pickup” sets ARRIVED_PICKUP
+- If ARRIVED_PICKUP -> “Picked Up Patient” sets PICKED_UP
+- If PICKED_UP -> “Arrived at Dropoff” sets ARRIVED_DROPOFF
+- If ARRIVED_DROPOFF -> “Complete Trip” sets COMPLETED
+
+Also include secondary actions:
+- “Report No-Show” -> sets NO_SHOW (requires reason)
+- “Cancel Trip” -> sets CANCELLED (requires reason) only if allowed by role rules
+
+Backend:
+- POST /api/driver/trips/:tripId/transition { toStatus }
+Server-side transition rules (strict):
+ASSIGNED -> EN_ROUTE_TO_PICKUP
+EN_ROUTE_TO_PICKUP -> ARRIVED_PICKUP
+ARRIVED_PICKUP -> PICKED_UP
+PICKED_UP -> ARRIVED_DROPOFF
+ARRIVED_DROPOFF -> COMPLETED
+Any other transition = 400.
+
+Also:
+- Write timestamp fields on each transition (arrived_pickup_at, picked_up_at, etc.)
+- These timestamps are used for compliance and ops health.
+
+========================================================
+PHASE 5 — TRIP TABS + CLOSURE LOCKDOWN
+========================================================
+1) For DISPATCH/ADMIN trips page:
+- Tabs:
+  - Unassigned
+  - Active
+  - Scheduled
+  - Completed
+  - All
+Each tab is a backend-filtered query (not only frontend filtering).
+
+2) For DRIVER:
+- Tabs:
+  - My Active Trip(s) (ideally one at a time)
+  - My Scheduled
+  - Completed (read-only)
+
+3) Lockdown:
+When trip is COMPLETED/CANCELLED/NO_SHOW:
+- Backend denies:
+  - assignment changes
+  - messaging sends
+  - edits to pickup/dropoff/times
+  - status transitions
+Return 409 “Trip is closed”.
+
+========================================================
+PHASE 6 — MESSAGING RELIABILITY (SMS + IN-APP)
+========================================================
+Current issue: SMS shows “sent” but never arrives.
+
+1) Implement message delivery states:
+- QUEUED -> SENT -> DELIVERED (if provider supports) -> FAILED
+- UI must not show “Sent” unless provider returns success.
+- Store provider messageId + error text.
+
+2) If no SMS provider configured (Twilio, etc.):
+- UI must show “SMS not configured” and disable SMS send button.
+- Still allow in-app messaging between driver <-> dispatch and clinic <-> dispatch.
+
+Backend:
+- POST /api/messages
+- Validate trip not closed
+- Validate role permissions
+- Persist message with status
+
+========================================================
+PHASE 7 — CLINIC “PERFECT VIEW” (LIST-FIRST + TRIP DETAIL ETA)
+========================================================
+Clinic must be trip-centric, not full map.
+
+1) Clinic landing: Active Trips list (their trips only)
+2) Trip Detail shows:
+- Status, driver name, vehicle
+- Mini map for THIS trip only:
+  - driver -> destination route
+- ETA refresh every 60–120s
+3) Destination logic:
+- before pickup: destination=pickup
+- after pickup: destination=dropoff/facility
+4) Clinic cannot access fleet map endpoints (403 server-side).
+
+========================================================
+PHASE 8 — OPS HEALTH: GREEN / YELLOW / RED (NO API REQUIRED)
+========================================================
+Create an Ops Health widget for admin/dispatch that is instantly readable.
+
+Inputs (computed server-side):
+- No active drivers in city -> RED
+- Unassigned trips within next 2 hours -> YELLOW/RED depending count
+- Trips stuck in same status too long -> YELLOW
+- Driver location stale (>3 min) for assigned active trip -> YELLOW
+- ETA risk: scheduled pickup in <30 min and driver not EN_ROUTE -> YELLOW
+- Any failed SMS/provider errors >0 today -> YELLOW
+
+Output:
+- City Ops Health = GREEN/YELLOW/RED
+- Show top 5 alerts with plain language + one-click drill down.
+
+Endpoint:
+- GET /api/dispatch/ops-health?cityId=...
+
+========================================================
+PHASE 9 — VERIFICATION CHECKLIST (MUST COMPLETE)
+========================================================
+Run through and confirm with screenshots/logs:
+1) Admin/dispatch forced city selection works
+2) Driver toggle ACTIVE/ON_HOLD updates and dispatch sees it
+3) Driver location permission prompt appears and map works
+4) Dispatch can assign a clinic-created trip via Assign button
+5) Driver sees assigned trip and can progress through all statuses
+6) Completed trip moves to Completed tab and becomes read-only
+7) Clinic sees only their trips, can open trip detail, sees route + ETA
+8) Messaging: if SMS not configured, it’s clearly disabled; in-app works
+9) No dead ends anywhere (every critical flow has a clear next action)
+
+DELIVERABLE:
+A production-grade, confusion-proof workflow for Dispatch + Driver + Clinic with strict server rules, clean UI tabs, assignment button, full trip progress, location, and closure lock.

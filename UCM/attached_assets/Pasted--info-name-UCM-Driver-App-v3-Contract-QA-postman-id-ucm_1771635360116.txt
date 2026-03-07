@@ -1,0 +1,311 @@
+{
+  "info": {
+    "name": "UCM Driver App v3 (Contract + QA)",
+    "_postman_id": "ucm-driverapp-v3-collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 - Health & Version",
+      "item": [
+        {
+          "name": "GET /api/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/health", "host": ["{{baseUrl}}"], "path": ["api", "health"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('health status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('health json', () => { const j = pm.response.json(); pm.expect(j).to.be.an('object'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/version",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/version", "host": ["{{baseUrl}}"], "path": ["api", "version"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('version status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('version fields', () => {",
+                  "  pm.expect(j).to.have.property('version');",
+                  "  pm.expect(j).to.have.property('builtAt');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10 - Shift",
+      "item": [
+        {
+          "name": "POST /api/driver/shift/start",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"cityId\": \"{{cityId}}\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/shift/start",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "shift", "start"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('start shift ok', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('onShift true', () => pm.expect(j.onShift).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/driver/shift/end",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/shift/end",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "shift", "end"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('end shift ok', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('onShift false', () => pm.expect(j.onShift).to.eql(false));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "20 - Location",
+      "item": [
+        {
+          "name": "POST /api/driver/location/ping",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": {{lat}},\n  \"lng\": {{lng}},\n  \"heading\": 0,\n  \"speed\": 0,\n  \"accuracy\": 10\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/location/ping",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "location", "ping"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('ping ok', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('has serverTime', () => pm.expect(j).to.have.property('serverTime'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "30 - Trips",
+      "item": [
+        {
+          "name": "GET /api/driver/trips?scope=active",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/trips?scope=active",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "trips"],
+              "query": [{ "key": "scope", "value": "active" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('trips ok', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('array', () => pm.expect(j).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/driver/trips/{{tripId}}",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/trips/{{tripId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "trips", "{{tripId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('trip detail ok', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json();",
+                  "pm.test('has pickup/dropoff', () => {",
+                  "  pm.expect(t).to.have.property('pickup');",
+                  "  pm.expect(t).to.have.property('dropoff');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "40 - Trip Status Transitions (strict)",
+      "item": [
+        {
+          "name": "POST /api/driver/trips/{{tripId}}/status (EN_ROUTE_TO_PICKUP)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"EN_ROUTE_TO_PICKUP\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/trips/{{tripId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "trips", "{{tripId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/driver/trips/{{tripId}}/status (ARRIVED_PICKUP)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"ARRIVED_PICKUP\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/trips/{{tripId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "trips", "{{tripId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/driver/trips/{{tripId}}/status (PICKED_UP)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"PICKED_UP\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/trips/{{tripId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "trips", "{{tripId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/driver/trips/{{tripId}}/status (EN_ROUTE_TO_DROPOFF)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"EN_ROUTE_TO_DROPOFF\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/trips/{{tripId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "trips", "{{tripId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/driver/trips/{{tripId}}/status (ARRIVED_DROPOFF)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"ARRIVED_DROPOFF\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/trips/{{tripId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "trips", "{{tripId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/driver/trips/{{tripId}}/status (COMPLETED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"COMPLETED\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/driver/trips/{{tripId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "driver", "trips", "{{tripId}}", "status"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
