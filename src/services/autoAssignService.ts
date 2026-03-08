@@ -5,6 +5,8 @@ import { assignTrip } from "./tripService.js";
 import { isDriverOnline } from "./realtimeService.js";
 import { broadcastToRole, WS_EVENTS } from "./realtimeService.js";
 import logger from "../lib/logger.js";
+import type { AutoAssignConfig, DriverScoreBreakdown, DispatchEvent } from "../types/dispatch.js";
+import { DEFAULT_AUTO_ASSIGN_CONFIG } from "../types/dispatch.js";
 
 interface DriverCandidate {
   driverId: string;
@@ -13,15 +15,26 @@ interface DriverCandidate {
   longitude: number | null;
   activeTrips: number;
   score: number;
-  breakdown: Record<string, number>;
+  breakdown: DriverScoreBreakdown;
+}
+
+function emitDispatchEvent(event: DispatchEvent): void {
+  logger.info("dispatch_event", {
+    eventType: event.type,
+    tenantId: event.tenantId,
+    timestamp: event.timestamp.toISOString(),
+    ...event.payload,
+  });
 }
 
 export async function findBestDriver(
   tenantId: string,
   pickupLat?: number,
   pickupLng?: number,
-  excludeDriverIds?: string[]
+  excludeDriverIds?: string[],
+  configOverrides?: Partial<AutoAssignConfig>
 ): Promise<DriverCandidate | null> {
+  const cfg = { ...DEFAULT_AUTO_ASSIGN_CONFIG, ...configOverrides };
   const db = getDb();
 
   const availableDrivers = await db
@@ -113,13 +126,24 @@ export async function findBestDriver(
   const candidates: DriverCandidate[] = [];
 
   for (const driver of eligible) {
-    const breakdown: Record<string, number> = {};
+    const adjustments: DriverScoreBreakdown["adjustments"] = {
+      proximity: 0,
+      activeTrips: 0,
+      staleLocation: 0,
+      onlinePresence: 0,
+      reliability: 0,
+      recentDeclines: 0,
+    };
     let score = 100;
+    let disqualified = false;
+    let disqualifyReason: string | undefined;
 
-    // Active trip penalty — hard cap at 3 active trips
+    // Active trip penalty — hard cap at configured max
     const activeTrips = activeTripsMap.get(driver.driverId) || 0;
-    if (activeTrips >= 3) {
-      breakdown.maxTripsReached = -999;
+    if (activeTrips >= cfg.maxActiveTripsPerDriver) {
+      disqualified = true;
+      disqualifyReason = `max active trips reached (${activeTrips}/${cfg.maxActiveTripsPerDriver})`;
+      adjustments.activeTrips = -999;
       score = -999;
       candidates.push({
         driverId: driver.driverId,
@@ -128,13 +152,13 @@ export async function findBestDriver(
         longitude: driver.longitude ? Number(driver.longitude) : null,
         activeTrips,
         score,
-        breakdown,
+        breakdown: { driverId: driver.driverId, baseScore: 100, adjustments, finalScore: score, disqualified, disqualifyReason },
       });
       continue;
     }
     const tripPenalty = activeTrips * 30;
     score -= tripPenalty;
-    breakdown.activeTrips = -tripPenalty;
+    adjustments.activeTrips = -tripPenalty;
 
     // Proximity bonus
     if (pickupLat && pickupLng && driver.latitude && driver.longitude) {
@@ -142,42 +166,59 @@ export async function findBestDriver(
         pickupLat, pickupLng,
         Number(driver.latitude), Number(driver.longitude)
       );
-      const proximityBonus = Math.max(0, 50 - distance * 5);
+      // Disqualify if beyond max distance
+      if (distance > cfg.maxDistanceMiles) {
+        disqualified = true;
+        disqualifyReason = `too far (${Math.round(distance)} mi > ${cfg.maxDistanceMiles} mi)`;
+        adjustments.proximity = -999;
+        score = -999;
+        candidates.push({
+          driverId: driver.driverId,
+          name: `${driver.firstName} ${driver.lastName}`,
+          latitude: driver.latitude ? Number(driver.latitude) : null,
+          longitude: driver.longitude ? Number(driver.longitude) : null,
+          activeTrips,
+          score,
+          breakdown: { driverId: driver.driverId, baseScore: 100, adjustments, finalScore: score, disqualified, disqualifyReason },
+        });
+        continue;
+      }
+      const proximityBonus = Math.max(0, 50 - distance * cfg.proximityWeight);
       score += proximityBonus;
-      breakdown.proximity = Math.round(proximityBonus);
+      adjustments.proximity = Math.round(proximityBonus);
     }
 
     // Stale location penalty
     if (driver.lastLocationAt) {
       const ageMinutes = (Date.now() - driver.lastLocationAt.getTime()) / 60000;
-      if (ageMinutes > 30) { score -= 50; breakdown.veryStale = -50; }
-      else if (ageMinutes > 10) { score -= 20; breakdown.stale = -20; }
+      if (ageMinutes > cfg.staleLocationThresholdMinutes) { score -= 50; adjustments.staleLocation = -50; }
+      else if (ageMinutes > 10) { score -= 20; adjustments.staleLocation = -20; }
     } else {
       score -= 20;
-      breakdown.noLocation = -20;
+      adjustments.staleLocation = -20;
     }
 
     // Online presence bonus
     if (isDriverOnline(driver.driverId)) {
-      score += 15;
-      breakdown.online = 15;
+      score += cfg.onlineBonus;
+      adjustments.onlinePresence = cfg.onlineBonus;
     }
 
     // Reliability bonus from completion stats
     const stats = completionMap.get(driver.driverId);
     if (stats && stats.total >= 5) {
       const onTimeRate = stats.onTime / stats.total;
-      const reliabilityBonus = Math.round(onTimeRate * 20);
+      const reliabilityBonus = Math.round(onTimeRate * cfg.reliabilityWeight);
       score += reliabilityBonus;
-      breakdown.reliability = reliabilityBonus;
+      adjustments.reliability = reliabilityBonus;
     }
 
     // Recent decline penalty
     const recentDeclines = declineMap.get(driver.driverId) || 0;
     if (recentDeclines > 0) {
-      const declinePenalty = recentDeclines * 15;
+      const declinePenalty = recentDeclines * cfg.declinePenaltyPerIncident;
       score -= declinePenalty;
-      breakdown.recentDeclines = -declinePenalty;
+      adjustments.recentDeclines = -declinePenalty;
     }
 
     candidates.push({
@@ -187,7 +228,7 @@ export async function findBestDriver(
       longitude: driver.longitude ? Number(driver.longitude) : null,
       activeTrips,
       score,
-      breakdown,
+      breakdown: { driverId: driver.driverId, baseScore: 100, adjustments, finalScore: score, disqualified, disqualifyReason },
     });
   }
 
@@ -196,13 +237,20 @@ export async function findBestDriver(
 
   logger.info("Auto-assign candidates scored", {
     tenantId,
-    candidates: candidates.map((c) => ({ name: c.name, score: c.score, breakdown: c.breakdown })),
+    candidates: candidates.map((c) => ({
+      name: c.name,
+      score: c.score,
+      disqualified: c.breakdown.disqualified,
+      adjustments: c.breakdown.adjustments,
+    })),
   });
 
-  return candidates[0] || null;
+  // Return best non-disqualified candidate
+  const best = candidates.find(c => !c.breakdown.disqualified);
+  return best || null;
 }
 
-export async function autoAssignTrip(tripId: string, tenantId: string): Promise<boolean> {
+export async function autoAssignTrip(tripId: string, tenantId: string, configOverrides?: Partial<AutoAssignConfig>): Promise<boolean> {
   const db = getDb();
   // Tenant-scoped trip fetch
   const [trip] = await db.select().from(trips).where(
@@ -230,7 +278,7 @@ export async function autoAssignTrip(tripId: string, tenantId: string): Promise<
   const pickupLat = trip.pickupLat ? Number(trip.pickupLat) : (meta.pickupLat ? Number(meta.pickupLat) : undefined);
   const pickupLng = trip.pickupLng ? Number(trip.pickupLng) : (meta.pickupLng ? Number(meta.pickupLng) : undefined);
 
-  const bestDriver = await findBestDriver(tenantId, pickupLat, pickupLng, declinedBy);
+  const bestDriver = await findBestDriver(tenantId, pickupLat, pickupLng, declinedBy, configOverrides);
 
   if (!bestDriver) {
     logger.warn("Auto-assign: no available drivers", { tripId, tenantId });
@@ -245,6 +293,22 @@ export async function autoAssignTrip(tripId: string, tenantId: string): Promise<
 
   try {
     await assignTrip(tripId, bestDriver.driverId, tenantId, "system:auto-assign");
+
+    // Emit structured dispatch event
+    emitDispatchEvent({
+      type: "trip_assigned",
+      timestamp: new Date(),
+      tenantId,
+      payload: {
+        tripId,
+        driverId: bestDriver.driverId,
+        driverName: bestDriver.name,
+        assignedBy: "system:auto-assign",
+        score: bestDriver.score,
+        adjustments: bestDriver.breakdown.adjustments,
+      },
+    });
+
     logger.info("Auto-assign successful", {
       tripId,
       driverId: bestDriver.driverId,

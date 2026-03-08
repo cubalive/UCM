@@ -178,6 +178,8 @@ tr:hover { background: var(--gray-50); }
 /* Improved table rows for urgent trips */
 tr.trip-row-urgent { background: var(--red-50) !important; }
 tr.trip-row-urgent:hover { background: var(--red-100) !important; }
+tr.trip-row-selected { background: var(--blue-50) !important; }
+tr.trip-row-selected:hover { background: var(--blue-100) !important; }
 
 /* Trip acceptance popup overlay */
 .trip-popup-overlay {

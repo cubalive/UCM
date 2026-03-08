@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { dispatchApi, driverApi, tripApi, logout } from "../lib/api";
-import { ImportWizard } from "../components/ImportWizard";
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from "react";
+import { api, dispatchApi, driverApi, tripApi, logout } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { DispatchMap } from "../components/DispatchMap";
 import { formatDateTime, formatTime } from "../lib/timezone";
+import { decodePolyline } from "../lib/polyline";
+
+const ImportWizard = lazy(() => import("../components/ImportWizard").then(m => ({ default: m.ImportWizard })));
+const DispatchMap = lazy(() => import("../components/DispatchMap").then(m => ({ default: m.DispatchMap })));
 
 type Trip = {
   id: string; status: string; priority: string;
@@ -14,7 +16,7 @@ type Trip = {
   mileage?: number;
   scheduledPickup?: string; patientName?: string;
   driverId?: string; driverName?: string;
-  createdAt: string;
+  createdAt: string; updatedAt?: string;
 };
 
 type Driver = {
@@ -37,6 +39,11 @@ export function DispatchDashboard() {
   const [repairReason, setRepairReason] = useState("");
   const [tripPage, setTripPage] = useState(0);
   const TRIPS_PER_PAGE = 25;
+  const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
+  const [selectedRouteCoords, setSelectedRouteCoords] = useState<[number, number][] | undefined>();
+  const [selectedRouteInfo, setSelectedRouteInfo] = useState<{ miles: number; minutes: number; source: string } | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [pipelineData, setPipelineData] = useState<{ pipeline: Record<string, number>; drivers: Record<string, number>; alerts: Array<{ level: string; message: string }> } | null>(null);
   const { connected, on } = useWebSocket();
 
   const loadDashboard = useCallback(async () => {
@@ -184,12 +191,47 @@ export function DispatchDashboard() {
     return `${Math.floor(mins / 60)}h ${mins % 60}m`;
   }
 
+  // Fetch route when a trip is selected
+  useEffect(() => {
+    if (!selectedTrip?.id) {
+      setSelectedRouteCoords(undefined);
+      setSelectedRouteInfo(null);
+      return;
+    }
+    if (!selectedTrip.pickupLat || !selectedTrip.dropoffLat) {
+      setSelectedRouteCoords(undefined);
+      setSelectedRouteInfo(null);
+      return;
+    }
+    let cancelled = false;
+    setRouteLoading(true);
+    tripApi.getRoute(selectedTrip.id).then(data => {
+      if (cancelled) return;
+      if (data.polyline) {
+        setSelectedRouteCoords(decodePolyline(data.polyline));
+      } else {
+        setSelectedRouteCoords([
+          [selectedTrip.pickupLng!, selectedTrip.pickupLat!],
+          [selectedTrip.dropoffLng!, selectedTrip.dropoffLat!],
+        ]);
+      }
+      setSelectedRouteInfo({ miles: data.distanceMiles, minutes: data.durationMinutes, source: data.source });
+    }).catch(() => {
+      if (!cancelled) { setSelectedRouteCoords(undefined); setSelectedRouteInfo(null); }
+    }).finally(() => { if (!cancelled) setRouteLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedTrip?.id]);
+
   const urgentTrips = trips.filter(t => t.priority === "immediate" && t.status === "requested");
   const pendingTrips = trips.filter(t => t.status === "requested");
   const activeTrips = trips.filter(t => ["assigned", "en_route", "arrived", "in_progress"].includes(t.status));
   const availableDrivers = drivers.filter(d => d.availability === "available");
   const busyDrivers = drivers.filter(d => d.availability === "busy");
   const onlineDrivers = drivers.filter(d => d.isOnline);
+  const stuckTrips = activeTrips.filter(t => {
+    if (!t.updatedAt) return false;
+    return (Date.now() - new Date(t.updatedAt).getTime()) > 2 * 60 * 60 * 1000; // >2 hours
+  });
 
   if (loading) return <div className="app-shell"><div className="main-content"><p>Loading dashboard...</p></div></div>;
 
@@ -230,6 +272,9 @@ export function DispatchDashboard() {
           <div className="stat-card stat-card-green"><div className="stat-value">{availableDrivers.length}</div><div className="stat-label">Available</div></div>
           <div className="stat-card stat-card-red"><div className="stat-value">{urgentTrips.length}</div><div className="stat-label">Urgent</div></div>
           <div className="stat-card stat-card-blue"><div className="stat-value">{onlineDrivers.length}</div><div className="stat-label">Online</div></div>
+          {stuckTrips.length > 0 && (
+            <div className="stat-card" style={{ background: "var(--red-100)", borderColor: "var(--red-300)" }}><div className="stat-value" style={{ color: "var(--red-700)" }}>{stuckTrips.length}</div><div className="stat-label">Stuck</div></div>
+          )}
         </div>
 
         {/* Repair Modal */}
@@ -336,7 +381,7 @@ export function DispatchDashboard() {
                 </thead>
                 <tbody>
                   {trips.slice(tripPage * TRIPS_PER_PAGE, (tripPage + 1) * TRIPS_PER_PAGE).map(trip => (
-                    <tr key={trip.id} className={trip.priority === "immediate" && trip.status === "requested" ? "trip-row-urgent" : ""}>
+                    <tr key={trip.id} className={`${trip.priority === "immediate" && trip.status === "requested" ? "trip-row-urgent" : ""} ${selectedTrip?.id === trip.id ? "trip-row-selected" : ""}`} onClick={() => setSelectedTrip(selectedTrip?.id === trip.id ? null : trip)} style={{ cursor: "pointer" }}>
                       <td><span className={`badge badge-${trip.status}`}>{trip.status}</span></td>
                       <td><span className={`badge ${trip.priority === "immediate" ? "badge-immediate" : ""}`}>{trip.priority}</span></td>
                       <td>{trip.patientName || "—"}</td>
@@ -442,10 +487,64 @@ export function DispatchDashboard() {
 
         {/* MAP TAB */}
         {tab === "map" && (
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{ height: "calc(100vh - 220px)", minHeight: 400 }}>
-              <DispatchMap drivers={drivers} trips={pendingTrips} />
+          <div style={{ display: "flex", gap: "1rem" }}>
+            <div className="card" style={{ padding: 0, overflow: "hidden", flex: 1 }}>
+              <div style={{ height: "calc(100vh - 220px)", minHeight: 400 }}>
+                <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>Loading map...</div>}>
+                <DispatchMap
+                  drivers={drivers}
+                  trips={pendingTrips}
+                  selectedRouteCoords={selectedRouteCoords}
+                  selectedTripId={selectedTrip?.id}
+                />
+                </Suspense>
+              </div>
             </div>
+            {selectedTrip && (
+              <div className="card" style={{ width: 320, flexShrink: 0, overflow: "auto", maxHeight: "calc(100vh - 220px)" }}>
+                <div className="flex justify-between items-center mb-2">
+                  <span className={`badge badge-${selectedTrip.status}`}>{selectedTrip.status}</span>
+                  <button className="btn btn-outline btn-sm" onClick={() => setSelectedTrip(null)} style={{ padding: "0.2rem 0.5rem", fontSize: "0.7rem" }}>Close</button>
+                </div>
+                {selectedTrip.patientName && <p className="font-bold mb-1">{selectedTrip.patientName}</p>}
+                <div style={{ fontSize: "0.85rem", marginBottom: "0.75rem" }}>
+                  <div className="flex items-center gap-1 mb-1">
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", display: "inline-block", flexShrink: 0 }}></span>
+                    <span>{selectedTrip.pickupAddress}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block", flexShrink: 0 }}></span>
+                    <span>{selectedTrip.dropoffAddress}</span>
+                  </div>
+                </div>
+                {routeLoading && <p className="text-sm text-gray">Loading route...</p>}
+                {selectedRouteInfo && (
+                  <div className="grid-2 mb-2" style={{ gap: "0.5rem" }}>
+                    <div style={{ background: "var(--blue-50)", padding: "0.5rem", borderRadius: 6, textAlign: "center" }}>
+                      <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{selectedRouteInfo.miles}</div>
+                      <div className="text-xs text-gray">miles</div>
+                    </div>
+                    <div style={{ background: "var(--blue-50)", padding: "0.5rem", borderRadius: 6, textAlign: "center" }}>
+                      <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{selectedRouteInfo.minutes}</div>
+                      <div className="text-xs text-gray">minutes</div>
+                    </div>
+                  </div>
+                )}
+                {selectedRouteInfo && (
+                  <p className="text-xs text-gray mb-2">
+                    Source: {selectedRouteInfo.source === "google_directions" ? "Driving route" : "Estimate"}
+                  </p>
+                )}
+                {selectedTrip.driverName && <p className="text-sm mb-1">Driver: <strong>{selectedTrip.driverName}</strong></p>}
+                {selectedTrip.scheduledPickup && <p className="text-sm text-gray mb-2">Scheduled: {formatDateTime(selectedTrip.scheduledPickup, timezone)}</p>}
+                {selectedTrip.status === "requested" && (
+                  <select className="form-input btn-sm mb-2" style={{ width: "100%" }} onChange={e => { if (e.target.value) { handleAssignTrip(selectedTrip.id, e.target.value); setSelectedTrip(null); } }}>
+                    <option value="">Assign driver...</option>
+                    {availableDrivers.map(d => <option key={d.id} value={d.id}>{d.name} {d.isOnline ? "(online)" : ""}</option>)}
+                  </select>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -483,13 +582,58 @@ export function DispatchDashboard() {
                 <button className="btn btn-outline" onClick={() => { setLoading(true); loadDashboard(); }}>Refresh</button>
               </div>
             </div>
+
+            {/* Pipeline Health Widget */}
+            <div className="card mt-4">
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="card-title">Pipeline Health</h4>
+                <button className="btn btn-outline btn-sm" onClick={() => {
+                  api.get<{ pipeline: Record<string, number>; drivers: Record<string, number>; alerts: Array<{ level: string; message: string }> }>("/health/pipeline")
+                    .then(setPipelineData).catch(() => {});
+                }}>Refresh</button>
+              </div>
+              {!pipelineData ? (
+                <p className="text-sm text-gray">Click refresh to load pipeline health data.</p>
+              ) : (
+                <>
+                  <div className="grid-4 mb-3" style={{ gap: "0.5rem" }}>
+                    <div style={{ background: "var(--amber-50)", padding: "0.5rem", borderRadius: 6, textAlign: "center" }}>
+                      <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{pipelineData.pipeline.requested ?? 0}</div>
+                      <div className="text-xs text-gray">Queue</div>
+                    </div>
+                    <div style={{ background: "var(--blue-50)", padding: "0.5rem", borderRadius: 6, textAlign: "center" }}>
+                      <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{(pipelineData.pipeline.assigned ?? 0) + (pipelineData.pipeline.en_route ?? 0) + (pipelineData.pipeline.arrived ?? 0) + (pipelineData.pipeline.in_progress ?? 0)}</div>
+                      <div className="text-xs text-gray">In Flight</div>
+                    </div>
+                    <div style={{ background: "var(--green-50)", padding: "0.5rem", borderRadius: 6, textAlign: "center" }}>
+                      <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{pipelineData.pipeline.completedToday ?? 0}</div>
+                      <div className="text-xs text-gray">Done Today</div>
+                    </div>
+                    <div style={{ background: pipelineData.pipeline.stuck > 0 ? "var(--red-100)" : "var(--gray-50)", padding: "0.5rem", borderRadius: 6, textAlign: "center" }}>
+                      <div style={{ fontSize: "1.1rem", fontWeight: 700, color: pipelineData.pipeline.stuck > 0 ? "var(--red-700)" : undefined }}>{pipelineData.pipeline.stuck ?? 0}</div>
+                      <div className="text-xs text-gray">Stuck</div>
+                    </div>
+                  </div>
+                  <div className="text-sm mb-2">Drivers online: <strong>{pipelineData.drivers.online ?? 0}</strong></div>
+                  {pipelineData.alerts.length > 0 && (
+                    <div>
+                      {pipelineData.alerts.map((alert, i) => (
+                        <div key={i} className="text-sm mb-1" style={{ color: alert.level === "warning" ? "var(--amber-600)" : alert.level === "critical" ? "var(--red-600)" : "var(--gray-500)" }}>
+                          {alert.level === "warning" ? "!" : alert.level === "critical" ? "!!" : "i"} {alert.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
 
         {tab === "import" && (
           <div>
             <h3 className="mb-3" style={{ fontSize: "1.1rem", fontWeight: 600 }}>Import Data</h3>
-            <ImportWizard />
+            <Suspense fallback={<div>Loading import wizard...</div>}><ImportWizard /></Suspense>
           </div>
         )}
       </main>

@@ -78,6 +78,16 @@ export async function getRoute(
   }
 }
 
+export function clearRouteCache(): number {
+  const size = routeCache.size;
+  routeCache.clear();
+  return size;
+}
+
+export function getRouteCacheStats(): { size: number; maxSize: number; ttlMs: number } {
+  return { size: routeCache.size, maxSize: 500, ttlMs: CACHE_TTL_MS };
+}
+
 // Haversine fallback when Google Maps API is unavailable
 export function haversineEstimate(
   lat1: number, lon1: number,
