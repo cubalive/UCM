@@ -212,12 +212,33 @@ export const importApi = {
   downloadTemplate: (entity: string) => `${API_BASE}/import/template/${entity}`,
 };
 
+export const adminApi = {
+  getUsers: async (page?: number) => {
+    const res = await api.get<any>(`/admin/users?page=${page || 1}`);
+    return { users: res.data || [], pagination: res.pagination };
+  },
+  createUser: (data: { email: string; password: string; firstName: string; lastName: string; role: string }) =>
+    api.post<any>("/admin/users", data),
+  updateUser: (id: string, data: any) => api.put<any>(`/admin/users/${id}`, data),
+  getTenant: () => api.get<any>("/admin/tenant"),
+  updateTenant: (data: any) => api.put<any>("/admin/tenant", data),
+  getSubscription: () => api.get<any>("/admin/subscription"),
+  getAuditLog: (limit?: number, offset?: number) =>
+    api.get<any>(`/admin/audit-log?limit=${limit || 50}&offset=${offset || 0}`),
+  getTripPipeline: () => api.get<any>("/admin/trip-pipeline"),
+  getOperationalAlerts: () => api.get<any>("/admin/operational-alerts"),
+  getDriversOnline: () => api.get<any>("/admin/drivers/online"),
+  getBillingReport: () => api.get<any>("/admin/billing-report"),
+};
+
 export const clinicApi = {
   getPatients: async (page?: number) => {
     const res = await api.get<any>(`/clinic/patients?page=${page || 1}`);
     return { patients: res.data || [] };
   },
   createPatient: (data: any) => api.post<any>("/clinic/patients", data),
+  updatePatient: (id: string, data: any) => api.put<any>(`/clinic/patients/${id}`, data),
+  deletePatient: (id: string) => api.delete<any>(`/clinic/patients/${id}`),
   requestTrip: (data: any) => {
     const payload: any = {
       patientId: data.patientId,

@@ -24,7 +24,7 @@ import { csrfProtection, csrfTokenRoute } from "./middleware/csrf.js";
 import logger from "./lib/logger.js";
 import { getRedis } from "./lib/redis.js";
 import { getPool } from "./db/index.js";
-import { initWebSocket } from "./services/realtimeService.js";
+import { initWebSocket, shutdownWebSocket } from "./services/realtimeService.js";
 import { startReconciliationJob } from "./jobs/reconciliationJob.js";
 import { startDeadLetterMonitorJob } from "./jobs/deadLetterProcessor.js";
 import { startStuckTripDetectorJob } from "./jobs/stuckTripDetector.js";
@@ -142,21 +142,24 @@ async function shutdown(signal: string) {
     logger.info("HTTP server closed");
   });
 
-  // 2. Stop cron jobs
+  // 2. Close WebSocket connections gracefully
+  await shutdownWebSocket();
+
+  // 3. Stop cron jobs
   for (const job of cronJobs) {
     try { job.stop(); } catch { /* already stopped */ }
   }
 
-  // 3. Close Redis
+  // 5. Close Redis
   try {
     const redis = getRedis();
     if (redis) await redis.quit();
   } catch { /* non-fatal */ }
 
-  // 4. Flush Sentry events
+  // 6. Flush Sentry events
   await sentryFlush(2000);
 
-  // 5. Close DB pool
+  // 7. Close DB pool
   try {
     await getPool().end();
   } catch { /* non-fatal */ }

@@ -96,3 +96,62 @@ export async function sendPaymentFailedEmail(to: string, invoiceNumber: string, 
     text: `Payment failed for invoice ${invoiceNumber}. ${errorMessage || ""}. Please log in to retry.`,
   });
 }
+
+export async function sendWelcomeEmail(to: string, firstName: string, companyName: string, role: string): Promise<boolean> {
+  return sendEmail({
+    to,
+    subject: `Welcome to UCM - ${companyName}`,
+    html: `
+      <h2>Welcome to UCM, ${firstName}!</h2>
+      <p>Your account has been created for <strong>${companyName}</strong>.</p>
+      <p><strong>Role:</strong> ${role}</p>
+      <p>Log in to get started with your ${role === "driver" ? "trips" : role === "clinic" ? "patient management" : "dashboard"}.</p>
+    `,
+    text: `Welcome to UCM, ${firstName}! Your ${role} account for ${companyName} is ready. Log in to get started.`,
+  });
+}
+
+export async function sendPasswordResetEmail(to: string, firstName: string, resetUrl: string): Promise<boolean> {
+  return sendEmail({
+    to,
+    subject: "Password Reset Request - UCM",
+    html: `
+      <h2>Password Reset</h2>
+      <p>Hi ${firstName},</p>
+      <p>A password reset was requested for your UCM account.</p>
+      <p><a href="${resetUrl}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Reset Password</a></p>
+      <p>This link expires in 15 minutes. If you did not request this, you can safely ignore this email.</p>
+    `,
+    text: `Password reset requested. Visit ${resetUrl} to reset your password. This link expires in 15 minutes.`,
+  });
+}
+
+export async function sendBillingReminderEmail(to: string, invoiceNumber: string, total: string, dueDate: string, daysUntilDue: number): Promise<boolean> {
+  const urgency = daysUntilDue <= 0 ? "OVERDUE" : daysUntilDue <= 3 ? "Due Soon" : "Reminder";
+  return sendEmail({
+    to,
+    subject: `${urgency}: Invoice ${invoiceNumber} - $${total} due ${dueDate}`,
+    html: `
+      <h2>Invoice ${urgency}</h2>
+      <p>Invoice <strong>${invoiceNumber}</strong> for <strong>$${total}</strong> is ${daysUntilDue <= 0 ? "overdue" : `due on ${dueDate}`}.</p>
+      ${daysUntilDue <= 0 ? "<p style='color: #dc2626;'><strong>This invoice is past due. Please submit payment immediately.</strong></p>" : ""}
+      <p>Please log in to your account to view and pay this invoice.</p>
+    `,
+    text: `Invoice ${invoiceNumber} for $${total} is ${daysUntilDue <= 0 ? "overdue" : `due on ${dueDate}`}. Please log in to pay.`,
+  });
+}
+
+export async function sendOperationalAlertEmail(to: string, alertType: string, message: string, details?: string): Promise<boolean> {
+  return sendEmail({
+    to,
+    subject: `UCM Alert: ${alertType}`,
+    html: `
+      <h2 style="color: #dc2626;">Operational Alert</h2>
+      <p><strong>Type:</strong> ${alertType}</p>
+      <p>${message}</p>
+      ${details ? `<pre style="background: #f3f4f6; padding: 12px; border-radius: 4px; font-size: 12px;">${details}</pre>` : ""}
+      <p>Log in to your admin dashboard to investigate.</p>
+    `,
+    text: `UCM Alert: ${alertType}. ${message}. ${details || ""}`,
+  });
+}

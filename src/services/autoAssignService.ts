@@ -4,9 +4,57 @@ import { eq, and, sql, inArray } from "drizzle-orm";
 import { assignTrip } from "./tripService.js";
 import { isDriverOnline } from "./realtimeService.js";
 import { broadcastToRole, WS_EVENTS } from "./realtimeService.js";
+import { getRedis, isRedisAvailable } from "../lib/redis.js";
 import logger from "../lib/logger.js";
 import type { AutoAssignConfig, DriverScoreBreakdown, DispatchEvent } from "../types/dispatch.js";
 import { DEFAULT_AUTO_ASSIGN_CONFIG } from "../types/dispatch.js";
+
+// Distributed lock for auto-assign to prevent duplicate concurrent execution
+const AUTO_ASSIGN_LOCK_TTL = 10; // seconds
+const LOCAL_LOCKS = new Set<string>();
+
+async function acquireAutoAssignLock(tripId: string): Promise<boolean> {
+  const lockKey = `ucm:auto-assign-lock:${tripId}`;
+
+  // In-memory lock for single-instance protection (always works)
+  if (LOCAL_LOCKS.has(lockKey)) {
+    logger.info("Auto-assign lock already held locally", { tripId });
+    return false;
+  }
+  LOCAL_LOCKS.add(lockKey);
+
+  // Redis distributed lock for multi-instance protection
+  if (isRedisAvailable()) {
+    try {
+      const redis = getRedis();
+      if (redis) {
+        const result = await redis.set(lockKey, process.pid.toString(), "EX", AUTO_ASSIGN_LOCK_TTL, "NX");
+        if (result !== "OK") {
+          LOCAL_LOCKS.delete(lockKey);
+          logger.info("Auto-assign lock already held in Redis", { tripId });
+          return false;
+        }
+      }
+    } catch (err: any) {
+      // Redis failure — proceed with local lock only
+      logger.warn("Redis lock acquisition failed, using local lock", { tripId, error: err.message });
+    }
+  }
+
+  return true;
+}
+
+async function releaseAutoAssignLock(tripId: string): Promise<void> {
+  const lockKey = `ucm:auto-assign-lock:${tripId}`;
+  LOCAL_LOCKS.delete(lockKey);
+
+  if (isRedisAvailable()) {
+    try {
+      const redis = getRedis();
+      if (redis) await redis.del(lockKey);
+    } catch { /* non-fatal */ }
+  }
+}
 
 interface DriverCandidate {
   driverId: string;
@@ -251,6 +299,21 @@ export async function findBestDriver(
 }
 
 export async function autoAssignTrip(tripId: string, tenantId: string, configOverrides?: Partial<AutoAssignConfig>): Promise<boolean> {
+  // Acquire distributed lock to prevent concurrent assignment of same trip
+  const lockAcquired = await acquireAutoAssignLock(tripId);
+  if (!lockAcquired) {
+    logger.info("Auto-assign skipped: concurrent lock held", { tripId, tenantId });
+    return false;
+  }
+
+  try {
+    return await executeAutoAssign(tripId, tenantId, configOverrides);
+  } finally {
+    await releaseAutoAssignLock(tripId);
+  }
+}
+
+async function executeAutoAssign(tripId: string, tenantId: string, configOverrides?: Partial<AutoAssignConfig>): Promise<boolean> {
   const db = getDb();
   // Tenant-scoped trip fetch
   const [trip] = await db.select().from(trips).where(

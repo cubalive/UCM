@@ -1,5 +1,5 @@
 import { getDb, getPool } from "../db/index.js";
-import { webhookEvents, invoices, ledgerEntries, users } from "../db/schema.js";
+import { webhookEvents, invoices, ledgerEntries, users, tenants } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import { getStripe } from "../lib/stripe.js";
 import { recordPayment } from "./invoiceService.js";
@@ -256,6 +256,47 @@ async function handleSubscriptionChange(event: Stripe.Event): Promise<void> {
     status: subscription.status,
     type: event.type,
   });
+
+  // Resolve tenant from subscription metadata or customer lookup
+  const tenantId = subscription.metadata?.tenantId;
+  if (!tenantId) {
+    // Try to find tenant by stripeCustomerId
+    const customerId = typeof subscription.customer === "string"
+      ? subscription.customer
+      : subscription.customer?.id;
+
+    if (customerId) {
+      const db = getDb();
+      const [tenant] = await db
+        .select()
+        .from(tenants)
+        .where(eq(tenants.stripeCustomerId, customerId));
+
+      if (tenant) {
+        const { resolveStripeTier, handleSubscriptionUpdate } = await import("./subscriptionService.js");
+        const tier = resolveStripeTier(subscription as any);
+        const periodEnd = subscription.current_period_end
+          ? new Date(subscription.current_period_end * 1000)
+          : undefined;
+        await handleSubscriptionUpdate(tenant.id, tier, subscription.status, periodEnd);
+        return;
+      }
+    }
+
+    logger.warn("Subscription webhook missing tenantId, skipping", {
+      subscriptionId: subscription.id,
+      customerId: typeof subscription.customer === "string" ? subscription.customer : undefined,
+    });
+    return;
+  }
+
+  const { resolveStripeTier, handleSubscriptionUpdate } = await import("./subscriptionService.js");
+  const tier = resolveStripeTier(subscription as any);
+  const periodEnd = subscription.current_period_end
+    ? new Date(subscription.current_period_end * 1000)
+    : undefined;
+
+  await handleSubscriptionUpdate(tenantId, tier, subscription.status, periodEnd);
 }
 
 export async function replayWebhookEvent(webhookEventId: string): Promise<void> {

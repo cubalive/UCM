@@ -19,6 +19,7 @@ export function LoginPage() {
       const role = res.user.role;
       if (role === "driver") navigate("/driver");
       else if (role === "clinic") navigate("/clinic");
+      else if (role === "admin") navigate("/admin");
       else navigate("/dispatch");
     } catch (err: any) {
       setError(err.message || "Login failed");

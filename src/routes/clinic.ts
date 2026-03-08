@@ -88,6 +88,128 @@ router.post(
   }
 );
 
+// Get single patient
+router.get(
+  "/patients/:id",
+  validateParams(uuidParam),
+  async (req: Request, res: Response) => {
+    try {
+      const db = getDb();
+      const [patient] = await db
+        .select()
+        .from(patients)
+        .where(and(eq(patients.id, req.params.id as string), eq(patients.tenantId, req.tenantId!)));
+
+      if (!patient) {
+        res.status(404).json({ error: "Patient not found" });
+        return;
+      }
+      res.json(patient);
+    } catch (err: any) {
+      logger.error("Failed to get patient", { error: err.message });
+      res.status(500).json({ error: "Failed to get patient" });
+    }
+  }
+);
+
+// Update patient
+const updatePatientSchema = z.object({
+  firstName: z.string().min(1).max(100).optional(),
+  lastName: z.string().min(1).max(100).optional(),
+  dateOfBirth: z.string().optional(),
+  phone: z.string().max(20).optional().or(z.literal("")),
+  email: z.string().email().optional().or(z.literal("")),
+  address: z.string().max(500).optional().or(z.literal("")),
+  insuranceId: z.string().max(100).optional().or(z.literal("")),
+  notes: z.string().max(2000).optional().or(z.literal("")),
+});
+
+router.put(
+  "/patients/:id",
+  billingRateLimiter,
+  validateParams(uuidParam),
+  validateBody(updatePatientSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const db = getDb();
+      const [existing] = await db
+        .select()
+        .from(patients)
+        .where(and(eq(patients.id, req.params.id as string), eq(patients.tenantId, req.tenantId!)));
+
+      if (!existing) {
+        res.status(404).json({ error: "Patient not found" });
+        return;
+      }
+
+      const [updated] = await db
+        .update(patients)
+        .set({ ...req.body, updatedAt: new Date() })
+        .where(and(eq(patients.id, req.params.id as string), eq(patients.tenantId, req.tenantId!)))
+        .returning();
+
+      res.json(updated);
+    } catch (err: any) {
+      logger.error("Failed to update patient", { error: err.message });
+      res.status(500).json({ error: "Failed to update patient" });
+    }
+  }
+);
+
+// Delete patient (cannot delete if they have active trips)
+router.delete(
+  "/patients/:id",
+  validateParams(uuidParam),
+  async (req: Request, res: Response) => {
+    try {
+      const db = getDb();
+      const [existing] = await db
+        .select()
+        .from(patients)
+        .where(and(eq(patients.id, req.params.id as string), eq(patients.tenantId, req.tenantId!)));
+
+      if (!existing) {
+        res.status(404).json({ error: "Patient not found" });
+        return;
+      }
+
+      // Check for active trips
+      const [activeTrips] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(tripsTable)
+        .where(
+          and(
+            eq(tripsTable.patientId, req.params.id as string),
+            eq(tripsTable.tenantId, req.tenantId!),
+            sql`${tripsTable.status} NOT IN ('completed', 'cancelled')`
+          )
+        );
+
+      if (Number(activeTrips.count) > 0) {
+        res.status(409).json({
+          error: `Cannot delete patient with ${activeTrips.count} active trip(s). Cancel or complete them first.`,
+        });
+        return;
+      }
+
+      await db
+        .delete(patients)
+        .where(and(eq(patients.id, req.params.id as string), eq(patients.tenantId, req.tenantId!)));
+
+      res.json({ success: true, message: "Patient deleted" });
+    } catch (err: any) {
+      if (err.code === "23503") {
+        res.status(409).json({
+          error: "Cannot delete patient with existing trip or invoice history. Consider updating their record instead.",
+        });
+        return;
+      }
+      logger.error("Failed to delete patient", { error: err.message });
+      res.status(500).json({ error: "Failed to delete patient" });
+    }
+  }
+);
+
 // Request a trip for a patient
 router.post(
   "/request-trip",

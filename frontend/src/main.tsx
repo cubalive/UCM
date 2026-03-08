@@ -9,6 +9,7 @@ const LoginPage = lazy(() => import("./pages/LoginPage").then(m => ({ default: m
 const DispatchDashboard = lazy(() => import("./pages/DispatchDashboard").then(m => ({ default: m.DispatchDashboard })));
 const DriverApp = lazy(() => import("./pages/DriverApp").then(m => ({ default: m.DriverApp })));
 const ClinicPortal = lazy(() => import("./pages/ClinicPortal").then(m => ({ default: m.ClinicPortal })));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard").then(m => ({ default: m.AdminDashboard })));
 
 function LoadingFallback() {
   return (
@@ -30,6 +31,7 @@ function App() {
           <Route path="/dispatch/*" element={<DispatchDashboard />} />
           <Route path="/driver/*" element={<DriverApp />} />
           <Route path="/clinic/*" element={<ClinicPortal />} />
+          <Route path="/admin/*" element={<AdminDashboard />} />
           <Route path="/" element={<Navigate to="/dispatch" replace />} />
         </Routes>
       </Suspense>

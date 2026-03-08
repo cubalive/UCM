@@ -311,3 +311,38 @@ export function getConnectedStats() {
 
   return { totalConnections, byTenant, byRole, onlineDrivers: driverPresence.size };
 }
+
+// --- Graceful shutdown ---
+export async function shutdownWebSocket(): Promise<void> {
+  if (!wss) return;
+
+  // Notify all clients of shutdown
+  const msg = JSON.stringify({ type: "server:shutdown", data: { message: "Server is restarting" }, timestamp: new Date().toISOString() });
+  for (const [, clients] of tenantClients) {
+    for (const client of clients) {
+      try {
+        if (client.ws.readyState === WebSocket.OPEN) {
+          client.ws.send(msg);
+          client.ws.close(1001, "Server shutting down");
+        }
+      } catch { /* ignore errors during shutdown */ }
+    }
+  }
+
+  // Clean up Redis pub/sub
+  if (redisSub) {
+    try {
+      await redisSub.unsubscribe(REDIS_CHANNEL);
+    } catch { /* non-fatal */ }
+  }
+
+  // Close the WebSocket server
+  return new Promise((resolve) => {
+    wss!.close(() => {
+      logger.info("WebSocket server closed");
+      resolve();
+    });
+    // Force-close after 3s
+    setTimeout(resolve, 3000);
+  });
+}

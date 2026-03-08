@@ -15,6 +15,7 @@ type Trip = {
 function PatientsView() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", membershipId: "" });
   const [msg, setMsg] = useState("");
 
@@ -39,16 +40,49 @@ function PatientsView() {
     } catch (err: any) { setMsg(`Error: ${err.message}`); }
   }
 
+  async function handleUpdate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingPatient) return;
+    try {
+      await clinicApi.updatePatient(editingPatient.id, {
+        firstName: form.firstName,
+        lastName: form.lastName,
+        phone: form.phone || undefined,
+        insuranceId: form.membershipId || undefined,
+      });
+      setMsg("Patient updated");
+      setEditingPatient(null);
+      load();
+      setTimeout(() => setMsg(""), 3000);
+    } catch (err: any) { setMsg(`Error: ${err.message}`); }
+  }
+
+  async function handleDelete(patient: Patient) {
+    if (!confirm(`Delete patient ${patient.firstName} ${patient.lastName}? This cannot be undone.`)) return;
+    try {
+      await clinicApi.deletePatient(patient.id);
+      setMsg("Patient deleted");
+      load();
+      setTimeout(() => setMsg(""), 3000);
+    } catch (err: any) { setMsg(`Error: ${err.message}`); }
+  }
+
+  function startEdit(patient: Patient) {
+    setEditingPatient(patient);
+    setForm({ firstName: patient.firstName, lastName: patient.lastName, phone: patient.phone || "", membershipId: patient.membershipId || "" });
+    setShowForm(false);
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-3">
         <h2 style={{ fontSize: "1.2rem", fontWeight: 600 }}>Patients</h2>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowForm(!showForm)}>
+        <button className="btn btn-primary btn-sm" onClick={() => { setShowForm(!showForm); setEditingPatient(null); }}>
           {showForm ? "Cancel" : "+ Add Patient"}
         </button>
       </div>
 
-      {msg && <div className="card mb-3" style={{ background: "var(--blue-50)", padding: "0.75rem" }}><p className="text-sm">{msg}</p></div>}
+      {msg && <div className="card mb-3" style={{ background: msg.startsWith("Error") ? "var(--red-50)" : "var(--blue-50)", padding: "0.75rem" }}><p className="text-sm">{msg}</p></div>}
 
       {showForm && (
         <div className="card mb-3">
@@ -76,19 +110,55 @@ function PatientsView() {
         </div>
       )}
 
+      {editingPatient && (
+        <div className="card mb-3">
+          <h3 className="text-sm font-medium mb-2">Editing: {editingPatient.firstName} {editingPatient.lastName}</h3>
+          <form onSubmit={handleUpdate}>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">First Name</label>
+                <input className="form-input" required value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Last Name</label>
+                <input className="form-input" required value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Phone</label>
+                <input className="form-input" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Membership ID</label>
+                <input className="form-input" value={form.membershipId} onChange={e => setForm({ ...form, membershipId: e.target.value })} />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn btn-primary" type="submit">Save</button>
+              <button className="btn btn-outline" type="button" onClick={() => setEditingPatient(null)}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       <div className="card">
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Phone</th><th>Member ID</th></tr></thead>
+            <thead><tr><th>Name</th><th>Phone</th><th>Member ID</th><th>Actions</th></tr></thead>
             <tbody>
               {patients.map(p => (
                 <tr key={p.id}>
                   <td className="font-medium">{p.firstName} {p.lastName}</td>
                   <td>{p.phone || "—"}</td>
                   <td className="text-sm text-gray">{p.membershipId || "—"}</td>
+                  <td>
+                    <div className="flex gap-1">
+                      <button className="btn btn-outline btn-sm" onClick={() => startEdit(p)}>Edit</button>
+                      <button className="btn btn-outline btn-sm" style={{ color: "var(--red-500)" }} onClick={() => handleDelete(p)}>Delete</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
-              {patients.length === 0 && <tr><td colSpan={3} style={{ textAlign: "center", padding: "2rem" }} className="text-gray">No patients</td></tr>}
+              {patients.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: "2rem" }} className="text-gray">No patients yet. Add a patient to get started.</td></tr>}
             </tbody>
           </table>
         </div>
