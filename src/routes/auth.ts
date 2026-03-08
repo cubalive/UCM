@@ -107,7 +107,71 @@ router.post("/login", authRateLimiter, validateBody(loginSchema), async (req: Re
   }
 });
 
-// Password reset for imported drivers
+// Forgot password — user-initiated password reset request
+const forgotPasswordSchema = z.object({
+  email: z.string().email().max(255),
+});
+
+router.post("/forgot-password", authRateLimiter, validateBody(forgotPasswordSchema), async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    const db = getDb();
+
+    // Always respond with success to prevent email enumeration
+    const successMessage = "If an account with that email exists, a password reset link has been sent.";
+
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.email, email), eq(users.active, true)));
+
+    if (!user) {
+      logger.info("Forgot password for unknown email", { email });
+      res.json({ success: true, message: successMessage });
+      return;
+    }
+
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      logger.error("JWT_SECRET not configured for password reset");
+      res.status(500).json({ error: "Server configuration error" });
+      return;
+    }
+
+    const resetToken = jwt.sign(
+      { id: user.id, tenantId: user.tenantId, purpose: "password-reset" },
+      secret,
+      { expiresIn: "15m" }
+    );
+
+    // Build reset URL
+    const appUrl = process.env.APP_URL || "http://localhost:5173";
+    const baseUrl = appUrl.split(",")[0].trim();
+    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+
+    // Send email (fire-and-forget — never block the response)
+    const { sendPasswordResetEmail } = await import("../services/emailService.js");
+    sendPasswordResetEmail(user.email, user.firstName, resetUrl)
+      .catch(err => logger.warn("Failed to send password reset email", { error: err.message, userId: user.id }));
+
+    await recordAudit({
+      tenantId: user.tenantId,
+      userId: user.id,
+      action: "user.password_reset_requested",
+      resource: "user",
+      resourceId: user.id,
+      details: { method: "forgot_password" },
+    });
+
+    logger.info("Password reset requested", { userId: user.id, tenantId: user.tenantId });
+    res.json({ success: true, message: successMessage });
+  } catch (err: any) {
+    logger.error("Forgot password failed", { error: err.message });
+    res.status(500).json({ error: "Request failed" });
+  }
+});
+
+// Password reset — both for imported drivers (forced) and user-initiated (forgot password)
 const resetPasswordSchema = z.object({
   resetToken: z.string().min(1),
   newPassword: z.string().min(8).max(128),
@@ -141,8 +205,8 @@ router.post("/reset-password", authRateLimiter, validateBody(resetPasswordSchema
       .from(users)
       .where(and(eq(users.id, payload.id), eq(users.tenantId, payload.tenantId), eq(users.active, true)));
 
-    if (!user || !user.mustResetPassword) {
-      res.status(404).json({ error: "Reset not required or user not found" });
+    if (!user) {
+      res.status(404).json({ error: "User not found or inactive" });
       return;
     }
 
@@ -152,13 +216,14 @@ router.post("/reset-password", authRateLimiter, validateBody(resetPasswordSchema
       .set({ passwordHash, mustResetPassword: false, updatedAt: new Date() })
       .where(eq(users.id, user.id));
 
+    const method = user.mustResetPassword ? "import_forced_reset" : "forgot_password";
     await recordAudit({
       tenantId: user.tenantId,
       userId: user.id,
       action: "user.password_reset",
       resource: "user",
       resourceId: user.id,
-      details: { method: "import_forced_reset" },
+      details: { method },
     });
 
     logger.info("Password reset completed", { userId: user.id, tenantId: user.tenantId });

@@ -10,6 +10,8 @@ const DispatchDashboard = lazy(() => import("./pages/DispatchDashboard").then(m 
 const DriverApp = lazy(() => import("./pages/DriverApp").then(m => ({ default: m.DriverApp })));
 const ClinicPortal = lazy(() => import("./pages/ClinicPortal").then(m => ({ default: m.ClinicPortal })));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard").then(m => ({ default: m.AdminDashboard })));
+const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage").then(m => ({ default: m.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage").then(m => ({ default: m.ResetPasswordPage })));
 
 function LoadingFallback() {
   return (
@@ -28,6 +30,8 @@ function App() {
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/dispatch/*" element={<DispatchDashboard />} />
           <Route path="/driver/*" element={<DriverApp />} />
           <Route path="/clinic/*" element={<ClinicPortal />} />

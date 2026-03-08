@@ -2,10 +2,10 @@ import nodemailer from "nodemailer";
 import logger from "../lib/logger.js";
 
 let transporter: nodemailer.Transporter | null = null;
+let smtpVerified = false;
 
 function getTransporter(): nodemailer.Transporter | null {
   if (!process.env.SMTP_HOST) {
-    logger.warn("SMTP not configured — email sending disabled");
     return null;
   }
 
@@ -13,12 +13,30 @@ function getTransporter(): nodemailer.Transporter | null {
     transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT) || 587,
-      secure: false,
+      secure: process.env.SMTP_SECURE === "true",
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
     });
+
+    // Verify SMTP connection on first use (non-blocking)
+    if (!smtpVerified) {
+      transporter.verify()
+        .then(() => {
+          smtpVerified = true;
+          logger.info("SMTP connection verified successfully");
+        })
+        .catch((err) => {
+          logger.warn("SMTP connection verification failed — emails may not be delivered", { error: err.message });
+        });
+    }
   }
   return transporter;
 }
@@ -34,25 +52,44 @@ export interface EmailOptions {
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
   const t = getTransporter();
   if (!t) {
-    logger.info("Email would be sent (SMTP not configured)", { to: options.to, subject: options.subject });
+    logger.info("Email skipped (SMTP not configured)", { to: options.to, subject: options.subject });
     return false;
   }
 
-  try {
-    await t.sendMail({
-      from: process.env.FROM_EMAIL || "noreply@ucm.example.com",
-      to: options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text,
-      attachments: options.attachments,
-    });
-    logger.info("Email sent", { to: options.to, subject: options.subject });
-    return true;
-  } catch (err: any) {
-    logger.error("Failed to send email", { to: options.to, error: err.message });
-    return false;
+  const mailOptions = {
+    from: process.env.FROM_EMAIL || "noreply@ucm.example.com",
+    to: options.to,
+    subject: options.subject,
+    html: options.html,
+    text: options.text,
+    attachments: options.attachments,
+  };
+
+  // Single retry for transient connection errors
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const info = await t.sendMail(mailOptions);
+      logger.info("Email sent", { to: options.to, subject: options.subject, messageId: info.messageId, attempt });
+      return true;
+    } catch (err: any) {
+      const isTransient = err.code === "ECONNRESET" || err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT" || err.responseCode >= 400 && err.responseCode < 500;
+      if (attempt === 1 && isTransient) {
+        logger.warn("Email send failed (transient), retrying", { to: options.to, error: err.message, code: err.code });
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      logger.error("Failed to send email", {
+        to: options.to,
+        subject: options.subject,
+        error: err.message,
+        code: err.code,
+        responseCode: err.responseCode,
+        attempt,
+      });
+      return false;
+    }
   }
+  return false;
 }
 
 export async function sendInvoiceGeneratedEmail(to: string, invoiceNumber: string, total: string, dueDate: string): Promise<boolean> {

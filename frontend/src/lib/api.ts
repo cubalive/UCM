@@ -212,6 +212,25 @@ export const importApi = {
   downloadTemplate: (entity: string) => `${API_BASE}/import/template/${entity}`,
 };
 
+/** Auth API — bypasses token check since these are unauthenticated endpoints */
+async function authRequest<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "same-origin",
+  });
+  const data = await res.json().catch(() => ({ error: res.statusText }));
+  if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
+  return data;
+}
+
+export const authApi = {
+  forgotPassword: (email: string) => authRequest<{ success: boolean; message: string }>("/auth/forgot-password", { email }),
+  resetPassword: (resetToken: string, newPassword: string) =>
+    authRequest<{ success: boolean; message: string }>("/auth/reset-password", { resetToken, newPassword }),
+};
+
 export const adminApi = {
   getUsers: async (page?: number) => {
     const res = await api.get<any>(`/admin/users?page=${page || 1}`);

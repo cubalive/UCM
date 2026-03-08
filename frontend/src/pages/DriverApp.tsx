@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { tripApi, driverApi, earningsApi, logout } from "../lib/api";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { DriverMap } from "../components/DriverMap";
 import { formatDateTime, formatDate } from "../lib/timezone";
+
+const DriverMap = lazy(() => import("../components/DriverMap").then(m => ({ default: m.DriverMap })));
 import { decodePolyline } from "../lib/polyline";
 
 type Trip = {
@@ -272,15 +273,17 @@ export function DriverApp() {
         <>
           {/* Map */}
           <div className="driver-map">
-            <DriverMap
-              driverLat={driverPos?.lat}
-              driverLng={driverPos?.lng}
-              pickupLat={activeTrip?.pickupLat}
-              pickupLng={activeTrip?.pickupLng}
-              dropoffLat={activeTrip?.dropoffLat}
-              dropoffLng={activeTrip?.dropoffLng}
-              routeCoords={routeCoords}
-            />
+            <Suspense fallback={<div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><p className="text-sm text-gray">Loading map...</p></div>}>
+              <DriverMap
+                driverLat={driverPos?.lat}
+                driverLng={driverPos?.lng}
+                pickupLat={activeTrip?.pickupLat}
+                pickupLng={activeTrip?.pickupLng}
+                dropoffLat={activeTrip?.dropoffLat}
+                dropoffLng={activeTrip?.dropoffLng}
+                routeCoords={routeCoords}
+              />
+            </Suspense>
           </div>
 
           {actionMsg && (

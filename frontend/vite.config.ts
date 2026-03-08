@@ -10,4 +10,14 @@ export default defineConfig({
       "/ws": { target: "ws://localhost:3000", ws: true },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom", "react-router-dom"],
+          "vendor-map": ["maplibre-gl"],
+        },
+      },
+    },
+  },
 });

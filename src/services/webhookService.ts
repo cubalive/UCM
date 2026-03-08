@@ -68,9 +68,13 @@ export async function processWebhookEvent(event: Stripe.Event): Promise<void> {
       case "account.updated":
         await handleAccountUpdated(event);
         break;
+      case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
         await handleSubscriptionChange(event);
+        break;
+      case "checkout.session.completed":
+        await handleCheckoutCompleted(event);
         break;
       default:
         logger.info("Unhandled webhook event type", { type: event.type, eventId: event.id });
@@ -249,22 +253,54 @@ async function handleAccountUpdated(event: Stripe.Event): Promise<void> {
   }
 }
 
+async function handleCheckoutCompleted(event: Stripe.Event): Promise<void> {
+  const session = event.data.object as Stripe.Checkout.Session;
+  const tenantId = session.metadata?.tenantId;
+  const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+
+  logger.info("Checkout session completed", {
+    sessionId: session.id,
+    tenantId,
+    customerId,
+    mode: session.mode,
+    paymentStatus: session.payment_status,
+  });
+
+  // If this is a subscription checkout, link the customer to the tenant
+  if (session.mode === "subscription" && tenantId && customerId) {
+    const db = getDb();
+    await db
+      .update(tenants)
+      .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+      .where(and(eq(tenants.id, tenantId), sql`${tenants.stripeCustomerId} IS NULL`));
+
+    await recordAudit({
+      tenantId,
+      action: "stripe.checkout_completed",
+      resource: "tenant",
+      resourceId: tenantId,
+      details: { sessionId: session.id, customerId, mode: session.mode },
+    });
+  }
+}
+
 async function handleSubscriptionChange(event: Stripe.Event): Promise<void> {
   const subscription = event.data.object as Stripe.Subscription;
-  logger.info("Subscription change", {
+  const customerId = typeof subscription.customer === "string"
+    ? subscription.customer
+    : subscription.customer?.id;
+
+  logger.info("Subscription change webhook received", {
     subscriptionId: subscription.id,
     status: subscription.status,
     type: event.type,
+    customerId,
+    metadataTenantId: subscription.metadata?.tenantId,
   });
 
   // Resolve tenant from subscription metadata or customer lookup
   const tenantId = subscription.metadata?.tenantId;
   if (!tenantId) {
-    // Try to find tenant by stripeCustomerId
-    const customerId = typeof subscription.customer === "string"
-      ? subscription.customer
-      : subscription.customer?.id;
-
     if (customerId) {
       const db = getDb();
       const [tenant] = await db
@@ -285,7 +321,7 @@ async function handleSubscriptionChange(event: Stripe.Event): Promise<void> {
 
     logger.warn("Subscription webhook missing tenantId, skipping", {
       subscriptionId: subscription.id,
-      customerId: typeof subscription.customer === "string" ? subscription.customer : undefined,
+      customerId,
     });
     return;
   }
