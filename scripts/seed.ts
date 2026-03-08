@@ -56,8 +56,7 @@ const CLINIC_TYPES = ["Medical Center", "Family Practice", "Dialysis Center", "O
 const STREET_NAMES = ["Main St", "Oak Ave", "Pine Rd", "Maple Dr", "Cedar Ln", "Elm St", "Washington Blvd", "Park Ave", "Lake Dr", "River Rd", "Hill St", "Valley Way", "Forest Ave", "Ocean Dr", "Sunset Blvd"];
 const TRIP_NOTES = ["Wheelchair required", "Oxygen tank", "Needs assistance walking", "Bariatric stretcher", "Child car seat needed", "Service animal", "Spanish speaker", "Hearing impaired", "Visual impairment", ""];
 const VEHICLE_TYPES = ["Sedan", "SUV", "Wheelchair Van", "Stretcher Van", "Minivan"];
-const TRIP_STATUSES: (typeof schema.tripStatusEnum.enumValues[number])[] = ["requested", "assigned", "en_route", "arrived", "in_progress", "completed", "cancelled"];
-const AVAILABILITY: (typeof schema.driverAvailabilityEnum.enumValues[number])[] = ["available", "busy", "offline", "break"];
+const AUDIT_ACTIONS = ["trip.created", "trip.assigned", "trip.completed", "trip.cancelled", "driver.status_changed", "user.login", "invoice.generated", "payment.recorded"];
 
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 function pickN<T>(arr: T[], n: number): T[] {
@@ -81,7 +80,8 @@ async function main() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const db = drizzle(pool, { schema });
 
-  let totalUsers = 0, totalPatients = 0, totalTrips = 0;
+  let totalUsers = 0, totalPatients = 0, totalTrips = 0, totalEarnings = 0, totalLocations = 0;
+  const completedTripsByTenant: Map<string, Array<{ id: string; driverId: string; mileage: string; completedAt: Date }>> = new Map();
 
   for (let t = 0; t < config.tenants; t++) {
     const city = CITIES[t % CITIES.length];
@@ -101,7 +101,7 @@ async function main() {
     }).returning();
 
     // Create admin
-    await db.insert(schema.users).values({
+    const [adminUser] = await db.insert(schema.users).values({
       tenantId: tenant.id,
       email: `admin@${slug}.ucm.test`,
       passwordHash: hashPassword(),
@@ -109,12 +109,13 @@ async function main() {
       firstName: "Admin",
       lastName: companyName.split(" ")[0],
       active: true,
-    });
+    }).returning();
     totalUsers++;
 
     // Create dispatchers
+    const dispatcherIds: string[] = [];
     for (let d = 0; d < 3; d++) {
-      await db.insert(schema.users).values({
+      const [dispatcher] = await db.insert(schema.users).values({
         tenantId: tenant.id,
         email: `dispatch${d + 1}@${slug}.ucm.test`,
         passwordHash: hashPassword(),
@@ -122,7 +123,8 @@ async function main() {
         firstName: pick(FIRST_NAMES),
         lastName: pick(LAST_NAMES),
         active: true,
-      });
+      }).returning();
+      dispatcherIds.push(dispatcher.id);
       totalUsers++;
     }
 
@@ -142,7 +144,7 @@ async function main() {
       totalUsers++;
     }
 
-    // Create drivers with status
+    // Create drivers with status and performance tracking
     const driverIds: string[] = [];
     for (let d = 0; d < config.driversPerTenant; d++) {
       const [driver] = await db.insert(schema.users).values({
@@ -157,11 +159,14 @@ async function main() {
       driverIds.push(driver.id);
       totalUsers++;
 
-      // Create driver status with realistic location
+      // Create driver status with realistic location and performance data
       const avail = d < config.driversPerTenant * 0.4 ? "available"
         : d < config.driversPerTenant * 0.65 ? "busy"
         : d < config.driversPerTenant * 0.85 ? "offline"
         : "break";
+
+      const completedTrips30d = avail === "offline" ? rand(0, 10) : rand(15, 80);
+      const onTimeRate = randFloat(0.75, 0.99).toFixed(2);
 
       await db.insert(schema.driverStatus).values({
         driverId: driver.id,
@@ -172,7 +177,32 @@ async function main() {
         heading: rand(0, 359),
         speed: avail === "available" || avail === "busy" ? rand(0, 45) : 0,
         lastLocationAt: avail === "offline" ? pastDate(rand(1, 7)) : new Date(Date.now() - rand(0, 900000)),
+        completedTrips30d,
+        onTimeRate,
+        avgCompletionMinutes: randFloat(25, 60).toFixed(1),
+        declineRate7d: randFloat(0, 0.15).toFixed(2),
       });
+
+      // Create location history for active drivers (last few hours)
+      if (avail === "available" || avail === "busy") {
+        const locationCount = rand(3, 8);
+        const locationValues = [];
+        for (let l = 0; l < locationCount; l++) {
+          locationValues.push({
+            driverId: driver.id,
+            tenantId: tenant.id,
+            latitude: jitter(city.lat, 0.05).toFixed(7),
+            longitude: jitter(city.lng, 0.05).toFixed(7),
+            heading: rand(0, 359),
+            speed: rand(0, 45),
+            recordedAt: new Date(Date.now() - l * rand(300000, 900000)),
+          });
+        }
+        if (locationValues.length > 0) {
+          await db.insert(schema.driverLocations).values(locationValues);
+          totalLocations += locationValues.length;
+        }
+      }
     }
 
     // Create patients
@@ -195,11 +225,12 @@ async function main() {
 
     // Create trips with realistic distribution
     const activeDrivers = driverIds.slice(0, Math.floor(driverIds.length * 0.65));
+    const tenantCompletedTrips: Array<{ id: string; driverId: string; mileage: string; completedAt: Date }> = [];
+
     for (let tr = 0; tr < config.tripsPerTenant; tr++) {
       const isCompleted = tr < config.tripsPerTenant * 0.55;
       const isCancelled = !isCompleted && tr < config.tripsPerTenant * 0.65;
       const isActive = !isCompleted && !isCancelled && tr < config.tripsPerTenant * 0.85;
-      const isRequested = !isCompleted && !isCancelled && !isActive;
 
       let status: string;
       let driverId: string | null = null;
@@ -228,8 +259,9 @@ async function main() {
 
       const estimatedMiles = Math.round(randFloat(1, 25) * 100) / 100;
       const estimatedMinutes = Math.round(estimatedMiles / 25 * 60 * randFloat(1.1, 1.5));
+      const mileageVal = isCompleted ? (estimatedMiles * randFloat(0.9, 1.15)).toFixed(2) : null;
 
-      await db.insert(schema.trips).values({
+      const [trip] = await db.insert(schema.trips).values({
         tenantId: tenant.id,
         patientId: pick(patientIds),
         driverId,
@@ -246,7 +278,8 @@ async function main() {
         startedAt,
         completedAt,
         timezone: city.tz,
-        mileage: isCompleted ? (estimatedMiles * randFloat(0.9, 1.15)).toFixed(2) : null,
+        mileage: mileageVal,
+        vehicleType: pick(VEHICLE_TYPES),
         notes: Math.random() > 0.6 ? pick(TRIP_NOTES) : null,
         metadata: {
           isImmediate,
@@ -255,17 +288,119 @@ async function main() {
           ...(isCompleted && driverId ? { acceptedAt: startedAt?.toISOString(), acceptedByDriver: true } : {}),
           ...(isCancelled ? { cancelledAt: pastDate(rand(1, 7)).toISOString(), cancellationReason: pick(["Patient no-show", "Clinic cancelled", "Driver unavailable", "Weather"]) } : {}),
         },
-      });
+      }).returning();
       totalTrips++;
+
+      if (isCompleted && driverId && mileageVal) {
+        tenantCompletedTrips.push({ id: trip.id, driverId, mileage: mileageVal, completedAt: completedAt! });
+      }
     }
 
-    // Create some fee rules
+    completedTripsByTenant.set(tenant.id, tenantCompletedTrips);
+
+    // Create fee rules
     await db.insert(schema.feeRules).values([
       { tenantId: tenant.id, name: "Base fare", type: "flat", amount: "5.0000", priority: 1, active: true },
       { tenantId: tenant.id, name: "Per mile", type: "per_mile", amount: "2.5000", priority: 2, active: true },
       { tenantId: tenant.id, name: "Wheelchair surcharge", type: "surcharge", amount: "15.0000", priority: 3, active: true, conditions: { requiresWheelchair: true } },
       { tenantId: tenant.id, name: "After hours", type: "surcharge", amount: "10.0000", priority: 4, active: true, conditions: { afterHours: true } },
     ]);
+
+    // Create driver earnings for completed trips (sample ~30%)
+    const earningsSample = tenantCompletedTrips.filter(() => Math.random() < 0.3);
+    if (earningsSample.length > 0) {
+      const earningsValues = earningsSample.map(trip => ({
+        driverId: trip.driverId,
+        tenantId: tenant.id,
+        tripId: trip.id,
+        type: "trip_earning",
+        amount: (5 + parseFloat(trip.mileage) * 1.5).toFixed(2),
+        description: `Earning for trip completion`,
+        metadata: { autoGenerated: true },
+      }));
+      await db.insert(schema.driverEarnings).values(earningsValues);
+      totalEarnings += earningsValues.length;
+    }
+
+    // Create invoices for a subset of completed trips (one invoice per tenant)
+    const invoiceTrips = tenantCompletedTrips.slice(0, Math.min(5, tenantCompletedTrips.length));
+    if (invoiceTrips.length > 0) {
+      const invoiceTotal = invoiceTrips.reduce((sum, t) => sum + 5 + parseFloat(t.mileage) * 2.5, 0);
+      const invoiceNum = `INV-${randomUUID().slice(0, 6).toUpperCase()}`;
+      const isPaid = Math.random() > 0.5;
+
+      const [invoice] = await db.insert(schema.invoices).values({
+        tenantId: tenant.id,
+        invoiceNumber: invoiceNum,
+        patientId: pick(patientIds),
+        status: isPaid ? "paid" : "pending",
+        subtotal: invoiceTotal.toFixed(2),
+        total: invoiceTotal.toFixed(2),
+        amountPaid: isPaid ? invoiceTotal.toFixed(2) : "0",
+        billingPeriodStart: pastDate(30),
+        billingPeriodEnd: pastDate(1),
+        dueDate: futureDate(30),
+        paidAt: isPaid ? pastDate(rand(1, 5)) : null,
+      }).returning();
+
+      // Create line items
+      const lineItems = invoiceTrips.map(trip => ({
+        invoiceId: invoice.id,
+        tripId: trip.id,
+        description: `Trip transport - ${parseFloat(trip.mileage).toFixed(1)} miles`,
+        unitPrice: "2.5000",
+        quantity: trip.mileage,
+        amount: (5 + parseFloat(trip.mileage) * 2.5).toFixed(2),
+      }));
+      await db.insert(schema.invoiceLineItems).values(lineItems);
+
+      // Create ledger entry
+      await db.insert(schema.ledgerEntries).values({
+        tenantId: tenant.id,
+        invoiceId: invoice.id,
+        type: "charge",
+        amount: invoiceTotal.toFixed(2),
+        description: `Invoice ${invoiceNum}`,
+        idempotencyKey: `seed-charge-${invoice.id}`,
+      });
+
+      if (isPaid) {
+        await db.insert(schema.ledgerEntries).values({
+          tenantId: tenant.id,
+          invoiceId: invoice.id,
+          type: "payment",
+          amount: invoiceTotal.toFixed(2),
+          description: `Payment for ${invoiceNum}`,
+          idempotencyKey: `seed-payment-${invoice.id}`,
+        });
+      }
+
+      // Create billing cycle
+      await db.insert(schema.billingCycles).values({
+        tenantId: tenant.id,
+        periodStart: pastDate(30),
+        periodEnd: pastDate(1),
+        status: isPaid ? "invoiced" : "open",
+        invoiceId: invoice.id,
+      });
+    }
+
+    // Create audit log entries (sample of recent activity)
+    const auditValues = [];
+    for (let a = 0; a < Math.min(20, config.tripsPerTenant / 10); a++) {
+      auditValues.push({
+        tenantId: tenant.id,
+        userId: pick([adminUser.id, ...dispatcherIds]),
+        action: pick(AUDIT_ACTIONS),
+        resource: pick(["trip", "driver", "invoice", "user"]),
+        resourceId: randomUUID(),
+        details: { seeded: true },
+        createdAt: pastDate(rand(0, 14)),
+      });
+    }
+    if (auditValues.length > 0) {
+      await db.insert(schema.auditLog).values(auditValues);
+    }
   }
 
   console.log(`\nSeeding complete!`);
@@ -273,6 +408,8 @@ async function main() {
   console.log(`  Users: ${totalUsers} (admins + dispatchers + clinics + drivers)`);
   console.log(`  Patients: ${totalPatients}`);
   console.log(`  Trips: ${totalTrips}`);
+  console.log(`  Driver Earnings: ${totalEarnings}`);
+  console.log(`  Location History: ${totalLocations}`);
   console.log(`  Size: ${size}`);
 
   await pool.end();
