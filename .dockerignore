@@ -1,6 +1,9 @@
 # Ignore everything by default
 *
 
+# Allow Dockerfile itself (needed for remote builds)
+!Dockerfile
+
 # Allow only what the Dockerfile needs
 !package.json
 !package-lock.json
