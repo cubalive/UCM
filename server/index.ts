@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import path from "path";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import { registerRoutes } from "./routes/index";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -17,6 +18,10 @@ if (IS_PROD) {
   app.set("trust proxy", 1);
 }
 
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(cookieParser());
 
 declare module "http" {
@@ -786,7 +791,7 @@ app.use((req, res, next) => {
       requestHost: host,
       isAppOrigin: isAppOrigin(origin),
       isPublicOrigin: isPublicOrigin(origin),
-      isReplitDev: isReplitDev(origin),
+      isReplitDev: /\.replit\.dev$/.test(origin),
       allowedAppDomains: Array.from(allowedAppOrigins).map(o => new URL(o).hostname),
       allowedPublicDomains: Array.from(allowedPublicOrigins).map(o => { try { return new URL(o).hostname; } catch { return o; } }),
       timestamp: new Date().toISOString(),

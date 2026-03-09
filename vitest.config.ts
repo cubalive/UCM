@@ -8,7 +8,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["tests/unit/**/*.test.ts"],
+    include: ["tests/unit/**/*.test.ts", "server/tests/**/*.test.ts", "shared/**/*.test.ts"],
     setupFiles: ["tests/setup.ts"],
     testTimeout: 10000,
   },
