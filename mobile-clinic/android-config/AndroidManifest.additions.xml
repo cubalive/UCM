@@ -1,0 +1,13 @@
+<!--
+  Add these permissions to android/app/src/main/AndroidManifest.xml
+  inside the <manifest> tag, before <application>.
+-->
+
+<!-- Internet (default in Capacitor, but be explicit) -->
+<uses-permission android:name="android.permission.INTERNET" />
+
+<!-- Camera for document scanning -->
+<uses-permission android:name="android.permission.CAMERA" />
+
+<!-- Push Notifications (Android 13+) -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

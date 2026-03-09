@@ -20,6 +20,10 @@
   <key>NSLocationAlwaysUsageDescription</key>
   <string>UCM Driver needs always-on location access so dispatch can track your position during active trips, even when the app is backgrounded.</string>
 
+  <!-- App Tracking Transparency (ATT) — we do NOT track users -->
+  <key>NSUserTrackingUsageDescription</key>
+  <string>UCM Driver does not track you across other apps. This permission is required by Apple policy.</string>
+
   <!-- Background Modes -->
   <key>UIBackgroundModes</key>
   <array>

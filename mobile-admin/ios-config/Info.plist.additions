@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Add these keys to ios/App/App/Info.plist after running `npx cap add ios`.
+  Merge into the existing <dict> block; do not duplicate the outer tags.
+-->
+<dict>
+  <!-- App Tracking Transparency (ATT) — we do NOT track users -->
+  <key>NSUserTrackingUsageDescription</key>
+  <string>UCM Admin does not track you across other apps. This permission is required by Apple policy.</string>
+
+  <!-- Push Notifications -->
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>remote-notification</string>
+  </array>
+</dict>

@@ -1,0 +1,10 @@
+<!--
+  Add these permissions to android/app/src/main/AndroidManifest.xml
+  inside the <manifest> tag, before <application>.
+-->
+
+<!-- Internet (default in Capacitor, but be explicit) -->
+<uses-permission android:name="android.permission.INTERNET" />
+
+<!-- Push Notifications (Android 13+) -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

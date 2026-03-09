@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0a1e3d">
-  <title>UCM Driver</title>
+  <title>UCM Clinic</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -22,7 +22,6 @@
       padding-top: env(safe-area-inset-top);
       padding-bottom: env(safe-area-inset-bottom);
     }
-    .logo { width: 80px; height: 80px; margin-bottom: 20px; border-radius: 20px; }
     h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
     .subtitle { font-size: 14px; color: #94a3b8; margin-bottom: 32px; }
     .spinner {
@@ -63,7 +62,7 @@
 </head>
 <body>
   <div class="spinner" id="spinner"></div>
-  <h1>UCM Driver</h1>
+  <h1>UCM Clinic</h1>
   <p class="subtitle">United Care Mobility</p>
   <p class="status" id="status">Loading application...</p>
 
@@ -74,53 +73,33 @@
   </div>
 
   <script>
-    var SERVER = 'https://driver.unitedcaremobility.com';
+    var SERVER = 'https://clinic.unitedcaremobility.com';
     var CHECK_INTERVAL = 3000;
     var MAX_RETRIES = 10;
     var retries = 0;
 
     function checkAndRedirect() {
-      if (!navigator.onLine) {
-        document.getElementById('spinner').style.display = 'none';
-        document.getElementById('status').style.display = 'none';
-        document.getElementById('offline').style.display = 'block';
-        return;
-      }
-
+      if (!navigator.onLine) { showOffline(); return; }
       fetch(SERVER + '/api/boot', { method: 'GET', cache: 'no-store' })
-        .then(function(r) {
-          if (r.ok) { window.location.replace(SERVER); }
-          else { retry(); }
-        })
+        .then(function(r) { if (r.ok) window.location.replace(SERVER); else retry(); })
         .catch(function() { retry(); });
+    }
+
+    function showOffline() {
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('status').style.display = 'none';
+      document.getElementById('offline').style.display = 'block';
     }
 
     function retry() {
       retries++;
-      if (retries >= MAX_RETRIES) {
-        document.getElementById('spinner').style.display = 'none';
-        document.getElementById('status').textContent = 'Unable to connect to server.';
-        document.getElementById('offline').style.display = 'block';
-        return;
-      }
+      if (retries >= MAX_RETRIES) { showOffline(); return; }
       document.getElementById('status').textContent = 'Connecting... (' + retries + '/' + MAX_RETRIES + ')';
       setTimeout(checkAndRedirect, CHECK_INTERVAL);
     }
 
-    window.addEventListener('online', function() {
-      retries = 0;
-      document.getElementById('offline').style.display = 'none';
-      document.getElementById('spinner').style.display = 'block';
-      document.getElementById('status').style.display = 'block';
-      checkAndRedirect();
-    });
-
-    window.addEventListener('offline', function() {
-      document.getElementById('spinner').style.display = 'none';
-      document.getElementById('status').style.display = 'none';
-      document.getElementById('offline').style.display = 'block';
-    });
-
+    window.addEventListener('online', function() { retries = 0; location.reload(); });
+    window.addEventListener('offline', showOffline);
     checkAndRedirect();
   </script>
 </body>

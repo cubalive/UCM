@@ -98,7 +98,32 @@ export default function PrivacyPolicyPage() {
               <li>Request correction of inaccurate data</li>
               <li>Request deletion of your data (subject to regulatory retention requirements)</li>
               <li>Opt out of non-essential communications</li>
+              <li>Delete your account at any time through the app</li>
             </ul>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold mb-2">8.1 Account Deletion</h2>
+            <p className="mb-2">
+              You can delete your account at any time by navigating to your profile settings and selecting
+              "Delete my account", or by visiting{" "}
+              <a href="/delete-account" className="text-emerald-600 dark:text-emerald-400 underline">
+                the account deletion page
+              </a>.
+            </p>
+            <p className="mb-2">When you delete your account:</p>
+            <ul className="list-disc pl-6 space-y-1">
+              <li>Your personal information (name, email, phone) is permanently erased</li>
+              <li>Your account is immediately deactivated and cannot be recovered</li>
+              <li>Trip records are anonymized but retained for 7 years per HIPAA and DOT regulatory requirements</li>
+              <li>Any active trips must be completed or cancelled before deletion</li>
+            </ul>
+            <p className="mt-2">
+              You may also request account deletion by emailing{" "}
+              <a href="mailto:privacy@unitedcaremobility.com" className="text-emerald-600 dark:text-emerald-400 underline">
+                privacy@unitedcaremobility.com
+              </a>. Requests are processed within 30 days.
+            </p>
           </section>
 
           <section>

@@ -416,6 +416,19 @@ export default function DriverProfilePage() {
             </div>
           </CardContent>
         </Card>
+
+        <Card className="border-destructive/30" data-testid="card-danger-zone">
+          <CardContent className="py-4 space-y-3">
+            <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Account</p>
+            <a
+              href="/delete-account"
+              className="inline-flex items-center gap-2 text-sm text-destructive hover:underline"
+              data-testid="link-delete-account"
+            >
+              Delete my account
+            </a>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

@@ -92,6 +92,7 @@ const PayrollSettingsPage = React.lazy(() => import("@/pages/payroll-settings"))
 const DriverEarningsPage = React.lazy(() => import("@/pages/driver-earnings"));
 const PrivacyPolicyPage = React.lazy(() => import("@/pages/privacy-policy"));
 const TermsOfServicePage = React.lazy(() => import("@/pages/terms-of-service"));
+const DeleteAccountPage = React.lazy(() => import("@/pages/delete-account"));
 
 // Lazy-loaded app shells
 const DriverAppV4 = React.lazy(() => import("@/driver-v4/DriverAppV4").then(m => ({ default: m.DriverAppV4 })));
@@ -649,6 +650,7 @@ function AppWithVersionCheck() {
         <Route path="/t/:token" component={PublicTrackingPage} />
         <Route path="/privacy" component={PrivacyPolicyPage} />
         <Route path="/terms" component={TermsOfServicePage} />
+        <Route path="/delete-account" component={DeleteAccountPage} />
         <Route path="/driver-v4" component={DriverAppV4} />
         <Route>
           <AuthProvider>
