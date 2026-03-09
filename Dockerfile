@@ -1,21 +1,28 @@
 FROM node:20-slim AS base
 WORKDIR /app
 
+# ── Install deps (prod only) ──
 FROM base AS deps
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
+# ── Build client (Vite) + server (esbuild) ──
 FROM base AS build
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY tsconfig.json ./
-COPY src/ ./src/
-RUN npm run build
+COPY tsconfig.json vite.config.ts tailwind.config.ts postcss.config.js components.json ./
+COPY script/ ./script/
+COPY server/ ./server/
+COPY client/ ./client/
+COPY shared/ ./shared/
+COPY attached_assets/ ./attached_assets/
+COPY migrations/ ./migrations/
+RUN npx tsx script/build.ts
 
+# ── Production runner ──
 FROM base AS runner
 ENV NODE_ENV=production
 
-# Security: run as non-root user
 RUN addgroup --system --gid 1001 ucm && \
     adduser --system --uid 1001 ucm
 USER ucm
@@ -25,4 +32,4 @@ COPY --from=build --chown=ucm:ucm /app/dist ./dist
 COPY --from=build --chown=ucm:ucm /app/package.json ./
 
 EXPOSE 5000
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/index.cjs"]

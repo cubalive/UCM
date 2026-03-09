@@ -87,23 +87,15 @@ const legacyAsApp = hasNewVars ? [] : Array.from(envLegacyOrigins);
 export const allowedAppOrigins = new Set(Array.from(BUILTIN_APP_ORIGINS).concat(Array.from(envAppOrigins), legacyAsApp));
 export const allowedPublicOrigins = new Set(Array.from(envPublicOrigins));
 
-function isReplitDev(origin: string): boolean {
-  return /^https:\/\/[a-z0-9\-]+\.replit\.dev$/i.test(origin)
-    || /^https:\/\/[a-z0-9\-]+\.picard\.replit\.dev$/i.test(origin);
-}
-
 function isAppOrigin(origin: string): boolean {
   if (!origin) return false;
   if (allowedAppOrigins.has(origin)) return true;
-  if (isReplitDev(origin)) return true;
   return false;
 }
 
 function isPublicOrigin(origin: string): boolean {
   if (!origin) return false;
   if (allowedPublicOrigins.has(origin)) return true;
-  if (/^https:\/\/[a-z0-9\-]+\.lovable\.app$/i.test(origin)) return true;
-  if (isReplitDev(origin)) return true;
   return false;
 }
 

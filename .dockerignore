@@ -5,4 +5,13 @@
 !package.json
 !package-lock.json
 !tsconfig.json
-!src/
+!vite.config.ts
+!tailwind.config.ts
+!postcss.config.js
+!components.json
+!script/
+!server/
+!client/
+!shared/
+!attached_assets/
+!migrations/

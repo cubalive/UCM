@@ -1,6 +1,7 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile, writeFile, copyFile } from "fs/promises";
+import path from "path";
 
 function generateBuildVersion(): string {
   const now = new Date();
@@ -84,6 +85,9 @@ async function buildAll() {
     define: {
       "process.env.NODE_ENV": '"production"',
       "process.env.UCM_BUILD_VERSION": JSON.stringify(BUILD_VERSION),
+    },
+    alias: {
+      "@shared": path.resolve("shared"),
     },
     minify: true,
     external: externals,

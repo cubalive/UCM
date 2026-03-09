@@ -187,7 +187,7 @@ export function registerAdminMetricsRoutes(app: Express) {
           latencyMs: dbResult.latencyMs,
         },
         build: {
-          commit: process.env.REPL_SLUG || process.env.REPL_ID || null,
+          commit: process.env.FLY_REGION || process.env.UCM_BUILD_VERSION || null,
         },
       });
     } catch (err: any) {
