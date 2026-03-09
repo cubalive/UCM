@@ -7,6 +7,12 @@ coverage/
 .DS_Store
 drizzle/meta/
 
+# Capacitor generated native projects (built locally per machine)
+mobile-*/ios/
+mobile-*/android/
+mobile-*/node_modules/
+mobile-*/package-lock.json
+
 # Replit
 .replit
 replit.nix
