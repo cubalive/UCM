@@ -15,6 +15,7 @@ COPY script/ ./script/
 COPY server/ ./server/
 COPY client/ ./client/
 COPY shared/ ./shared/
+COPY lib/ ./lib/
 COPY attached_assets/ ./attached_assets/
 COPY migrations/ ./migrations/
 RUN npx tsx script/build.ts
