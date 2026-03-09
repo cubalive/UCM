@@ -2,13 +2,13 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 
 // Replicate the env schema logic for testing
-function buildEnvSchema(isProd: boolean) {
+function buildEnvSchema(_isProd: boolean) {
   return z.object({
     DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
     REDIS_URL: z.string().optional().default("redis://localhost:6379"),
-    STRIPE_SECRET_KEY: isProd ? z.string().startsWith("sk_") : z.string().optional(),
-    STRIPE_WEBHOOK_SECRET: isProd ? z.string().startsWith("whsec_") : z.string().optional(),
-    STRIPE_PUBLISHABLE_KEY: isProd ? z.string().startsWith("pk_") : z.string().optional(),
+    STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
+    STRIPE_PUBLISHABLE_KEY: z.string().startsWith("pk_").optional(),
     JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
     CSRF_SECRET: z.string().min(16).optional(),
     APP_URL: z.string().default("http://localhost:3000"),
@@ -61,16 +61,16 @@ describe("Environment Validation", () => {
   });
 
   describe("production mode", () => {
-    it("requires Stripe keys in production", () => {
+    it("accepts production config without Stripe keys", () => {
       const schema = buildEnvSchema(true);
       const result = schema.safeParse({
         DATABASE_URL: "postgresql://host/db",
         JWT_SECRET: "a".repeat(32),
       });
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
     });
 
-    it("accepts valid production config with all required keys", () => {
+    it("accepts valid production config with Stripe keys", () => {
       const schema = buildEnvSchema(true);
       const result = schema.safeParse({
         DATABASE_URL: "postgresql://host/db",

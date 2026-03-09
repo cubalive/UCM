@@ -5,9 +5,9 @@ const isProd = process.env.NODE_ENV === "production";
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   REDIS_URL: z.string().optional().default("redis://localhost:6379"),
-  STRIPE_SECRET_KEY: isProd ? z.string().startsWith("sk_") : z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: isProd ? z.string().startsWith("whsec_") : z.string().optional(),
-  STRIPE_PUBLISHABLE_KEY: isProd ? z.string().startsWith("pk_") : z.string().optional(),
+  STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
+  STRIPE_PUBLISHABLE_KEY: z.string().startsWith("pk_").optional(),
   JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
   CSRF_SECRET: z.string().min(16).optional(),
   SMTP_HOST: z.string().optional(),
