@@ -794,28 +794,41 @@ export default function ClinicDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5" data-testid="stat-patients">
-          <div className="flex items-center gap-3 mb-2">
-            <Users className="w-5 h-5 text-purple-400" />
-            <span className="text-sm font-medium text-white">Total Patients</span>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4" data-testid="kpi-section">
+        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="stat-patients">
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="w-4 h-4 text-purple-400" />
+            <span className="text-xs font-medium text-gray-400">Total Patients</span>
           </div>
-          {loading ? (
-            <div className="h-8 w-16 bg-gray-800 rounded animate-pulse" />
-          ) : (
-            <p className="text-3xl font-bold text-white">{totalPatients}</p>
-          )}
+          <p className="text-2xl font-bold text-white">{loading ? "—" : totalPatients}</p>
         </div>
-        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5" data-testid="stat-rating">
-          <div className="flex items-center gap-3 mb-2">
-            <TrendingUp className="w-5 h-5 text-green-400" />
-            <span className="text-sm font-medium text-white">Average Rating</span>
+        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="stat-ontime">
+          <div className="flex items-center gap-2 mb-2">
+            <Clock className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-medium text-gray-400">On-Time Rate</span>
           </div>
-          {loading ? (
-            <div className="h-8 w-16 bg-gray-800 rounded animate-pulse" />
-          ) : (
-            <p className="text-3xl font-bold text-white">{avgRating > 0 ? avgRating.toFixed(1) : "N/A"}</p>
-          )}
+          <p className="text-2xl font-bold text-white">{loading ? "—" : `${(metrics as any)?.metrics?.onTimeRate ?? (metrics as any)?.onTimeRate ?? "—"}%`}</p>
+        </div>
+        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="stat-avg-delay">
+          <div className="flex items-center gap-2 mb-2">
+            <Timer className="w-4 h-4 text-amber-400" />
+            <span className="text-xs font-medium text-gray-400">Avg Wait</span>
+          </div>
+          <p className="text-2xl font-bold text-white">{loading ? "—" : `${(metrics as any)?.metrics?.avgDelayMinutes ?? (metrics as any)?.avgDelayMinutes ?? 0}m`}</p>
+        </div>
+        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="stat-noshow">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <span className="text-xs font-medium text-gray-400">No-Show Rate</span>
+          </div>
+          <p className="text-2xl font-bold text-white">{loading ? "—" : `${(metrics as any)?.metrics?.noShowRate ?? (metrics as any)?.noShowRate ?? 0}%`}</p>
+        </div>
+        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="stat-rating">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp className="w-4 h-4 text-green-400" />
+            <span className="text-xs font-medium text-gray-400">Avg Rating</span>
+          </div>
+          <p className="text-2xl font-bold text-white">{loading ? "—" : (avgRating > 0 ? avgRating.toFixed(1) : "N/A")}</p>
         </div>
       </div>
     </div>

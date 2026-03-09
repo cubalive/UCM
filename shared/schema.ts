@@ -3294,3 +3294,163 @@ export const opsAuditLedger = pgTable("ops_audit_ledger", {
 export const insertOpsAuditLedgerSchema = createInsertSchema(opsAuditLedger).omit({ createdAt: true });
 export type OpsAuditLedgerEntry = typeof opsAuditLedger.$inferSelect;
 export type InsertOpsAuditLedgerEntry = z.infer<typeof insertOpsAuditLedgerSchema>;
+
+// ─── EHR/FHIR Integration ────────────────────────────────────────────────────
+export const ehrConnections = pgTable("ehr_connections", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  companyId: integer("company_id").references(() => companies.id),
+  provider: text("provider").notNull(), // EPIC, CERNER, ATHENA, GENERIC_FHIR
+  fhirBaseUrl: text("fhir_base_url").notNull(),
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  scopes: text("scopes"),
+  status: text("status").notNull().default("pending"), // pending, active, error, disabled
+  lastSyncAt: timestamp("last_sync_at"),
+  lastError: text("last_error"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_ehr_connections_clinic").on(table.clinicId),
+]);
+
+export const insertEhrConnectionSchema = createInsertSchema(ehrConnections).omit({ createdAt: true, updatedAt: true });
+export type EhrConnection = typeof ehrConnections.$inferSelect;
+export type InsertEhrConnection = z.infer<typeof insertEhrConnectionSchema>;
+
+export const ehrAppointmentSync = pgTable("ehr_appointment_sync", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  ehrConnectionId: integer("ehr_connection_id").notNull().references(() => ehrConnections.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  fhirAppointmentId: text("fhir_appointment_id").notNull(),
+  fhirPatientId: text("fhir_patient_id"),
+  patientId: integer("patient_id").references(() => patients.id),
+  tripId: integer("trip_id").references(() => trips.id),
+  appointmentDate: text("appointment_date").notNull(),
+  appointmentTime: text("appointment_time"),
+  appointmentEndTime: text("appointment_end_time"),
+  appointmentStatus: text("appointment_status"), // booked, arrived, fulfilled, cancelled
+  practitionerName: text("practitioner_name"),
+  reasonText: text("reason_text"),
+  syncStatus: text("sync_status").notNull().default("pending"), // pending, trip_created, skipped, error
+  syncError: text("sync_error"),
+  rawFhirJson: jsonb("raw_fhir_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_ehr_appt_sync_clinic").on(table.clinicId, table.appointmentDate),
+  index("idx_ehr_appt_sync_fhir").on(table.fhirAppointmentId),
+]);
+
+export const insertEhrAppointmentSyncSchema = createInsertSchema(ehrAppointmentSync).omit({ createdAt: true, updatedAt: true });
+export type EhrAppointmentSync = typeof ehrAppointmentSync.$inferSelect;
+export type InsertEhrAppointmentSync = z.infer<typeof insertEhrAppointmentSyncSchema>;
+
+// ─── Compliance & Credential Tracking ────────────────────────────────────────
+export const complianceDocuments = pgTable("compliance_documents", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  entityType: text("entity_type").notNull(), // driver, vehicle
+  entityId: integer("entity_id").notNull(),
+  documentType: text("document_type").notNull(), // license, insurance, medical_cert, vehicle_inspection, registration, background_check, cpr_cert, drug_test
+  documentNumber: text("document_number"),
+  issuedAt: text("issued_at"),
+  expiresAt: text("expires_at"),
+  status: text("status").notNull().default("valid"), // valid, expiring_soon, expired, missing, pending_review
+  fileUrl: text("file_url"),
+  verifiedBy: integer("verified_by"),
+  verifiedAt: timestamp("verified_at"),
+  notes: text("notes"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_compliance_docs_entity").on(table.entityType, table.entityId),
+  index("idx_compliance_docs_expiry").on(table.expiresAt),
+  index("idx_compliance_docs_company").on(table.companyId),
+]);
+
+export const insertComplianceDocumentSchema = createInsertSchema(complianceDocuments).omit({ createdAt: true, updatedAt: true });
+export type ComplianceDocument = typeof complianceDocuments.$inferSelect;
+export type InsertComplianceDocument = z.infer<typeof insertComplianceDocumentSchema>;
+
+export const complianceAlerts = pgTable("compliance_alerts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  documentId: integer("document_id").references(() => complianceDocuments.id),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  alertType: text("alert_type").notNull(), // expiring_30d, expiring_7d, expired, missing
+  message: text("message").notNull(),
+  severity: text("severity").notNull().default("warning"), // info, warning, critical
+  acknowledged: boolean("acknowledged").notNull().default(false),
+  acknowledgedBy: integer("acknowledged_by"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_compliance_alerts_company").on(table.companyId, table.acknowledged),
+]);
+
+export const insertComplianceAlertSchema = createInsertSchema(complianceAlerts).omit({ createdAt: true });
+export type ComplianceAlert = typeof complianceAlerts.$inferSelect;
+export type InsertComplianceAlert = z.infer<typeof insertComplianceAlertSchema>;
+
+// ─── AI Dispatch Chatbot ─────────────────────────────────────────────────────
+export const dispatchChatSessions = pgTable("dispatch_chat_sessions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  cityId: integer("city_id").references(() => cities.id),
+  channel: text("channel").notNull().default("web"), // web, sms, api
+  status: text("status").notNull().default("active"), // active, resolved, escalated
+  context: jsonb("context"), // current intent, entities, state
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => [
+  index("idx_dispatch_chat_user").on(table.userId, table.status),
+]);
+
+export const insertDispatchChatSessionSchema = createInsertSchema(dispatchChatSessions).omit({ createdAt: true });
+export type DispatchChatSession = typeof dispatchChatSessions.$inferSelect;
+export type InsertDispatchChatSession = z.infer<typeof insertDispatchChatSessionSchema>;
+
+export const dispatchChatMessages = pgTable("dispatch_chat_messages", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  sessionId: integer("session_id").notNull().references(() => dispatchChatSessions.id),
+  role: text("role").notNull(), // user, assistant, system
+  content: text("content").notNull(),
+  intent: text("intent"), // create_trip, check_status, reassign, eta_query, cancel_trip, general
+  entitiesJson: jsonb("entities_json"), // extracted entities: patient, time, address, etc.
+  actionsTaken: jsonb("actions_taken"), // what the bot did: created trip, sent sms, etc.
+  confidence: doublePrecision("confidence"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_dispatch_chat_msgs_session").on(table.sessionId, table.createdAt),
+]);
+
+export const insertDispatchChatMessageSchema = createInsertSchema(dispatchChatMessages);
+export type DispatchChatMessage = typeof dispatchChatMessages.$inferSelect;
+export type InsertDispatchChatMessage = z.infer<typeof insertDispatchChatMessageSchema>;
+
+// ─── Smart Pickup Suggestions ────────────────────────────────────────────────
+export const smartPickupSuggestions = pgTable("smart_pickup_suggestions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clinicId: integer("clinic_id").notNull().references(() => clinics.id),
+  patientId: integer("patient_id").references(() => patients.id),
+  appointmentDate: text("appointment_date").notNull(),
+  appointmentTime: text("appointment_time").notNull(),
+  suggestedPickupTime: text("suggested_pickup_time").notNull(),
+  suggestedReturnTime: text("suggested_return_time"),
+  estimatedTravelMinutes: integer("estimated_travel_minutes"),
+  confidenceScore: doublePrecision("confidence_score"),
+  factors: jsonb("factors"), // { avgTravel, trafficFactor, historicalDelay, bufferMinutes }
+  accepted: boolean("accepted"),
+  actualPickupTime: text("actual_pickup_time"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_smart_pickup_clinic_date").on(table.clinicId, table.appointmentDate),
+]);

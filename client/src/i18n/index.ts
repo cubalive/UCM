@@ -3,6 +3,8 @@ import { initReactI18next } from "react-i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
 import en from "./en.json";
 import es from "./es.json";
+import ht from "./ht.json";
+import pt from "./pt.json";
 
 i18n
   .use(LanguageDetector)
@@ -11,9 +13,11 @@ i18n
     resources: {
       en: { translation: en },
       es: { translation: es },
+      ht: { translation: ht },
+      pt: { translation: pt },
     },
     fallbackLng: "en",
-    supportedLngs: ["en", "es"],
+    supportedLngs: ["en", "es", "ht", "pt"],
     interpolation: {
       escapeValue: false,
     },

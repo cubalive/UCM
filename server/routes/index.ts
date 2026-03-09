@@ -52,6 +52,10 @@ import { registerZeroTouchDialysisRoutes } from "../lib/zeroTouchDialysisRoutes"
 import { registerRoutePreviewRoutes } from "./routes.preview";
 import { registerRouteOptimizeRoutes } from "./routes.optimize";
 import { registerAnalyticsRoutes } from "./analytics.routes";
+import { registerEhrRoutes } from "./ehr.routes";
+import { registerChatbotRoutes } from "./chatbot.routes";
+import { registerComplianceRoutes } from "./compliance.routes";
+import { registerSmartPickupRoutes } from "./smart-pickup.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -161,6 +165,10 @@ export async function registerRoutes(
   registerRoutePreviewRoutes(app);
   registerRouteOptimizeRoutes(app);
   registerAnalyticsRoutes(app);
+  registerEhrRoutes(app);
+  registerChatbotRoutes(app);
+  registerComplianceRoutes(app);
+  registerSmartPickupRoutes(app);
 
   return httpServer;
 }
