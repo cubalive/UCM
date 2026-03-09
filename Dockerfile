@@ -24,5 +24,5 @@ COPY --from=deps --chown=ucm:ucm /app/node_modules ./node_modules
 COPY --from=build --chown=ucm:ucm /app/dist ./dist
 COPY --from=build --chown=ucm:ucm /app/package.json ./
 
-EXPOSE 3000
+EXPOSE 5000
 CMD ["node", "dist/index.js"]
