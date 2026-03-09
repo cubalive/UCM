@@ -1,4 +1,9 @@
 import "dotenv/config";
+import { getEnv } from "./lib/env.js";
+
+// Validate environment variables eagerly at boot — fail fast
+const env = getEnv();
+
 import { initSentry, captureException, sentryFlush } from "./lib/sentry.js";
 initSentry();
 import http from "http";
@@ -7,6 +12,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { globalRateLimiter } from "./middleware/rateLimiter.js";
 import { requestMetricsMiddleware } from "./middleware/requestMetrics.js";
+import { requestIdMiddleware } from "./middleware/requestId.js";
 import healthRoutes from "./routes/health.js";
 import billingRoutes from "./routes/billing.js";
 import webhookRoutes from "./routes/webhooks.js";
@@ -45,33 +51,48 @@ app.use("/api/webhooks/stripe", express.raw({ type: "application/json" }), (req,
 
 // Global middleware
 app.use(helmet());
+app.use(requestIdMiddleware);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(globalRateLimiter);
 app.use(requestMetricsMiddleware);
 
-// CORS for frontend
-app.use((_req, res, next) => {
-  const allowedOrigins = (process.env.APP_URL || "").split(",").map(s => s.trim()).filter(Boolean);
-  const requestOrigin = _req.headers.origin;
+// ── CORS ─────────────────────────────────────────────────────────────
+// Production domains: app/driver/clinic.unitedcaremobility.com
+// APP_URL env var is comma-separated list of allowed origins
+const PRODUCTION_ORIGINS = [
+  "https://app.unitedcaremobility.com",
+  "https://driver.unitedcaremobility.com",
+  "https://clinic.unitedcaremobility.com",
+  "https://ucm-api-production.up.railway.app",
+];
 
-  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+function buildAllowedOrigins(): Set<string> {
+  const envOrigins = (process.env.APP_URL || "").split(",").map(s => s.trim()).filter(Boolean);
+  return new Set([...PRODUCTION_ORIGINS, ...envOrigins]);
+}
+
+const allowedOrigins = buildAllowedOrigins();
+
+app.use((req, res, next) => {
+  const requestOrigin = req.headers.origin;
+
+  if (requestOrigin && allowedOrigins.has(requestOrigin)) {
     res.header("Access-Control-Allow-Origin", requestOrigin);
     res.header("Access-Control-Allow-Credentials", "true");
-  } else if (allowedOrigins.length > 0) {
-    res.header("Access-Control-Allow-Origin", allowedOrigins[0]);
-    res.header("Access-Control-Allow-Credentials", "true");
   }
-  // In development without APP_URL, allow the request origin (not wildcard with credentials)
+  // In development without explicit APP_URL, allow the request origin
   else if (process.env.NODE_ENV !== "production" && requestOrigin) {
     res.header("Access-Control-Allow-Origin", requestOrigin);
     res.header("Access-Control-Allow-Credentials", "true");
   }
+  // In production, reject unknown origins — do NOT set any Allow-Origin header
 
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-Request-ID");
+  res.header("Access-Control-Expose-Headers", "X-Request-ID");
   res.header("Access-Control-Max-Age", "86400");
-  if (_req.method === "OPTIONS") {
+  if (req.method === "OPTIONS") {
     res.sendStatus(204);
     return;
   }
@@ -100,10 +121,18 @@ app.use("/api/auth", authRoutes);
 app.use("/api/import", importRoutes);
 
 // Global error handler
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  logger.error("Unhandled error", { error: err.message, stack: err.stack });
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (res.headersSent) return;
+  const status = (err as any).status || (err as any).statusCode || 500;
+  logger.error("Unhandled error", {
+    error: err.message,
+    stack: err.stack,
+    requestId: req.requestId,
+    method: req.method,
+    path: req.path,
+  });
   captureException(err);
-  res.status(500).json({ error: "Internal server error" });
+  res.status(status).json({ error: status >= 500 ? "Internal server error" : err.message });
 });
 
 // Connect to Redis eagerly (lazy connect, but initiate)
@@ -150,16 +179,16 @@ async function shutdown(signal: string) {
     try { job.stop(); } catch { /* already stopped */ }
   }
 
-  // 5. Close Redis
+  // 4. Close Redis
   try {
     const redis = getRedis();
     if (redis) await redis.quit();
   } catch { /* non-fatal */ }
 
-  // 6. Flush Sentry events
+  // 5. Flush Sentry events
   await sentryFlush(2000);
 
-  // 7. Close DB pool
+  // 6. Close DB pool
   try {
     await getPool().end();
   } catch { /* non-fatal */ }
@@ -175,5 +204,19 @@ async function shutdown(signal: string) {
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
+
+process.on("unhandledRejection", (reason: any) => {
+  logger.error("Unhandled promise rejection", {
+    error: reason?.message || String(reason),
+    stack: reason?.stack?.slice(0, 1000),
+  });
+  captureException(reason instanceof Error ? reason : new Error(String(reason)));
+});
+
+process.on("uncaughtException", (err: Error) => {
+  logger.error("Uncaught exception", { error: err.message, stack: err.stack?.slice(0, 1000) });
+  captureException(err);
+  shutdown("uncaughtException");
+});
 
 export default app;

@@ -14,18 +14,31 @@ declare global {
     interface Request {
       user?: AuthUser;
       tenantId?: string;
+      requestId?: string;
     }
   }
 }
 
+const UCM_COOKIE = "ucm_session";
+
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
+  let token: string | undefined;
+
+  // 1. Bearer token (API clients, mobile apps)
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Missing or invalid authorization header" });
+  if (authHeader?.startsWith("Bearer ")) {
+    token = authHeader.slice(7);
+  }
+  // 2. Cookie-based auth (web app, cross-subdomain SSO)
+  else if (req.cookies?.[UCM_COOKIE]) {
+    token = req.cookies[UCM_COOKIE];
+  }
+
+  if (!token) {
+    res.status(401).json({ error: "Missing or invalid authorization" });
     return;
   }
 
-  const token = authHeader.slice(7);
   try {
     const secret = process.env.JWT_SECRET;
     if (!secret) throw new Error("JWT_SECRET not configured");
@@ -35,7 +48,7 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     req.tenantId = payload.tenantId;
     next();
   } catch (err: any) {
-    logger.warn("Authentication failed", { error: err.message });
+    logger.warn("Authentication failed", { error: err.message, ip: req.ip });
     res.status(401).json({ error: "Invalid or expired token" });
   }
 }
@@ -47,6 +60,12 @@ export function authorize(...roles: string[]) {
       return;
     }
     if (roles.length > 0 && !roles.includes(req.user.role)) {
+      logger.warn("Authorization denied", {
+        userId: req.user.id,
+        role: req.user.role,
+        required: roles,
+        path: req.path,
+      });
       res.status(403).json({ error: "Insufficient permissions" });
       return;
     }
