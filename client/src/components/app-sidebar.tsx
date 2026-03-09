@@ -403,12 +403,12 @@ export function AppSidebar() {
             <img
               src={`/api/companies/${user.companyId}/logo`}
               alt="Company"
-              className="h-9 w-9 rounded-md object-contain flex-shrink-0"
+              className="h-9 w-9 rounded-full object-contain flex-shrink-0"
               onError={(e) => { (e.target as HTMLImageElement).src = "/branding/logo-small.png"; }}
               data-testid="img-sidebar-logo"
             />
           ) : (
-            <div className="h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg" data-testid="img-sidebar-logo">
+            <div className="h-9 w-9 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg" data-testid="img-sidebar-logo">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" fill="white" fillOpacity="0.9"/>
                 <path d="M10 15l-3-3 1.41-1.41L10 12.17l5.59-5.59L17 8l-7 7z" fill="currentColor" className="text-emerald-600"/>

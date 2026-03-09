@@ -1638,14 +1638,18 @@ export async function clinicForecastHandler(req: AuthRequest, res: Response) {
       });
     }
 
-    const horizon = Math.min(parseInt(req.query.horizon as string) || 180, 360);
-    const forecast = await getClinicForecast(effectiveClinicId, horizon);
+    const clinic = await storage.getClinic(effectiveClinicId);
+    const clinicTz = await getClinicTimezone((clinic as any)?.cityId);
 
+    const horizon = Math.min(parseInt(req.query.horizon as string) || 180, 360);
+    const forecast = await getClinicForecast(effectiveClinicId, horizon, 15, clinicTz);
+
+    const { nowInCity } = await import("@shared/timeUtils");
+    const cityNow = nowInCity(clinicTz);
+    const nowMin = cityNow.getHours() * 60 + cityNow.getMinutes();
     const next60 = forecast.filter(b => {
       const [h, m] = b.bucketStart.split(":").map(Number);
-      const now = new Date();
       const bucketMin = h * 60 + m;
-      const nowMin = now.getHours() * 60 + now.getMinutes();
       return bucketMin - nowMin <= 60;
     });
     const next180 = forecast;
@@ -1684,10 +1688,12 @@ export async function clinicCapacityForecastHandler(req: AuthRequest, res: Respo
       });
     }
 
-    const forecast = await getClinicForecast(effectiveClinicId);
+    const capClinic = await storage.getClinic(effectiveClinicId);
+    const capClinicTz = await getClinicTimezone((capClinic as any)?.cityId);
+    const forecast = await getClinicForecast(effectiveClinicId, 180, 15, capClinicTz);
     const capacity = await getClinicCapacityForecast(effectiveClinicId, forecast);
 
-    try { await saveClinicForecastSnapshot(effectiveClinicId); } catch (_) {}
+    try { await saveClinicForecastSnapshot(effectiveClinicId, capClinicTz); } catch (_) {}
 
     res.json({ ok: true, ...capacity });
   } catch (err: any) {

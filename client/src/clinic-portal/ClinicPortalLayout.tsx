@@ -114,7 +114,7 @@ export function ClinicPortalLayout() {
             <Menu className="w-5 h-5 text-gray-400" />
           </button>
           <div className="flex items-center gap-3 ml-2 lg:ml-0">
-            <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-teal-400 rounded-lg flex items-center justify-center text-white font-bold text-sm">
+            <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-teal-400 rounded-full flex items-center justify-center text-white font-bold text-sm">
               UC
             </div>
             <div>

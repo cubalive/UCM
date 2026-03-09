@@ -1,6 +1,8 @@
 import { db } from "../db";
 import { trips, clinicCapacityConfig, clinicForecastSnapshots } from "@shared/schema";
 import { eq, and, isNull, inArray, gte, sql } from "drizzle-orm";
+import { nowInCity, cityNowDate } from "@shared/timeUtils";
+import { format } from "date-fns";
 
 export interface ForecastBucket {
   bucketStart: string;
@@ -46,17 +48,18 @@ function getTimeBucket(timeStr: string): string {
   return `${String(h).padStart(2, "0")}:${String(bucketM).padStart(2, "0")}`;
 }
 
-function generateBuckets(startTime: Date, horizonMinutes: number): string[] {
+function generateBuckets(cityNow: Date, horizonMinutes: number): string[] {
   const buckets: string[] = [];
-  const start = new Date(startTime);
-  start.setMinutes(Math.floor(start.getMinutes() / BUCKET_SIZE_MINUTES) * BUCKET_SIZE_MINUTES, 0, 0);
-  const end = new Date(start.getTime() + horizonMinutes * 60_000);
-  let cursor = new Date(start);
-  while (cursor < end) {
-    const h = cursor.getHours();
-    const m = cursor.getMinutes();
+  // cityNow is already in the clinic's local time (via nowInCity)
+  const startH = cityNow.getHours();
+  const startM = Math.floor(cityNow.getMinutes() / BUCKET_SIZE_MINUTES) * BUCKET_SIZE_MINUTES;
+  let totalMinutes = startH * 60 + startM;
+  const endMinutes = totalMinutes + horizonMinutes;
+  while (totalMinutes < endMinutes) {
+    const h = Math.floor(totalMinutes / 60) % 24;
+    const m = totalMinutes % 60;
     buckets.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
-    cursor = new Date(cursor.getTime() + BUCKET_SIZE_MINUTES * 60_000);
+    totalMinutes += BUCKET_SIZE_MINUTES;
   }
   return buckets;
 }
@@ -71,12 +74,14 @@ function isInbound(trip: any, clinicId: number): boolean {
 export async function getClinicForecast(
   clinicId: number,
   horizonMinutes: number = 180,
-  bucketMinutes: number = 15
+  bucketMinutes: number = 15,
+  clinicTimezone: string = "America/Los_Angeles"
 ): Promise<ForecastBucket[]> {
-  const now = new Date();
-  const todayDow = now.getDay();
-  const bucketStarts = generateBuckets(now, horizonMinutes);
+  const cityNow = nowInCity(clinicTimezone);
+  const todayDow = cityNow.getDay();
+  const bucketStarts = generateBuckets(cityNow, horizonMinutes);
 
+  const now = new Date();
   const last90DaysDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
   const last90Str = last90DaysDate.toISOString().split("T")[0];
   const last7DaysDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -100,7 +105,7 @@ export async function getClinicForecast(
     )
   );
 
-  const todayStr = now.toISOString().split("T")[0];
+  const todayStr = cityNowDate(clinicTimezone);
   const todayScheduled = historicalTrips.filter(t => t.scheduledDate === todayStr);
 
   const sameDowTrips = historicalTrips.filter(t => {
@@ -305,10 +310,10 @@ export async function getClinicCapacityForecast(
   };
 }
 
-export async function saveClinicForecastSnapshot(clinicId: number): Promise<void> {
-  const forecast = await getClinicForecast(clinicId);
+export async function saveClinicForecastSnapshot(clinicId: number, clinicTimezone: string = "America/Los_Angeles"): Promise<void> {
+  const forecast = await getClinicForecast(clinicId, 180, 15, clinicTimezone);
   const capacity = await getClinicCapacityForecast(clinicId, forecast);
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = cityNowDate(clinicTimezone);
 
   const peakBucket = forecast.reduce((max, b) => b.totalDemand > max.totalDemand ? b : max, forecast[0]);
 
