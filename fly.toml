@@ -11,6 +11,9 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 1
 
+[processes]
+  app = "node dist/index.cjs"
+
 [env]
   NODE_ENV = "production"
   PORT = "5000"
