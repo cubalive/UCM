@@ -30,9 +30,12 @@ export async function getPatientsHandler(req: AuthRequest, res: Response) {
           ilike(patients.publicId, pattern),
         )!);
       }
+      const cPage = parseInt(req.query.page as string) || 1;
+      const cLimit = Math.min(parseInt(req.query.limit as string) || 200, 500);
+      const cOffset = (cPage - 1) * cLimit;
       const clinicPatients = await db.select().from(patients).where(
         and(...conditions)
-      ).orderBy(patients.firstName);
+      ).orderBy(patients.firstName).limit(cLimit).offset(cOffset);
       return res.json(clinicPatients);
     }
 
@@ -66,7 +69,11 @@ export async function getPatientsHandler(req: AuthRequest, res: Response) {
       )!);
     }
 
-    const result = await db.select().from(patients).where(and(...conditions)).orderBy(patients.firstName);
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
+    const offset = (page - 1) * limit;
+
+    const result = await db.select().from(patients).where(and(...conditions)).orderBy(patients.firstName).limit(limit).offset(offset);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -84,7 +91,7 @@ export async function getPatientClinicGroupsHandler(req: AuthRequest, res: Respo
     if (filters.companyId) conditions.push(eq(patients.companyId, filters.companyId));
     if (filters.cityId) conditions.push(eq(patients.cityId, filters.cityId));
 
-    const clinicPatients = await db.select().from(patients).where(and(...conditions)).orderBy(patients.firstName);
+    const clinicPatients = await db.select().from(patients).where(and(...conditions)).orderBy(patients.firstName).limit(2000);
 
     const allClinics = await storage.getClinics(filters.cityId || undefined);
     const filteredClinics = (filters.companyId
@@ -92,8 +99,18 @@ export async function getPatientClinicGroupsHandler(req: AuthRequest, res: Respo
       : allClinics
     ).filter((c: any) => !c.deletedAt);
 
+    // Group patients by clinicId using Map instead of O(n²) nested filter
+    const patientsByClinic = new Map<number, any[]>();
+    for (const p of clinicPatients) {
+      if (p.clinicId) {
+        const arr = patientsByClinic.get(p.clinicId) || [];
+        arr.push(p);
+        patientsByClinic.set(p.clinicId, arr);
+      }
+    }
+
     const groups = filteredClinics.map((clinic: any) => {
-      const pts = clinicPatients.filter((p: any) => p.clinicId === clinic.id);
+      const pts = patientsByClinic.get(clinic.id) || [];
       return {
         clinic_id: clinic.id,
         clinic_name: clinic.name,

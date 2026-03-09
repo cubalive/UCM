@@ -1,4 +1,6 @@
 const ROLLING_WINDOW_MS = 5 * 60 * 1000;
+const MAX_ENTRIES_PER_ROUTE = 5000;
+const MAX_ROUTES = 200;
 
 interface RouteEntry {
   method: string;
@@ -52,11 +54,19 @@ export function recordRequest(method: string, rawPath: string, statusCode: numbe
 
   let entry = routeMap.get(key);
   if (!entry) {
+    if (routeMap.size >= MAX_ROUTES) return; // prevent unbounded route growth
     entry = { method, path, latencies: [], timestamps: [], errorCount: 0, errorTimestamps: [], error4xxTimestamps: [], error5xxTimestamps: [] };
     routeMap.set(key, entry);
   }
 
   pruneEntries(entry);
+
+  // Cap arrays to prevent memory bloat under high traffic
+  if (entry.timestamps.length >= MAX_ENTRIES_PER_ROUTE) {
+    const half = Math.floor(MAX_ENTRIES_PER_ROUTE / 2);
+    entry.timestamps = entry.timestamps.slice(-half);
+    entry.latencies = entry.latencies.slice(-half);
+  }
 
   entry.timestamps.push(now);
   entry.latencies.push(durationMs);

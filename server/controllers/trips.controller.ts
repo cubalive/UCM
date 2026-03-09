@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { storage } from "../storage";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, applyCompanyFilter, checkCompanyOwnership, getUserCityIds, type AuthRequest } from "../auth";
-import { insertTripSchema, drivers, vehicles, trips, tripMessages, recurringSchedules, driverOffers, invoices, tripPdfs, tripBilling, tripLocationPoints } from "@shared/schema";
+import { insertTripSchema, drivers, vehicles, trips, tripMessages, recurringSchedules, driverOffers, invoices, tripPdfs, tripBilling, tripLocationPoints, patients, clinics } from "@shared/schema";
 import { VALID_TRANSITIONS, STATUS_TIMESTAMP_MAP } from "@shared/tripStateMachine";
 import { db } from "../db";
 import { eq, ne, sql, and, or, not, isNull, inArray, notInArray, desc, gte } from "drizzle-orm";
@@ -126,6 +126,8 @@ export async function generateRecurringSchedulesHandler(req: AuthRequest, res: R
 }
 
 export async function enrichTripsWithRelations(tripList: any[]) {
+  if (tripList.length === 0) return [];
+
   const allCities = await storage.getCities();
   const cityMap = new Map(allCities.map(c => [c.id, c]));
 
@@ -137,11 +139,36 @@ export async function enrichTripsWithRelations(tripList: any[]) {
     : [];
   const acceptedMap = new Map(acceptedOffers.filter(o => o.acceptedAt).map(o => [o.tripId, o.acceptedAt]));
 
-  return Promise.all(tripList.map(async (t) => {
-    const patient = t.patientId ? await storage.getPatient(t.patientId) : null;
-    const clinic = t.clinicId ? await storage.getClinic(t.clinicId) : null;
-    const driver = t.driverId ? await storage.getDriver(t.driverId) : null;
-    const vehicle = driver?.vehicleId ? await storage.getVehicle(driver.vehicleId) : (t.vehicleId ? await storage.getVehicle(t.vehicleId) : null);
+  // Batch-load all related entities in parallel instead of N+1 per trip
+  const patientIds = [...new Set(tripList.map(t => t.patientId).filter(Boolean))];
+  const clinicIds = [...new Set(tripList.map(t => t.clinicId).filter(Boolean))];
+  const driverIds = [...new Set(tripList.map(t => t.driverId).filter(Boolean))];
+
+  const [batchPatients, batchClinics, batchDrivers] = await Promise.all([
+    patientIds.length > 0 ? db.select().from(patients).where(inArray(patients.id, patientIds)) : [],
+    clinicIds.length > 0 ? db.select().from(clinics).where(inArray(clinics.id, clinicIds)) : [],
+    driverIds.length > 0 ? db.select().from(drivers).where(inArray(drivers.id, driverIds)) : [],
+  ]);
+
+  const patientMap = new Map(batchPatients.map(p => [p.id, p]));
+  const clinicMap = new Map(batchClinics.map(c => [c.id, c]));
+  const driverMap = new Map(batchDrivers.map(d => [d.id, d]));
+
+  // Batch-load vehicles for drivers + direct vehicle assignments
+  const vehicleIds = [...new Set([
+    ...batchDrivers.map(d => d.vehicleId).filter(Boolean),
+    ...tripList.map(t => t.vehicleId).filter(Boolean),
+  ])] as number[];
+  const batchVehicles = vehicleIds.length > 0
+    ? await db.select().from(vehicles).where(inArray(vehicles.id, vehicleIds))
+    : [];
+  const vehicleMap = new Map(batchVehicles.map(v => [v.id, v]));
+
+  return tripList.map((t) => {
+    const patient = t.patientId ? patientMap.get(t.patientId) : null;
+    const clinic = t.clinicId ? clinicMap.get(t.clinicId) : null;
+    const driver = t.driverId ? driverMap.get(t.driverId) : null;
+    const vehicle = driver?.vehicleId ? vehicleMap.get(driver.vehicleId) : (t.vehicleId ? vehicleMap.get(t.vehicleId) : null);
     const city = cityMap.get(t.cityId);
     const offerAcceptedAt = acceptedMap.get(t.id);
     return {
@@ -161,7 +188,7 @@ export async function enrichTripsWithRelations(tripList: any[]) {
       cityName: city?.name || null,
       acceptedAt: offerAcceptedAt ? new Date(offerAcceptedAt).toISOString() : null,
     };
-  }));
+  });
 }
 
 export async function assignTripHandler(req: AuthRequest, res: Response) {
