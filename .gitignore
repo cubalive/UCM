@@ -6,3 +6,4 @@ dist/
 coverage/
 .DS_Store
 drizzle/meta/
+.github/workflows/ci.yml
