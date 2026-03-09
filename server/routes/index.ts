@@ -51,6 +51,7 @@ import { registerEtaVarianceRoutes } from "../lib/etaVarianceRoutes";
 import { registerZeroTouchDialysisRoutes } from "../lib/zeroTouchDialysisRoutes";
 import { registerRoutePreviewRoutes } from "./routes.preview";
 import { registerRouteOptimizeRoutes } from "./routes.optimize";
+import { registerAnalyticsRoutes } from "./analytics.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -159,6 +160,7 @@ export async function registerRoutes(
   registerQueueRoutes(app);
   registerRoutePreviewRoutes(app);
   registerRouteOptimizeRoutes(app);
+  registerAnalyticsRoutes(app);
 
   return httpServer;
 }

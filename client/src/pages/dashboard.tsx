@@ -5,7 +5,35 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Route, Users, Truck, HeartPulse, Building2, UserCheck, MapPin, Activity, Radio, Clock, Navigation, WifiOff, Eye } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import {
+  KpiCard,
+  GlowAreaChart,
+  GlowBarChart,
+  DonutChart,
+  StatusPulse,
+  AnimatedNumber,
+  Sparkline,
+} from "@/components/charts/futuristic-charts";
+import {
+  Route,
+  Users,
+  Truck,
+  HeartPulse,
+  Building2,
+  UserCheck,
+  MapPin,
+  Activity,
+  Radio,
+  Clock,
+  Navigation,
+  WifiOff,
+  Eye,
+  TrendingUp,
+  BarChart3,
+  RefreshCw,
+} from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { authHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -29,20 +57,42 @@ export default function DashboardPage() {
     enabled: !!token,
   });
 
-  const statCards = [
-    { label: t("dashboard.totalTrips"), value: stats?.trips ?? 0, icon: Route, color: "text-blue-500" },
-    { label: t("dashboard.activePatients"), value: stats?.patients ?? 0, icon: HeartPulse, color: "text-rose-500" },
-    { label: t("dashboard.drivers"), value: stats?.drivers ?? 0, icon: UserCheck, color: "text-emerald-500" },
-    { label: t("dashboard.vehicles"), value: stats?.vehicles ?? 0, icon: Truck, color: "text-amber-500" },
-    { label: t("dashboard.clinics"), value: stats?.clinics ?? 0, icon: Building2, color: "text-violet-500" },
-    { label: t("dashboard.users"), value: stats?.users ?? 0, icon: Users, color: "text-cyan-500" },
-  ];
+  // Trend data for sparklines and charts
+  const { data: trendData } = useQuery<any>({
+    queryKey: ["/api/analytics/trends", selectedCity?.id],
+    queryFn: () =>
+      apiFetch(
+        `/api/analytics/trends?days=14${selectedCity ? `&cityId=${selectedCity.id}` : ""}`,
+        token
+      ),
+    enabled: !!token,
+  });
+
+  const trends = trendData?.trends || [];
+  const tripSparkData = trends.map((t: any) => t.total);
+  const completedSparkData = trends.map((t: any) => t.completed);
+  const cancelledSparkData = trends.map((t: any) => t.cancelled);
+  const milesSparkData = trends.map((t: any) => t.totalMiles);
+
+  // Calculate changes from trend data
+  function calcChange(data: number[]): number | undefined {
+    if (data.length < 2) return undefined;
+    const mid = Math.floor(data.length / 2);
+    const first = data.slice(0, mid).reduce((a, b) => a + b, 0) / mid;
+    const second = data.slice(mid).reduce((a, b) => a + b, 0) / (data.length - mid);
+    if (first === 0) return undefined;
+    return ((second - first) / first) * 100;
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-dashboard-title">
+          <h1
+            className="text-2xl font-semibold tracking-tight"
+            data-testid="text-dashboard-title"
+          >
             {t("dashboard.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -64,36 +114,134 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* KPI Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {statCards.map((s) => (
-          <Card key={s.label}>
-            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {s.label}
-              </CardTitle>
-              <s.icon className={`w-4 h-4 ${s.color}`} />
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <Skeleton className="h-8 w-16" />
-              ) : (
-                <p className="text-2xl font-bold" data-testid={`text-stat-${s.label.toLowerCase().replace(/\s/g, '-')}`}>
-                  {s.value}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+        {isLoading ? (
+          <>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Skeleton key={i} className="h-[100px] w-full rounded-xl" />
+            ))}
+          </>
+        ) : (
+          <>
+            <KpiCard
+              title={t("dashboard.totalTrips")}
+              value={stats?.trips ?? 0}
+              icon={<Route className="w-4 h-4 text-blue-500" />}
+              sparkData={tripSparkData}
+              color="blue"
+              change={calcChange(tripSparkData)}
+              changeLabel="vs prev"
+              tooltip="Total number of trips in the system for the selected city"
+            />
+            <KpiCard
+              title={t("dashboard.activePatients")}
+              value={stats?.patients ?? 0}
+              icon={<HeartPulse className="w-4 h-4 text-rose-500" />}
+              color="rose"
+              tooltip="Patients registered and active in the system"
+            />
+            <KpiCard
+              title={t("dashboard.drivers")}
+              value={stats?.drivers ?? 0}
+              icon={<UserCheck className="w-4 h-4 text-emerald-500" />}
+              color="emerald"
+              tooltip="Total registered drivers across all statuses"
+            />
+            <KpiCard
+              title={t("dashboard.vehicles")}
+              value={stats?.vehicles ?? 0}
+              icon={<Truck className="w-4 h-4 text-amber-500" />}
+              color="amber"
+              tooltip="Fleet size — total vehicles registered"
+            />
+            <KpiCard
+              title={t("dashboard.clinics")}
+              value={stats?.clinics ?? 0}
+              icon={<Building2 className="w-4 h-4 text-purple-500" />}
+              color="purple"
+              tooltip="Healthcare facilities partnered with UCM"
+            />
+            <KpiCard
+              title={t("dashboard.users")}
+              value={stats?.users ?? 0}
+              icon={<Users className="w-4 h-4 text-cyan-500" />}
+              color="cyan"
+              tooltip="Platform users across all roles (admin, dispatch, drivers, clinics)"
+            />
+          </>
+        )}
       </div>
 
-      {user && ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"].includes(user.role) && (
-        <DriverPresencePanel />
+      {/* Charts Row */}
+      {trends.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base font-medium">
+                  {t("dashboard.tripTrends", { defaultValue: "Trip Trends" })}
+                </CardTitle>
+                <InfoTooltip content="Daily trip volume over the last 14 days. Shows completed vs total trips to track service delivery." />
+              </div>
+              <TrendingUp className="w-4 h-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <GlowAreaChart
+                data={trends}
+                dataKeys={[
+                  { key: "total", color: "blue", label: "Total" },
+                  { key: "completed", color: "emerald", label: "Completed" },
+                ]}
+                xAxisKey="label"
+                height={240}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base font-medium">
+                  {t("dashboard.statusBreakdown", { defaultValue: "Status Breakdown" })}
+                </CardTitle>
+                <InfoTooltip content="Daily breakdown by trip status — cancelled and no-shows are tracked to identify operational issues." />
+              </div>
+              <BarChart3 className="w-4 h-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <GlowBarChart
+                data={trends}
+                dataKeys={[
+                  { key: "completed", color: "emerald", label: "Completed" },
+                  { key: "cancelled", color: "rose", label: "Cancelled" },
+                  { key: "noShow", color: "amber", label: "No Show" },
+                ]}
+                xAxisKey="label"
+                height={240}
+                stacked
+              />
+            </CardContent>
+          </Card>
+        </div>
       )}
 
+      {/* Driver Presence Panel */}
+      {user &&
+        ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"].includes(
+          user.role
+        ) && <DriverPresencePanel />}
+
+      {/* Recent Activity & Trip Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="text-base font-medium">{t("dashboard.recentActivity")}</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-medium">
+                {t("dashboard.recentActivity")}
+              </CardTitle>
+              <InfoTooltip content="Most recent trips — click any trip to view full details, status, and route info." />
+            </div>
             <Activity className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -102,7 +250,12 @@ export default function DashboardPage() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="text-base font-medium">{t("dashboard.upcomingTrips")}</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-medium">
+                {t("dashboard.upcomingTrips")}
+              </CardTitle>
+              <InfoTooltip content="Current trip status distribution — progress bars show the proportion of each status relative to total." />
+            </div>
             <Route className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -117,7 +270,9 @@ export default function DashboardPage() {
 function RecentTrips() {
   const { token, selectedCity } = useAuth();
   const [, navigate] = useLocation();
-  const cityParam = selectedCity ? `?cityId=${selectedCity.id}&limit=5` : "?limit=5";
+  const cityParam = selectedCity
+    ? `?cityId=${selectedCity.id}&limit=5`
+    : "?limit=5";
 
   const { data: trips, isLoading } = useQuery<any[]>({
     queryKey: ["/api/trips/recent", selectedCity?.id],
@@ -175,7 +330,11 @@ function RecentTrips() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <Badge variant={statusColors[trip.status] as any || "secondary"}>
+            <Badge
+              variant={
+                (statusColors[trip.status] as any) || "secondary"
+              }
+            >
               {trip.status.replace("_", " ")}
             </Badge>
             <Eye className="w-3 h-3 text-muted-foreground" />
@@ -205,39 +364,85 @@ function DriverPresencePanel() {
 
   const { data: stats, isLoading } = useQuery<any>({
     queryKey: ["/api/dashboard/driver-stats", cityId],
-    queryFn: () => apiFetch(`/api/dashboard/driver-stats${cityId ? `?cityId=${cityId}` : ""}`, token),
+    queryFn: () =>
+      apiFetch(
+        `/api/dashboard/driver-stats${cityId ? `?cityId=${cityId}` : ""}`,
+        token
+      ),
     enabled: !!token,
     refetchInterval: 15000,
   });
 
   const buckets = [
-    { key: "active", label: t("dashboard.online"), count: stats?.activeCount ?? 0, icon: Radio, color: "text-emerald-500", dotColor: "bg-emerald-500" },
-    { key: "inRoute", label: t("dashboard.inRoute"), count: stats?.inRouteCount ?? 0, icon: Navigation, color: "text-blue-500", dotColor: "bg-blue-500" },
-    { key: "offline", label: t("dashboard.offHold"), count: stats?.offlineHoldCount ?? stats?.offlineOrPausedCount ?? 0, icon: WifiOff, color: "text-muted-foreground", dotColor: "bg-muted-foreground" },
+    {
+      key: "active",
+      label: t("dashboard.online"),
+      count: stats?.activeCount ?? 0,
+      icon: Radio,
+      color: "text-emerald-500",
+      dotColor: "bg-emerald-500",
+      pulseStatus: "healthy" as const,
+    },
+    {
+      key: "inRoute",
+      label: t("dashboard.inRoute"),
+      count: stats?.inRouteCount ?? 0,
+      icon: Navigation,
+      color: "text-blue-500",
+      dotColor: "bg-blue-500",
+      pulseStatus: "warning" as const,
+    },
+    {
+      key: "offline",
+      label: t("dashboard.offHold"),
+      count: stats?.offlineHoldCount ?? stats?.offlineOrPausedCount ?? 0,
+      icon: WifiOff,
+      color: "text-muted-foreground",
+      dotColor: "bg-muted-foreground",
+      pulseStatus: "offline" as const,
+    },
   ];
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-        <CardTitle className="text-base font-medium flex items-center gap-2" data-testid="text-driver-presence-title">
-          <Radio className="w-4 h-4 text-emerald-500" />
-          {t("dashboard.driverPresence")}
-        </CardTitle>
+        <div className="flex items-center gap-2">
+          <CardTitle
+            className="text-base font-medium flex items-center gap-2"
+            data-testid="text-driver-presence-title"
+          >
+            <Radio className="w-4 h-4 text-emerald-500" />
+            {t("dashboard.driverPresence")}
+          </CardTitle>
+          <InfoTooltip content="Real-time driver status — refreshes every 15 seconds. Online = available for dispatch, In Route = currently on a trip, Off/Hold = offline or paused." />
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
           {buckets.map((b) => (
             <div
               key={b.key}
-              className={`rounded-md border p-3 text-center cursor-pointer hover-elevate ${tab === b.key ? "border-primary" : ""}`}
+              className={`rounded-xl border p-3 text-center cursor-pointer transition-all duration-200 hover:shadow-md ${
+                tab === b.key
+                  ? "border-primary bg-primary/5 shadow-sm"
+                  : "hover:bg-muted/50"
+              }`}
               onClick={() => setTab(b.key)}
               data-testid={`card-bucket-${b.key}`}
             >
-              <b.icon className={`w-4 h-4 mx-auto mb-1 ${b.color}`} />
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <StatusPulse status={b.pulseStatus} size="sm" />
+                <b.icon className={`w-4 h-4 ${b.color}`} />
+              </div>
               {isLoading ? (
                 <Skeleton className="h-6 w-8 mx-auto" />
               ) : (
-                <p className="text-xl font-bold" data-testid={`text-count-${b.key}`}>{b.count}</p>
+                <p
+                  className="text-xl font-bold"
+                  data-testid={`text-count-${b.key}`}
+                >
+                  <AnimatedNumber value={b.count} />
+                </p>
               )}
               <p className="text-xs text-muted-foreground">{b.label}</p>
             </div>
@@ -246,17 +451,37 @@ function DriverPresencePanel() {
 
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="w-full">
-            <TabsTrigger value="active" className="flex-1" data-testid="tab-active">
+            <TabsTrigger
+              value="active"
+              className="flex-1"
+              data-testid="tab-active"
+            >
               {t("dashboard.online")}
-              <Badge variant="secondary" className="ml-1">{stats?.activeCount ?? 0}</Badge>
+              <Badge variant="secondary" className="ml-1">
+                {stats?.activeCount ?? 0}
+              </Badge>
             </TabsTrigger>
-            <TabsTrigger value="inRoute" className="flex-1" data-testid="tab-inroute">
+            <TabsTrigger
+              value="inRoute"
+              className="flex-1"
+              data-testid="tab-inroute"
+            >
               {t("dashboard.inRoute")}
-              <Badge variant="secondary" className="ml-1">{stats?.inRouteCount ?? 0}</Badge>
+              <Badge variant="secondary" className="ml-1">
+                {stats?.inRouteCount ?? 0}
+              </Badge>
             </TabsTrigger>
-            <TabsTrigger value="offline" className="flex-1" data-testid="tab-offline">
+            <TabsTrigger
+              value="offline"
+              className="flex-1"
+              data-testid="tab-offline"
+            >
               {t("dashboard.offHold")}
-              <Badge variant="secondary" className="ml-1">{stats?.offlineHoldCount ?? stats?.offlineOrPausedCount ?? 0}</Badge>
+              <Badge variant="secondary" className="ml-1">
+                {stats?.offlineHoldCount ??
+                  stats?.offlineOrPausedCount ??
+                  0}
+              </Badge>
             </TabsTrigger>
           </TabsList>
 
@@ -265,7 +490,11 @@ function DriverPresencePanel() {
               drivers={stats?.activeDrivers}
               isLoading={isLoading}
               emptyText="No active drivers"
-              renderBadge={() => <Badge variant="default" className="bg-emerald-600">ACTIVE</Badge>}
+              renderBadge={() => (
+                <Badge variant="default" className="bg-emerald-600">
+                  ACTIVE
+                </Badge>
+              )}
               testIdPrefix="active"
             />
           </TabsContent>
@@ -277,12 +506,18 @@ function DriverPresencePanel() {
               emptyText="No drivers in route"
               renderBadge={(d: any) => (
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  <Badge variant="default" className="bg-blue-600">IN ROUTE</Badge>
-                  <Badge variant="secondary">{d.tripStatus?.replace(/_/g, " ")}</Badge>
+                  <Badge variant="default" className="bg-blue-600">
+                    IN ROUTE
+                  </Badge>
+                  <Badge variant="secondary">
+                    {d.tripStatus?.replace(/_/g, " ")}
+                  </Badge>
                 </div>
               )}
               renderExtra={(d: any) => (
-                <span className="text-xs text-muted-foreground">Trip: {d.tripPublicId}</span>
+                <span className="text-xs text-muted-foreground">
+                  Trip: {d.tripPublicId}
+                </span>
               )}
               testIdPrefix="inroute"
             />
@@ -290,12 +525,22 @@ function DriverPresencePanel() {
 
           <TabsContent value="offline">
             <DriverList
-              drivers={stats?.offlineHoldDrivers ?? stats?.offlineOrPausedDrivers}
+              drivers={
+                stats?.offlineHoldDrivers ?? stats?.offlineOrPausedDrivers
+              }
               isLoading={isLoading}
               emptyText="No offline or hold drivers"
               renderBadge={(d: any) => (
-                <Badge variant={d.reason === "hold" ? "secondary" : "outline"}>
-                  {d.reason === "hold" ? "HOLD" : d.reason === "disconnected" ? "DISCONNECTED" : "OFF"}
+                <Badge
+                  variant={
+                    d.reason === "hold" ? "secondary" : "outline"
+                  }
+                >
+                  {d.reason === "hold"
+                    ? "HOLD"
+                    : d.reason === "disconnected"
+                      ? "DISCONNECTED"
+                      : "OFF"}
                 </Badge>
               )}
               testIdPrefix="offline"
@@ -307,7 +552,14 @@ function DriverPresencePanel() {
   );
 }
 
-function DriverList({ drivers, isLoading, emptyText, renderBadge, renderExtra, testIdPrefix }: {
+function DriverList({
+  drivers,
+  isLoading,
+  emptyText,
+  renderBadge,
+  renderExtra,
+  testIdPrefix,
+}: {
   drivers: any[] | undefined;
   isLoading: boolean;
   emptyText: string;
@@ -318,14 +570,19 @@ function DriverList({ drivers, isLoading, emptyText, renderBadge, renderExtra, t
   if (isLoading) {
     return (
       <div className="space-y-3 py-2">
-        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-10 w-full" />
+        ))}
       </div>
     );
   }
 
   if (!drivers?.length) {
     return (
-      <div className="py-6 text-center text-sm text-muted-foreground" data-testid={`text-empty-${testIdPrefix}`}>
+      <div
+        className="py-6 text-center text-sm text-muted-foreground"
+        data-testid={`text-empty-${testIdPrefix}`}
+      >
         {emptyText}
       </div>
     );
@@ -340,7 +597,10 @@ function DriverList({ drivers, isLoading, emptyText, renderBadge, renderExtra, t
           data-testid={`row-driver-${testIdPrefix}-${d.id}`}
         >
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium truncate" data-testid={`text-driver-name-${d.id}`}>
+            <p
+              className="text-sm font-medium truncate"
+              data-testid={`text-driver-name-${d.id}`}
+            >
               {d.name}
             </p>
             {renderExtra && (
@@ -351,7 +611,10 @@ function DriverList({ drivers, isLoading, emptyText, renderBadge, renderExtra, t
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {renderBadge(d)}
-            <span className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-lastseen-${d.id}`}>
+            <span
+              className="text-xs text-muted-foreground flex items-center gap-1"
+              data-testid={`text-lastseen-${d.id}`}
+            >
               <Clock className="w-3 h-3" />
               {formatTimeAgo(d.lastSeenAt)}
             </span>
@@ -397,7 +660,10 @@ function TripStatusSummary() {
     );
   }
 
-  const total = statuses.reduce((acc, s) => acc + (summary?.[s.key] || 0), 0);
+  const total = statuses.reduce(
+    (acc, s) => acc + (summary?.[s.key] || 0),
+    0
+  );
 
   return (
     <div className="space-y-3">
@@ -406,11 +672,16 @@ function TripStatusSummary() {
         const pct = total > 0 ? (count / total) * 100 : 0;
         return (
           <div key={s.key} className="flex items-center gap-3">
-            <div className={`w-2.5 h-2.5 rounded-full ${s.color} flex-shrink-0`} />
+            <div
+              className={`w-2.5 h-2.5 rounded-full ${s.color} flex-shrink-0`}
+            />
             <span className="text-sm flex-1">{s.label}</span>
             <span className="text-sm font-medium tabular-nums">{count}</span>
             <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden flex-shrink-0">
-              <div className={`h-full rounded-full ${s.color}`} style={{ width: `${pct}%` }} />
+              <div
+                className={`h-full rounded-full ${s.color} transition-all duration-500`}
+                style={{ width: `${pct}%` }}
+              />
             </div>
           </div>
         );
