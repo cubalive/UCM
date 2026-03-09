@@ -102,7 +102,7 @@ const FEE_TYPE_LABELS: Record<FeeType, string> = {
 
 function scopeBadge(scope: ScopeType) {
   const variants: Record<ScopeType, string> = {
-    global: "bg-blue-600",
+    global: "bg-emerald-600",
     company: "bg-emerald-600",
     clinic: "bg-purple-600",
     company_clinic: "bg-orange-600",

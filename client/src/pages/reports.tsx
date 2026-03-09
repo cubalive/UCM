@@ -633,7 +633,7 @@ function DriverScoresTab({
                     <span>{s.completedTrips}/{s.totalTrips} completed</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-blue-500" />
+                    <Clock className="w-3 h-3 text-emerald-500" />
                     <span>{Math.round(s.onTimeRate * 100)}% on-time</span>
                   </div>
                   <div className="flex items-center gap-1">

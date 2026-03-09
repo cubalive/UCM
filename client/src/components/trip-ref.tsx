@@ -26,7 +26,7 @@ export function TripRef({ tripId, publicId, label, showIcon = true, className = 
         e.stopPropagation();
         navigate(`/trips/${tripId}`);
       }}
-      className={`inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer font-medium ${textSize} ${className}`}
+      className={`inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline cursor-pointer font-medium ${textSize} ${className}`}
       title={`View Trip ${display}`}
       data-testid={`link-trip-${tripId}`}
     >
@@ -62,7 +62,7 @@ export function InvoiceRef({ invoiceId, invoiceNumber, label, showIcon = true, c
         e.stopPropagation();
         navigate(targetRoute);
       }}
-      className={`inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer font-medium ${textSize} ${className}`}
+      className={`inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline cursor-pointer font-medium ${textSize} ${className}`}
       title={`View Invoice ${display}`}
       data-testid={`link-invoice-${invoiceId}`}
     >

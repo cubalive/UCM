@@ -127,9 +127,9 @@ export default function DashboardPage() {
             <KpiCard
               title={t("dashboard.totalTrips")}
               value={stats?.trips ?? 0}
-              icon={<Route className="w-4 h-4 text-blue-500" />}
+              icon={<Route className="w-4 h-4 text-emerald-500" />}
               sparkData={tripSparkData}
-              color="blue"
+              color="emerald"
               change={calcChange(tripSparkData)}
               changeLabel="vs prev"
               tooltip="Total number of trips in the system for the selected city"
@@ -190,7 +190,7 @@ export default function DashboardPage() {
               <GlowAreaChart
                 data={trends}
                 dataKeys={[
-                  { key: "total", color: "blue", label: "Total" },
+                  { key: "total", color: "emerald", label: "Total" },
                   { key: "completed", color: "emerald", label: "Completed" },
                 ]}
                 xAxisKey="label"
@@ -388,8 +388,8 @@ function DriverPresencePanel() {
       label: t("dashboard.inRoute"),
       count: stats?.inRouteCount ?? 0,
       icon: Navigation,
-      color: "text-blue-500",
-      dotColor: "bg-blue-500",
+      color: "text-emerald-500",
+      dotColor: "bg-emerald-500",
       pulseStatus: "warning" as const,
     },
     {
@@ -506,7 +506,7 @@ function DriverPresencePanel() {
               emptyText="No drivers in route"
               renderBadge={(d: any) => (
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  <Badge variant="default" className="bg-blue-600">
+                  <Badge variant="default" className="bg-emerald-600">
                     IN ROUTE
                   </Badge>
                   <Badge variant="secondary">
@@ -642,7 +642,7 @@ function TripStatusSummary() {
   });
 
   const statuses = [
-    { key: "SCHEDULED", label: "Scheduled", color: "bg-blue-500" },
+    { key: "SCHEDULED", label: "Scheduled", color: "bg-emerald-500" },
     { key: "ASSIGNED", label: "Assigned", color: "bg-indigo-500" },
     { key: "IN_PROGRESS", label: "In Progress", color: "bg-amber-500" },
     { key: "COMPLETED", label: "Completed", color: "bg-emerald-500" },

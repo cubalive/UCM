@@ -166,6 +166,24 @@ export async function updateTariffHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export async function deleteTariffHandler(req: AuthRequest, res: Response) {
+  try {
+    const companyId = requireCompanyOrFail(req, res);
+    if (!companyId) return;
+    const tariffId = parseInt(String(req.params.id));
+
+    const existing = await db.select().from(clinicTariffs).where(eq(clinicTariffs.id, tariffId)).then(r => r[0]);
+    if (!existing || existing.companyId !== companyId) {
+      return res.status(404).json({ message: "Tariff not found" });
+    }
+
+    await db.delete(clinicTariffs).where(eq(clinicTariffs.id, tariffId));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 export async function upsertClinicBillingSettingsHandler(req: AuthRequest, res: Response) {
   try {
     const companyId = requireCompanyOrFail(req, res);

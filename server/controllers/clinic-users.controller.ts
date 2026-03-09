@@ -249,3 +249,45 @@ export async function resetClinicUserPasswordHandler(req: AuthRequest, res: Resp
     res.status(500).json({ message: err.message });
   }
 }
+
+export async function deleteClinicUserHandler(req: AuthRequest, res: Response) {
+  try {
+    const ctx = getCallerClinicContext(req);
+    if (!ctx) {
+      return res.status(403).json({ message: "Clinic context required" });
+    }
+
+    const userId = parseInt(String(req.params.id), 10);
+    if (isNaN(userId)) {
+      return res.status(400).json({ message: "Invalid user ID" });
+    }
+
+    if (userId === req.user!.userId) {
+      return res.status(400).json({ message: "Cannot delete your own account" });
+    }
+
+    const targetUser = await storage.getUser(userId);
+    if (!targetUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (targetUser.clinicId !== ctx.clinicId) {
+      return res.status(403).json({ message: "Cannot delete users outside your clinic" });
+    }
+
+    await db.delete(users).where(and(eq(users.id, userId), eq(users.clinicId, ctx.clinicId)));
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "DELETE",
+      entity: "clinic_user",
+      entityId: userId,
+      details: `Deleted clinic user ${targetUser.email} from clinic ${ctx.clinicId}`,
+      cityId: null,
+    });
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}

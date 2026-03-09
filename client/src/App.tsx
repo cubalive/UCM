@@ -583,7 +583,7 @@ function AuthenticatedApp() {
           <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 max-w-md text-center space-y-4">
             <h2 className="text-xl font-semibold text-white">Access Denied</h2>
             <p className="text-gray-400">This portal is restricted to clinic users only.</p>
-            <button onClick={() => logout()} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Sign Out</button>
+            <button onClick={() => logout()} className="px-6 py-2 bg-emerald-600 text-white rounded-lg">Sign Out</button>
           </div>
         </div>
       );

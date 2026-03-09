@@ -89,7 +89,7 @@ import {
 import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/components/trip-progress-timeline";
 
 const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  SCHEDULED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   ASSIGNED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
   EN_ROUTE_TO_PICKUP: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
   ARRIVED_PICKUP: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
@@ -279,7 +279,7 @@ function DialysisReturnDialog({ tripId, onDismiss }: { tripId: number; onDismiss
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2" data-testid="text-dialysis-return-title">
-            <Repeat className="w-4 h-4 text-blue-500" />
+            <Repeat className="w-4 h-4 text-emerald-500" />
             Dialysis Return Trip Adjustment
           </DialogTitle>
         </DialogHeader>
@@ -298,7 +298,7 @@ function DialysisReturnDialog({ tripId, onDismiss }: { tripId: number; onDismiss
             <Card>
               <CardContent className="py-3 px-4 text-center">
                 <p className="text-xs text-muted-foreground mb-1">Proposed Time</p>
-                <p className="text-lg font-bold text-blue-600 dark:text-blue-400" data-testid="text-proposed-return-time">{data.proposedReturnPickupTime}</p>
+                <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-proposed-return-time">{data.proposedReturnPickupTime}</p>
               </CardContent>
             </Card>
           </div>
@@ -407,7 +407,7 @@ function OpsDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <LayoutDashboard className="w-4 h-4 text-blue-500" />
+          <LayoutDashboard className="w-4 h-4 text-emerald-500" />
           <h2 className="text-sm font-semibold" data-testid="text-ops-title">Operations Overview</h2>
           {clinic?.name && (
             <Badge variant="secondary" data-testid="text-clinic-name">{clinic.name}</Badge>
@@ -427,7 +427,7 @@ function OpsDashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="grid-kpi-cards">
           <Card data-testid="card-kpi-en-route">
             <CardContent className="py-3 px-4 text-center">
-              <ArrowUpRight className="w-5 h-5 mx-auto mb-1 text-blue-500" />
+              <ArrowUpRight className="w-5 h-5 mx-auto mb-1 text-emerald-500" />
               <p className="text-2xl font-bold" data-testid="text-kpi-en-route">{kpis.enRouteToClinic ?? 0}</p>
               <p className="text-xs text-muted-foreground">En Route to Clinic</p>
             </CardContent>
@@ -476,7 +476,7 @@ function OpsDashboard() {
           </Card>
           <Card data-testid="card-kpi-recurring">
             <CardContent className="py-3 px-4 text-center">
-              <Repeat className="w-5 h-5 mx-auto mb-1 text-blue-500" />
+              <Repeat className="w-5 h-5 mx-auto mb-1 text-emerald-500" />
               <p className="text-2xl font-bold" data-testid="text-kpi-recurring">{kpis.recurringActive ?? 0}</p>
               <p className="text-xs text-muted-foreground">Recurring Active</p>
             </CardContent>
@@ -702,7 +702,7 @@ function LiveTripCards({ trips, selectedTrip, onSelectTrip }: {
           return (
             <Card
               key={trip.tripId}
-              className={`cursor-pointer transition-colors ${isSelected ? "ring-2 ring-blue-500" : ""} ${isCancelRequested ? "opacity-70" : ""}`}
+              className={`cursor-pointer transition-colors ${isSelected ? "ring-2 ring-emerald-500" : ""} ${isCancelRequested ? "opacity-70" : ""}`}
               onClick={() => onSelectTrip(trip)}
               data-testid={`card-live-trip-${trip.tripId}`}
             >
@@ -735,7 +735,7 @@ function LiveTripCards({ trips, selectedTrip, onSelectTrip }: {
                       </div>
                     ) : trip.etaToClinic != null ? (
                       <div data-testid={`text-eta-clinic-${trip.tripId}`}>
-                        <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                        <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
                           Arriving in ~{trip.etaToClinic} min
                         </span>
                         {trip.etaUpdatedAt && (
@@ -909,13 +909,13 @@ function AlertPanel({ alerts }: { alerts: any[] }) {
   function severityColor(severity: string) {
     if (severity === "danger") return "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800";
     if (severity === "warning") return "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800";
-    return "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800";
+    return "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800";
   }
 
   function severityIcon(severity: string) {
     if (severity === "danger") return <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />;
     if (severity === "warning") return <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0" />;
-    return <Activity className="w-4 h-4 text-blue-500 flex-shrink-0" />;
+    return <Activity className="w-4 h-4 text-emerald-500 flex-shrink-0" />;
   }
 
   return (
@@ -1261,7 +1261,7 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <MapIcon className="w-4 h-4 text-blue-500" />
+        <MapIcon className="w-4 h-4 text-emerald-500" />
         <h3 className="text-sm font-semibold" data-testid="text-ops-map-title">Active Trips Map</h3>
         <Badge variant="secondary">{activeTrips.length} trip{activeTrips.length !== 1 ? "s" : ""}</Badge>
       </div>
@@ -1290,7 +1290,7 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
         </Card>
       ) : null}
       <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" /> Clinic</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" /> Clinic</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> On Time</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> At Risk</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Late</span>
@@ -1317,7 +1317,7 @@ function ArrivalsBoard({ activeTrips, onTrack }: { activeTrips: any[]; onTrack: 
     return (
       <div>
         <div className="flex items-center gap-2 mb-2">
-          <Activity className="w-4 h-4 text-blue-500" />
+          <Activity className="w-4 h-4 text-emerald-500" />
           <h3 className="text-sm font-semibold" data-testid="text-arrivals-title">Live Arrivals Board</h3>
         </div>
         <Card>
@@ -1332,7 +1332,7 @@ function ArrivalsBoard({ activeTrips, onTrack }: { activeTrips: any[]; onTrack: 
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <Activity className="w-4 h-4 text-blue-500" />
+        <Activity className="w-4 h-4 text-emerald-500" />
         <h3 className="text-sm font-semibold" data-testid="text-arrivals-title">Live Arrivals Board</h3>
         <Badge variant="secondary">{sorted.length}</Badge>
       </div>
@@ -1378,7 +1378,7 @@ function ArrivalsBoard({ activeTrips, onTrack }: { activeTrips: any[]; onTrack: 
                 </TableCell>
                 <TableCell className="py-2">
                   {trip.eta?.minutes != null ? (
-                    <span className="text-sm font-bold text-blue-600 dark:text-blue-400" data-testid={`text-arrival-eta-${trip.tripId}`}>
+                    <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400" data-testid={`text-arrival-eta-${trip.tripId}`}>
                       {trip.eta.minutes}m
                     </span>
                   ) : (
@@ -1641,7 +1641,7 @@ function PerformanceSection() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <BarChart3 className="w-4 h-4 text-blue-500" />
+          <BarChart3 className="w-4 h-4 text-emerald-500" />
           <h2 className="text-sm font-semibold" data-testid="text-performance-title">Performance Metrics</h2>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -2381,7 +2381,7 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
                 </div>
                 <div className="text-right space-y-1">
                   {route?.etaMinutes != null && (
-                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                    <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                       <Navigation className="w-4 h-4" />
                       {route.etaMinutes} min
                     </p>
@@ -2943,7 +2943,7 @@ function InvoicePanel({ tripId, tripStatus }: { tripId: number; tripStatus: stri
 
   const statusColors: Record<string, string> = {
     pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-    approved: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    approved: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
     paid: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   };
 
@@ -3147,7 +3147,7 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
           </div>
           <div className="flex items-center gap-4 flex-wrap text-sm mt-1">
             <span className="flex items-center gap-1" data-testid="text-distance">
-              <Navigation className="w-3.5 h-3.5 text-blue-500" />
+              <Navigation className="w-3.5 h-3.5 text-emerald-500" />
               {trip.distanceMiles != null ? `${parseFloat(trip.distanceMiles).toFixed(1)} miles` : "\u2014"}
             </span>
             {trip.durationMinutes != null && (
@@ -3401,7 +3401,7 @@ function TripDetail({ trip, onTrack }: { trip: any; onTrack: () => void }) {
         <div className="flex items-center gap-4 text-sm flex-wrap">
           {trip.lastEtaMinutes != null && (
             <span className="flex items-center gap-1 font-medium">
-              <Navigation className="w-3.5 h-3.5 text-blue-500" />
+              <Navigation className="w-3.5 h-3.5 text-emerald-500" />
               ETA: {trip.lastEtaMinutes} min
             </span>
           )}
@@ -3557,7 +3557,7 @@ function ClinicLiveTracking({ tripId, token }: { tripId: number; token: string |
           </span>
           {eta && !data.hide_eta && (
             <span className="flex items-center gap-1 font-medium" data-testid="text-live-eta">
-              <Navigation className="w-3.5 h-3.5 text-blue-500" />
+              <Navigation className="w-3.5 h-3.5 text-emerald-500" />
               ETA: {eta.minutes} min{eta.distance_miles != null ? ` (${eta.distance_miles.toFixed(1)} mi)` : ""}
               <span className="text-xs text-muted-foreground ml-1">
                 to {eta.destination}

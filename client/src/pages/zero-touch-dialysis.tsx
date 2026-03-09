@@ -109,7 +109,7 @@ function StatusBadge({ status }: { status: string }) {
     return <Badge variant="destructive" data-testid={`badge-status-${normalized}`}>{status}</Badge>;
   }
   if (["in_progress", "en_route", "on_trip"].includes(normalized)) {
-    return <Badge variant="default" className="bg-blue-600" data-testid={`badge-status-${normalized}`}>{status}</Badge>;
+    return <Badge variant="default" className="bg-emerald-600" data-testid={`badge-status-${normalized}`}>{status}</Badge>;
   }
   return <Badge variant="secondary" data-testid={`badge-status-${normalized}`}>{status}</Badge>;
 }

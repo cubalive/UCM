@@ -94,7 +94,7 @@ export function DashboardHeader() {
 
   return (
     <header
-      className="flex items-center gap-3 h-16 px-4 border-b bg-background/80 backdrop-blur-xl flex-shrink-0 shadow-sm sticky top-0"
+      className="flex items-center gap-3 h-16 px-4 border-b bg-background/80 backdrop-blur-xl flex-shrink-0 shadow-sm sticky top-0 scan-line"
       style={{ zIndex: 50 }}
       data-testid="dashboard-header"
     >

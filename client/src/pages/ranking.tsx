@@ -46,7 +46,7 @@ function getQuarterOptions() {
 }
 
 function percentileColor(p: number) {
-  if (p >= 90) return "text-blue-600 dark:text-blue-400";
+  if (p >= 90) return "text-emerald-600 dark:text-emerald-400";
   if (p >= 75) return "text-green-600 dark:text-green-400";
   if (p >= 50) return "text-yellow-600 dark:text-yellow-400";
   return "text-red-600 dark:text-red-400";

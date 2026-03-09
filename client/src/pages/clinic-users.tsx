@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Users, UserPlus, Shield, Eye, Edit2, KeyRound, Copy, Check } from "lucide-react";
+import { Users, UserPlus, Shield, Eye, Edit2, KeyRound, Copy, Check, Trash2 } from "lucide-react";
 
 interface ClinicUser {
   id: number;
@@ -99,6 +99,16 @@ export default function ClinicUsersPage() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (userId: number) =>
+      apiFetch(`/api/clinic/users/${userId}`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/users"] });
+      toast({ title: "User deleted", description: "User has been permanently removed" });
+    },
+    onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
+  });
+
   const clinicUsers = usersQuery.data || [];
 
   const copyToClipboard = (text: string) => {
@@ -142,7 +152,7 @@ export default function ClinicUsersPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
-              <Users className="h-5 w-5 text-blue-500" />
+              <Users className="h-5 w-5 text-emerald-500" />
               <div>
                 <p className="text-2xl font-bold" data-testid="text-staff-count">
                   {clinicUsers.filter(u => u.role === "CLINIC_USER").length}
@@ -220,6 +230,20 @@ export default function ClinicUsersPage() {
                           data-testid={`button-reset-password-${u.id}`}
                         >
                           <KeyRound className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => {
+                            if (window.confirm(`Delete user ${u.firstName} ${u.lastName}? This cannot be undone.`)) {
+                              deleteMutation.mutate(u.id);
+                            }
+                          }}
+                          disabled={deleteMutation.isPending}
+                          data-testid={`button-delete-user-${u.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     )}

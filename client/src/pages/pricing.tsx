@@ -343,7 +343,7 @@ export default function PricingPage() {
 
           <TabsContent value="tariffs" className="mt-4 space-y-4">
             {renderCategory("core", "Core Rates", <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />)}
-            {renderCategory("surcharges", "Surcharges", <Truck className="h-4 w-4 text-blue-600 dark:text-blue-400" />)}
+            {renderCategory("surcharges", "Surcharges", <Truck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />)}
             {renderCategory("fees", "Fees & Wait Time", <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />)}
             {renderCategory("peak", "Peak Hour Windows", <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400" />)}
 

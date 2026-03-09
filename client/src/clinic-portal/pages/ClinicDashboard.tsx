@@ -87,7 +87,7 @@ const ALERT_ICONS: Record<string, any> = {
 const ALERT_COLORS: Record<string, { bg: string; border: string; text: string; icon: string }> = {
   danger: { bg: "bg-red-500/10", border: "border-red-500/30", text: "text-red-400", icon: "text-red-400" },
   warning: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", icon: "text-amber-400" },
-  info: { bg: "bg-blue-500/10", border: "border-blue-500/30", text: "text-blue-400", icon: "text-blue-400" },
+  info: { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400", icon: "text-emerald-400" },
 };
 
 function ArrivalRadarMap({ trips, clinic }: { trips: any[]; clinic: any }) {
@@ -301,7 +301,7 @@ const CONFIDENCE_COLORS: Record<string, { bg: string; text: string }> = {
 function PaywallCard() {
   return (
     <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 relative overflow-hidden" data-testid="paywall-card">
-      <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5" />
+      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-emerald-500/5" />
       <div className="relative">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 bg-purple-500/10 rounded-lg flex items-center justify-center">
@@ -402,7 +402,7 @@ function PredictiveLoadCard({ forecast, summary }: { forecast: any[]; summary: a
                 </span>
                 <div className="flex-1 h-4 bg-[#0a0f1e] rounded-sm overflow-hidden relative">
                   <div
-                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-purple-500/40 to-blue-500/40 rounded-sm"
+                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-500/40 to-teal-500/40 rounded-sm"
                     style={{ width: `${pct}%` }}
                   />
                   <div className="absolute inset-0 flex items-center px-1.5 justify-between">
@@ -482,7 +482,7 @@ function CapacityForecastCard({ capacity }: { capacity: any }) {
               <span className="text-gray-500 font-mono text-[10px]">{bucket.bucketStart}–{bucket.bucketEnd}</span>
               <div className="flex items-center gap-3">
                 {bucket.driversNeededAmb > 0 && (
-                  <span className="text-blue-400">{bucket.driversNeededAmb} amb</span>
+                  <span className="text-emerald-400">{bucket.driversNeededAmb} amb</span>
                 )}
                 {bucket.driversNeededWc > 0 && (
                   <span className="text-amber-400">{bucket.driversNeededWc} wc</span>
@@ -610,7 +610,7 @@ export default function ClinicDashboard() {
         {statCards.map((stat) => (
           <div
             key={stat.testId}
-            className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 hover:border-blue-500/30 transition-colors"
+            className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 hover:border-emerald-500/30 transition-colors"
             data-testid={stat.testId}
           >
             <div className="flex items-center justify-between mb-3">
@@ -738,17 +738,17 @@ export default function ClinicDashboard() {
         {quickActions.map((action) => (
           <Link key={action.testId} href={action.href}>
             <div
-              className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 hover:border-blue-500/30 hover:bg-[#111827]/80 transition-all cursor-pointer group"
+              className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 hover:border-emerald-500/30 hover:bg-[#111827]/80 transition-all cursor-pointer group"
               data-testid={action.testId}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center">
-                    <action.icon className="w-5 h-5 text-blue-400" />
+                  <div className="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center">
+                    <action.icon className="w-5 h-5 text-emerald-400" />
                   </div>
                   <span className="text-sm font-medium text-white">{action.label}</span>
                 </div>
-                <ArrowRight className="w-4 h-4 text-gray-600 group-hover:text-blue-400 transition-colors" />
+                <ArrowRight className="w-4 h-4 text-gray-600 group-hover:text-emerald-400 transition-colors" />
               </div>
             </div>
           </Link>
@@ -763,7 +763,7 @@ export default function ClinicDashboard() {
               Active Trips
             </h2>
             <Link href="/live">
-              <span className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer" data-testid="link-view-live">
+              <span className="text-xs text-emerald-400 hover:text-emerald-300 cursor-pointer" data-testid="link-view-live">
                 View Live Map
               </span>
             </Link>
@@ -772,8 +772,8 @@ export default function ClinicDashboard() {
             {(activeTrips as any[]).slice(0, 5).map((trip: any) => (
               <div key={trip.id} className="px-5 py-3 flex items-center justify-between hover:bg-white/[0.02]" data-testid={`active-trip-${trip.id}`}>
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-blue-500/10 rounded-full flex items-center justify-center">
-                    <Car className="w-4 h-4 text-blue-400" />
+                  <div className="w-8 h-8 bg-emerald-500/10 rounded-full flex items-center justify-center">
+                    <Car className="w-4 h-4 text-emerald-400" />
                   </div>
                   <div>
                     <p className="text-sm text-white">{trip.patientName || "Patient"}</p>
@@ -781,7 +781,7 @@ export default function ClinicDashboard() {
                   </div>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                  trip.status === "EN_ROUTE_PICKUP" ? "bg-blue-500/10 text-blue-400" :
+                  trip.status === "EN_ROUTE_PICKUP" ? "bg-emerald-500/10 text-emerald-400" :
                   trip.status === "EN_ROUTE_DROPOFF" ? "bg-cyan-500/10 text-cyan-400" :
                   trip.status === "ARRIVED_PICKUP" ? "bg-amber-500/10 text-amber-400" :
                   "bg-gray-500/10 text-gray-400"

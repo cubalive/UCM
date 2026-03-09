@@ -115,7 +115,7 @@ export default function ClinicTripRequestDetail() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -125,7 +125,7 @@ export default function ClinicTripRequestDetail() {
       <div className="p-6 text-center text-gray-500">
         <p>Trip request not found</p>
         <Link href="/requests">
-          <button className="mt-4 text-blue-400 hover:text-blue-300 text-sm">Back to requests</button>
+          <button className="mt-4 text-emerald-400 hover:text-emerald-300 text-sm">Back to requests</button>
         </Link>
       </div>
     );
@@ -256,7 +256,7 @@ export default function ClinicTripRequestDetail() {
 
         <div className="bg-[#111827] border border-[#1e293b] rounded-xl flex flex-col h-[500px]" data-testid="chat-panel">
           <div className="p-4 border-b border-[#1e293b] flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-blue-400" />
+            <MessageSquare className="w-4 h-4 text-emerald-400" />
             <h3 className="text-sm font-semibold text-gray-300">Messages</h3>
             <span className="text-xs text-gray-500 ml-auto">{messages.length} messages</span>
           </div>
@@ -281,7 +281,7 @@ export default function ClinicTripRequestDetail() {
                     <div
                       className={`max-w-[80%] rounded-xl px-4 py-2.5 ${
                         isClinicSide
-                          ? "bg-blue-600/20 border border-blue-500/20 text-blue-100"
+                          ? "bg-emerald-600/20 border border-emerald-500/20 text-emerald-100"
                           : "bg-[#0a0f1e] border border-[#1e293b] text-gray-200"
                       }`}
                     >
@@ -306,13 +306,13 @@ export default function ClinicTripRequestDetail() {
               value={messageInput}
               onChange={(e) => setMessageInput(e.target.value)}
               placeholder="Type a message..."
-              className="flex-1 px-3 py-2 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+              className="flex-1 px-3 py-2 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
               data-testid="input-chat-message"
             />
             <button
               type="submit"
               disabled={sendMessageMutation.isPending || !messageInput.trim()}
-              className="p-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+              className="p-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg transition-colors"
               data-testid="button-send-message"
             >
               {sendMessageMutation.isPending ? (

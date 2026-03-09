@@ -33,6 +33,7 @@ import {
   createClinicUserHandler,
   updateClinicUserHandler,
   resetClinicUserPasswordHandler,
+  deleteClinicUserHandler,
 } from "../controllers/clinic-users.controller";
 
 export function registerClinicPortalRoutes(app: Express) {
@@ -63,6 +64,7 @@ export function registerClinicPortalRoutes(app: Express) {
   app.post("/api/clinic/users", authMiddleware, requireClinicAdmin as any, createClinicUserHandler as any);
   app.patch("/api/clinic/users/:id", authMiddleware, requireClinicAdmin as any, updateClinicUserHandler as any);
   app.post("/api/clinic/users/:id/reset", authMiddleware, requireClinicAdmin as any, resetClinicUserPasswordHandler as any);
+  app.delete("/api/clinic/users/:id", authMiddleware, requireClinicAdmin as any, deleteClinicUserHandler as any);
 
   app.get("/api/admin/clinic-features", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH") as any, adminAllClinicFeaturesHandler as any);
   app.get("/api/admin/clinic-features/:clinicId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH") as any, adminClinicFeaturesListHandler as any);

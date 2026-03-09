@@ -456,31 +456,31 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
   return (
     <div className="space-y-4">
       {isRunning && (
-        <Card className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20" data-testid="card-running-banner">
+        <Card className="border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950/20" data-testid="card-running-banner">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-2">
-              <Loader2 className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
+              <Loader2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 animate-spin shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-medium text-blue-800 dark:text-blue-300">
+                <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
                   Import running{progress?.entity ? ` — processing ${progress.entity}` : ""}
                 </p>
-                <p className="text-xs text-blue-700 dark:text-blue-400 mt-0.5">
+                <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5">
                   {progress ? `${progress.current} / ${progress.total} rows (${progressPercent}%)` : "Starting..."}
                 </p>
               </div>
             </div>
-            <div className="w-full bg-blue-200 dark:bg-blue-900 rounded-md h-3 overflow-hidden" data-testid="div-progress-bar">
+            <div className="w-full bg-emerald-200 dark:bg-emerald-900 rounded-md h-3 overflow-hidden" data-testid="div-progress-bar">
               <div
-                className="h-full bg-blue-600 dark:bg-blue-400 rounded-md transition-all duration-500"
+                className="h-full bg-emerald-600 dark:bg-emerald-400 rounded-md transition-all duration-500"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
             {progress?.results && Object.keys(progress.results).length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                 {Object.entries(progress.results).map(([entity, r]: [string, any]) => (
-                  <div key={entity} className="bg-blue-100 dark:bg-blue-900/50 rounded-md p-1.5 text-center">
+                  <div key={entity} className="bg-emerald-100 dark:bg-emerald-900/50 rounded-md p-1.5 text-center">
                     <div className="font-medium capitalize">{entity}</div>
-                    <div className="text-blue-700 dark:text-blue-300">{r.inserted} ins / {r.updated} upd</div>
+                    <div className="text-emerald-700 dark:text-emerald-300">{r.inserted} ins / {r.updated} upd</div>
                   </div>
                 ))}
               </div>

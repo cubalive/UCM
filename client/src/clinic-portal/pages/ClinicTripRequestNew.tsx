@@ -171,7 +171,7 @@ export default function ClinicTripRequestNew() {
                   placeholder="Search patients..."
                   value={patientSearch}
                   onChange={(e) => setPatientSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  className="w-full pl-10 pr-4 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
                   data-testid="input-patient-search"
                 />
               </div>
@@ -196,7 +196,7 @@ export default function ClinicTripRequestNew() {
               <button
                 type="button"
                 onClick={() => setShowNewPatient(!showNewPatient)}
-                className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+                className="flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300"
                 data-testid="button-toggle-new-patient"
               >
                 <Plus className="w-4 h-4" />
@@ -212,7 +212,7 @@ export default function ClinicTripRequestNew() {
                         type="text"
                         value={newPatientForm.firstName}
                         onChange={(e) => setNewPatientForm({ ...newPatientForm, firstName: e.target.value })}
-                        className="w-full px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                        className="w-full px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-white text-sm focus:border-emerald-500 focus:outline-none"
                         data-testid="input-patient-first-name"
                       />
                     </div>
@@ -222,7 +222,7 @@ export default function ClinicTripRequestNew() {
                         type="text"
                         value={newPatientForm.lastName}
                         onChange={(e) => setNewPatientForm({ ...newPatientForm, lastName: e.target.value })}
-                        className="w-full px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                        className="w-full px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-white text-sm focus:border-emerald-500 focus:outline-none"
                         data-testid="input-patient-last-name"
                       />
                     </div>
@@ -234,7 +234,7 @@ export default function ClinicTripRequestNew() {
                         type="text"
                         value={newPatientForm.phone}
                         onChange={(e) => setNewPatientForm({ ...newPatientForm, phone: e.target.value })}
-                        className="w-full px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                        className="w-full px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-white text-sm focus:border-emerald-500 focus:outline-none"
                         data-testid="input-patient-phone"
                       />
                     </div>
@@ -244,7 +244,7 @@ export default function ClinicTripRequestNew() {
                         type="date"
                         value={newPatientForm.dateOfBirth}
                         onChange={(e) => setNewPatientForm({ ...newPatientForm, dateOfBirth: e.target.value })}
-                        className="w-full px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                        className="w-full px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-white text-sm focus:border-emerald-500 focus:outline-none"
                         data-testid="input-patient-dob"
                       />
                     </div>
@@ -328,7 +328,7 @@ export default function ClinicTripRequestNew() {
                 type="date"
                 value={form.scheduledDate}
                 onChange={(e) => setForm({ ...form, scheduledDate: e.target.value })}
-                className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm focus:border-emerald-500 focus:outline-none"
                 data-testid="input-date"
               />
             </div>
@@ -338,7 +338,7 @@ export default function ClinicTripRequestNew() {
                 type="time"
                 value={form.scheduledTime}
                 onChange={(e) => setForm({ ...form, scheduledTime: e.target.value })}
-                className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm focus:border-emerald-500 focus:outline-none"
                 data-testid="input-time"
               />
             </div>
@@ -350,7 +350,7 @@ export default function ClinicTripRequestNew() {
               <select
                 value={form.serviceLevel}
                 onChange={(e) => setForm({ ...form, serviceLevel: e.target.value })}
-                className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm focus:border-emerald-500 focus:outline-none"
                 data-testid="select-service-level"
               >
                 <option value="ambulatory">Ambulatory</option>
@@ -366,7 +366,7 @@ export default function ClinicTripRequestNew() {
                 max={10}
                 value={form.passengerCount}
                 onChange={(e) => setForm({ ...form, passengerCount: parseInt(e.target.value) || 1 })}
-                className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+                className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm focus:border-emerald-500 focus:outline-none"
                 data-testid="input-passengers"
               />
             </div>
@@ -390,7 +390,7 @@ export default function ClinicTripRequestNew() {
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               placeholder="Any additional instructions or notes..."
               rows={3}
-              className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none resize-none"
+              className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none resize-none"
               data-testid="input-notes"
             />
           </div>
@@ -399,7 +399,7 @@ export default function ClinicTripRequestNew() {
         <button
           type="submit"
           disabled={createRequestMutation.isPending}
-          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-colors"
           data-testid="button-submit-request"
         >
           {createRequestMutation.isPending ? (

@@ -135,7 +135,7 @@ function getNavLabel(trip: { status: string }): string {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  SCHEDULED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   ASSIGNED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
   EN_ROUTE_TO_PICKUP: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
   ARRIVED_PICKUP: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
@@ -512,7 +512,7 @@ function GpsStatusBanner({ status, lastSentTime, onRequestPermission }: {
 }) {
   if (status === "gps_active") return null;
   const config: Record<Exclude<GpsStatus, "gps_active">, { bg: string; icon: any; label: string; sublabel?: string; action?: boolean }> = {
-    permission_needed: { bg: "bg-blue-600", icon: LocateFixed, label: "Location permission needed", action: true },
+    permission_needed: { bg: "bg-emerald-600", icon: LocateFixed, label: "Location permission needed", action: true },
     gps_stale: { bg: "bg-amber-600", icon: Satellite, label: "GPS signal stale", sublabel: lastSentTime ? `Last update ${formatTimeSince(lastSentTime)}` : "No recent update" },
     offline: { bg: "bg-red-700", icon: WifiOff, label: "Device offline", sublabel: "Locations queued for retry" },
     watch_error: { bg: "bg-amber-600", icon: AlertTriangle, label: "GPS signal lost", sublabel: "Attempting to reconnect..." },
@@ -667,7 +667,7 @@ function NavChooser({ trip, onClose }: { trip: ActiveTripData; onClose: () => vo
         </div>
         <CardContent className="py-4 space-y-3">
           <Button variant="outline" className="w-full justify-start gap-3 min-h-[48px] text-base" onClick={() => handleSelect("google")} data-testid="button-nav-google">
-            <MapPin className="w-6 h-6 text-blue-500" /> <span>Google Maps</span> <ExternalLink className="w-4 h-4 ml-auto text-muted-foreground" />
+            <MapPin className="w-6 h-6 text-emerald-500" /> <span>Google Maps</span> <ExternalLink className="w-4 h-4 ml-auto text-muted-foreground" />
           </Button>
           <Button variant="outline" className="w-full justify-start gap-3 min-h-[48px] text-base" onClick={() => handleSelect("waze")} data-testid="button-nav-waze">
             <Navigation className="w-6 h-6 text-cyan-500" /> <span>Waze</span> <ExternalLink className="w-4 h-4 ml-auto text-muted-foreground" />
@@ -861,22 +861,22 @@ function WaitingTimer({ trip, token, onStatusChange }: {
 
   return (
     <>
-      <div className={`rounded-lg border px-4 py-3 space-y-2 ${isExpired ? "bg-orange-50 dark:bg-orange-950/30 border-orange-300 dark:border-orange-800" : "bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-800"}`} data-testid="waiting-timer">
+      <div className={`rounded-lg border px-4 py-3 space-y-2 ${isExpired ? "bg-orange-50 dark:bg-orange-950/30 border-orange-300 dark:border-orange-800" : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800"}`} data-testid="waiting-timer">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Timer className={`w-5 h-5 flex-shrink-0 ${isExpired ? "text-orange-600" : "text-blue-600"}`} />
+            <Timer className={`w-5 h-5 flex-shrink-0 ${isExpired ? "text-orange-600" : "text-emerald-600"}`} />
             <span className="text-sm font-semibold" data-testid="waiting-timer-label">
               {isExpired ? "Wait time expired" : "Waiting for patient"}
             </span>
           </div>
-          <span className={`text-lg font-mono font-bold tabular-nums ${isExpired ? "text-orange-700 dark:text-orange-400" : "text-blue-700 dark:text-blue-400"}`} data-testid="waiting-timer-countdown">
+          <span className={`text-lg font-mono font-bold tabular-nums ${isExpired ? "text-orange-700 dark:text-orange-400" : "text-emerald-700 dark:text-emerald-400"}`} data-testid="waiting-timer-countdown">
             {isExpired ? "0:00" : timeStr}
           </span>
         </div>
 
         <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all duration-1000 ${isExpired ? "bg-orange-500" : "bg-blue-500"}`}
+            className={`h-full rounded-full transition-all duration-1000 ${isExpired ? "bg-orange-500" : "bg-emerald-500"}`}
             style={{ width: `${progressPct}%` }}
             data-testid="waiting-timer-progress"
           />
@@ -890,7 +890,7 @@ function WaitingTimer({ trip, token, onStatusChange }: {
                   variant="outline"
                   onClick={() => extendMutation.mutate()}
                   disabled={extendMutation.isPending}
-                  className="flex-1 min-h-[44px] border-blue-300 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                  className="flex-1 min-h-[44px] border-emerald-300 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
                   data-testid="button-waiting-extend"
                 >
                   <Plus className="w-4 h-4 mr-1" /> Extend +5 min
@@ -926,7 +926,7 @@ function WaitingTimer({ trip, token, onStatusChange }: {
                 size="sm"
                 onClick={() => extendMutation.mutate()}
                 disabled={extendMutation.isPending}
-                className="text-xs text-blue-600 dark:text-blue-400 h-7 px-2"
+                className="text-xs text-emerald-600 dark:text-emerald-400 h-7 px-2"
                 data-testid="button-waiting-extend-early"
               >
                 <Plus className="w-3 h-3 mr-1" /> Extend +5 min
@@ -1438,7 +1438,7 @@ function HomePage({
               <Button
                 onClick={handleConnect}
                 disabled={connectMutation.isPending}
-                className="w-full min-h-[56px] text-lg bg-blue-600 hover:bg-blue-700 text-white"
+                className="w-full min-h-[56px] text-lg bg-emerald-600 hover:bg-emerald-700 text-white"
                 data-testid="button-connect"
               >
                 {connectMutation.isPending ? <Loader2 className="w-6 h-6 mr-2 animate-spin" /> : <Power className="w-6 h-6 mr-2" />}
@@ -1449,10 +1449,10 @@ function HomePage({
 
           {driverState === "CONNECTED_OFF_SHIFT" && (
             <div className="text-center space-y-4">
-              <div className="w-20 h-20 rounded-full bg-blue-100 dark:bg-blue-900/30 mx-auto flex items-center justify-center">
-                <Power className="w-10 h-10 text-blue-600" />
+              <div className="w-20 h-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 mx-auto flex items-center justify-center">
+                <Power className="w-10 h-10 text-emerald-600" />
               </div>
-              <p className="text-lg font-semibold text-blue-600" data-testid="text-status-connected">CONNECTED</p>
+              <p className="text-lg font-semibold text-emerald-600" data-testid="text-status-connected">CONNECTED</p>
               <p className="text-sm text-muted-foreground">You're connected. Start your shift to begin tracking and payroll.</p>
               <Button
                 onClick={() => shiftStartMutation.mutate()}
@@ -1482,7 +1482,7 @@ function HomePage({
                 <Satellite className="w-10 h-10 text-green-600" />
               </div>
               <div className="flex items-center justify-center gap-2">
-                <Badge variant="outline" className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-blue-300" data-testid="badge-connected-on-shift">
+                <Badge variant="outline" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 border-emerald-300" data-testid="badge-connected-on-shift">
                   <Power className="w-3 h-3 mr-1" /> Connected
                 </Badge>
               </div>
@@ -1513,7 +1513,7 @@ function HomePage({
                 <Coffee className="w-10 h-10 text-amber-600" />
               </div>
               <div className="flex items-center justify-center gap-2">
-                <Badge variant="outline" className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-blue-300" data-testid="badge-connected-on-break">
+                <Badge variant="outline" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 border-emerald-300" data-testid="badge-connected-on-break">
                   <Power className="w-3 h-3 mr-1" /> Connected
                 </Badge>
               </div>
@@ -2235,7 +2235,7 @@ function ShiftSwapsSection({ token }: { token: string | null }) {
   const statusBadgeClass: Record<string, string> = {
     PENDING_TARGET: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
     DECLINED_TARGET: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-    ACCEPTED_TARGET: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    ACCEPTED_TARGET: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
     PENDING_DISPATCH: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
     APPROVED_DISPATCH: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
     REJECTED_DISPATCH: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
@@ -2832,7 +2832,7 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
           <p className="text-sm text-muted-foreground">Choose your default navigation app for driving directions.</p>
           <div className="space-y-2">
             {([
-              { id: "google" as NavApp, label: "Google Maps", icon: MapPin, color: "text-blue-500" },
+              { id: "google" as NavApp, label: "Google Maps", icon: MapPin, color: "text-emerald-500" },
               { id: "waze" as NavApp, label: "Waze", icon: Navigation, color: "text-cyan-500" },
               { id: "apple" as NavApp, label: "Apple Maps", icon: MapPinned, color: "text-green-500" },
             ]).map((opt) => {

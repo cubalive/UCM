@@ -260,7 +260,7 @@ export default function PredictionPage() {
           <Card data-testid="card-staffing-risk">
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-blue-500" />
+                <Users className="h-4 w-4 text-emerald-500" />
                 <CardTitle className="text-base">Staffing Forecast</CardTitle>
               </div>
               {staffingRisk && (

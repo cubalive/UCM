@@ -629,11 +629,11 @@ function HealthRemediationSheet({
   if (!config) return null;
 
   const Icon = config.icon;
-  const stateColor = config.state === "CRITICAL" ? "text-red-600 dark:text-red-400" : config.state === "GOOD" ? "text-blue-600 dark:text-blue-400" : "text-emerald-600 dark:text-emerald-400";
+  const stateColor = config.state === "CRITICAL" ? "text-red-600 dark:text-red-400" : config.state === "GOOD" ? "text-emerald-600 dark:text-emerald-400" : "text-emerald-600 dark:text-emerald-400";
   const bgColor = config.state === "CRITICAL"
     ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900"
     : config.state === "GOOD"
-    ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900"
+    ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900"
     : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900";
 
   const handleAction = async (act: RemediationConfig["actions"][0]) => {
@@ -1120,7 +1120,7 @@ export default function MetricsPage() {
                 <CardTitle className="text-base font-medium" data-testid="text-platform-health-title">Platform Health</CardTitle>
                 <Badge
                   variant={platformHealth.overallState === "CRITICAL" ? "destructive" : "default"}
-                  className={platformHealth.overallState === "HEALTHY" ? "bg-emerald-600 text-white" : platformHealth.overallState === "GOOD" ? "bg-blue-600 text-white" : ""}
+                  className={platformHealth.overallState === "HEALTHY" ? "bg-emerald-600 text-white" : platformHealth.overallState === "GOOD" ? "bg-emerald-600 text-white" : ""}
                   data-testid="badge-overall-health"
                 >
                   {platformHealth.overallState}
@@ -1141,8 +1141,8 @@ export default function MetricsPage() {
                   if (!metric) return null;
                   const isDismissed = isIssueDismissed(key);
                   const effectiveState = isDismissed && metric.state === "CRITICAL" ? "GOOD" : metric.state;
-                  const stateColor = effectiveState === "CRITICAL" ? "text-red-600 dark:text-red-400" : effectiveState === "GOOD" ? "text-blue-600 dark:text-blue-400" : "text-emerald-600 dark:text-emerald-400";
-                  const bgColor = effectiveState === "CRITICAL" ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900" : effectiveState === "GOOD" ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900" : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900";
+                  const stateColor = effectiveState === "CRITICAL" ? "text-red-600 dark:text-red-400" : effectiveState === "GOOD" ? "text-emerald-600 dark:text-emerald-400" : "text-emerald-600 dark:text-emerald-400";
+                  const bgColor = effectiveState === "CRITICAL" ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900" : effectiveState === "GOOD" ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900" : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900";
                   const remediation = healthRemediations.find(r => r.key === key);
                   return (
                     <button
@@ -2217,7 +2217,7 @@ function JobDashboardSection() {
     switch (s) {
       case "succeeded": return "text-green-600 dark:text-green-400";
       case "failed": return "text-destructive";
-      case "working": return "text-blue-600 dark:text-blue-400";
+      case "working": return "text-emerald-600 dark:text-emerald-400";
       case "queued": return "text-muted-foreground";
       default: return "text-muted-foreground";
     }
@@ -2272,7 +2272,7 @@ function JobDashboardSection() {
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Working</p>
-            <p className="text-lg font-semibold tabular-nums text-blue-600 dark:text-blue-400" data-testid="text-jobs-working">{stats.working}</p>
+            <p className="text-lg font-semibold tabular-nums text-emerald-600 dark:text-emerald-400" data-testid="text-jobs-working">{stats.working}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Succeeded</p>

@@ -230,7 +230,7 @@ export default function InvoiceDetailPage() {
                     <button
                       type="button"
                       onClick={() => navigate(`/trips/${trip.id}`)}
-                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-mono cursor-pointer"
+                      className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-mono cursor-pointer"
                       data-testid={`link-trip-${trip.id}`}
                     >
                       {trip.publicId || `#${trip.id}`}

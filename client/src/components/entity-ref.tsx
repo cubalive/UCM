@@ -10,7 +10,7 @@ interface EntityRefProps {
   size?: "sm" | "md";
 }
 
-const LINK_CLASS = "inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer font-medium";
+const LINK_CLASS = "inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline cursor-pointer font-medium";
 
 function EntityLink({ id, route, label, publicId, showIcon = true, className = "", size = "sm", icon: Icon, entityName, testPrefix }: EntityRefProps & { route: string; icon: any; entityName: string; testPrefix: string }) {
   const [, navigate] = useLocation();
