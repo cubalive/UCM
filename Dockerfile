@@ -32,4 +32,4 @@ COPY --from=build --chown=ucm:ucm /app/dist ./dist
 COPY --from=build --chown=ucm:ucm /app/package.json ./
 
 EXPOSE 5000
-CMD ["node", "dist/index.cjs"]
+CMD ["node", "dist/index.js"]

@@ -12,7 +12,7 @@ primary_region = "iad"
   min_machines_running = 1
 
 [processes]
-  app = "node dist/index.cjs"
+  app = "node dist/index.js"
 
 [env]
   NODE_ENV = "production"
