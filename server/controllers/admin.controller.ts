@@ -771,6 +771,76 @@ export async function updateCompanyHandler(req: AuthRequest, res: Response) {
   }
 }
 
+export const companyLogoUploadMiddleware = (() => {
+  const multer = require("multer");
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+  return upload.single("logo");
+})();
+
+export async function uploadCompanyLogoHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const company = await storage.getCompany(id);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+
+    const file = (req as any).file as Express.Multer.File;
+    if (!file) return res.status(400).json({ message: "No file uploaded" });
+
+    const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
+    if (!allowedTypes.includes(file.mimetype)) {
+      return res.status(400).json({ message: "Only PNG, JPEG, WebP, and SVG images are allowed" });
+    }
+
+    const base64 = file.buffer.toString("base64");
+    const logoUrl = `/api/companies/${id}/logo`;
+
+    await db.update(companies)
+      .set({ logoUrl, logoData: base64, logoMimeType: file.mimetype })
+      .where(eq(companies.id, id));
+
+    res.json({ logoUrl });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function serveCompanyLogoHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const [company] = await db.select({
+      logoData: companies.logoData,
+      logoMimeType: companies.logoMimeType,
+    }).from(companies).where(eq(companies.id, id)).limit(1);
+
+    if (!company?.logoData) return res.status(404).json({ message: "No logo" });
+
+    const buffer = Buffer.from(company.logoData, "base64");
+    res.set("Content-Type", company.logoMimeType || "image/png");
+    res.set("Cache-Control", "public, max-age=3600");
+    res.send(buffer);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function deleteCompanyLogoHandler(req: AuthRequest, res: Response) {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    await db.update(companies)
+      .set({ logoUrl: null, logoData: null, logoMimeType: null })
+      .where(eq(companies.id, id));
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 export async function archiveCompanyHandler(req: AuthRequest, res: Response) {
   try {
     const id = parseInt(String(req.params.id));

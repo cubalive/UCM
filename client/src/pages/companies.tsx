@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
-import { setStoredCompanyScopeId, getStoredCompanyScopeId } from "@/lib/api";
+import { setStoredCompanyScopeId, getStoredCompanyScopeId, rawAuthFetch } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +36,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2, Search, Archive, RotateCcw, Trash2, MapPin, Phone, Pencil } from "lucide-react";
+import { Building2, Plus, UserPlus, Crosshair, X, CreditCard, ExternalLink, CheckCircle2, AlertCircle, Loader2, Search, Archive, RotateCcw, Trash2, MapPin, Phone, Pencil, Upload, ImageIcon } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import type { Company, UsState, UsCity, City } from "@shared/schema";
 
@@ -358,14 +358,18 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
   const [name, setName] = useState(company.name);
   const [dispatchPhone, setDispatchPhone] = useState((company as any).dispatchPhone || "");
   const [companyTimezone, setCompanyTimezone] = useState((company as any).timezone || "America/Los_Angeles");
+  const [logoPreview, setLogoPreview] = useState<string | null>((company as any).logoUrl || null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const { token } = useAuth();
   const { toast } = useToast();
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setName(company.name);
       setDispatchPhone((company as any).dispatchPhone || "");
       setCompanyTimezone((company as any).timezone || "America/Los_Angeles");
+      setLogoPreview((company as any).logoUrl || null);
     }
   }, [open, company]);
 
@@ -389,6 +393,46 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
     },
   });
 
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Max 2MB", variant: "destructive" });
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const formData = new FormData();
+      formData.append("logo", file);
+      const res = await rawAuthFetch(`/api/admin/companies/${company.id}/logo`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) { const err = await res.json(); throw new Error(err.message); }
+      const data = await res.json();
+      setLogoPreview(data.logoUrl + "?t=" + Date.now());
+      toast({ title: "Logo uploaded" });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingLogo(false);
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  }
+
+  async function handleLogoDelete() {
+    try {
+      const res = await rawAuthFetch(`/api/admin/companies/${company.id}/logo`, { method: "DELETE" });
+      if (!res.ok) { const err = await res.json(); throw new Error(err.message); }
+      setLogoPreview(null);
+      toast({ title: "Logo removed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -401,6 +445,47 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
           <DialogTitle>Edit Company</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>Company Logo</Label>
+            <div className="flex items-center gap-3">
+              {logoPreview ? (
+                <img
+                  src={logoPreview}
+                  alt="Company logo"
+                  className="h-12 w-12 rounded-lg object-contain border bg-white"
+                />
+              ) : (
+                <div className="h-12 w-12 rounded-lg border border-dashed flex items-center justify-center bg-muted">
+                  <ImageIcon className="w-5 h-5 text-muted-foreground" />
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={uploadingLogo}
+                >
+                  {uploadingLogo ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Upload className="w-3 h-3 mr-1" />}
+                  Upload
+                </Button>
+                {logoPreview && (
+                  <Button type="button" size="sm" variant="ghost" onClick={handleLogoDelete}>
+                    <Trash2 className="w-3 h-3 mr-1" /> Remove
+                  </Button>
+                )}
+              </div>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                className="hidden"
+                onChange={handleLogoUpload}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">PNG, JPEG, WebP, or SVG. Max 2MB.</p>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="edit-name">Company Name</Label>
             <Input
@@ -891,6 +976,14 @@ export default function CompaniesPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
+                        {(company as any).logoUrl && (
+                          <img
+                            src={`/api/companies/${company.id}/logo`}
+                            alt=""
+                            className="h-6 w-6 rounded object-contain"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                          />
+                        )}
                         <span className="font-medium" data-testid={`text-company-name-${company.id}`}>{company.name}</span>
                         {String(company.id) === currentScope && (
                           <Badge variant="default" className="text-[10px]">SCOPED</Badge>

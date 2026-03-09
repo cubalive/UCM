@@ -405,7 +405,17 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
-          <img src="/branding/logo-small.png" alt="UCM" className="h-9 w-auto flex-shrink-0" data-testid="img-sidebar-logo" />
+          {user?.companyId ? (
+            <img
+              src={`/api/companies/${user.companyId}/logo`}
+              alt="Company"
+              className="h-9 w-9 rounded-md object-contain flex-shrink-0"
+              onError={(e) => { (e.target as HTMLImageElement).src = "/branding/logo-small.png"; }}
+              data-testid="img-sidebar-logo"
+            />
+          ) : (
+            <img src="/branding/logo-small.png" alt="UCM" className="h-9 w-auto flex-shrink-0" data-testid="img-sidebar-logo" />
+          )}
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate" data-testid="text-sidebar-title">UCM</p>
             <p className="text-xs text-muted-foreground truncate">{t("nav.mobilitySystem")}</p>

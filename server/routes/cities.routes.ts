@@ -16,10 +16,12 @@ import {
   resolveCityHandler,
   searchAllCitiesHandler,
 } from "../controllers/locations.controller";
+import { serveCompanyLogoHandler } from "../controllers/admin.controller";
 
 const router = express.Router();
 
 router.get("/api/timezones", authMiddleware, getTimezonesHandler as any);
+router.get("/api/companies/:id/logo", serveCompanyLogoHandler as any);
 router.get("/api/companies", authMiddleware, requireRole("SUPER_ADMIN"), getCompaniesHandler as any);
 router.post("/api/companies", authMiddleware, requireRole("SUPER_ADMIN"), createCompanyHandler as any);
 router.post("/api/companies/:id/admin", authMiddleware, requireRole("SUPER_ADMIN"), createCompanyAdminHandler as any);

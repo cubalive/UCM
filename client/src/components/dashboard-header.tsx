@@ -101,12 +101,22 @@ export function DashboardHeader() {
       <SidebarTrigger data-testid="button-sidebar-toggle" />
 
       <div className="flex items-center gap-2 ml-1">
-        <img
-          src="/branding/logo-small.png"
-          alt="UCM"
-          className="h-8 w-auto flex-shrink-0"
-          data-testid="img-header-logo"
-        />
+        {user?.companyId ? (
+          <img
+            src={`/api/companies/${user.companyId}/logo`}
+            alt="Company"
+            className="h-8 w-8 rounded-md object-contain flex-shrink-0"
+            onError={(e) => { (e.target as HTMLImageElement).src = "/branding/logo-small.png"; }}
+            data-testid="img-header-logo"
+          />
+        ) : (
+          <img
+            src="/branding/logo-small.png"
+            alt="UCM"
+            className="h-8 w-auto flex-shrink-0"
+            data-testid="img-header-logo"
+          />
+        )}
         <span
           className="text-sm font-semibold hidden sm:inline truncate"
           data-testid="text-header-title"

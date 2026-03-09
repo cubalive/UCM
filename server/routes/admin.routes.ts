@@ -64,6 +64,10 @@ import {
   batchArchiveTripsHandler,
   unarchiveTripHandler,
   archiveStatsHandler,
+  uploadCompanyLogoHandler,
+  companyLogoUploadMiddleware,
+  serveCompanyLogoHandler,
+  deleteCompanyLogoHandler,
 } from "../controllers/admin.controller";
 import { sendClinicInviteHandler } from "../controllers/clinics.controller";
 
@@ -91,6 +95,8 @@ router.patch("/api/admin/vehicles/:id/restore", authMiddleware, requirePermissio
 router.delete("/api/admin/vehicles/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteVehicleHandler as any);
 
 router.patch("/api/admin/companies/:id", authMiddleware, requireRole("SUPER_ADMIN"), updateCompanyHandler as any);
+router.post("/api/admin/companies/:id/logo", authMiddleware, requireRole("SUPER_ADMIN"), companyLogoUploadMiddleware as any, uploadCompanyLogoHandler as any);
+router.delete("/api/admin/companies/:id/logo", authMiddleware, requireRole("SUPER_ADMIN"), deleteCompanyLogoHandler as any);
 router.patch("/api/admin/companies/:id/archive", authMiddleware, requireRole("SUPER_ADMIN"), archiveCompanyHandler as any);
 router.patch("/api/admin/companies/:id/restore", authMiddleware, requireRole("SUPER_ADMIN"), restoreCompanyHandler as any);
 router.delete("/api/admin/companies/:id/permanent", authMiddleware, requireRole("SUPER_ADMIN"), permanentDeleteCompanyHandler as any);
