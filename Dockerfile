@@ -8,13 +8,8 @@ RUN npm ci --omit=dev
 FROM base AS build
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY tsconfig.json vite.config.ts tailwind.config.ts postcss.config.js components.json drizzle.config.ts ./
-COPY client/ ./client/
-COPY server/ ./server/
-COPY shared/ ./shared/
-COPY script/ ./script/
-COPY public/ ./public/
-COPY attached_assets/ ./attached_assets/
+COPY tsconfig.json ./
+COPY src/ ./src/
 RUN npm run build
 
 FROM base AS runner
@@ -27,8 +22,7 @@ USER ucm
 
 COPY --from=deps --chown=ucm:ucm /app/node_modules ./node_modules
 COPY --from=build --chown=ucm:ucm /app/dist ./dist
-COPY --from=build --chown=ucm:ucm /app/shared ./shared
 COPY --from=build --chown=ucm:ucm /app/package.json ./
 
 EXPOSE 5000
-CMD ["node", "dist/index.cjs"]
+CMD ["node", "dist/index.js"]
