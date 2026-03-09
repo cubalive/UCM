@@ -1,10 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Home, Map, DollarSign, User, ChevronLeft } from "lucide-react";
+import { Home, Map, DollarSign, User } from "lucide-react";
 import { useReducedMotion } from "./design/accessibility";
 import { colors } from "./design/tokens";
 import { glowColor } from "./design/theme";
 import { useDriverStore } from "./store/driverStore";
+import { useAuth } from "@/lib/auth";
 
 import { Onboarding } from "./screens/Onboarding";
 import { Dashboard } from "./screens/Dashboard";
@@ -93,25 +94,63 @@ function BottomTabBar({
 
 export function DriverAppV4() {
   const [screen, setScreen] = useState<Screen>("onboarding");
-  const [authenticated, setAuthenticated] = useState(false);
   const reduced = useReducedMotion();
   const tripPhase = useDriverStore((s) => s.tripPhase);
+  const { user, token } = useAuth();
+  const initialize = useDriverStore((s) => s.initialize);
+  const pollOffers = useDriverStore((s) => s.pollOffers);
+  const pollActiveTrip = useDriverStore((s) => s.pollActiveTrip);
+  const updateLocation = useDriverStore((s) => s.updateLocation);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const geoRef = useRef<number | null>(null);
+
+  const isAuthenticated = !!user && !!token;
+
+  // Initialize store when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      setScreen("dashboard");
+      initialize();
+    }
+  }, [isAuthenticated, initialize]);
+
+  // Poll for offers and active trip every 10 seconds
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    pollRef.current = setInterval(() => {
+      if (tripPhase === "none") {
+        pollOffers();
+      } else if (tripPhase !== "offer" && tripPhase !== "complete") {
+        pollActiveTrip();
+      }
+    }, 10_000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [isAuthenticated, tripPhase, pollOffers, pollActiveTrip]);
+
+  // GPS tracking
+  useEffect(() => {
+    if (!isAuthenticated || !navigator.geolocation) return;
+    geoRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        updateLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.heading ?? undefined);
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+    );
+    return () => { if (geoRef.current !== null) navigator.geolocation.clearWatch(geoRef.current); };
+  }, [isAuthenticated, updateLocation]);
 
   const navigate = useCallback((target: string) => {
     setScreen(target as Screen);
   }, []);
 
   const handleContinue = useCallback(() => {
-    setAuthenticated(true);
     setScreen("dashboard");
   }, []);
 
-  if (!authenticated) {
+  if (!isAuthenticated) {
     return <Onboarding onContinue={handleContinue} />;
   }
-
-  const activeTripPhases = ["offer", "toPickup", "arrivedPickup", "waiting", "pickedUp", "toDropoff", "arrivedDropoff"];
-  const shouldShowActiveTrip = activeTripPhases.includes(tripPhase);
 
   return (
     <div className="relative" style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh" }}>

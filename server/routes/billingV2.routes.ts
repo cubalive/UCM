@@ -53,7 +53,7 @@ router.get("/api/clinic/billing/invoices", authMiddleware, requirePermission("bi
 router.get("/api/clinic/billing/invoices/:id", authMiddleware, requirePermission("billing", "read"), requireClinicScope as any, clinicGetInvoiceHandler as any);
 router.get("/api/clinic/billing/invoices/:id/export.csv", authMiddleware, requirePermission("billing", "read"), requireClinicScope as any, clinicExportInvoiceCsvHandler as any);
 router.get("/api/clinic/billing/invoices/:id/export.json", authMiddleware, requirePermission("billing", "read"), requireClinicScope as any, clinicExportInvoiceJsonHandler as any);
-router.post("/api/clinic/billing/invoices/:id/pay", authMiddleware, requirePermission("billing", "read"), requireClinicScope as any, clinicPayInvoiceHandler as any);
+router.post("/api/clinic/billing/invoices/:id/pay", authMiddleware, requirePermission("billing", "write"), requireClinicScope as any, clinicPayInvoiceHandler as any);
 
 router.get("/api/clinic/dispatch-contact", authMiddleware, requireClinicScope as any, getDispatchContactHandler as any);
 

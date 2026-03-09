@@ -286,6 +286,7 @@ export const STATUS_TIMESTAMP_MAP: Record<string, string> = {
   EN_ROUTE_TO_PICKUP: "startedAt",
   ARRIVED_PICKUP: "arrivedPickupAt",
   PICKED_UP: "pickedUpAt",
+  IN_PROGRESS: "inProgressAt",
   EN_ROUTE_TO_DROPOFF: "enRouteDropoffAt",
   ARRIVED_DROPOFF: "arrivedDropoffAt",
   COMPLETED: "completedAt",

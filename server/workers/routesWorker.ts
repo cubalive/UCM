@@ -171,10 +171,11 @@ async function handleRouteFinalize(payload: Record<string, any>): Promise<void> 
     }
   }
 
+  // Quality score on 0-100 scale (matching tripFinalizationService)
   let gpsQualityScore = "0";
-  if (pointsTotal >= 10) gpsQualityScore = "0.9";
-  else if (pointsTotal >= 5) gpsQualityScore = "0.7";
-  else if (pointsTotal >= 2) gpsQualityScore = "0.4";
+  if (pointsTotal >= 10) gpsQualityScore = "90";
+  else if (pointsTotal >= 5) gpsQualityScore = "70";
+  else if (pointsTotal >= 2) gpsQualityScore = "40";
 
   await db.insert(tripRouteSummary).values({
     tripId,
@@ -201,7 +202,7 @@ async function handleRouteFinalize(payload: Record<string, any>): Promise<void> 
     actualDurationSeconds,
     actualPolyline: actualPolylineStr,
     actualDistanceSource: pointsTotal >= 10 ? "gps" : pointsTotal >= 2 ? "gps_sparse" : "estimated",
-    routeQualityScore: parseInt(gpsQualityScore.replace("0.", ""), 10) || 0,
+    routeQualityScore: parseInt(gpsQualityScore, 10) || 0,
     updatedAt: new Date(),
   }).where(eq(trips.id, tripId));
 

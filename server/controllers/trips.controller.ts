@@ -338,7 +338,14 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
       }
     }
 
-    const [updatedTrip] = await db.update(trips).set(updateData).where(eq(trips.id, id)).returning();
+    // Use optimistic concurrency: only assign if trip is still in the expected status
+    const [updatedTrip] = await db.update(trips).set(updateData)
+      .where(and(eq(trips.id, id), eq(trips.status, trip.status)))
+      .returning();
+
+    if (!updatedTrip) {
+      return res.status(409).json({ message: "Trip was modified by another user. Please refresh and try again.", code: "CONCURRENT_MODIFICATION" });
+    }
 
     import("../lib/realtime").then(({ broadcastToTrip }) => {
       broadcastToTrip(id, { type: "status_change", data: { status: "ASSIGNED", tripId: id } });

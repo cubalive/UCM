@@ -22,6 +22,10 @@ export function registerComplianceRoutes(app: Express) {
   app.get("/api/compliance/summary/:companyId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN") as any, async (req: AuthRequest, res: Response) => {
     try {
       const companyId = parseInt(req.params.companyId as string);
+      // Enforce tenant: non-SUPER_ADMIN can only access their own company
+      if (req.user!.role !== "SUPER_ADMIN" && req.user!.companyId && req.user!.companyId !== companyId) {
+        return res.status(403).json({ message: "Access denied: wrong company" });
+      }
       const summary = await getCompanyComplianceSummary(companyId);
       res.json(summary);
     } catch (err: any) {
@@ -34,7 +38,10 @@ export function registerComplianceRoutes(app: Express) {
     try {
       const entityType = req.params.entityType as string;
       const entityId = req.params.entityId as string;
-      const companyId = parseInt(req.query.companyId as string);
+      // Use the user's own companyId, falling back to query param only for SUPER_ADMIN
+      const companyId = req.user!.role === "SUPER_ADMIN"
+        ? parseInt(req.query.companyId as string) || req.user!.companyId
+        : req.user!.companyId;
       if (!companyId) return res.status(400).json({ message: "companyId required" });
 
       const report = await getEntityCompliance(
@@ -52,7 +59,9 @@ export function registerComplianceRoutes(app: Express) {
   app.get("/api/compliance/driver/:driverId/eligible", authMiddleware, async (req: AuthRequest, res: Response) => {
     try {
       const driverId = parseInt(req.params.driverId as string);
-      const companyId = parseInt(req.query.companyId as string);
+      const companyId = req.user!.role === "SUPER_ADMIN"
+        ? parseInt(req.query.companyId as string) || req.user!.companyId
+        : req.user!.companyId;
       if (!companyId) return res.status(400).json({ message: "companyId required" });
 
       const result = await isDriverDispatchEligible(driverId, companyId);

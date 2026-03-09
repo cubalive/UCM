@@ -64,6 +64,9 @@ function TripProgress({ currentPhase }: { currentPhase: TripPhase }) {
 export function ActiveTrip({ onBack }: { onBack: () => void }) {
   const activeTrip = useDriverStore((s) => s.activeTrip);
   const tripPhase = useDriverStore((s) => s.tripPhase);
+  const driverLat = useDriverStore((s) => s.driverLat);
+  const driverLng = useDriverStore((s) => s.driverLng);
+  const driverHeading = useDriverStore((s) => s.driverHeading);
   const store = useDriverStore();
   const reduced = useReducedMotion();
 
@@ -116,6 +119,9 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
               pickupLng={activeTrip.pickupLatLng.lng}
               dropoffLat={activeTrip.dropoffLatLng.lat}
               dropoffLng={activeTrip.dropoffLatLng.lng}
+              driverLat={driverLat}
+              driverLng={driverLng}
+              driverHeading={driverHeading}
               phase={tripPhase}
               className="w-full h-full"
             />
@@ -137,7 +143,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
             </button>
             <GlassButton
               icon={<AlertTriangle className="w-4 h-4" style={{ color: colors.dangerNeon }} />}
-              onPress={() => {}}
+              onPress={() => store.reportEmergency()}
               label="Emergency"
               size={38}
               accentColor={colors.dangerNeon}
