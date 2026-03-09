@@ -192,9 +192,9 @@ export const invoiceLineItems = pgTable(
   "invoice_line_items",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    invoiceId: uuid("invoice_id").references(() => invoices.id).notNull(),
-    tripId: uuid("trip_id").references(() => trips.id),
-    feeRuleId: uuid("fee_rule_id").references(() => feeRules.id),
+    invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "cascade" }).notNull(),
+    tripId: uuid("trip_id").references(() => trips.id, { onDelete: "set null" }),
+    feeRuleId: uuid("fee_rule_id").references(() => feeRules.id, { onDelete: "set null" }),
     description: text("description").notNull(),
     quantity: decimal("quantity", { precision: 10, scale: 2 }).default("1"),
     unitPrice: decimal("unit_price", { precision: 10, scale: 4 }).notNull(),

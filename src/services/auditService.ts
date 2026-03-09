@@ -1,3 +1,4 @@
+import { Request } from "express";
 import { getDb } from "../db/index.js";
 import { auditLog } from "../db/schema.js";
 import logger from "../lib/logger.js";
@@ -11,6 +12,19 @@ export interface AuditEntry {
   details?: Record<string, unknown>;
   ipAddress?: string;
   userAgent?: string;
+}
+
+/**
+ * Build audit entry from an Express request — auto-populates tenant, user, IP, and user-agent.
+ */
+export function auditFromRequest(req: Request, data: Omit<AuditEntry, "tenantId" | "userId" | "ipAddress" | "userAgent">): AuditEntry {
+  return {
+    tenantId: req.tenantId,
+    userId: req.user?.id,
+    ipAddress: req.ip || (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim(),
+    userAgent: req.headers["user-agent"]?.slice(0, 256),
+    ...data,
+  };
 }
 
 export async function recordAudit(entry: AuditEntry): Promise<void> {
