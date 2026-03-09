@@ -4,7 +4,7 @@ const isProd = process.env.NODE_ENV === "production";
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
-  REDIS_URL: z.string().optional().default("redis://localhost:6379"),
+  REDIS_URL: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
   STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
   STRIPE_PUBLISHABLE_KEY: z.string().startsWith("pk_").optional(),

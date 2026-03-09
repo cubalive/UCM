@@ -2,11 +2,19 @@ import Redis from "ioredis";
 import logger from "./logger.js";
 
 let redis: Redis | null = null;
-let redisAvailable = true;
+let redisAvailable = !!process.env.REDIS_URL;
+let redisWarningLogged = false;
 
 export function getRedis(): Redis | null {
   if (!redis) {
-    const url = process.env.REDIS_URL || "redis://localhost:6379";
+    const url = process.env.REDIS_URL;
+    if (!url) {
+      if (!redisWarningLogged) {
+        logger.warn("Redis not available — operating without cache");
+        redisWarningLogged = true;
+      }
+      return null;
+    }
     redis = new Redis(url, {
       maxRetriesPerRequest: 3,
       retryStrategy(times) {

@@ -15,6 +15,7 @@ export function getPool(): pg.Pool {
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
+      ssl: { rejectUnauthorized: false },
     });
     pool.on("error", (err) => {
       logger.error("Unexpected database pool error", { error: err.message });
