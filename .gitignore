@@ -6,3 +6,11 @@ dist/
 coverage/
 .DS_Store
 drizzle/meta/
+
+# Replit
+.replit
+replit.nix
+settings.local.json
+.cache/
+.config/
+.upm/
