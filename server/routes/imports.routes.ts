@@ -3,7 +3,7 @@ import { authMiddleware, requireRole } from "../auth";
 import {
   createImportJob, uploadFile, uploadMiddleware,
   validateImport, runImport, rollbackImport,
-  listImportJobs, getImportJob,
+  listImportJobs, getImportJob, deleteImportJob,
   dryRunImport, downloadTemplate,
   getCompanyImportHealth, getImportStatus,
 } from "../controllers/imports.controller";
@@ -22,6 +22,7 @@ router.get("/", listImportJobs as any);
 router.get("/templates/:entity", downloadTemplate as any);
 router.get("/company/:companyId/health", getCompanyImportHealth as any);
 router.get("/:id/status", getImportStatus as any);
+router.delete("/:id", deleteImportJob as any);
 router.get("/:id", getImportJob as any);
 
 export function registerImportRoutes(app: Express) {

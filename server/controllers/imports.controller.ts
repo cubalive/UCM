@@ -52,6 +52,25 @@ export async function createImportJob(req: AuthRequest, res: Response) {
   }
 }
 
+export async function deleteImportJob(req: AuthRequest, res: Response) {
+  try {
+    const jobId = req.params.id;
+    const job = await db.select().from(importJobs).where(eq(importJobs.id, jobId)).limit(1);
+    if (!job.length) return res.status(404).json({ error: "Import job not found" });
+    if (job[0].status !== "draft") {
+      return res.status(400).json({ error: "Only draft jobs can be deleted" });
+    }
+
+    await db.delete(importJobEvents).where(eq(importJobEvents.importJobId, jobId));
+    await db.delete(importJobFiles).where(eq(importJobFiles.importJobId, jobId));
+    await db.delete(importJobs).where(eq(importJobs.id, jobId));
+
+    return res.json({ ok: true });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+}
+
 export async function uploadFile(req: AuthRequest, res: Response) {
   try {
     const jobId = req.params.id;

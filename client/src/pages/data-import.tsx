@@ -49,6 +49,7 @@ import {
   Download,
   Search,
   Info,
+  Trash2,
 } from "lucide-react";
 
 const ENTITIES = [
@@ -157,7 +158,15 @@ export default function DataImportPage() {
               <CardContent className="p-3 space-y-1">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="text-sm font-medium">{job.sourceSystem}</span>
-                  <Badge variant={statusVariant(job.status)} data-testid={`badge-status-${job.id}`}>{job.status}</Badge>
+                  <div className="flex items-center gap-1">
+                    <Badge variant={statusVariant(job.status)} data-testid={`badge-status-${job.id}`}>{job.status}</Badge>
+                    {job.status === "draft" && (
+                      <DeleteDraftButton jobId={job.id} onDeleted={() => {
+                        if (selectedJobId === job.id) setSelectedJobId(null);
+                        queryClient.invalidateQueries({ queryKey: ["/api/admin/imports"] });
+                      }} />
+                    )}
+                  </div>
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Company #{job.companyId} {job.cityId ? `| City #${job.cityId}` : ""}
@@ -825,6 +834,35 @@ function DryRunResultsPanel({ results, onClose }: { results: Record<string, any>
         ))}
       </CardContent>
     </Card>
+  );
+}
+
+function DeleteDraftButton({ jobId, onDeleted }: { jobId: string; onDeleted: () => void }) {
+  const { toast } = useToast();
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await rawAuthFetch(`/api/admin/imports/${jobId}`, { method: "DELETE" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Draft deleted" });
+      onDeleted();
+    },
+    onError: (e: any) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Button
+      size="icon"
+      variant="ghost"
+      className="h-6 w-6 text-muted-foreground hover:text-destructive"
+      onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(); }}
+      disabled={deleteMutation.isPending}
+      data-testid={`button-delete-${jobId}`}
+    >
+      {deleteMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+    </Button>
   );
 }
 
