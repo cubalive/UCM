@@ -148,11 +148,23 @@ export async function finalizeTripRoute(tripId: number): Promise<void> {
     const [trip] = await db.select().from(trips).where(eq(trips.id, tripId));
     if (!trip) return;
 
-    const rawPoints = await db
+    // Only include GPS points from pickup to dropoff (not pre-pickup driving)
+    // This prevents the actual polyline from showing the driver's approach route,
+    // which could be misinterpreted as inflated trip distance for billing.
+    const allTripPoints = await db
       .select()
       .from(tripLocationPoints)
       .where(eq(tripLocationPoints.tripId, tripId))
       .orderBy(asc(tripLocationPoints.ts));
+
+    const rawPoints = trip.pickedUpAt
+      ? allTripPoints.filter((p) => {
+          const ts = p.ts.getTime();
+          const pickupTime = trip.pickedUpAt!.getTime();
+          const endTime = trip.completedAt ? trip.completedAt.getTime() : Infinity;
+          return ts >= pickupTime && ts <= endTime;
+        })
+      : allTripPoints;
 
     let waitingSeconds: number | null = null;
     if (trip.arrivedPickupAt && trip.pickedUpAt) {

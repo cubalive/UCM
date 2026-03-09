@@ -316,7 +316,7 @@ export function TripRouteMap({
     return (
       <div
         className={`bg-muted flex items-center justify-center rounded-md ${className}`}
-        style={style}
+        style={{ height: "320px", ...style }}
         data-testid={`placeholder-route-map-${tripId}`}
       >
         <MapPin className="w-5 h-5 text-muted-foreground" />
@@ -330,8 +330,8 @@ export function TripRouteMap({
   const quality = getQualityLabel(routeData?.routeQualityScore ?? null);
 
   return (
-    <div className={`relative rounded-md overflow-hidden ${className}`} style={style} data-testid={`div-route-map-${tripId}`}>
-      <div ref={mapContainerRef} className="w-full h-full" style={{ minHeight: "inherit" }} />
+    <div className={`relative rounded-md overflow-hidden ${className}`} style={{ height: "320px", ...style }} data-testid={`div-route-map-${tripId}`}>
+      <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
       {routeQuery.isLoading && (
         <div className="absolute top-2 right-2 bg-background/80 rounded-md px-2 py-1 flex items-center gap-1 text-xs">
           <Loader2 className="w-3 h-3 animate-spin" />

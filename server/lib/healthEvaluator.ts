@@ -20,8 +20,8 @@ function envFloat(key: string, fallback: number): number {
 }
 
 const T = {
-  dbLatencyGood: () => envInt("HEALTH_DB_LATENCY_MS_GOOD", 150),
-  dbLatencyCritical: () => envInt("HEALTH_DB_LATENCY_MS_CRITICAL", 400),
+  dbLatencyGood: () => envInt("HEALTH_DB_LATENCY_MS_GOOD", 250),
+  dbLatencyCritical: () => envInt("HEALTH_DB_LATENCY_MS_CRITICAL", 500),
   apiP95Good: () => envInt("HEALTH_API_P95_MS_GOOD", 600),
   apiP95Critical: () => envInt("HEALTH_API_P95_MS_CRITICAL", 1500),
   errorRateGood: () => envFloat("HEALTH_ERROR_RATE_GOOD", 0.01),

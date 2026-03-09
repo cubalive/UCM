@@ -13,6 +13,7 @@ import { NeonButton } from "../components/ui/NeonButton";
 import { GlowProgressCircle } from "../components/ui/GlowProgressCircle";
 import { GlassButton } from "../components/ui/GlassButton";
 import { NebulaBackground } from "../components/ui/MapOverlay";
+import { DriverTripMap } from "../components/DriverTripMap";
 
 const PHASE_STEPS: { key: TripPhase; label: string }[] = [
   { key: "toPickup", label: "En Route" },
@@ -89,29 +90,35 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
 
   const isPickupPhase = ["toPickup", "arrivedPickup", "waiting"].includes(tripPhase);
 
+  const handleNavigate = useCallback(() => {
+    const destLat = isPickupPhase ? activeTrip.pickupLatLng.lat : activeTrip.dropoffLatLng.lat;
+    const destLng = isPickupPhase ? activeTrip.pickupLatLng.lng : activeTrip.dropoffLatLng.lng;
+    const label = isPickupPhase ? "Pickup" : "Dropoff";
+    const pref = store.navPreference;
+
+    if (pref === "waze") {
+      window.open(`https://waze.com/ul?ll=${destLat},${destLng}&navigate=yes`, "_blank");
+    } else if (pref === "apple") {
+      window.open(`maps://maps.apple.com/?daddr=${destLat},${destLng}&dirflg=d`, "_blank");
+    } else {
+      // Default to Google Maps (works on both mobile and desktop)
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`, "_blank");
+    }
+  }, [activeTrip, isPickupPhase, store.navPreference]);
+
   return (
     <NebulaBackground className="flex flex-col min-h-screen">
       <div className="max-w-md mx-auto w-full flex flex-col flex-1">
         <div className="relative flex-1" style={{ minHeight: 280 }}>
           <div className="absolute inset-0" data-testid="active-trip-map">
-            <svg width="100%" height="100%" viewBox="0 0 400 300" className="opacity-20">
-              <defs>
-                <linearGradient id="routeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor={colors.neonCyan} />
-                  <stop offset="100%" stopColor={colors.neonMagenta} />
-                </linearGradient>
-              </defs>
-              <path
-                d="M 60 240 Q 120 180 200 160 T 340 80"
-                fill="none"
-                stroke="url(#routeGrad)"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeDasharray="8 6"
-              />
-              <circle cx="60" cy="240" r="8" fill={colors.successNeon} opacity="0.8" />
-              <circle cx="340" cy="80" r="8" fill={colors.dangerNeon} opacity="0.8" />
-            </svg>
+            <DriverTripMap
+              pickupLat={activeTrip.pickupLatLng.lat}
+              pickupLng={activeTrip.pickupLatLng.lng}
+              dropoffLat={activeTrip.dropoffLatLng.lat}
+              dropoffLng={activeTrip.dropoffLatLng.lng}
+              phase={tripPhase}
+              className="w-full h-full"
+            />
           </div>
 
           <div className="absolute top-4 left-4 right-4 z-30 flex items-center justify-between">
@@ -201,7 +208,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
 
             <div className="flex gap-2 mt-2">
               <GlassButton icon={<Phone className="w-4 h-4" />} onPress={() => {}} label="Call Passenger" size={40} testID="btn-call" />
-              <GlassButton icon={<Navigation className="w-4 h-4" />} onPress={() => {}} label="Navigate" size={40} accentColor={colors.neonCyan} testID="btn-navigate" />
+              <GlassButton icon={<Navigation className="w-4 h-4" />} onPress={handleNavigate} label="Navigate" size={40} accentColor={colors.neonCyan} testID="btn-navigate" />
               <GlassButton icon={<AlertTriangle className="w-3.5 h-3.5" />} onPress={() => {}} label="Report Issue" size={40} accentColor={colors.warningNeon} testID="btn-issue" />
             </div>
           </GlassCard>
