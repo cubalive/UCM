@@ -16,5 +16,6 @@
 !server/
 !client/
 !shared/
+!lib/
 !attached_assets/
 !migrations/
