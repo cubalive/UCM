@@ -1,11 +1,8 @@
-node_modules
-dist
-frontend/node_modules
-frontend/dist
-.git
-*.md
-.env
-.env.*
-tests
-coverage
-.github
+# Ignore everything by default
+*
+
+# Only allow what the Dockerfile needs
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/
