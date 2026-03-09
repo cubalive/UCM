@@ -148,7 +148,7 @@ try {
 // Track cron jobs for graceful shutdown
 const cronJobs: Array<{ stop: () => void }> = [];
 
-server.listen(port, () => {
+server.listen(port, '0.0.0.0', () => {
   logger.info(`UCM platform listening on port ${port}`, { env: process.env.NODE_ENV });
 
   // Start background jobs in production
