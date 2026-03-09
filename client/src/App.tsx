@@ -19,83 +19,99 @@ import "@/i18n";
 import { isDriverHost, isClinicHost, getTokenKey } from "@/lib/hostDetection";
 import { pushError } from "@/lib/errorLog";
 import { CitySelectionModal } from "@/components/city-selection-modal";
+// Critical pages loaded eagerly (auth flow, initial render)
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
-import TripsPage from "@/pages/trips";
-import TripDetailPage from "@/pages/trip-detail";
-import PatientDetailPage from "@/pages/patient-detail";
-import DriverDetailPage from "@/pages/driver-detail";
-import VehicleDetailPage from "@/pages/vehicle-detail";
-import ClinicDetailPage from "@/pages/clinic-detail";
-import PatientsPage from "@/pages/patients";
-import DriversPage from "@/pages/drivers";
-import VehiclesPage from "@/pages/vehicles";
-import ClinicsPage from "@/pages/clinics";
-import CitiesPage from "@/pages/cities";
-import UsersPage from "@/pages/users-management";
-import AuditPage from "@/pages/audit";
-import DispatchMapPage from "@/pages/dispatch-map";
 import ChangePasswordPage from "@/pages/change-password";
-import ClinicInvoicesPage from "@/pages/clinic-invoices";
-import FleetOpsPage from "@/pages/fleet-ops";
-import AssignmentsPage from "@/pages/assignments";
-import ReportsPage from "@/pages/reports";
-import FinancialPage from "@/pages/financial";
-import OpsHealthPage from "@/pages/ops-health";
-import OpsChecksPage from "@/pages/ops-checks";
-import LiveMapPage from "@/pages/live-map";
-import ArchivePage from "@/pages/archive";
-import AutoAssignmentPage from "@/pages/auto-assignment";
-import DispatchBoardPage from "@/pages/dispatch-board";
-import TripRequestsQueuePage from "@/pages/trip-requests-queue";
-import ClinicTripsPage from "@/pages/clinic-trips";
-import DriverDashboard from "@/pages/driver-portal";
-import DriverProfilePage from "@/pages/driver-profile";
-import DriverPerformancePage from "@/pages/driver-performance";
-import BillingPage from "@/pages/billing";
-import ClinicBillingPage from "@/pages/clinic-billing";
-import SchedulePage from "@/pages/schedule";
-import DispatchSwapsPage from "@/pages/dispatch-swaps";
-import PricingPage from "@/pages/pricing";
-import MetricsPage from "@/pages/metrics";
-import IntelligencePage from "@/pages/intelligence";
-import IndexesPage from "@/pages/indexes";
-import CertificationPage from "@/pages/certification";
-import RankingPage from "@/pages/ranking";
-import AuditShieldPage from "@/pages/audit-shield";
-import PredictionPage from "@/pages/prediction";
-import PublishCenterPage from "@/pages/publish-center";
-import DataImportPage from "@/pages/data-import";
-import CompaniesPage from "@/pages/companies";
-import TimecardsPage from "@/pages/timecards";
-import TpPayrollPage from "@/pages/tp-payroll";
-import BillingTariffsPage from "@/pages/billing-tariffs";
-import PlatformFeesPage from "@/pages/platform-fees";
-import SubscriptionsPage from "@/pages/subscriptions";
-import ClinicBillingV2Page from "@/pages/clinic-billing-v2";
-import SupportChatPage from "@/pages/support-chat";
-import ClinicTripDetailsPage from "@/pages/clinic-trip-details";
-import ClinicUsersPage from "@/pages/clinic-users";
-import InvoiceDetailPage from "@/pages/invoice-detail";
-import PayrollDetailPage from "@/pages/payroll-detail";
 import UnauthorizedPage from "@/pages/unauthorized";
-import PublicTrackingPage from "@/pages/public-tracking";
-import { DriverAppV4 } from "@/driver-v4/DriverAppV4";
-import { ClinicPortalLayout } from "@/clinic-portal/ClinicPortalLayout";
-import SystemStatusPage from "@/pages/system-status";
-import FinanceConsolePage from "@/pages/finance-console";
-import FeeRulesPage from "@/pages/fee-rules";
-import EtaEscalationsPage from "@/pages/eta-escalations";
-import ZeroTouchDialysisPage from "@/pages/zero-touch-dialysis";
-import PayrollSettingsPage from "@/pages/payroll-settings";
-import DriverEarningsPage from "@/pages/driver-earnings";
 import NotFound from "@/pages/not-found";
-import PrivacyPolicyPage from "@/pages/privacy-policy";
-import TermsOfServicePage from "@/pages/terms-of-service";
+
+// Lazy-loaded pages (code-split per route)
+const TripsPage = React.lazy(() => import("@/pages/trips"));
+const TripDetailPage = React.lazy(() => import("@/pages/trip-detail"));
+const PatientDetailPage = React.lazy(() => import("@/pages/patient-detail"));
+const DriverDetailPage = React.lazy(() => import("@/pages/driver-detail"));
+const VehicleDetailPage = React.lazy(() => import("@/pages/vehicle-detail"));
+const ClinicDetailPage = React.lazy(() => import("@/pages/clinic-detail"));
+const PatientsPage = React.lazy(() => import("@/pages/patients"));
+const DriversPage = React.lazy(() => import("@/pages/drivers"));
+const VehiclesPage = React.lazy(() => import("@/pages/vehicles"));
+const ClinicsPage = React.lazy(() => import("@/pages/clinics"));
+const CitiesPage = React.lazy(() => import("@/pages/cities"));
+const UsersPage = React.lazy(() => import("@/pages/users-management"));
+const AuditPage = React.lazy(() => import("@/pages/audit"));
+const DispatchMapPage = React.lazy(() => import("@/pages/dispatch-map"));
+const ClinicInvoicesPage = React.lazy(() => import("@/pages/clinic-invoices"));
+const FleetOpsPage = React.lazy(() => import("@/pages/fleet-ops"));
+const AssignmentsPage = React.lazy(() => import("@/pages/assignments"));
+const ReportsPage = React.lazy(() => import("@/pages/reports"));
+const FinancialPage = React.lazy(() => import("@/pages/financial"));
+const OpsHealthPage = React.lazy(() => import("@/pages/ops-health"));
+const OpsChecksPage = React.lazy(() => import("@/pages/ops-checks"));
+const LiveMapPage = React.lazy(() => import("@/pages/live-map"));
+const ArchivePage = React.lazy(() => import("@/pages/archive"));
+const AutoAssignmentPage = React.lazy(() => import("@/pages/auto-assignment"));
+const DispatchBoardPage = React.lazy(() => import("@/pages/dispatch-board"));
+const TripRequestsQueuePage = React.lazy(() => import("@/pages/trip-requests-queue"));
+const ClinicTripsPage = React.lazy(() => import("@/pages/clinic-trips"));
+const DriverDashboard = React.lazy(() => import("@/pages/driver-portal"));
+const DriverProfilePage = React.lazy(() => import("@/pages/driver-profile"));
+const DriverPerformancePage = React.lazy(() => import("@/pages/driver-performance"));
+const BillingPage = React.lazy(() => import("@/pages/billing"));
+const ClinicBillingPage = React.lazy(() => import("@/pages/clinic-billing"));
+const SchedulePage = React.lazy(() => import("@/pages/schedule"));
+const DispatchSwapsPage = React.lazy(() => import("@/pages/dispatch-swaps"));
+const PricingPage = React.lazy(() => import("@/pages/pricing"));
+const MetricsPage = React.lazy(() => import("@/pages/metrics"));
+const IntelligencePage = React.lazy(() => import("@/pages/intelligence"));
+const IndexesPage = React.lazy(() => import("@/pages/indexes"));
+const CertificationPage = React.lazy(() => import("@/pages/certification"));
+const RankingPage = React.lazy(() => import("@/pages/ranking"));
+const AuditShieldPage = React.lazy(() => import("@/pages/audit-shield"));
+const PredictionPage = React.lazy(() => import("@/pages/prediction"));
+const PublishCenterPage = React.lazy(() => import("@/pages/publish-center"));
+const DataImportPage = React.lazy(() => import("@/pages/data-import"));
+const CompaniesPage = React.lazy(() => import("@/pages/companies"));
+const TimecardsPage = React.lazy(() => import("@/pages/timecards"));
+const TpPayrollPage = React.lazy(() => import("@/pages/tp-payroll"));
+const BillingTariffsPage = React.lazy(() => import("@/pages/billing-tariffs"));
+const PlatformFeesPage = React.lazy(() => import("@/pages/platform-fees"));
+const ClinicBillingV2Page = React.lazy(() => import("@/pages/clinic-billing-v2"));
+const SupportChatPage = React.lazy(() => import("@/pages/support-chat"));
+const ClinicTripDetailsPage = React.lazy(() => import("@/pages/clinic-trip-details"));
+const ClinicUsersPage = React.lazy(() => import("@/pages/clinic-users"));
+const InvoiceDetailPage = React.lazy(() => import("@/pages/invoice-detail"));
+const PayrollDetailPage = React.lazy(() => import("@/pages/payroll-detail"));
+const PublicTrackingPage = React.lazy(() => import("@/pages/public-tracking"));
+const SystemStatusPage = React.lazy(() => import("@/pages/system-status"));
+const FinanceConsolePage = React.lazy(() => import("@/pages/finance-console"));
+const FeeRulesPage = React.lazy(() => import("@/pages/fee-rules"));
+const EtaEscalationsPage = React.lazy(() => import("@/pages/eta-escalations"));
+const ZeroTouchDialysisPage = React.lazy(() => import("@/pages/zero-touch-dialysis"));
+const PayrollSettingsPage = React.lazy(() => import("@/pages/payroll-settings"));
+const DriverEarningsPage = React.lazy(() => import("@/pages/driver-earnings"));
+const PrivacyPolicyPage = React.lazy(() => import("@/pages/privacy-policy"));
+const TermsOfServicePage = React.lazy(() => import("@/pages/terms-of-service"));
+
+// Lazy-loaded app shells
+const DriverAppV4 = React.lazy(() => import("@/driver-v4/DriverAppV4").then(m => ({ default: m.DriverAppV4 })));
+const ClinicPortalLayout = React.lazy(() => import("@/clinic-portal/ClinicPortalLayout").then(m => ({ default: m.ClinicPortalLayout })));
 import { NetworkStatus } from "@/components/network-status";
 import { useAppVersion } from "@/components/version-checker";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState as useStateHook } from "react";
+
+function PageLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-[50vh]">
+      <div className="space-y-4 w-64">
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
+      </div>
+    </div>
+  );
+}
 
 const UCM_DEBUG = import.meta.env.VITE_UCM_DEBUG === "true";
 
@@ -296,6 +312,7 @@ function HomeRedirect() {
 
 function DriverSubdomainRouter() {
   return (
+    <React.Suspense fallback={<PageLoadingFallback />}>
     <Switch>
       <Route path="/">{() => <DriverRoute component={DriverDashboard} />}</Route>
       <Route path="/driver/profile">{() => <DriverRoute component={DriverProfilePage} />}</Route>
@@ -306,6 +323,7 @@ function DriverSubdomainRouter() {
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route>{() => <Redirect to="/driver" />}</Route>
     </Switch>
+    </React.Suspense>
   );
 }
 
@@ -315,6 +333,7 @@ function Router() {
   }
 
   return (
+    <React.Suspense fallback={<PageLoadingFallback />}>
     <Switch>
       <Route path="/" component={HomeRedirect} />
       <Route path="/trips/:id">{() => <ProtectedRoute resource="trips" component={TripDetailPage} />}</Route>
@@ -384,6 +403,7 @@ function Router() {
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>
+    </React.Suspense>
   );
 }
 
@@ -570,7 +590,9 @@ function AuthenticatedApp() {
     }
     return (
       <AppErrorBoundary label="Clinic">
-        <ClinicPortalLayout />
+        <React.Suspense fallback={<PageLoadingFallback />}>
+          <ClinicPortalLayout />
+        </React.Suspense>
       </AppErrorBoundary>
     );
   }
@@ -622,6 +644,7 @@ function AppWithVersionCheck() {
   return (
     <>
       <NetworkStatus />
+      <React.Suspense fallback={<PageLoadingFallback />}>
       <Switch>
         <Route path="/t/:token" component={PublicTrackingPage} />
         <Route path="/privacy" component={PrivacyPolicyPage} />
@@ -633,6 +656,7 @@ function AppWithVersionCheck() {
           </AuthProvider>
         </Route>
       </Switch>
+      </React.Suspense>
       <Toaster />
     </>
   );
