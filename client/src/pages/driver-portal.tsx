@@ -1634,7 +1634,7 @@ function HomePage({
                 return fn(
                   geoLocation?.lat ?? null, geoLocation?.lng ?? null,
                   destLat != null ? Number(destLat) : null, destLng != null ? Number(destLng) : null,
-                  geoLocation?.timestamp ?? null,
+                  (geoLocation as any)?.timestamp ?? null,
                 );
               })() : null;
               return (

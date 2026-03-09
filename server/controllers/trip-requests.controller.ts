@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { type AuthRequest } from "../auth";
 import { db } from "../db";
-import { tripRequests, chatThreads, chatMessages } from "@shared/schema";
+import { tripRequests, chatThreads, chatMessages, trips } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
 import { storage } from "../storage";
@@ -150,7 +150,7 @@ export async function clinicGetTripRequest(req: AuthRequest, res: Response) {
       }
     }
 
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     if (!clinicId && ["COMPANY_ADMIN", "ADMIN"].includes(req.user!.role)) {
@@ -183,7 +183,7 @@ export async function clinicCancelTripRequest(req: AuthRequest, res: Response) {
   try {
     let clinicId = getClinicScopeId(req);
 
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     let scopeConditions;
@@ -241,7 +241,7 @@ export async function dispatchListTripRequests(req: AuthRequest, res: Response) 
 
 export async function dispatchApproveTripRequest(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const companyId = getCompanyScope(req);
@@ -375,7 +375,7 @@ export async function dispatchApproveTripRequest(req: AuthRequest, res: Response
 
 export async function dispatchRejectTripRequest(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const companyId = getCompanyScope(req);
@@ -407,7 +407,7 @@ export async function dispatchRejectTripRequest(req: AuthRequest, res: Response)
 
 export async function dispatchNeedsInfoTripRequest(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const companyId = getCompanyScope(req);
@@ -478,7 +478,7 @@ export async function getOrCreateChatThread(req: AuthRequest, res: Response) {
 
 export async function getChatMessages(req: AuthRequest, res: Response) {
   try {
-    const threadId = parseInt(req.params.threadId);
+    const threadId = parseInt(req.params.threadId as string);
     if (isNaN(threadId)) return res.status(400).json({ message: "Invalid thread ID" });
 
     const [thread] = await db.select().from(chatThreads).where(eq(chatThreads.id, threadId));
@@ -506,7 +506,7 @@ export async function getChatMessages(req: AuthRequest, res: Response) {
 
 export async function sendChatMessage(req: AuthRequest, res: Response) {
   try {
-    const threadId = parseInt(req.params.threadId);
+    const threadId = parseInt(req.params.threadId as string);
     if (isNaN(threadId)) return res.status(400).json({ message: "Invalid thread ID" });
 
     const { message } = req.body;
@@ -592,7 +592,7 @@ export async function clinicCreatePatient(req: AuthRequest, res: Response) {
 
 export async function getRequestChatThread(req: AuthRequest, res: Response) {
   try {
-    const requestId = parseInt(req.params.id);
+    const requestId = parseInt(req.params.id as string);
     if (isNaN(requestId)) return res.status(400).json({ message: "Invalid ID" });
 
     const [thread] = await db.select().from(chatThreads)

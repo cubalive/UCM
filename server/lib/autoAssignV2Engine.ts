@@ -541,9 +541,12 @@ export async function assignTripAutomatically(
       try {
         const { broadcastToTrip } = await import("./realtime");
         broadcastToTrip(tripId, {
-          type: "auto_assign_failed",
-          tripId,
-          reason: result.reason,
+          type: "status_change" as const,
+          data: {
+            event: "auto_assign_failed",
+            tripId,
+            reason: result.reason,
+          },
         });
       } catch {}
     }

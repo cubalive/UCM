@@ -43,7 +43,7 @@ export async function computeDriverOperationalStatus(driverId: number): Promise<
 
   const driver = await storage.getDriver(driverId);
   if (!driver) {
-    return { status: "OFFLINE", activeTripId: null, activeTripStatus: null, activeTripPublicId: null, dispatchStatus: null, lastSeenAt: null };
+    return { status: "OFFLINE", activeTripId: null, activeTripStatus: null, activeTripPublicId: null, dispatchStatus: null, lastSeenAt: null, reservedTripId: null, reservedTripPublicId: null };
   }
 
   const activeTrips = await storage.getActiveTripsForDriver(driverId);

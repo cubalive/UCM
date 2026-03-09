@@ -72,6 +72,7 @@ export async function generateTripsForSchedule(
     await db.insert(trips).values({
       publicId,
       cityId: schedule.cityId,
+      companyId: patient.companyId,
       patientId: patient.id,
       pickupAddress: patient.address || "TBD",
       pickupStreet: patient.addressStreet,

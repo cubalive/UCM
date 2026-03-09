@@ -387,7 +387,7 @@ export async function simulateDispatchFlow(tripId: number): Promise<any> {
     log.push(`Driver: ${driver.firstName} ${driver.lastName} (ID: ${driver.id})`);
     log.push(`Driver dispatch status: ${driver.dispatchStatus}`);
     log.push(`Driver availability: ${(driver as any).availabilityStatus ?? "N/A"}`);
-    log.push(`Driver remains Available until dispatch_at — confirmed: ${driver.dispatchStatus !== "enroute" && driver.dispatchStatus !== "busy"}`);
+    log.push(`Driver remains Available until dispatch_at — confirmed: ${driver.dispatchStatus !== "enroute" && (driver.dispatchStatus as string) !== "busy"}`);
   } else {
     log.push("No driver assigned");
   }

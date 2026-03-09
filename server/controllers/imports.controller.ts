@@ -54,7 +54,7 @@ export async function createImportJob(req: AuthRequest, res: Response) {
 
 export async function deleteImportJob(req: AuthRequest, res: Response) {
   try {
-    const jobId = req.params.id;
+    const jobId = req.params.id as string;
     const job = await db.select().from(importJobs).where(eq(importJobs.id, jobId)).limit(1);
     if (!job.length) return res.status(404).json({ error: "Import job not found" });
     if (job[0].status !== "draft") {
@@ -73,7 +73,7 @@ export async function deleteImportJob(req: AuthRequest, res: Response) {
 
 export async function uploadFile(req: AuthRequest, res: Response) {
   try {
-    const jobId = req.params.id;
+    const jobId = req.params.id as string;
     const entity = req.query.entity as string;
     if (!entity || !IMPORT_ENTITIES.includes(entity as ImportEntity)) {
       return res.status(400).json({ error: `entity must be one of: ${IMPORT_ENTITIES.join(", ")}` });
@@ -119,7 +119,7 @@ export async function uploadFile(req: AuthRequest, res: Response) {
 
 export async function dryRunImport(req: AuthRequest, res: Response) {
   try {
-    const jobId = req.params.id;
+    const jobId = req.params.id as string;
     const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
     if (!job) return res.status(404).json({ error: "Import job not found" });
 
@@ -184,7 +184,7 @@ export async function downloadTemplate(req: AuthRequest, res: Response) {
 
 export async function validateImport(req: AuthRequest, res: Response) {
   try {
-    const jobId = req.params.id;
+    const jobId = req.params.id as string;
     const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
     if (!job) return res.status(404).json({ error: "Import job not found" });
     if (!["draft", "validated"].includes(job.status)) {
@@ -271,7 +271,7 @@ const importProgress = new Map<string, { phase: string; entity: string; current:
 
 export async function runImport(req: AuthRequest, res: Response) {
   try {
-    const jobId = req.params.id;
+    const jobId = req.params.id as string;
     const user = req.user!;
     const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
     if (!job) return res.status(404).json({ error: "Import job not found" });
@@ -500,7 +500,7 @@ async function executeImportAsync(jobId: string, companyId: number, jobCityId: n
 
 export async function getImportStatus(req: AuthRequest, res: Response) {
   try {
-    const jobId = req.params.id;
+    const jobId = req.params.id as string;
     const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
     if (!job) return res.status(404).json({ error: "Import job not found" });
 
@@ -801,7 +801,7 @@ async function insertEntity(entity: ImportEntity, row: Record<string, any>, comp
 
 export async function rollbackImport(req: AuthRequest, res: Response) {
   try {
-    const jobId = req.params.id;
+    const jobId = req.params.id as string;
     const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
     if (!job) return res.status(404).json({ error: "Import job not found" });
     if (!["completed", "failed"].includes(job.status)) {
@@ -917,7 +917,7 @@ export async function listImportJobs(req: AuthRequest, res: Response) {
 
 export async function getImportJob(req: AuthRequest, res: Response) {
   try {
-    const jobId = req.params.id;
+    const jobId = req.params.id as string;
     const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
     if (!job) return res.status(404).json({ error: "Import job not found" });
 

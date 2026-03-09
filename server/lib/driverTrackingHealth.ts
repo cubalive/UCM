@@ -48,7 +48,7 @@ async function runTrackingHealthCheck() {
       .where(
         and(
           eq(trips.driverId, driver.id),
-          inArray(trips.status, ACTIVE_TRIP_STATUSES),
+          inArray(trips.status, [...ACTIVE_TRIP_STATUSES]),
           isNull(trips.deletedAt),
         )
       );
@@ -119,7 +119,7 @@ async function runTrackingHealthCheck() {
       .where(
         and(
           eq(trips.driverId, driver.id),
-          inArray(trips.status, ACTIVE_TRIP_STATUSES),
+          inArray(trips.status, [...ACTIVE_TRIP_STATUSES]),
           isNull(trips.deletedAt),
         )
       );

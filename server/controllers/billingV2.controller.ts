@@ -138,7 +138,7 @@ export async function updateTariffHandler(req: AuthRequest, res: Response) {
   try {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
-    const tariffId = parseInt(req.params.id);
+    const tariffId = parseInt(String(req.params.id));
 
     const existing = await db.select().from(clinicTariffs).where(eq(clinicTariffs.id, tariffId)).then(r => r[0]);
     if (!existing || existing.companyId !== companyId) {
@@ -170,7 +170,7 @@ export async function upsertClinicBillingSettingsHandler(req: AuthRequest, res: 
   try {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
-    const clinicId = parseInt(req.params.clinicId);
+    const clinicId = parseInt(String(req.params.clinicId));
 
     const clinic = await db.select({ companyId: clinics.companyId }).from(clinics).where(eq(clinics.id, clinicId)).then(r => r[0]);
     if (!clinic || clinic.companyId !== companyId) {
@@ -217,7 +217,7 @@ export async function backfillBillingHandler(req: AuthRequest, res: Response) {
       return res.status(400).json({ message: "from and to query params required (YYYY-MM-DD)" });
     }
 
-    const finalizedStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW", "ARRIVED_DROPOFF"];
+    const finalizedStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW", "ARRIVED_DROPOFF"] as const;
 
     const tripsToProcess = await db
       .select({ id: trips.id })
@@ -227,7 +227,7 @@ export async function backfillBillingHandler(req: AuthRequest, res: Response) {
           eq(trips.companyId, companyId),
           gte(trips.scheduledDate, from),
           lte(trips.scheduledDate, to),
-          inArray(trips.status, finalizedStatuses)
+          inArray(trips.status, [...finalizedStatuses])
         )
       );
 
@@ -352,7 +352,7 @@ export async function clinicGetInvoiceHandler(req: AuthRequest, res: Response) {
   try {
     const ctx = await getActorClinicContext(req, res);
     if (!ctx) return;
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
 
     const invoice = await db.select().from(billingCycleInvoices)
       .where(and(eq(billingCycleInvoices.id, invoiceId), eq(billingCycleInvoices.clinicId, ctx.clinicId)))
@@ -407,7 +407,7 @@ export async function clinicExportInvoiceCsvHandler(req: AuthRequest, res: Respo
   try {
     const ctx = await getActorClinicContext(req, res);
     if (!ctx) return;
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
 
     const invoice = await db.select().from(billingCycleInvoices)
       .where(and(eq(billingCycleInvoices.id, invoiceId), eq(billingCycleInvoices.clinicId, ctx.clinicId)))
@@ -456,7 +456,7 @@ export async function clinicExportInvoiceJsonHandler(req: AuthRequest, res: Resp
   try {
     const ctx = await getActorClinicContext(req, res);
     if (!ctx) return;
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
 
     const invoice = await db.select().from(billingCycleInvoices)
       .where(and(eq(billingCycleInvoices.id, invoiceId), eq(billingCycleInvoices.clinicId, ctx.clinicId)))
@@ -480,7 +480,7 @@ export async function clinicPayInvoiceHandler(req: AuthRequest, res: Response) {
   try {
     const ctx = await getActorClinicContext(req, res);
     if (!ctx) return;
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
 
     const invoice = await db.select().from(billingCycleInvoices)
       .where(and(eq(billingCycleInvoices.id, invoiceId), eq(billingCycleInvoices.clinicId, ctx.clinicId)))
@@ -742,7 +742,7 @@ export async function finalizeInvoiceHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const invoiceId = parseInt(req.params.id);
+    const invoiceId = parseInt(String(req.params.id));
     if (isNaN(invoiceId)) {
       return res.status(400).json({ message: "Invalid invoice ID" });
     }
@@ -998,7 +998,7 @@ export async function companyGetThreadMessagesHandler(req: AuthRequest, res: Res
   try {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
-    const threadId = parseInt(req.params.id);
+    const threadId = parseInt(String(req.params.id));
 
     const thread = await db.select().from(supportThreads)
       .where(and(eq(supportThreads.id, threadId), eq(supportThreads.companyId, companyId)))
@@ -1026,7 +1026,7 @@ export async function companyPostThreadMessageHandler(req: AuthRequest, res: Res
   try {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
-    const threadId = parseInt(req.params.id);
+    const threadId = parseInt(String(req.params.id));
     const { body } = req.body;
     if (!body) return res.status(400).json({ message: "body is required" });
 
@@ -1058,7 +1058,7 @@ export async function companyCloseThreadHandler(req: AuthRequest, res: Response)
   try {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
-    const threadId = parseInt(req.params.id);
+    const threadId = parseInt(String(req.params.id));
 
     const thread = await db.select().from(supportThreads)
       .where(and(eq(supportThreads.id, threadId), eq(supportThreads.companyId, companyId)))
@@ -1077,7 +1077,7 @@ export async function getClinicBillingSettingsHandler(req: AuthRequest, res: Res
   try {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
-    const clinicId = parseInt(req.params.clinicId);
+    const clinicId = parseInt(String(req.params.clinicId));
 
     const clinic = await db.select({ companyId: clinics.companyId }).from(clinics).where(eq(clinics.id, clinicId)).then(r => r[0]);
     if (!clinic || clinic.companyId !== companyId) {
@@ -1114,7 +1114,7 @@ export async function clinicGetThreadMessagesHandler(req: AuthRequest, res: Resp
   try {
     const ctx = await getActorClinicContext(req, res);
     if (!ctx) return;
-    const threadId = parseInt(req.params.id);
+    const threadId = parseInt(String(req.params.id));
 
     const thread = await db.select().from(supportThreads)
       .where(and(eq(supportThreads.id, threadId), eq(supportThreads.clinicId, ctx.clinicId)))

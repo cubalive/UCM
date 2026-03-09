@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { authMiddleware, requireRole, getActorContext, type AuthRequest } from "../auth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { invoices, companies, billingCycleInvoices } from "@shared/schema";
 
 function getStripe() {

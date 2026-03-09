@@ -72,6 +72,7 @@ const pool = new pg.Pool({
 const db = drizzle(pool, { schema });
 
 const dbReady = (async () => {
+  if (process.env.NODE_ENV === "test") return;
   const redacted = sanitizeHost(host);
   try {
     const client = await pool.connect();

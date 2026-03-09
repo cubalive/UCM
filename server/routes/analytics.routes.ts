@@ -46,16 +46,16 @@ router.get("/api/dashboard/driver-stats", authMiddleware, async (req: AuthReques
     const offlineHoldDrivers: any[] = [];
 
     for (const d of allDrivers) {
-      if (d.status === "inactive") continue;
+      if (d.status === "INACTIVE") continue;
 
       const entry = {
         id: d.id,
         name: `${d.firstName} ${d.lastName}`,
-        lastSeenAt: d.lastLocationAt || d.updatedAt,
-        status: d.status,
+        lastSeenAt: d.lastSeenAt || d.updatedAt,
+        status: d.dispatchStatus,
       };
 
-      if (d.status === "on_trip" || d.status === "en_route") {
+      if (d.dispatchStatus === "enroute") {
         // Find active trip for this driver
         const activeTrips = await db.select({
           id: trips.id,
@@ -69,14 +69,14 @@ router.get("/api/dashboard/driver-stats", authMiddleware, async (req: AuthReques
         inRouteDrivers.push({
           ...entry,
           tripPublicId: activeTrips[0]?.publicId || "N/A",
-          tripStatus: activeTrips[0]?.status || d.status,
+          tripStatus: activeTrips[0]?.status || d.dispatchStatus,
         });
-      } else if (d.status === "available" || d.status === "active") {
+      } else if (d.dispatchStatus === "available") {
         activeDrivers.push(entry);
       } else {
         offlineHoldDrivers.push({
           ...entry,
-          reason: d.status === "on_hold" ? "hold" : d.status === "paused" ? "paused" : "offline",
+          reason: d.dispatchStatus === "hold" ? "hold" : "offline",
         });
       }
     }

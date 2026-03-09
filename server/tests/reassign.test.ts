@@ -70,13 +70,14 @@ describe("scoreReassignCandidates – eligibility filters", () => {
     expect(result).toEqual([]);
   });
 
-  it("excludes stale drivers (GPS >120s)", () => {
+  it("includes stale drivers (GPS >120s) with warning but still assignable", () => {
     const stale = new Date(Date.now() - ONLINE_CUTOFF_MS - 60000).toISOString();
     const result = scoreReassignCandidates(
       [makeDriver({ id: 1, lastSeenAt: stale })],
       new Map(), vehicleMap, 29.76, -95.37, 1,
     );
-    expect(result).toEqual([]);
+    expect(result.length).toBe(1);
+    expect(result[0].id).toBe(1);
   });
 
   it("excludes inactive and deleted drivers", () => {

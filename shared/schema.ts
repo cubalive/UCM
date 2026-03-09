@@ -477,7 +477,7 @@ export const tripLocationPoints = pgTable("trip_location_points", {
   index("idx_trip_location_points_trip_ts").on(table.tripId, table.ts),
 ]);
 
-export const insertTripLocationPointSchema = createInsertSchema(tripLocationPoints).omit({ id: true, createdAt: true });
+export const insertTripLocationPointSchema = createInsertSchema(tripLocationPoints).omit({ createdAt: true });
 export type TripLocationPoint = typeof tripLocationPoints.$inferSelect;
 export type InsertTripLocationPoint = typeof tripLocationPoints.$inferInsert;
 
@@ -559,9 +559,9 @@ export const companyStripeAccounts = pgTable("company_stripe_accounts", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const insertCompanyStripeAccountSchema = createInsertSchema(companyStripeAccounts).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCompanyStripeAccountSchema = createInsertSchema(companyStripeAccounts).omit({ createdAt: true, updatedAt: true });
 export type CompanyStripeAccount = typeof companyStripeAccounts.$inferSelect;
-export type InsertCompanyStripeAccount = z.infer<typeof insertCompanyStripeAccountSchema>;
+export type InsertCompanyStripeAccount = Omit<typeof companyStripeAccounts.$inferInsert, "id" | "createdAt" | "updatedAt">;
 
 export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -2200,7 +2200,7 @@ export const companyPayrollSettings = pgTable("company_payroll_settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertCompanyPayrollSettingsSchema = createInsertSchema(companyPayrollSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCompanyPayrollSettingsSchema = createInsertSchema(companyPayrollSettings).omit({ createdAt: true, updatedAt: true });
 export type CompanyPayrollSettings = typeof companyPayrollSettings.$inferSelect;
 export type InsertCompanyPayrollSettings = z.infer<typeof insertCompanyPayrollSettingsSchema>;
 
@@ -2224,7 +2224,7 @@ export const staffPayConfigs = pgTable("staff_pay_configs", {
   uniqueIndex("spc_company_driver_idx").on(table.companyId, table.driverId),
 ]);
 
-export const insertStaffPayConfigSchema = createInsertSchema(staffPayConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertStaffPayConfigSchema = createInsertSchema(staffPayConfigs).omit({ createdAt: true, updatedAt: true });
 export type StaffPayConfig = typeof staffPayConfigs.$inferSelect;
 export type InsertStaffPayConfig = z.infer<typeof insertStaffPayConfigSchema>;
 
@@ -2243,7 +2243,7 @@ export const driverStripeAccounts = pgTable("driver_stripe_accounts", {
   uniqueIndex("driver_stripe_company_driver_idx").on(table.companyId, table.driverId),
 ]);
 
-export const insertDriverStripeAccountSchema = createInsertSchema(driverStripeAccounts).omit({ id: true, createdAt: true });
+export const insertDriverStripeAccountSchema = createInsertSchema(driverStripeAccounts).omit({ createdAt: true });
 export type DriverStripeAccount = typeof driverStripeAccounts.$inferSelect;
 export type InsertDriverStripeAccount = z.infer<typeof insertDriverStripeAccountSchema>;
 
@@ -2270,7 +2270,7 @@ export const driverEarningsLedger = pgTable("driver_earnings_ledger", {
   index("ledger_eligible_at_idx").on(table.eligibleAt),
 ]);
 
-export const insertDriverEarningsLedgerSchema = createInsertSchema(driverEarningsLedger).omit({ id: true, createdAt: true });
+export const insertDriverEarningsLedgerSchema = createInsertSchema(driverEarningsLedger).omit({ createdAt: true });
 export type DriverEarningsLedger = typeof driverEarningsLedger.$inferSelect;
 export type InsertDriverEarningsLedger = z.infer<typeof insertDriverEarningsLedgerSchema>;
 
@@ -2293,7 +2293,7 @@ export const payrollPayruns = pgTable("payroll_payruns", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertPayrollPayrunSchema = createInsertSchema(payrollPayruns).omit({ id: true, createdAt: true });
+export const insertPayrollPayrunSchema = createInsertSchema(payrollPayruns).omit({ createdAt: true });
 export type PayrollPayrun = typeof payrollPayruns.$inferSelect;
 export type InsertPayrollPayrun = z.infer<typeof insertPayrollPayrunSchema>;
 
@@ -2308,7 +2308,7 @@ export const payrollPayrunItems = pgTable("payroll_payrun_items", {
   uniqueIndex("payrun_item_driver_idx").on(table.payrunId, table.driverId),
 ]);
 
-export const insertPayrollPayrunItemSchema = createInsertSchema(payrollPayrunItems).omit({ id: true });
+export const insertPayrollPayrunItemSchema = createInsertSchema(payrollPayrunItems);
 export type PayrollPayrunItem = typeof payrollPayrunItems.$inferSelect;
 export type InsertPayrollPayrunItem = z.infer<typeof insertPayrollPayrunItemSchema>;
 
@@ -2335,7 +2335,7 @@ export const driverPayRules = pgTable("driver_pay_rules", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertDriverPayRulesSchema = createInsertSchema(driverPayRules).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDriverPayRulesSchema = createInsertSchema(driverPayRules).omit({ createdAt: true, updatedAt: true });
 export type DriverPayRules = typeof driverPayRules.$inferSelect;
 export type InsertDriverPayRules = z.infer<typeof insertDriverPayRulesSchema>;
 
@@ -2357,7 +2357,7 @@ export const driverEarningsAdjustments = pgTable("driver_earnings_adjustments", 
   index("dea_idempotency_idx").on(table.idempotencyKey),
 ]);
 
-export const insertDriverEarningsAdjustmentSchema = createInsertSchema(driverEarningsAdjustments).omit({ id: true, createdAt: true });
+export const insertDriverEarningsAdjustmentSchema = createInsertSchema(driverEarningsAdjustments).omit({ createdAt: true });
 export type DriverEarningsAdjustment = typeof driverEarningsAdjustments.$inferSelect;
 export type InsertDriverEarningsAdjustment = z.infer<typeof insertDriverEarningsAdjustmentSchema>;
 
@@ -2394,7 +2394,7 @@ export const timeEntries = pgTable("time_entries", {
   index("te_driver_date_idx").on(table.driverId, table.workDate),
 ]);
 
-export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ createdAt: true, updatedAt: true });
 export type TimeEntry = typeof timeEntries.$inferSelect;
 export type InsertTimeEntry = z.infer<typeof insertTimeEntrySchema>;
 
@@ -2413,7 +2413,7 @@ export const timeImportBatches = pgTable("time_import_batches", {
   index("tib_company_idx").on(table.companyId),
 ]);
 
-export const insertTimeImportBatchSchema = createInsertSchema(timeImportBatches).omit({ id: true, createdAt: true });
+export const insertTimeImportBatchSchema = createInsertSchema(timeImportBatches).omit({ createdAt: true });
 export type TimeImportBatch = typeof timeImportBatches.$inferSelect;
 export type InsertTimeImportBatch = z.infer<typeof insertTimeImportBatchSchema>;
 
@@ -2429,7 +2429,7 @@ export const tpPayrollRuns = pgTable("tp_payroll_runs", {
   index("tpr_company_status_idx").on(table.companyId, table.status),
 ]);
 
-export const insertTpPayrollRunSchema = createInsertSchema(tpPayrollRuns).omit({ id: true, createdAt: true });
+export const insertTpPayrollRunSchema = createInsertSchema(tpPayrollRuns).omit({ createdAt: true });
 export type TpPayrollRun = typeof tpPayrollRuns.$inferSelect;
 export type InsertTpPayrollRun = z.infer<typeof insertTpPayrollRunSchema>;
 
@@ -2461,7 +2461,7 @@ export const supportThreads = pgTable("support_threads", {
   index("st_clinic_idx").on(table.clinicId),
 ]);
 
-export const insertSupportThreadSchema = createInsertSchema(supportThreads).omit({ id: true, createdAt: true });
+export const insertSupportThreadSchema = createInsertSchema(supportThreads).omit({ createdAt: true });
 export type SupportThread = typeof supportThreads.$inferSelect;
 export type InsertSupportThread = z.infer<typeof insertSupportThreadSchema>;
 
@@ -2478,7 +2478,7 @@ export const supportMessages = pgTable("support_messages", {
   index("sm_thread_idx").on(table.threadId),
 ]);
 
-export const insertSupportMessageSchema = createInsertSchema(supportMessages).omit({ id: true, createdAt: true });
+export const insertSupportMessageSchema = createInsertSchema(supportMessages).omit({ createdAt: true });
 export type SupportMessage = typeof supportMessages.$inferSelect;
 export type InsertSupportMessage = z.infer<typeof insertSupportMessageSchema>;
 
@@ -2498,7 +2498,7 @@ export const recurringPricingOverrides = pgTable("recurring_pricing_overrides", 
   uniqueIndex("rpo_unique_idx").on(table.companyId, table.clinicId, table.patientId, table.scheduleId, table.effectiveFrom),
 ]);
 
-export const insertRecurringPricingOverrideSchema = createInsertSchema(recurringPricingOverrides).omit({ id: true, createdAt: true });
+export const insertRecurringPricingOverrideSchema = createInsertSchema(recurringPricingOverrides).omit({ createdAt: true });
 export type RecurringPricingOverride = typeof recurringPricingOverrides.$inferSelect;
 export type InsertRecurringPricingOverride = z.infer<typeof insertRecurringPricingOverrideSchema>;
 
@@ -2533,7 +2533,7 @@ export const clinicMemberships = pgTable("clinic_memberships", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const insertClinicMembershipSchema = createInsertSchema(clinicMemberships).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertClinicMembershipSchema = createInsertSchema(clinicMemberships).omit({ createdAt: true, updatedAt: true });
 export type ClinicMembership = typeof clinicMemberships.$inferSelect;
 export type InsertClinicMembership = z.infer<typeof insertClinicMembershipSchema>;
 
@@ -2611,7 +2611,7 @@ export const driverShifts = pgTable("driver_shifts", {
   index("idx_driver_shifts_status").on(table.status),
 ]);
 
-export const insertDriverShiftSchema = createInsertSchema(driverShifts).omit({ id: true, totalMinutes: true });
+export const insertDriverShiftSchema = createInsertSchema(driverShifts).omit({ totalMinutes: true });
 export type DriverShift = typeof driverShifts.$inferSelect;
 export type InsertDriverShift = z.infer<typeof insertDriverShiftSchema>;
 
@@ -2632,7 +2632,7 @@ export const noShowEvidence = pgTable("no_show_evidence", {
   index("idx_no_show_evidence_trip").on(table.tripId),
 ]);
 
-export const insertNoShowEvidenceSchema = createInsertSchema(noShowEvidence).omit({ id: true, createdAt: true });
+export const insertNoShowEvidenceSchema = createInsertSchema(noShowEvidence).omit({ createdAt: true });
 export type NoShowEvidence = typeof noShowEvidence.$inferSelect;
 export type InsertNoShowEvidence = z.infer<typeof insertNoShowEvidenceSchema>;
 
@@ -2666,7 +2666,7 @@ export const driverSettings = pgTable("driver_settings", {
   index("driver_settings_driver_idx").on(table.driverId),
 ]);
 
-export const insertDriverSettingsSchema = createInsertSchema(driverSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDriverSettingsSchema = createInsertSchema(driverSettings).omit({ createdAt: true, updatedAt: true });
 export type DriverSettingsType = typeof driverSettings.$inferSelect;
 export type InsertDriverSettings = z.infer<typeof insertDriverSettingsSchema>;
 
@@ -2690,7 +2690,7 @@ export const driverTelemetryEvents = pgTable("driver_telemetry_events", {
   index("dte_created_idx").on(table.createdAt),
 ]);
 
-export const insertDriverTelemetryEventSchema = createInsertSchema(driverTelemetryEvents).omit({ id: true, createdAt: true });
+export const insertDriverTelemetryEventSchema = createInsertSchema(driverTelemetryEvents).omit({ createdAt: true });
 export type DriverTelemetryEvent = typeof driverTelemetryEvents.$inferSelect;
 export type InsertDriverTelemetryEvent = z.infer<typeof insertDriverTelemetryEventSchema>;
 
@@ -2717,7 +2717,7 @@ export const billingAdjustments = pgTable("billing_adjustments", {
   index("ba_created_idx").on(table.createdAt),
 ]);
 
-export const insertBillingAdjustmentSchema = createInsertSchema(billingAdjustments).omit({ id: true, createdAt: true });
+export const insertBillingAdjustmentSchema = createInsertSchema(billingAdjustments).omit({ createdAt: true });
 export type BillingAdjustment = typeof billingAdjustments.$inferSelect;
 export type InsertBillingAdjustment = z.infer<typeof insertBillingAdjustmentSchema>;
 
@@ -2744,7 +2744,7 @@ export const ledgerEntries = pgTable("ledger_entries", {
   index("le_created_idx").on(table.createdAt),
 ]);
 
-export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ id: true, createdAt: true });
+export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ createdAt: true });
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
 
@@ -2771,7 +2771,7 @@ export const payoutReconciliation = pgTable("payout_reconciliation", {
   index("pr_available_idx").on(table.availableOn),
 ]);
 
-export const insertPayoutReconciliationSchema = createInsertSchema(payoutReconciliation).omit({ id: true, createdAt: true });
+export const insertPayoutReconciliationSchema = createInsertSchema(payoutReconciliation).omit({ createdAt: true });
 export type PayoutReconciliation = typeof payoutReconciliation.$inferSelect;
 export type InsertPayoutReconciliation = z.infer<typeof insertPayoutReconciliationSchema>;
 
@@ -2797,7 +2797,7 @@ export const billingAuditEvents = pgTable("billing_audit_events", {
   index("bae_created_idx").on(table.createdAt),
 ]);
 
-export const insertBillingAuditEventSchema = createInsertSchema(billingAuditEvents).omit({ id: true, createdAt: true });
+export const insertBillingAuditEventSchema = createInsertSchema(billingAuditEvents).omit({ createdAt: true });
 export type BillingAuditEvent = typeof billingAuditEvents.$inferSelect;
 export type InsertBillingAuditEvent = z.infer<typeof insertBillingAuditEventSchema>;
 
@@ -2873,7 +2873,7 @@ export const feeRules = pgTable("fee_rules", {
   index("fr_settlement_idx").on(table.settlementStage),
 ]);
 
-export const insertFeeRuleSchema = createInsertSchema(feeRules).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertFeeRuleSchema = createInsertSchema(feeRules).omit({ createdAt: true, updatedAt: true });
 export type FeeRule = typeof feeRules.$inferSelect;
 export type InsertFeeRule = z.infer<typeof insertFeeRuleSchema>;
 
@@ -2893,7 +2893,7 @@ export const feeRuleAudit = pgTable("fee_rule_audit", {
   index("fra_created_idx").on(table.createdAt),
 ]);
 
-export const insertFeeRuleAuditSchema = createInsertSchema(feeRuleAudit).omit({ id: true, createdAt: true });
+export const insertFeeRuleAuditSchema = createInsertSchema(feeRuleAudit).omit({ createdAt: true });
 export type FeeRuleAudit = typeof feeRuleAudit.$inferSelect;
 export type InsertFeeRuleAudit = z.infer<typeof insertFeeRuleAuditSchema>;
 
@@ -2919,7 +2919,7 @@ export const alertAcknowledgments = pgTable("alert_acknowledgments", {
   index("aa_dismissed_idx").on(table.dismissed),
 ]);
 
-export const insertAlertAckSchema = createInsertSchema(alertAcknowledgments).omit({ id: true, createdAt: true, dismissed: true, dismissedById: true, dismissedByName: true, dismissedAt: true });
+export const insertAlertAckSchema = createInsertSchema(alertAcknowledgments).omit({ createdAt: true, dismissed: true, dismissedById: true, dismissedByName: true, dismissedAt: true });
 export type AlertAcknowledgment = typeof alertAcknowledgments.$inferSelect;
 export type InsertAlertAck = z.infer<typeof insertAlertAckSchema>;
 
@@ -2965,11 +2965,11 @@ export const autoAssignRunCandidates = pgTable("auto_assign_run_candidates", {
   index("aarc_rank_idx").on(table.rank),
 ]);
 
-export const insertAutoAssignRunSchema = createInsertSchema(autoAssignRuns).omit({ id: true, createdAt: true });
+export const insertAutoAssignRunSchema = createInsertSchema(autoAssignRuns).omit({ createdAt: true });
 export type AutoAssignRun = typeof autoAssignRuns.$inferSelect;
 export type InsertAutoAssignRun = z.infer<typeof insertAutoAssignRunSchema>;
 
-export const insertAutoAssignRunCandidateSchema = createInsertSchema(autoAssignRunCandidates).omit({ id: true, createdAt: true });
+export const insertAutoAssignRunCandidateSchema = createInsertSchema(autoAssignRunCandidates).omit({ createdAt: true });
 export type AutoAssignRunCandidate = typeof autoAssignRunCandidates.$inferSelect;
 export type InsertAutoAssignRunCandidate = z.infer<typeof insertAutoAssignRunCandidateSchema>;
 
@@ -2991,7 +2991,7 @@ export const automationEvents = pgTable("automation_events", {
   index("ae_created_idx").on(table.createdAt),
 ]);
 
-export const insertAutomationEventSchema = createInsertSchema(automationEvents).omit({ id: true, createdAt: true });
+export const insertAutomationEventSchema = createInsertSchema(automationEvents).omit({ createdAt: true });
 export type AutomationEvent = typeof automationEvents.$inferSelect;
 export type InsertAutomationEvent = z.infer<typeof insertAutomationEventSchema>;
 
@@ -3072,7 +3072,7 @@ export const financialLedger = pgTable("financial_ledger", {
   index("fl_idempotency_idx").on(table.idempotencyKey),
 ]);
 
-export const insertFinancialLedgerSchema = createInsertSchema(financialLedger).omit({ id: true, createdAt: true });
+export const insertFinancialLedgerSchema = createInsertSchema(financialLedger).omit({ createdAt: true });
 export type FinancialLedgerEntry = typeof financialLedger.$inferSelect;
 export type InsertFinancialLedgerEntry = z.infer<typeof insertFinancialLedgerSchema>;
 
@@ -3119,7 +3119,7 @@ export const tripRequests = pgTable("trip_requests", {
   index("tr_patient_idx").on(table.patientId),
 ]);
 
-export const insertTripRequestSchema = createInsertSchema(tripRequests).omit({ id: true, createdAt: true, updatedAt: true, approvedTripId: true });
+export const insertTripRequestSchema = createInsertSchema(tripRequests).omit({ createdAt: true, updatedAt: true, approvedTripId: true });
 export type TripRequest = typeof tripRequests.$inferSelect;
 export type InsertTripRequest = z.infer<typeof insertTripRequestSchema>;
 
@@ -3149,8 +3149,8 @@ export const chatMessages = pgTable("chat_messages", {
   index("cm_created_idx").on(table.createdAt),
 ]);
 
-export const insertChatThreadSchema = createInsertSchema(chatThreads).omit({ id: true, createdAt: true });
-export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({ id: true, createdAt: true });
+export const insertChatThreadSchema = createInsertSchema(chatThreads).omit({ createdAt: true });
+export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({ createdAt: true });
 export type ChatThread = typeof chatThreads.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type InsertChatThread = z.infer<typeof insertChatThreadSchema>;
@@ -3174,7 +3174,7 @@ export const clinicFeatures = pgTable("clinic_features", {
   index("cf_clinic_idx").on(table.clinicId),
 ]);
 
-export const insertClinicFeatureSchema = createInsertSchema(clinicFeatures).omit({ id: true, createdAt: true });
+export const insertClinicFeatureSchema = createInsertSchema(clinicFeatures).omit({ createdAt: true });
 export type ClinicFeature = typeof clinicFeatures.$inferSelect;
 export type InsertClinicFeature = z.infer<typeof insertClinicFeatureSchema>;
 
@@ -3189,7 +3189,7 @@ export const clinicCapacityConfig = pgTable("clinic_capacity_config", {
   uniqueIndex("ccc_clinic_service_unique").on(table.clinicId, table.serviceLevel),
 ]);
 
-export const insertClinicCapacityConfigSchema = createInsertSchema(clinicCapacityConfig).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertClinicCapacityConfigSchema = createInsertSchema(clinicCapacityConfig).omit({ createdAt: true, updatedAt: true });
 export type ClinicCapacityConfig = typeof clinicCapacityConfig.$inferSelect;
 export type InsertClinicCapacityConfig = z.infer<typeof insertClinicCapacityConfigSchema>;
 
@@ -3205,7 +3205,7 @@ export const clinicForecastSnapshots = pgTable("clinic_forecast_snapshots", {
   index("cfs_clinic_date_idx").on(table.clinicId, table.snapshotDate),
 ]);
 
-export const insertClinicForecastSnapshotSchema = createInsertSchema(clinicForecastSnapshots).omit({ id: true, createdAt: true });
+export const insertClinicForecastSnapshotSchema = createInsertSchema(clinicForecastSnapshots).omit({ createdAt: true });
 export type ClinicForecastSnapshot = typeof clinicForecastSnapshots.$inferSelect;
 export type InsertClinicForecastSnapshot = z.infer<typeof insertClinicForecastSnapshotSchema>;
 
@@ -3224,7 +3224,7 @@ export const tripRoutePlans = pgTable("trip_route_plans", {
   index("idx_trip_route_plans_trip").on(table.tripId),
 ]);
 
-export const insertTripRoutePlanSchema = createInsertSchema(tripRoutePlans).omit({ id: true, createdAt: true });
+export const insertTripRoutePlanSchema = createInsertSchema(tripRoutePlans).omit({ createdAt: true });
 export type TripRoutePlan = typeof tripRoutePlans.$inferSelect;
 export type InsertTripRoutePlan = z.infer<typeof insertTripRoutePlanSchema>;
 
@@ -3241,7 +3241,7 @@ export const tripRoutePointChunks = pgTable("trip_route_point_chunks", {
   index("idx_trip_route_point_chunks_trip").on(table.tripId, table.chunkIndex),
 ]);
 
-export const insertTripRoutePointChunkSchema = createInsertSchema(tripRoutePointChunks).omit({ id: true, createdAt: true });
+export const insertTripRoutePointChunkSchema = createInsertSchema(tripRoutePointChunks).omit({ createdAt: true });
 export type TripRoutePointChunk = typeof tripRoutePointChunks.$inferSelect;
 export type InsertTripRoutePointChunk = z.infer<typeof insertTripRoutePointChunkSchema>;
 
@@ -3273,7 +3273,7 @@ export const tripRouteEvents = pgTable("trip_route_events", {
   index("idx_trip_route_events_trip").on(table.tripId, table.ts),
 ]);
 
-export const insertTripRouteEventSchema = createInsertSchema(tripRouteEvents).omit({ id: true, createdAt: true });
+export const insertTripRouteEventSchema = createInsertSchema(tripRouteEvents).omit({ createdAt: true });
 export type TripRouteEvent = typeof tripRouteEvents.$inferSelect;
 export type InsertTripRouteEvent = z.infer<typeof insertTripRouteEventSchema>;
 
@@ -3291,6 +3291,6 @@ export const opsAuditLedger = pgTable("ops_audit_ledger", {
   index("idx_ops_audit_ledger_event").on(table.eventType),
 ]);
 
-export const insertOpsAuditLedgerSchema = createInsertSchema(opsAuditLedger).omit({ id: true, createdAt: true });
+export const insertOpsAuditLedgerSchema = createInsertSchema(opsAuditLedger).omit({ createdAt: true });
 export type OpsAuditLedgerEntry = typeof opsAuditLedger.$inferSelect;
 export type InsertOpsAuditLedgerEntry = z.infer<typeof insertOpsAuditLedgerSchema>;

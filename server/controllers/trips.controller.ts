@@ -2557,7 +2557,7 @@ export async function createTripInvoiceHandler(req: AuthRequest, res: Response) 
 
 export async function getTripRouteProofHandler(req: AuthRequest, res: any) {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid trip ID" });
 
     const trip = await storage.getTrip(id);
