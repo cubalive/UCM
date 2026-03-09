@@ -1,8 +1,18 @@
 # Ignore everything by default
 *
 
-# Only allow what the Dockerfile needs
+# Allow only what the Dockerfile needs
 !package.json
 !package-lock.json
 !tsconfig.json
-!src/
+!vite.config.ts
+!tailwind.config.ts
+!postcss.config.js
+!components.json
+!drizzle.config.ts
+!client/
+!server/
+!shared/
+!script/
+!public/
+!attached_assets/
