@@ -92,7 +92,7 @@ export default function DriverPerformancePage() {
                   testId="kpi-late"
                 />
                 <KPIRow
-                  icon={<TrendingUp className="w-4 h-4 text-blue-500" />}
+                  icon={<TrendingUp className="w-4 h-4 text-emerald-500" />}
                   label="Acceptance Rate"
                   value={`${Math.round(data.kpis.acceptanceRate * 100)}%`}
                   testId="kpi-acceptance"

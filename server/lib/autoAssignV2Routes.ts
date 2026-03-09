@@ -44,7 +44,7 @@ export function registerAutoAssignV2Routes(app: Express) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res) => {
       try {
-        const runId = parseInt(req.params.runId);
+        const runId = parseInt(String(req.params.runId));
         if (isNaN(runId)) return res.status(400).json({ message: "Invalid run ID" });
 
         const details = await getAutoAssignRunDetails(runId);
@@ -63,7 +63,7 @@ export function registerAutoAssignV2Routes(app: Express) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res) => {
       try {
-        const tripId = parseInt(req.params.tripId);
+        const tripId = parseInt(String(req.params.tripId));
         if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
 
         const runs = await getAutoAssignHistory(tripId);
@@ -80,7 +80,7 @@ export function registerAutoAssignV2Routes(app: Express) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res) => {
       try {
-        const tripId = parseInt(req.params.tripId);
+        const tripId = parseInt(String(req.params.tripId));
         if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
 
         const events = await getAutomationEventsForTrip(tripId);
@@ -97,7 +97,7 @@ export function registerAutoAssignV2Routes(app: Express) {
     requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
     async (req: AuthRequest, res) => {
       try {
-        const companyId = parseInt(req.params.companyId);
+        const companyId = parseInt(String(req.params.companyId));
         const [company] = await db.select({
           autoAssignV2Enabled: companies.autoAssignV2Enabled,
           autoAssignOfferTimeoutSeconds: companies.autoAssignOfferTimeoutSeconds,
@@ -124,7 +124,7 @@ export function registerAutoAssignV2Routes(app: Express) {
     requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
     async (req: AuthRequest, res) => {
       try {
-        const companyId = parseInt(req.params.companyId);
+        const companyId = parseInt(String(req.params.companyId));
         const updates: any = {};
         const allowed = [
           "autoAssignV2Enabled", "autoAssignOfferTimeoutSeconds", "autoAssignMaxRounds",
@@ -214,7 +214,7 @@ export function registerAutoAssignV2Routes(app: Express) {
     requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
     async (req: AuthRequest, res) => {
       try {
-        const tripId = parseInt(req.params.tripId);
+        const tripId = parseInt(String(req.params.tripId));
         const { driverId } = req.body;
         if (!driverId) return res.status(400).json({ message: "driverId required" });
 

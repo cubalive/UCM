@@ -30,9 +30,9 @@ export default function ClinicProfile() {
       </div>
 
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden" data-testid="profile-card">
-        <div className="h-24 bg-gradient-to-r from-blue-600/20 to-cyan-600/20" />
+        <div className="h-24 bg-gradient-to-r from-emerald-600/20 to-teal-600/20" />
         <div className="px-6 pb-6 -mt-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center text-white text-2xl font-bold border-4 border-[#111827]">
+          <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-400 rounded-xl flex items-center justify-center text-white text-2xl font-bold border-4 border-[#111827]">
             {clinicData?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || "C"}
           </div>
           <div className="mt-3">
@@ -57,7 +57,7 @@ export default function ClinicProfile() {
 
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl divide-y divide-[#1e293b]" data-testid="profile-details">
         <div className="px-5 py-4 flex items-center gap-3">
-          <Mail className="w-4 h-4 text-blue-400 shrink-0" />
+          <Mail className="w-4 h-4 text-emerald-400 shrink-0" />
           <div>
             <p className="text-xs text-gray-500">Email</p>
             <p className="text-sm text-white">{clinicData?.email || user?.email || "Not set"}</p>
@@ -95,7 +95,7 @@ export default function ClinicProfile() {
 
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5" data-testid="account-section">
         <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-          <Shield className="w-4 h-4 text-blue-400" />
+          <Shield className="w-4 h-4 text-emerald-400" />
           Account
         </h3>
         <div className="space-y-3">

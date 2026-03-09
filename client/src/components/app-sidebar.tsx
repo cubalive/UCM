@@ -128,12 +128,6 @@ const operationGroups: NavGroup[] = [
       { titleKey: "nav.autoAssign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
       { titleKey: "nav.etaEscalations", url: "/eta-escalations", icon: AlertTriangle, resource: "dispatch" },
       { titleKey: "nav.dialysisMode", url: "/zero-touch-dialysis", icon: Heart, resource: "dispatch" },
-    ],
-  },
-  {
-    labelKey: "nav.group.health",
-    icon: Activity,
-    items: [
       { titleKey: "nav.opsHealth", url: "/ops-health", icon: Activity, resource: "dispatch" },
       { titleKey: "nav.opsChecks", url: "/ops-checks", icon: ShieldCheck, resource: "dispatch" },
     ],
@@ -157,7 +151,7 @@ const operationGroups: NavGroup[] = [
   },
   {
     labelKey: "nav.group.billing",
-    icon: Receipt,
+    icon: CreditCard,
     items: [
       { titleKey: "nav.invoices", url: "/invoices", icon: FileText, resource: "invoices" },
       { titleKey: "nav.billing", url: "/billing", icon: Receipt, resource: "invoices" },
@@ -409,16 +403,24 @@ export function AppSidebar() {
             <img
               src={`/api/companies/${user.companyId}/logo`}
               alt="Company"
-              className="h-9 w-9 rounded-md object-contain flex-shrink-0"
+              className="h-9 w-9 rounded-full object-contain flex-shrink-0"
               onError={(e) => { (e.target as HTMLImageElement).src = "/branding/logo-small.png"; }}
               data-testid="img-sidebar-logo"
             />
           ) : (
-            <img src="/branding/logo-small.png" alt="UCM" className="h-9 w-auto flex-shrink-0" data-testid="img-sidebar-logo" />
+            <div className="h-9 w-9 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg" data-testid="img-sidebar-logo">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" fill="white" fillOpacity="0.9"/>
+                <path d="M10 15l-3-3 1.41-1.41L10 12.17l5.59-5.59L17 8l-7 7z" fill="currentColor" className="text-emerald-600"/>
+              </svg>
+            </div>
           )}
           <div className="min-w-0">
-            <p className="text-sm font-semibold truncate" data-testid="text-sidebar-title">UCM</p>
-            <p className="text-xs text-muted-foreground truncate">{t("nav.mobilitySystem")}</p>
+            <p className="text-sm font-bold tracking-wide truncate" data-testid="text-sidebar-title">
+              <span className="text-sidebar-foreground">UCM</span>
+              <span className="text-[hsl(var(--gold))] ml-1 text-[10px] font-semibold tracking-widest uppercase">Elite</span>
+            </p>
+            <p className="text-[11px] text-sidebar-foreground/50 truncate tracking-wide">{t("nav.mobilitySystem")}</p>
           </div>
         </div>
 
@@ -538,7 +540,7 @@ export function AppSidebar() {
       <SidebarFooter className="p-3 border-t border-sidebar-border">
         <div className="flex items-center gap-3">
           <Avatar className="h-8 w-8 flex-shrink-0">
-            <AvatarFallback className="text-xs bg-blue-600 text-white dark:bg-blue-500">
+            <AvatarFallback className="text-xs bg-gradient-to-br from-emerald-500 to-emerald-700 text-white font-semibold">
               {initials}
             </AvatarFallback>
           </Avatar>
@@ -546,7 +548,7 @@ export function AppSidebar() {
             <p className="text-sm font-medium truncate" data-testid="text-user-name">
               {user?.firstName} {user?.lastName}
             </p>
-            <p className="text-xs text-muted-foreground truncate">
+            <p className="text-[11px] text-sidebar-foreground/50 truncate uppercase tracking-wider">
               {user?.role?.replace("_", " ")}
             </p>
           </div>
@@ -554,13 +556,13 @@ export function AppSidebar() {
             size="icon"
             variant="ghost"
             onClick={logout}
-            className="transition-colors duration-150"
+            className="transition-colors duration-150 hover:text-destructive"
             data-testid="button-logout"
           >
             <LogOut className="w-4 h-4" />
           </Button>
         </div>
-        <p className="text-[10px] text-muted-foreground text-center mt-1" data-testid="text-admin-version">
+        <p className="text-[10px] text-sidebar-foreground/40 text-center mt-1 tracking-wider" data-testid="text-admin-version">
           UCM v{versionQuery.data?.version || "..."}
         </p>
       </SidebarFooter>

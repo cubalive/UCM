@@ -252,7 +252,7 @@ function ErrorDetailsDrawer({
   const severityConfig = {
     critical: { bg: "bg-red-50 dark:bg-red-950/30", border: "border-red-200 dark:border-red-800", text: "text-red-700 dark:text-red-300", badge: "destructive" as const },
     warning: { bg: "bg-yellow-50 dark:bg-yellow-950/30", border: "border-yellow-200 dark:border-yellow-800", text: "text-yellow-700 dark:text-yellow-300", badge: "secondary" as const },
-    info: { bg: "bg-blue-50 dark:bg-blue-950/30", border: "border-blue-200 dark:border-blue-800", text: "text-blue-700 dark:text-blue-300", badge: "outline" as const },
+    info: { bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-800", text: "text-emerald-700 dark:text-emerald-300", badge: "outline" as const },
   };
 
   const sc = isExt && !resolved
@@ -549,7 +549,7 @@ function AlertCard({
   const severityStyles = {
     critical: "border-red-200 dark:border-red-800 hover:border-red-300 dark:hover:border-red-700",
     warning: "border-yellow-200 dark:border-yellow-800 hover:border-yellow-300 dark:hover:border-yellow-700",
-    info: "border-blue-200 dark:border-blue-800 hover:border-blue-300 dark:hover:border-blue-700",
+    info: "border-emerald-200 dark:border-emerald-800 hover:border-emerald-300 dark:hover:border-emerald-700",
   };
 
   const cardStyle = resolved
@@ -621,7 +621,7 @@ function AlertCard({
             <Icon className="w-3 h-3" />
             <span data-testid={`text-alert-module-${alert.code}`}>{meta.module}</span>
             <span>&rarr;</span>
-            <span className={isExt ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}>
+            <span className={isExt ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>
               {resolved ? "View resolved alert" : isExt ? "View external issue" : alert.severity === "critical" ? "View details" : `Go to ${meta.module}`}
             </span>
           </div>
@@ -1379,7 +1379,7 @@ function AutomationTab({ resolvedCodes, activeAcks, onAckCreated }: { resolvedCo
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <ClickableMetricCard
           icon={Route}
-          iconColor="text-blue-500"
+          iconColor="text-emerald-500"
           label="Route Batches Today"
           value={batches?.length || 0}
           isLoading={batchesLoading}

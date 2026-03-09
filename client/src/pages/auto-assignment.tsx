@@ -343,7 +343,7 @@ export default function AutoAssignmentPage() {
                             <div className="flex items-center gap-1">
                               {p.patientName}
                               {p.wheelchairRequired && (
-                                <Accessibility className="w-3 h-3 text-blue-500" />
+                                <Accessibility className="w-3 h-3 text-emerald-500" />
                               )}
                             </div>
                           </td>

@@ -154,7 +154,7 @@ const FEE_TYPE_LABELS: Record<FeeType, string> = {
 
 function feeRuleScopeBadge(scope: ScopeType) {
   const variants: Record<ScopeType, string> = {
-    global: "bg-blue-600",
+    global: "bg-emerald-600",
     company: "bg-emerald-600",
     clinic: "bg-purple-600",
     company_clinic: "bg-orange-600",
@@ -221,7 +221,7 @@ function subscriptionStatusBadge(status: string, cancelAtPeriodEnd: boolean) {
     case "active":
       return <Badge className="bg-green-600" data-testid="badge-active">Active</Badge>;
     case "trialing":
-      return <Badge className="bg-blue-600" data-testid="badge-trialing">Trialing</Badge>;
+      return <Badge className="bg-emerald-600" data-testid="badge-trialing">Trialing</Badge>;
     case "past_due":
       return <Badge variant="destructive" data-testid="badge-past-due">Past Due</Badge>;
     case "canceled":

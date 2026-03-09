@@ -30,7 +30,7 @@ export function NetworkStatus() {
   if (!isOnline) {
     return (
       <div
-        className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1e3d]/95 backdrop-blur-sm"
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1a14]/95 backdrop-blur-sm"
         data-testid="overlay-offline"
       >
         <div className="text-center space-y-4 px-6 max-w-sm">
@@ -43,7 +43,7 @@ export function NetworkStatus() {
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
             data-testid="button-retry-connection"
           >
             <RefreshCw className="w-4 h-4" />

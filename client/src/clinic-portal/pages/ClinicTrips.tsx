@@ -39,7 +39,7 @@ function statusColor(status: string) {
     case "CANCELLED": return "bg-red-500/10 text-red-400 border-red-500/20";
     case "NO_SHOW": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
     case "EN_ROUTE_PICKUP":
-    case "EN_ROUTE_DROPOFF": return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+    case "EN_ROUTE_DROPOFF": return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
     case "ARRIVED_PICKUP":
     case "ARRIVED_DROPOFF": return "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
     case "PICKED_UP": return "bg-purple-500/10 text-purple-400 border-purple-500/20";
@@ -56,7 +56,7 @@ function StatusIcon({ status }: { status: string }) {
     case "CANCELLED": return <XCircle className="w-4 h-4 text-red-400" />;
     case "NO_SHOW": return <AlertTriangle className="w-4 h-4 text-amber-400" />;
     case "EN_ROUTE_PICKUP":
-    case "EN_ROUTE_DROPOFF": return <Truck className="w-4 h-4 text-blue-400" />;
+    case "EN_ROUTE_DROPOFF": return <Truck className="w-4 h-4 text-emerald-400" />;
     default: return <Car className="w-4 h-4 text-gray-400" />;
   }
 }
@@ -137,7 +137,7 @@ function TripDrawer({ trip, onClose }: TripDrawerProps) {
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="drawer-patient">
               <div className="flex items-center gap-2 mb-2">
-                <User className="w-4 h-4 text-blue-400" />
+                <User className="w-4 h-4 text-emerald-400" />
                 <span className="text-xs text-gray-500 uppercase">Patient</span>
               </div>
               <p className="text-sm text-white font-medium">{trip.patientName || "Not assigned"}</p>
@@ -177,8 +177,8 @@ function TripDrawer({ trip, onClose }: TripDrawerProps) {
                 return (
                   <div key={step.key} className="flex gap-3" data-testid={`timeline-${step.key}`}>
                     <div className="flex flex-col items-center">
-                      <div className={`w-2.5 h-2.5 rounded-full ${isCompleted ? "bg-blue-400" : "bg-gray-700"}`} />
-                      {!isLast && <div className={`w-0.5 h-8 ${isCompleted ? "bg-blue-400/30" : "bg-gray-800"}`} />}
+                      <div className={`w-2.5 h-2.5 rounded-full ${isCompleted ? "bg-emerald-400" : "bg-gray-700"}`} />
+                      {!isLast && <div className={`w-0.5 h-8 ${isCompleted ? "bg-emerald-400/30" : "bg-gray-800"}`} />}
                     </div>
                     <div className="pb-4">
                       <p className={`text-xs font-medium ${isCompleted ? "text-white" : "text-gray-600"}`}>
@@ -266,7 +266,7 @@ export default function ClinicTrips() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search trips by patient, address..."
-            className="w-full pl-10 pr-4 py-2.5 bg-[#111827] border border-[#1e293b] rounded-lg text-sm text-white placeholder-gray-600 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none transition"
+            className="w-full pl-10 pr-4 py-2.5 bg-[#111827] border border-[#1e293b] rounded-lg text-sm text-white placeholder-gray-600 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 outline-none transition"
             data-testid="input-search-trips"
           />
         </div>
@@ -274,7 +274,7 @@ export default function ClinicTrips() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2.5 bg-[#111827] border border-[#1e293b] rounded-lg text-sm text-white outline-none focus:border-blue-500/50 transition"
+            className="px-3 py-2.5 bg-[#111827] border border-[#1e293b] rounded-lg text-sm text-white outline-none focus:border-emerald-500/50 transition"
             data-testid="select-status-filter"
           >
             {STATUS_OPTIONS.map(opt => (
@@ -288,7 +288,7 @@ export default function ClinicTrips() {
         <div className="flex flex-wrap gap-2" data-testid="active-filters">
           <button
             onClick={() => setStatusFilter("")}
-            className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-xs text-blue-400 hover:bg-blue-500/20 transition"
+            className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs text-emerald-400 hover:bg-emerald-500/20 transition"
             data-testid="chip-clear-filter"
           >
             {STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}
@@ -300,7 +300,7 @@ export default function ClinicTrips() {
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden" data-testid="trips-table">
         {isLoading ? (
           <div className="p-12 text-center">
-            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-gray-500 text-sm mt-3">Loading trips...</p>
           </div>
         ) : tripsList.length === 0 ? (

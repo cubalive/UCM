@@ -760,10 +760,10 @@ export function registerDispatchRoutes(app: Express) {
             const { driverScores } = await import("@shared/schema");
             const { desc, inArray } = await import("drizzle-orm");
             const { db } = await import("../db");
-            const scores = await db.select({ driverId: driverScores.driverId, overallScore: driverScores.overallScore })
+            const scores = await db.select({ driverId: driverScores.driverId, overallScore: driverScores.score })
               .from(driverScores)
               .where(inArray(driverScores.driverId, driverIds.slice(0, 200)))
-              .orderBy(desc(driverScores.computedAt));
+              .orderBy(desc(driverScores.createdAt));
             const seen = new Set<number>();
             for (const s of scores) {
               if (!seen.has(s.driverId)) {

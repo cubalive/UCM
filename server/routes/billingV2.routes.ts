@@ -7,6 +7,7 @@ import {
   listTariffsHandler,
   createTariffHandler,
   updateTariffHandler,
+  deleteTariffHandler,
   upsertClinicBillingSettingsHandler,
   getClinicBillingSettingsHandler,
   backfillBillingHandler,
@@ -36,6 +37,7 @@ const router = Router();
 router.get("/api/company/billing/tariffs", authMiddleware, requirePermission("billing", "read"), requireTenantScope, listTariffsHandler as any);
 router.post("/api/company/billing/tariffs", authMiddleware, requirePermission("billing", "write"), requireTenantScope, createTariffHandler as any);
 router.patch("/api/company/billing/tariffs/:id", authMiddleware, requirePermission("billing", "write"), requireTenantScope, updateTariffHandler as any);
+router.delete("/api/company/billing/tariffs/:id", authMiddleware, requirePermission("billing", "write"), requireTenantScope, deleteTariffHandler as any);
 
 router.get("/api/company/billing/settings/clinic/:clinicId", authMiddleware, requirePermission("billing", "read"), requireTenantScope, getClinicBillingSettingsHandler as any);
 router.post("/api/company/billing/settings/clinic/:clinicId", authMiddleware, requirePermission("billing", "write"), requireTenantScope, upsertClinicBillingSettingsHandler as any);

@@ -365,7 +365,7 @@ export async function getClinicByIdHandler(req: AuthRequest, res: Response) {
 
 export async function sendClinicInviteHandler(req: AuthRequest, res: Response) {
   try {
-    const clinicId = parseInt(req.params.id);
+    const clinicId = parseInt(String(req.params.id));
     if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
 
     const clinic = await db.select().from(clinics).where(and(eq(clinics.id, clinicId), isNull(clinics.deletedAt))).then(r => r[0]);

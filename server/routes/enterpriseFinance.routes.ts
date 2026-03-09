@@ -46,7 +46,7 @@ router.post("/api/admin/finance/dunning/run", authMiddleware, requireRole("SUPER
 
 router.post("/api/admin/finance/reconcile/:companyId", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
   try {
-    const companyId = parseInt(req.params.companyId);
+    const companyId = parseInt(String(req.params.companyId));
     const { reconcileCompanyPayouts } = await import("../services/payoutReconciliationService");
     const result = await reconcileCompanyPayouts(companyId);
     res.json(result);

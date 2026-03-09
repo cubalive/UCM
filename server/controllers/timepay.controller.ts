@@ -199,7 +199,7 @@ export async function editTimeEntryHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const [entry] = await db.select().from(timeEntries).where(and(eq(timeEntries.id, id), eq(timeEntries.companyId, companyId)));
@@ -252,7 +252,7 @@ export async function submitTimeEntryHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const [entry] = await db.select().from(timeEntries).where(and(eq(timeEntries.id, id), eq(timeEntries.companyId, companyId)));
@@ -271,7 +271,7 @@ export async function approveTimeEntryHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const [entry] = await db.select().from(timeEntries).where(and(eq(timeEntries.id, id), eq(timeEntries.companyId, companyId)));
@@ -310,7 +310,7 @@ export async function rejectTimeEntryHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const [entry] = await db.select().from(timeEntries).where(and(eq(timeEntries.id, id), eq(timeEntries.companyId, companyId)));
@@ -342,7 +342,7 @@ export async function markPaidTimeEntryHandler(req: AuthRequest, res: Response) 
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
     const [entry] = await db.select().from(timeEntries).where(and(eq(timeEntries.id, id), eq(timeEntries.companyId, companyId)));
@@ -717,7 +717,7 @@ export async function getPayrollRunHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const runId = parseInt(req.params.runId);
+    const runId = parseInt(String(req.params.runId));
     if (isNaN(runId)) return res.status(400).json({ message: "Invalid run ID" });
 
     const [run] = await db.select().from(tpPayrollRuns).where(and(eq(tpPayrollRuns.id, runId), eq(tpPayrollRuns.companyId, companyId)));
@@ -770,7 +770,7 @@ export async function finalizePayrollHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const runId = parseInt(req.params.runId);
+    const runId = parseInt(String(req.params.runId));
     if (isNaN(runId)) return res.status(400).json({ message: "Invalid run ID" });
 
     const [run] = await db.select().from(tpPayrollRuns).where(and(eq(tpPayrollRuns.id, runId), eq(tpPayrollRuns.companyId, companyId)));
@@ -799,7 +799,7 @@ export async function payPayrollHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const runId = parseInt(req.params.runId);
+    const runId = parseInt(String(req.params.runId));
     if (isNaN(runId)) return res.status(400).json({ message: "Invalid run ID" });
 
     const [run] = await db.select().from(tpPayrollRuns).where(and(eq(tpPayrollRuns.id, runId), eq(tpPayrollRuns.companyId, companyId)));
@@ -911,8 +911,8 @@ export async function payPayrollItemHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const runId = parseInt(req.params.runId);
-    const itemId = parseInt(req.params.itemId);
+    const runId = parseInt(String(req.params.runId));
+    const itemId = parseInt(String(req.params.itemId));
     if (isNaN(runId) || isNaN(itemId)) return res.status(400).json({ message: "Invalid run or item ID" });
 
     const [run] = await db.select().from(tpPayrollRuns).where(and(eq(tpPayrollRuns.id, runId), eq(tpPayrollRuns.companyId, companyId)));
@@ -1005,7 +1005,7 @@ export async function deletePayrollRunHandler(req: AuthRequest, res: Response) {
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const runId = parseInt(req.params.runId);
+    const runId = parseInt(String(req.params.runId));
     if (isNaN(runId)) return res.status(400).json({ message: "Invalid run ID" });
 
     const [run] = await db.select().from(tpPayrollRuns).where(and(eq(tpPayrollRuns.id, runId), eq(tpPayrollRuns.companyId, companyId)));
@@ -1154,7 +1154,7 @@ export async function deleteStaffPayConfigHandler(req: AuthRequest, res: Respons
   const companyId = requireCompanyOrFail(req, res);
   if (!companyId) return;
   try {
-    const configId = parseInt(req.params.id);
+    const configId = parseInt(String(req.params.id));
     if (!configId) return res.status(400).json({ message: "Invalid config ID" });
 
     const [existing] = await db
@@ -1213,7 +1213,7 @@ export async function createDriverStripeOnboardingHandler(req: AuthRequest, res:
     const companyId = requireCompanyOrFail(req, res);
     if (!companyId) return;
 
-    const driverId = parseInt(req.params.driverId);
+    const driverId = parseInt(String(req.params.driverId));
     if (isNaN(driverId)) return res.status(400).json({ message: "Invalid driver ID" });
 
     if (!process.env.STRIPE_SECRET_KEY) {

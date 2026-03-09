@@ -6,7 +6,7 @@ export default function PrivacyPolicyPage() {
       <div className="max-w-3xl mx-auto px-4 py-8">
         <button
           onClick={() => window.history.back()}
-          className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 mb-6 hover:underline"
+          className="flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400 mb-6 hover:underline"
           data-testid="button-back"
         >
           <ChevronLeft className="w-4 h-4" /> Back
@@ -114,8 +114,8 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-lg font-semibold mb-2">10. Contact Us</h2>
             <p>
               For privacy-related inquiries, contact us at:<br />
-              Email: <a href="mailto:privacy@unitedcaremobility.com" className="text-blue-600 dark:text-blue-400 underline" data-testid="link-privacy-email">privacy@unitedcaremobility.com</a><br />
-              Support: <a href="mailto:support@unitedcaremobility.com" className="text-blue-600 dark:text-blue-400 underline" data-testid="link-support-email">support@unitedcaremobility.com</a>
+              Email: <a href="mailto:privacy@unitedcaremobility.com" className="text-emerald-600 dark:text-emerald-400 underline" data-testid="link-privacy-email">privacy@unitedcaremobility.com</a><br />
+              Support: <a href="mailto:support@unitedcaremobility.com" className="text-emerald-600 dark:text-emerald-400 underline" data-testid="link-support-email">support@unitedcaremobility.com</a>
             </p>
           </section>
 

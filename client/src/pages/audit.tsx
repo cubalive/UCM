@@ -12,12 +12,12 @@ import { apiFetch } from "@/lib/api";
 
 const ACTION_COLORS: Record<string, string> = {
   CREATE: "bg-green-500/15 text-green-600 dark:text-green-400",
-  UPDATE: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+  UPDATE: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
   DELETE: "bg-red-500/15 text-red-600 dark:text-red-400",
   ARCHIVE: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
   RESTORE: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
   LOGIN: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
-  PATCH: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+  PATCH: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
   BULK_ARCHIVE: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
   UPDATE_BONUS_RULES: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
   CANCEL: "bg-red-500/15 text-red-600 dark:text-red-400",

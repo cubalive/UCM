@@ -47,7 +47,7 @@ function ClinicHostUnauthorized() {
         </p>
         <button
           onClick={() => logout()}
-          className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
           data-testid="button-clinic-logout"
         >
           Sign Out
@@ -77,7 +77,7 @@ export function ClinicPortalLayout() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
         <div className="flex flex-col items-center space-y-4">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-gray-400 text-sm">Loading clinic portal...</p>
         </div>
       </div>
@@ -114,7 +114,7 @@ export function ClinicPortalLayout() {
             <Menu className="w-5 h-5 text-gray-400" />
           </button>
           <div className="flex items-center gap-3 ml-2 lg:ml-0">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-lg flex items-center justify-center text-white font-bold text-sm">
+            <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-teal-400 rounded-full flex items-center justify-center text-white font-bold text-sm">
               UC
             </div>
             <div>
@@ -127,7 +127,7 @@ export function ClinicPortalLayout() {
               <p className="text-xs text-gray-400">{user.email}</p>
               <p className="text-[10px] text-gray-600 uppercase">{user.role}</p>
             </div>
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center text-white text-xs font-semibold">
+            <div className="w-8 h-8 bg-gradient-to-br from-emerald-600 to-teal-600 rounded-full flex items-center justify-center text-white text-xs font-semibold">
               {user.email?.[0]?.toUpperCase() || "U"}
             </div>
           </div>

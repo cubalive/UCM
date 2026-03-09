@@ -19,7 +19,7 @@ import { writeJournal } from "../services/ledgerService";
 function requireCompanyScope(req: AuthRequest, res: Response): number | null {
   const role = req.user?.role;
   if (role === "SUPER_ADMIN") {
-    const cid = parseInt(req.query.company_id as string || req.params.companyId || "0");
+    const cid = parseInt(String(req.query.company_id || req.params.companyId || "0"));
     return cid || null;
   }
   return req.user?.companyId || null;
@@ -119,7 +119,7 @@ export async function createAdjustmentHandler(req: AuthRequest, res: Response) {
 
 export async function listAdjustmentsHandler(req: AuthRequest, res: Response) {
   try {
-    const invoiceId = parseInt(req.params.invoiceId || req.query.invoice_id as string);
+    const invoiceId = parseInt(String(req.params.invoiceId || req.query.invoice_id || "0"));
     if (!invoiceId) return res.status(400).json({ message: "invoice_id required" });
 
     const [invoice] = await db.select().from(billingCycleInvoices)
@@ -322,7 +322,7 @@ export async function getFinanceDashboardHandler(req: AuthRequest, res: Response
 
 export async function clinicPaymentMethodsHandler(req: AuthRequest, res: Response) {
   try {
-    const clinicId = requireClinicScope(req) || parseInt(req.params.clinicId || "0");
+    const clinicId = requireClinicScope(req) || parseInt(String(req.params.clinicId || "0"));
     if (!clinicId) return res.status(400).json({ message: "clinicId required" });
 
     const role = req.user?.role;
@@ -341,7 +341,7 @@ export async function clinicPaymentMethodsHandler(req: AuthRequest, res: Respons
 
 export async function clinicSetupIntentHandler(req: AuthRequest, res: Response) {
   try {
-    const clinicId = requireClinicScope(req) || parseInt(req.params.clinicId || "0");
+    const clinicId = requireClinicScope(req) || parseInt(String(req.params.clinicId || "0"));
     if (!clinicId) return res.status(400).json({ message: "clinicId required" });
 
     const { createSetupIntent } = await import("../services/stripeCustomerService");
@@ -354,7 +354,7 @@ export async function clinicSetupIntentHandler(req: AuthRequest, res: Response) 
 
 export async function clinicSetDefaultPMHandler(req: AuthRequest, res: Response) {
   try {
-    const clinicId = requireClinicScope(req) || parseInt(req.params.clinicId || "0");
+    const clinicId = requireClinicScope(req) || parseInt(String(req.params.clinicId || "0"));
     const pmId = req.body.paymentMethodId;
     if (!clinicId || !pmId) return res.status(400).json({ message: "clinicId and paymentMethodId required" });
 
@@ -377,7 +377,7 @@ export async function clinicSetDefaultPMHandler(req: AuthRequest, res: Response)
 
 export async function clinicDetachPMHandler(req: AuthRequest, res: Response) {
   try {
-    const clinicId = requireClinicScope(req) || parseInt(req.params.clinicId || "0");
+    const clinicId = requireClinicScope(req) || parseInt(String(req.params.clinicId || "0"));
     const pmId = req.params.pmId || req.body.paymentMethodId;
     if (!clinicId || !pmId) return res.status(400).json({ message: "clinicId and paymentMethodId required" });
 

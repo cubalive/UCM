@@ -1810,7 +1810,7 @@ export async function getDriverTripsHandler(req: AuthRequest, res: Response) {
       )`);
     }
     if (statusFilter) {
-      conditions.push(eq(trips.status, statusFilter));
+      conditions.push(eq(trips.status, statusFilter as any));
     }
 
     const total = await db.select({ count: sql<number>`count(*)` }).from(trips)
@@ -2815,7 +2815,7 @@ export async function getDriverPerformanceCurrentShiftHandler(req: AuthRequest, 
     let activeMinutes = 0;
 
     for (const trip of shiftTrips) {
-      if (trip.status === "CANCELLED" || trip.status === "TRIP_CANCELLED") {
+      if (trip.status === "CANCELLED" || (trip.status as string) === "TRIP_CANCELLED") {
         cancelCount++;
         continue;
       }
@@ -2831,8 +2831,8 @@ export async function getDriverPerformanceCurrentShiftHandler(req: AuthRequest, 
         }
       }
 
-      if (trip.tripStartedAt && trip.completedAt) {
-        const dur = (new Date(trip.completedAt).getTime() - new Date(trip.tripStartedAt).getTime()) / 60000;
+      if (trip.startedAt && trip.completedAt) {
+        const dur = (new Date(trip.completedAt).getTime() - new Date(trip.startedAt).getTime()) / 60000;
         activeMinutes += dur;
       }
     }

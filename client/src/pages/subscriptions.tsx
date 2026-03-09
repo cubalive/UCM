@@ -72,7 +72,7 @@ function statusBadge(status: string, cancelAtPeriodEnd: boolean) {
     case "active":
       return <Badge className="bg-green-600" data-testid="badge-active">Active</Badge>;
     case "trialing":
-      return <Badge className="bg-blue-600" data-testid="badge-trialing">Trialing</Badge>;
+      return <Badge className="bg-emerald-600" data-testid="badge-trialing">Trialing</Badge>;
     case "past_due":
       return <Badge variant="destructive" data-testid="badge-past-due">Past Due</Badge>;
     case "canceled":

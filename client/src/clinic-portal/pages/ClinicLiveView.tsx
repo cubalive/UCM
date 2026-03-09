@@ -27,12 +27,12 @@ function DriverLocationCard({ trip }: { trip: any }) {
   const lastSeen = trip.driverLastSeenAt;
 
   return (
-    <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 hover:border-blue-500/20 transition-colors" data-testid={`live-trip-${trip.id}`}>
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 hover:border-emerald-500/20 transition-colors" data-testid={`live-trip-${trip.id}`}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
-            trip.status === "EN_ROUTE_PICKUP" ? "bg-blue-500/10 text-blue-400" :
+            trip.status === "EN_ROUTE_PICKUP" ? "bg-emerald-500/10 text-emerald-400" :
             trip.status === "EN_ROUTE_DROPOFF" ? "bg-cyan-500/10 text-cyan-400" :
             trip.status === "ARRIVED_PICKUP" ? "bg-amber-500/10 text-amber-400" :
             trip.status === "PICKED_UP" ? "bg-purple-500/10 text-purple-400" :
@@ -51,8 +51,8 @@ function DriverLocationCard({ trip }: { trip: any }) {
 
       <div className="space-y-3">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-500/10 rounded-full flex items-center justify-center shrink-0">
-            <User className="w-4 h-4 text-blue-400" />
+          <div className="w-8 h-8 bg-emerald-500/10 rounded-full flex items-center justify-center shrink-0">
+            <User className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-medium text-white truncate">{trip.patientName || "Patient"}</p>
@@ -154,7 +154,7 @@ export default function ClinicLiveView() {
           </span>
           <button
             onClick={handleRefresh}
-            className="flex items-center gap-2 px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-sm text-gray-400 hover:text-white hover:border-blue-500/30 transition-all"
+            className="flex items-center gap-2 px-3 py-2 bg-[#111827] border border-[#1e293b] rounded-lg text-sm text-gray-400 hover:text-white hover:border-emerald-500/30 transition-all"
             data-testid="button-refresh"
           >
             <RefreshCw className="w-4 h-4" />

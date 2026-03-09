@@ -120,7 +120,7 @@ export default function FinancialPage() {
                 (todayStats.cancelled || 0) -
                 (todayStats.noShow || 0)
             ),
-            color: "blue" as const,
+            color: "emerald" as const,
           },
         ].filter((d) => d.value > 0)
       : [];
@@ -161,8 +161,8 @@ export default function FinancialPage() {
             <KpiCard
               title="Total Trips"
               value={todayStats.totalTrips || 0}
-              icon={<Route className="w-4 h-4 text-blue-500" />}
-              color="blue"
+              icon={<Route className="w-4 h-4 text-emerald-500" />}
+              color="emerald"
               tooltip="All trips scheduled for today regardless of status"
             />
             <KpiCard
@@ -213,8 +213,8 @@ export default function FinancialPage() {
               title="Miles/Driver"
               value={todayStats.milesPerDriver || 0}
               decimals={1}
-              icon={<TrendingUp className="w-4 h-4 text-blue-500" />}
-              color="blue"
+              icon={<TrendingUp className="w-4 h-4 text-emerald-500" />}
+              color="emerald"
               tooltip="Average miles per active driver — efficiency metric"
             />
           </div>

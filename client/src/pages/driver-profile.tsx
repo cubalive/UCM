@@ -62,7 +62,7 @@ function formatShiftDuration(startedAt: string): string {
 function capabilityBadge(cap: string) {
   switch (cap) {
     case "wheelchair":
-      return { label: "Wheelchair", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 border-blue-200 dark:border-blue-800" };
+      return { label: "Wheelchair", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800" };
     case "both":
       return { label: "Sedan + Wheelchair", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 border-purple-200 dark:border-purple-800" };
     default:
@@ -367,7 +367,7 @@ export default function DriverProfilePage() {
                   variant="outline"
                   className={
                     vehCategory === "WHEELCHAIR"
-                      ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
                       : vehCategory === "BOTH"
                         ? "bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
                         : "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300"

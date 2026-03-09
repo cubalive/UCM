@@ -1367,7 +1367,7 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
 
   const statusColors: Record<string, string> = {
     pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-    approved: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    approved: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
     paid: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   };
 

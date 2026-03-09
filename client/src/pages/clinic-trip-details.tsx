@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  SCHEDULED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   ASSIGNED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
   EN_ROUTE_TO_PICKUP: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
   ARRIVED_PICKUP: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
@@ -280,7 +280,7 @@ export default function ClinicTripDetailsPage() {
           {trip.distanceMiles != null && (
             <Card>
               <CardContent className="py-3 px-4 text-center space-y-1">
-                <Navigation className="w-4 h-4 text-blue-500 mx-auto" />
+                <Navigation className="w-4 h-4 text-emerald-500 mx-auto" />
                 <p className="text-lg font-semibold tabular-nums" data-testid="text-metric-distance">
                   {parseFloat(trip.distanceMiles).toFixed(1)}
                 </p>
@@ -409,7 +409,7 @@ export default function ClinicTripDetailsPage() {
           </div>
           <div className="flex items-center gap-4 flex-wrap text-sm mt-1">
             <span className="flex items-center gap-1" data-testid="text-distance">
-              <Navigation className="w-3.5 h-3.5 text-blue-500" />
+              <Navigation className="w-3.5 h-3.5 text-emerald-500" />
               {trip.distanceMiles != null ? `${parseFloat(trip.distanceMiles).toFixed(1)} miles` : "\u2014"}
             </span>
             {trip.durationMinutes != null && (

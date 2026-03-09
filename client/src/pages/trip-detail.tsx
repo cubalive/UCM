@@ -494,7 +494,7 @@ export default function TripDetailPage() {
                 {financials.driverPayoutCents > 0 && (
                   <div className="flex justify-between text-sm" data-testid="row-driver-payout">
                     <span className="text-muted-foreground">Driver Payout</span>
-                    <span className="font-mono text-blue-600">-${(financials.driverPayoutCents / 100).toFixed(2)}</span>
+                    <span className="font-mono text-emerald-600">-${(financials.driverPayoutCents / 100).toFixed(2)}</span>
                   </div>
                 )}
                 <div className="border-t pt-2 flex justify-between text-sm font-semibold" data-testid="row-net-company">

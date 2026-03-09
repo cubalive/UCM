@@ -297,7 +297,7 @@ function RequestDetailDrawer({ request, onClose }: { request: any; onClose: () =
 
           <div className="flex flex-col h-72">
             <div className="p-3 border-b border-[#1e293b] flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-blue-400" />
+              <MessageSquare className="w-4 h-4 text-emerald-400" />
               <h3 className="text-sm font-semibold text-gray-300">Chat</h3>
               <span className="text-xs text-gray-500 ml-auto">{messages.length}</span>
             </div>
@@ -315,7 +315,7 @@ function RequestDetailDrawer({ request, onClose }: { request: any; onClose: () =
                       <div className={`max-w-[80%] rounded-xl px-3 py-2 ${
                         isClinicSide
                           ? "bg-[#111827] border border-[#1e293b] text-gray-200"
-                          : "bg-blue-600/20 border border-blue-500/20 text-blue-100"
+                          : "bg-emerald-600/20 border border-emerald-500/20 text-emerald-100"
                       }`}>
                         <p className="text-xs font-medium mb-0.5 opacity-70">{isClinicSide ? "Clinic" : "Dispatch"}</p>
                         <p className="text-sm">{msg.message}</p>
@@ -340,13 +340,13 @@ function RequestDetailDrawer({ request, onClose }: { request: any; onClose: () =
                 value={messageInput}
                 onChange={(e) => setMessageInput(e.target.value)}
                 placeholder="Message to clinic..."
-                className="flex-1 px-3 py-2 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                className="flex-1 px-3 py-2 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
                 data-testid="input-dispatch-message"
               />
               <button
                 type="submit"
                 disabled={sendMessageMutation.isPending || !messageInput.trim()}
-                className="p-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg"
+                className="p-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg"
                 data-testid="button-dispatch-send"
               >
                 {sendMessageMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -381,7 +381,7 @@ export default function TripRequestsQueue() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3" data-testid="text-page-title">
-            <ClipboardList className="w-6 h-6 text-blue-400" />
+            <ClipboardList className="w-6 h-6 text-emerald-400" />
             Trip Requests Queue
           </h1>
           <p className="text-sm text-gray-400 mt-1">Review and process clinic trip requests</p>
@@ -399,7 +399,7 @@ export default function TripRequestsQueue() {
             onClick={() => setStatusFilter(tab.value)}
             className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
               statusFilter === tab.value
-                ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
+                ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30"
                 : "bg-[#111827] text-gray-400 border border-[#1e293b] hover:text-white hover:bg-white/5"
             }`}
             data-testid={`dispatch-tab-${tab.value || "all"}`}
@@ -411,7 +411,7 @@ export default function TripRequestsQueue() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : requests.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-500" data-testid="dispatch-empty-state">
@@ -425,7 +425,7 @@ export default function TripRequestsQueue() {
             <div
               key={req.id}
               onClick={() => setSelectedRequest(req)}
-              className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 hover:border-blue-500/30 transition-all cursor-pointer group"
+              className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 hover:border-emerald-500/30 transition-all cursor-pointer group"
               data-testid={`dispatch-request-${req.id}`}
             >
               <div className="flex items-center justify-between">
@@ -464,7 +464,7 @@ export default function TripRequestsQueue() {
                     </span>
                   </div>
                 </div>
-                <ChevronRight className="w-5 h-5 text-gray-600 group-hover:text-blue-400 transition-colors shrink-0" />
+                <ChevronRight className="w-5 h-5 text-gray-600 group-hover:text-emerald-400 transition-colors shrink-0" />
               </div>
             </div>
           ))}

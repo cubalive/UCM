@@ -10,18 +10,18 @@ export interface TripStatusStyle {
 
 export const TRIP_STATUS_MAP: Record<string, TripStatusStyle> = {
   SCHEDULED: {
-    color: "text-blue-600 dark:text-blue-400",
-    bgColor: "bg-blue-50 dark:bg-blue-950/30",
-    borderColor: "border-blue-200 dark:border-blue-800",
+    color: "text-emerald-600 dark:text-emerald-400",
+    bgColor: "bg-emerald-50 dark:bg-emerald-950/30",
+    borderColor: "border-emerald-200 dark:border-emerald-800",
     label: "Scheduled",
     icon: "calendar",
     priority: 1,
     markerColor: "#3B82F6",
   },
   ASSIGNED: {
-    color: "text-blue-700 dark:text-blue-300",
-    bgColor: "bg-blue-100 dark:bg-blue-900/40",
-    borderColor: "border-blue-300 dark:border-blue-700",
+    color: "text-emerald-700 dark:text-emerald-300",
+    bgColor: "bg-emerald-100 dark:bg-emerald-900/40",
+    borderColor: "border-emerald-300 dark:border-emerald-700",
     label: "Assigned",
     icon: "user-check",
     priority: 2,

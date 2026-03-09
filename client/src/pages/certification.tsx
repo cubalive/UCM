@@ -57,7 +57,7 @@ function certLevelVariant(level: string) {
 
 function certLevelColor(level: string) {
   switch (level) {
-    case "PLATINUM": return "text-blue-600 dark:text-blue-400";
+    case "PLATINUM": return "text-emerald-600 dark:text-emerald-400";
     case "GOLD": return "text-yellow-600 dark:text-yellow-400";
     case "SILVER": return "text-gray-500 dark:text-gray-400";
     default: return "text-red-600 dark:text-red-400";
@@ -177,15 +177,15 @@ export default function CertificationPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card
             data-testid="card-platinum"
-            className={`cursor-pointer transition-all ${levelFilter === "PLATINUM" ? "ring-2 ring-blue-500/40 bg-blue-500/5" : "hover:ring-1 hover:ring-blue-500/20"}`}
+            className={`cursor-pointer transition-all ${levelFilter === "PLATINUM" ? "ring-2 ring-emerald-500/40 bg-emerald-500/5" : "hover:ring-1 hover:ring-emerald-500/20"}`}
             onClick={() => handleLevelClick("PLATINUM")}
           >
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Platinum</CardTitle>
-              <Award className="h-4 w-4 text-blue-500" />
+              <Award className="h-4 w-4 text-emerald-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600 dark:text-blue-400" data-testid="text-platinum-count">{summary.platinum}</div>
+              <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-platinum-count">{summary.platinum}</div>
               <p className="text-xs text-muted-foreground">Score 90+</p>
             </CardContent>
           </Card>

@@ -373,8 +373,8 @@ function RunDetailDialog({ runId, onClose }: { runId: number; onClose: () => voi
               )}
 
               {run.status === "FINALIZED" && (
-                <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                  <Send className="h-4 w-4 text-blue-500 shrink-0" />
+                <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                  <Send className="h-4 w-4 text-emerald-500 shrink-0" />
                   <div className="flex-1">
                     <p className="text-sm font-medium">Ready to Pay</p>
                     <p className="text-xs text-muted-foreground">
@@ -398,7 +398,7 @@ function RunDetailDialog({ runId, onClose }: { runId: number; onClose: () => voi
                       {t.status === "transferred" ? (
                         <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
                       ) : t.status === "manual" ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-blue-500" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                       ) : (
                         <XCircle className="h-3.5 w-3.5 text-red-500" />
                       )}

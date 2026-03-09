@@ -70,7 +70,7 @@ export default function ClinicTripRequests() {
         </div>
         <Link href="/requests/new">
           <button
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors"
             data-testid="button-new-request"
           >
             <Plus className="w-4 h-4" />
@@ -86,7 +86,7 @@ export default function ClinicTripRequests() {
             onClick={() => setStatusFilter(tab.value)}
             className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
               statusFilter === tab.value
-                ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
+                ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30"
                 : "bg-[#111827] text-gray-400 border border-[#1e293b] hover:text-white hover:bg-white/5"
             }`}
             data-testid={`tab-${tab.value || "all"}`}
@@ -98,7 +98,7 @@ export default function ClinicTripRequests() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : requests.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-500" data-testid="empty-state">
@@ -111,7 +111,7 @@ export default function ClinicTripRequests() {
           {requests.map((req: any) => (
             <Link key={req.id} href={`/requests/${req.id}`}>
               <div
-                className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 hover:border-blue-500/30 transition-all cursor-pointer group"
+                className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 hover:border-emerald-500/30 transition-all cursor-pointer group"
                 data-testid={`request-card-${req.id}`}
               >
                 <div className="flex items-start justify-between">
@@ -149,7 +149,7 @@ export default function ClinicTripRequests() {
                     </div>
                   </div>
 
-                  <ChevronRight className="w-5 h-5 text-gray-600 group-hover:text-blue-400 transition-colors shrink-0 mt-1" />
+                  <ChevronRight className="w-5 h-5 text-gray-600 group-hover:text-emerald-400 transition-colors shrink-0 mt-1" />
                 </div>
               </div>
             </Link>

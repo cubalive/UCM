@@ -812,7 +812,7 @@ export default function DispatchMapPage() {
                             <UserCheck className="w-3 h-3 flex-shrink-0" />
                             <span>{req.patient.firstName} {req.patient.lastName}</span>
                             {req.patient.phone && (
-                              <a href={`tel:${req.patient.phone}`} className="text-blue-600 dark:text-blue-400 ml-1">
+                              <a href={`tel:${req.patient.phone}`} className="text-emerald-600 dark:text-emerald-400 ml-1">
                                 <Phone className="w-3 h-3 inline" />
                               </a>
                             )}
@@ -866,7 +866,7 @@ export default function DispatchMapPage() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="text-blue-600 dark:text-blue-400"
+                            className="text-emerald-600 dark:text-emerald-400"
                             onClick={() => returnTripMutation.mutate({ tripId: req.id, notes: "Return after cancel request" })}
                             disabled={returnTripMutation.isPending}
                             data-testid={`button-return-trip-${req.id}`}

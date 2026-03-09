@@ -42,12 +42,12 @@ export function ClinicSidebar({ isOpen, onClose, currentPath }: ClinicSidebarPro
     >
       <div className="p-4 border-b border-[#1e293b]">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center">
+          <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-400 rounded-full flex items-center justify-center">
             <Activity className="w-5 h-5 text-white" />
           </div>
           <div>
             <h2 className="text-sm font-bold text-white">United Care</h2>
-            <p className="text-[10px] text-blue-400 uppercase tracking-wider">Clinic Portal</p>
+            <p className="text-[10px] text-emerald-400 uppercase tracking-wider">Clinic Portal</p>
           </div>
         </div>
       </div>
@@ -62,7 +62,7 @@ export function ClinicSidebar({ isOpen, onClose, currentPath }: ClinicSidebarPro
                 className={`
                   w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all
                   ${isActive
-                    ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
+                    ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30"
                     : "text-gray-400 hover:text-white hover:bg-white/5 border border-transparent"
                   }
                 `}

@@ -217,8 +217,8 @@ function SystemOverview({ data }: { data: SystemStatus }) {
         <KpiCard
           title="Environment"
           value={0}
-          color="blue"
-          icon={<Server className="w-4 h-4 text-blue-500" />}
+          color="emerald"
+          icon={<Server className="w-4 h-4 text-emerald-500" />}
           tooltip={`Running in ${data.environment} mode`}
         />
       </div>
@@ -752,7 +752,7 @@ function SmokeTestPanel({ token }: { token: string | null }) {
                 >
                   <div className="flex items-center gap-2">
                     {run.status === "running" ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                      <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
                     ) : run.status === "passed" ? (
                       <CheckCircle className="w-4 h-4 text-green-500" />
                     ) : (

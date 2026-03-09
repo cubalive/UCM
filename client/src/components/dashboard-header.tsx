@@ -94,7 +94,7 @@ export function DashboardHeader() {
 
   return (
     <header
-      className="flex items-center gap-3 h-16 px-4 border-b bg-background/80 backdrop-blur-xl flex-shrink-0 shadow-sm sticky top-0"
+      className="flex items-center gap-3 h-16 px-4 border-b bg-background/80 backdrop-blur-xl flex-shrink-0 shadow-sm sticky top-0 scan-line"
       style={{ zIndex: 50 }}
       data-testid="dashboard-header"
     >
@@ -105,7 +105,7 @@ export function DashboardHeader() {
           <img
             src={`/api/companies/${user.companyId}/logo`}
             alt="Company"
-            className="h-8 w-8 rounded-md object-contain flex-shrink-0"
+            className="h-8 w-8 rounded-full object-contain flex-shrink-0"
             onError={(e) => { (e.target as HTMLImageElement).src = "/branding/logo-small.png"; }}
             data-testid="img-header-logo"
           />

@@ -35,7 +35,7 @@ function paymentStatusStyle(status: string) {
     case "paid": return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
     case "unpaid": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
     case "overdue": return "bg-red-500/10 text-red-400 border-red-500/20";
-    case "partial": return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+    case "partial": return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
     default: return "bg-gray-500/10 text-gray-400 border-gray-500/20";
   }
 }
@@ -313,7 +313,7 @@ export default function ClinicBilling() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="stat-total-invoices">
           <div className="flex items-center gap-2 mb-2">
-            <FileText className="w-4 h-4 text-blue-400" />
+            <FileText className="w-4 h-4 text-emerald-400" />
             <span className="text-xs text-gray-500 uppercase">Total Invoices</span>
           </div>
           <p className="text-2xl font-bold text-white">{invoiceList.length}</p>
@@ -355,7 +355,7 @@ export default function ClinicBilling() {
             <div key={week} className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden">
               <div className="px-5 py-3 border-b border-[#1e293b] flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-blue-400" />
+                  <Calendar className="w-4 h-4 text-emerald-400" />
                   <h3 className="text-sm font-semibold text-white">{week}</h3>
                 </div>
                 <span className="text-xs text-gray-500">
@@ -394,7 +394,7 @@ export default function ClinicBilling() {
                             payMutation.mutate(inv.id);
                           }}
                           disabled={payMutation.isPending && payingInvoiceId === inv.id}
-                          className="mt-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 text-white text-xs rounded-lg transition-colors"
+                          className="mt-1 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 disabled:opacity-50 text-white text-xs rounded-lg transition-colors"
                           data-testid={`button-pay-${inv.id}`}
                         >
                           {payMutation.isPending && payingInvoiceId === inv.id ? "Processing..." : "Pay Now"}

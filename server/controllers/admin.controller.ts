@@ -7,7 +7,7 @@ import {
   users, jobs, clinics, drivers, patients, trips, vehicles, cities, companies,
   invoices, tripSmsLog, tripShareTokens, tripEvents, tripSignatures, tripBilling,
   auditLog, userCityAccess, clinicBillingProfiles, clinicBillingRules, clinicBillingInvoices,
-  clinicBillingInvoiceItems, billingCycleInvoices, billingCycleInvoiceItems, invoicePayments,
+  clinicBillingInvoiceLines, billingCycleInvoices, billingCycleInvoiceItems, invoicePayments,
   tripSeries, driverOffers, driverPushTokens, scheduleChangeRequests, driverShiftSwapRequests,
   driverWeeklySchedules, sundayRosterDrivers, driverScores, opsAnomalies,
   dailyMetricsRollup, weeklyScoreSnapshots, triScores, costLeakAlerts, ucmCertifications,
@@ -1604,7 +1604,6 @@ async function getDependentCounts(entity: HardDeleteEntity, id: number): Promise
       await c(trips, trips.companyId, "trips");
       await c(vehicles, vehicles.companyId, "vehicles");
       await c(users, users.companyId, "users");
-      await c(invoices, invoices.companyId, "invoices");
       break;
     case "city":
       await c(clinics, clinics.cityId, "clinics");
@@ -1854,7 +1853,7 @@ export async function hardDeleteHandler(req: AuthRequest, res: Response) {
 
 export async function getCompanyCitiesHandler(req: AuthRequest, res: Response) {
   try {
-    const companyId = parseInt(req.params.companyId);
+    const companyId = parseInt(req.params.companyId as string);
     if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
     const cityIds = await storage.getCompanyCities(companyId);
     const citiesList = await storage.getCitiesForCompany(companyId);
@@ -1866,7 +1865,7 @@ export async function getCompanyCitiesHandler(req: AuthRequest, res: Response) {
 
 export async function setCompanyCitiesHandler(req: AuthRequest, res: Response) {
   try {
-    const companyId = parseInt(req.params.companyId);
+    const companyId = parseInt(req.params.companyId as string);
     if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
     const { cityIds } = req.body;
     if (!Array.isArray(cityIds)) return res.status(400).json({ message: "cityIds must be an array" });
@@ -1887,7 +1886,7 @@ export async function setCompanyCitiesHandler(req: AuthRequest, res: Response) {
 
 export async function getClinicCompaniesHandler(req: AuthRequest, res: Response) {
   try {
-    const clinicId = parseInt(req.params.clinicId);
+    const clinicId = parseInt(req.params.clinicId as string);
     if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
     const companyIds = await storage.getClinicCompanies(clinicId);
     const companiesList = await storage.getCompaniesForClinic(clinicId);
@@ -1899,7 +1898,7 @@ export async function getClinicCompaniesHandler(req: AuthRequest, res: Response)
 
 export async function setClinicCompaniesHandler(req: AuthRequest, res: Response) {
   try {
-    const clinicId = parseInt(req.params.clinicId);
+    const clinicId = parseInt(req.params.clinicId as string);
     if (isNaN(clinicId)) return res.status(400).json({ message: "Invalid clinic ID" });
     const { companyIds } = req.body;
     if (!Array.isArray(companyIds)) return res.status(400).json({ message: "companyIds must be an array" });

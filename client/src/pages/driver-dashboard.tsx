@@ -98,7 +98,7 @@ function getStatusFlow(status: string): { next: string; label: string; icon: any
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  SCHEDULED: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  SCHEDULED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
   ASSIGNED: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
   EN_ROUTE_TO_PICKUP: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
   ARRIVED_PICKUP: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200",
@@ -475,7 +475,7 @@ function GpsStatusBanner({ status, lastSentTime, onRequestPermission }: {
 
   const config: Record<Exclude<GpsStatus, "gps_active">, { bg: string; icon: any; label: string; sublabel?: string; action?: boolean }> = {
     permission_needed: {
-      bg: "bg-blue-600",
+      bg: "bg-emerald-600",
       icon: LocateFixed,
       label: "Location permission needed",
       action: true,
@@ -1857,7 +1857,7 @@ export default function DriverDashboard() {
           {/* Go-time alert banner */}
           {goTimeTrip && (
             <div
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-md shadow-lg px-4 py-3"
+              className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-md shadow-lg px-4 py-3"
               data-testid="banner-go-time"
             >
               <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -2702,7 +2702,7 @@ export default function DriverDashboard() {
                 onClick={() => handleNavSelect("google")}
                 data-testid="button-nav-google"
               >
-                <MapPin className="w-6 h-6 text-blue-500" />
+                <MapPin className="w-6 h-6 text-emerald-500" />
                 <span>Google Maps</span>
                 <ExternalLink className="w-4 h-4 ml-auto text-muted-foreground" />
               </Button>

@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Users, Search, Key, Mail, Copy, Archive, MapPin, Power, RotateCcw, Filter, X } from "lucide-react";
+import { Plus, Users, Search, Key, Mail, Copy, Archive, MapPin, Power, RotateCcw, Filter, X, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiFetch } from "@/lib/api";
 import { AddressAutocomplete, StructuredAddress } from "@/components/address-autocomplete";
@@ -112,6 +112,19 @@ export default function UsersPage() {
       toast({ title: "User archived", description: "User has been moved to the archive" });
     },
     onError: (err: any) => toast({ title: "Archive failed", description: err.message, variant: "destructive" }),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (userId: number) =>
+      apiFetch(`/api/admin/users/${userId}/permanent`, token, {
+        method: "DELETE",
+        body: JSON.stringify({ ack: "I understand this cannot be undone", confirm: "DELETE" }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({ title: "User permanently deleted", description: "User and all associated data have been removed" });
+    },
+    onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });
 
   const createMutation = useMutation({
@@ -419,20 +432,38 @@ export default function UsersPage() {
                       <Key className="w-3 h-3 mr-2" />
                       Reset Password
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        if (window.confirm(`Archive user ${u.firstName} ${u.lastName}? This will disable their access.`)) {
-                          archiveMutation.mutate(u.id);
-                        }
-                      }}
-                      disabled={archiveMutation.isPending}
-                      data-testid={`button-archive-user-${u.id}`}
-                    >
-                      <Archive className="w-3 h-3 mr-2" />
-                      Archive
-                    </Button>
+                    {u.active !== false ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (window.confirm(`Archive user ${u.firstName} ${u.lastName}? This will disable their access.`)) {
+                            archiveMutation.mutate(u.id);
+                          }
+                        }}
+                        disabled={archiveMutation.isPending}
+                        data-testid={`button-archive-user-${u.id}`}
+                      >
+                        <Archive className="w-3 h-3 mr-2" />
+                        Archive
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => {
+                          if (window.confirm(`PERMANENTLY DELETE user ${u.firstName} ${u.lastName}? This action cannot be undone.`)) {
+                            permanentDeleteMutation.mutate(u.id);
+                          }
+                        }}
+                        disabled={permanentDeleteMutation.isPending}
+                        data-testid={`button-permanent-delete-user-${u.id}`}
+                      >
+                        <Trash2 className="w-3 h-3 mr-2" />
+                        Delete
+                      </Button>
+                    )}
                     {u.role === "DISPATCH" && (
                       <Button
                         variant="outline"

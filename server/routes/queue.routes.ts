@@ -58,7 +58,7 @@ export function registerQueueRoutes(app: Express): void {
     async (req: Request, res: Response) => {
       try {
         const { jobId } = req.params;
-        const retried = await retryDlqJob(jobId);
+        const retried = await retryDlqJob(String(jobId));
 
         if (!retried) {
           return res.status(404).json({ error: "Job not found or not in failed state" });

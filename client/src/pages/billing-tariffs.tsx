@@ -38,6 +38,7 @@ import {
   FileText,
   Loader2,
   Pencil,
+  Trash2,
   AlertTriangle,
   Building2,
 } from "lucide-react";
@@ -153,6 +154,16 @@ export default function BillingTariffsPage() {
       toast({ title: "Tariff updated" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteTariffMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/company/billing/tariffs/${id}`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/billing/tariffs"] });
+      toast({ title: "Tariff deleted" });
+    },
+    onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });
 
   const backfillMutation = useMutation({
@@ -359,9 +370,25 @@ export default function BillingTariffsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Button size="icon" variant="ghost" onClick={() => setEditTariff(t)} data-testid={`button-edit-tariff-${t.id}`}>
-                          <Pencil className="w-4 h-4" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button size="icon" variant="ghost" onClick={() => setEditTariff(t)} data-testid={`button-edit-tariff-${t.id}`}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => {
+                              if (window.confirm(`Delete tariff "${t.name}"? This cannot be undone.`)) {
+                                deleteTariffMutation.mutate(t.id);
+                              }
+                            }}
+                            disabled={deleteTariffMutation.isPending}
+                            data-testid={`button-delete-tariff-${t.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

@@ -80,7 +80,7 @@ router.post(
   requireRole("SUPER_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = parseInt(req.params.companyId);
+      const companyId = parseInt(String(req.params.companyId));
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
 
       const { enabled, feeType, feePercent, feeCents, clearOverride } = req.body;
@@ -110,7 +110,7 @@ router.get(
   requireRole("SUPER_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = parseInt(req.params.companyId);
+      const companyId = parseInt(String(req.params.companyId));
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
       const fee = await getEffectivePlatformFee(companyId);
       res.json(fee);
