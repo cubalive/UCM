@@ -1,7 +1,7 @@
 import express, { type Request, Response, NextFunction, type Express } from "express";
 import { authMiddleware, type AuthRequest } from "../auth";
 import { checkRateLimit } from "../lib/rateLimiter";
-import { loginHandler, loginJwtHandler, devSessionHandler, authMeHandler, meHandler, changePasswordHandler, setWorkingCityHandler, authHealthHandler, forgotPasswordHandler, tokenLoginHandler } from "../controllers/auth.controller";
+import { loginHandler, loginJwtHandler, devSessionHandler, authMeHandler, meHandler, changePasswordHandler, setWorkingCityHandler, authHealthHandler, forgotPasswordHandler, tokenLoginHandler, deleteAccountHandler } from "../controllers/auth.controller";
 
 function loginRateLimit(req: Request, res: Response, next: NextFunction) {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -29,6 +29,7 @@ router.get("/api/me", meHandler);
 router.post("/api/auth/token-login", loginRateLimit, tokenLoginHandler);
 router.post("/api/auth/forgot-password", loginRateLimit, forgotPasswordHandler);
 router.post("/api/auth/change-password", authMiddleware, changePasswordHandler as any);
+router.post("/api/auth/delete-account", authMiddleware, deleteAccountHandler as any);
 router.post("/api/auth/working-city", authMiddleware, setWorkingCityHandler as any);
 router.get("/api/auth/health", authHealthHandler);
 

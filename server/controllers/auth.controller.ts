@@ -1,9 +1,9 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
 import { signToken, comparePassword, hashPassword, getUserCityIds, setAuthCookie, type AuthRequest, verifyToken } from "../auth";
-import { loginSchema, driverDevices, users, companies } from "@shared/schema";
+import { loginSchema, driverDevices, users, companies, trips, userCityAccess, drivers } from "@shared/schema";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { getSupabaseServer } from "../../lib/supabaseClient";
 import { sendForgotPasswordLink } from "../services/emailService";
 
@@ -528,6 +528,100 @@ export async function tokenLoginHandler(req: Request, res: Response) {
   } catch (err: any) {
     console.error("[tokenLogin] Error:", err.message);
     return res.status(500).json({ message: "Login failed. Please try again." });
+  }
+}
+
+export async function deleteAccountHandler(req: Request, res: Response) {
+  try {
+    const authReq = req as AuthRequest;
+    const userId = authReq.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const { password, reason } = req.body;
+    if (!password || typeof password !== "string") {
+      return res.status(400).json({ message: "Password confirmation is required" });
+    }
+
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const valid = await comparePassword(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ message: "Incorrect password" });
+    }
+
+    if (user.role === "SUPER_ADMIN") {
+      return res.status(403).json({ message: "Super admin accounts cannot be self-deleted. Contact support." });
+    }
+
+    // Check for active trips
+    const driverId = user.driverId || 0;
+    const activeTrips = await db.select({ cnt: sql<number>`count(*)::int` }).from(trips)
+      .where(and(
+        eq(trips.driverId, driverId),
+        sql`${trips.status} IN ('SCHEDULED', 'ASSIGNED', 'EN_ROUTE_TO_PICKUP', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_TO_DROPOFF')`
+      ));
+
+    if (activeTrips[0]?.cnt > 0) {
+      return res.status(409).json({
+        message: "Cannot delete account while you have active trips. Complete or cancel them first.",
+        activeTrips: activeTrips[0].cnt,
+      });
+    }
+
+    // Soft-delete: deactivate and anonymize PII
+    const anonymizedEmail = `deleted_${userId}_${Date.now()}@deleted.ucm`;
+    await db.update(users).set({
+      active: false,
+      email: anonymizedEmail,
+      firstName: "Deleted",
+      lastName: "User",
+      phone: null,
+      deletedAt: new Date(),
+      deletedBy: userId,
+      deleteReason: reason || "Self-service account deletion",
+    }).where(eq(users.id, userId));
+
+    await db.delete(userCityAccess).where(eq(userCityAccess.userId, userId));
+
+    if (user.driverId) {
+      await db.update(drivers).set({
+        active: false,
+        dispatchStatus: "off",
+      }).where(eq(drivers.id, user.driverId));
+    }
+
+    try {
+      const supabase = getSupabaseServer();
+      if (supabase) {
+        const { data: listData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+        const sbUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === user.email.toLowerCase());
+        if (sbUser) {
+          await supabase.auth.admin.deleteUser(sbUser.id);
+        }
+      }
+    } catch (sbErr: any) {
+      console.error("[deleteAccount] Supabase cleanup failed (non-fatal):", sbErr.message);
+    }
+
+    await storage.createAuditLog({
+      action: "ACCOUNT_DELETED",
+      entity: "user",
+      entityId: userId,
+      details: `User self-deleted account. Reason: ${reason || "Not specified"}`,
+      cityId: null,
+      userId,
+    });
+
+    res.clearCookie("ucm_session");
+    return res.json({ success: true, message: "Account successfully deleted" });
+  } catch (err: any) {
+    console.error("[deleteAccount] Error:", err.message);
+    return res.status(500).json({ message: "Failed to delete account" });
   }
 }
 
