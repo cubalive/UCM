@@ -88,6 +88,17 @@
     "clinicBillingV2": "Clinic Invoices",
     "supportChat": "Support Chat",
     "systemStatus": "System Status",
+    "brokers": "Brokers",
+    "marketplace": "Marketplace",
+    "cascadeAlerts": "Cascade Alerts",
+    "smartCancel": "Smart Cancel",
+    "tripGroups": "Trip Groups",
+    "deadMile": "Dead Mile",
+    "interCity": "Inter-City",
+    "medicaidBilling": "Medicaid Billing",
+    "reconciliation": "Reconciliation",
+    "ratings": "Patient Ratings",
+    "cityComparison": "City Comparison",
     "group": {
       "dispatch": "Dispatch & Maps",
       "fleet": "Fleet & Scheduling",
@@ -101,6 +112,7 @@
       "analytics": "Analytics & Reports",
       "audit": "Audit & Compliance",
       "intelligence": "Intelligence",
+      "broker": "Broker Network",
       "system": "System"
     }
   },

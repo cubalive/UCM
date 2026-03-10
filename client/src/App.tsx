@@ -95,6 +95,15 @@ const TermsOfServicePage = React.lazy(() => import("@/pages/terms-of-service"));
 const DeleteAccountPage = React.lazy(() => import("@/pages/delete-account"));
 const AdminBrokersPage = React.lazy(() => import("@/pages/admin-brokers"));
 const MarketplacePage = React.lazy(() => import("@/pages/marketplace"));
+const RatingsDashboardPage = React.lazy(() => import("@/pages/ratings-dashboard"));
+const MedicaidBillingPage = React.lazy(() => import("@/pages/medicaid-billing"));
+const TripGroupsPage = React.lazy(() => import("@/pages/trip-groups"));
+const DeadMilePage = React.lazy(() => import("@/pages/dead-mile"));
+const SmartCancelPage = React.lazy(() => import("@/pages/smart-cancel"));
+const ReconciliationPage = React.lazy(() => import("@/pages/reconciliation"));
+const InterCityPage = React.lazy(() => import("@/pages/inter-city"));
+const CityComparisonPage = React.lazy(() => import("@/pages/city-comparison"));
+const CascadeAlertsPage = React.lazy(() => import("@/pages/cascade-alerts"));
 
 // Lazy-loaded app shells
 const DriverAppV4 = React.lazy(() => import("@/driver-v4/DriverAppV4").then(m => ({ default: m.DriverAppV4 })));
@@ -407,6 +416,15 @@ function Router() {
       <Route path="/admin/subscriptions">{() => { window.location.href = "/platform-fees?tab=subscription"; return null; }}</Route>
       <Route path="/clinic-billing-v2">{() => <ClinicOrPermissionRoute resource="billing" component={ClinicBillingV2Page} />}</Route>
       <Route path="/support-chat">{() => <ClinicOrPermissionRoute resource="support" component={SupportChatPage} />}</Route>
+      <Route path="/ratings">{() => <ProtectedRoute resource="audit" component={RatingsDashboardPage} />}</Route>
+      <Route path="/medicaid-billing">{() => <SuperAdminRoute component={MedicaidBillingPage} />}</Route>
+      <Route path="/trip-groups">{() => <ProtectedRoute resource="dispatch" component={TripGroupsPage} />}</Route>
+      <Route path="/dead-mile">{() => <ProtectedRoute resource="dispatch" component={DeadMilePage} />}</Route>
+      <Route path="/smart-cancel">{() => <ProtectedRoute resource="dispatch" component={SmartCancelPage} />}</Route>
+      <Route path="/reconciliation">{() => <SuperAdminRoute component={ReconciliationPage} />}</Route>
+      <Route path="/inter-city">{() => <ProtectedRoute resource="dispatch" component={InterCityPage} />}</Route>
+      <Route path="/city-comparison">{() => <SuperAdminRoute component={CityComparisonPage} />}</Route>
+      <Route path="/cascade-alerts">{() => <ProtectedRoute resource="dispatch" component={CascadeAlertsPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

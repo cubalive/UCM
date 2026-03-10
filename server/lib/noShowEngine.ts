@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import type { City } from "@shared/schema";
 import { createHarnessedTask, registerInterval, type HarnessedTask } from "./schedulerHarness";
+import { sendConfirmationReminder2h } from "./smsConfirmationEngine";
 
 function getCityLocalDate(timezone: string): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: timezone });
@@ -27,9 +28,14 @@ export async function runConfirmationChecks(city: City): Promise<{ sent24h: numb
     const minutesUntilPickup = pickupTotalMin - nowTotalMin;
 
     if (trip.confirmationStatus === "unconfirmed" && minutesUntilPickup <= 120 && minutesUntilPickup > 0) {
+      try {
+        await sendConfirmationReminder2h(trip.id);
+      } catch (err: any) {
+        console.warn(`[NO-SHOW] T-2h SMS failed for trip ${trip.publicId}: ${err.message}`);
+      }
       await storage.updateTripConfirmation(trip.id, "reminder_sent");
       sent2h++;
-      console.log(`[NO-SHOW] T-2h reminder stub for trip ${trip.publicId} (patient ${trip.patientId})`);
+      console.log(`[NO-SHOW] T-2h reminder sent for trip ${trip.publicId} (patient ${trip.patientId})`);
     }
 
     if (trip.confirmationStatus === "unconfirmed" || trip.confirmationStatus === "reminder_sent") {
