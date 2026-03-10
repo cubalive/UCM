@@ -196,6 +196,8 @@ export default function BrokerTripRequestNew() {
                 <option value="stretcher">Stretcher</option>
                 <option value="bariatric">Bariatric</option>
                 <option value="gurney">Gurney</option>
+                <option value="long_distance">Long Distance</option>
+                <option value="multi_load">Multi-Load</option>
               </select>
             </div>
             <div>

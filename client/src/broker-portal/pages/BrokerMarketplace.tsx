@@ -42,6 +42,9 @@ export default function BrokerMarketplace() {
           <option value="wheelchair">Wheelchair</option>
           <option value="stretcher">Stretcher</option>
           <option value="bariatric">Bariatric</option>
+          <option value="gurney">Gurney</option>
+          <option value="long_distance">Long Distance</option>
+          <option value="multi_load">Multi-Load</option>
         </select>
         <input
           type="date"

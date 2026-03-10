@@ -2,7 +2,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useCallback, useMemo } from "react";
 import {
   Wallet, Star, MapPin, Car, Clock, TrendingUp, Shield,
-  Zap, Navigation, Phone, ChevronUp, ChevronDown, Package, Ambulance
+  Zap, Navigation, Phone, ChevronUp, ChevronDown, Package, Ambulance,
+  Accessibility, BedDouble, Weight, Route, Users
 } from "lucide-react";
 import { useDriverStore, type ServiceFilter } from "../store/driverStore";
 import { useReducedMotion } from "../design/accessibility";
@@ -515,18 +516,25 @@ function ServiceFilterBar() {
 
   const options: { value: ServiceFilter; label: string; icon: React.ReactNode }[] = [
     { value: "all", label: "All", icon: <Car className="w-3.5 h-3.5" /> },
-    { value: "transport", label: "Trips", icon: <Ambulance className="w-3.5 h-3.5" /> },
-    { value: "delivery", label: "Deliveries", icon: <Package className="w-3.5 h-3.5" /> },
+    { value: "ambulatory", label: "Ambulatory", icon: <Ambulance className="w-3.5 h-3.5" /> },
+    { value: "wheelchair", label: "Wheelchair", icon: <Accessibility className="w-3.5 h-3.5" /> },
+    { value: "stretcher", label: "Stretcher", icon: <BedDouble className="w-3.5 h-3.5" /> },
+    { value: "bariatric", label: "Bariatric", icon: <Weight className="w-3.5 h-3.5" /> },
+    { value: "gurney", label: "Gurney", icon: <BedDouble className="w-3.5 h-3.5" /> },
+    { value: "long_distance", label: "Long Dist", icon: <Route className="w-3.5 h-3.5" /> },
+    { value: "multi_load", label: "Multi-Load", icon: <Users className="w-3.5 h-3.5" /> },
+    { value: "delivery", label: "Delivery", icon: <Package className="w-3.5 h-3.5" /> },
   ];
 
   return (
     <div
-      className="flex items-center gap-1 p-1 rounded-2xl"
+      className="flex items-center gap-1 p-1 rounded-2xl overflow-x-auto no-scrollbar"
       style={{
         background: "rgba(0,0,0,0.7)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         border: "1px solid rgba(255,255,255,0.08)",
+        maxWidth: "100vw",
       }}
       data-testid="service-filter-bar"
     >

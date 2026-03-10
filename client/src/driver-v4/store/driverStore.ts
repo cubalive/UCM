@@ -4,7 +4,23 @@ import { DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
 
 export type DriverStatus = "offline" | "online";
 export type ShiftStatus = "offShift" | "onShift";
-export type ServiceFilter = "all" | "transport" | "delivery";
+export type ServiceFilter = "all" | "transport" | "delivery" | "ambulatory" | "wheelchair" | "stretcher" | "bariatric" | "gurney" | "long_distance" | "multi_load";
+
+const SERVICE_LABELS: Record<string, string> = {
+  transport: "Medical",
+  delivery: "Delivery",
+  ambulatory: "Ambulatory",
+  wheelchair: "Wheelchair",
+  stretcher: "Stretcher",
+  bariatric: "Bariatric",
+  gurney: "Gurney",
+  long_distance: "Long Distance",
+  multi_load: "Multi-Load",
+};
+
+function getServiceLabel(serviceType?: string): string {
+  return SERVICE_LABELS[serviceType || "transport"] || "Medical";
+}
 export type TripPhase =
   | "none"
   | "offer"
@@ -142,7 +158,7 @@ function tripFromApiData(trip: any): ActiveTrip {
     notes: trip.notes || "",
     etaMinutes: trip.lastEtaMinutes || 15,
     scheduledTime: trip.pickupTime || undefined,
-    tripType: trip.serviceType === "delivery" ? "Delivery" : "Medical",
+    tripType: getServiceLabel(trip.serviceType),
     status: trip.status,
     routePolyline: trip.routePolyline || null,
   };
@@ -349,7 +365,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             passengerName: offer.patientName || "Patient",
             notes: "",
             etaMinutes: enrichedOffer.etaToPickupMinutes,
-            tripType: offer.serviceType === "delivery" ? "Delivery" : "Medical",
+            tripType: getServiceLabel(offer.serviceType),
             routePolyline: offer.routePolyline || null,
           },
         });

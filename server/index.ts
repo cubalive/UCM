@@ -681,11 +681,23 @@ app.use((req, res, next) => {
     `);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trip_route_events_trip ON trip_route_events(trip_id, ts)`);
 
-    // Service type enum + column for trips (transport vs delivery)
+    // Service type enum + column for trips (NEMT service types)
     await bootDb.execute(bootSql`
       DO $$ BEGIN
         CREATE TYPE service_type AS ENUM ('transport','delivery');
       EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    `);
+    // Add new NEMT service types to existing enum
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'ambulatory';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'wheelchair';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'stretcher';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'bariatric';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'gurney';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'long_distance';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'multi_load';
+      END $$
     `);
     await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS service_type service_type NOT NULL DEFAULT 'transport'`);
 

@@ -106,6 +106,13 @@ export const tripTypeEnum = pgEnum("trip_type", [
 export const serviceTypeEnum = pgEnum("service_type", [
   "transport",
   "delivery",
+  "ambulatory",
+  "wheelchair",
+  "stretcher",
+  "bariatric",
+  "gurney",
+  "long_distance",
+  "multi_load",
 ]);
 
 export const assignmentStatusEnum = pgEnum("assignment_status", [
@@ -4176,6 +4183,10 @@ export const medicaidServiceTypeEnum = pgEnum("medicaid_service_type", [
   "bus",
   "ambulance_bls",
   "ambulance_als",
+  "bariatric",
+  "gurney",
+  "long_distance",
+  "multi_load",
 ]);
 
 export const medicaidBillingCodes = pgTable("medicaid_billing_codes", {
