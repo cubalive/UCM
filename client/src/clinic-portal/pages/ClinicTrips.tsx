@@ -20,17 +20,13 @@ import {
 
 const STATUS_OPTIONS = [
   { value: "", label: "All Statuses" },
-  { value: "SCHEDULED", label: "Scheduled" },
-  { value: "APPROVED", label: "Approved" },
-  { value: "ASSIGNED", label: "Assigned" },
-  { value: "EN_ROUTE_PICKUP", label: "En Route Pickup" },
-  { value: "ARRIVED_PICKUP", label: "Arrived Pickup" },
-  { value: "PICKED_UP", label: "Picked Up" },
-  { value: "EN_ROUTE_DROPOFF", label: "En Route Dropoff" },
-  { value: "ARRIVED_DROPOFF", label: "Arrived Dropoff" },
-  { value: "COMPLETED", label: "Completed" },
-  { value: "CANCELLED", label: "Cancelled" },
-  { value: "NO_SHOW", label: "No Show" },
+  { value: "active", label: "Active" },
+  { value: "scheduled", label: "Scheduled" },
+  { value: "live", label: "Live / In Progress" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "no_show", label: "No Show" },
+  { value: "today", label: "Today" },
 ];
 
 function statusColor(status: string) {

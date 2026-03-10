@@ -821,13 +821,17 @@ export async function clinicTripsHandler(req: AuthRequest, res: Response) {
     const clinicObj = await storage.getClinic(clinicId);
     const tripsTz = await getClinicTimezone((clinicObj as any)?.cityId);
 
-    const statusFilter = (req.query.status as string || "active").toLowerCase();
+    const rawStatus = (req.query.status as string || "").trim().toLowerCase();
+    // Default to "all" if empty — shows every trip for this clinic
+    const statusFilter = rawStatus || "all";
     const conditions: any[] = [
       eq(trips.clinicId, clinicId),
       isNull(trips.deletedAt),
     ];
 
-    if (statusFilter === "today") {
+    if (statusFilter === "all") {
+      // No extra filter — return all trips
+    } else if (statusFilter === "today") {
       const todayDate = getTodayInTimezone(tripsTz);
       conditions.push(eq(trips.scheduledDate, todayDate));
     } else if (statusFilter === "active") {
@@ -844,7 +848,18 @@ export async function clinicTripsHandler(req: AuthRequest, res: Response) {
       conditions.push(eq(trips.approvalStatus, "pending"));
       conditions.push(sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`);
     } else if (statusFilter === "completed") {
-      conditions.push(inArray(trips.status, ["COMPLETED", "CANCELLED", "NO_SHOW"]));
+      conditions.push(eq(trips.status, "COMPLETED"));
+    } else if (statusFilter === "cancelled") {
+      conditions.push(eq(trips.status, "CANCELLED"));
+    } else if (statusFilter === "no_show") {
+      conditions.push(eq(trips.status, "NO_SHOW"));
+    } else {
+      // Try matching as a raw DB status (e.g., SCHEDULED, ASSIGNED, IN_PROGRESS, etc.)
+      const upperStatus = rawStatus.toUpperCase();
+      const validStatuses = ["SCHEDULED", "ASSIGNED", "EN_ROUTE_TO_PICKUP", "ARRIVED_PICKUP", "PICKED_UP", "EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"] as const;
+      if (validStatuses.includes(upperStatus as any)) {
+        conditions.push(sql`${trips.status} = ${upperStatus}`);
+      }
     }
 
     const tripTypeFilter = req.query.tripType as string;
