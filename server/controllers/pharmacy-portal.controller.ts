@@ -1,4 +1,4 @@
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import type { AuthRequest } from "../auth";
 import { db } from "../db";
 import {
@@ -456,5 +456,127 @@ export async function pharmacyMetricsHandler(req: AuthRequest, res: Response) {
   } catch (err: any) {
     console.error("[PharmacyMetrics]", err);
     res.status(500).json({ message: "Failed to load metrics" });
+  }
+}
+
+// ─── Public Tracking (No Auth Required) ──────────────────────────────────────
+
+const PHARMACY_STATUS_LABELS: Record<string, string> = {
+  PENDING: "Order Received",
+  CONFIRMED: "Order Confirmed",
+  PREPARING: "Being Prepared",
+  READY_FOR_PICKUP: "Ready for Pickup",
+  DRIVER_ASSIGNED: "Driver Assigned",
+  EN_ROUTE_PICKUP: "Driver Heading to Pharmacy",
+  PICKED_UP: "Picked Up from Pharmacy",
+  EN_ROUTE_DELIVERY: "Out for Delivery",
+  DELIVERED: "Delivered",
+  FAILED: "Delivery Failed",
+  CANCELLED: "Cancelled",
+};
+
+export async function pharmacyPublicTrackingHandler(req: Request, res: Response) {
+  try {
+    const publicId = req.params.publicId;
+    if (!publicId || publicId.length < 5) {
+      return res.status(400).json({ ok: false, message: "Invalid tracking ID" });
+    }
+
+    const [order] = await db.select()
+      .from(pharmacyOrders)
+      .where(eq(pharmacyOrders.publicId, publicId.toUpperCase()))
+      .limit(1);
+
+    if (!order) {
+      return res.status(404).json({ ok: false, message: "Order not found" });
+    }
+
+    // Get timeline events
+    const events = await db.select({
+      eventType: pharmacyOrderEvents.eventType,
+      description: pharmacyOrderEvents.description,
+      createdAt: pharmacyOrderEvents.createdAt,
+    })
+      .from(pharmacyOrderEvents)
+      .where(eq(pharmacyOrderEvents.orderId, order.id))
+      .orderBy(desc(pharmacyOrderEvents.createdAt))
+      .limit(20);
+
+    // Get driver location if actively delivering
+    let driverLocation: { name: string; lat: number | null; lng: number | null; updatedAt: string | null } | null = null;
+    const activeDeliveryStatuses = ["DRIVER_ASSIGNED", "EN_ROUTE_PICKUP", "PICKED_UP", "EN_ROUTE_DELIVERY"];
+    const isActiveDelivery = activeDeliveryStatuses.includes(order.status);
+
+    if (isActiveDelivery && order.driverId) {
+      const [driver] = await db.select({
+        firstName: drivers.firstName,
+        lastName: drivers.lastName,
+        lastLat: drivers.lastLat,
+        lastLng: drivers.lastLng,
+        lastSeenAt: drivers.lastSeenAt,
+      })
+        .from(drivers)
+        .where(eq(drivers.id, order.driverId))
+        .limit(1);
+
+      if (driver) {
+        driverLocation = {
+          name: `${driver.firstName} ${driver.lastName}`,
+          lat: driver.lastLat,
+          lng: driver.lastLng,
+          updatedAt: driver.lastSeenAt ? driver.lastSeenAt.toISOString() : null,
+        };
+      }
+    }
+
+    // Compute ETA from trip if linked
+    let eta: { minutes: number | null; distanceText: string | null } | null = null;
+    if (isActiveDelivery && order.tripId) {
+      const [trip] = await db.select({
+        lastEtaMinutes: trips.lastEtaMinutes,
+        distanceMiles: trips.distanceMiles,
+      })
+        .from(trips)
+        .where(eq(trips.id, order.tripId))
+        .limit(1);
+
+      if (trip && trip.lastEtaMinutes != null) {
+        eta = {
+          minutes: trip.lastEtaMinutes,
+          distanceText: trip.distanceMiles ? `${trip.distanceMiles} mi` : null,
+        };
+      }
+    }
+
+    // Build timeline from events
+    const timeline = events.map(e => ({
+      event: e.eventType,
+      description: e.description,
+      timestamp: e.createdAt.toISOString(),
+    }));
+
+    res.json({
+      ok: true,
+      order: {
+        publicId: order.publicId,
+        status: order.status,
+        statusLabel: PHARMACY_STATUS_LABELS[order.status] || order.status,
+        priority: order.priority,
+        deliveryAddress: order.deliveryAddress,
+        recipientName: order.recipientName,
+        requestedDeliveryDate: order.requestedDeliveryDate,
+        requestedDeliveryWindow: order.requestedDeliveryWindow,
+        itemCount: order.itemCount,
+        itemsSummary: order.itemsSummary,
+        createdAt: order.createdAt.toISOString(),
+        deliveredAt: order.deliveredAt ? order.deliveredAt.toISOString() : null,
+      },
+      driver: driverLocation,
+      eta,
+      timeline,
+    });
+  } catch (err: any) {
+    console.error("[PharmacyPublicTracking]", err);
+    res.status(500).json({ ok: false, message: "Internal error" });
   }
 }

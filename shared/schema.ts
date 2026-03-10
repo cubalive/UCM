@@ -4769,3 +4769,46 @@ export type EdiClaim = typeof ediClaims.$inferSelect;
 export type InsertEdiClaim = z.infer<typeof insertEdiClaimSchema>;
 export type EdiClaimEvent = typeof ediClaimEvents.$inferSelect;
 export type InsertEdiClaimEvent = z.infer<typeof insertEdiClaimEventSchema>;
+
+// ─── Fraud Alerts ─────────────────────────────────────────────────────────────
+
+export const fraudAlertSeverityEnum = pgEnum("fraud_alert_severity", [
+  "LOW",
+  "MEDIUM",
+  "HIGH",
+  "CRITICAL",
+]);
+
+export const fraudAlertStatusEnum = pgEnum("fraud_alert_status", [
+  "OPEN",
+  "INVESTIGATING",
+  "RESOLVED",
+  "DISMISSED",
+]);
+
+export const fraudAlerts = pgTable("fraud_alerts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").references(() => cities.id),
+  tripId: integer("trip_id").references(() => trips.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  alertType: text("alert_type").notNull(),
+  severity: fraudAlertSeverityEnum("severity").notNull().default("LOW"),
+  description: text("description").notNull(),
+  details: jsonb("details"),
+  status: fraudAlertStatusEnum("status").notNull().default("OPEN"),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedNotes: text("resolved_notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("fraud_alerts_company_idx").on(table.companyId),
+  index("fraud_alerts_status_idx").on(table.status),
+  index("fraud_alerts_severity_idx").on(table.severity),
+  index("fraud_alerts_trip_idx").on(table.tripId),
+  index("fraud_alerts_driver_idx").on(table.driverId),
+]);
+
+export const insertFraudAlertSchema = createInsertSchema(fraudAlerts).omit({ createdAt: true });
+export type FraudAlert = typeof fraudAlerts.$inferSelect;
+export type InsertFraudAlert = z.infer<typeof insertFraudAlertSchema>;

@@ -11,6 +11,7 @@ import {
   pharmacyProfileHandler,
   pharmacyActiveDeliveriesHandler,
   pharmacyMetricsHandler,
+  pharmacyPublicTrackingHandler,
 } from "../controllers/pharmacy-portal.controller";
 
 export function registerPharmacyPortalRoutes(app: Express) {
@@ -31,4 +32,7 @@ export function registerPharmacyPortalRoutes(app: Express) {
 
   // Metrics
   app.get("/api/pharmacy/metrics", authMiddleware, requirePharmacyScope as any, pharmacyMetricsHandler as any);
+
+  // Public tracking (NO auth required)
+  app.get("/api/pharmacy/track/:publicId", pharmacyPublicTrackingHandler as any);
 }
