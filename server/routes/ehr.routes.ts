@@ -15,8 +15,19 @@ export function registerEhrRoutes(app: Express) {
   // List EHR connections for a clinic
   app.get("/api/ehr/connections", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "CLINIC_ADMIN") as any, async (req: AuthRequest, res: Response) => {
     try {
-      const clinicId = parseInt(req.query.clinicId as string);
+      // Enforce tenant: CLINIC_ADMIN can only access their own clinic
+      const clinicId = req.user!.role === "CLINIC_ADMIN"
+        ? req.user!.clinicId
+        : parseInt(req.query.clinicId as string);
       if (!clinicId) return res.status(400).json({ message: "clinicId required" });
+      // Non-SUPER_ADMIN must have matching companyId
+      if (req.user!.role !== "SUPER_ADMIN" && req.user!.companyId) {
+        const [clinic] = await db.select({ companyId: ehrConnections.companyId }).from(ehrConnections)
+          .where(eq(ehrConnections.clinicId, clinicId)).limit(1);
+        if (clinic && clinic.companyId && clinic.companyId !== req.user!.companyId) {
+          return res.status(403).json({ message: "Access denied: wrong company" });
+        }
+      }
 
       const connections = await db.select().from(ehrConnections)
         .where(eq(ehrConnections.clinicId, clinicId))

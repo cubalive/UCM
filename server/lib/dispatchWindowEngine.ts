@@ -242,13 +242,7 @@ async function runDispatchCycle() {
         trip.status === "ASSIGNED" &&
         trip.driverId
       ) {
-        if (trip.driverId) {
-          await db.update(drivers).set({
-            dispatchStatus: "enroute",
-            availabilityStatus: "BUSY",
-          } as any).where(eq(drivers.id, trip.driverId));
-        }
-
+        // Transition trip FIRST, then update driver status only on success
         const result = await transitionTripStatus(trip.id, "EN_ROUTE_TO_PICKUP", {
           userId: 0,
           role: "SYSTEM",
@@ -256,6 +250,14 @@ async function runDispatchCycle() {
         }, { skipGeofenceCheck: true });
 
         if (result.success) {
+          // Update driver status AFTER successful trip transition
+          if (trip.driverId) {
+            await db.update(drivers).set({
+              dispatchStatus: "enroute",
+              availabilityStatus: "BUSY",
+            } as any).where(eq(drivers.id, trip.driverId));
+          }
+
           await db.update(trips).set({
             dispatchStage: DISPATCH_STAGES.DISPATCHED,
             updatedAt: new Date(),

@@ -5,7 +5,7 @@ import { db } from "../db";
 import { clinics } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
-export function requireClinicScope(req: AuthRequest, res: Response, next: NextFunction) {
+export async function requireClinicScope(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED" });
   }
@@ -28,19 +28,17 @@ export function requireClinicScope(req: AuthRequest, res: Response, next: NextFu
 
   if (["ADMIN", "COMPANY_ADMIN", "DISPATCH"].includes(req.user.role)) {
     if (!req.user.clinicId && req.user.companyId) {
-      db.select({ id: clinics.id })
-        .from(clinics)
-        .where(eq(clinics.companyId, req.user.companyId))
-        .limit(1)
-        .then((rows) => {
-          if (rows.length > 0) {
-            (req as any).clinicScopeId = rows[0].id;
-            (req as any).clinicCompanyId = req.user!.companyId;
-          }
-          next();
-        })
-        .catch(() => next());
-      return;
+      try {
+        const rows = await db.select({ id: clinics.id })
+          .from(clinics)
+          .where(eq(clinics.companyId, req.user.companyId))
+          .limit(1);
+        if (rows.length > 0) {
+          (req as any).clinicScopeId = rows[0].id;
+          (req as any).clinicCompanyId = req.user!.companyId;
+        }
+      } catch {}
+      return next();
     }
     if (req.user.clinicId) {
       (req as any).clinicScopeId = req.user.clinicId;

@@ -32,7 +32,7 @@ function AvailabilityChip() {
     label = "OFF SHIFT";
     chipColor = "rgba(255,170,0,0.25)";
     glowShadow = `0 0 12px ${glowColor(colors.warningNeon, 0.3)}`;
-  } else if (tripPhase !== "none" && tripPhase !== "complete") {
+  } else if (tripPhase !== "none" && tripPhase !== "complete" && tripPhase !== "offer") {
     label = "BUSY";
     chipColor = "rgba(255,0,170,0.25)";
     glowShadow = `0 0 12px ${glowColor(colors.neonMagenta, 0.3)}`;
@@ -186,6 +186,20 @@ function TripOfferCard() {
               {activeTrip.notes}
             </p>
           )}
+          <div className="flex gap-2 pt-2">
+            <NeonButton
+              title="Decline"
+              onPress={() => useDriverStore.getState().declineOffer()}
+              variant="danger"
+              testID="btn-decline-offer"
+            />
+            <NeonButton
+              title="Accept Trip"
+              onPress={() => useDriverStore.getState().acceptOffer()}
+              variant="primary"
+              testID="btn-accept-offer"
+            />
+          </div>
         </div>
       </GlassCard>
     </motion.div>
@@ -197,7 +211,7 @@ function ActiveTripMiniCard() {
   const tripPhase = useDriverStore((s) => s.tripPhase);
   const reduced = useReducedMotion();
 
-  const activePhasesVisible = ["toPickup", "arrivedPickup", "waiting", "pickedUp", "toDropoff", "arrivedDropoff"];
+  const activePhasesVisible = ["toPickup", "arrivedPickup", "waiting", "toDropoff", "arrivedDropoff"];
   if (!activeTrip || !activePhasesVisible.includes(tripPhase)) return null;
 
   const isPickupPhase = ["toPickup", "arrivedPickup", "waiting"].includes(tripPhase);
@@ -251,6 +265,8 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
   const setOffline = useDriverStore((s) => s.setOffline);
   const startShift = useDriverStore((s) => s.startShift);
   const endShift = useDriverStore((s) => s.endShift);
+  const driverName = useDriverStore((s) => s.driverName);
+  const driverInitials = useDriverStore((s) => s.driverInitials);
   const store = useDriverStore();
 
   const nextAction = useMemo(() => store.getNextAction(), [driverStatus, shiftStatus, tripPhase]);
@@ -302,11 +318,11 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
                   }}
                   data-testid="avatar-ring"
                 >
-                  JD
+                  {driverInitials || "DR"}
                 </div>
                 <div>
                   <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
-                    John Driver
+                    {driverName || "Driver"}
                   </p>
                   <AvailabilityChip />
                 </div>

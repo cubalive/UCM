@@ -34,7 +34,11 @@ export async function getDriversHandler(req: AuthRequest, res: Response) {
       )!);
     }
 
-    const result = await db.select().from(drivers).where(and(...conditions));
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
+    const offset = (page - 1) * limit;
+
+    const result = await db.select().from(drivers).where(and(...conditions)).orderBy(drivers.firstName).limit(limit).offset(offset);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ message: err.message });

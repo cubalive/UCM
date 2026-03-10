@@ -107,7 +107,7 @@ export function invalidateRevocationCache(userId: number): void {
   revocationCache.delete(userId);
 }
 
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+export async function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   let token: string | undefined;
 
@@ -129,12 +129,15 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
       return next();
     }
 
-    getLatestRevocation(payload.userId).then((revokedAfterSec) => {
+    try {
+      const revokedAfterSec = await getLatestRevocation(payload.userId);
       if (revokedAfterSec && payload.iat && payload.iat < revokedAfterSec) {
         return res.status(401).json({ message: "Session revoked", code: "SESSION_REVOKED" });
       }
       next();
-    }).catch(() => next());
+    } catch {
+      next();
+    }
   } catch {
     return res.status(401).json({ message: "Invalid token" });
   }
@@ -258,7 +261,7 @@ export function applyCompanyFilter<T extends { companyId?: number | null }>(item
 
 export function checkCompanyOwnership(entity: { companyId?: number | null } | undefined, companyId: number | null): boolean {
   if (!entity) return false;
-  if (!companyId) return true;
+  if (!companyId) return false;
   return entity.companyId === companyId;
 }
 

@@ -1,8 +1,8 @@
 import type { Response } from "express";
 import { type AuthRequest } from "../auth";
 import { db } from "../db";
-import { tripRequests, chatThreads, chatMessages, trips } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { tripRequests, chatThreads, chatMessages, trips, patients, clinics, companies, cities } from "@shared/schema";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { generatePublicId } from "../public-id";
 import { storage } from "../storage";
 import { getClinicScopeId } from "../middleware/requireClinicScope";
@@ -621,12 +621,31 @@ export async function getRequestChatThread(req: AuthRequest, res: Response) {
 }
 
 async function enrichTripRequests(requests: any[]) {
-  return Promise.all(requests.map(async (r) => {
-    const patient = r.patientId ? await storage.getPatient(r.patientId) : null;
-    const clinic = await storage.getClinic(r.clinicId);
-    const company = await storage.getCompany(r.companyId);
-    const cities = await storage.getCities();
-    const city = cities.find(c => c.id === r.cityId);
+  if (requests.length === 0) return [];
+
+  // Batch-load all related entities instead of N+1 queries per request
+  const patientIds = [...new Set(requests.map(r => r.patientId).filter(Boolean))];
+  const clinicIds = [...new Set(requests.map(r => r.clinicId).filter(Boolean))];
+  const companyIds = [...new Set(requests.map(r => r.companyId).filter(Boolean))];
+  const cityIds = [...new Set(requests.map(r => r.cityId).filter(Boolean))];
+
+  const [batchPatients, batchClinics, batchCompanies, batchCities] = await Promise.all([
+    patientIds.length > 0 ? db.select().from(patients).where(inArray(patients.id, patientIds)) : [],
+    clinicIds.length > 0 ? db.select().from(clinics).where(inArray(clinics.id, clinicIds)) : [],
+    companyIds.length > 0 ? db.select().from(companies).where(inArray(companies.id, companyIds)) : [],
+    cityIds.length > 0 ? db.select().from(cities).where(inArray(cities.id, cityIds)) : [],
+  ]);
+
+  const patientMap = new Map(batchPatients.map(p => [p.id, p]));
+  const clinicMap = new Map(batchClinics.map(c => [c.id, c]));
+  const companyMap = new Map(batchCompanies.map(c => [c.id, c]));
+  const cityMap = new Map(batchCities.map(c => [c.id, c]));
+
+  return requests.map((r) => {
+    const patient = r.patientId ? patientMap.get(r.patientId) : null;
+    const clinic = r.clinicId ? clinicMap.get(r.clinicId) : null;
+    const company = r.companyId ? companyMap.get(r.companyId) : null;
+    const city = r.cityId ? cityMap.get(r.cityId) : null;
     return {
       ...r,
       patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
@@ -635,5 +654,5 @@ async function enrichTripRequests(requests: any[]) {
       companyName: company?.name || null,
       cityName: city?.name || null,
     };
-  }));
+  });
 }

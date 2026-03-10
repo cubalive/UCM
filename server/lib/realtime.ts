@@ -16,7 +16,7 @@ let wss: WebSocketServer | null = null;
 const WS_MAX_MESSAGES_PER_MIN = 60;
 const WS_HEARTBEAT_INTERVAL_MS = 30_000;
 const WS_HEARTBEAT_TIMEOUT_MS = 10_000;
-const WS_MAX_CONNECTIONS = parseInt(process.env.WS_MAX_CONNECTIONS || "500", 10);
+const WS_MAX_CONNECTIONS = parseInt(process.env.WS_MAX_CONNECTIONS || "1000", 10);
 const WS_MAX_PAYLOAD_BYTES = 4096;
 
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;

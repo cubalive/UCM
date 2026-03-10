@@ -512,6 +512,23 @@ app.use((req, res, next) => {
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS trips_clinic_status_idx ON trips(clinic_id, status) WHERE clinic_id IS NOT NULL`);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS trips_city_status_idx ON trips(city_id, status)`);
 
+    // ── Scalability indexes (P0) ──
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trips_company_status_created ON trips(company_id, status, created_at)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trips_city_status_date ON trips(city_id, status, scheduled_date)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trips_driver_status ON trips(driver_id, status, created_at)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trips_patient_created ON trips(patient_id, created_at)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trips_scheduled_date ON trips(scheduled_date, status)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_drivers_company_status ON drivers(company_id, status)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_drivers_city_status ON drivers(city_id, status)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_drivers_company_dispatch ON drivers(company_id, dispatch_status)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_vehicles_company_status ON vehicles(company_id, status)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_vehicles_city_status ON vehicles(city_id, status)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_patients_company ON patients(company_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_patients_clinic ON patients(clinic_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_patients_city ON patients(city_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_clinics_company ON clinics(company_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_clinics_city ON clinics(city_id)`);
+
     try {
       await bootDb.execute(bootSql`
         CREATE UNIQUE INDEX IF NOT EXISTS cities_state_name_unique_idx ON cities(state, lower(name))

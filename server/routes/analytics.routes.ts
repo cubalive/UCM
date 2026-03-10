@@ -3,7 +3,7 @@ import { authMiddleware, requireRole, requirePermission, type AuthRequest } from
 import { storage } from "../storage";
 import { db } from "../db";
 import { trips, drivers, vehicles, patients, clinics, invoices } from "@shared/schema";
-import { sql, eq, and, gte, lte, count, sum, desc } from "drizzle-orm";
+import { sql, eq, and, gte, lte, count, sum, desc, inArray } from "drizzle-orm";
 
 const router = express.Router();
 
@@ -34,16 +34,40 @@ router.get("/api/dashboard/driver-stats", authMiddleware, async (req: AuthReques
   try {
     const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
 
-    const condition = cityId ? eq(drivers.cityId, cityId) : undefined;
-    const allDrivers = await db.select().from(drivers).where(condition);
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+    const conditions: any[] = [];
+    if (cityId) conditions.push(eq(drivers.cityId, cityId));
+    if (companyId) conditions.push(eq(drivers.companyId, companyId));
 
-    const now = new Date();
-    const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
-    const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000);
+    const allDrivers = await db.select().from(drivers).where(
+      conditions.length > 0 ? and(...conditions) : undefined
+    );
 
     const activeDrivers: any[] = [];
     const inRouteDrivers: any[] = [];
     const offlineHoldDrivers: any[] = [];
+
+    // Batch-load active trips for all enroute drivers (fixes N+1)
+    const enrouteDriverIds = allDrivers
+      .filter(d => d.status !== "INACTIVE" && d.dispatchStatus === "enroute")
+      .map(d => d.id);
+
+    const activeTripsMap = new Map<number, { publicId: string; status: string }>();
+    if (enrouteDriverIds.length > 0) {
+      const activeTrips = await db.select({
+        driverId: trips.driverId,
+        publicId: trips.publicId,
+        status: trips.status,
+      })
+        .from(trips)
+        .where(and(
+          inArray(trips.driverId, enrouteDriverIds),
+          eq(trips.status, "IN_PROGRESS"),
+        ));
+      for (const t of activeTrips) {
+        if (t.driverId) activeTripsMap.set(t.driverId, { publicId: t.publicId, status: t.status });
+      }
+    }
 
     for (const d of allDrivers) {
       if (d.status === "INACTIVE") continue;
@@ -56,20 +80,11 @@ router.get("/api/dashboard/driver-stats", authMiddleware, async (req: AuthReques
       };
 
       if (d.dispatchStatus === "enroute") {
-        // Find active trip for this driver
-        const activeTrips = await db.select({
-          id: trips.id,
-          publicId: trips.publicId,
-          status: trips.status,
-        })
-          .from(trips)
-          .where(and(eq(trips.driverId, d.id), eq(trips.status, "IN_PROGRESS")))
-          .limit(1);
-
+        const tripInfo = activeTripsMap.get(d.id);
         inRouteDrivers.push({
           ...entry,
-          tripPublicId: activeTrips[0]?.publicId || "N/A",
-          tripStatus: activeTrips[0]?.status || d.dispatchStatus,
+          tripPublicId: tripInfo?.publicId || "N/A",
+          tripStatus: tripInfo?.status || d.dispatchStatus,
         });
       } else if (d.dispatchStatus === "available") {
         activeDrivers.push(entry);

@@ -121,6 +121,15 @@ async function handleRouteFinalize(payload: Record<string, any>): Promise<void> 
   const { tripId } = payload;
   if (!tripId) return;
 
+  // Fetch trip timestamps first to filter GPS points to pickup→dropoff only
+  const [tripData] = await db.select({
+    pickedUpAt: trips.pickedUpAt,
+    completedAt: trips.completedAt,
+  }).from(trips).where(eq(trips.id, tripId)).limit(1);
+
+  const pickupTime = tripData?.pickedUpAt ? new Date(tripData.pickedUpAt).getTime() : null;
+  const completedTime = tripData?.completedAt ? new Date(tripData.completedAt).getTime() : null;
+
   const chunks = await db.select().from(tripRoutePointChunks).where(eq(tripRoutePointChunks.tripId, tripId)).orderBy(asc(tripRoutePointChunks.chunkIndex));
 
   let allPoints: LatLng[] = [];
@@ -130,14 +139,23 @@ async function handleRouteFinalize(payload: Record<string, any>): Promise<void> 
   }
 
   if (allPoints.length < 2) {
+    // Only include GPS points from pickup to dropoff (not pre-pickup driving)
+    // to accurately measure trip distance and avoid billing confusion
     const rawPoints = await db.select({
       lat: tripLocationPoints.lat,
       lng: tripLocationPoints.lng,
       ts: tripLocationPoints.ts,
     }).from(tripLocationPoints).where(eq(tripLocationPoints.tripId, tripId)).orderBy(asc(tripLocationPoints.ts));
 
-    if (rawPoints.length >= 2) {
-      allPoints = rawPoints.map(p => ({ lat: p.lat, lng: p.lng }));
+    const filteredPoints = pickupTime
+      ? rawPoints.filter((p) => {
+          const ts = new Date(p.ts).getTime();
+          return ts >= pickupTime && (completedTime ? ts <= completedTime : true);
+        })
+      : rawPoints;
+
+    if (filteredPoints.length >= 2) {
+      allPoints = filteredPoints.map(p => ({ lat: p.lat, lng: p.lng }));
     }
   }
 
@@ -148,22 +166,16 @@ async function handleRouteFinalize(payload: Record<string, any>): Promise<void> 
   if (allPoints.length >= 2) {
     actualDistanceMeters = computePolylineDistance(allPoints);
 
-    const trip = await db.select({
-      pickedUpAt: trips.pickedUpAt,
-      completedAt: trips.completedAt,
-    }).from(trips).where(eq(trips.id, tripId)).limit(1);
-
-    if (trip[0]?.pickedUpAt && trip[0]?.completedAt) {
-      const start = new Date(trip[0].pickedUpAt).getTime();
-      const end = new Date(trip[0].completedAt).getTime();
-      actualDurationSeconds = Math.round((end - start) / 1000);
+    if (pickupTime && completedTime) {
+      actualDurationSeconds = Math.round((completedTime - pickupTime) / 1000);
     }
   }
 
+  // Quality score on 0-100 scale (matching tripFinalizationService)
   let gpsQualityScore = "0";
-  if (pointsTotal >= 10) gpsQualityScore = "0.9";
-  else if (pointsTotal >= 5) gpsQualityScore = "0.7";
-  else if (pointsTotal >= 2) gpsQualityScore = "0.4";
+  if (pointsTotal >= 10) gpsQualityScore = "90";
+  else if (pointsTotal >= 5) gpsQualityScore = "70";
+  else if (pointsTotal >= 2) gpsQualityScore = "40";
 
   await db.insert(tripRouteSummary).values({
     tripId,
@@ -190,7 +202,7 @@ async function handleRouteFinalize(payload: Record<string, any>): Promise<void> 
     actualDurationSeconds,
     actualPolyline: actualPolylineStr,
     actualDistanceSource: pointsTotal >= 10 ? "gps" : pointsTotal >= 2 ? "gps_sparse" : "estimated",
-    routeQualityScore: parseInt(gpsQualityScore.replace("0.", ""), 10) || 0,
+    routeQualityScore: parseInt(gpsQualityScore, 10) || 0,
     updatedAt: new Date(),
   }).where(eq(trips.id, tripId));
 

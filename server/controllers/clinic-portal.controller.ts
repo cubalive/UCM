@@ -2,7 +2,7 @@ import type { Response } from "express";
 import { storage } from "../storage";
 import { type AuthRequest } from "../auth";
 import { db } from "../db";
-import { trips, patients, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities } from "@shared/schema";
+import { trips, patients, drivers, vehicles, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities } from "@shared/schema";
 import { eq, and, isNull, inArray, desc, gte, sql, or } from "drizzle-orm";
 import { getClinicScopeId } from "../middleware/requireClinicScope";
 
@@ -434,8 +434,32 @@ export async function clinicActiveTripsHandler(req: AuthRequest, res: Response) 
       )
     );
 
-    const result = await Promise.all(clinicTrips.map(async (trip) => {
-      const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+    // Batch-load all patients, drivers, vehicles in parallel (fixes N+1)
+    const patientIds = [...new Set(clinicTrips.map(t => t.patientId).filter(Boolean))] as number[];
+    const driverIds = [...new Set(clinicTrips.map(t => t.driverId).filter(Boolean))] as number[];
+
+    const [batchPatients, batchDrivers] = await Promise.all([
+      patientIds.length > 0 ? db.select().from(patients).where(inArray(patients.id, patientIds)) : [],
+      driverIds.length > 0 ? db.select().from(drivers).where(inArray(drivers.id, driverIds)) : [],
+    ]);
+
+    const patientMap = new Map(batchPatients.map(p => [p.id, p]));
+    const driverMap = new Map(batchDrivers.map(d => [d.id, d]));
+
+    const vehicleIds = [...new Set(batchDrivers.map(d => d.vehicleId).filter(Boolean))] as number[];
+    const batchVehicles = vehicleIds.length > 0
+      ? await db.select().from(vehicles).where(inArray(vehicles.id, vehicleIds))
+      : [];
+    const vehicleMap = new Map(batchVehicles.map(v => [v.id, v]));
+
+    let getDriverLocationFromCache: ((id: number) => { lat: number; lng: number } | null) | null = null;
+    try {
+      const mod = await import("../lib/driverLocationIngest");
+      getDriverLocationFromCache = mod.getDriverLocationFromCache;
+    } catch {}
+
+    const result = clinicTrips.map((trip) => {
+      const patient = trip.patientId ? patientMap.get(trip.patientId) : null;
       let driverData: any = null;
       let driverStale = false;
       let driverLastLat: number | null = null;
@@ -443,19 +467,18 @@ export async function clinicActiveTripsHandler(req: AuthRequest, res: Response) 
       let driverLastSeenAt: string | null = null;
 
       if (trip.driverId) {
-        const driver = await storage.getDriver(trip.driverId);
+        const driver = driverMap.get(trip.driverId);
         if (driver) {
           driverLastLat = driver.lastLat ?? null;
           driverLastLng = driver.lastLng ?? null;
-          try {
-            const { getDriverLocationFromCache } = await import("../lib/driverLocationIngest");
+          if (getDriverLocationFromCache) {
             const cached = getDriverLocationFromCache(driver.id);
             if (cached) { driverLastLat = cached.lat; driverLastLng = cached.lng; }
-          } catch {}
+          }
           driverLastSeenAt = driver.lastSeenAt ? new Date(driver.lastSeenAt).toISOString() : null;
           const lastSeenMs = driver.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
           driverStale = lastSeenMs > STALE_THRESHOLD_MS;
-          const vehicle = driver.vehicleId ? await storage.getVehicle(driver.vehicleId) : null;
+          const vehicle = driver.vehicleId ? vehicleMap.get(driver.vehicleId) : null;
           driverData = {
             id: driver.id,
             firstName: driver.firstName,
@@ -483,29 +506,11 @@ export async function clinicActiveTripsHandler(req: AuthRequest, res: Response) 
           etaUpdatedAt = cacheEntry.updatedAt;
           etaStale = cacheEntry.stale;
         } else {
-          try {
-            const { googleDistanceMatrix } = await import("../lib/googleMaps");
-            const dmResult = await googleDistanceMatrix(
-              { lat: driverLastLat, lng: driverLastLng },
-              [{ lat: clinic.lat, lng: clinic.lng }]
-            );
-            const el = dmResult.elements[0];
-            if (el && el.status === "OK") {
-              etaToClinic = Math.round(el.durationSeconds / 60);
-            } else {
-              const dist = haversineDistanceMiles(driverLastLat, driverLastLng, clinic.lat, clinic.lng);
-              etaToClinic = Math.round((dist / 25) * 60);
-            }
-            etaUpdatedAt = new Date().toISOString();
-            etaStale = false;
-            clinicEtaCache.set(trip.id, { eta: etaToClinic, stale: false, updatedAt: etaUpdatedAt });
-          } catch {
-            const dist = haversineDistanceMiles(driverLastLat, driverLastLng, clinic.lat, clinic.lng);
-            etaToClinic = Math.round((dist / 25) * 60);
-            etaUpdatedAt = new Date().toISOString();
-            etaStale = false;
-            clinicEtaCache.set(trip.id, { eta: etaToClinic, stale: false, updatedAt: etaUpdatedAt });
-          }
+          const dist = haversineDistanceMiles(driverLastLat, driverLastLng, clinic.lat, clinic.lng);
+          etaToClinic = Math.round((dist / 25) * 60);
+          etaUpdatedAt = new Date().toISOString();
+          etaStale = false;
+          clinicEtaCache.set(trip.id, { eta: etaToClinic, stale: false, updatedAt: etaUpdatedAt });
         }
       } else if (driverStale) {
         etaToClinic = null;
@@ -542,7 +547,7 @@ export async function clinicActiveTripsHandler(req: AuthRequest, res: Response) 
         etaUpdatedAt: etaUpdatedAt,
         stale: driverStale,
       };
-    }));
+    });
 
     res.json({
       ok: true,
