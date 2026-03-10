@@ -15,6 +15,8 @@ export const userRoleEnum = pgEnum("user_role", [
   "CLINIC_VIEWER",
   "PHARMACY_ADMIN",
   "PHARMACY_USER",
+  "BROKER_ADMIN",
+  "BROKER_USER",
 ]);
 
 export const companies = pgTable("companies", {
@@ -153,6 +155,7 @@ export const users = pgTable("users", {
   clinicId: integer("clinic_id"),
   patientId: integer("patient_id"),
   pharmacyId: integer("pharmacy_id"),
+  brokerId: integer("broker_id"),
   companyId: integer("company_id").references(() => companies.id),
   workingCityId: integer("working_city_id").references(() => cities.id),
   workingCityScope: text("working_city_scope").default("CITY"),
@@ -3670,3 +3673,410 @@ export type PharmacyOrderItem = typeof pharmacyOrderItems.$inferSelect;
 export type InsertPharmacyOrderItem = z.infer<typeof insertPharmacyOrderItemSchema>;
 export type PharmacyOrderEvent = typeof pharmacyOrderEvents.$inferSelect;
 export type InsertPharmacyOrderEvent = z.infer<typeof insertPharmacyOrderEventSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BROKER / MARKETPLACE MODULE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const brokerStatusEnum = pgEnum("broker_status", [
+  "PENDING_APPROVAL",
+  "ACTIVE",
+  "SUSPENDED",
+  "INACTIVE",
+]);
+
+export const brokerTypeEnum = pgEnum("broker_type", [
+  "INSURANCE",
+  "MEDICAID",
+  "MEDICARE",
+  "MANAGED_CARE",
+  "PRIVATE_PAYER",
+  "GOVERNMENT",
+  "TPA",
+]);
+
+export const brokerContractStatusEnum = pgEnum("broker_contract_status", [
+  "DRAFT",
+  "PENDING_APPROVAL",
+  "ACTIVE",
+  "EXPIRED",
+  "TERMINATED",
+]);
+
+export const brokerTripRequestStatusEnum = pgEnum("broker_trip_request_status", [
+  "OPEN",
+  "BIDDING",
+  "AWARDED",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "CANCELLED",
+  "EXPIRED",
+  "DISPUTED",
+]);
+
+export const brokerBidStatusEnum = pgEnum("broker_bid_status", [
+  "PENDING",
+  "ACCEPTED",
+  "REJECTED",
+  "WITHDRAWN",
+  "EXPIRED",
+  "COUNTER_OFFERED",
+]);
+
+export const brokerSettlementStatusEnum = pgEnum("broker_settlement_status", [
+  "PENDING",
+  "INVOICED",
+  "PAID",
+  "PARTIAL",
+  "DISPUTED",
+  "WRITTEN_OFF",
+]);
+
+// ─── Brokers ──────────────────────────────────────────────────────────────────
+
+export const brokers = pgTable("brokers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  name: text("name").notNull(),
+  legalName: text("legal_name"),
+  type: brokerTypeEnum("type").notNull().default("PRIVATE_PAYER"),
+  status: brokerStatusEnum("status").notNull().default("PENDING_APPROVAL"),
+  npi: varchar("npi", { length: 10 }),
+  taxId: varchar("tax_id", { length: 20 }),
+  medicaidProviderId: text("medicaid_provider_id"),
+  address: text("address"),
+  city: text("city"),
+  state: varchar("state", { length: 2 }),
+  zip: varchar("zip", { length: 10 }),
+  phone: text("phone"),
+  email: text("email"),
+  website: text("website"),
+  logoUrl: text("logo_url"),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  billingEmail: text("billing_email"),
+  defaultPaymentTermsDays: integer("default_payment_terms_days").notNull().default(30),
+  autoApproveTrips: boolean("auto_approve_trips").notNull().default(false),
+  autoAwardLowestBid: boolean("auto_award_lowest_bid").notNull().default(false),
+  maxBidTimeMinutes: integer("max_bid_time_minutes").notNull().default(60),
+  requiresPreauthorization: boolean("requires_preauthorization").notNull().default(false),
+  serviceAreaStates: jsonb("service_area_states").$type<string[]>(),
+  serviceAreaCities: jsonb("service_area_cities").$type<number[]>(),
+  tripVolumeMonthly: integer("trip_volume_monthly"),
+  platformFeePercent: numeric("platform_fee_percent", { precision: 5, scale: 2 }).default("5.00"),
+  stripeCustomerId: text("stripe_customer_id"),
+  metadata: jsonb("metadata"),
+  notes: text("notes"),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: integer("approved_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_brokers_status").on(table.status),
+  index("idx_brokers_type").on(table.type),
+]);
+
+// ─── Broker Contracts ─────────────────────────────────────────────────────────
+
+export const brokerContracts = pgTable("broker_contracts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  status: brokerContractStatusEnum("status").notNull().default("DRAFT"),
+  name: text("name").notNull(),
+  effectiveDate: text("effective_date").notNull(),
+  expirationDate: text("expiration_date"),
+  autoRenew: boolean("auto_renew").notNull().default(false),
+  baseRatePerMile: numeric("base_rate_per_mile", { precision: 8, scale: 4 }),
+  baseRatePerTrip: numeric("base_rate_per_trip", { precision: 10, scale: 2 }),
+  surgePricingEnabled: boolean("surge_pricing_enabled").notNull().default(false),
+  surgeMultiplierMax: numeric("surge_multiplier_max", { precision: 4, scale: 2 }).default("2.00"),
+  wheelchairSurcharge: numeric("wheelchair_surcharge", { precision: 10, scale: 2 }),
+  stretcherSurcharge: numeric("stretcher_surcharge", { precision: 10, scale: 2 }),
+  waitTimePer15Min: numeric("wait_time_per_15min", { precision: 10, scale: 2 }),
+  noShowFee: numeric("no_show_fee", { precision: 10, scale: 2 }),
+  cancelFee: numeric("cancel_fee", { precision: 10, scale: 2 }),
+  monthlyMinimumTrips: integer("monthly_minimum_trips"),
+  monthlyMinimumRevenue: numeric("monthly_minimum_revenue", { precision: 12, scale: 2 }),
+  paymentTermsDays: integer("payment_terms_days").notNull().default(30),
+  serviceTypes: jsonb("service_types").$type<string[]>(),
+  serviceCityIds: jsonb("service_city_ids").$type<number[]>(),
+  slaPickupWindowMinutes: integer("sla_pickup_window_minutes").default(15),
+  slaOnTimePercent: numeric("sla_on_time_percent", { precision: 5, scale: 2 }).default("95.00"),
+  penaltyPerSlaViolation: numeric("penalty_per_sla_violation", { precision: 10, scale: 2 }),
+  termsDocumentUrl: text("terms_document_url"),
+  notes: text("notes"),
+  signedByBroker: boolean("signed_by_broker").notNull().default(false),
+  signedByCompany: boolean("signed_by_company").notNull().default(false),
+  signedAt: timestamp("signed_at"),
+  terminatedAt: timestamp("terminated_at"),
+  terminationReason: text("termination_reason"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_broker_contracts_broker").on(table.brokerId, table.status),
+  index("idx_broker_contracts_company").on(table.companyId, table.status),
+]);
+
+// ─── Broker Rate Cards ────────────────────────────────────────────────────────
+
+export const brokerRateCards = pgTable("broker_rate_cards", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  contractId: integer("contract_id").notNull().references(() => brokerContracts.id),
+  name: text("name").notNull(),
+  serviceType: text("service_type").notNull(),
+  vehicleType: text("vehicle_type"),
+  baseFare: numeric("base_fare", { precision: 10, scale: 2 }).notNull(),
+  perMileRate: numeric("per_mile_rate", { precision: 8, scale: 4 }).notNull(),
+  perMinuteRate: numeric("per_minute_rate", { precision: 8, scale: 4 }),
+  minimumFare: numeric("minimum_fare", { precision: 10, scale: 2 }),
+  maximumFare: numeric("maximum_fare", { precision: 10, scale: 2 }),
+  effectiveDate: text("effective_date").notNull(),
+  expirationDate: text("expiration_date"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_rate_cards_contract").on(table.contractId, table.isActive),
+]);
+
+// ─── Broker Trip Requests (Marketplace) ───────────────────────────────────────
+
+export const brokerTripRequests = pgTable("broker_trip_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  status: brokerTripRequestStatusEnum("status").notNull().default("OPEN"),
+  // Patient info
+  memberName: text("member_name").notNull(),
+  memberId: text("member_id"),
+  memberPhone: text("member_phone"),
+  memberDob: text("member_dob"),
+  // Pickup
+  pickupAddress: text("pickup_address").notNull(),
+  pickupLat: doublePrecision("pickup_lat"),
+  pickupLng: doublePrecision("pickup_lng"),
+  pickupNotes: text("pickup_notes"),
+  // Dropoff
+  dropoffAddress: text("dropoff_address").notNull(),
+  dropoffLat: doublePrecision("dropoff_lat"),
+  dropoffLng: doublePrecision("dropoff_lng"),
+  dropoffNotes: text("dropoff_notes"),
+  // Schedule
+  requestedDate: text("requested_date").notNull(),
+  requestedPickupTime: text("requested_pickup_time").notNull(),
+  requestedReturnTime: text("requested_return_time"),
+  isRoundTrip: boolean("is_round_trip").notNull().default(false),
+  isRecurring: boolean("is_recurring").notNull().default(false),
+  recurrencePattern: jsonb("recurrence_pattern"),
+  // Service requirements
+  serviceType: text("service_type").notNull().default("ambulatory"),
+  wheelchairRequired: boolean("wheelchair_required").notNull().default(false),
+  stretcherRequired: boolean("stretcher_required").notNull().default(false),
+  attendantRequired: boolean("attendant_required").notNull().default(false),
+  oxygenRequired: boolean("oxygen_required").notNull().default(false),
+  specialNeeds: text("special_needs"),
+  // Location
+  cityId: integer("city_id").references(() => cities.id),
+  estimatedMiles: doublePrecision("estimated_miles"),
+  estimatedMinutes: integer("estimated_minutes"),
+  // Pricing
+  maxBudget: numeric("max_budget", { precision: 10, scale: 2 }),
+  preauthorizationNumber: text("preauthorization_number"),
+  diagnosisCode: text("diagnosis_code"),
+  // Bidding
+  bidDeadline: timestamp("bid_deadline"),
+  minBids: integer("min_bids").default(1),
+  awardedCompanyId: integer("awarded_company_id").references(() => companies.id),
+  awardedBidId: integer("awarded_bid_id"),
+  awardedAt: timestamp("awarded_at"),
+  // Linked trip
+  tripId: integer("trip_id"),
+  // Priority & urgency
+  priority: text("priority").notNull().default("STANDARD"),
+  urgencyLevel: text("urgency_level").default("NORMAL"),
+  // Meta
+  externalReferenceId: text("external_reference_id"),
+  metadata: jsonb("metadata"),
+  notes: text("notes"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledReason: text("cancelled_reason"),
+  completedAt: timestamp("completed_at"),
+  disputedAt: timestamp("disputed_at"),
+  disputeReason: text("dispute_reason"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_broker_trip_requests_broker").on(table.brokerId, table.status),
+  index("idx_broker_trip_requests_status_date").on(table.status, table.requestedDate),
+  index("idx_broker_trip_requests_city").on(table.cityId, table.status),
+  index("idx_broker_trip_requests_awarded").on(table.awardedCompanyId),
+]);
+
+// ─── Broker Bids ──────────────────────────────────────────────────────────────
+
+export const brokerBids = pgTable("broker_bids", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripRequestId: integer("trip_request_id").notNull().references(() => brokerTripRequests.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  status: brokerBidStatusEnum("status").notNull().default("PENDING"),
+  bidAmount: numeric("bid_amount", { precision: 10, scale: 2 }).notNull(),
+  estimatedPickupTime: text("estimated_pickup_time"),
+  estimatedDurationMinutes: integer("estimated_duration_minutes"),
+  vehicleType: text("vehicle_type"),
+  driverScore: doublePrecision("driver_score"),
+  companyRating: doublePrecision("company_rating"),
+  slaGuarantee: boolean("sla_guarantee").notNull().default(true),
+  notes: text("notes"),
+  counterOfferAmount: numeric("counter_offer_amount", { precision: 10, scale: 2 }),
+  counterOfferNotes: text("counter_offer_notes"),
+  respondedAt: timestamp("responded_at"),
+  expiresAt: timestamp("expires_at"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_bids_request").on(table.tripRequestId, table.status),
+  index("idx_broker_bids_company").on(table.companyId, table.status),
+  uniqueIndex("idx_broker_bids_unique_company_request").on(table.tripRequestId, table.companyId),
+]);
+
+// ─── Broker Settlements ───────────────────────────────────────────────────────
+
+export const brokerSettlements = pgTable("broker_settlements", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  contractId: integer("contract_id").references(() => brokerContracts.id),
+  status: brokerSettlementStatusEnum("status").notNull().default("PENDING"),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  totalTrips: integer("total_trips").notNull().default(0),
+  totalMiles: doublePrecision("total_miles").default(0),
+  grossAmount: numeric("gross_amount", { precision: 12, scale: 2 }).notNull(),
+  adjustments: numeric("adjustments", { precision: 12, scale: 2 }).default("0.00"),
+  platformFee: numeric("platform_fee", { precision: 12, scale: 2 }).default("0.00"),
+  netAmount: numeric("net_amount", { precision: 12, scale: 2 }).notNull(),
+  paidAmount: numeric("paid_amount", { precision: 12, scale: 2 }).default("0.00"),
+  dueDate: text("due_date"),
+  paidAt: timestamp("paid_at"),
+  invoiceUrl: text("invoice_url"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  notes: text("notes"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_broker_settlements_broker").on(table.brokerId, table.status),
+  index("idx_broker_settlements_company").on(table.companyId, table.status),
+  index("idx_broker_settlements_period").on(table.periodStart, table.periodEnd),
+]);
+
+// ─── Broker Settlement Line Items ─────────────────────────────────────────────
+
+export const brokerSettlementItems = pgTable("broker_settlement_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  settlementId: integer("settlement_id").notNull().references(() => brokerSettlements.id),
+  tripRequestId: integer("trip_request_id").references(() => brokerTripRequests.id),
+  tripId: integer("trip_id"),
+  serviceDate: text("service_date").notNull(),
+  memberName: text("member_name"),
+  memberId: text("member_id"),
+  pickupAddress: text("pickup_address"),
+  dropoffAddress: text("dropoff_address"),
+  miles: doublePrecision("miles"),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  adjustmentAmount: numeric("adjustment_amount", { precision: 10, scale: 2 }).default("0.00"),
+  adjustmentReason: text("adjustment_reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_settlement_items_settlement").on(table.settlementId),
+]);
+
+// ─── Broker Events/Audit ──────────────────────────────────────────────────────
+
+export const brokerEvents = pgTable("broker_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  brokerId: integer("broker_id").references(() => brokers.id),
+  tripRequestId: integer("trip_request_id").references(() => brokerTripRequests.id),
+  bidId: integer("bid_id").references(() => brokerBids.id),
+  settlementId: integer("settlement_id").references(() => brokerSettlements.id),
+  eventType: text("event_type").notNull(),
+  description: text("description"),
+  performedBy: integer("performed_by"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_events_broker").on(table.brokerId, table.createdAt),
+  index("idx_broker_events_request").on(table.tripRequestId, table.createdAt),
+]);
+
+// ─── Broker API Keys ──────────────────────────────────────────────────────────
+
+export const brokerApiKeys = pgTable("broker_api_keys", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  name: text("name").notNull(),
+  keyHash: text("key_hash").notNull(),
+  keyPrefix: varchar("key_prefix", { length: 8 }).notNull(),
+  scopes: jsonb("scopes").$type<string[]>().notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_api_keys_broker").on(table.brokerId, table.isActive),
+]);
+
+// ─── Broker Performance Metrics ───────────────────────────────────────────────
+
+export const brokerPerformanceMetrics = pgTable("broker_performance_metrics", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  companyId: integer("company_id").references(() => companies.id),
+  period: text("period").notNull(),
+  totalRequests: integer("total_requests").notNull().default(0),
+  totalAwarded: integer("total_awarded").notNull().default(0),
+  totalCompleted: integer("total_completed").notNull().default(0),
+  totalCancelled: integer("total_cancelled").notNull().default(0),
+  totalDisputed: integer("total_disputed").notNull().default(0),
+  avgBidAmount: numeric("avg_bid_amount", { precision: 10, scale: 2 }),
+  avgAwardedAmount: numeric("avg_awarded_amount", { precision: 10, scale: 2 }),
+  onTimePickupPercent: numeric("on_time_pickup_percent", { precision: 5, scale: 2 }),
+  avgBidResponseMinutes: numeric("avg_bid_response_minutes", { precision: 8, scale: 2 }),
+  totalRevenue: numeric("total_revenue", { precision: 14, scale: 2 }),
+  totalPlatformFees: numeric("total_platform_fees", { precision: 12, scale: 2 }),
+  satisfactionScore: doublePrecision("satisfaction_score"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_perf_broker_period").on(table.brokerId, table.period),
+  index("idx_broker_perf_company_period").on(table.companyId, table.period),
+]);
+
+// ─── Broker Schemas & Types ─────────────────────────────────────────────────
+
+export const insertBrokerSchema = createInsertSchema(brokers).omit({ createdAt: true, updatedAt: true });
+export const insertBrokerContractSchema = createInsertSchema(brokerContracts).omit({ createdAt: true, updatedAt: true });
+export const insertBrokerTripRequestSchema = createInsertSchema(brokerTripRequests).omit({ createdAt: true, updatedAt: true });
+export const insertBrokerBidSchema = createInsertSchema(brokerBids).omit({ createdAt: true });
+export const insertBrokerSettlementSchema = createInsertSchema(brokerSettlements).omit({ createdAt: true, updatedAt: true });
+
+export type Broker = typeof brokers.$inferSelect;
+export type InsertBroker = z.infer<typeof insertBrokerSchema>;
+export type BrokerContract = typeof brokerContracts.$inferSelect;
+export type InsertBrokerContract = z.infer<typeof insertBrokerContractSchema>;
+export type BrokerTripRequest = typeof brokerTripRequests.$inferSelect;
+export type InsertBrokerTripRequest = z.infer<typeof insertBrokerTripRequestSchema>;
+export type BrokerBid = typeof brokerBids.$inferSelect;
+export type InsertBrokerBid = z.infer<typeof insertBrokerBidSchema>;
+export type BrokerSettlement = typeof brokerSettlements.$inferSelect;
+export type InsertBrokerSettlement = z.infer<typeof insertBrokerSettlementSchema>;
+export type BrokerRateCard = typeof brokerRateCards.$inferSelect;
+export type BrokerEvent = typeof brokerEvents.$inferSelect;
+export type BrokerApiKey = typeof brokerApiKeys.$inferSelect;
+export type BrokerPerformanceMetric = typeof brokerPerformanceMetrics.$inferSelect;

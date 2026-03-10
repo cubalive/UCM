@@ -4,10 +4,11 @@ const isProdDomain = hostname.endsWith("unitedcaremobility.com");
 export const isDriverHost = isProdDomain && hostname.startsWith("driver.");
 export const isClinicHost = isProdDomain && hostname.startsWith("clinic.");
 export const isPharmacyHost = isProdDomain && hostname.startsWith("pharmacy.");
+export const isBrokerHost = isProdDomain && hostname.startsWith("broker.");
 export const isDispatchHost = isProdDomain && hostname.startsWith("dispatch.");
 export const isAdminHost = isProdDomain && hostname.startsWith("admin.");
 export const isAppHost = isProdDomain && (hostname.startsWith("app.") || hostname === "app.unitedcaremobility.com");
-export const isProductionSubdomain = isDriverHost || isClinicHost || isPharmacyHost || isDispatchHost || isAdminHost || isAppHost;
+export const isProductionSubdomain = isDriverHost || isClinicHost || isPharmacyHost || isBrokerHost || isDispatchHost || isAdminHost || isAppHost;
 export { isProdDomain };
 
 export const isNativePlatform =

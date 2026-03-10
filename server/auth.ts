@@ -54,6 +54,7 @@ export interface AuthPayload {
   clinicId?: number | null;
   driverId?: number | null;
   pharmacyId?: number | null;
+  brokerId?: number | null;
   iat?: number;
 }
 

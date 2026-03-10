@@ -81,6 +81,9 @@ import {
   ChevronRight,
   AlertTriangle,
   Heart,
+  Handshake,
+  ShoppingCart,
+  Gavel,
 } from "lucide-react";
 
 interface NavItem {
@@ -213,6 +216,14 @@ const adminGroups: NavGroup[] = [
       { titleKey: "nav.certification", url: "/certification", icon: Award, resource: "audit", superAdminOnly: true },
       { titleKey: "nav.ranking", url: "/ranking", icon: Trophy, resource: "audit", superAdminOnly: true },
       { titleKey: "nav.prediction", url: "/prediction", icon: TrendingUp, resource: "audit", superAdminOnly: true },
+    ],
+  },
+  {
+    labelKey: "nav.group.broker",
+    icon: Gavel,
+    items: [
+      { titleKey: "nav.brokers", url: "/admin/brokers", icon: Handshake, resource: "broker_marketplace", superAdminOnly: true },
+      { titleKey: "nav.marketplace", url: "/marketplace", icon: ShoppingCart, resource: "broker_marketplace" },
     ],
   },
   {

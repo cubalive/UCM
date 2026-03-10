@@ -57,6 +57,7 @@ import { registerChatbotRoutes } from "./chatbot.routes";
 import { registerComplianceRoutes } from "./compliance.routes";
 import { registerSmartPickupRoutes } from "./smart-pickup.routes";
 import { registerPharmacyPortalRoutes } from "./pharmacy-portal.routes";
+import { registerBrokerPortalRoutes } from "./broker-portal.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -171,6 +172,7 @@ export async function registerRoutes(
   registerComplianceRoutes(app);
   registerSmartPickupRoutes(app);
   registerPharmacyPortalRoutes(app);
+  registerBrokerPortalRoutes(app);
 
   return httpServer;
 }

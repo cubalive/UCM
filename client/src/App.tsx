@@ -16,7 +16,7 @@ import { can, type Resource } from "@shared/permissions";
 import { API_BASE_URL } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 import "@/i18n";
-import { isDriverHost, isClinicHost, isPharmacyHost, getTokenKey } from "@/lib/hostDetection";
+import { isDriverHost, isClinicHost, isPharmacyHost, isBrokerHost, getTokenKey } from "@/lib/hostDetection";
 import { pushError } from "@/lib/errorLog";
 import { CitySelectionModal } from "@/components/city-selection-modal";
 // Critical pages loaded eagerly (auth flow, initial render)
@@ -93,11 +93,14 @@ const DriverEarningsPage = React.lazy(() => import("@/pages/driver-earnings"));
 const PrivacyPolicyPage = React.lazy(() => import("@/pages/privacy-policy"));
 const TermsOfServicePage = React.lazy(() => import("@/pages/terms-of-service"));
 const DeleteAccountPage = React.lazy(() => import("@/pages/delete-account"));
+const AdminBrokersPage = React.lazy(() => import("@/pages/admin-brokers"));
+const MarketplacePage = React.lazy(() => import("@/pages/marketplace"));
 
 // Lazy-loaded app shells
 const DriverAppV4 = React.lazy(() => import("@/driver-v4/DriverAppV4").then(m => ({ default: m.DriverAppV4 })));
 const ClinicPortalLayout = React.lazy(() => import("@/clinic-portal/ClinicPortalLayout").then(m => ({ default: m.ClinicPortalLayout })));
 const PharmacyPortalLayout = React.lazy(() => import("@/pharmacy-portal/PharmacyPortalLayout").then(m => ({ default: m.PharmacyPortalLayout })));
+const BrokerPortalLayout = React.lazy(() => import("@/broker-portal/BrokerPortalLayout").then(m => ({ default: m.BrokerPortalLayout })));
 import { NetworkStatus } from "@/components/network-status";
 import { useAppVersion } from "@/components/version-checker";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -388,6 +391,8 @@ function Router() {
       <Route path="/admin/imports">{() => <SuperAdminRoute component={DataImportPage} />}</Route>
       <Route path="/companies">{() => <SuperAdminRoute component={CompaniesPage} />}</Route>
       <Route path="/system-status">{() => <SuperAdminRoute component={SystemStatusPage} />}</Route>
+      <Route path="/admin/brokers">{() => <SuperAdminRoute component={AdminBrokersPage} />}</Route>
+      <Route path="/marketplace">{() => <ProtectedRoute resource="broker_marketplace" component={MarketplacePage} />}</Route>
       <Route path="/finance-console">{() => <SuperAdminRoute component={FinanceConsolePage} />}</Route>
       <Route path="/fee-rules">{() => <SuperAdminRoute component={FeeRulesPage} />}</Route>
       <Route path="/eta-escalations">{() => <ProtectedRoute resource="dispatch" component={EtaEscalationsPage} />}</Route>
@@ -617,6 +622,29 @@ function AuthenticatedApp() {
       <AppErrorBoundary label="Pharmacy">
         <React.Suspense fallback={<PageLoadingFallback />}>
           <PharmacyPortalLayout />
+        </React.Suspense>
+      </AppErrorBoundary>
+    );
+  }
+
+  if (isBrokerHost) {
+    const role = user.role.toUpperCase();
+    const brokerAllowed = ["BROKER_ADMIN", "BROKER_USER", "SUPER_ADMIN"];
+    if (!brokerAllowed.includes(role)) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 max-w-md text-center space-y-4">
+            <h2 className="text-xl font-semibold text-white">Access Denied</h2>
+            <p className="text-gray-400">This portal is restricted to broker users only.</p>
+            <button onClick={() => logout()} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Sign Out</button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <AppErrorBoundary label="Broker">
+        <React.Suspense fallback={<PageLoadingFallback />}>
+          <BrokerPortalLayout />
         </React.Suspense>
       </AppErrorBoundary>
     );
