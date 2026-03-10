@@ -9,6 +9,9 @@ import { createServer } from "http";
 import { recordRequest as recordReqMetric } from "./lib/requestMetrics";
 import { tracingMiddleware } from "./lib/requestTracing";
 import { tenantGuard } from "./lib/tenantGuard";
+import { phiAuditMiddleware } from "./middleware/phiAudit";
+import { inputSanitizer } from "./middleware/inputSanitizer";
+import { apiRateLimiter } from "./middleware/rateLimiter";
 
 const app = express();
 const httpServer = createServer(app);
@@ -163,7 +166,10 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 });
 
 app.use(tracingMiddleware);
+app.use(inputSanitizer);
+app.use("/api", apiRateLimiter);
 app.use(tenantGuard);
+app.use(phiAuditMiddleware);
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -884,17 +890,40 @@ app.use((req, res, next) => {
   registerSmsAdminRoutes(app);
 
 
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    const message = status < 500 ? err.message : "Internal Server Error";
 
-    console.error("Internal Server Error:", err);
+    // Structured error logging for monitoring/alerting
+    const errorEntry: Record<string, unknown> = {
+      event: "unhandled_error",
+      severity: status >= 500 ? "ERROR" : "WARN",
+      status,
+      method: req.method,
+      path: req.path,
+      requestId: req.requestId,
+      error: err.message,
+      stack: status >= 500 ? err.stack?.slice(0, 2000) : undefined,
+      userId: (req as any).user?.userId,
+      companyId: (req as any).user?.companyId,
+      ts: new Date().toISOString(),
+    };
+    if (status >= 500) {
+      console.error(JSON.stringify(errorEntry));
+    } else {
+      console.warn(JSON.stringify(errorEntry));
+    }
 
     if (res.headersSent) {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    // Never leak internal error details to client in production
+    return res.status(status).json({
+      message,
+      code: err.code || (status >= 500 ? "INTERNAL_ERROR" : undefined),
+      requestId: req.requestId,
+    });
   });
 
   if (process.env.NODE_ENV === "production") {
