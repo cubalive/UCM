@@ -56,6 +56,7 @@ import { registerEhrRoutes } from "./ehr.routes";
 import { registerChatbotRoutes } from "./chatbot.routes";
 import { registerComplianceRoutes } from "./compliance.routes";
 import { registerSmartPickupRoutes } from "./smart-pickup.routes";
+import { registerPharmacyPortalRoutes } from "./pharmacy-portal.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -169,6 +170,7 @@ export async function registerRoutes(
   registerChatbotRoutes(app);
   registerComplianceRoutes(app);
   registerSmartPickupRoutes(app);
+  registerPharmacyPortalRoutes(app);
 
   return httpServer;
 }

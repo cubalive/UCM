@@ -13,6 +13,8 @@ export const userRoleEnum = pgEnum("user_role", [
   "CLINIC_USER",
   "CLINIC_ADMIN",
   "CLINIC_VIEWER",
+  "PHARMACY_ADMIN",
+  "PHARMACY_USER",
 ]);
 
 export const companies = pgTable("companies", {
@@ -145,6 +147,7 @@ export const users = pgTable("users", {
   driverId: integer("driver_id"),
   clinicId: integer("clinic_id"),
   patientId: integer("patient_id"),
+  pharmacyId: integer("pharmacy_id"),
   companyId: integer("company_id").references(() => companies.id),
   workingCityId: integer("working_city_id").references(() => cities.id),
   workingCityScope: text("working_city_scope").default("CITY"),
@@ -3475,3 +3478,189 @@ export const smartPickupSuggestions = pgTable("smart_pickup_suggestions", {
 }, (table) => [
   index("idx_smart_pickup_clinic_date").on(table.clinicId, table.appointmentDate),
 ]);
+
+// ─── Pharmacy Module (HealthLogistics OS) ────────────────────────────────────
+
+export const pharmacyOrderStatusEnum = pgEnum("pharmacy_order_status", [
+  "PENDING",
+  "CONFIRMED",
+  "PREPARING",
+  "READY_FOR_PICKUP",
+  "DRIVER_ASSIGNED",
+  "EN_ROUTE_PICKUP",
+  "PICKED_UP",
+  "EN_ROUTE_DELIVERY",
+  "DELIVERED",
+  "FAILED",
+  "CANCELLED",
+]);
+
+export const pharmacyOrderPriorityEnum = pgEnum("pharmacy_order_priority", [
+  "STANDARD",
+  "EXPRESS",
+  "URGENT",
+  "STAT",
+]);
+
+export const deliveryTypeEnum = pgEnum("delivery_type", [
+  "PHARMACY_TO_PATIENT",
+  "PHARMACY_TO_CLINIC",
+  "PHARMACY_TO_PHARMACY",
+  "LAB_SPECIMEN",
+  "MEDICAL_SUPPLY",
+]);
+
+export const temperatureRequirementEnum = pgEnum("temperature_requirement", [
+  "AMBIENT",
+  "REFRIGERATED",
+  "FROZEN",
+  "CONTROLLED",
+]);
+
+export const pharmacies = pgTable("pharmacies", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  name: text("name").notNull(),
+  licenseNumber: text("license_number"),
+  npiNumber: text("npi_number"),
+  address: text("address").notNull(),
+  addressStreet: text("address_street"),
+  addressCity: text("address_city"),
+  addressState: text("address_state"),
+  addressZip: text("address_zip"),
+  addressPlaceId: text("address_place_id"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  phone: text("phone"),
+  fax: text("fax"),
+  email: text("email"),
+  contactName: text("contact_name"),
+  operatingHoursStart: text("operating_hours_start").default("08:00"),
+  operatingHoursEnd: text("operating_hours_end").default("20:00"),
+  operatingDays: text("operating_days").array().default(sql`ARRAY['Mon','Tue','Wed','Thu','Fri','Sat']`),
+  acceptsControlledSubstances: boolean("accepts_controlled_substances").notNull().default(false),
+  hasRefrigeratedStorage: boolean("has_refrigerated_storage").notNull().default(false),
+  autoConfirmOrders: boolean("auto_confirm_orders").notNull().default(false),
+  maxDeliveryRadiusMiles: integer("max_delivery_radius_miles").default(25),
+  averagePrepTimeMinutes: integer("average_prep_time_minutes").default(30),
+  stripeCustomerId: text("stripe_customer_id"),
+  active: boolean("active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_pharmacies_company").on(table.companyId),
+  index("idx_pharmacies_city").on(table.cityId),
+]);
+
+export const pharmacyOrders = pgTable("pharmacy_orders", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  pharmacyId: integer("pharmacy_id").notNull().references(() => pharmacies.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  patientId: integer("patient_id").references(() => patients.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  rxNumber: text("rx_number"),
+  orderReference: text("order_reference"),
+  status: pharmacyOrderStatusEnum("status").notNull().default("PENDING"),
+  priority: pharmacyOrderPriorityEnum("priority").notNull().default("STANDARD"),
+  deliveryType: deliveryTypeEnum("delivery_type").notNull().default("PHARMACY_TO_PATIENT"),
+  temperatureRequirement: temperatureRequirementEnum("temperature_requirement").notNull().default("AMBIENT"),
+  // Delivery addresses
+  pickupAddress: text("pickup_address").notNull(),
+  pickupLat: doublePrecision("pickup_lat"),
+  pickupLng: doublePrecision("pickup_lng"),
+  deliveryAddress: text("delivery_address").notNull(),
+  deliveryLat: doublePrecision("delivery_lat"),
+  deliveryLng: doublePrecision("delivery_lng"),
+  deliveryInstructions: text("delivery_instructions"),
+  recipientName: text("recipient_name").notNull(),
+  recipientPhone: text("recipient_phone"),
+  // Scheduling
+  requestedDeliveryDate: text("requested_delivery_date").notNull(),
+  requestedDeliveryWindow: text("requested_delivery_window"),
+  estimatedReadyAt: timestamp("estimated_ready_at"),
+  readyAt: timestamp("ready_at"),
+  // Assignment
+  tripId: integer("trip_id").references(() => trips.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  assignedAt: timestamp("assigned_at"),
+  // Delivery tracking
+  pickedUpAt: timestamp("picked_up_at"),
+  deliveredAt: timestamp("delivered_at"),
+  deliveryProofUrl: text("delivery_proof_url"),
+  signatureBase64: text("signature_base64"),
+  signedByName: text("signed_by_name"),
+  failedAt: timestamp("failed_at"),
+  failureReason: text("failure_reason"),
+  // Pricing
+  deliveryFeeCents: integer("delivery_fee_cents").default(0),
+  rushFeeCents: integer("rush_fee_cents").default(0),
+  totalFeeCents: integer("total_fee_cents").default(0),
+  // Metadata
+  itemCount: integer("item_count").notNull().default(1),
+  itemsSummary: text("items_summary"),
+  specialHandling: text("special_handling"),
+  isControlledSubstance: boolean("is_controlled_substance").notNull().default(false),
+  requiresSignature: boolean("requires_signature").notNull().default(true),
+  requiresIdVerification: boolean("requires_id_verification").notNull().default(false),
+  chainOfCustodyJson: jsonb("chain_of_custody_json").default(sql`'[]'::jsonb`),
+  notes: text("notes"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledBy: integer("cancelled_by"),
+  cancelledReason: text("cancelled_reason"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_pharmacy_orders_pharmacy_status").on(table.pharmacyId, table.status),
+  index("idx_pharmacy_orders_company_date").on(table.companyId, table.requestedDeliveryDate),
+  index("idx_pharmacy_orders_driver").on(table.driverId, table.status),
+  index("idx_pharmacy_orders_patient").on(table.patientId),
+  index("idx_pharmacy_orders_trip").on(table.tripId),
+]);
+
+export const pharmacyOrderItems = pgTable("pharmacy_order_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => pharmacyOrders.id),
+  medicationName: text("medication_name").notNull(),
+  ndc: text("ndc"),
+  quantity: integer("quantity").notNull().default(1),
+  unit: text("unit").default("each"),
+  rxNumber: text("rx_number"),
+  isControlled: boolean("is_controlled").notNull().default(false),
+  scheduleClass: text("schedule_class"),
+  requiresRefrigeration: boolean("requires_refrigeration").notNull().default(false),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const pharmacyOrderEvents = pgTable("pharmacy_order_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => pharmacyOrders.id),
+  eventType: text("event_type").notNull(),
+  description: text("description"),
+  performedBy: integer("performed_by"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_pharmacy_order_events_order").on(table.orderId, table.createdAt),
+]);
+
+// Schemas & Types
+export const insertPharmacySchema = createInsertSchema(pharmacies).omit({ createdAt: true });
+export const insertPharmacyOrderSchema = createInsertSchema(pharmacyOrders).omit({ createdAt: true, updatedAt: true });
+export const insertPharmacyOrderItemSchema = createInsertSchema(pharmacyOrderItems).omit({ createdAt: true });
+export const insertPharmacyOrderEventSchema = createInsertSchema(pharmacyOrderEvents).omit({ createdAt: true });
+
+export type Pharmacy = typeof pharmacies.$inferSelect;
+export type InsertPharmacy = z.infer<typeof insertPharmacySchema>;
+export type PharmacyOrder = typeof pharmacyOrders.$inferSelect;
+export type InsertPharmacyOrder = z.infer<typeof insertPharmacyOrderSchema>;
+export type PharmacyOrderItem = typeof pharmacyOrderItems.$inferSelect;
+export type InsertPharmacyOrderItem = z.infer<typeof insertPharmacyOrderItemSchema>;
+export type PharmacyOrderEvent = typeof pharmacyOrderEvents.$inferSelect;
+export type InsertPharmacyOrderEvent = z.infer<typeof insertPharmacyOrderEventSchema>;
