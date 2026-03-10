@@ -4683,3 +4683,39 @@ export type InsertPaymentReconciliationItem = z.infer<typeof insertPaymentReconc
 export const insertPaymentReconciliationWriteOffSchema = createInsertSchema(paymentReconciliationWriteOffs).omit({ createdAt: true });
 export type PaymentReconciliationWriteOff = typeof paymentReconciliationWriteOffs.$inferSelect;
 export type InsertPaymentReconciliationWriteOff = z.infer<typeof insertPaymentReconciliationWriteOffSchema>;
+
+// ─── Delivery Proofs ──────────────────────────────────────────────────────────
+
+export const deliveryProofTypeEnum = pgEnum("delivery_proof_type", [
+  "SIGNATURE",
+  "PHOTO",
+  "GPS_VERIFICATION",
+  "ID_CHECK",
+]);
+
+export const deliveryProofs = pgTable("delivery_proofs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  pharmacyOrderId: integer("pharmacy_order_id").references(() => pharmacyOrders.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  proofType: deliveryProofTypeEnum("proof_type").notNull(),
+  signatureData: text("signature_data"),
+  photoUrl: text("photo_url"),
+  gpsLat: doublePrecision("gps_lat"),
+  gpsLng: doublePrecision("gps_lng"),
+  gpsAccuracy: doublePrecision("gps_accuracy"),
+  idVerified: boolean("id_verified"),
+  recipientName: text("recipient_name"),
+  notes: text("notes"),
+  collectedAt: timestamp("collected_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("dp_trip_idx").on(table.tripId),
+  index("dp_pharmacy_order_idx").on(table.pharmacyOrderId),
+  index("dp_company_driver_idx").on(table.companyId, table.driverId),
+]);
+
+export const insertDeliveryProofSchema = createInsertSchema(deliveryProofs).omit({ createdAt: true });
+export type DeliveryProof = typeof deliveryProofs.$inferSelect;
+export type InsertDeliveryProof = z.infer<typeof insertDeliveryProofSchema>;

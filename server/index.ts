@@ -879,12 +879,12 @@ app.use((req, res, next) => {
   const { registerAdminMetricsRoutes } = await import("./lib/adminMetricsRoutes");
   registerAdminMetricsRoutes(app);
 
-  if (roleMode === "all") {
+  if (shouldRunSchedulers()) {
     await initSchedulers();
   } else {
     console.log(JSON.stringify({
       event: "schedulers_skipped",
-      reason: `RUN_MODE=${runModeRaw} (api-only)`,
+      reason: `RUN_MODE=${runModeRaw} resolved to '${roleMode}' — schedulers disabled for api-only process`,
       ts: new Date().toISOString(),
     }));
   }
