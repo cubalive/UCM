@@ -1,5 +1,7 @@
 import { startJobEngine, stopJobEngine } from "./jobEngine";
 import { isRedisConnected } from "./redis";
+import { registerJobHandler } from "./jobProcessor";
+import { tickJob, failJob } from "./jobHeartbeat";
 
 export type RoleMode = "server" | "worker" | "all";
 
@@ -51,6 +53,40 @@ async function startAllSchedulerLoops(): Promise<void> {
   startPayrollScheduler();
   startDunningScheduler();
   startDialysisScheduler();
+  // Register job handlers so the processor can execute eta_cycle and autoassign_cycle jobs
+  registerJobHandler("eta_cycle", async (payload) => {
+    const { executeEtaCycleForCity } = await import("./etaEngine");
+    const cityId = payload.cityId as number;
+    tickJob("eta");
+    try {
+      const result = await executeEtaCycleForCity(cityId);
+      return { cityId, tripsProcessed: result.tripsProcessed };
+    } catch (err: any) {
+      failJob("eta", err.message);
+      throw err;
+    }
+  });
+
+  registerJobHandler("autoassign_cycle", async (payload) => {
+    const { runVehicleAutoAssignForCity } = await import("./vehicleAutoAssign");
+    const { storage } = await import("../storage");
+    const cityId = payload.cityId as number;
+    tickJob("autoAssign");
+    try {
+      const cities = await storage.getCities();
+      const city = cities.find((c: any) => c.id === cityId);
+      if (!city) return { skipped: true, reason: "city_not_found" };
+      const allSettings = await storage.getAllCitySettings();
+      const settings = allSettings.find((s: any) => s.cityId === cityId);
+      if (!settings) return { skipped: true, reason: "no_settings" };
+      const result = await runVehicleAutoAssignForCity(city, settings);
+      return { cityId, ...result };
+    } catch (err: any) {
+      failJob("autoAssign", err.message);
+      throw err;
+    }
+  });
+
   startJobEngine();
   startSmsReminderScheduler();
   startDispatchWindowScheduler();

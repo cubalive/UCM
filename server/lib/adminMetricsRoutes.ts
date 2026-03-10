@@ -23,11 +23,20 @@ let eventLoopLagMs = 0;
   }, 500).unref();
 })();
 
-async function measureDbLatency(): Promise<{ ok: boolean; latencyMs: number }> {
+async function measureDbLatency(): Promise<{ ok: boolean; latencyMs: number; clients?: number }> {
   const t0 = performance.now();
   try {
-    await pool.query("SELECT 1");
-    return { ok: true, latencyMs: Math.round(performance.now() - t0) };
+    const client = await pool.connect();
+    try {
+      await client.query("SELECT 1");
+      return {
+        ok: true,
+        latencyMs: Math.round(performance.now() - t0),
+        clients: pool.totalCount,
+      };
+    } finally {
+      client.release();
+    }
   } catch {
     return { ok: false, latencyMs: Math.round(performance.now() - t0) };
   }
