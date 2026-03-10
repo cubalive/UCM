@@ -177,6 +177,7 @@ const operationGroups: NavGroup[] = [
       { titleKey: "nav.platformFees", url: "/platform-fees", icon: DollarSign, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.feeRules", url: "/fee-rules", icon: Settings2, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.medicaidBilling", url: "/medicaid-billing", icon: FileText, resource: "billing", superAdminOnly: true },
+      { titleKey: "nav.ediBilling", url: "/edi-billing", icon: FileText, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.reconciliation", url: "/reconciliation", icon: CheckSquare, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.clinicBillingV2", url: "/clinic-billing-v2", icon: Receipt, resource: "billing" },
     ],
@@ -231,6 +232,7 @@ const adminGroups: NavGroup[] = [
       { titleKey: "nav.certification", url: "/certification", icon: Award, resource: "audit", superAdminOnly: true },
       { titleKey: "nav.ranking", url: "/ranking", icon: Trophy, resource: "audit", superAdminOnly: true },
       { titleKey: "nav.prediction", url: "/prediction", icon: TrendingUp, resource: "audit", superAdminOnly: true },
+      { titleKey: "nav.aiDashboard", url: "/ai-dashboard", icon: Brain, resource: "audit", superAdminOnly: true },
     ],
   },
   {
