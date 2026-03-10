@@ -55,6 +55,51 @@ router.post("/api/admin/finance/reconcile/:companyId", authMiddleware, requireRo
   }
 });
 
+// Manual trigger for auto-invoice generation
+router.post("/api/admin/finance/auto-invoice/run", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+  try {
+    const { runAutoInvoiceGeneration } = await import("../services/autoInvoiceScheduler");
+    const result = await runAutoInvoiceGeneration();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Manual trigger for dunning email cycle
+router.post("/api/admin/finance/dunning-email/run", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+  try {
+    const { runDunningEmailCycle } = await import("../services/dunningEmailService");
+    const result = await runDunningEmailCycle();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Manual trigger for reconciliation
+router.post("/api/admin/finance/reconciliation/run", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+  try {
+    const { runAutoReconciliation } = await import("../services/autoReconciliationScheduler");
+    const result = await runAutoReconciliation();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Subscription tier usage check
+router.get("/api/admin/finance/tier-usage/:companyId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = parseInt(String(req.params.companyId));
+    const { getCompanyUsage } = await import("../services/subscriptionTiers");
+    const usage = await getCompanyUsage(companyId);
+    res.json(usage);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 export function registerEnterpriseFinanceRoutes(app: Express) {
   app.use(router);
 }

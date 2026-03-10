@@ -44,6 +44,7 @@ import { registerInfraOpsRoutes } from "./ops.routes";
 import { registerSubscriptionRoutes, registerSubscriptionWebhook } from "./subscription.routes";
 import { registerEnterpriseFinanceRoutes } from "./enterpriseFinance.routes";
 import { registerFeeRulesRoutes } from "./feeRules.routes";
+import { registerFinancialReportingRoutes } from "./financialReporting.routes";
 import { registerTripRequestRoutes } from "./trip-requests.routes";
 import { registerQueueRoutes } from "./queue.routes";
 import { registerAutoAssignV2Routes } from "../lib/autoAssignV2Routes";
@@ -169,6 +170,7 @@ export async function registerRoutes(
   registerSubscriptionWebhook(app);
   registerEnterpriseFinanceRoutes(app);
   registerFeeRulesRoutes(app);
+  registerFinancialReportingRoutes(app);
   registerTripRequestRoutes(app);
   registerAutoAssignV2Routes(app);
   registerEtaVarianceRoutes(app);

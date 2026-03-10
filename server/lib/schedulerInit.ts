@@ -37,6 +37,9 @@ async function startAllSchedulerLoops(): Promise<void> {
   const { startOpsScheduler } = await import("./opsScheduler");
   const { startPayrollScheduler } = await import("./payrollRoutes");
   const { startDunningScheduler } = await import("../routes/enterpriseFinance.routes");
+  const { startAutoInvoiceScheduler } = await import("../services/autoInvoiceScheduler");
+  const { startDunningEmailScheduler } = await import("../services/dunningEmailService");
+  const { startAutoReconciliationScheduler } = await import("../services/autoReconciliationScheduler");
   const { startDialysisScheduler } = await import("./zeroTouchDialysisEngine");
   const { startSmsReminderScheduler } = await import("./smsReminderScheduler");
   const { startDispatchWindowScheduler } = await import("./dispatchWindowEngine");
@@ -52,6 +55,9 @@ async function startAllSchedulerLoops(): Promise<void> {
   startOpsScheduler();
   startPayrollScheduler();
   startDunningScheduler();
+  startAutoInvoiceScheduler();
+  startDunningEmailScheduler();
+  startAutoReconciliationScheduler();
   startDialysisScheduler();
   // Register job handlers so the processor can execute eta_cycle and autoassign_cycle jobs
   registerJobHandler("eta_cycle", async (payload) => {
@@ -110,7 +116,8 @@ async function startAllSchedulerLoops(): Promise<void> {
     schedulers: [
       "ops_alert", "route_engine", "no_show", "recurring_schedule",
       "ai_engine", "ai_sentinel", "ops_anomaly", "ops_score",
-      "payroll", "dunning", "dialysis", "sms_reminder",
+      "payroll", "dunning", "auto_invoice", "dunning_email", "auto_reconciliation",
+      "dialysis", "sms_reminder",
       "job_engine_eta", "job_engine_autoassign",
       "orchestrator", "routes_worker", "breadcrumb_flusher", "route_optimizer",
     ],

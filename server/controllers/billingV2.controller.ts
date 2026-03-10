@@ -300,13 +300,22 @@ export async function generateInvoiceHandler(req: AuthRequest, res: Response) {
       return res.status(400).json({ message: "No billing rows found for this period" });
     }
 
-    const totalCents = billingRows.reduce((sum, r) => sum + r.totalCents, 0);
+    const subtotalCents = billingRows.reduce((sum, r) => sum + r.totalCents, 0);
     const invoiceNumber = `INV-${companyId}-${clinicId}-${periodStart.replace(/-/g, "")}`;
 
     const settings = await db.select().from(clinicBillingSettings).where(eq(clinicBillingSettings.clinicId, clinicId)).then(r => r[0]);
     const graceDays = settings?.graceDays || 7;
     const dueDate = new Date(periodEnd);
     dueDate.setDate(dueDate.getDate() + graceDays);
+
+    // Tax calculation — NEMT services are generally tax-exempt, but allow override
+    const taxRatePct = req.body.taxRatePct || 0;
+    const taxCents = Math.round(subtotalCents * taxRatePct / 100);
+
+    // Late fee from previous overdue period
+    const lateFeePct = settings?.lateFeePct ? parseFloat(settings.lateFeePct) : 0;
+    const feesCents = 0; // Late fees applied separately via dunning
+    const totalCents = subtotalCents + taxCents + feesCents;
 
     const [invoice] = await db.insert(billingCycleInvoices).values({
       companyId,
@@ -315,7 +324,9 @@ export async function generateInvoiceHandler(req: AuthRequest, res: Response) {
       periodEnd,
       status: "draft",
       currency: "USD",
-      subtotalCents: totalCents,
+      subtotalCents,
+      taxCents,
+      feesCents,
       totalCents,
       invoiceNumber,
       dueDate,
