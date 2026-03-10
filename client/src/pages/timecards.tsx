@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { apiFetch, rawAuthFetch, getStoredCompanyScopeId, setStoredCompanyScopeId } from "@/lib/api";
@@ -469,7 +470,7 @@ function TimeEntriesTab() {
                     <TableCell>{b.createdCount}</TableCell>
                     <TableCell>{b.skippedCount}</TableCell>
                     <TableCell><Badge variant={b.status === "PROCESSED" ? "default" : "destructive"}>{b.status}</Badge></TableCell>
-                    <TableCell>{new Date(b.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{formatDate(b.createdAt)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

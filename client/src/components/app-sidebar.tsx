@@ -81,6 +81,15 @@ import {
   ChevronRight,
   AlertTriangle,
   Heart,
+  Handshake,
+  ShoppingCart,
+  Gavel,
+  Star,
+  Layers,
+  TrendingDown,
+  Ban,
+  CheckSquare,
+  Bell,
 } from "lucide-react";
 
 interface NavItem {
@@ -119,6 +128,8 @@ const operationGroups: NavGroup[] = [
       { titleKey: "nav.assignments", url: "/assignments", icon: CalendarCheck, resource: "dispatch" },
       { titleKey: "nav.schedule", url: "/schedule", icon: Calendar, resource: "dispatch" },
       { titleKey: "nav.shiftSwaps", url: "/dispatch-swaps", icon: ArrowLeftRight, resource: "dispatch" },
+      { titleKey: "nav.deadMile", url: "/dead-mile", icon: TrendingDown, resource: "dispatch" },
+      { titleKey: "nav.interCity", url: "/inter-city", icon: ArrowLeftRight, resource: "dispatch" },
     ],
   },
   {
@@ -127,6 +138,9 @@ const operationGroups: NavGroup[] = [
     items: [
       { titleKey: "nav.autoAssign", url: "/auto-assignment", icon: Zap, resource: "dispatch" },
       { titleKey: "nav.etaEscalations", url: "/eta-escalations", icon: AlertTriangle, resource: "dispatch" },
+      { titleKey: "nav.cascadeAlerts", url: "/cascade-alerts", icon: Bell, resource: "dispatch" },
+      { titleKey: "nav.smartCancel", url: "/smart-cancel", icon: Ban, resource: "dispatch" },
+      { titleKey: "nav.tripGroups", url: "/trip-groups", icon: Layers, resource: "dispatch" },
       { titleKey: "nav.dialysisMode", url: "/zero-touch-dialysis", icon: Heart, resource: "dispatch" },
       { titleKey: "nav.opsHealth", url: "/ops-health", icon: Activity, resource: "dispatch" },
       { titleKey: "nav.opsChecks", url: "/ops-checks", icon: ShieldCheck, resource: "dispatch" },
@@ -162,6 +176,8 @@ const operationGroups: NavGroup[] = [
       { titleKey: "nav.billingConfig", url: "/billing-config", icon: Settings2, resource: "billing" },
       { titleKey: "nav.platformFees", url: "/platform-fees", icon: DollarSign, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.feeRules", url: "/fee-rules", icon: Settings2, resource: "billing", superAdminOnly: true },
+      { titleKey: "nav.medicaidBilling", url: "/medicaid-billing", icon: FileText, resource: "billing", superAdminOnly: true },
+      { titleKey: "nav.reconciliation", url: "/reconciliation", icon: CheckSquare, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.clinicBillingV2", url: "/clinic-billing-v2", icon: Receipt, resource: "billing" },
     ],
   },
@@ -192,6 +208,8 @@ const adminGroups: NavGroup[] = [
       { titleKey: "nav.reports", url: "/reports", icon: BarChart3, resource: "audit" },
       { titleKey: "nav.financial", url: "/financial", icon: DollarSign, resource: "audit" },
       { titleKey: "nav.pricing", url: "/pricing", icon: Banknote, resource: "audit" },
+      { titleKey: "nav.ratings", url: "/ratings", icon: Star, resource: "audit" },
+      { titleKey: "nav.cityComparison", url: "/city-comparison", icon: BarChart, resource: "audit", superAdminOnly: true },
       { titleKey: "nav.metrics", url: "/metrics", icon: BarChart, resource: "audit", superAdminOnly: true },
     ],
   },
@@ -213,6 +231,14 @@ const adminGroups: NavGroup[] = [
       { titleKey: "nav.certification", url: "/certification", icon: Award, resource: "audit", superAdminOnly: true },
       { titleKey: "nav.ranking", url: "/ranking", icon: Trophy, resource: "audit", superAdminOnly: true },
       { titleKey: "nav.prediction", url: "/prediction", icon: TrendingUp, resource: "audit", superAdminOnly: true },
+    ],
+  },
+  {
+    labelKey: "nav.group.broker",
+    icon: Gavel,
+    items: [
+      { titleKey: "nav.brokers", url: "/admin/brokers", icon: Handshake, resource: "broker_marketplace", superAdminOnly: true },
+      { titleKey: "nav.marketplace", url: "/marketplace", icon: ShoppingCart, resource: "broker_marketplace" },
     ],
   },
   {

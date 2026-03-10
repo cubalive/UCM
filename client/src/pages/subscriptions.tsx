@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
@@ -272,7 +273,7 @@ export default function SubscriptionsPage() {
                     </TableCell>
                     <TableCell data-testid={`text-period-end-${row.subscription.companyId}`}>
                       {row.subscription.currentPeriodEnd
-                        ? new Date(row.subscription.currentPeriodEnd).toLocaleDateString()
+                        ? formatDate(row.subscription.currentPeriodEnd)
                         : "—"}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground" data-testid={`text-stripe-id-${row.subscription.companyId}`}>

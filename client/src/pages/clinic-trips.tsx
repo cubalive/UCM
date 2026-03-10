@@ -7,6 +7,7 @@ import { useRealtimeTrips } from "@/hooks/use-realtime-trips";
 import { RealtimeDebugPanel } from "@/components/realtime-debug-panel";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch, rawAuthFetch, resolveUrl } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { AddressAutocomplete, type StructuredAddress } from "@/components/address-autocomplete";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1732,7 +1733,7 @@ function PerformanceSection() {
               const pct = maxDailyTotal > 0 ? (day.total / maxDailyTotal) * 100 : 0;
               const completedPct = maxDailyTotal > 0 ? (day.completed / maxDailyTotal) * 100 : 0;
               const latePct = maxDailyTotal > 0 ? ((day.late || 0) / maxDailyTotal) * 100 : 0;
-              const dateLabel = new Date(day.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+              const dateLabel = formatDate(day.date + "T00:00:00");
               return (
                 <div key={idx} className="flex items-center gap-3" data-testid={`bar-day-${idx}`}>
                   <span className="text-xs text-muted-foreground w-24 flex-shrink-0 text-right">{dateLabel}</span>
@@ -2991,13 +2992,6 @@ function ClinicTripDetailsView({ trip, token }: { trip: any; token: string | nul
   const [pdfLoading, setPdfLoading] = useState(false);
   const isTerminal = ["COMPLETED", "CANCELLED", "NO_SHOW"].includes(trip.status);
 
-  const formatDate = (dateStr: string | null | undefined): string => {
-    if (!dateStr) return "";
-    try {
-      const [y, m, d] = dateStr.split("-").map(Number);
-      return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-    } catch { return dateStr || ""; }
-  };
 
   const fmtTimestamp = (isoStr: string | Date | null | undefined): string => {
     if (!isoStr) return "\u2014";
@@ -3313,7 +3307,7 @@ function ClinicSignatureSection({ tripId, token }: { tripId: number; token: stri
             {data?.driverSigned ? (
               <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                 <CheckCircle className="w-3.5 h-3.5" />
-                Signed {data.driverSignedAt ? new Date(data.driverSignedAt).toLocaleDateString() : ""}
+                Signed {data.driverSignedAt ? formatDate(data.driverSignedAt) : ""}
               </span>
             ) : (
               <span className="text-muted-foreground">Not signed</span>
@@ -3324,7 +3318,7 @@ function ClinicSignatureSection({ tripId, token }: { tripId: number; token: stri
             {data?.clinicSigned ? (
               <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                 <CheckCircle className="w-3.5 h-3.5" />
-                Signed {data.clinicSignedAt ? new Date(data.clinicSignedAt).toLocaleDateString() : ""}
+                Signed {data.clinicSignedAt ? formatDate(data.clinicSignedAt) : ""}
               </span>
             ) : (
               <span className="text-muted-foreground">Not signed</span>

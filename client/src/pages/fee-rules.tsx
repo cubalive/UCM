@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
@@ -134,10 +135,6 @@ function formatCents(cents: number | null): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function formatDate(d: string | null): string {
-  if (!d) return "-";
-  return new Date(d).toLocaleDateString();
-}
 
 const emptyForm = {
   scopeType: "global" as ScopeType,
@@ -667,7 +664,7 @@ export default function FeeRulesPage() {
                             </pre>
                           </TableCell>
                           <TableCell data-testid={`text-audit-time-${evt.id}`}>
-                            {new Date(evt.createdAt).toLocaleString()}
+                            {formatDateTime(evt.createdAt)}
                           </TableCell>
                         </TableRow>
                       ))}

@@ -87,6 +87,17 @@
     "clinicBillingV2": "Facturas Clínica",
     "supportChat": "Chat de Soporte",
     "systemStatus": "Estado del Sistema",
+    "brokers": "Brokers",
+    "marketplace": "Marketplace",
+    "cascadeAlerts": "Alertas en Cascada",
+    "smartCancel": "Cancelación Inteligente",
+    "tripGroups": "Grupos de Viajes",
+    "deadMile": "Millas Muertas",
+    "interCity": "Inter-Ciudad",
+    "medicaidBilling": "Facturación Medicaid",
+    "reconciliation": "Conciliación",
+    "ratings": "Calificaciones",
+    "cityComparison": "Comparativa de Ciudades",
     "group": {
       "dispatch": "Despacho y Mapas",
       "fleet": "Flota y Horarios",
@@ -100,6 +111,7 @@
       "analytics": "Análisis y Reportes",
       "audit": "Auditoría y Cumplimiento",
       "intelligence": "Inteligencia",
+      "broker": "Red de Brokers",
       "system": "Sistema"
     }
   },

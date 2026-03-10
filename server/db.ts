@@ -63,7 +63,7 @@ function sanitizeHost(h: string): string {
 
 const pool = new pg.Pool({
   connectionString: finalConnStr,
-  max: parseInt(process.env.DB_POOL_MAX || "40", 10),
+  max: parseInt(process.env.DB_POOL_MAX || "20", 10),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
   ssl: { rejectUnauthorized: false },

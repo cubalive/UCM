@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, AlertTriangle, FileText, DollarSign, Calendar } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { ClinicRef } from "@/components/entity-ref";
 
 const STATUS_VARIANTS: Record<string, string> = {
@@ -31,14 +32,6 @@ function formatCents(cents: number | null | undefined): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "—";
-  try {
-    return new Date(dateStr).toLocaleDateString();
-  } catch {
-    return dateStr;
-  }
-}
 
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();

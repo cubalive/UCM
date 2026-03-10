@@ -4,6 +4,23 @@ import { DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
 
 export type DriverStatus = "offline" | "online";
 export type ShiftStatus = "offShift" | "onShift";
+export type ServiceFilter = "all" | "transport" | "delivery" | "ambulatory" | "wheelchair" | "stretcher" | "bariatric" | "gurney" | "long_distance" | "multi_load";
+
+const SERVICE_LABELS: Record<string, string> = {
+  transport: "Medical",
+  delivery: "Delivery",
+  ambulatory: "Ambulatory",
+  wheelchair: "Wheelchair",
+  stretcher: "Stretcher",
+  bariatric: "Bariatric",
+  gurney: "Gurney",
+  long_distance: "Long Distance",
+  multi_load: "Multi-Load",
+};
+
+function getServiceLabel(serviceType?: string): string {
+  return SERVICE_LABELS[serviceType || "transport"] || "Medical";
+}
 export type TripPhase =
   | "none"
   | "offer"
@@ -43,6 +60,8 @@ export interface TripOffer {
   patientName: string | null;
   secondsRemaining: number;
   expiresAt: string;
+  etaToPickupMinutes?: number;
+  estimatedTripMinutes?: number;
 }
 
 export interface NextAction {
@@ -63,6 +82,7 @@ interface DriverState {
   earningsWeek: number;
   rating: number;
   completedRides: number;
+  serviceFilter: ServiceFilter;
   navPreference: "ask" | "google" | "apple" | "waze";
   driverName: string;
   driverInitials: string;
@@ -77,6 +97,7 @@ interface DriverState {
   setOffline: () => Promise<void>;
   startShift: () => Promise<void>;
   endShift: () => Promise<void>;
+  connectAndStartShift: () => Promise<void>;
   acceptOffer: () => Promise<void>;
   declineOffer: () => Promise<void>;
   advanceTripStatus: (newStatus: string) => Promise<void>;
@@ -84,6 +105,7 @@ interface DriverState {
   confirmPickup: () => Promise<void>;
   markArrivedDropoff: () => Promise<void>;
   completeTrip: () => Promise<void>;
+  setServiceFilter: (f: ServiceFilter) => void;
   setNavPreference: (p: "ask" | "google" | "apple" | "waze") => void;
   pollOffers: () => Promise<void>;
   pollActiveTrip: () => Promise<void>;
@@ -136,7 +158,7 @@ function tripFromApiData(trip: any): ActiveTrip {
     notes: trip.notes || "",
     etaMinutes: trip.lastEtaMinutes || 15,
     scheduledTime: trip.pickupTime || undefined,
-    tripType: "Medical",
+    tripType: getServiceLabel(trip.serviceType),
     status: trip.status,
     routePolyline: trip.routePolyline || null,
   };
@@ -152,6 +174,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   earningsWeek: 0,
   rating: 0,
   completedRides: 0,
+  serviceFilter: "all",
   navPreference: "ask",
   driverName: "",
   driverInitials: "",
@@ -233,6 +256,22 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     }
   },
 
+  connectAndStartShift: async () => {
+    const s = get();
+    try {
+      if (s.driverStatus === "offline") {
+        await driverApi("/api/driver/me/active", { method: "POST", body: JSON.stringify({ active: true }) });
+        set({ driverStatus: "online" });
+      }
+      if (s.shiftStatus === "offShift" || get().shiftStatus === "offShift") {
+        await driverApi("/api/driver/shift/start", { method: "POST", body: "{}" });
+        set({ shiftStatus: "onShift" });
+      }
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
   acceptOffer: async () => {
     const offer = get().pendingOffer;
     if (!offer) return;
@@ -289,6 +328,12 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   markArrivedDropoff: async () => { await get().advanceTripStatus("ARRIVED_DROPOFF"); },
   completeTrip: async () => { await get().advanceTripStatus("COMPLETED"); },
 
+  setServiceFilter: (f) => {
+    set({ serviceFilter: f });
+    // Re-poll offers with the new filter
+    get().pollOffers();
+  },
+
   setNavPreference: (p) => {
     set({ navPreference: p });
     driverApi("/api/driver/settings", { method: "PATCH", body: JSON.stringify({ navPreference: p }) }).catch(() => {});
@@ -296,12 +341,19 @@ export const useDriverStore = create<DriverState>((set, get) => ({
 
   pollOffers: async () => {
     try {
-      const data = await driverApi("/api/driver/offers/active");
+      const filter = get().serviceFilter;
+      const qs = filter !== "all" ? `?serviceType=${filter}` : "";
+      const data = await driverApi(`/api/driver/offers/active${qs}`);
       const offers = data.offers || [];
       if (offers.length > 0) {
         const offer = offers[0];
+        const enrichedOffer = {
+          ...offer,
+          etaToPickupMinutes: offer.etaToPickupMinutes || offer.lastEtaMinutes || 12,
+          estimatedTripMinutes: offer.estimatedTripMinutes || offer.tripDurationMinutes || 25,
+        };
         set({
-          pendingOffer: offer,
+          pendingOffer: enrichedOffer,
           tripPhase: "offer",
           activeTrip: {
             id: offer.publicId || String(offer.tripId),
@@ -312,9 +364,9 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             dropoffLatLng: { lat: Number(offer.dropoffLat) || 0, lng: Number(offer.dropoffLng) || 0 },
             passengerName: offer.patientName || "Patient",
             notes: "",
-            etaMinutes: 15,
-            tripType: "Medical",
-            routePolyline: null,
+            etaMinutes: enrichedOffer.etaToPickupMinutes,
+            tripType: getServiceLabel(offer.serviceType),
+            routePolyline: offer.routePolyline || null,
           },
         });
       }

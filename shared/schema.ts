@@ -13,6 +13,10 @@ export const userRoleEnum = pgEnum("user_role", [
   "CLINIC_USER",
   "CLINIC_ADMIN",
   "CLINIC_VIEWER",
+  "PHARMACY_ADMIN",
+  "PHARMACY_USER",
+  "BROKER_ADMIN",
+  "BROKER_USER",
 ]);
 
 export const companies = pgTable("companies", {
@@ -99,6 +103,18 @@ export const tripTypeEnum = pgEnum("trip_type", [
   "dialysis",
 ]);
 
+export const serviceTypeEnum = pgEnum("service_type", [
+  "transport",
+  "delivery",
+  "ambulatory",
+  "wheelchair",
+  "stretcher",
+  "bariatric",
+  "gurney",
+  "long_distance",
+  "multi_load",
+]);
+
 export const assignmentStatusEnum = pgEnum("assignment_status", [
   "active",
   "reassigned",
@@ -145,6 +161,8 @@ export const users = pgTable("users", {
   driverId: integer("driver_id"),
   clinicId: integer("clinic_id"),
   patientId: integer("patient_id"),
+  pharmacyId: integer("pharmacy_id"),
+  brokerId: integer("broker_id"),
   companyId: integer("company_id").references(() => companies.id),
   workingCityId: integer("working_city_id").references(() => cities.id),
   workingCityScope: text("working_city_scope").default("CITY"),
@@ -316,6 +334,8 @@ export const patients = pgTable("patients", {
   preferredDriverId: integer("preferred_driver_id"),
   defaultPickupPlaceId: text("default_pickup_place_id"),
   defaultDropoffPlaceId: text("default_dropoff_place_id"),
+  medicaidId: text("medicaid_id"),
+  medicaidState: text("medicaid_state"),
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
@@ -355,6 +375,7 @@ export const trips = pgTable("trips", {
   pickupTime: text("pickup_time").notNull(),
   estimatedArrivalTime: text("estimated_arrival_time").notNull().default("TBD"),
   tripType: tripTypeEnum("trip_type").notNull().default("one_time"),
+  serviceType: serviceTypeEnum("service_type").notNull().default("transport"),
   recurringDays: text("recurring_days").array(),
   status: tripStatusEnum("status").notNull().default("SCHEDULED"),
   lastEtaMinutes: integer("last_eta_minutes"),
@@ -3475,3 +3496,1190 @@ export const smartPickupSuggestions = pgTable("smart_pickup_suggestions", {
 }, (table) => [
   index("idx_smart_pickup_clinic_date").on(table.clinicId, table.appointmentDate),
 ]);
+
+// ─── Pharmacy Module (HealthLogistics OS) ────────────────────────────────────
+
+export const pharmacyOrderStatusEnum = pgEnum("pharmacy_order_status", [
+  "PENDING",
+  "CONFIRMED",
+  "PREPARING",
+  "READY_FOR_PICKUP",
+  "DRIVER_ASSIGNED",
+  "EN_ROUTE_PICKUP",
+  "PICKED_UP",
+  "EN_ROUTE_DELIVERY",
+  "DELIVERED",
+  "FAILED",
+  "CANCELLED",
+]);
+
+export const pharmacyOrderPriorityEnum = pgEnum("pharmacy_order_priority", [
+  "STANDARD",
+  "EXPRESS",
+  "URGENT",
+  "STAT",
+]);
+
+export const deliveryTypeEnum = pgEnum("delivery_type", [
+  "PHARMACY_TO_PATIENT",
+  "PHARMACY_TO_CLINIC",
+  "PHARMACY_TO_PHARMACY",
+  "LAB_SPECIMEN",
+  "MEDICAL_SUPPLY",
+]);
+
+export const temperatureRequirementEnum = pgEnum("temperature_requirement", [
+  "AMBIENT",
+  "REFRIGERATED",
+  "FROZEN",
+  "CONTROLLED",
+]);
+
+export const pharmacies = pgTable("pharmacies", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  name: text("name").notNull(),
+  licenseNumber: text("license_number"),
+  npiNumber: text("npi_number"),
+  address: text("address").notNull(),
+  addressStreet: text("address_street"),
+  addressCity: text("address_city"),
+  addressState: text("address_state"),
+  addressZip: text("address_zip"),
+  addressPlaceId: text("address_place_id"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  phone: text("phone"),
+  fax: text("fax"),
+  email: text("email"),
+  contactName: text("contact_name"),
+  operatingHoursStart: text("operating_hours_start").default("08:00"),
+  operatingHoursEnd: text("operating_hours_end").default("20:00"),
+  operatingDays: text("operating_days").array().default(sql`ARRAY['Mon','Tue','Wed','Thu','Fri','Sat']`),
+  acceptsControlledSubstances: boolean("accepts_controlled_substances").notNull().default(false),
+  hasRefrigeratedStorage: boolean("has_refrigerated_storage").notNull().default(false),
+  autoConfirmOrders: boolean("auto_confirm_orders").notNull().default(false),
+  maxDeliveryRadiusMiles: integer("max_delivery_radius_miles").default(25),
+  averagePrepTimeMinutes: integer("average_prep_time_minutes").default(30),
+  stripeCustomerId: text("stripe_customer_id"),
+  active: boolean("active").notNull().default(true),
+  deletedAt: timestamp("deleted_at"),
+  deletedBy: integer("deleted_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_pharmacies_company").on(table.companyId),
+  index("idx_pharmacies_city").on(table.cityId),
+]);
+
+export const pharmacyOrders = pgTable("pharmacy_orders", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  pharmacyId: integer("pharmacy_id").notNull().references(() => pharmacies.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  patientId: integer("patient_id").references(() => patients.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  rxNumber: text("rx_number"),
+  orderReference: text("order_reference"),
+  status: pharmacyOrderStatusEnum("status").notNull().default("PENDING"),
+  priority: pharmacyOrderPriorityEnum("priority").notNull().default("STANDARD"),
+  deliveryType: deliveryTypeEnum("delivery_type").notNull().default("PHARMACY_TO_PATIENT"),
+  temperatureRequirement: temperatureRequirementEnum("temperature_requirement").notNull().default("AMBIENT"),
+  // Delivery addresses
+  pickupAddress: text("pickup_address").notNull(),
+  pickupLat: doublePrecision("pickup_lat"),
+  pickupLng: doublePrecision("pickup_lng"),
+  deliveryAddress: text("delivery_address").notNull(),
+  deliveryLat: doublePrecision("delivery_lat"),
+  deliveryLng: doublePrecision("delivery_lng"),
+  deliveryInstructions: text("delivery_instructions"),
+  recipientName: text("recipient_name").notNull(),
+  recipientPhone: text("recipient_phone"),
+  // Scheduling
+  requestedDeliveryDate: text("requested_delivery_date").notNull(),
+  requestedDeliveryWindow: text("requested_delivery_window"),
+  estimatedReadyAt: timestamp("estimated_ready_at"),
+  readyAt: timestamp("ready_at"),
+  // Assignment
+  tripId: integer("trip_id").references(() => trips.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  assignedAt: timestamp("assigned_at"),
+  // Delivery tracking
+  pickedUpAt: timestamp("picked_up_at"),
+  deliveredAt: timestamp("delivered_at"),
+  deliveryProofUrl: text("delivery_proof_url"),
+  signatureBase64: text("signature_base64"),
+  signedByName: text("signed_by_name"),
+  failedAt: timestamp("failed_at"),
+  failureReason: text("failure_reason"),
+  // Pricing
+  deliveryFeeCents: integer("delivery_fee_cents").default(0),
+  rushFeeCents: integer("rush_fee_cents").default(0),
+  totalFeeCents: integer("total_fee_cents").default(0),
+  // Metadata
+  itemCount: integer("item_count").notNull().default(1),
+  itemsSummary: text("items_summary"),
+  specialHandling: text("special_handling"),
+  isControlledSubstance: boolean("is_controlled_substance").notNull().default(false),
+  requiresSignature: boolean("requires_signature").notNull().default(true),
+  requiresIdVerification: boolean("requires_id_verification").notNull().default(false),
+  chainOfCustodyJson: jsonb("chain_of_custody_json").default(sql`'[]'::jsonb`),
+  notes: text("notes"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledBy: integer("cancelled_by"),
+  cancelledReason: text("cancelled_reason"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_pharmacy_orders_pharmacy_status").on(table.pharmacyId, table.status),
+  index("idx_pharmacy_orders_company_date").on(table.companyId, table.requestedDeliveryDate),
+  index("idx_pharmacy_orders_driver").on(table.driverId, table.status),
+  index("idx_pharmacy_orders_patient").on(table.patientId),
+  index("idx_pharmacy_orders_trip").on(table.tripId),
+]);
+
+export const pharmacyOrderItems = pgTable("pharmacy_order_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => pharmacyOrders.id),
+  medicationName: text("medication_name").notNull(),
+  ndc: text("ndc"),
+  quantity: integer("quantity").notNull().default(1),
+  unit: text("unit").default("each"),
+  rxNumber: text("rx_number"),
+  isControlled: boolean("is_controlled").notNull().default(false),
+  scheduleClass: text("schedule_class"),
+  requiresRefrigeration: boolean("requires_refrigeration").notNull().default(false),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const pharmacyOrderEvents = pgTable("pharmacy_order_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => pharmacyOrders.id),
+  eventType: text("event_type").notNull(),
+  description: text("description"),
+  performedBy: integer("performed_by"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_pharmacy_order_events_order").on(table.orderId, table.createdAt),
+]);
+
+// Schemas & Types
+export const insertPharmacySchema = createInsertSchema(pharmacies).omit({ createdAt: true });
+export const insertPharmacyOrderSchema = createInsertSchema(pharmacyOrders).omit({ createdAt: true, updatedAt: true });
+export const insertPharmacyOrderItemSchema = createInsertSchema(pharmacyOrderItems).omit({ createdAt: true });
+export const insertPharmacyOrderEventSchema = createInsertSchema(pharmacyOrderEvents).omit({ createdAt: true });
+
+export type Pharmacy = typeof pharmacies.$inferSelect;
+export type InsertPharmacy = z.infer<typeof insertPharmacySchema>;
+export type PharmacyOrder = typeof pharmacyOrders.$inferSelect;
+export type InsertPharmacyOrder = z.infer<typeof insertPharmacyOrderSchema>;
+export type PharmacyOrderItem = typeof pharmacyOrderItems.$inferSelect;
+export type InsertPharmacyOrderItem = z.infer<typeof insertPharmacyOrderItemSchema>;
+export type PharmacyOrderEvent = typeof pharmacyOrderEvents.$inferSelect;
+export type InsertPharmacyOrderEvent = z.infer<typeof insertPharmacyOrderEventSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BROKER / MARKETPLACE MODULE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const brokerStatusEnum = pgEnum("broker_status", [
+  "PENDING_APPROVAL",
+  "ACTIVE",
+  "SUSPENDED",
+  "INACTIVE",
+]);
+
+export const brokerTypeEnum = pgEnum("broker_type", [
+  "INSURANCE",
+  "MEDICAID",
+  "MEDICARE",
+  "MANAGED_CARE",
+  "PRIVATE_PAYER",
+  "GOVERNMENT",
+  "TPA",
+]);
+
+export const brokerContractStatusEnum = pgEnum("broker_contract_status", [
+  "DRAFT",
+  "PENDING_APPROVAL",
+  "ACTIVE",
+  "EXPIRED",
+  "TERMINATED",
+]);
+
+export const brokerTripRequestStatusEnum = pgEnum("broker_trip_request_status", [
+  "OPEN",
+  "BIDDING",
+  "AWARDED",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "CANCELLED",
+  "EXPIRED",
+  "DISPUTED",
+]);
+
+export const brokerBidStatusEnum = pgEnum("broker_bid_status", [
+  "PENDING",
+  "ACCEPTED",
+  "REJECTED",
+  "WITHDRAWN",
+  "EXPIRED",
+  "COUNTER_OFFERED",
+]);
+
+export const brokerSettlementStatusEnum = pgEnum("broker_settlement_status", [
+  "PENDING",
+  "INVOICED",
+  "PAID",
+  "PARTIAL",
+  "DISPUTED",
+  "WRITTEN_OFF",
+]);
+
+// ─── Brokers ──────────────────────────────────────────────────────────────────
+
+export const brokers = pgTable("brokers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  name: text("name").notNull(),
+  legalName: text("legal_name"),
+  type: brokerTypeEnum("type").notNull().default("PRIVATE_PAYER"),
+  status: brokerStatusEnum("status").notNull().default("PENDING_APPROVAL"),
+  npi: varchar("npi", { length: 10 }),
+  taxId: varchar("tax_id", { length: 20 }),
+  medicaidProviderId: text("medicaid_provider_id"),
+  address: text("address"),
+  city: text("city"),
+  state: varchar("state", { length: 2 }),
+  zip: varchar("zip", { length: 10 }),
+  phone: text("phone"),
+  email: text("email"),
+  website: text("website"),
+  logoUrl: text("logo_url"),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  billingEmail: text("billing_email"),
+  defaultPaymentTermsDays: integer("default_payment_terms_days").notNull().default(30),
+  autoApproveTrips: boolean("auto_approve_trips").notNull().default(false),
+  autoAwardLowestBid: boolean("auto_award_lowest_bid").notNull().default(false),
+  maxBidTimeMinutes: integer("max_bid_time_minutes").notNull().default(60),
+  requiresPreauthorization: boolean("requires_preauthorization").notNull().default(false),
+  serviceAreaStates: jsonb("service_area_states").$type<string[]>(),
+  serviceAreaCities: jsonb("service_area_cities").$type<number[]>(),
+  tripVolumeMonthly: integer("trip_volume_monthly"),
+  platformFeePercent: numeric("platform_fee_percent", { precision: 5, scale: 2 }).default("5.00"),
+  stripeCustomerId: text("stripe_customer_id"),
+  metadata: jsonb("metadata"),
+  notes: text("notes"),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: integer("approved_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_brokers_status").on(table.status),
+  index("idx_brokers_type").on(table.type),
+]);
+
+// ─── Broker Contracts ─────────────────────────────────────────────────────────
+
+export const brokerContracts = pgTable("broker_contracts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  status: brokerContractStatusEnum("status").notNull().default("DRAFT"),
+  name: text("name").notNull(),
+  effectiveDate: text("effective_date").notNull(),
+  expirationDate: text("expiration_date"),
+  autoRenew: boolean("auto_renew").notNull().default(false),
+  baseRatePerMile: numeric("base_rate_per_mile", { precision: 8, scale: 4 }),
+  baseRatePerTrip: numeric("base_rate_per_trip", { precision: 10, scale: 2 }),
+  surgePricingEnabled: boolean("surge_pricing_enabled").notNull().default(false),
+  surgeMultiplierMax: numeric("surge_multiplier_max", { precision: 4, scale: 2 }).default("2.00"),
+  wheelchairSurcharge: numeric("wheelchair_surcharge", { precision: 10, scale: 2 }),
+  stretcherSurcharge: numeric("stretcher_surcharge", { precision: 10, scale: 2 }),
+  waitTimePer15Min: numeric("wait_time_per_15min", { precision: 10, scale: 2 }),
+  noShowFee: numeric("no_show_fee", { precision: 10, scale: 2 }),
+  cancelFee: numeric("cancel_fee", { precision: 10, scale: 2 }),
+  monthlyMinimumTrips: integer("monthly_minimum_trips"),
+  monthlyMinimumRevenue: numeric("monthly_minimum_revenue", { precision: 12, scale: 2 }),
+  paymentTermsDays: integer("payment_terms_days").notNull().default(30),
+  serviceTypes: jsonb("service_types").$type<string[]>(),
+  serviceCityIds: jsonb("service_city_ids").$type<number[]>(),
+  slaPickupWindowMinutes: integer("sla_pickup_window_minutes").default(15),
+  slaOnTimePercent: numeric("sla_on_time_percent", { precision: 5, scale: 2 }).default("95.00"),
+  penaltyPerSlaViolation: numeric("penalty_per_sla_violation", { precision: 10, scale: 2 }),
+  termsDocumentUrl: text("terms_document_url"),
+  notes: text("notes"),
+  signedByBroker: boolean("signed_by_broker").notNull().default(false),
+  signedByCompany: boolean("signed_by_company").notNull().default(false),
+  signedAt: timestamp("signed_at"),
+  terminatedAt: timestamp("terminated_at"),
+  terminationReason: text("termination_reason"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_broker_contracts_broker").on(table.brokerId, table.status),
+  index("idx_broker_contracts_company").on(table.companyId, table.status),
+]);
+
+// ─── Broker Rate Cards ────────────────────────────────────────────────────────
+
+export const brokerRateCards = pgTable("broker_rate_cards", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  contractId: integer("contract_id").notNull().references(() => brokerContracts.id),
+  name: text("name").notNull(),
+  serviceType: text("service_type").notNull(),
+  vehicleType: text("vehicle_type"),
+  baseFare: numeric("base_fare", { precision: 10, scale: 2 }).notNull(),
+  perMileRate: numeric("per_mile_rate", { precision: 8, scale: 4 }).notNull(),
+  perMinuteRate: numeric("per_minute_rate", { precision: 8, scale: 4 }),
+  minimumFare: numeric("minimum_fare", { precision: 10, scale: 2 }),
+  maximumFare: numeric("maximum_fare", { precision: 10, scale: 2 }),
+  effectiveDate: text("effective_date").notNull(),
+  expirationDate: text("expiration_date"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_rate_cards_contract").on(table.contractId, table.isActive),
+]);
+
+// ─── Broker Trip Requests (Marketplace) ───────────────────────────────────────
+
+export const brokerTripRequests = pgTable("broker_trip_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  status: brokerTripRequestStatusEnum("status").notNull().default("OPEN"),
+  // Patient info
+  memberName: text("member_name").notNull(),
+  memberId: text("member_id"),
+  memberPhone: text("member_phone"),
+  memberDob: text("member_dob"),
+  // Pickup
+  pickupAddress: text("pickup_address").notNull(),
+  pickupLat: doublePrecision("pickup_lat"),
+  pickupLng: doublePrecision("pickup_lng"),
+  pickupNotes: text("pickup_notes"),
+  // Dropoff
+  dropoffAddress: text("dropoff_address").notNull(),
+  dropoffLat: doublePrecision("dropoff_lat"),
+  dropoffLng: doublePrecision("dropoff_lng"),
+  dropoffNotes: text("dropoff_notes"),
+  // Schedule
+  requestedDate: text("requested_date").notNull(),
+  requestedPickupTime: text("requested_pickup_time").notNull(),
+  requestedReturnTime: text("requested_return_time"),
+  isRoundTrip: boolean("is_round_trip").notNull().default(false),
+  isRecurring: boolean("is_recurring").notNull().default(false),
+  recurrencePattern: jsonb("recurrence_pattern"),
+  // Service requirements
+  serviceType: text("service_type").notNull().default("ambulatory"),
+  wheelchairRequired: boolean("wheelchair_required").notNull().default(false),
+  stretcherRequired: boolean("stretcher_required").notNull().default(false),
+  attendantRequired: boolean("attendant_required").notNull().default(false),
+  oxygenRequired: boolean("oxygen_required").notNull().default(false),
+  specialNeeds: text("special_needs"),
+  // Location
+  cityId: integer("city_id").references(() => cities.id),
+  estimatedMiles: doublePrecision("estimated_miles"),
+  estimatedMinutes: integer("estimated_minutes"),
+  // Pricing
+  maxBudget: numeric("max_budget", { precision: 10, scale: 2 }),
+  preauthorizationNumber: text("preauthorization_number"),
+  diagnosisCode: text("diagnosis_code"),
+  // Bidding
+  bidDeadline: timestamp("bid_deadline"),
+  minBids: integer("min_bids").default(1),
+  awardedCompanyId: integer("awarded_company_id").references(() => companies.id),
+  awardedBidId: integer("awarded_bid_id"),
+  awardedAt: timestamp("awarded_at"),
+  // Linked trip
+  tripId: integer("trip_id"),
+  // Priority & urgency
+  priority: text("priority").notNull().default("STANDARD"),
+  urgencyLevel: text("urgency_level").default("NORMAL"),
+  // Meta
+  externalReferenceId: text("external_reference_id"),
+  metadata: jsonb("metadata"),
+  notes: text("notes"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledReason: text("cancelled_reason"),
+  completedAt: timestamp("completed_at"),
+  disputedAt: timestamp("disputed_at"),
+  disputeReason: text("dispute_reason"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_broker_trip_requests_broker").on(table.brokerId, table.status),
+  index("idx_broker_trip_requests_status_date").on(table.status, table.requestedDate),
+  index("idx_broker_trip_requests_city").on(table.cityId, table.status),
+  index("idx_broker_trip_requests_awarded").on(table.awardedCompanyId),
+]);
+
+// ─── Broker Bids ──────────────────────────────────────────────────────────────
+
+export const brokerBids = pgTable("broker_bids", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripRequestId: integer("trip_request_id").notNull().references(() => brokerTripRequests.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  status: brokerBidStatusEnum("status").notNull().default("PENDING"),
+  bidAmount: numeric("bid_amount", { precision: 10, scale: 2 }).notNull(),
+  estimatedPickupTime: text("estimated_pickup_time"),
+  estimatedDurationMinutes: integer("estimated_duration_minutes"),
+  vehicleType: text("vehicle_type"),
+  driverScore: doublePrecision("driver_score"),
+  companyRating: doublePrecision("company_rating"),
+  slaGuarantee: boolean("sla_guarantee").notNull().default(true),
+  notes: text("notes"),
+  counterOfferAmount: numeric("counter_offer_amount", { precision: 10, scale: 2 }),
+  counterOfferNotes: text("counter_offer_notes"),
+  respondedAt: timestamp("responded_at"),
+  expiresAt: timestamp("expires_at"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_bids_request").on(table.tripRequestId, table.status),
+  index("idx_broker_bids_company").on(table.companyId, table.status),
+  uniqueIndex("idx_broker_bids_unique_company_request").on(table.tripRequestId, table.companyId),
+]);
+
+// ─── Broker Settlements ───────────────────────────────────────────────────────
+
+export const brokerSettlements = pgTable("broker_settlements", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  publicId: varchar("public_id", { length: 20 }).notNull().unique(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  contractId: integer("contract_id").references(() => brokerContracts.id),
+  status: brokerSettlementStatusEnum("status").notNull().default("PENDING"),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  totalTrips: integer("total_trips").notNull().default(0),
+  totalMiles: doublePrecision("total_miles").default(0),
+  grossAmount: numeric("gross_amount", { precision: 12, scale: 2 }).notNull(),
+  adjustments: numeric("adjustments", { precision: 12, scale: 2 }).default("0.00"),
+  platformFee: numeric("platform_fee", { precision: 12, scale: 2 }).default("0.00"),
+  netAmount: numeric("net_amount", { precision: 12, scale: 2 }).notNull(),
+  paidAmount: numeric("paid_amount", { precision: 12, scale: 2 }).default("0.00"),
+  dueDate: text("due_date"),
+  paidAt: timestamp("paid_at"),
+  invoiceUrl: text("invoice_url"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  notes: text("notes"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_broker_settlements_broker").on(table.brokerId, table.status),
+  index("idx_broker_settlements_company").on(table.companyId, table.status),
+  index("idx_broker_settlements_period").on(table.periodStart, table.periodEnd),
+]);
+
+// ─── Broker Settlement Line Items ─────────────────────────────────────────────
+
+export const brokerSettlementItems = pgTable("broker_settlement_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  settlementId: integer("settlement_id").notNull().references(() => brokerSettlements.id),
+  tripRequestId: integer("trip_request_id").references(() => brokerTripRequests.id),
+  tripId: integer("trip_id"),
+  serviceDate: text("service_date").notNull(),
+  memberName: text("member_name"),
+  memberId: text("member_id"),
+  pickupAddress: text("pickup_address"),
+  dropoffAddress: text("dropoff_address"),
+  miles: doublePrecision("miles"),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  adjustmentAmount: numeric("adjustment_amount", { precision: 10, scale: 2 }).default("0.00"),
+  adjustmentReason: text("adjustment_reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_settlement_items_settlement").on(table.settlementId),
+]);
+
+// ─── Broker Events/Audit ──────────────────────────────────────────────────────
+
+export const brokerEvents = pgTable("broker_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  brokerId: integer("broker_id").references(() => brokers.id),
+  tripRequestId: integer("trip_request_id").references(() => brokerTripRequests.id),
+  bidId: integer("bid_id").references(() => brokerBids.id),
+  settlementId: integer("settlement_id").references(() => brokerSettlements.id),
+  eventType: text("event_type").notNull(),
+  description: text("description"),
+  performedBy: integer("performed_by"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_events_broker").on(table.brokerId, table.createdAt),
+  index("idx_broker_events_request").on(table.tripRequestId, table.createdAt),
+]);
+
+// ─── Broker API Keys ──────────────────────────────────────────────────────────
+
+export const brokerApiKeys = pgTable("broker_api_keys", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  name: text("name").notNull(),
+  keyHash: text("key_hash").notNull().unique(),
+  keyPrefix: varchar("key_prefix", { length: 8 }).notNull(),
+  permissions: jsonb("permissions").$type<string[]>().notNull(),
+  ipWhitelist: jsonb("ip_whitelist").$type<string[]>(),
+  rateLimit: integer("rate_limit").notNull().default(100),
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_api_keys_broker").on(table.brokerId, table.isActive),
+]);
+
+// ─── Broker API Logs ──────────────────────────────────────────────────────────
+
+export const brokerApiLogs = pgTable("broker_api_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  apiKeyId: integer("api_key_id").references(() => brokerApiKeys.id),
+  method: text("method").notNull(),
+  path: text("path").notNull(),
+  statusCode: integer("status_code"),
+  requestBody: jsonb("request_body"),
+  responseBody: jsonb("response_body"),
+  ipAddress: text("ip_address"),
+  latencyMs: integer("latency_ms"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_api_logs_broker").on(table.brokerId, table.createdAt),
+  index("idx_broker_api_logs_key").on(table.apiKeyId, table.createdAt),
+]);
+
+// ─── Broker Webhooks ──────────────────────────────────────────────────────────
+
+export const brokerWebhookDeliveryStatusEnum = pgEnum("broker_webhook_delivery_status", [
+  "pending",
+  "delivered",
+  "failed",
+]);
+
+export const brokerWebhooks = pgTable("broker_webhooks", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  url: text("url").notNull(),
+  events: jsonb("events").$type<string[]>().notNull(),
+  secret: text("secret").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  lastDeliveredAt: timestamp("last_delivered_at"),
+  failureCount: integer("failure_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_webhooks_broker").on(table.brokerId, table.isActive),
+]);
+
+// ─── Broker Webhook Deliveries ────────────────────────────────────────────────
+
+export const brokerWebhookDeliveries = pgTable("broker_webhook_deliveries", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  webhookId: integer("webhook_id").notNull().references(() => brokerWebhooks.id),
+  event: text("event").notNull(),
+  payload: jsonb("payload").notNull(),
+  responseStatus: integer("response_status"),
+  responseBody: text("response_body"),
+  deliveredAt: timestamp("delivered_at"),
+  nextRetryAt: timestamp("next_retry_at"),
+  attempts: integer("attempts").notNull().default(0),
+  status: brokerWebhookDeliveryStatusEnum("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_webhook_deliveries_webhook").on(table.webhookId, table.status),
+  index("idx_broker_webhook_deliveries_retry").on(table.status, table.nextRetryAt),
+]);
+
+// ─── Broker Performance Metrics ───────────────────────────────────────────────
+
+export const brokerPerformanceMetrics = pgTable("broker_performance_metrics", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  companyId: integer("company_id").references(() => companies.id),
+  period: text("period").notNull(),
+  totalRequests: integer("total_requests").notNull().default(0),
+  totalAwarded: integer("total_awarded").notNull().default(0),
+  totalCompleted: integer("total_completed").notNull().default(0),
+  totalCancelled: integer("total_cancelled").notNull().default(0),
+  totalDisputed: integer("total_disputed").notNull().default(0),
+  avgBidAmount: numeric("avg_bid_amount", { precision: 10, scale: 2 }),
+  avgAwardedAmount: numeric("avg_awarded_amount", { precision: 10, scale: 2 }),
+  onTimePickupPercent: numeric("on_time_pickup_percent", { precision: 5, scale: 2 }),
+  avgBidResponseMinutes: numeric("avg_bid_response_minutes", { precision: 8, scale: 2 }),
+  totalRevenue: numeric("total_revenue", { precision: 14, scale: 2 }),
+  totalPlatformFees: numeric("total_platform_fees", { precision: 12, scale: 2 }),
+  satisfactionScore: doublePrecision("satisfaction_score"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_broker_perf_broker_period").on(table.brokerId, table.period),
+  index("idx_broker_perf_company_period").on(table.companyId, table.period),
+]);
+
+// ─── Broker Schemas & Types ─────────────────────────────────────────────────
+
+export const insertBrokerSchema = createInsertSchema(brokers).omit({ createdAt: true, updatedAt: true });
+export const insertBrokerContractSchema = createInsertSchema(brokerContracts).omit({ createdAt: true, updatedAt: true });
+export const insertBrokerTripRequestSchema = createInsertSchema(brokerTripRequests).omit({ createdAt: true, updatedAt: true });
+export const insertBrokerBidSchema = createInsertSchema(brokerBids).omit({ createdAt: true });
+export const insertBrokerSettlementSchema = createInsertSchema(brokerSettlements).omit({ createdAt: true, updatedAt: true });
+
+export type Broker = typeof brokers.$inferSelect;
+export type InsertBroker = z.infer<typeof insertBrokerSchema>;
+export type BrokerContract = typeof brokerContracts.$inferSelect;
+export type InsertBrokerContract = z.infer<typeof insertBrokerContractSchema>;
+export type BrokerTripRequest = typeof brokerTripRequests.$inferSelect;
+export type InsertBrokerTripRequest = z.infer<typeof insertBrokerTripRequestSchema>;
+export type BrokerBid = typeof brokerBids.$inferSelect;
+export type InsertBrokerBid = z.infer<typeof insertBrokerBidSchema>;
+export type BrokerSettlement = typeof brokerSettlements.$inferSelect;
+export type InsertBrokerSettlement = z.infer<typeof insertBrokerSettlementSchema>;
+export type BrokerRateCard = typeof brokerRateCards.$inferSelect;
+export type BrokerEvent = typeof brokerEvents.$inferSelect;
+export type BrokerApiKey = typeof brokerApiKeys.$inferSelect;
+export type BrokerPerformanceMetric = typeof brokerPerformanceMetrics.$inferSelect;
+export type BrokerApiLog = typeof brokerApiLogs.$inferSelect;
+export type BrokerWebhook = typeof brokerWebhooks.$inferSelect;
+export type BrokerWebhookDelivery = typeof brokerWebhookDeliveries.$inferSelect;
+
+export const insertBrokerApiKeySchema = createInsertSchema(brokerApiKeys).omit({ createdAt: true });
+export const insertBrokerWebhookSchema = createInsertSchema(brokerWebhooks).omit({ createdAt: true });
+export const insertBrokerApiLogSchema = createInsertSchema(brokerApiLogs).omit({ createdAt: true });
+export const insertBrokerWebhookDeliverySchema = createInsertSchema(brokerWebhookDeliveries).omit({ createdAt: true });
+
+export type InsertBrokerApiKey = z.infer<typeof insertBrokerApiKeySchema>;
+export type InsertBrokerWebhook = z.infer<typeof insertBrokerWebhookSchema>;
+export type InsertBrokerApiLog = z.infer<typeof insertBrokerApiLogSchema>;
+export type InsertBrokerWebhookDelivery = z.infer<typeof insertBrokerWebhookDeliverySchema>;
+
+// ─── Medicaid / HCPCS Billing ───────────────────────────────────────────────
+
+export const medicaidClaimStatusEnum = pgEnum("medicaid_claim_status", [
+  "draft",
+  "submitted",
+  "accepted",
+  "rejected",
+  "paid",
+  "void",
+]);
+
+export const medicaidServiceTypeEnum = pgEnum("medicaid_service_type", [
+  "ambulatory",
+  "wheelchair",
+  "stretcher",
+  "bus",
+  "ambulance_bls",
+  "ambulance_als",
+  "bariatric",
+  "gurney",
+  "long_distance",
+  "multi_load",
+]);
+
+export const medicaidBillingCodes = pgTable("medicaid_billing_codes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  code: text("code").notNull(),
+  description: text("description").notNull(),
+  serviceType: medicaidServiceTypeEnum("service_type").notNull(),
+  baseRateCents: integer("base_rate_cents").notNull().default(0),
+  perMileRateCents: integer("per_mile_rate_cents").notNull().default(0),
+  modifiers: text("modifiers").array(),
+  state: text("state"),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  effectiveTo: timestamp("effective_to"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_medicaid_codes_code").on(table.code),
+  index("idx_medicaid_codes_service_type").on(table.serviceType),
+  index("idx_medicaid_codes_active").on(table.active, table.effectiveFrom, table.effectiveTo),
+]);
+
+export const medicaidClaims = pgTable("medicaid_claims", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  brokerId: integer("broker_id"),
+  claimNumber: text("claim_number").notNull().unique(),
+  hcpcsCode: text("hcpcs_code").notNull(),
+  modifiers: text("modifiers").array(),
+  diagnosisCode: text("diagnosis_code"),
+  units: integer("units").notNull().default(1),
+  amountCents: integer("amount_cents").notNull(),
+  mileage: numeric("mileage", { precision: 10, scale: 2 }),
+  pickupZip: text("pickup_zip"),
+  dropoffZip: text("dropoff_zip"),
+  serviceDate: text("service_date").notNull(),
+  patientMedicaidId: text("patient_medicaid_id").notNull(),
+  providerNpi: text("provider_npi").notNull(),
+  taxonomyCode: text("taxonomy_code"),
+  placeOfService: text("place_of_service").notNull().default("41"),
+  priorAuthNumber: text("prior_auth_number"),
+  status: medicaidClaimStatusEnum("status").notNull().default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  adjudicatedAt: timestamp("adjudicated_at"),
+  paidAmountCents: integer("paid_amount_cents"),
+  denialReasonCode: text("denial_reason_code"),
+  denialReason: text("denial_reason"),
+  ediClaimId: text("edi_claim_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_medicaid_claims_company_status").on(table.companyId, table.status),
+  index("idx_medicaid_claims_trip").on(table.tripId),
+  index("idx_medicaid_claims_patient").on(table.patientId),
+  index("idx_medicaid_claims_service_date").on(table.serviceDate),
+  index("idx_medicaid_claims_claim_number").on(table.claimNumber),
+]);
+
+export const medicaidRemittance = pgTable("medicaid_remittance", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  claimId: integer("claim_id").notNull().references(() => medicaidClaims.id),
+  paymentDate: text("payment_date").notNull(),
+  checkNumber: text("check_number"),
+  amountPaidCents: integer("amount_paid_cents").notNull(),
+  adjustmentCodes: jsonb("adjustment_codes"),
+  remarkCodes: text("remark_codes").array(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_medicaid_remittance_claim").on(table.claimId),
+  index("idx_medicaid_remittance_payment_date").on(table.paymentDate),
+]);
+
+// ─── Medicaid Schemas & Types ───────────────────────────────────────────────
+
+export const insertMedicaidBillingCodeSchema = createInsertSchema(medicaidBillingCodes).omit({ createdAt: true });
+export const insertMedicaidClaimSchema = createInsertSchema(medicaidClaims).omit({ createdAt: true, updatedAt: true });
+export const insertMedicaidRemittanceSchema = createInsertSchema(medicaidRemittance).omit({ createdAt: true });
+
+export type MedicaidBillingCode = typeof medicaidBillingCodes.$inferSelect;
+export type InsertMedicaidBillingCode = z.infer<typeof insertMedicaidBillingCodeSchema>;
+export type MedicaidClaim = typeof medicaidClaims.$inferSelect;
+export type InsertMedicaidClaim = z.infer<typeof insertMedicaidClaimSchema>;
+export type MedicaidRemittance = typeof medicaidRemittance.$inferSelect;
+export type InsertMedicaidRemittance = z.infer<typeof insertMedicaidRemittanceSchema>;
+
+// ─── Patient Ratings ────────────────────────────────────────────────────────
+
+export const ratingSourceEnum = pgEnum("rating_source", [
+  "sms_link",
+  "app",
+  "portal",
+  "phone",
+]);
+
+export const patientRatings = pgTable("patient_ratings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  overallRating: integer("overall_rating").notNull(),
+  punctualityRating: integer("punctuality_rating"),
+  driverRating: integer("driver_rating"),
+  vehicleRating: integer("vehicle_rating"),
+  safetyRating: integer("safety_rating"),
+  comment: text("comment"),
+  tags: text("tags").array(),
+  anonymous: boolean("anonymous").notNull().default(false),
+  source: ratingSourceEnum("source").notNull(),
+  ratingToken: text("rating_token").unique(),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("patient_ratings_trip_id_idx").on(table.tripId),
+  index("patient_ratings_driver_created_idx").on(table.driverId, table.createdAt),
+  index("patient_ratings_company_created_idx").on(table.companyId, table.createdAt),
+]);
+
+export const insertPatientRatingSchema = createInsertSchema(patientRatings).omit({ createdAt: true });
+
+export type PatientRating = typeof patientRatings.$inferSelect;
+export type InsertPatientRating = z.infer<typeof insertPatientRatingSchema>;
+
+// ─── Cascade Delay Alerts ────────────────────────────────────────────────────
+
+export const cascadeDelayAlertStatusEnum = pgEnum("cascade_delay_alert_status", [
+  "active",
+  "resolved",
+  "expired",
+]);
+
+export const cascadeDelayAlertTypeEnum = pgEnum("cascade_delay_alert_type", [
+  "sms",
+  "push",
+  "in_app",
+]);
+
+export const cascadeDelayAlerts = pgTable("cascade_delay_alerts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  triggerTripId: integer("trigger_trip_id").notNull().references(() => trips.id),
+  affectedTripId: integer("affected_trip_id").notNull().references(() => trips.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  originalEtaMinutes: integer("original_eta_minutes").notNull(),
+  newEtaMinutes: integer("new_eta_minutes").notNull(),
+  delayMinutes: integer("delay_minutes").notNull(),
+  cascadeLevel: integer("cascade_level").notNull(),
+  alertSentAt: timestamp("alert_sent_at"),
+  alertType: cascadeDelayAlertTypeEnum("alert_type").notNull().default("in_app"),
+  status: cascadeDelayAlertStatusEnum("status").notNull().default("active"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_cascade_alerts_trigger_trip").on(table.triggerTripId),
+  index("idx_cascade_alerts_affected_trip").on(table.affectedTripId),
+  index("idx_cascade_alerts_driver_status").on(table.driverId, table.status),
+  index("idx_cascade_alerts_company_status").on(table.companyId, table.status),
+]);
+
+export const insertCascadeDelayAlertSchema = createInsertSchema(cascadeDelayAlerts).omit({ createdAt: true });
+
+export type CascadeDelayAlert = typeof cascadeDelayAlerts.$inferSelect;
+export type InsertCascadeDelayAlert = z.infer<typeof insertCascadeDelayAlertSchema>;
+
+// ─── Trip Confirmations ─────────────────────────────────────────────────────
+
+export const tripConfirmations = pgTable("trip_confirmations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  confirmationType: text("confirmation_type").notNull(), // 'sms_24h', 'sms_2h', 'sms_reply', 'link_click', 'phone_call', 'portal'
+  confirmationToken: text("confirmation_token").unique(),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+  confirmedAt: timestamp("confirmed_at"),
+  declinedAt: timestamp("declined_at"),
+  declineReason: text("decline_reason"),
+  responseRaw: text("response_raw"),
+  smsMessageSid: text("sms_message_sid"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_trip_confirmations_trip").on(table.tripId),
+  index("idx_trip_confirmations_patient").on(table.patientId),
+  index("idx_trip_confirmations_company").on(table.companyId),
+  index("idx_trip_confirmations_token").on(table.confirmationToken),
+  index("idx_trip_confirmations_type_sent").on(table.confirmationType, table.sentAt),
+]);
+
+export const insertTripConfirmationSchema = createInsertSchema(tripConfirmations).omit({ createdAt: true });
+export type TripConfirmation = typeof tripConfirmations.$inferSelect;
+export type InsertTripConfirmation = z.infer<typeof insertTripConfirmationSchema>;
+
+// ─── Trip Notes (collaborative notes on a trip) ───────────────────────────────
+
+export const tripNotes = pgTable("trip_notes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  authorId: integer("author_id").notNull().references(() => users.id),
+  authorRole: text("author_role").notNull(),
+  noteType: text("note_type").notNull().default("general"),
+  content: text("content").notNull(),
+  isInternal: boolean("is_internal").notNull().default(false),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  editedAt: timestamp("edited_at"),
+  deletedAt: timestamp("deleted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_trip_notes_trip_created").on(table.tripId, table.createdAt),
+  index("idx_trip_notes_company_trip").on(table.companyId, table.tripId),
+]);
+
+export const insertTripNoteSchema = createInsertSchema(tripNotes).omit({ createdAt: true, editedAt: true, deletedAt: true });
+export type TripNote = typeof tripNotes.$inferSelect;
+export type InsertTripNote = z.infer<typeof insertTripNoteSchema>;
+
+// ─── Trip Groups (ride-sharing / trip grouping) ───────────────────────────────
+
+export const tripGroups = pgTable("trip_groups", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  groupName: text("group_name").notNull(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  scheduledDate: text("scheduled_date").notNull(),
+  estimatedPickupStart: text("estimated_pickup_start"),
+  estimatedPickupEnd: text("estimated_pickup_end"),
+  destinationAddress: text("destination_address").notNull(),
+  destinationLat: doublePrecision("destination_lat"),
+  destinationLng: doublePrecision("destination_lng"),
+  driverId: integer("driver_id").references(() => drivers.id),
+  vehicleId: integer("vehicle_id").references(() => vehicles.id),
+  maxPassengers: integer("max_passengers").notNull().default(4),
+  currentPassengers: integer("current_passengers").notNull().default(0),
+  status: text("status").notNull().default("forming"),
+  savingsEstimateCents: integer("savings_estimate_cents").notNull().default(0),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_trip_groups_company_date").on(table.companyId, table.scheduledDate),
+  index("idx_trip_groups_city_date").on(table.cityId, table.scheduledDate),
+  index("idx_trip_groups_status").on(table.status),
+]);
+
+export const insertTripGroupSchema = createInsertSchema(tripGroups).omit({ createdAt: true });
+export type TripGroup = typeof tripGroups.$inferSelect;
+export type InsertTripGroup = z.infer<typeof insertTripGroupSchema>;
+
+export const tripGroupMembers = pgTable("trip_group_members", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  groupId: integer("group_id").notNull().references(() => tripGroups.id),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  pickupOrder: integer("pickup_order").notNull(),
+  dropoffOrder: integer("dropoff_order"),
+  addedAt: timestamp("added_at").notNull().defaultNow(),
+  status: text("status").notNull().default("pending"),
+}, (table) => [
+  index("idx_trip_group_members_group").on(table.groupId),
+  index("idx_trip_group_members_trip").on(table.tripId),
+]);
+
+export const insertTripGroupMemberSchema = createInsertSchema(tripGroupMembers).omit({ addedAt: true });
+export type TripGroupMember = typeof tripGroupMembers.$inferSelect;
+export type InsertTripGroupMember = z.infer<typeof insertTripGroupMemberSchema>;
+
+// ─── Dead-Mile Tracking ──────────────────────────────────────────────────────
+
+export const deadMileSegments = pgTable("dead_mile_segments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  segmentDate: text("segment_date").notNull(),
+  segmentType: text("segment_type").notNull(), // 'to_first_pickup', 'between_trips', 'return_to_base', 'repositioning'
+  fromTripId: integer("from_trip_id").references(() => trips.id),
+  toTripId: integer("to_trip_id").references(() => trips.id),
+  fromLat: doublePrecision("from_lat").notNull(),
+  fromLng: doublePrecision("from_lng").notNull(),
+  toLat: doublePrecision("to_lat").notNull(),
+  toLng: doublePrecision("to_lng").notNull(),
+  distanceMeters: integer("distance_meters").notNull(),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
+  calculatedAt: timestamp("calculated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_dead_mile_segments_driver_date").on(table.driverId, table.segmentDate),
+  index("idx_dead_mile_segments_company_date").on(table.companyId, table.segmentDate),
+  uniqueIndex("idx_dead_mile_segments_unique").on(table.driverId, table.segmentDate, table.segmentType, table.fromTripId, table.toTripId),
+]);
+
+export const insertDeadMileSegmentSchema = createInsertSchema(deadMileSegments).omit({ createdAt: true, calculatedAt: true });
+export type DeadMileSegment = typeof deadMileSegments.$inferSelect;
+export type InsertDeadMileSegment = z.infer<typeof insertDeadMileSegmentSchema>;
+
+export const deadMileDailySummary = pgTable("dead_mile_daily_summary", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").notNull().references(() => cities.id),
+  summaryDate: text("summary_date").notNull(),
+  totalTrips: integer("total_trips").notNull().default(0),
+  totalPaidMiles: numeric("total_paid_miles", { precision: 10, scale: 2 }).notNull().default("0"),
+  totalDeadMiles: numeric("total_dead_miles", { precision: 10, scale: 2 }).notNull().default("0"),
+  deadMileRatio: numeric("dead_mile_ratio", { precision: 5, scale: 4 }).notNull().default("0"),
+  totalDurationMinutes: integer("total_duration_minutes").notNull().default(0),
+  idleMinutes: integer("idle_minutes").notNull().default(0),
+  efficiencyScore: integer("efficiency_score").notNull().default(0), // 0-100
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_dead_mile_summary_driver_date").on(table.driverId, table.summaryDate),
+  index("idx_dead_mile_summary_company_date").on(table.companyId, table.summaryDate),
+]);
+
+export const insertDeadMileDailySummarySchema = createInsertSchema(deadMileDailySummary).omit({ createdAt: true });
+export type DeadMileDailySummary = typeof deadMileDailySummary.$inferSelect;
+export type InsertDeadMileDailySummary = z.infer<typeof insertDeadMileDailySummarySchema>;
+
+// ─── Inter-city Transfers ─────────────────────────────────────────────────────
+export const interCityTransfers = pgTable("inter_city_transfers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  originCityId: integer("origin_city_id").notNull().references(() => cities.id),
+  destinationCityId: integer("destination_city_id").notNull().references(() => cities.id),
+  outboundTripId: integer("outbound_trip_id").references(() => trips.id),
+  returnTripId: integer("return_trip_id").references(() => trips.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  requestedDate: text("requested_date").notNull(),
+  requestedTime: text("requested_time").notNull(),
+  estimatedDistanceMiles: numeric("estimated_distance_miles", { precision: 10, scale: 2 }),
+  estimatedDurationMinutes: integer("estimated_duration_minutes"),
+  originDriverId: integer("origin_driver_id").references(() => drivers.id),
+  destinationDriverId: integer("destination_driver_id").references(() => drivers.id),
+  transferPointAddress: text("transfer_point_address"),
+  transferPointLat: doublePrecision("transfer_point_lat"),
+  transferPointLng: doublePrecision("transfer_point_lng"),
+  status: text("status").notNull().default("requested"),
+  coordinatorUserId: integer("coordinator_user_id").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_ict_company_status").on(table.companyId, table.status),
+  index("idx_ict_origin_city").on(table.originCityId),
+  index("idx_ict_destination_city").on(table.destinationCityId),
+  index("idx_ict_patient").on(table.patientId),
+  index("idx_ict_requested_date").on(table.requestedDate),
+]);
+
+export const insertInterCityTransferSchema = createInsertSchema(interCityTransfers).omit({ createdAt: true, updatedAt: true });
+export type InterCityTransfer = typeof interCityTransfers.$inferSelect;
+export type InsertInterCityTransfer = z.infer<typeof insertInterCityTransferSchema>;
+
+// ── Smart Cancellation for Recurring Trips ──────────────────────────────
+
+export const recurringCancellationPolicies = pgTable("recurring_cancellation_policies", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  maxCancellationsPerWeek: integer("max_cancellations_per_week").notNull().default(2),
+  maxCancellationsPerMonth: integer("max_cancellations_per_month").notNull().default(6),
+  autoRebookEnabled: boolean("auto_rebook_enabled").notNull().default(false),
+  rebookDaysAhead: integer("rebook_days_ahead").notNull().default(7),
+  cancellationWindowHours: integer("cancellation_window_hours").notNull().default(24),
+  noShowAutoSuspendCount: integer("no_show_auto_suspend_count").notNull().default(3),
+  noShowAutoSuspendDays: integer("no_show_auto_suspend_days").notNull().default(7),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertRecurringCancellationPolicySchema = createInsertSchema(recurringCancellationPolicies).omit({ createdAt: true, updatedAt: true });
+export type RecurringCancellationPolicy = typeof recurringCancellationPolicies.$inferSelect;
+export type InsertRecurringCancellationPolicy = z.infer<typeof insertRecurringCancellationPolicySchema>;
+
+export const recurringHolds = pgTable("recurring_holds", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  scheduleId: integer("schedule_id").references(() => recurringSchedules.id),
+  tripSeriesId: integer("trip_series_id").references(() => tripSeries.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  holdStartDate: text("hold_start_date").notNull(),
+  holdEndDate: text("hold_end_date").notNull(),
+  reason: text("reason"),
+  createdBy: integer("created_by").references(() => users.id),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertRecurringHoldSchema = createInsertSchema(recurringHolds).omit({ createdAt: true });
+export type RecurringHold = typeof recurringHolds.$inferSelect;
+export type InsertRecurringHold = z.infer<typeof insertRecurringHoldSchema>;
+
+export const recurringCancellationLog = pgTable("recurring_cancellation_log", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  scheduleId: integer("schedule_id"),
+  tripSeriesId: integer("trip_series_id"),
+  tripId: integer("trip_id").references(() => trips.id),
+  patientId: integer("patient_id").notNull().references(() => patients.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cancellationType: text("cancellation_type").notNull(),
+  reason: text("reason"),
+  cancelledBy: integer("cancelled_by").references(() => users.id),
+  affectedDates: text("affected_dates").array(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertRecurringCancellationLogSchema = createInsertSchema(recurringCancellationLog).omit({ createdAt: true });
+export type RecurringCancellationLog = typeof recurringCancellationLog.$inferSelect;
+export type InsertRecurringCancellationLog = z.infer<typeof insertRecurringCancellationLogSchema>;
+
+// ─── Payment Reconciliation ──────────────────────────────────────────────────
+
+export const reconciliationStatusEnum = pgEnum("reconciliation_status", [
+  "matched",
+  "partial",
+  "unmatched",
+  "overpaid",
+  "disputed",
+  "written_off",
+]);
+
+export const paymentReconciliationRuns = pgTable("payment_reconciliation_runs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  periodStart: text("period_start").notNull(),
+  periodEnd: text("period_end").notNull(),
+  status: text("status").notNull().default("running"),
+  totalInvoices: integer("total_invoices").notNull().default(0),
+  matchedCount: integer("matched_count").notNull().default(0),
+  partialCount: integer("partial_count").notNull().default(0),
+  unmatchedCount: integer("unmatched_count").notNull().default(0),
+  overpaidCount: integer("overpaid_count").notNull().default(0),
+  totalInvoicedCents: integer("total_invoiced_cents").notNull().default(0),
+  totalCollectedCents: integer("total_collected_cents").notNull().default(0),
+  totalOutstandingCents: integer("total_outstanding_cents").notNull().default(0),
+  totalOverpaidCents: integer("total_overpaid_cents").notNull().default(0),
+  runBy: integer("run_by").references(() => users.id),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("prr_company_period_idx").on(table.companyId, table.periodStart),
+  index("prr_status_idx").on(table.status),
+]);
+
+export const paymentReconciliationItems = pgTable("payment_reconciliation_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  runId: integer("run_id").notNull().references(() => paymentReconciliationRuns.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  invoiceId: integer("invoice_id").references(() => billingCycleInvoices.id),
+  invoiceNumber: text("invoice_number"),
+  invoiceAmountCents: integer("invoice_amount_cents").notNull().default(0),
+  paidAmountCents: integer("paid_amount_cents").notNull().default(0),
+  outstandingCents: integer("outstanding_cents").notNull().default(0),
+  overpaidCents: integer("overpaid_cents").notNull().default(0),
+  status: reconciliationStatusEnum("status").notNull().default("unmatched"),
+  paymentRefs: jsonb("payment_refs").notNull().default([]),
+  agingDays: integer("aging_days").notNull().default(0),
+  agingBucket: text("aging_bucket").notNull().default("current"),
+  notes: text("notes"),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("pri_run_status_idx").on(table.runId, table.status),
+  index("pri_clinic_idx").on(table.clinicId),
+  index("pri_invoice_idx").on(table.invoiceId),
+  index("pri_aging_idx").on(table.agingBucket),
+]);
+
+export const paymentReconciliationWriteOffs = pgTable("payment_reconciliation_write_offs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  clinicId: integer("clinic_id").references(() => clinics.id),
+  invoiceId: integer("invoice_id").references(() => billingCycleInvoices.id),
+  reconciliationItemId: integer("reconciliation_item_id").references(() => paymentReconciliationItems.id),
+  amountCents: integer("amount_cents").notNull(),
+  reason: text("reason").notNull(),
+  approvedBy: integer("approved_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("prwo_company_idx").on(table.companyId),
+  index("prwo_invoice_idx").on(table.invoiceId),
+]);
+
+export const insertPaymentReconciliationRunSchema = createInsertSchema(paymentReconciliationRuns).omit({ createdAt: true });
+export type PaymentReconciliationRun = typeof paymentReconciliationRuns.$inferSelect;
+export type InsertPaymentReconciliationRun = z.infer<typeof insertPaymentReconciliationRunSchema>;
+
+export const insertPaymentReconciliationItemSchema = createInsertSchema(paymentReconciliationItems).omit({ createdAt: true });
+export type PaymentReconciliationItem = typeof paymentReconciliationItems.$inferSelect;
+export type InsertPaymentReconciliationItem = z.infer<typeof insertPaymentReconciliationItemSchema>;
+
+export const insertPaymentReconciliationWriteOffSchema = createInsertSchema(paymentReconciliationWriteOffs).omit({ createdAt: true });
+export type PaymentReconciliationWriteOff = typeof paymentReconciliationWriteOffs.$inferSelect;
+export type InsertPaymentReconciliationWriteOff = z.infer<typeof insertPaymentReconciliationWriteOffSchema>;

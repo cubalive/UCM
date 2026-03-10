@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { isDriverHost } from "@/lib/hostDetection";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -300,7 +301,7 @@ function ErrorDetailsDrawer({
               )}
               <div className="flex items-center gap-2 pl-6 text-xs text-muted-foreground">
                 <Clock className="w-3 h-3" />
-                <span>Expires: {new Date(currentAck.expiresAt).toLocaleString()}</span>
+                <span>Expires: {formatDateTime(currentAck.expiresAt)}</span>
                 {currentAck.originSubdomain && (
                   <>
                     <span>•</span>
@@ -439,11 +440,11 @@ function ErrorDetailsDrawer({
                     </div>
                     {h.note && <p className="text-muted-foreground italic">{h.note}</p>}
                     <div className="flex items-center gap-2 text-muted-foreground">
-                      <span>{new Date(h.createdAt).toLocaleString()}</span>
+                      <span>{formatDateTime(h.createdAt)}</span>
                       {h.originSubdomain && <span>• {h.originSubdomain}.*</span>}
                     </div>
                     {h.dismissed && h.dismissedByName && (
-                      <p className="text-muted-foreground">Dismissed by {h.dismissedByName} at {new Date(h.dismissedAt!).toLocaleString()}</p>
+                      <p className="text-muted-foreground">Dismissed by {h.dismissedByName} at {formatDateTime(h.dismissedAt!)}</p>
                     )}
                   </div>
                 ))}
@@ -858,7 +859,7 @@ function CityHealthTab({ autoAlertCode, resolvedCodes, activeAcks, onAckCreated 
                     </span>
                   </div>
                   <span className="text-xs text-muted-foreground" data-testid={`text-alert-history-time-${entry.id}`}>
-                    {new Date(entry.sentAt).toLocaleString()}
+                    {formatDateTime(entry.sentAt)}
                   </span>
                 </div>
               ))}
@@ -1255,7 +1256,7 @@ function SystemStatusTab({ autoAlertCode, resolvedCodes, activeAcks, onAckCreate
                       Code: {smsHealth.lastError.code} &mdash; {smsHealth.lastError.message}
                     </p>
                     <p className="text-xs text-red-500">
-                      {new Date(smsHealth.lastError.at).toLocaleString()}
+                      {formatDateTime(smsHealth.lastError.at)}
                     </p>
                   </div>
                 )}

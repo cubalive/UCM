@@ -39,9 +39,19 @@ import { authHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 
+const TIME_RANGES = [
+  { label: "Hoy", value: 1 },
+  { label: "7 Dias", value: 7 },
+  { label: "14 Dias", value: 14 },
+  { label: "30 Dias", value: 30 },
+  { label: "90 Dias", value: 90 },
+] as const;
+
 export default function DashboardPage() {
   const { user, token, selectedCity, isSuperAdmin } = useAuth();
   const { t } = useTranslation();
+  const [, navigate] = useLocation();
+  const [selectedDays, setSelectedDays] = useState(14);
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -59,10 +69,10 @@ export default function DashboardPage() {
 
   // Trend data for sparklines and charts
   const { data: trendData } = useQuery<any>({
-    queryKey: ["/api/analytics/trends", selectedCity?.id],
+    queryKey: ["/api/analytics/trends", selectedCity?.id, selectedDays],
     queryFn: () =>
       apiFetch(
-        `/api/analytics/trends?days=14${selectedCity ? `&cityId=${selectedCity.id}` : ""}`,
+        `/api/analytics/trends?days=${selectedDays}${selectedCity ? `&cityId=${selectedCity.id}` : ""}`,
         token
       ),
     enabled: !!token,
@@ -100,6 +110,23 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Time Range Selector */}
+          <div className="flex items-center bg-muted/50 rounded-lg p-0.5 border" data-testid="time-range-selector">
+            {TIME_RANGES.map((range) => (
+              <button
+                key={range.value}
+                onClick={() => setSelectedDays(range.value)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  selectedDays === range.value
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+                data-testid={`button-range-${range.value}`}
+              >
+                {range.label}
+              </button>
+            ))}
+          </div>
           {selectedCity && (
             <Badge variant="secondary" data-testid="badge-city">
               <MapPin className="w-3 h-3 mr-1" />
@@ -124,51 +151,63 @@ export default function DashboardPage() {
           </>
         ) : (
           <>
-            <KpiCard
-              title={t("dashboard.totalTrips")}
-              value={stats?.trips ?? 0}
-              icon={<Route className="w-4 h-4 text-emerald-500" />}
-              sparkData={tripSparkData}
-              color="emerald"
-              change={calcChange(tripSparkData)}
-              changeLabel="vs prev"
-              tooltip="Total number of trips in the system for the selected city"
-            />
-            <KpiCard
-              title={t("dashboard.activePatients")}
-              value={stats?.patients ?? 0}
-              icon={<HeartPulse className="w-4 h-4 text-rose-500" />}
-              color="rose"
-              tooltip="Patients registered and active in the system"
-            />
-            <KpiCard
-              title={t("dashboard.drivers")}
-              value={stats?.drivers ?? 0}
-              icon={<UserCheck className="w-4 h-4 text-emerald-500" />}
-              color="emerald"
-              tooltip="Total registered drivers across all statuses"
-            />
-            <KpiCard
-              title={t("dashboard.vehicles")}
-              value={stats?.vehicles ?? 0}
-              icon={<Truck className="w-4 h-4 text-amber-500" />}
-              color="amber"
-              tooltip="Fleet size — total vehicles registered"
-            />
-            <KpiCard
-              title={t("dashboard.clinics")}
-              value={stats?.clinics ?? 0}
-              icon={<Building2 className="w-4 h-4 text-purple-500" />}
-              color="purple"
-              tooltip="Healthcare facilities partnered with UCM"
-            />
-            <KpiCard
-              title={t("dashboard.users")}
-              value={stats?.users ?? 0}
-              icon={<Users className="w-4 h-4 text-cyan-500" />}
-              color="cyan"
-              tooltip="Platform users across all roles (admin, dispatch, drivers, clinics)"
-            />
+            <div onClick={() => navigate("/trips")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-trips">
+              <KpiCard
+                title={t("dashboard.totalTrips")}
+                value={stats?.trips ?? 0}
+                icon={<Route className="w-4 h-4 text-emerald-500" />}
+                sparkData={tripSparkData}
+                color="emerald"
+                change={calcChange(tripSparkData)}
+                changeLabel="vs prev"
+                tooltip="Total number of trips in the system for the selected city. Click to view all trips."
+              />
+            </div>
+            <div onClick={() => navigate("/patients")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-patients">
+              <KpiCard
+                title={t("dashboard.activePatients")}
+                value={stats?.patients ?? 0}
+                icon={<HeartPulse className="w-4 h-4 text-rose-500" />}
+                color="rose"
+                tooltip="Patients registered and active in the system. Click to view all patients."
+              />
+            </div>
+            <div onClick={() => navigate("/drivers")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-drivers">
+              <KpiCard
+                title={t("dashboard.drivers")}
+                value={stats?.drivers ?? 0}
+                icon={<UserCheck className="w-4 h-4 text-emerald-500" />}
+                color="emerald"
+                tooltip="Total registered drivers across all statuses. Click to view all drivers."
+              />
+            </div>
+            <div onClick={() => navigate("/vehicles")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-vehicles">
+              <KpiCard
+                title={t("dashboard.vehicles")}
+                value={stats?.vehicles ?? 0}
+                icon={<Truck className="w-4 h-4 text-amber-500" />}
+                color="amber"
+                tooltip="Fleet size — total vehicles registered. Click to view all vehicles."
+              />
+            </div>
+            <div onClick={() => navigate("/clinics")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-clinics">
+              <KpiCard
+                title={t("dashboard.clinics")}
+                value={stats?.clinics ?? 0}
+                icon={<Building2 className="w-4 h-4 text-purple-500" />}
+                color="purple"
+                tooltip="Healthcare facilities partnered with UCM. Click to view all clinics."
+              />
+            </div>
+            <div onClick={() => navigate("/users")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-users">
+              <KpiCard
+                title={t("dashboard.users")}
+                value={stats?.users ?? 0}
+                icon={<Users className="w-4 h-4 text-cyan-500" />}
+                color="cyan"
+                tooltip="Platform users across all roles (admin, dispatch, drivers, clinics). Click to view all users."
+              />
+            </div>
           </>
         )}
       </div>
@@ -181,8 +220,11 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2">
                 <CardTitle className="text-base font-medium">
                   {t("dashboard.tripTrends", { defaultValue: "Trip Trends" })}
+                  <span className="text-xs font-normal text-muted-foreground ml-2">
+                    ({selectedDays === 1 ? "Hoy" : `${selectedDays}d`})
+                  </span>
                 </CardTitle>
-                <InfoTooltip content="Daily trip volume over the last 14 days. Shows completed vs total trips to track service delivery." />
+                <InfoTooltip content={`Daily trip volume over the last ${selectedDays} days. Shows completed vs total trips to track service delivery.`} />
               </div>
               <TrendingUp className="w-4 h-4 text-muted-foreground" />
             </CardHeader>
@@ -204,8 +246,11 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2">
                 <CardTitle className="text-base font-medium">
                   {t("dashboard.statusBreakdown", { defaultValue: "Status Breakdown" })}
+                  <span className="text-xs font-normal text-muted-foreground ml-2">
+                    ({selectedDays === 1 ? "Hoy" : `${selectedDays}d`})
+                  </span>
                 </CardTitle>
-                <InfoTooltip content="Daily breakdown by trip status — cancelled and no-shows are tracked to identify operational issues." />
+                <InfoTooltip content={`Daily breakdown by trip status over the last ${selectedDays} days — cancelled and no-shows are tracked to identify operational issues.`} />
               </div>
               <BarChart3 className="w-4 h-4 text-muted-foreground" />
             </CardHeader>

@@ -16,7 +16,7 @@ import { can, type Resource } from "@shared/permissions";
 import { API_BASE_URL } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 import "@/i18n";
-import { isDriverHost, isClinicHost, getTokenKey } from "@/lib/hostDetection";
+import { isDriverHost, isClinicHost, isPharmacyHost, isBrokerHost, getTokenKey } from "@/lib/hostDetection";
 import { pushError } from "@/lib/errorLog";
 import { CitySelectionModal } from "@/components/city-selection-modal";
 // Critical pages loaded eagerly (auth flow, initial render)
@@ -93,10 +93,23 @@ const DriverEarningsPage = React.lazy(() => import("@/pages/driver-earnings"));
 const PrivacyPolicyPage = React.lazy(() => import("@/pages/privacy-policy"));
 const TermsOfServicePage = React.lazy(() => import("@/pages/terms-of-service"));
 const DeleteAccountPage = React.lazy(() => import("@/pages/delete-account"));
+const AdminBrokersPage = React.lazy(() => import("@/pages/admin-brokers"));
+const MarketplacePage = React.lazy(() => import("@/pages/marketplace"));
+const RatingsDashboardPage = React.lazy(() => import("@/pages/ratings-dashboard"));
+const MedicaidBillingPage = React.lazy(() => import("@/pages/medicaid-billing"));
+const TripGroupsPage = React.lazy(() => import("@/pages/trip-groups"));
+const DeadMilePage = React.lazy(() => import("@/pages/dead-mile"));
+const SmartCancelPage = React.lazy(() => import("@/pages/smart-cancel"));
+const ReconciliationPage = React.lazy(() => import("@/pages/reconciliation"));
+const InterCityPage = React.lazy(() => import("@/pages/inter-city"));
+const CityComparisonPage = React.lazy(() => import("@/pages/city-comparison"));
+const CascadeAlertsPage = React.lazy(() => import("@/pages/cascade-alerts"));
 
 // Lazy-loaded app shells
 const DriverAppV4 = React.lazy(() => import("@/driver-v4/DriverAppV4").then(m => ({ default: m.DriverAppV4 })));
 const ClinicPortalLayout = React.lazy(() => import("@/clinic-portal/ClinicPortalLayout").then(m => ({ default: m.ClinicPortalLayout })));
+const PharmacyPortalLayout = React.lazy(() => import("@/pharmacy-portal/PharmacyPortalLayout").then(m => ({ default: m.PharmacyPortalLayout })));
+const BrokerPortalLayout = React.lazy(() => import("@/broker-portal/BrokerPortalLayout").then(m => ({ default: m.BrokerPortalLayout })));
 import { NetworkStatus } from "@/components/network-status";
 import { useAppVersion } from "@/components/version-checker";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -387,6 +400,8 @@ function Router() {
       <Route path="/admin/imports">{() => <SuperAdminRoute component={DataImportPage} />}</Route>
       <Route path="/companies">{() => <SuperAdminRoute component={CompaniesPage} />}</Route>
       <Route path="/system-status">{() => <SuperAdminRoute component={SystemStatusPage} />}</Route>
+      <Route path="/admin/brokers">{() => <SuperAdminRoute component={AdminBrokersPage} />}</Route>
+      <Route path="/marketplace">{() => <ProtectedRoute resource="broker_marketplace" component={MarketplacePage} />}</Route>
       <Route path="/finance-console">{() => <SuperAdminRoute component={FinanceConsolePage} />}</Route>
       <Route path="/fee-rules">{() => <SuperAdminRoute component={FeeRulesPage} />}</Route>
       <Route path="/eta-escalations">{() => <ProtectedRoute resource="dispatch" component={EtaEscalationsPage} />}</Route>
@@ -401,6 +416,15 @@ function Router() {
       <Route path="/admin/subscriptions">{() => { window.location.href = "/platform-fees?tab=subscription"; return null; }}</Route>
       <Route path="/clinic-billing-v2">{() => <ClinicOrPermissionRoute resource="billing" component={ClinicBillingV2Page} />}</Route>
       <Route path="/support-chat">{() => <ClinicOrPermissionRoute resource="support" component={SupportChatPage} />}</Route>
+      <Route path="/ratings">{() => <ProtectedRoute resource="audit" component={RatingsDashboardPage} />}</Route>
+      <Route path="/medicaid-billing">{() => <SuperAdminRoute component={MedicaidBillingPage} />}</Route>
+      <Route path="/trip-groups">{() => <ProtectedRoute resource="dispatch" component={TripGroupsPage} />}</Route>
+      <Route path="/dead-mile">{() => <ProtectedRoute resource="dispatch" component={DeadMilePage} />}</Route>
+      <Route path="/smart-cancel">{() => <ProtectedRoute resource="dispatch" component={SmartCancelPage} />}</Route>
+      <Route path="/reconciliation">{() => <SuperAdminRoute component={ReconciliationPage} />}</Route>
+      <Route path="/inter-city">{() => <ProtectedRoute resource="dispatch" component={InterCityPage} />}</Route>
+      <Route path="/city-comparison">{() => <SuperAdminRoute component={CityComparisonPage} />}</Route>
+      <Route path="/cascade-alerts">{() => <ProtectedRoute resource="dispatch" component={CascadeAlertsPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>
@@ -593,6 +617,52 @@ function AuthenticatedApp() {
       <AppErrorBoundary label="Clinic">
         <React.Suspense fallback={<PageLoadingFallback />}>
           <ClinicPortalLayout />
+        </React.Suspense>
+      </AppErrorBoundary>
+    );
+  }
+
+  if (isPharmacyHost) {
+    const role = user.role.toUpperCase();
+    const pharmacyAllowed = ["PHARMACY_ADMIN", "PHARMACY_USER", "SUPER_ADMIN"];
+    if (!pharmacyAllowed.includes(role)) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 max-w-md text-center space-y-4">
+            <h2 className="text-xl font-semibold text-white">Access Denied</h2>
+            <p className="text-gray-400">This portal is restricted to pharmacy users only.</p>
+            <button onClick={() => logout()} className="px-6 py-2 bg-violet-600 text-white rounded-lg">Sign Out</button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <AppErrorBoundary label="Pharmacy">
+        <React.Suspense fallback={<PageLoadingFallback />}>
+          <PharmacyPortalLayout />
+        </React.Suspense>
+      </AppErrorBoundary>
+    );
+  }
+
+  if (isBrokerHost) {
+    const role = user.role.toUpperCase();
+    const brokerAllowed = ["BROKER_ADMIN", "BROKER_USER", "SUPER_ADMIN"];
+    if (!brokerAllowed.includes(role)) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 max-w-md text-center space-y-4">
+            <h2 className="text-xl font-semibold text-white">Access Denied</h2>
+            <p className="text-gray-400">This portal is restricted to broker users only.</p>
+            <button onClick={() => logout()} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Sign Out</button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <AppErrorBoundary label="Broker">
+        <React.Suspense fallback={<PageLoadingFallback />}>
+          <BrokerPortalLayout />
         </React.Suspense>
       </AppErrorBoundary>
     );

@@ -14,6 +14,7 @@ const STATUS_TO_EVENT: Record<string, SmsEventType> = {
   no_show: "NO_SHOW",
   eta_10: "EN_ROUTE",
   eta_5: "EN_ROUTE",
+  cascade_delay: "EN_ROUTE",
 };
 
 export async function autoNotifyPatient(

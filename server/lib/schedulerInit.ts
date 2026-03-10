@@ -1,5 +1,7 @@
 import { startJobEngine, stopJobEngine } from "./jobEngine";
 import { isRedisConnected } from "./redis";
+import { registerJobHandler } from "./jobProcessor";
+import { tickJob, failJob } from "./jobHeartbeat";
 
 export type RoleMode = "server" | "worker" | "all";
 
@@ -35,6 +37,9 @@ async function startAllSchedulerLoops(): Promise<void> {
   const { startOpsScheduler } = await import("./opsScheduler");
   const { startPayrollScheduler } = await import("./payrollRoutes");
   const { startDunningScheduler } = await import("../routes/enterpriseFinance.routes");
+  const { startAutoInvoiceScheduler } = await import("../services/autoInvoiceScheduler");
+  const { startDunningEmailScheduler } = await import("../services/dunningEmailService");
+  const { startAutoReconciliationScheduler } = await import("../services/autoReconciliationScheduler");
   const { startDialysisScheduler } = await import("./zeroTouchDialysisEngine");
   const { startSmsReminderScheduler } = await import("./smsReminderScheduler");
   const { startDispatchWindowScheduler } = await import("./dispatchWindowEngine");
@@ -50,7 +55,44 @@ async function startAllSchedulerLoops(): Promise<void> {
   startOpsScheduler();
   startPayrollScheduler();
   startDunningScheduler();
+  startAutoInvoiceScheduler();
+  startDunningEmailScheduler();
+  startAutoReconciliationScheduler();
   startDialysisScheduler();
+  // Register job handlers so the processor can execute eta_cycle and autoassign_cycle jobs
+  registerJobHandler("eta_cycle", async (payload) => {
+    const { executeEtaCycleForCity } = await import("./etaEngine");
+    const cityId = payload.cityId as number;
+    tickJob("eta");
+    try {
+      const result = await executeEtaCycleForCity(cityId);
+      return { cityId, tripsProcessed: result.tripsProcessed };
+    } catch (err: any) {
+      failJob("eta", err.message);
+      throw err;
+    }
+  });
+
+  registerJobHandler("autoassign_cycle", async (payload) => {
+    const { runVehicleAutoAssignForCity } = await import("./vehicleAutoAssign");
+    const { storage } = await import("../storage");
+    const cityId = payload.cityId as number;
+    tickJob("autoAssign");
+    try {
+      const cities = await storage.getCities();
+      const city = cities.find((c: any) => c.id === cityId);
+      if (!city) return { skipped: true, reason: "city_not_found" };
+      const allSettings = await storage.getAllCitySettings();
+      const settings = allSettings.find((s: any) => s.cityId === cityId);
+      if (!settings) return { skipped: true, reason: "no_settings" };
+      const result = await runVehicleAutoAssignForCity(city, settings);
+      return { cityId, ...result };
+    } catch (err: any) {
+      failJob("autoAssign", err.message);
+      throw err;
+    }
+  });
+
   startJobEngine();
   startSmsReminderScheduler();
   startDispatchWindowScheduler();
@@ -74,7 +116,8 @@ async function startAllSchedulerLoops(): Promise<void> {
     schedulers: [
       "ops_alert", "route_engine", "no_show", "recurring_schedule",
       "ai_engine", "ai_sentinel", "ops_anomaly", "ops_score",
-      "payroll", "dunning", "dialysis", "sms_reminder",
+      "payroll", "dunning", "auto_invoice", "dunning_email", "auto_reconciliation",
+      "dialysis", "sms_reminder",
       "job_engine_eta", "job_engine_autoassign",
       "orchestrator", "routes_worker", "breadcrumb_flusher", "route_optimizer",
     ],

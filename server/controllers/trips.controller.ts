@@ -1290,6 +1290,13 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
         autoNotifyPatient(id, "completed");
       }).catch(() => {});
+
+      // Send patient rating request SMS after trip completion
+      import("../lib/patientRatingEngine").then(({ autoSendRatingRequest }) => {
+        autoSendRatingRequest(id);
+      }).catch((err) => {
+        console.error(`[RATING] Failed to send rating request for trip ${id}:`, err.message);
+      });
     }
 
     const terminalStatuses = ["COMPLETED", "CANCELLED", "NO_SHOW"];

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { apiFetch, resolveUrl } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -405,6 +406,29 @@ function DiagnosticsPanel({ token }: { token: string | null }) {
                 </Badge>
               )}
               <Badge variant="secondary">{okCount} OK</Badge>
+              {/* Fix All button when there are fixable issues */}
+              {sortedChecks.filter(c => c.status !== "ok" && c.fixable && c.fixAction).length > 1 && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="gap-1.5 ml-2"
+                  onClick={async () => {
+                    const fixableChecks = sortedChecks.filter(c => c.status !== "ok" && c.fixable && c.fixAction);
+                    for (const check of fixableChecks) {
+                      fixMutation.mutate(check.fixAction!);
+                    }
+                  }}
+                  disabled={fixMutation.isPending}
+                  data-testid="button-fix-all"
+                >
+                  {fixMutation.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Wrench className="w-3.5 h-3.5" />
+                  )}
+                  Fix All ({sortedChecks.filter(c => c.status !== "ok" && c.fixable && c.fixAction).length})
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -412,12 +436,12 @@ function DiagnosticsPanel({ token }: { token: string | null }) {
           {sortedChecks.map((check, idx) => (
             <div
               key={idx}
-              className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+              className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer hover:shadow-md ${
                 check.status === "critical"
-                  ? "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20"
+                  ? "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20 hover:border-red-300 dark:hover:border-red-700"
                   : check.status === "warning"
-                    ? "border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20"
-                    : "border-border bg-muted/20"
+                    ? "border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20 hover:border-amber-300 dark:hover:border-amber-700"
+                    : "border-border bg-muted/20 hover:border-primary/20"
               }`}
               data-testid={`diagnostic-check-${idx}`}
             >
@@ -446,10 +470,11 @@ function DiagnosticsPanel({ token }: { token: string | null }) {
                       <Button
                         size="sm"
                         variant="default"
-                        className="gap-1.5"
-                        onClick={() =>
-                          fixMutation.mutate(check.fixAction!)
-                        }
+                        className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          fixMutation.mutate(check.fixAction!);
+                        }}
                         disabled={fixMutation.isPending}
                         data-testid={`button-fix-${idx}`}
                       >
@@ -458,17 +483,15 @@ function DiagnosticsPanel({ token }: { token: string | null }) {
                         ) : (
                           <Wrench className="w-3.5 h-3.5" />
                         )}
-                        Auto-Fix
+                        Fix Now
                       </Button>
                     ) : (
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Search className="w-3.5 h-3.5" />
-                        <span>
-                          {check.status === "critical"
-                            ? "Investigate manually"
-                            : "Monitor"}
-                        </span>
-                      </div>
+                      <Badge variant="outline" className="gap-1 text-xs">
+                        <Search className="w-3 h-3" />
+                        {check.status === "critical"
+                          ? "Manual Fix Needed"
+                          : "Monitor"}
+                      </Badge>
                     )}
                   </>
                 )}
@@ -487,43 +510,135 @@ function DiagnosticsPanel({ token }: { token: string | null }) {
 // ─── Health Checks ───────────────────────────────────────────────────────
 function HealthChecks({
   checks,
+  token,
 }: {
   checks: Record<string, SystemCheck>;
+  token: string | null;
 }) {
+  const { toast } = useToast();
+  const healthFixMap: Record<string, { action: string; label: string }> = {
+    jobEngine: { action: "restart-job-engine", label: "Restart" },
+  };
+
+  const healthFixMutation = useMutation({
+    mutationFn: async (action: string) => {
+      const res = await fetch(resolveUrl("/api/analytics/auto-fix"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: data.success ? "Fix Applied" : "Fix Failed",
+        description: data.message,
+        variant: data.success ? "default" : "destructive",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/ops/system-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/analytics/system-diagnostics"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Fix failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const failingChecks = Object.entries(checks).filter(([, c]) => !c.ok);
+  const fixableFailures = failingChecks.filter(([name]) => healthFixMap[name]);
+
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Shield className="w-5 h-5" />
-            Health Checks
-          </CardTitle>
-          <InfoTooltip content="Low-level health checks for each system component. Green = healthy, Red = failing. Check latency values for performance degradation." />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Health Checks
+            </CardTitle>
+            <InfoTooltip content="Low-level health checks for each system component. Green = healthy, Red = failing. Click 'Fix' buttons to auto-repair issues." />
+          </div>
+          <div className="flex items-center gap-2">
+            {failingChecks.length > 0 && (
+              <Badge variant="destructive">{failingChecks.length} Failing</Badge>
+            )}
+            {fixableFailures.length > 0 && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="gap-1.5"
+                onClick={() => {
+                  for (const [name] of fixableFailures) {
+                    healthFixMutation.mutate(healthFixMap[name].action);
+                  }
+                }}
+                disabled={healthFixMutation.isPending}
+                data-testid="button-fix-all-health"
+              >
+                {healthFixMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Wrench className="w-3.5 h-3.5" />
+                )}
+                Fix All ({fixableFailures.length})
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
-        {Object.entries(checks).map(([name, check]) => (
-          <div
-            key={name}
-            className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-            data-testid={`check-row-${name}`}
-          >
-            <div className="flex items-center gap-2">
-              <StatusIndicator ok={check.ok} />
-              <span className="font-medium text-sm capitalize">
-                {name.replace(/([A-Z])/g, " $1").trim()}
-              </span>
+        {Object.entries(checks).map(([name, check]) => {
+          const fixInfo = !check.ok ? healthFixMap[name] : null;
+          return (
+            <div
+              key={name}
+              className={`flex items-center justify-between py-2 px-3 rounded-lg transition-all cursor-pointer ${
+                !check.ok
+                  ? "bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 hover:border-red-300 dark:hover:border-red-700 hover:shadow-md"
+                  : "bg-muted/30 hover:bg-muted/50 border border-transparent hover:border-primary/20"
+              }`}
+              data-testid={`check-row-${name}`}
+            >
+              <div className="flex items-center gap-2">
+                <StatusIndicator ok={check.ok} />
+                <span className="font-medium text-sm capitalize">
+                  {name.replace(/([A-Z])/g, " $1").trim()}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                {check.latencyMs !== undefined && (
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {check.latencyMs}ms
+                  </Badge>
+                )}
+                {check.note && <span>{check.note}</span>}
+                {fixInfo && (
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white ml-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      healthFixMutation.mutate(fixInfo.action);
+                    }}
+                    disabled={healthFixMutation.isPending}
+                    data-testid={`button-fix-${name}`}
+                  >
+                    {healthFixMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Wrench className="w-3.5 h-3.5" />
+                    )}
+                    {fixInfo.label}
+                  </Button>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {check.latencyMs !== undefined && (
-                <Badge variant="outline" className="font-mono text-[10px]">
-                  {check.latencyMs}ms
-                </Badge>
-              )}
-              {check.note && <span>{check.note}</span>}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </CardContent>
     </Card>
   );
@@ -781,7 +896,7 @@ function SmokeTestPanel({ token }: { token: string | null }) {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">
-                      {new Date(run.startedAt).toLocaleString()}
+                      {formatDateTime(run.startedAt)}
                     </span>
                     {isExpanded ? (
                       <ChevronDown className="w-4 h-4" />
@@ -932,7 +1047,7 @@ function ImportRunsPanel({ token }: { token: string | null }) {
                       )}
                     </TableCell>
                     <TableCell className="text-xs">
-                      {new Date(imp.createdAt).toLocaleDateString()}
+                      {formatDate(imp.createdAt)}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -1165,7 +1280,7 @@ export default function SystemStatusPage() {
 
           <TabsContent value="overview" className="space-y-4">
             <SystemOverview data={data} />
-            <HealthChecks checks={checksWithoutKeys} />
+            <HealthChecks checks={checksWithoutKeys} token={token} />
             {externalKeys && <ExternalKeysCard keys={externalKeys} />}
             <EntityCounts counts={data.entityCounts} />
             {data.fkChecks &&

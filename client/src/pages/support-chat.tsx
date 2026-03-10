@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -172,7 +173,7 @@ export default function SupportChatPage() {
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 truncate">{t.subject}</p>
-                  <p className="text-xs text-muted-foreground">{new Date(t.lastMessageAt).toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{formatDateTime(t.lastMessageAt)}</p>
                 </button>
               ))
             )}

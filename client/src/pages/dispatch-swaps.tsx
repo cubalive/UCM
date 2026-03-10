@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { apiFetch } from "@/lib/api";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -181,7 +182,7 @@ export default function DispatchSwapsPage() {
                       <p className="text-muted-foreground text-xs" data-testid={`text-swap-reason-${swap.id}`}>
                         Reason: {swap.reason}
                       </p>
-                      <p className="text-xs text-muted-foreground/60">Submitted {new Date(swap.createdAt).toLocaleDateString()}</p>
+                      <p className="text-xs text-muted-foreground/60">Submitted {formatDate(swap.createdAt)}</p>
                     </div>
                     {swap.targetDecisionNote && (
                       <div className="text-xs bg-muted/50 rounded-md px-2 py-1" data-testid={`text-swap-target-note-${swap.id}`}>

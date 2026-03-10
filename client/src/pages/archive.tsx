@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { Archive, RotateCcw, Trash2, Search, Building2, UserCheck, HeartPulse, Users, Copy, KeyRound, Route, Car, PackageOpen, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { formatPickupTimeDisplay } from "@/lib/timezone";
+import { formatPickupTimeDisplay, formatDate, formatDateTime } from "@/lib/timezone";
 
 type EntityTab = "clinics" | "drivers" | "patients" | "users" | "trips" | "vehicles";
 
@@ -171,7 +171,7 @@ export default function ArchivePage() {
               </div>
               {item.deletedAt && (
                 <p className="text-xs text-muted-foreground">
-                  Deleted: {new Date(item.deletedAt).toLocaleDateString()}
+                  Deleted: {formatDate(item.deletedAt)}
                 </p>
               )}
             </div>

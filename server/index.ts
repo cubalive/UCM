@@ -9,6 +9,9 @@ import { createServer } from "http";
 import { recordRequest as recordReqMetric } from "./lib/requestMetrics";
 import { tracingMiddleware } from "./lib/requestTracing";
 import { tenantGuard } from "./lib/tenantGuard";
+import { phiAuditMiddleware } from "./middleware/phiAudit";
+import { inputSanitizer } from "./middleware/inputSanitizer";
+import { apiRateLimiter } from "./middleware/rateLimiter";
 
 const app = express();
 const httpServer = createServer(app);
@@ -163,7 +166,10 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 });
 
 app.use(tracingMiddleware);
+app.use(inputSanitizer);
+app.use("/api", apiRateLimiter);
 app.use(tenantGuard);
+app.use(phiAuditMiddleware);
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -675,6 +681,26 @@ app.use((req, res, next) => {
     `);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trip_route_events_trip ON trip_route_events(trip_id, ts)`);
 
+    // Service type enum + column for trips (NEMT service types)
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        CREATE TYPE service_type AS ENUM ('transport','delivery');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    `);
+    // Add new NEMT service types to existing enum
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'ambulatory';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'wheelchair';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'stretcher';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'bariatric';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'gurney';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'long_distance';
+        ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'multi_load';
+      END $$
+    `);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS service_type service_type NOT NULL DEFAULT 'transport'`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);
@@ -876,17 +902,40 @@ app.use((req, res, next) => {
   registerSmsAdminRoutes(app);
 
 
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    const message = status < 500 ? err.message : "Internal Server Error";
 
-    console.error("Internal Server Error:", err);
+    // Structured error logging for monitoring/alerting
+    const errorEntry: Record<string, unknown> = {
+      event: "unhandled_error",
+      severity: status >= 500 ? "ERROR" : "WARN",
+      status,
+      method: req.method,
+      path: req.path,
+      requestId: req.requestId,
+      error: err.message,
+      stack: status >= 500 ? err.stack?.slice(0, 2000) : undefined,
+      userId: (req as any).user?.userId,
+      companyId: (req as any).user?.companyId,
+      ts: new Date().toISOString(),
+    };
+    if (status >= 500) {
+      console.error(JSON.stringify(errorEntry));
+    } else {
+      console.warn(JSON.stringify(errorEntry));
+    }
 
     if (res.headersSent) {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    // Never leak internal error details to client in production
+    return res.status(status).json({
+      message,
+      code: err.code || (status >= 500 ? "INTERNAL_ERROR" : undefined),
+      requestId: req.requestId,
+    });
   });
 
   if (process.env.NODE_ENV === "production") {

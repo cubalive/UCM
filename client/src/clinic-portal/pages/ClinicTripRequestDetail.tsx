@@ -4,6 +4,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import {
   ArrowLeft,
   MapPin,
@@ -146,7 +147,7 @@ export default function ClinicTripRequestDetail() {
           <h1 className="text-xl font-bold text-white" data-testid="text-request-title">
             Trip Request #{request.publicId}
           </h1>
-          <p className="text-xs text-gray-500">Created {new Date(request.createdAt).toLocaleDateString()}</p>
+          <p className="text-xs text-gray-500">Created {formatDate(request.createdAt)}</p>
         </div>
         <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border ${statusColor(request.status)}`} data-testid="text-request-status">
           <StatusIcon status={request.status} />

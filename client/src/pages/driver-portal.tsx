@@ -40,7 +40,7 @@ import { useSoundNotifications } from "@/hooks/use-sound-notifications";
 import { evaluatePrompts, acknowledgePrompt, cleanOldPromptRecords, type SmartPrompt } from "@/lib/smartPrompts";
 import { notify, enableSoundsOnUserGesture, initAudioContext, type NotificationEvent } from "@/lib/notificationManager";
 import { useDriverWs, type DriverWsEvent } from "@/hooks/use-driver-ws";
-import { formatPickupTimeDisplay } from "@/lib/timezone";
+import { formatPickupTimeDisplay, formatDate, formatDateTime } from "@/lib/timezone";
 import {
   Home,
   Car,
@@ -2930,7 +2930,7 @@ function SettingsPage({ driver, vehicle, token, isDriverOnline, isConnected, isO
       <div className="text-center text-xs text-muted-foreground pt-4" data-testid="text-app-version">
         UCM Driver Portal v{versionQuery.data?.version || "2.0"}
         {versionQuery.data?.builtAt && (
-          <span className="block text-[10px] opacity-60">Build: {new Date(versionQuery.data.builtAt).toLocaleDateString()}</span>
+          <span className="block text-[10px] opacity-60">Build: {formatDate(versionQuery.data.builtAt)}</span>
         )}
       </div>
 
