@@ -2,8 +2,8 @@ import express, { type Response } from "express";
 import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { trips, drivers, vehicles, patients, clinics, invoices } from "@shared/schema";
-import { sql, eq, and, gte, lte, count, sum, desc, inArray } from "drizzle-orm";
+import { trips, drivers, vehicles, patients, clinics, invoices, cities } from "@shared/schema";
+import { sql, eq, and, gte, lte, count, sum, desc, inArray, isNull, isNotNull } from "drizzle-orm";
 
 const router = express.Router();
 
@@ -272,7 +272,39 @@ router.get(
           name: "Trips without city assignment",
           status: cnt === 0 ? "ok" : "warning",
           detail: cnt === 0 ? "All trips have a city" : `${cnt} trips have no city assigned`,
-          fixable: false,
+          fixable: cnt > 0,
+          fixAction: cnt > 0 ? "assign-default-city-to-trips" : undefined,
+        });
+      } catch {}
+
+      // Check stuck trips (IN_PROGRESS for more than 8 hours)
+      try {
+        const stuckTrips = await db.execute(sql`
+          SELECT COUNT(*) as cnt
+          FROM ${trips} t
+          WHERE t.status = 'IN_PROGRESS'
+          AND t.updated_at < NOW() - INTERVAL '8 hours'
+        `);
+        const cnt = Number((stuckTrips as any).rows?.[0]?.cnt || 0);
+        integrityChecks.push({
+          name: "Stuck trips (IN_PROGRESS > 8h)",
+          status: cnt === 0 ? "ok" : cnt <= 3 ? "warning" : "critical",
+          detail: cnt === 0 ? "No stuck trips" : `${cnt} trips stuck in IN_PROGRESS for over 8 hours`,
+          fixable: cnt > 0,
+          fixAction: cnt > 0 ? "reset-stuck-trips" : undefined,
+        });
+      } catch {}
+
+      // Check Job Engine status
+      try {
+        const { isJobEngineRunning } = await import("../lib/jobEngine");
+        const running = isJobEngineRunning();
+        integrityChecks.push({
+          name: "Job Engine",
+          status: running ? "ok" : "critical",
+          detail: running ? "Job engine is running" : "Job engine is stopped — background tasks are not processing",
+          fixable: !running,
+          fixAction: !running ? "restart-job-engine" : undefined,
         });
       } catch {}
 
@@ -386,6 +418,72 @@ router.post(
               affected: 0,
             });
           }
+          break;
+        }
+
+        case "restart-job-engine": {
+          try {
+            const { stopJobEngine, startJobEngine, isJobEngineRunning } = await import("../lib/jobEngine");
+            if (isJobEngineRunning()) {
+              stopJobEngine();
+            }
+            startJobEngine();
+            res.json({
+              success: true,
+              action,
+              message: "Job engine restarted successfully. Background tasks are now processing.",
+              affected: 0,
+            });
+          } catch (engineErr: any) {
+            res.json({
+              success: false,
+              action,
+              message: `Failed to restart job engine: ${engineErr.message}`,
+              affected: 0,
+            });
+          }
+          break;
+        }
+
+        case "reset-stuck-trips": {
+          const result = await db.execute(sql`
+            UPDATE ${trips}
+            SET status = 'SCHEDULED', driver_id = NULL, updated_at = NOW()
+            WHERE status = 'IN_PROGRESS'
+            AND updated_at < NOW() - INTERVAL '8 hours'
+          `);
+          const affected = (result as any).rowCount || 0;
+          res.json({
+            success: true,
+            action,
+            message: `Reset ${affected} stuck trips back to SCHEDULED and unassigned driver`,
+            affected,
+          });
+          break;
+        }
+
+        case "assign-default-city-to-trips": {
+          // Assign trips to the first city in their company, or the first city overall
+          const result = await db.execute(sql`
+            UPDATE ${trips} t
+            SET city_id = (
+              SELECT c.id FROM ${cities} c
+              WHERE c.company_id = t.company_id
+              ORDER BY c.id ASC
+              LIMIT 1
+            )
+            WHERE t.city_id IS NULL
+            AND EXISTS (
+              SELECT 1 FROM ${cities} c WHERE c.company_id = t.company_id
+            )
+          `);
+          const affected = (result as any).rowCount || 0;
+          res.json({
+            success: true,
+            action,
+            message: `Assigned default city to ${affected} trips based on their company`,
+            affected,
+          });
           break;
         }
 
