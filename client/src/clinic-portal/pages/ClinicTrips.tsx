@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useState, useMemo } from "react";
 import {
   Car,
@@ -182,7 +183,7 @@ function TripDrawer({ trip, onClose }: TripDrawerProps) {
                       </p>
                       {step.time && (
                         <p className="text-[10px] text-gray-500 mt-0.5">
-                          {new Date(step.time).toLocaleString()}
+                          {formatDateTime(step.time)}
                         </p>
                       )}
                     </div>

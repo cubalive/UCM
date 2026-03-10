@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { apiFetch, resolveUrl } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -895,7 +896,7 @@ function SmokeTestPanel({ token }: { token: string | null }) {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">
-                      {new Date(run.startedAt).toLocaleString()}
+                      {formatDateTime(run.startedAt)}
                     </span>
                     {isExpanded ? (
                       <ChevronDown className="w-4 h-4" />
@@ -1046,7 +1047,7 @@ function ImportRunsPanel({ token }: { token: string | null }) {
                       )}
                     </TableCell>
                     <TableCell className="text-xs">
-                      {new Date(imp.createdAt).toLocaleDateString()}
+                      {formatDate(imp.createdAt)}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">

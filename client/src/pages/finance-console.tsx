@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,7 +42,7 @@ function fmt(cents: number): string {
 }
 
 function fmtDate(date: string): string {
-  return new Date(date).toLocaleDateString();
+  return formatDate(date);
 }
 
 function DashboardTab() {

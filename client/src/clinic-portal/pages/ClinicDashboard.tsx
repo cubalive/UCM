@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { Link, useLocation } from "wouter";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { playSound } from "@/hooks/use-sound-notifications";
@@ -602,7 +603,7 @@ export default function ClinicDashboard() {
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">
           <Clock className="w-3.5 h-3.5" />
-          {new Date().toLocaleDateString("en-US", { timeZone: clinicTimezone, weekday: "long", month: "long", day: "numeric" })}
+          {formatDate(new Date())}
         </div>
       </div>
 

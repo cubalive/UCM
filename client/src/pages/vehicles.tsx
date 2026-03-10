@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
@@ -230,7 +231,7 @@ export default function VehiclesPage() {
                     )}
                     {v.lastServiceDate && (
                       <p className="text-xs text-muted-foreground" data-testid={`text-vehicle-service-date-${v.id}`}>
-                        Last service: {new Date(v.lastServiceDate).toLocaleDateString()}
+                        Last service: {formatDate(v.lastServiceDate)}
                       </p>
                     )}
                     {v.status !== "ACTIVE" && v.maintenanceNotes && (

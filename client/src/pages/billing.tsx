@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
@@ -513,7 +514,7 @@ export default function BillingPage() {
                       </TableCell>
                       <TableCell className="text-sm" data-testid={`text-inv-due-${inv.id}`}>
                         {inv.dueDate
-                          ? new Date(inv.dueDate).toLocaleDateString()
+                          ? formatDate(inv.dueDate)
                           : "-"}
                       </TableCell>
                       <TableCell>
@@ -596,7 +597,7 @@ export default function BillingPage() {
                   <span className="text-muted-foreground">Due Date:</span>{" "}
                   <span className="font-medium" data-testid="text-detail-due">
                     {detailInvoice.dueDate
-                      ? new Date(detailInvoice.dueDate).toLocaleDateString()
+                      ? formatDate(detailInvoice.dueDate)
                       : "-"}
                   </span>
                 </div>
@@ -634,7 +635,7 @@ export default function BillingPage() {
                   <div>
                     <span className="text-muted-foreground">Finalized At:</span>{" "}
                     <span className="font-medium" data-testid="text-detail-finalized">
-                      {new Date(detailInvoice.finalizedAt).toLocaleString()}
+                      {formatDateTime(detailInvoice.finalizedAt)}
                     </span>
                   </div>
                 )}

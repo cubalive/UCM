@@ -3,6 +3,7 @@ import { useRoute, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { downloadWithAuth } from "@/lib/export";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -53,20 +54,6 @@ const STATUS_LABELS: Record<string, string> = {
   NO_SHOW: "No Show",
 };
 
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "";
-  try {
-    const [y, m, d] = dateStr.split("-").map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return dateStr || "";
-  }
-}
 
 function fmtTimestamp(isoStr: string | Date | null | undefined): string {
   if (!isoStr) return "\u2014";
@@ -112,7 +99,7 @@ function ClinicTripSignatures({ tripId, token }: { tripId: number; token: string
               {data?.driverSigned ? (
                 <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 text-sm">
                   <CheckCircle className="w-3.5 h-3.5" />
-                  Signed {data.driverSignedAt ? new Date(data.driverSignedAt).toLocaleDateString() : ""}
+                  Signed {data.driverSignedAt ? formatDate(data.driverSignedAt) : ""}
                 </span>
               ) : (
                 <span className="text-sm text-muted-foreground">Not signed</span>
@@ -125,7 +112,7 @@ function ClinicTripSignatures({ tripId, token }: { tripId: number; token: string
               {data?.clinicSigned ? (
                 <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 text-sm">
                   <CheckCircle className="w-3.5 h-3.5" />
-                  Signed {data.clinicSignedAt ? new Date(data.clinicSignedAt).toLocaleDateString() : ""}
+                  Signed {data.clinicSignedAt ? formatDate(data.clinicSignedAt) : ""}
                 </span>
               ) : (
                 <span className="text-sm text-muted-foreground">Not signed</span>

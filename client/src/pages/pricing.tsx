@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth, authHeaders } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch, resolveUrl } from "@/lib/api";
@@ -528,7 +529,7 @@ export default function PricingPage() {
                             )}
                           </div>
                           <div className="flex flex-row flex-wrap items-center gap-2 mt-1 text-muted-foreground">
-                            <span>{new Date(entry.changedAt).toLocaleString()}</span>
+                            <span>{formatDateTime(entry.changedAt)}</span>
                             {entry.note && <Badge variant="secondary" className="text-[10px]">{entry.note}</Badge>}
                           </div>
                         </div>

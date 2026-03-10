@@ -10,6 +10,7 @@ import {
   Hourglass,
   Gauge,
 } from "lucide-react";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 
 interface ProgressEvent {
   key: string;
@@ -48,7 +49,7 @@ function formatTimestamp(dateStr: string | null | undefined, tripDate?: string):
     if (tripDate) {
       const eventDate = d.toISOString().slice(0, 10);
       if (eventDate !== tripDate) {
-        return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${timeStr}`;
+        return `${formatDate(d)}, ${timeStr}`;
       }
     }
     return timeStr;
@@ -76,12 +77,7 @@ function formatTripDateTime(scheduledDate: string, pickupTime: string): string {
   try {
     const [year, month, day] = scheduledDate.split("-").map(Number);
     const d = new Date(year, month - 1, day);
-    const dateStr = d.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    const dateStr = formatDate(d);
 
     if (pickupTime) {
       const [h, m] = pickupTime.split(":").map(Number);

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { rawAuthFetch } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -172,7 +173,7 @@ export default function DataImportPage() {
                   Company #{job.companyId} {job.cityId ? `| City #${job.cityId}` : ""}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {new Date(job.createdAt).toLocaleString()}
+                  {formatDateTime(job.createdAt)}
                 </div>
               </CardContent>
             </Card>
@@ -556,7 +557,7 @@ function JobDetailPanel({ job, isLoading, onRefresh }: { job: any; isLoading: bo
             <span>ID: {job.id.slice(0, 8)}...</span>
             <span>Company: #{job.companyId}</span>
             {job.cityId && <span>City: #{job.cityId}</span>}
-            <span>Created: {new Date(job.createdAt).toLocaleString()}</span>
+            <span>Created: {formatDateTime(job.createdAt)}</span>
           </div>
 
           <div className="flex gap-2 flex-wrap pt-2">

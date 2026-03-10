@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useTripRealtime } from "@/hooks/use-trip-realtime";
@@ -3315,7 +3316,7 @@ function ScoreTrendChart({ token }: { token: string | null }) {
   if (!data?.history?.length) return <p className="text-xs text-muted-foreground text-center py-2">No score history yet</p>;
 
   const chartData = data.history.map(h => ({
-    week: h.weekStart ? new Date(h.weekStart).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "",
+    week: h.weekStart ? formatDate(h.weekStart) : "",
     score: h.overallScore ?? 0,
     completion: h.completionRate ?? 0,
     onTime: h.onTimeRate ?? 0,

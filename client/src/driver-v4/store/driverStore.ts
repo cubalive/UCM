@@ -43,6 +43,8 @@ export interface TripOffer {
   patientName: string | null;
   secondsRemaining: number;
   expiresAt: string;
+  etaToPickupMinutes?: number;
+  estimatedTripMinutes?: number;
 }
 
 export interface NextAction {
@@ -77,6 +79,7 @@ interface DriverState {
   setOffline: () => Promise<void>;
   startShift: () => Promise<void>;
   endShift: () => Promise<void>;
+  connectAndStartShift: () => Promise<void>;
   acceptOffer: () => Promise<void>;
   declineOffer: () => Promise<void>;
   advanceTripStatus: (newStatus: string) => Promise<void>;
@@ -233,6 +236,22 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     }
   },
 
+  connectAndStartShift: async () => {
+    const s = get();
+    try {
+      if (s.driverStatus === "offline") {
+        await driverApi("/api/driver/me/active", { method: "POST", body: JSON.stringify({ active: true }) });
+        set({ driverStatus: "online" });
+      }
+      if (s.shiftStatus === "offShift" || get().shiftStatus === "offShift") {
+        await driverApi("/api/driver/shift/start", { method: "POST", body: "{}" });
+        set({ shiftStatus: "onShift" });
+      }
+    } catch (err: any) {
+      set({ error: err.message });
+    }
+  },
+
   acceptOffer: async () => {
     const offer = get().pendingOffer;
     if (!offer) return;
@@ -300,8 +319,13 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       const offers = data.offers || [];
       if (offers.length > 0) {
         const offer = offers[0];
+        const enrichedOffer = {
+          ...offer,
+          etaToPickupMinutes: offer.etaToPickupMinutes || offer.lastEtaMinutes || 12,
+          estimatedTripMinutes: offer.estimatedTripMinutes || offer.tripDurationMinutes || 25,
+        };
         set({
-          pendingOffer: offer,
+          pendingOffer: enrichedOffer,
           tripPhase: "offer",
           activeTrip: {
             id: offer.publicId || String(offer.tripId),
@@ -312,9 +336,9 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             dropoffLatLng: { lat: Number(offer.dropoffLat) || 0, lng: Number(offer.dropoffLng) || 0 },
             passengerName: offer.patientName || "Patient",
             notes: "",
-            etaMinutes: 15,
+            etaMinutes: enrichedOffer.etaToPickupMinutes,
             tripType: "Medical",
-            routePolyline: null,
+            routePolyline: offer.routePolyline || null,
           },
         });
       }

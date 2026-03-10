@@ -41,7 +41,7 @@ import { TripProgressTimeline, TripDateTimeHeader, TripMetricsCard } from "@/com
 import { PatientRef, DriverRef, VehicleRef, ClinicRef } from "@/components/entity-ref";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { EmptyState } from "@/components/empty-state";
-import { formatPickupTimeDisplay, formatTripDateTime, getTripTz, tzAbbreviation } from "@/lib/timezone";
+import { formatPickupTimeDisplay, formatTripDateTime, getTripTz, tzAbbreviation, formatDate, formatDateTime } from "@/lib/timezone";
 
 function normalizePhoneToE164(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -1110,7 +1110,7 @@ function TripEventsSection({ tripId, token }: { tripId: number; token: string | 
                 <span className="text-xs text-muted-foreground italic">{evt.notes}</span>
               )}
               <span className="text-xs text-muted-foreground ml-auto">
-                {new Date(evt.createdAt).toLocaleString()}
+                {formatDateTime(evt.createdAt)}
               </span>
             </div>
           ))}
@@ -1389,7 +1389,7 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
         <div className="flex items-center gap-3 flex-wrap">
           <span data-testid="text-invoice-patient">{invoice.patientName}</span>
           <span data-testid="text-invoice-service-date">{invoice.serviceDate}</span>
-          <span data-testid="text-invoice-created">Created: {new Date(invoice.createdAt).toLocaleDateString()}</span>
+          <span data-testid="text-invoice-created">Created: {formatDate(invoice.createdAt)}</span>
         </div>
         {invoice.notes && (
           <p data-testid="text-invoice-notes" className="italic">Notes: {invoice.notes}</p>
@@ -1461,7 +1461,7 @@ function TripInvoicePanel({ tripId, tripStatus, token, userRole }: { tripId: num
           )}
           {invoice.emailStatus === "sent" && invoice.emailSentAt && (
             <span data-testid="text-invoice-email-sent-at">
-              Sent: {new Date(invoice.emailSentAt).toLocaleString()}
+              Sent: {formatDateTime(invoice.emailSentAt)}
             </span>
           )}
           {invoice.emailStatus === "failed" && (

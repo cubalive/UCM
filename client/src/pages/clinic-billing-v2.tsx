@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
@@ -217,7 +218,7 @@ export default function ClinicBillingV2Page() {
                           {inv.paymentStatus || "unpaid"}
                         </Badge>
                       </TableCell>
-                      <TableCell>{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "-"}</TableCell>
+                      <TableCell>{inv.dueDate ? formatDate(inv.dueDate) : "-"}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Button size="icon" variant="ghost" onClick={() => setShowDetail(inv.id)} data-testid={`button-view-invoice-${inv.id}`}>
@@ -286,7 +287,7 @@ export default function ClinicBillingV2Page() {
                   {detail.invoice.dueDate && (
                     <div>
                       <p className="text-sm text-muted-foreground">Due Date</p>
-                      <p>{new Date(detail.invoice.dueDate).toLocaleDateString()}</p>
+                      <p>{formatDate(detail.invoice.dueDate)}</p>
                     </div>
                   )}
                   {detail.invoice.amountPaidCents > 0 && (

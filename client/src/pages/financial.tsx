@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -85,10 +86,7 @@ export default function FinancialPage() {
   // Prepare chart data from range days
   const chartDays = (rangeData?.days || []).map((d: any) => ({
     ...d,
-    label: new Date(d.date).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    }),
+    label: formatDate(d.date),
     revenue: d.estimatedRevenue,
   }));
 

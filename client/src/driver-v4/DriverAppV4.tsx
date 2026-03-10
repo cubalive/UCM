@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Home, Map, DollarSign, User } from "lucide-react";
+import {
+  Home, Map, DollarSign, User, X, Navigation,
+  Car, Shield, FileText, Phone, Settings, LogOut
+} from "lucide-react";
 import { useReducedMotion } from "./design/accessibility";
 import { colors } from "./design/tokens";
 import { glowColor } from "./design/theme";
@@ -15,85 +18,189 @@ import { Profile } from "./screens/Profile";
 
 type Screen = "onboarding" | "dashboard" | "activeTrip" | "earnings" | "profile";
 
-const TAB_ITEMS: { key: Screen; icon: typeof Home; label: string }[] = [
-  { key: "dashboard", icon: Home, label: "Home" },
-  { key: "activeTrip", icon: Map, label: "Trip" },
-  { key: "earnings", icon: DollarSign, label: "Earn" },
-  { key: "profile", icon: User, label: "Profile" },
-];
-
-function BottomTabBar({
-  activeTab,
-  onTabPress,
+/* ─── Slide-out Drawer Menu ─── */
+function DrawerMenu({
+  isOpen,
+  onClose,
+  onNavigate,
+  activeScreen,
 }: {
-  activeTab: Screen;
-  onTabPress: (tab: Screen) => void;
+  isOpen: boolean;
+  onClose: () => void;
+  onNavigate: (screen: Screen) => void;
+  activeScreen: Screen;
 }) {
   const reduced = useReducedMotion();
+  const driverName = useDriverStore((s) => s.driverName);
+  const driverInitials = useDriverStore((s) => s.driverInitials);
+  const rating = useDriverStore((s) => s.rating);
+  const completedRides = useDriverStore((s) => s.completedRides);
+  const earningsWeek = useDriverStore((s) => s.earningsWeek);
+  const driverStatus = useDriverStore((s) => s.driverStatus);
+  const shiftStatus = useDriverStore((s) => s.shiftStatus);
+
+  const menuItems: { key: Screen; icon: typeof Home; label: string }[] = [
+    { key: "dashboard", icon: Home, label: "Home" },
+    { key: "activeTrip", icon: Map, label: "Active Trip" },
+    { key: "earnings", icon: DollarSign, label: "Earnings" },
+    { key: "profile", icon: User, label: "Profile & Settings" },
+  ];
+
+  const handleNav = (screen: Screen) => {
+    onNavigate(screen);
+    onClose();
+  };
 
   return (
-    <div
-      className="fixed bottom-0 left-0 right-0 z-50 flex justify-center"
-      style={{ pointerEvents: "none" }}
-    >
-      <nav
-        className="flex items-center gap-1 px-3 py-2 mb-4 rounded-3xl max-w-[320px]"
-        style={{
-          background: "rgba(10,0,21,0.85)",
-          backdropFilter: "blur(30px)",
-          WebkitBackdropFilter: "blur(30px)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
-          pointerEvents: "all",
-        }}
-        data-testid="bottom-tab-bar"
-      >
-        {TAB_ITEMS.map((item) => {
-          const isActive = activeTab === item.key;
-          const Icon = item.icon;
-          return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            className="fixed inset-0 z-[100]"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+          />
+          {/* Drawer panel */}
+          <motion.div
+            className="fixed top-0 left-0 bottom-0 z-[101] w-[280px] flex flex-col"
+            style={{
+              background: "linear-gradient(135deg, #0a0015 0%, #0d001a 50%, #000000 100%)",
+              borderRight: `1px solid ${glowColor(colors.neonCyan, 0.15)}`,
+              boxShadow: `4px 0 40px rgba(0,0,0,0.8), 0 0 30px ${glowColor(colors.neonCyan, 0.05)}`,
+            }}
+            initial={reduced ? {} : { x: -280 }}
+            animate={{ x: 0 }}
+            exit={reduced ? {} : { x: -280 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          >
+            {/* Close button */}
             <button
-              key={item.key}
-              onClick={() => onTabPress(item.key)}
-              className="flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-2xl transition-all"
-              style={{
-                background: isActive ? glowColor(colors.neonCyan, 0.12) : "transparent",
-                minWidth: 56,
-              }}
-              data-testid={`tab-${item.key}`}
-              aria-label={item.label}
+              onClick={onClose}
+              className="absolute top-4 right-4 p-1 rounded-full"
+              style={{ background: "rgba(255,255,255,0.08)" }}
+              data-testid="btn-close-drawer"
             >
-              <motion.div
-                animate={isActive && !reduced ? { scale: [1, 1.15, 1] } : {}}
-                transition={{ duration: 0.3 }}
-              >
-                <Icon
-                  className="w-5 h-5"
-                  style={{
-                    color: isActive ? colors.neonCyan : colors.textTertiary,
-                    filter: isActive ? `drop-shadow(0 0 6px ${glowColor(colors.neonCyan, 0.5)})` : "none",
-                  }}
-                />
-              </motion.div>
-              <span
-                className="text-[9px] font-semibold tracking-wider uppercase"
+              <X className="w-5 h-5" style={{ color: colors.textSecondary }} />
+            </button>
+
+            {/* Driver profile header */}
+            <div className="px-5 pt-8 pb-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <div
+                className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold mb-3"
                 style={{
-                  color: isActive ? colors.neonCyan : colors.textTertiary,
+                  background: `linear-gradient(135deg, ${colors.neonCyan}, ${colors.neonPurple})`,
+                  color: "#000",
+                  boxShadow: `0 0 20px ${glowColor(colors.neonCyan, 0.3)}`,
                   fontFamily: "'Space Grotesk', system-ui",
                 }}
               >
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
-    </div>
+                {driverInitials || "DR"}
+              </div>
+              <p className="text-base font-bold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
+                {driverName || "Driver"}
+              </p>
+              <div className="flex items-center gap-3 mt-1.5">
+                <span className="text-xs flex items-center gap-1" style={{ color: colors.warningNeon }}>
+                  ★ {rating.toFixed(1)}
+                </span>
+                <span className="text-xs" style={{ color: colors.textTertiary }}>
+                  {completedRides} rides
+                </span>
+              </div>
+              {/* Quick stats */}
+              <div className="flex gap-3 mt-3">
+                <div className="flex-1 py-2 rounded-xl text-center" style={{ background: "rgba(255,255,255,0.05)" }}>
+                  <p className="text-sm font-bold" style={{ color: colors.neonCyan, fontFamily: "'Space Grotesk', system-ui" }}>
+                    ${earningsWeek.toFixed(0)}
+                  </p>
+                  <p className="text-[8px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>This Week</p>
+                </div>
+                <div className="flex-1 py-2 rounded-xl text-center" style={{ background: "rgba(255,255,255,0.05)" }}>
+                  <p className="text-sm font-bold" style={{
+                    color: driverStatus === "online" && shiftStatus === "onShift" ? colors.successNeon : colors.textTertiary,
+                    fontFamily: "'Space Grotesk', system-ui",
+                  }}>
+                    {driverStatus === "online" ? (shiftStatus === "onShift" ? "ON" : "ONLINE") : "OFF"}
+                  </p>
+                  <p className="text-[8px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>Status</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Navigation items */}
+            <div className="flex-1 py-3 px-3">
+              {menuItems.map((item) => {
+                const isActive = activeScreen === item.key;
+                const Icon = item.icon;
+                return (
+                  <motion.button
+                    key={item.key}
+                    onClick={() => handleNav(item.key)}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl mb-1 transition-colors"
+                    style={{
+                      background: isActive ? glowColor(colors.neonCyan, 0.1) : "transparent",
+                      border: isActive ? `1px solid ${glowColor(colors.neonCyan, 0.15)}` : "1px solid transparent",
+                    }}
+                    whileTap={{ scale: 0.97 }}
+                    data-testid={`menu-${item.key}`}
+                  >
+                    <div
+                      className="w-8 h-8 rounded-xl flex items-center justify-center"
+                      style={{
+                        background: isActive ? glowColor(colors.neonCyan, 0.15) : "rgba(255,255,255,0.05)",
+                      }}
+                    >
+                      <Icon
+                        className="w-4 h-4"
+                        style={{
+                          color: isActive ? colors.neonCyan : colors.textTertiary,
+                          filter: isActive ? `drop-shadow(0 0 4px ${colors.neonCyan})` : "none",
+                        }}
+                      />
+                    </div>
+                    <span
+                      className="text-sm font-medium"
+                      style={{
+                        color: isActive ? colors.neonCyan : colors.textPrimary,
+                        fontFamily: "'Space Grotesk', system-ui",
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                  </motion.button>
+                );
+              })}
+            </div>
+
+            {/* Bottom section */}
+            <div className="px-5 pb-6" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <button
+                className="flex items-center gap-3 w-full py-3 mt-2"
+                style={{ color: colors.textTertiary }}
+                data-testid="menu-support"
+              >
+                <Phone className="w-4 h-4" />
+                <span className="text-sm">Support</span>
+              </button>
+              <p className="text-[9px] mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>
+                UCM Driver • v4.0
+              </p>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
 
+/* ─── Main App Container ─── */
 export function DriverAppV4() {
   const [screen, setScreen] = useState<Screen>("onboarding");
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const reduced = useReducedMotion();
   const tripPhase = useDriverStore((s) => s.tripPhase);
   const { user, token } = useAuth();
@@ -140,7 +247,18 @@ export function DriverAppV4() {
     return () => { if (geoRef.current !== null) navigator.geolocation.clearWatch(geoRef.current); };
   }, [isAuthenticated, updateLocation]);
 
+  // Auto-navigate to active trip screen when trip is accepted
+  useEffect(() => {
+    if (tripPhase === "toPickup" && screen === "dashboard") {
+      // Stay on dashboard — the active trip card with navigation shows on the map
+    }
+  }, [tripPhase, screen]);
+
   const navigate = useCallback((target: string) => {
+    if (target === "menu") {
+      setDrawerOpen(true);
+      return;
+    }
     setScreen(target as Screen);
   }, []);
 
@@ -153,15 +271,24 @@ export function DriverAppV4() {
   }
 
   return (
-    <div className="relative" style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh" }}>
+    <div className="relative" style={{ maxWidth: 430, margin: "0 auto", height: "100vh", maxHeight: "100dvh", overflow: "hidden" }}>
+      {/* Drawer menu */}
+      <DrawerMenu
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onNavigate={(s) => setScreen(s)}
+        activeScreen={screen}
+      />
+
+      {/* Screen content — no bottom padding needed, map fills all */}
       <AnimatePresence mode="wait">
         <motion.div
           key={screen}
-          initial={reduced ? {} : { opacity: 0, x: 10 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={reduced ? {} : { opacity: 0, x: -10 }}
-          transition={{ duration: 0.2 }}
-          className="pb-20"
+          initial={reduced ? {} : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={reduced ? {} : { opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          style={{ height: "100%" }}
         >
           {screen === "dashboard" && (
             <Dashboard onNavigate={navigate} />
@@ -177,8 +304,6 @@ export function DriverAppV4() {
           )}
         </motion.div>
       </AnimatePresence>
-
-      <BottomTabBar activeTab={screen} onTabPress={setScreen} />
     </div>
   );
 }

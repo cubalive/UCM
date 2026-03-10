@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,7 @@ function formatWeekLabel(weekStart: string): string {
   const end = new Date(start);
   end.setDate(end.getDate() + 6);
   const opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
-  return `${start.toLocaleDateString("en-US", opts)} - ${end.toLocaleDateString("en-US", opts)}`;
+  return `${formatDate(start)} - ${formatDate(end)}`;
 }
 
 function formatCents(cents: number): string {
@@ -289,7 +290,7 @@ export default function DriverEarningsPage() {
                               </Badge>
                             </TableCell>
                             <TableCell data-testid={`text-trip-completed-${trip.tripId}`}>
-                              {new Date(trip.completedAt).toLocaleString()}
+                              {formatDateTime(trip.completedAt)}
                             </TableCell>
                             <TableCell className="font-medium" data-testid={`text-trip-payout-${trip.tripId}`}>
                               {formatCents(trip.payoutCents)}
@@ -338,7 +339,7 @@ export default function DriverEarningsPage() {
                                 {adj.relatedTripId ? `#${adj.relatedTripId}` : "-"}
                               </TableCell>
                               <TableCell data-testid={`text-adj-date-${adj.id}`}>
-                                {new Date(adj.periodDate).toLocaleDateString()}
+                                {formatDate(adj.periodDate)}
                               </TableCell>
                               <TableCell>
                                 <Tooltip>

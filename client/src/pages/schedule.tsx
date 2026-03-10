@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -124,7 +125,7 @@ function getNextSunday(): string {
 
 function formatDateLabel(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00Z");
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" });
+  return formatDate(d);
 }
 
 function WeeklyScheduleTab({ cityId, token }: { cityId: number; token: string }) {
@@ -990,7 +991,7 @@ function ChangeRequestsTab({ cityId, token }: { cityId: number; token: string })
                         <p>Shift: {req.requestedShiftStart || "—"} - {req.requestedShiftEnd || "—"}</p>
                       )}
                       <p data-testid={`text-cr-reason-${req.id}`}>Reason: {req.reason}</p>
-                      <p className="text-xs text-muted-foreground/60">Submitted {new Date(req.createdAt).toLocaleDateString()}</p>
+                      <p className="text-xs text-muted-foreground/60">Submitted {formatDate(req.createdAt)}</p>
                     </div>
                     {req.decisionNote && (
                       <div className="text-xs bg-muted/50 rounded-md px-2 py-1" data-testid={`text-cr-decision-${req.id}`}>

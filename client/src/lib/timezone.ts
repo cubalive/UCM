@@ -35,3 +35,29 @@ export function getCityTzFromTrip(trip: { tripTimezone?: string | null } | null,
   }
   return "America/Chicago";
 }
+
+/** Format any date-like value to MM/DD/YYYY */
+export function formatDate(value: string | Date | null | undefined): string {
+  if (!value) return "N/A";
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (isNaN(d.getTime())) return "N/A";
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${mm}/${dd}/${yyyy}`;
+}
+
+/** Format any date-like value to MM/DD/YYYY HH:MM AM/PM */
+export function formatDateTime(value: string | Date | null | undefined): string {
+  if (!value) return "N/A";
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (isNaN(d.getTime())) return "N/A";
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const hours = d.getHours();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const h12 = hours % 12 || 12;
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}/${dd}/${yyyy} ${h12}:${min} ${ampm}`;
+}

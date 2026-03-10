@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -443,7 +444,7 @@ export default function PublishCenterPage() {
 
                 {pub.publishedAt && (
                   <p className="text-xs text-muted-foreground">
-                    Published: {new Date(pub.publishedAt).toLocaleString()}
+                    Published: {formatDateTime(pub.publishedAt)}
                   </p>
                 )}
               </CardContent>

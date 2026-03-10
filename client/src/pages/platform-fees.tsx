@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
@@ -188,7 +189,7 @@ function formatCentsVal(cents: number | null): string {
 
 function formatDateVal(d: string | null): string {
   if (!d) return "-";
-  return new Date(d).toLocaleDateString();
+  return formatDate(d);
 }
 
 const emptyFeeRuleForm = {
@@ -854,7 +855,7 @@ export default function PlatformFeesPage() {
                                 <span className="text-sm text-muted-foreground">Next Bill Date</span>
                                 <span className="text-sm font-medium" data-testid="text-next-bill">
                                   {detail.subscription.currentPeriodEnd
-                                    ? new Date(detail.subscription.currentPeriodEnd).toLocaleDateString()
+                                    ? formatDate(detail.subscription.currentPeriodEnd)
                                     : "—"}
                                 </span>
                               </div>
@@ -977,7 +978,7 @@ export default function PlatformFeesPage() {
                           </TableCell>
                           <TableCell data-testid={`text-sub-period-${row.subscription.companyId}`}>
                             {row.subscription.currentPeriodEnd
-                              ? new Date(row.subscription.currentPeriodEnd).toLocaleDateString()
+                              ? formatDate(row.subscription.currentPeriodEnd)
                               : "—"}
                           </TableCell>
                           <TableCell className="font-mono text-xs text-muted-foreground">

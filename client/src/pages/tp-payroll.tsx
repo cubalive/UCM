@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
@@ -178,7 +179,7 @@ export default function TpPayrollPage() {
                     <TableCell>{r.driverCount || 0}</TableCell>
                     <TableCell className="font-medium">{formatCurrency(r.totalCents || 0)}</TableCell>
                     <TableCell><Badge variant={runStatusVariant(r.status)} data-testid={`badge-run-status-${r.id}`}>{r.status}</Badge></TableCell>
-                    <TableCell>{new Date(r.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{formatDate(r.createdAt)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         <Button size="sm" variant="ghost" onClick={() => setSelectedRun(r.id)} data-testid={`button-view-run-${r.id}`}>

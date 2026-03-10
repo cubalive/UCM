@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { setStoredCompanyScopeId, getStoredCompanyScopeId, rawAuthFetch } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1007,7 +1008,7 @@ export default function CompaniesPage() {
                       <StripeConnectBadge company={company} />
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {company.createdAt ? new Date(company.createdAt).toLocaleDateString() : "-"}
+                      {company.createdAt ? formatDate(company.createdAt) : "-"}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2 justify-end flex-wrap">

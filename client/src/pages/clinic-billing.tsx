@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch, rawAuthFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { TripRef } from "@/components/trip-ref";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1473,7 +1474,7 @@ function CycleInvoicesTab() {
   const fmtDate = (d: string | null) => {
     if (!d) return "\u2014";
     try {
-      return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      return formatDate(d);
     } catch { return d; }
   };
 

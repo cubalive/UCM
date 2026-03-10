@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, AlertTriangle, Phone, Mail, MapPin, User, Building2, Brain, Shield, Truck, BarChart3, Radar, Loader2, Save, Navigation } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -392,7 +393,7 @@ export default function ClinicDetailPage() {
             {intelligenceEnabled && intelligenceFeature?.activatedAt && (
               <div className="text-xs text-muted-foreground pt-2 border-t flex items-center gap-2">
                 <Shield className="w-3.5 h-3.5" />
-                Activated {new Date(intelligenceFeature.activatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                Activated {formatDate(intelligenceFeature.activatedAt)}
                 {intelligenceFeature.priceCents && ` — $${(intelligenceFeature.priceCents / 100).toFixed(2)}/mo`}
               </div>
             )}

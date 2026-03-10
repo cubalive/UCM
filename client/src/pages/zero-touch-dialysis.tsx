@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -387,7 +388,7 @@ export default function ZeroTouchDialysisPage() {
                     <p className="text-xs text-muted-foreground">
                       {event.companyName && <span className="mr-2">{event.companyName}</span>}
                       {(event.createdAt || event.timestamp) && (
-                        <span>{new Date(event.createdAt || event.timestamp || "").toLocaleString()}</span>
+                        <span>{formatDateTime(event.createdAt || event.timestamp || "")}</span>
                       )}
                     </p>
                   </div>
