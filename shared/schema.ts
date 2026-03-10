@@ -101,6 +101,11 @@ export const tripTypeEnum = pgEnum("trip_type", [
   "dialysis",
 ]);
 
+export const serviceTypeEnum = pgEnum("service_type", [
+  "transport",
+  "delivery",
+]);
+
 export const assignmentStatusEnum = pgEnum("assignment_status", [
   "active",
   "reassigned",
@@ -358,6 +363,7 @@ export const trips = pgTable("trips", {
   pickupTime: text("pickup_time").notNull(),
   estimatedArrivalTime: text("estimated_arrival_time").notNull().default("TBD"),
   tripType: tripTypeEnum("trip_type").notNull().default("one_time"),
+  serviceType: serviceTypeEnum("service_type").notNull().default("transport"),
   recurringDays: text("recurring_days").array(),
   status: tripStatusEnum("status").notNull().default("SCHEDULED"),
   lastEtaMinutes: integer("last_eta_minutes"),

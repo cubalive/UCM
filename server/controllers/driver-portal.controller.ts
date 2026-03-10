@@ -585,6 +585,7 @@ export async function getDriverActiveTripHandler(req: AuthRequest, res: Response
         waitingMinutes: trip.waitingMinutes,
         waitingEndedAt: trip.waitingEndedAt,
         waitingExtendCount: trip.waitingExtendCount,
+        serviceType: trip.serviceType || "transport",
         dispatchAt: (trip as any).dispatchAt || null,
         notifyAt: (trip as any).notifyAt || null,
       },
@@ -789,10 +790,18 @@ export async function getDriverOffersActiveHandler(req: AuthRequest, res: Respon
       )
     ).orderBy(desc(driverOffers.offeredAt));
 
+    const serviceTypeFilter = (req.query.serviceType as string) || null;
+
     const enriched = await Promise.all(pendingOffers.map(async (offer) => {
       const trip = await db.select().from(trips).where(eq(trips.id, offer.tripId)).limit(1);
       const t = trip[0];
       if (!t) return null;
+
+      // Filter by service type if specified
+      if (serviceTypeFilter && serviceTypeFilter !== "all" && t.serviceType !== serviceTypeFilter) {
+        return null;
+      }
+
       const patient = t.patientId ? await storage.getPatient(t.patientId) : null;
       const secondsRemaining = Math.max(0, Math.floor((offer.expiresAt.getTime() - now.getTime()) / 1000));
       return {
@@ -809,6 +818,7 @@ export async function getDriverOffersActiveHandler(req: AuthRequest, res: Respon
         scheduledDate: t.scheduledDate,
         patientName: patient ? `${patient.firstName} ${patient.lastName}` : null,
         status: t.status,
+        serviceType: t.serviceType || "transport",
         secondsRemaining,
         expiresAt: offer.expiresAt.toISOString(),
       };

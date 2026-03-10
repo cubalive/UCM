@@ -675,6 +675,14 @@ app.use((req, res, next) => {
     `);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_trip_route_events_trip ON trip_route_events(trip_id, ts)`);
 
+    // Service type enum + column for trips (transport vs delivery)
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        CREATE TYPE service_type AS ENUM ('transport','delivery');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    `);
+    await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS service_type service_type NOT NULL DEFAULT 'transport'`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);

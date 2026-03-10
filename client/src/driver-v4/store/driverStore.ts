@@ -4,6 +4,7 @@ import { DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
 
 export type DriverStatus = "offline" | "online";
 export type ShiftStatus = "offShift" | "onShift";
+export type ServiceFilter = "all" | "transport" | "delivery";
 export type TripPhase =
   | "none"
   | "offer"
@@ -65,6 +66,7 @@ interface DriverState {
   earningsWeek: number;
   rating: number;
   completedRides: number;
+  serviceFilter: ServiceFilter;
   navPreference: "ask" | "google" | "apple" | "waze";
   driverName: string;
   driverInitials: string;
@@ -87,6 +89,7 @@ interface DriverState {
   confirmPickup: () => Promise<void>;
   markArrivedDropoff: () => Promise<void>;
   completeTrip: () => Promise<void>;
+  setServiceFilter: (f: ServiceFilter) => void;
   setNavPreference: (p: "ask" | "google" | "apple" | "waze") => void;
   pollOffers: () => Promise<void>;
   pollActiveTrip: () => Promise<void>;
@@ -139,7 +142,7 @@ function tripFromApiData(trip: any): ActiveTrip {
     notes: trip.notes || "",
     etaMinutes: trip.lastEtaMinutes || 15,
     scheduledTime: trip.pickupTime || undefined,
-    tripType: "Medical",
+    tripType: trip.serviceType === "delivery" ? "Delivery" : "Medical",
     status: trip.status,
     routePolyline: trip.routePolyline || null,
   };
@@ -155,6 +158,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   earningsWeek: 0,
   rating: 0,
   completedRides: 0,
+  serviceFilter: "all",
   navPreference: "ask",
   driverName: "",
   driverInitials: "",
@@ -308,6 +312,12 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   markArrivedDropoff: async () => { await get().advanceTripStatus("ARRIVED_DROPOFF"); },
   completeTrip: async () => { await get().advanceTripStatus("COMPLETED"); },
 
+  setServiceFilter: (f) => {
+    set({ serviceFilter: f });
+    // Re-poll offers with the new filter
+    get().pollOffers();
+  },
+
   setNavPreference: (p) => {
     set({ navPreference: p });
     driverApi("/api/driver/settings", { method: "PATCH", body: JSON.stringify({ navPreference: p }) }).catch(() => {});
@@ -315,7 +325,9 @@ export const useDriverStore = create<DriverState>((set, get) => ({
 
   pollOffers: async () => {
     try {
-      const data = await driverApi("/api/driver/offers/active");
+      const filter = get().serviceFilter;
+      const qs = filter !== "all" ? `?serviceType=${filter}` : "";
+      const data = await driverApi(`/api/driver/offers/active${qs}`);
       const offers = data.offers || [];
       if (offers.length > 0) {
         const offer = offers[0];
@@ -337,7 +349,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             passengerName: offer.patientName || "Patient",
             notes: "",
             etaMinutes: enrichedOffer.etaToPickupMinutes,
-            tripType: "Medical",
+            tripType: offer.serviceType === "delivery" ? "Delivery" : "Medical",
             routePolyline: offer.routePolyline || null,
           },
         });

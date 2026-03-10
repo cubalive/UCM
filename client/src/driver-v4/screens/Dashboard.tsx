@@ -2,9 +2,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useCallback, useMemo } from "react";
 import {
   Wallet, Star, MapPin, Car, Clock, TrendingUp, Shield,
-  Zap, Navigation, Phone, ChevronUp, ChevronDown
+  Zap, Navigation, Phone, ChevronUp, ChevronDown, Package, Ambulance
 } from "lucide-react";
-import { useDriverStore } from "../store/driverStore";
+import { useDriverStore, type ServiceFilter } from "../store/driverStore";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
 import { glowColor } from "../design/theme";
@@ -234,7 +234,7 @@ function TripOfferCard() {
               <Zap className="w-5 h-5" style={{ color: colors.neonCyan, filter: `drop-shadow(0 0 6px ${colors.neonCyan})` }} />
             </motion.div>
             <span className="text-sm font-bold tracking-wider uppercase" style={{ color: colors.neonCyan, fontFamily: "'Space Grotesk', system-ui" }}>
-              New Trip Request
+              {activeTrip.tripType === "Delivery" ? "New Delivery Request" : "New Trip Request"}
             </span>
           </div>
         </div>
@@ -502,6 +502,64 @@ function WaitingIndicator() {
   );
 }
 
+/* ─── Service type filter (Trips / Deliveries / All) ─── */
+function ServiceFilterBar() {
+  const serviceFilter = useDriverStore((s) => s.serviceFilter);
+  const setServiceFilter = useDriverStore((s) => s.setServiceFilter);
+  const driverStatus = useDriverStore((s) => s.driverStatus);
+  const shiftStatus = useDriverStore((s) => s.shiftStatus);
+  const tripPhase = useDriverStore((s) => s.tripPhase);
+
+  if (driverStatus !== "online" || shiftStatus !== "onShift") return null;
+  if (tripPhase !== "none" && tripPhase !== "offer") return null;
+
+  const options: { value: ServiceFilter; label: string; icon: React.ReactNode }[] = [
+    { value: "all", label: "All", icon: <Car className="w-3.5 h-3.5" /> },
+    { value: "transport", label: "Trips", icon: <Ambulance className="w-3.5 h-3.5" /> },
+    { value: "delivery", label: "Deliveries", icon: <Package className="w-3.5 h-3.5" /> },
+  ];
+
+  return (
+    <div
+      className="flex items-center gap-1 p-1 rounded-2xl"
+      style={{
+        background: "rgba(0,0,0,0.7)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        border: "1px solid rgba(255,255,255,0.08)",
+      }}
+      data-testid="service-filter-bar"
+    >
+      {options.map((opt) => {
+        const isActive = serviceFilter === opt.value;
+        return (
+          <motion.button
+            key={opt.value}
+            onClick={() => setServiceFilter(opt.value)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all"
+            style={{
+              background: isActive
+                ? `linear-gradient(135deg, ${colors.neonCyan}22, ${colors.neonPurple}22)`
+                : "transparent",
+              border: isActive
+                ? `1px solid ${colors.neonCyan}44`
+                : "1px solid transparent",
+              color: isActive ? colors.neonCyan : colors.textTertiary,
+              fontFamily: "'Space Grotesk', system-ui",
+            }}
+            whileTap={{ scale: 0.95 }}
+          >
+            {opt.icon}
+            <span className="text-[10px] font-bold uppercase tracking-wider">
+              {opt.label}
+            </span>
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ─── Map background component ─── */
 function MapBackground() {
   const activeTrip = useDriverStore((s) => s.activeTrip);
@@ -608,6 +666,13 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
 
           {/* Stats bar */}
           <StatsBar />
+        </div>
+      </div>
+
+      {/* Service type filter */}
+      <div className="absolute top-20 left-0 right-0 z-25 flex justify-center pointer-events-none">
+        <div className="pointer-events-auto">
+          <ServiceFilterBar />
         </div>
       </div>
 
