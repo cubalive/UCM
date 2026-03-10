@@ -477,7 +477,7 @@ const PHARMACY_STATUS_LABELS: Record<string, string> = {
 
 export async function pharmacyPublicTrackingHandler(req: Request, res: Response) {
   try {
-    const publicId = req.params.publicId;
+    const publicId = req.params.publicId as string;
     if (!publicId || publicId.length < 5) {
       return res.status(400).json({ ok: false, message: "Invalid tracking ID" });
     }

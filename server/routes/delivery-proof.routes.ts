@@ -25,7 +25,7 @@ router.post(
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
-      const tripId = parseInt(req.params.tripId, 10);
+      const tripId = parseInt(String(req.params.tripId), 10);
       if (isNaN(tripId)) {
         return res.status(400).json({ message: "Invalid trip ID" });
       }
@@ -82,7 +82,7 @@ router.get(
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
-      const tripId = parseInt(req.params.tripId, 10);
+      const tripId = parseInt(String(req.params.tripId), 10);
       if (isNaN(tripId)) {
         return res.status(400).json({ message: "Invalid trip ID" });
       }
@@ -107,7 +107,7 @@ router.post(
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
-      const orderId = parseInt(req.params.orderId, 10);
+      const orderId = parseInt(String(req.params.orderId), 10);
       if (isNaN(orderId)) {
         return res.status(400).json({ message: "Invalid order ID" });
       }
@@ -173,7 +173,7 @@ router.get(
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
-      const orderId = parseInt(req.params.orderId, 10);
+      const orderId = parseInt(String(req.params.orderId), 10);
       if (isNaN(orderId)) {
         return res.status(400).json({ message: "Invalid order ID" });
       }

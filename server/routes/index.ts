@@ -74,6 +74,7 @@ import { registerSLARoutes } from "./sla.routes";
 import { registerDeliveryProofRoutes } from "./delivery-proof.routes";
 import { performanceTracker, registerPerformanceMetricsRoute } from "../middleware/performanceTracker";
 import { registerAiRoutes } from "./ai.routes";
+import { registerEdiRoutes } from "./edi.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -207,6 +208,7 @@ export async function registerRoutes(
   registerDeliveryProofRoutes(app);
   registerPerformanceMetricsRoute(app);
   registerAiRoutes(app);
+  registerEdiRoutes(app);
 
   return httpServer;
 }
