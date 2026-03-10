@@ -145,7 +145,7 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const tripId = parseInt(req.params.tripId);
+      const tripId = parseInt(req.params.tripId as string);
       if (!tripId) {
         return res.status(400).json({ error: "Valid tripId is required" });
       }
@@ -167,7 +167,7 @@ router.patch(
   requireRole("SUPER_ADMIN", "ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const alertId = parseInt(req.params.id);
+      const alertId = parseInt(req.params.id as string);
       const { status, resolvedNotes } = req.body;
 
       if (!alertId || !status) {
@@ -176,7 +176,7 @@ router.patch(
 
       const updateData: any = { status };
       if (status === "RESOLVED" || status === "DISMISSED") {
-        updateData.resolvedBy = req.user?.id;
+        updateData.resolvedBy = req.user?.userId;
         updateData.resolvedAt = new Date();
         updateData.resolvedNotes = resolvedNotes || null;
       }
