@@ -21,11 +21,6 @@ primary_region = "iad"
     hard_limit = 250
     soft_limit = 200
 
-  [http_service.machine_checks]
-    image = ["*"]
-    entrypoint = ["node"]
-    command = ["dist/index.cjs"]
-
   [[http_service.checks]]
     interval = "15s"
     timeout = "5s"
@@ -48,15 +43,11 @@ primary_region = "iad"
   size = "shared-cpu-2x"
   memory = "1gb"
   processes = ["app"]
-  auto_stop_machines = false
-  auto_start_machines = true
 
 [[vm]]
   size = "shared-cpu-1x"
   memory = "512mb"
   processes = ["worker"]
-  auto_stop_machines = false
-  auto_start_machines = true
 
 [metrics]
   port = 5000

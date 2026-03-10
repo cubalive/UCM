@@ -70,6 +70,8 @@ import { registerReconciliationRoutes } from "./reconciliation.routes";
 import { registerInterCityRoutes } from "./inter-city.routes";
 import { registerCityComparisonRoutes } from "./city-comparison.routes";
 import { registerHealthRoutes } from "./health.routes";
+import { registerSLARoutes } from "./sla.routes";
+import { performanceTracker, registerPerformanceMetricsRoute } from "../middleware/performanceTracker";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -111,6 +113,9 @@ export async function registerRoutes(
 
   const { releaseReadinessHandler, smokeTestHandler } = await import("../controllers/releaseReadiness.controller");
   const { authRedirectDebugHandler, aasaStatusHandler, iconAssetsStatusHandler, playstoreReadinessHandler } = await import("../controllers/systemDebug.controller");
+
+  // Performance tracking middleware — must be registered before routes
+  app.use(performanceTracker);
 
   app.get("/api/healthz", healthz);
   app.get("/api/readyz", readyz);
@@ -196,6 +201,8 @@ export async function registerRoutes(
   registerInterCityRoutes(app);
   registerCityComparisonRoutes(app);
   registerHealthRoutes(app);
+  registerSLARoutes(app);
+  registerPerformanceMetricsRoute(app);
 
   return httpServer;
 }

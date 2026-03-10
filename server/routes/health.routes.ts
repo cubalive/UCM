@@ -2,12 +2,16 @@ import type { Express } from "express";
 import type { Request, Response } from "express";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
-import { createRequire } from "module";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 
-const require = createRequire(import.meta.url);
-const pkg = require("../../package.json");
+let pkgVersion = "unknown";
+try {
+  const raw = readFileSync(resolve(process.cwd(), "package.json"), "utf-8");
+  pkgVersion = JSON.parse(raw).version || "unknown";
+} catch {}
 
-const APP_VERSION = process.env.UCM_BUILD_VERSION || process.env.BUILD_VERSION || pkg.version || "dev";
+const APP_VERSION = process.env.UCM_BUILD_VERSION || process.env.BUILD_VERSION || pkgVersion;
 const startTime = Date.now();
 
 export function registerHealthRoutes(app: Express) {
@@ -40,7 +44,7 @@ export function registerHealthRoutes(app: Express) {
     res.status(healthy ? 200 : 503).json({
       status: healthy ? "healthy" : "unhealthy",
       version: APP_VERSION,
-      packageVersion: pkg.version,
+      packageVersion: pkgVersion,
       runMode,
       uptime: Math.round(process.uptime()),
       startedAt: new Date(startTime).toISOString(),

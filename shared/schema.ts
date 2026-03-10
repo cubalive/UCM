@@ -4719,3 +4719,53 @@ export const deliveryProofs = pgTable("delivery_proofs", {
 export const insertDeliveryProofSchema = createInsertSchema(deliveryProofs).omit({ createdAt: true });
 export type DeliveryProof = typeof deliveryProofs.$inferSelect;
 export type InsertDeliveryProof = z.infer<typeof insertDeliveryProofSchema>;
+
+// ─── EDI Claims (837/835 Electronic Billing) ────────────────────────────────
+
+export const ediClaimStatusEnum = pgEnum("edi_claim_status", [
+  "GENERATED",
+  "SUBMITTED",
+  "ACCEPTED",
+  "REJECTED",
+  "PAID",
+  "DENIED",
+]);
+
+export const ediClaims = pgTable("edi_claims", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  claimNumber: text("claim_number").notNull().unique(),
+  ediContent: text("edi_content").notNull(),
+  status: ediClaimStatusEnum("status").notNull().default("GENERATED"),
+  submittedAt: timestamp("submitted_at"),
+  responseContent: text("response_content"),
+  paymentAmount: integer("payment_amount"),
+  adjustmentAmount: integer("adjustment_amount"),
+  adjudicatedAt: timestamp("adjudicated_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_edi_claims_company_status").on(table.companyId, table.status),
+  index("idx_edi_claims_trip").on(table.tripId),
+  index("idx_edi_claims_claim_number").on(table.claimNumber),
+]);
+
+export const ediClaimEvents = pgTable("edi_claim_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  claimId: integer("claim_id").notNull().references(() => ediClaims.id),
+  eventType: text("event_type").notNull(),
+  description: text("description"),
+  rawData: jsonb("raw_data"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_edi_claim_events_claim").on(table.claimId),
+  index("idx_edi_claim_events_type").on(table.eventType),
+]);
+
+export const insertEdiClaimSchema = createInsertSchema(ediClaims).omit({ createdAt: true, updatedAt: true });
+export const insertEdiClaimEventSchema = createInsertSchema(ediClaimEvents).omit({ createdAt: true });
+export type EdiClaim = typeof ediClaims.$inferSelect;
+export type InsertEdiClaim = z.infer<typeof insertEdiClaimSchema>;
+export type EdiClaimEvent = typeof ediClaimEvents.$inferSelect;
+export type InsertEdiClaimEvent = z.infer<typeof insertEdiClaimEventSchema>;

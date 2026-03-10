@@ -3,6 +3,7 @@ import { authMiddleware, requireRole, requirePermission, type AuthRequest } from
 import { requireTenantScope, requireCityAccess } from "../middleware";
 import { idempotencyMiddleware } from "../lib/idempotency";
 import { requireSubscription } from "../middleware/requireSubscription";
+import { phiAuditDbMiddleware } from "../middleware/phiAuditMiddleware";
 import {
   getRecurringSchedulesHandler,
   createRecurringScheduleHandler,
@@ -43,6 +44,9 @@ import {
 import { archiveTripHandler, permanentDeleteTripHandler } from "../controllers/admin.controller";
 
 const router = express.Router();
+
+// PHI audit logging applied to all trip routes (HIPAA §164.312(b))
+router.use(authMiddleware, phiAuditDbMiddleware as any);
 
 router.get("/api/recurring-schedules", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getRecurringSchedulesHandler as any);
 router.post("/api/recurring-schedules", authMiddleware, requirePermission("trips", "write"), requireTenantScope, createRecurringScheduleHandler as any);
