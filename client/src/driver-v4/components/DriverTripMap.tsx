@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { resolveUrl } from "@/lib/api";
 
 interface DriverTripMapProps {
@@ -10,7 +10,9 @@ interface DriverTripMapProps {
   driverLng?: number | null;
   driverHeading?: number | null;
   phase: "toPickup" | "arrivedPickup" | "waiting" | "toDropoff" | "arrivedDropoff" | string;
+  routePolyline?: string | null;
   className?: string;
+  onNavigate?: () => void;
 }
 
 declare global {
@@ -50,10 +52,43 @@ const DARK_MAP_STYLE: google.maps.MapTypeStyle[] = [
   { featureType: "transit", stylers: [{ visibility: "off" }] },
 ];
 
+// Decode a Google encoded polyline string into LatLng array
+function decodePolyline(encoded: string): google.maps.LatLngLiteral[] {
+  const points: google.maps.LatLngLiteral[] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+
+  while (index < encoded.length) {
+    let shift = 0;
+    let result = 0;
+    let byte: number;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    shift = 0;
+    result = 0;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    points.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+  return points;
+}
+
 export function DriverTripMap({
   pickupLat, pickupLng, dropoffLat, dropoffLng,
   driverLat, driverLng, driverHeading,
-  phase, className = "",
+  phase, routePolyline, className = "",
+  onNavigate,
 }: DriverTripMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -61,10 +96,14 @@ export function DriverTripMap({
   const dropoffMarkerRef = useRef<google.maps.Marker | null>(null);
   const driverMarkerRef = useRef<google.maps.Marker | null>(null);
   const routeLineRef = useRef<google.maps.Polyline | null>(null);
+  const driverRouteLineRef = useRef<google.maps.Polyline | null>(null);
+  const directionsServiceRef = useRef<google.maps.DirectionsService | null>(null);
+  const lastDirectionsReqRef = useRef<number>(0);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(false);
 
   const isPickupPhase = ["toPickup", "arrivedPickup", "waiting"].includes(phase);
+  const isMovingPhase = ["toPickup", "toDropoff"].includes(phase);
 
   // Load Google Maps
   useEffect(() => {
@@ -88,6 +127,42 @@ export function DriverTripMap({
     init();
     return () => { cancelled = true; };
   }, []);
+
+  // Draw the route from driver to current destination
+  const drawDriverRoute = useCallback((map: google.maps.Map, dLat: number, dLng: number, destLat: number, destLng: number) => {
+    if (!directionsServiceRef.current) {
+      directionsServiceRef.current = new google.maps.DirectionsService();
+    }
+
+    // Throttle directions requests to every 15 seconds
+    const now = Date.now();
+    if (now - lastDirectionsReqRef.current < 15000) return;
+    lastDirectionsReqRef.current = now;
+
+    directionsServiceRef.current.route(
+      {
+        origin: { lat: dLat, lng: dLng },
+        destination: { lat: destLat, lng: destLng },
+        travelMode: google.maps.TravelMode.DRIVING,
+      },
+      (result, status) => {
+        if (status === "OK" && result) {
+          if (driverRouteLineRef.current) driverRouteLineRef.current.setMap(null);
+
+          const path = result.routes[0]?.overview_path || [];
+          driverRouteLineRef.current = new google.maps.Polyline({
+            path,
+            strokeColor: isPickupPhase ? "#00ff88" : "#ff00aa",
+            strokeOpacity: 0.7,
+            strokeWeight: 4,
+            geodesic: true,
+            map,
+            zIndex: 5,
+          });
+        }
+      }
+    );
+  }, [isPickupPhase]);
 
   // Create map and markers
   useEffect(() => {
@@ -113,7 +188,7 @@ export function DriverTripMap({
       });
     }
 
-    // Pickup marker
+    // Pickup marker with pulsing effect label
     if (pickupMarkerRef.current) pickupMarkerRef.current.setMap(null);
     pickupMarkerRef.current = new google.maps.Marker({
       position: { lat: pickupLat, lng: pickupLng },
@@ -122,10 +197,11 @@ export function DriverTripMap({
         path: google.maps.SymbolPath.CIRCLE,
         fillColor: "#00ff88",
         fillOpacity: 1,
-        strokeWeight: 3,
-        strokeColor: "#0a0e17",
-        scale: isPickupPhase ? 10 : 6,
+        strokeWeight: isPickupPhase ? 4 : 2,
+        strokeColor: isPickupPhase ? "#00ff8866" : "#0a0e17",
+        scale: isPickupPhase ? 12 : 7,
       },
+      label: isPickupPhase ? { text: "P", color: "#0a0e17", fontSize: "10px", fontWeight: "bold" } : undefined,
       zIndex: 3,
     });
 
@@ -138,31 +214,61 @@ export function DriverTripMap({
         path: google.maps.SymbolPath.CIRCLE,
         fillColor: "#ff00aa",
         fillOpacity: 1,
-        strokeWeight: 3,
-        strokeColor: "#0a0e17",
-        scale: !isPickupPhase ? 10 : 6,
+        strokeWeight: !isPickupPhase ? 4 : 2,
+        strokeColor: !isPickupPhase ? "#ff00aa66" : "#0a0e17",
+        scale: !isPickupPhase ? 12 : 7,
       },
+      label: !isPickupPhase ? { text: "D", color: "#fff", fontSize: "10px", fontWeight: "bold" } : undefined,
       zIndex: 3,
     });
 
-    // Route line (straight for now, could use Directions API)
+    // Draw route polyline - use encoded polyline from server if available
     if (routeLineRef.current) routeLineRef.current.setMap(null);
-    routeLineRef.current = new google.maps.Polyline({
-      path: [
-        { lat: pickupLat, lng: pickupLng },
-        { lat: dropoffLat, lng: dropoffLng },
-      ],
-      strokeColor: "#00f0ff",
-      strokeOpacity: 0.4,
-      strokeWeight: 3,
-      geodesic: true,
-      icons: [{
-        icon: { path: "M 0,-1 0,1", strokeOpacity: 0.6, strokeColor: "#00f0ff", scale: 3 },
-        offset: "0", repeat: "12px",
-      }],
-      map: mapRef.current,
-      zIndex: 1,
-    });
+
+    let routePath: google.maps.LatLngLiteral[] | null = null;
+    if (routePolyline) {
+      try {
+        routePath = decodePolyline(routePolyline);
+      } catch {}
+    }
+
+    if (routePath && routePath.length > 1) {
+      // Use the real route from server
+      routeLineRef.current = new google.maps.Polyline({
+        path: routePath,
+        strokeColor: "#00f0ff",
+        strokeOpacity: 0.6,
+        strokeWeight: 4,
+        geodesic: true,
+        map: mapRef.current,
+        zIndex: 2,
+      });
+    } else {
+      // Request directions for the full trip route
+      const svc = new google.maps.DirectionsService();
+      svc.route(
+        {
+          origin: { lat: pickupLat, lng: pickupLng },
+          destination: { lat: dropoffLat, lng: dropoffLng },
+          travelMode: google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+          if (status === "OK" && result && mapRef.current) {
+            const path = result.routes[0]?.overview_path || [];
+            if (routeLineRef.current) routeLineRef.current.setMap(null);
+            routeLineRef.current = new google.maps.Polyline({
+              path,
+              strokeColor: "#00f0ff",
+              strokeOpacity: 0.6,
+              strokeWeight: 4,
+              geodesic: true,
+              map: mapRef.current,
+              zIndex: 2,
+            });
+          }
+        }
+      );
+    }
 
     // Fit bounds
     const bounds = new google.maps.LatLngBounds();
@@ -170,9 +276,9 @@ export function DriverTripMap({
     bounds.extend({ lat: dropoffLat, lng: dropoffLng });
     if (driverLat && driverLng) bounds.extend({ lat: driverLat, lng: driverLng });
     mapRef.current.fitBounds(bounds, 60);
-  }, [ready, pickupLat, pickupLng, dropoffLat, dropoffLng, phase]);
+  }, [ready, pickupLat, pickupLng, dropoffLat, dropoffLng, phase, routePolyline]);
 
-  // Update driver marker position
+  // Update driver marker position and draw driver-to-destination route
   useEffect(() => {
     if (!ready || !mapRef.current || !driverLat || !driverLng) return;
 
@@ -187,7 +293,7 @@ export function DriverTripMap({
           fillOpacity: 1,
           strokeColor: "#0a0e17",
           strokeWeight: 2,
-          scale: 7,
+          scale: 8,
           rotation: driverHeading ?? 0,
           anchor: new google.maps.Point(0, 2.5),
         },
@@ -201,7 +307,14 @@ export function DriverTripMap({
         driverMarkerRef.current.setIcon(icon);
       }
     }
-  }, [ready, driverLat, driverLng, driverHeading]);
+
+    // Draw route from driver to current destination while moving
+    if (isMovingPhase && mapRef.current) {
+      const destLat = isPickupPhase ? pickupLat : dropoffLat;
+      const destLng = isPickupPhase ? pickupLng : dropoffLng;
+      drawDriverRoute(mapRef.current, driverLat, driverLng, destLat, destLng);
+    }
+  }, [ready, driverLat, driverLng, driverHeading, isMovingPhase, isPickupPhase, pickupLat, pickupLng, dropoffLat, dropoffLng, drawDriverRoute]);
 
   // Cleanup
   useEffect(() => {
@@ -210,6 +323,7 @@ export function DriverTripMap({
       dropoffMarkerRef.current?.setMap(null);
       driverMarkerRef.current?.setMap(null);
       routeLineRef.current?.setMap(null);
+      driverRouteLineRef.current?.setMap(null);
       mapRef.current = null;
     };
   }, []);

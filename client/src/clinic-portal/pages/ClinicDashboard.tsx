@@ -760,37 +760,104 @@ export default function ClinicDashboard() {
           <div className="px-5 py-4 border-b border-[#1e293b] flex items-center justify-between">
             <h2 className="text-sm font-semibold text-white flex items-center gap-2">
               <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              Active Trips
+              Patient Arrival Board
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-medium">
+                {(activeTrips as any[]).length} active
+              </span>
             </h2>
             <Link href="/live">
-              <span className="text-xs text-emerald-400 hover:text-emerald-300 cursor-pointer" data-testid="link-view-live">
-                View Live Map
+              <span className="text-xs text-emerald-400 hover:text-emerald-300 cursor-pointer flex items-center gap-1" data-testid="link-view-live">
+                <Eye className="w-3 h-3" />
+                Full Monitor
               </span>
             </Link>
           </div>
-          <div className="divide-y divide-[#1e293b]">
-            {(activeTrips as any[]).slice(0, 5).map((trip: any) => (
-              <div key={trip.id} className="px-5 py-3 flex items-center justify-between hover:bg-white/[0.02]" data-testid={`active-trip-${trip.id}`}>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-emerald-500/10 rounded-full flex items-center justify-center">
-                    <Car className="w-4 h-4 text-emerald-400" />
+          {/* Column headers */}
+          <div className="px-5 py-2 grid grid-cols-12 gap-2 text-[10px] text-gray-600 uppercase tracking-wider border-b border-[#1e293b]/50">
+            <div className="col-span-3">Patient</div>
+            <div className="col-span-3">Status</div>
+            <div className="col-span-2">Driver</div>
+            <div className="col-span-2 text-center">ETA</div>
+            <div className="col-span-2 text-center">Direction</div>
+          </div>
+          <div className="divide-y divide-[#1e293b]/50">
+            {(activeTrips as any[]).slice(0, 8).map((trip: any) => {
+              const isInbound = ["EN_ROUTE_TO_DROPOFF", "ARRIVED_DROPOFF", "PICKED_UP", "IN_PROGRESS"].includes(trip.status);
+              const isAtClinic = trip.status === "ARRIVED_DROPOFF";
+              const isOnBoard = ["PICKED_UP", "EN_ROUTE_TO_DROPOFF", "IN_PROGRESS"].includes(trip.status);
+              const statusColor =
+                isAtClinic ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                isOnBoard ? "bg-purple-500/10 text-purple-400 border-purple-500/20" :
+                trip.status === "EN_ROUTE_TO_PICKUP" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                trip.status === "ARRIVED_PICKUP" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                "bg-gray-500/10 text-gray-400 border-gray-500/20";
+              const statusLabel =
+                isAtClinic ? "At Clinic" :
+                isOnBoard ? "On Board" :
+                trip.status === "EN_ROUTE_TO_PICKUP" ? "To Pickup" :
+                trip.status === "ARRIVED_PICKUP" ? "At Pickup" :
+                trip.status === "ASSIGNED" ? "Assigned" :
+                (trip.status || "").replace(/_/g, " ");
+              return (
+                <div
+                  key={trip.id}
+                  className={`px-5 py-3 grid grid-cols-12 gap-2 items-center hover:bg-white/[0.02] transition-colors ${isAtClinic ? "bg-emerald-500/[0.03]" : ""}`}
+                  data-testid={`active-trip-${trip.id}`}
+                >
+                  <div className="col-span-3 flex items-center gap-2 min-w-0">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${isOnBoard ? "bg-purple-500/10" : "bg-emerald-500/10"}`}>
+                      {isOnBoard ? <Shield className="w-3.5 h-3.5 text-purple-400" /> : <Users className="w-3.5 h-3.5 text-emerald-400" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm text-white truncate">{trip.patientName || "Patient"}</p>
+                      <p className="text-[10px] text-gray-600 truncate">{trip.serviceLevel || "AMB"}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-white">{trip.patientName || "Patient"}</p>
-                    <p className="text-xs text-gray-500">{trip.pickupAddress || "Pickup"} → {trip.dropoffAddress || "Dropoff"}</p>
+                  <div className="col-span-3">
+                    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-medium border ${statusColor}`} data-testid={`trip-status-${trip.id}`}>
+                      {isAtClinic && <CheckCircle2 className="w-3 h-3" />}
+                      {isOnBoard && <Shield className="w-3 h-3" />}
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <div className="col-span-2 min-w-0">
+                    <p className="text-xs text-gray-400 truncate">{trip.driverName || "—"}</p>
+                  </div>
+                  <div className="col-span-2 text-center">
+                    {isAtClinic ? (
+                      <span className="text-xs font-bold text-emerald-400">HERE</span>
+                    ) : trip.etaMinutes != null ? (
+                      <span className={`text-sm font-bold ${trip.etaMinutes <= 5 ? "text-amber-400" : "text-white"}`}>
+                        {trip.etaMinutes}m
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-600">—</span>
+                    )}
+                  </div>
+                  <div className="col-span-2 text-center">
+                    {isInbound ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-cyan-400 font-medium">
+                        <ArrowRight className="w-3 h-3" /> Inbound
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-blue-400 font-medium">
+                        <ArrowRight className="w-3 h-3 rotate-180" /> Outbound
+                      </span>
+                    )}
                   </div>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                  trip.status === "EN_ROUTE_PICKUP" ? "bg-emerald-500/10 text-emerald-400" :
-                  trip.status === "EN_ROUTE_DROPOFF" ? "bg-cyan-500/10 text-cyan-400" :
-                  trip.status === "ARRIVED_PICKUP" ? "bg-amber-500/10 text-amber-400" :
-                  "bg-gray-500/10 text-gray-400"
-                }`} data-testid={`trip-status-${trip.id}`}>
-                  {(trip.status || "").replace(/_/g, " ")}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
+          {(activeTrips as any[]).length > 8 && (
+            <div className="px-5 py-2 text-center border-t border-[#1e293b]/50">
+              <Link href="/live">
+                <span className="text-xs text-emerald-400 hover:text-emerald-300 cursor-pointer">
+                  +{(activeTrips as any[]).length - 8} more — View Full Monitor →
+                </span>
+              </Link>
+            </div>
+          )}
         </div>
       )}
 
