@@ -6,6 +6,7 @@ import { broadcastToTrip } from "./realtime";
 import { broadcastTripSupabaseThrottled } from "./supabaseRealtime";
 import { shouldPublishEta } from "./backpressure";
 import { tickJob, failJob } from "./jobHeartbeat";
+import { detectCascadeDelay } from "./cascadeDelayEngine";
 
 const ETA_INTERVAL_MS = 120_000;
 const TEN_MIN_THRESHOLD = 10;
@@ -78,6 +79,11 @@ async function processTripsForEta(cityId?: number): Promise<number> {
           console.log(`[ETA-ENGINE] 5-min alert triggered for trip ${trip.id}, ETA: ${eta.minutes}min`);
         }
       }
+
+      // Check for cascade delays after ETA update
+      detectCascadeDelay(trip.id).catch((err) => {
+        console.warn(`[ETA-ENGINE] Cascade delay check failed for trip ${trip.id}: ${err.message}`);
+      });
 
       console.log(`[ETA-ENGINE] Trip ${trip.id}: ETA ${eta.minutes}min, ${eta.distanceMiles}mi (${eta.source})`);
       processed++;

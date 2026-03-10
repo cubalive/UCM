@@ -103,6 +103,14 @@ async function handleEvent(msg: StreamMessage): Promise<void> {
           trigger: "trip.status_changed",
         }, `route.finalize:${tripId}`);
         await writeAuditEntry("trip", tripId, "trip.completed", payload, decision, { enqueued: "route.finalize" });
+
+        // Resolve cascade delay alerts when trip completes
+        try {
+          const { resolveCascadeAlerts } = await import("../lib/cascadeDelayEngine");
+          await resolveCascadeAlerts(tripId);
+        } catch (err: any) {
+          console.warn(`[ORCHESTRATOR] Cascade alert resolution failed for trip ${tripId}: ${err.message}`);
+        }
       } else {
         await writeAuditEntry("trip", tripId || 0, `trip.status:${from}→${to}`, payload, { action: "no_op", reason: "non_terminal" }, null);
       }

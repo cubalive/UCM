@@ -266,7 +266,7 @@ function unsubscribeFromTrip(ws: WebSocket, tripId: number): void {
 }
 
 export function broadcastToTrip(tripId: number, event: {
-  type: "driver_location" | "status_change" | "eta_update";
+  type: "driver_location" | "status_change" | "eta_update" | "cascade_delay" | "cascade_delay_resolved";
   data: any;
 }): void {
   const subs = tripSubscriptions.get(tripId);

@@ -58,6 +58,16 @@ import { registerComplianceRoutes } from "./compliance.routes";
 import { registerSmartPickupRoutes } from "./smart-pickup.routes";
 import { registerPharmacyPortalRoutes } from "./pharmacy-portal.routes";
 import { registerBrokerPortalRoutes } from "./broker-portal.routes";
+import { registerBrokerApiV1Routes } from "./broker-api-v1.routes";
+import { registerCascadeAlertRoutes } from "./cascade-alerts.routes";
+import { registerRatingRoutes } from "./ratings.routes";
+import { registerMedicaidRoutes } from "./medicaid.routes";
+import { registerTripGroupRoutes } from "./trip-groups.routes";
+import { registerDeadMileRoutes } from "./dead-mile.routes";
+import { registerSmartCancelRoutes } from "./smart-cancel.routes";
+import { registerReconciliationRoutes } from "./reconciliation.routes";
+import { registerInterCityRoutes } from "./inter-city.routes";
+import { registerCityComparisonRoutes } from "./city-comparison.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -173,6 +183,16 @@ export async function registerRoutes(
   registerSmartPickupRoutes(app);
   registerPharmacyPortalRoutes(app);
   registerBrokerPortalRoutes(app);
+  registerBrokerApiV1Routes(app);
+  registerCascadeAlertRoutes(app);
+  registerRatingRoutes(app);
+  registerMedicaidRoutes(app);
+  registerTripGroupRoutes(app);
+  registerDeadMileRoutes(app);
+  registerSmartCancelRoutes(app);
+  registerReconciliationRoutes(app);
+  registerInterCityRoutes(app);
+  registerCityComparisonRoutes(app);
 
   return httpServer;
 }

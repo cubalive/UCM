@@ -136,6 +136,72 @@ router.get("/api/company/:companyId/ledger-summary", authMiddleware, requireRole
   }
 });
 
+// ─── Trip Notes ─────────────────────────────────────────────────────────────
+router.get("/api/trips/:tripId/notes", authMiddleware, requirePermission("trips", "read"), requireTenantScope, async (req: AuthRequest, res: any) => {
+  try {
+    const tripId = parseInt(req.params.tripId as string);
+    if (isNaN(tripId)) return res.status(400).json({ error: "Invalid trip ID" });
+    const { getNotes } = await import("../lib/tripNotesService");
+    const viewerRole = req.user?.role || "VIEWER";
+    const notes = await getNotes(tripId, viewerRole);
+    res.json({ ok: true, notes });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/api/trips/:tripId/notes", authMiddleware, requirePermission("trips", "write"), requireTenantScope, async (req: AuthRequest, res: any) => {
+  try {
+    const tripId = parseInt(req.params.tripId as string);
+    if (isNaN(tripId)) return res.status(400).json({ error: "Invalid trip ID" });
+    const { noteType, content, isInternal } = req.body;
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(400).json({ error: "Company context required" });
+    const { addNote } = await import("../lib/tripNotesService");
+    const note = await addNote(tripId, companyId, req.user!.userId, req.user!.role, noteType || "general", content, isInternal || false);
+    res.json({ ok: true, note });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put("/api/trips/:tripId/notes/:noteId", authMiddleware, requirePermission("trips", "write"), requireTenantScope, async (req: AuthRequest, res: any) => {
+  try {
+    const noteId = parseInt(req.params.noteId as string);
+    if (isNaN(noteId)) return res.status(400).json({ error: "Invalid note ID" });
+    const { content } = req.body;
+    const { editNote } = await import("../lib/tripNotesService");
+    const note = await editNote(noteId, req.user!.userId, content);
+    res.json({ ok: true, note });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete("/api/trips/:tripId/notes/:noteId", authMiddleware, requirePermission("trips", "write"), requireTenantScope, async (req: AuthRequest, res: any) => {
+  try {
+    const noteId = parseInt(req.params.noteId as string);
+    if (isNaN(noteId)) return res.status(400).json({ error: "Invalid note ID" });
+    const { deleteNote } = await import("../lib/tripNotesService");
+    const note = await deleteNote(noteId, req.user!.userId);
+    res.json({ ok: true, note });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/api/trips/:tripId/notes/:noteId/pin", authMiddleware, requirePermission("trips", "write"), requireTenantScope, async (req: AuthRequest, res: any) => {
+  try {
+    const noteId = parseInt(req.params.noteId as string);
+    if (isNaN(noteId)) return res.status(400).json({ error: "Invalid note ID" });
+    const { pinNote } = await import("../lib/tripNotesService");
+    const note = await pinNote(noteId);
+    res.json({ ok: true, note });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 export function registerTripRoutes(app: Express) {
   app.use(router);
 }

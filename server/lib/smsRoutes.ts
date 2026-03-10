@@ -12,6 +12,11 @@ import {
   getDispatchPhone,
   type TripNotifyStatus,
 } from "./twilioSms";
+import {
+  processConfirmationResponse,
+  processConfirmationLink,
+  getConfirmationStats,
+} from "./smsConfirmationEngine";
 
 const VALID_NOTIFY_STATUSES: TripNotifyStatus[] = [
   "scheduled",
@@ -362,9 +367,10 @@ export function registerSmsRoutes(app: Express) {
       }
 
       const from = normalizePhone(rawFrom) || rawFrom;
+      const messageSid = req.body.MessageSid || undefined;
 
       const stopWords = ["STOP", "UNSUBSCRIBE", "CANCEL", "QUIT", "END"];
-      const startWords = ["START", "YES", "UNSTOP"];
+      const startWords = ["START", "UNSTOP"];
 
       let responseText = "";
 
@@ -376,6 +382,25 @@ export function registerSmsRoutes(app: Express) {
         await storage.setPhoneOptOut(from, false);
         responseText = "You have been re-subscribed to notifications.";
         console.log(`[SMS] Opt-in received from ${from}`);
+      } else {
+        // Try to process as a trip confirmation response (YES/NO/Y/N/CONFIRM/DECLINE)
+        try {
+          const confirmResult = await processConfirmationResponse(
+            from,
+            req.body.Body || "",
+            messageSid
+          );
+          if (confirmResult.handled) {
+            if (confirmResult.action === "confirmed") {
+              responseText = "Thank you! Your ride is confirmed. We look forward to serving you.";
+            } else if (confirmResult.action === "declined") {
+              responseText = "Your ride cancellation request has been noted. A dispatcher will follow up with you.";
+            }
+            console.log(`[SMS] Confirmation reply from ${from}: ${confirmResult.action} for trip ${confirmResult.tripId}`);
+          }
+        } catch (err: any) {
+          console.error(`[SMS] Confirmation processing error:`, err.message);
+        }
       }
 
       const twiml = responseText
@@ -388,4 +413,200 @@ export function registerSmsRoutes(app: Express) {
       res.type("text/xml").send("<Response></Response>");
     }
   });
+
+  // ── Twilio webhook specifically for confirmation replies ──────────────────
+  app.post("/api/sms/webhook/confirmation", async (req, res) => {
+    try {
+      const rawFrom = req.body.From || "";
+      const bodyText = req.body.Body || "";
+      const messageSid = req.body.MessageSid || undefined;
+
+      if (!rawFrom || !bodyText) {
+        res.type("text/xml").send("<Response></Response>");
+        return;
+      }
+
+      const from = normalizePhone(rawFrom) || rawFrom;
+      const result = await processConfirmationResponse(from, bodyText, messageSid);
+
+      let responseText = "";
+      if (result.handled) {
+        if (result.action === "confirmed") {
+          responseText = "Thank you! Your ride is confirmed.";
+        } else if (result.action === "declined") {
+          responseText = "Your ride cancellation request has been noted. A dispatcher will follow up.";
+        }
+      }
+
+      const twiml = responseText
+        ? `<Response><Message>${responseText}</Message></Response>`
+        : "<Response></Response>";
+
+      res.type("text/xml").send(twiml);
+    } catch (err: any) {
+      console.error("[SMS] Confirmation webhook error:", err.message);
+      res.type("text/xml").send("<Response></Response>");
+    }
+  });
+
+  // ── Public confirmation link endpoints (no auth, token-based) ─────────────
+  app.get("/api/trip-confirm/:token", async (req, res) => {
+    try {
+      const { token } = req.params;
+      if (!token || token.length < 10) {
+        return res.status(400).json({ error: "Invalid confirmation token" });
+      }
+
+      const result = await processConfirmationLink(token);
+
+      if (!result.success) {
+        return res.status(404).send(`
+          <!DOCTYPE html>
+          <html><head><title>Trip Confirmation</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>body{font-family:system-ui,sans-serif;max-width:480px;margin:40px auto;padding:0 20px;text-align:center}
+          .card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:32px;margin-top:24px}
+          h1{color:#dc2626;font-size:1.5rem}p{color:#6b7280;font-size:1rem;line-height:1.5}</style></head>
+          <body><div class="card"><h1>Link Not Found</h1>
+          <p>${result.error || "This confirmation link is invalid or has expired."}</p>
+          <p>Please contact dispatch for assistance.</p></div></body></html>
+        `);
+      }
+
+      if (result.alreadyConfirmed) {
+        return res.send(`
+          <!DOCTYPE html>
+          <html><head><title>Trip Confirmed</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>body{font-family:system-ui,sans-serif;max-width:480px;margin:40px auto;padding:0 20px;text-align:center}
+          .card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:32px;margin-top:24px}
+          h1{color:#16a34a;font-size:1.5rem}p{color:#6b7280;font-size:1rem;line-height:1.5}
+          .check{font-size:3rem;margin-bottom:8px}</style></head>
+          <body><div class="card"><div class="check">&#10003;</div>
+          <h1>Already Confirmed</h1>
+          <p>Your ride has already been confirmed. Thank you!</p></div></body></html>
+        `);
+      }
+
+      const trip = result.trip;
+      const pickupInfo = trip
+        ? `<p><strong>Date:</strong> ${trip.scheduledDate || "N/A"}<br><strong>Pickup:</strong> ${trip.pickupTime || trip.scheduledTime || "N/A"}</p>`
+        : "";
+
+      res.send(`
+        <!DOCTYPE html>
+        <html><head><title>Trip Confirmed!</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>body{font-family:system-ui,sans-serif;max-width:480px;margin:40px auto;padding:0 20px;text-align:center}
+        .card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:32px;margin-top:24px}
+        h1{color:#16a34a;font-size:1.5rem}p{color:#6b7280;font-size:1rem;line-height:1.5}
+        .check{font-size:3rem;margin-bottom:8px;color:#16a34a}</style></head>
+        <body><div class="card"><div class="check">&#10003;</div>
+        <h1>Ride Confirmed!</h1>
+        <p>Thank you for confirming your ride with United Care Mobility.</p>
+        ${pickupInfo}
+        <p>Your driver will arrive at the scheduled time. We look forward to serving you!</p></div></body></html>
+      `);
+    } catch (err: any) {
+      console.error("[CONFIRM-LINK] Error:", err.message);
+      res.status(500).send(`
+        <!DOCTYPE html>
+        <html><head><title>Error</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>body{font-family:system-ui,sans-serif;max-width:480px;margin:40px auto;padding:0 20px;text-align:center}
+        .card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:32px;margin-top:24px}
+        h1{color:#dc2626;font-size:1.5rem}p{color:#6b7280}</style></head>
+        <body><div class="card"><h1>Something went wrong</h1>
+        <p>Please try again or contact dispatch.</p></div></body></html>
+      `);
+    }
+  });
+
+  app.post("/api/trip-confirm/:token/respond", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const { response } = req.body || {};
+
+      if (!token || token.length < 10) {
+        return res.status(400).json({ error: "Invalid confirmation token" });
+      }
+
+      const upperResponse = String(response || "").trim().toUpperCase();
+      if (!["YES", "NO", "CONFIRM", "DECLINE"].includes(upperResponse)) {
+        return res.status(400).json({ error: "Response must be YES, NO, CONFIRM, or DECLINE" });
+      }
+
+      if (["YES", "CONFIRM"].includes(upperResponse)) {
+        const result = await processConfirmationLink(token);
+        if (!result.success && !result.alreadyConfirmed) {
+          return res.status(404).json({ error: result.error || "Invalid token" });
+        }
+        return res.json({ ok: true, action: "confirmed", tripId: result.tripId });
+      } else {
+        // For decline via link, look up the token and process
+        const { db: dbInstance } = await import("../db");
+        const { tripConfirmations, trips: tripsTable } = await import("@shared/schema");
+        const { eq, and, isNull } = await import("drizzle-orm");
+
+        const rows = await dbInstance
+          .select()
+          .from(tripConfirmations)
+          .where(eq(tripConfirmations.confirmationToken, token))
+          .limit(1);
+
+        if (rows.length === 0) {
+          return res.status(404).json({ error: "Invalid token" });
+        }
+
+        const confirmation = rows[0];
+        const now = new Date();
+
+        await dbInstance
+          .update(tripConfirmations)
+          .set({
+            declinedAt: now,
+            declineReason: "Patient declined via web link",
+            responseRaw: response,
+          })
+          .where(eq(tripConfirmations.id, confirmation.id));
+
+        await dbInstance
+          .update(tripsTable)
+          .set({
+            confirmationStatus: "declined",
+            confirmationTime: now,
+            noShowRisk: true,
+          })
+          .where(eq(tripsTable.id, confirmation.tripId));
+
+        return res.json({ ok: true, action: "declined", tripId: confirmation.tripId });
+      }
+    } catch (err: any) {
+      console.error("[CONFIRM-RESPOND] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Confirmation stats endpoint (authenticated) ──────────────────────────
+  app.get(
+    "/api/confirmations/stats",
+    authMiddleware,
+    requireRole("DISPATCH"),
+    async (req: AuthRequest, res) => {
+      try {
+        const companyId = parseInt(req.query.companyId as string) || req.user?.companyId;
+        if (!companyId) {
+          return res.status(400).json({ error: "companyId required" });
+        }
+
+        const startDate = (req.query.startDate as string) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+        const endDate = (req.query.endDate as string) || new Date().toISOString().split("T")[0];
+
+        const stats = await getConfirmationStats(companyId, startDate, endDate);
+        res.json({ ok: true, companyId, startDate, endDate, ...stats });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
 }
