@@ -71,6 +71,7 @@ import { registerInterCityRoutes } from "./inter-city.routes";
 import { registerCityComparisonRoutes } from "./city-comparison.routes";
 import { registerHealthRoutes } from "./health.routes";
 import { registerSLARoutes } from "./sla.routes";
+import { registerDeliveryProofRoutes } from "./delivery-proof.routes";
 import { performanceTracker, registerPerformanceMetricsRoute } from "../middleware/performanceTracker";
 
 export async function registerRoutes(
@@ -202,6 +203,7 @@ export async function registerRoutes(
   registerCityComparisonRoutes(app);
   registerHealthRoutes(app);
   registerSLARoutes(app);
+  registerDeliveryProofRoutes(app);
   registerPerformanceMetricsRoute(app);
 
   return httpServer;

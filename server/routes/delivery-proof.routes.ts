@@ -1,13 +1,13 @@
 import express, { type Express, type Response } from "express";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
-import { requireTenantScope, getTenantId } from "../middleware";
+import { requireTenantScope } from "../middleware";
 import { db } from "../db";
 import { trips, pharmacyOrders } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import {
   createProofOfDelivery,
   getProofOfDelivery,
-  getProofOfDeliveryByOrder,
+  getPharmacyOrderProofs,
   validateDeliveryProof,
   type ProofType,
 } from "../lib/proofOfDelivery";
@@ -34,17 +34,6 @@ router.post(
 
       if (!proofType || !VALID_PROOF_TYPES.includes(proofType)) {
         return res.status(400).json({ message: `proofType must be one of: ${VALID_PROOF_TYPES.join(", ")}` });
-      }
-
-      // Validate proof-specific required fields
-      if (proofType === "SIGNATURE" && !signatureData) {
-        return res.status(400).json({ message: "signatureData is required for SIGNATURE proof" });
-      }
-      if (proofType === "PHOTO" && !photoUrl) {
-        return res.status(400).json({ message: "photoUrl is required for PHOTO proof" });
-      }
-      if (proofType === "GPS_VERIFICATION" && (gpsLat == null || gpsLng == null)) {
-        return res.status(400).json({ message: "gpsLat and gpsLng are required for GPS_VERIFICATION proof" });
       }
 
       // Verify trip exists and belongs to tenant
@@ -79,7 +68,7 @@ router.post(
       return res.status(201).json({ ok: true, proof });
     } catch (err: any) {
       console.error(`[DELIVERY-PROOF] POST /api/delivery-proof/:tripId error: ${err.message}`);
-      return res.status(500).json({ message: "Failed to submit delivery proof" });
+      return res.status(500).json({ message: err.message || "Failed to submit delivery proof" });
     }
   },
 );
@@ -129,16 +118,6 @@ router.post(
         return res.status(400).json({ message: `proofType must be one of: ${VALID_PROOF_TYPES.join(", ")}` });
       }
 
-      if (proofType === "SIGNATURE" && !signatureData) {
-        return res.status(400).json({ message: "signatureData is required for SIGNATURE proof" });
-      }
-      if (proofType === "PHOTO" && !photoUrl) {
-        return res.status(400).json({ message: "photoUrl is required for PHOTO proof" });
-      }
-      if (proofType === "GPS_VERIFICATION" && (gpsLat == null || gpsLng == null)) {
-        return res.status(400).json({ message: "gpsLat and gpsLng are required for GPS_VERIFICATION proof" });
-      }
-
       // Verify pharmacy order exists and get associated trip
       const [order] = await db
         .select({
@@ -167,7 +146,6 @@ router.post(
       const proof = await createProofOfDelivery(order.tripId, proofType as ProofType, {
         driverId,
         companyId: order.companyId,
-        pharmacyOrderId: orderId,
         signatureData,
         photoUrl,
         gpsLat,
@@ -176,12 +154,12 @@ router.post(
         idVerified,
         recipientName,
         notes,
-      });
+      }, orderId);
 
       return res.status(201).json({ ok: true, proof });
     } catch (err: any) {
       console.error(`[DELIVERY-PROOF] POST /api/delivery-proof/pharmacy/:orderId error: ${err.message}`);
-      return res.status(500).json({ message: "Failed to submit pharmacy delivery proof" });
+      return res.status(500).json({ message: err.message || "Failed to submit pharmacy delivery proof" });
     }
   },
 );
@@ -200,7 +178,7 @@ router.get(
         return res.status(400).json({ message: "Invalid order ID" });
       }
 
-      const proofs = await getProofOfDeliveryByOrder(orderId);
+      const proofs = await getPharmacyOrderProofs(orderId);
 
       return res.json({ ok: true, proofs });
     } catch (err: any) {
