@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import { authMiddleware, requireRole, requirePermission } from "../auth";
 import { requireTenantScope, requireCityAccess } from "../middleware";
+import { phiAuditDbMiddleware } from "../middleware/phiAuditMiddleware";
 import {
   getPatientsHandler,
   getPatientByIdHandler,
@@ -10,6 +11,9 @@ import {
 } from "../controllers/patients.controller";
 
 const router = express.Router();
+
+// PHI audit logging applied to all patient routes (HIPAA §164.312(b))
+router.use(authMiddleware, phiAuditDbMiddleware as any);
 
 router.get("/api/patients", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "SUPER_ADMIN"), requireTenantScope, requireCityAccess, getPatientsHandler as any);
 router.get("/api/patients/clinic-groups", authMiddleware, requirePermission("patients", "read"), requireTenantScope, getPatientClinicGroupsHandler as any);

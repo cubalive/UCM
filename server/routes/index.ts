@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import { authMiddleware, opsRouteGuard } from "../auth";
-import { healthz, healthLegacy, pwaHealth, healthDetailedHandler, healthDbDetails, versionHandler, crashSimulation, readyz } from "../controllers/health.controller";
+import { healthz, pwaHealth, healthDetailedHandler, healthDbDetails, versionHandler, crashSimulation, readyz } from "../controllers/health.controller";
 import { dbCheckHandler } from "../controllers/dbCheck.controller";
 import { requireRole } from "../auth";
 import { registerAuthRoutes } from "./auth.routes";
@@ -69,6 +69,12 @@ import { registerSmartCancelRoutes } from "./smart-cancel.routes";
 import { registerReconciliationRoutes } from "./reconciliation.routes";
 import { registerInterCityRoutes } from "./inter-city.routes";
 import { registerCityComparisonRoutes } from "./city-comparison.routes";
+import { registerHealthRoutes } from "./health.routes";
+import { registerSLARoutes } from "./sla.routes";
+import { registerDeliveryProofRoutes } from "./delivery-proof.routes";
+import { performanceTracker, registerPerformanceMetricsRoute } from "../middleware/performanceTracker";
+import { registerAiRoutes } from "./ai.routes";
+import { registerEdiRoutes } from "./edi.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -111,9 +117,11 @@ export async function registerRoutes(
   const { releaseReadinessHandler, smokeTestHandler } = await import("../controllers/releaseReadiness.controller");
   const { authRedirectDebugHandler, aasaStatusHandler, iconAssetsStatusHandler, playstoreReadinessHandler } = await import("../controllers/systemDebug.controller");
 
+  // Performance tracking middleware — must be registered before routes
+  app.use(performanceTracker);
+
   app.get("/api/healthz", healthz);
   app.get("/api/readyz", readyz);
-  app.get("/api/health", healthLegacy);
   app.get("/api/version", versionHandler);
   app.get("/api/health/detailed", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), healthDetailedHandler as any);
   app.get("/api/health/details", authMiddleware, requireRole("SUPER_ADMIN"), healthDbDetails as any);
@@ -195,6 +203,12 @@ export async function registerRoutes(
   registerReconciliationRoutes(app);
   registerInterCityRoutes(app);
   registerCityComparisonRoutes(app);
+  registerHealthRoutes(app);
+  registerSLARoutes(app);
+  registerDeliveryProofRoutes(app);
+  registerPerformanceMetricsRoute(app);
+  registerAiRoutes(app);
+  registerEdiRoutes(app);
 
   return httpServer;
 }

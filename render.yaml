@@ -5,7 +5,7 @@ services:
     dockerfilePath: ./Dockerfile
     plan: standard
     region: ohio
-    healthCheckPath: /api/boot
+    healthCheckPath: /api/health/live
     autoDeploy: false
     envVars:
       - key: NODE_ENV
@@ -13,7 +13,9 @@ services:
       - key: PORT
         value: "5000"
       - key: RUN_MODE
-        value: all
+        value: api
+      - key: PHI_ENCRYPTION_KEY
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_DB_URL

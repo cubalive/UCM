@@ -5,28 +5,50 @@ primary_region = "iad"
   dockerfile = "Dockerfile"
 
 [processes]
-  app = "node dist/index.cjs"
+  app = "RUN_MODE=api node dist/index.cjs"
+  worker = "RUN_MODE=worker node dist/index.cjs"
 
 [http_service]
   internal_port = 5000
   force_https = true
   auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 2
   processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
 
   [[http_service.checks]]
     interval = "15s"
     timeout = "5s"
     grace_period = "60s"
     method = "GET"
-    path = "/api/boot"
+    path = "/api/health/live"
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "90s"
+    method = "GET"
+    path = "/api/health/ready"
 
 [env]
   NODE_ENV = "production"
   PORT = "5000"
-  RUN_MODE = "all"
 
 [[vm]]
   size = "shared-cpu-2x"
   memory = "1gb"
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["worker"]
+
+[metrics]
+  port = 5000
+  path = "/api/healthz"

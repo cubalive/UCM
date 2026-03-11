@@ -4683,3 +4683,132 @@ export type InsertPaymentReconciliationItem = z.infer<typeof insertPaymentReconc
 export const insertPaymentReconciliationWriteOffSchema = createInsertSchema(paymentReconciliationWriteOffs).omit({ createdAt: true });
 export type PaymentReconciliationWriteOff = typeof paymentReconciliationWriteOffs.$inferSelect;
 export type InsertPaymentReconciliationWriteOff = z.infer<typeof insertPaymentReconciliationWriteOffSchema>;
+
+// ─── Delivery Proofs ──────────────────────────────────────────────────────────
+
+export const deliveryProofTypeEnum = pgEnum("delivery_proof_type", [
+  "SIGNATURE",
+  "PHOTO",
+  "GPS_VERIFICATION",
+  "ID_CHECK",
+]);
+
+export const deliveryProofs = pgTable("delivery_proofs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  pharmacyOrderId: integer("pharmacy_order_id").references(() => pharmacyOrders.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  driverId: integer("driver_id").notNull().references(() => drivers.id),
+  proofType: deliveryProofTypeEnum("proof_type").notNull(),
+  signatureData: text("signature_data"),
+  photoUrl: text("photo_url"),
+  gpsLat: doublePrecision("gps_lat"),
+  gpsLng: doublePrecision("gps_lng"),
+  gpsAccuracy: doublePrecision("gps_accuracy"),
+  idVerified: boolean("id_verified"),
+  recipientName: text("recipient_name"),
+  notes: text("notes"),
+  collectedAt: timestamp("collected_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("dp_trip_idx").on(table.tripId),
+  index("dp_pharmacy_order_idx").on(table.pharmacyOrderId),
+  index("dp_company_driver_idx").on(table.companyId, table.driverId),
+]);
+
+export const insertDeliveryProofSchema = createInsertSchema(deliveryProofs).omit({ createdAt: true });
+export type DeliveryProof = typeof deliveryProofs.$inferSelect;
+export type InsertDeliveryProof = z.infer<typeof insertDeliveryProofSchema>;
+
+// ─── EDI Claims (837/835 Electronic Billing) ────────────────────────────────
+
+export const ediClaimStatusEnum = pgEnum("edi_claim_status", [
+  "GENERATED",
+  "SUBMITTED",
+  "ACCEPTED",
+  "REJECTED",
+  "PAID",
+  "DENIED",
+]);
+
+export const ediClaims = pgTable("edi_claims", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  tripId: integer("trip_id").notNull().references(() => trips.id),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  claimNumber: text("claim_number").notNull().unique(),
+  ediContent: text("edi_content").notNull(),
+  status: ediClaimStatusEnum("status").notNull().default("GENERATED"),
+  submittedAt: timestamp("submitted_at"),
+  responseContent: text("response_content"),
+  paymentAmount: integer("payment_amount"),
+  adjustmentAmount: integer("adjustment_amount"),
+  adjudicatedAt: timestamp("adjudicated_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_edi_claims_company_status").on(table.companyId, table.status),
+  index("idx_edi_claims_trip").on(table.tripId),
+  index("idx_edi_claims_claim_number").on(table.claimNumber),
+]);
+
+export const ediClaimEvents = pgTable("edi_claim_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  claimId: integer("claim_id").notNull().references(() => ediClaims.id),
+  eventType: text("event_type").notNull(),
+  description: text("description"),
+  rawData: jsonb("raw_data"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_edi_claim_events_claim").on(table.claimId),
+  index("idx_edi_claim_events_type").on(table.eventType),
+]);
+
+export const insertEdiClaimSchema = createInsertSchema(ediClaims).omit({ createdAt: true, updatedAt: true });
+export const insertEdiClaimEventSchema = createInsertSchema(ediClaimEvents).omit({ createdAt: true });
+export type EdiClaim = typeof ediClaims.$inferSelect;
+export type InsertEdiClaim = z.infer<typeof insertEdiClaimSchema>;
+export type EdiClaimEvent = typeof ediClaimEvents.$inferSelect;
+export type InsertEdiClaimEvent = z.infer<typeof insertEdiClaimEventSchema>;
+
+// ─── Fraud Alerts ─────────────────────────────────────────────────────────────
+
+export const fraudAlertSeverityEnum = pgEnum("fraud_alert_severity", [
+  "LOW",
+  "MEDIUM",
+  "HIGH",
+  "CRITICAL",
+]);
+
+export const fraudAlertStatusEnum = pgEnum("fraud_alert_status", [
+  "OPEN",
+  "INVESTIGATING",
+  "RESOLVED",
+  "DISMISSED",
+]);
+
+export const fraudAlerts = pgTable("fraud_alerts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").notNull().references(() => companies.id),
+  cityId: integer("city_id").references(() => cities.id),
+  tripId: integer("trip_id").references(() => trips.id),
+  driverId: integer("driver_id").references(() => drivers.id),
+  alertType: text("alert_type").notNull(),
+  severity: fraudAlertSeverityEnum("severity").notNull().default("LOW"),
+  description: text("description").notNull(),
+  details: jsonb("details"),
+  status: fraudAlertStatusEnum("status").notNull().default("OPEN"),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedNotes: text("resolved_notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("fraud_alerts_company_idx").on(table.companyId),
+  index("fraud_alerts_status_idx").on(table.status),
+  index("fraud_alerts_severity_idx").on(table.severity),
+  index("fraud_alerts_trip_idx").on(table.tripId),
+  index("fraud_alerts_driver_idx").on(table.driverId),
+]);
+
+export const insertFraudAlertSchema = createInsertSchema(fraudAlerts).omit({ createdAt: true });
+export type FraudAlert = typeof fraudAlerts.$inferSelect;
+export type InsertFraudAlert = z.infer<typeof insertFraudAlertSchema>;

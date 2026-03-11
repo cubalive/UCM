@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
+import { db } from "../db";
 import { authMiddleware, requireRole, getCompanyIdFromAuth, checkCompanyOwnership, type AuthRequest } from "../auth";
 import { tripLockedGuard } from "./tripLockGuard";
 import { etaMinutes, buildStaticMapUrls, getRoutePolyline } from "./googleMaps";
@@ -480,6 +481,54 @@ export function registerTrackingRoutes(app: Express) {
         dispatchPhone = getDispatchPhone() || null;
       }
 
+      // Delivery proof data for completed trips
+      let deliveryProofData: any[] | null = null;
+      let pharmacyDeliveryInfo: { orderId: number; status: string } | null = null;
+
+      if (trip.status === "COMPLETED" || trip.status === "ARRIVED_DROPOFF") {
+        try {
+          const { getProofOfDelivery } = await import("./proofOfDelivery");
+          const proofs = await getProofOfDelivery(trip.id);
+          if (proofs.length > 0) {
+            deliveryProofData = proofs.map((p) => ({
+              type: p.proofType,
+              hasSignature: !!p.signatureData,
+              hasPhoto: !!p.photoUrl,
+              recipientName: p.recipientName,
+              collectedAt: p.collectedAt ? (p.collectedAt instanceof Date ? p.collectedAt.toISOString() : p.collectedAt) : null,
+            }));
+          }
+        } catch {}
+      }
+
+      // Check for pharmacy delivery
+      try {
+        const { pharmacyOrders: pharmacyOrdersTable } = await import("@shared/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        const pharmacyRows = await db
+          .select({ id: pharmacyOrdersTable.id, status: pharmacyOrdersTable.status })
+          .from(pharmacyOrdersTable)
+          .where(eqOp(pharmacyOrdersTable.tripId, trip.id))
+          .limit(1);
+        if (pharmacyRows.length > 0) {
+          pharmacyDeliveryInfo = {
+            orderId: pharmacyRows[0].id,
+            status: pharmacyRows[0].status,
+          };
+        }
+      } catch {}
+
+      // Build timeline from trip timestamps
+      const timeline: Array<{ status: string; label: string; timestamp: string | null }> = [];
+      if (trip.createdAt) timeline.push({ status: "SCHEDULED", label: "Scheduled", timestamp: trip.createdAt instanceof Date ? trip.createdAt.toISOString() : String(trip.createdAt) });
+      if (trip.assignedAt) timeline.push({ status: "ASSIGNED", label: "Driver Assigned", timestamp: trip.assignedAt instanceof Date ? trip.assignedAt.toISOString() : String(trip.assignedAt) });
+      if (trip.startedAt) timeline.push({ status: "EN_ROUTE_TO_PICKUP", label: "Driver En Route", timestamp: trip.startedAt instanceof Date ? trip.startedAt.toISOString() : String(trip.startedAt) });
+      if (trip.arrivedPickupAt) timeline.push({ status: "ARRIVED_PICKUP", label: "Driver Arrived at Pickup", timestamp: trip.arrivedPickupAt instanceof Date ? trip.arrivedPickupAt.toISOString() : String(trip.arrivedPickupAt) });
+      if (trip.pickedUpAt) timeline.push({ status: "PICKED_UP", label: "Picked Up", timestamp: trip.pickedUpAt instanceof Date ? trip.pickedUpAt.toISOString() : String(trip.pickedUpAt) });
+      if (trip.enRouteDropoffAt) timeline.push({ status: "EN_ROUTE_TO_DROPOFF", label: "En Route to Destination", timestamp: trip.enRouteDropoffAt instanceof Date ? trip.enRouteDropoffAt.toISOString() : String(trip.enRouteDropoffAt) });
+      if (trip.arrivedDropoffAt) timeline.push({ status: "ARRIVED_DROPOFF", label: "Arrived at Destination", timestamp: trip.arrivedDropoffAt instanceof Date ? trip.arrivedDropoffAt.toISOString() : String(trip.arrivedDropoffAt) });
+      if (trip.completedAt) timeline.push({ status: "COMPLETED", label: "Completed", timestamp: trip.completedAt instanceof Date ? trip.completedAt.toISOString() : String(trip.completedAt) });
+
       res.json({
         ok: true,
         trip: {
@@ -489,12 +538,16 @@ export function registerTrackingRoutes(app: Express) {
           pickup_lat: trip.pickupLat,
           pickup_lng: trip.pickupLng,
           scheduled_date: trip.scheduledDate,
+          service_type: trip.serviceType,
         },
         driver: driverData,
         vehicle: vehicleData,
         eta: etaData,
         dispatch_phone: dispatchPhone,
         route_polyline: trip.routePolyline || null,
+        delivery_proofs: deliveryProofData,
+        pharmacy_delivery: pharmacyDeliveryInfo,
+        timeline: timeline.length > 0 ? timeline : null,
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, message: "Internal error" });

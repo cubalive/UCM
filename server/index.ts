@@ -84,6 +84,8 @@ const BUILTIN_APP_ORIGINS = new Set([
   "https://driver.unitedcaremobility.com",
   "https://dispatch.unitedcaremobility.com",
   "https://admin.unitedcaremobility.com",
+  "https://pharmacy.unitedcaremobility.com",
+  "https://broker.unitedcaremobility.com",
 ]);
 
 const envAppOrigins = readOriginList("ALLOWED_APP_ORIGIN");
@@ -879,12 +881,12 @@ app.use((req, res, next) => {
   const { registerAdminMetricsRoutes } = await import("./lib/adminMetricsRoutes");
   registerAdminMetricsRoutes(app);
 
-  if (roleMode === "all") {
+  if (shouldRunSchedulers()) {
     await initSchedulers();
   } else {
     console.log(JSON.stringify({
       event: "schedulers_skipped",
-      reason: `RUN_MODE=${runModeRaw} (api-only)`,
+      reason: `RUN_MODE=${runModeRaw} resolved to '${roleMode}' — schedulers disabled for api-only process`,
       ts: new Date().toISOString(),
     }));
   }
