@@ -19,9 +19,9 @@ interface TripHistoryItem {
   duration: string;
 }
 
-function MiniChart() {
-  const data = [65, 72, 58, 85, 92, 78, 88, 95, 82, 90, 76, 88];
-  const max = Math.max(...data);
+function MiniChart({ chartData }: { chartData?: number[] }) {
+  const data = chartData && chartData.length > 1 ? chartData : [0, 0];
+  const max = Math.max(...data, 1);
   const width = 280;
   const height = 60;
 
@@ -56,6 +56,8 @@ export function Earnings({ onBack }: { onBack: () => void }) {
   const completedRides = useDriverStore((s) => s.completedRides);
   const [tripHistory, setTripHistory] = useState<TripHistoryItem[]>([]);
   const [stats, setStats] = useState<{ avgPerTrip: number; onlineHours: number; perHour: number }>({ avgPerTrip: 0, onlineHours: 0, perHour: 0 });
+  const [chartData, setChartData] = useState<number[]>([]);
+  const [monthlyEarnings, setMonthlyEarnings] = useState(0);
 
   useEffect(() => {
     const token = localStorage.getItem(DRIVER_TOKEN_KEY) || getStoredToken();
@@ -90,12 +92,25 @@ export function Earnings({ onBack }: { onBack: () => void }) {
             onlineHours: hours,
             perHour: hours > 0 ? total / hours : 0,
           });
+          if (data.dailyBreakdown && Array.isArray(data.dailyBreakdown)) {
+            setChartData(data.dailyBreakdown.map((d: any) => (d.totalCents || 0) / 100));
+          }
         }
       })
       .catch(() => {});
+
+    // Fetch monthly earnings separately for accurate display
+    if (period === "month") {
+      fetch(resolveUrl("/api/driver/earnings?range=month"), { headers })
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (data) setMonthlyEarnings((data.totalCents || 0) / 100);
+        })
+        .catch(() => {});
+    }
   }, [period, completedRides]);
 
-  const displayAmount = period === "day" ? earningsToday : period === "week" ? earningsWeek : earningsWeek * 3.8;
+  const displayAmount = period === "day" ? earningsToday : period === "week" ? earningsWeek : (monthlyEarnings || earningsWeek * 4);
 
   return (
     <NebulaBackground className="min-h-screen">
@@ -162,7 +177,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
               testID="progress-rides"
             />
           </div>
-          <MiniChart />
+          <MiniChart chartData={chartData} />
         </GlassCard>
 
         <GlassCard variant="default" testID="card-quick-stats" className="!p-3">

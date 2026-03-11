@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { CommandPalette } from "@/components/command-palette";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -801,6 +802,7 @@ function AuthenticatedApp() {
               </main>
             </div>
           </div>
+          <CommandPalette />
           <AuthDebugPanel />
         </SidebarProvider>
       </AppErrorBoundary>
@@ -908,6 +910,7 @@ function AuthenticatedApp() {
             </main>
           </div>
         </div>
+        <CommandPalette />
         <AuthDebugPanel />
       </SidebarProvider>
     </AppErrorBoundary>

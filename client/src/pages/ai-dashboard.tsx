@@ -57,7 +57,7 @@ function statusBadge(status: string) {
 }
 
 export default function AiDashboardPage() {
-  const { token, user } = useAuth();
+  const { token, user, cities } = useAuth();
   const { toast } = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -151,14 +151,19 @@ export default function AiDashboardPage() {
       {(activeTab === "demand" || activeTab === "positioning") && (
         <div className="flex gap-4 items-end">
           <div>
-            <label className="text-sm text-muted-foreground block mb-1">City ID</label>
-            <Input
-              type="number"
-              placeholder="City ID"
-              value={selectedCityId}
-              onChange={(e) => setSelectedCityId(e.target.value)}
-              className="w-32"
-            />
+            <label className="text-sm text-muted-foreground block mb-1">City</label>
+            <Select value={selectedCityId} onValueChange={setSelectedCityId}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Select a city" />
+              </SelectTrigger>
+              <SelectContent>
+                {(cities || []).filter((c: any) => c.active !== false).map((city: any) => (
+                  <SelectItem key={city.id} value={String(city.id)}>
+                    {city.name}{city.state ? `, ${city.state}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <label className="text-sm text-muted-foreground block mb-1">Date</label>
@@ -193,7 +198,7 @@ export default function AiDashboardPage() {
           {!selectedCityId ? (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
-                Enter a City ID to view demand predictions
+                Select a city to view demand predictions
               </CardContent>
             </Card>
           ) : demandQuery.isLoading ? (
@@ -301,7 +306,7 @@ export default function AiDashboardPage() {
           {!selectedCityId ? (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
-                Enter a City ID to view optimal driver positions
+                Select a city to view optimal driver positions
               </CardContent>
             </Card>
           ) : positioningQuery.isLoading ? (
