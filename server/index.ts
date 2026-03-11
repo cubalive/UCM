@@ -209,10 +209,14 @@ app.use((req, res, next) => {
 (async () => {
   // Start listening EARLY so Railway/infra healthcheck (/api/health/live) can respond
   // while the rest of boot (migrations, route registration, etc.) completes.
+  // Skip for worker mode — workers create their own minimal healthcheck server later.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
-    console.log(JSON.stringify({ event: "http_listening", port, ts: new Date().toISOString() }));
-  });
+  const earlyRunMode = (process.env.RUN_MODE || process.env.ROLE_MODE || "all").toLowerCase().trim();
+  if (earlyRunMode !== "worker") {
+    httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+      console.log(JSON.stringify({ event: "http_listening", port, ts: new Date().toISOString() }));
+    });
+  }
 
   const { dbReady, getDbSource, db: bootDb } = await import("./db");
   await dbReady;
