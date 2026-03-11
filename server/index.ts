@@ -703,6 +703,10 @@ app.use((req, res, next) => {
     `);
     await bootDb.execute(bootSql`ALTER TABLE trips ADD COLUMN IF NOT EXISTS service_type service_type NOT NULL DEFAULT 'transport'`);
 
+    // Pharmacy & Broker module — users FK columns
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS pharmacy_id INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS broker_id INTEGER`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);
