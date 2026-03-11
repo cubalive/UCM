@@ -84,6 +84,8 @@ const BUILTIN_APP_ORIGINS = new Set([
   "https://driver.unitedcaremobility.com",
   "https://dispatch.unitedcaremobility.com",
   "https://admin.unitedcaremobility.com",
+  "https://pharmacy.unitedcaremobility.com",
+  "https://broker.unitedcaremobility.com",
 ]);
 
 const envAppOrigins = readOriginList("ALLOWED_APP_ORIGIN");
