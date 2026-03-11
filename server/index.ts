@@ -747,6 +747,16 @@ app.use((req, res, next) => {
 
     await initSchedulers();
 
+    // Minimal HTTP server so Railway healthcheck passes in worker mode
+    const workerPort = Number(process.env.PORT) || 5000;
+    const workerHttp = createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "worker-alive", uptime: Math.round(process.uptime()), pid: process.pid }));
+    });
+    workerHttp.listen(workerPort, "0.0.0.0", () => {
+      console.log(JSON.stringify({ event: "worker_healthcheck_server", port: workerPort, ts: new Date().toISOString() }));
+    });
+
     const { startMemoryLogger } = await import("./lib/schedulerHarness");
     startMemoryLogger(5 * 60 * 1000);
 
@@ -785,6 +795,7 @@ app.use((req, res, next) => {
       if (shuttingDown) return;
       shuttingDown = true;
       console.log(JSON.stringify({ event: "shutdown_start", signal, roleMode: "worker", ts: new Date().toISOString() }));
+      workerHttp.close();
       await stopSchedulers();
       try {
         const { pool: dbPool } = await import("./db");
