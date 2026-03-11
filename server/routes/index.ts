@@ -76,6 +76,7 @@ import { performanceTracker, registerPerformanceMetricsRoute } from "../middlewa
 import { registerAiRoutes } from "./ai.routes";
 import { registerEdiRoutes } from "./edi.routes";
 import { registerBrandingRoutes } from "./branding.routes";
+import { registerAdminPharmacyRoutes } from "./admin-pharmacy.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -211,6 +212,7 @@ export async function registerRoutes(
   registerAiRoutes(app);
   registerEdiRoutes(app);
   registerBrandingRoutes(app);
+  registerAdminPharmacyRoutes(app);
 
   return httpServer;
 }

@@ -107,6 +107,8 @@ const CityComparisonPage = React.lazy(() => import("@/pages/city-comparison"));
 const CascadeAlertsPage = React.lazy(() => import("@/pages/cascade-alerts"));
 const AiDashboardPage = React.lazy(() => import("@/pages/ai-dashboard"));
 const EdiBillingPage = React.lazy(() => import("@/pages/edi-billing"));
+const AdminPharmaciesPage = React.lazy(() => import("@/pages/admin-pharmacies"));
+const AdminPharmacyOrdersPage = React.lazy(() => import("@/pages/admin-pharmacy-orders"));
 
 // Lazy-loaded app shells
 const DriverAppV4 = React.lazy(() => import("@/driver-v4/DriverAppV4").then(m => ({ default: m.DriverAppV4 })));
@@ -474,6 +476,8 @@ function Router() {
       <Route path="/city-comparison">{() => <SuperAdminRoute component={CityComparisonPage} />}</Route>
       <Route path="/cascade-alerts">{() => <ProtectedRoute resource="dispatch" component={CascadeAlertsPage} />}</Route>
       <Route path="/ai-dashboard">{() => <SuperAdminRoute component={AiDashboardPage} />}</Route>
+      <Route path="/admin/pharmacies">{() => <SuperAdminRoute component={AdminPharmaciesPage} />}</Route>
+      <Route path="/admin/pharmacy-orders">{() => <SuperAdminRoute component={AdminPharmacyOrdersPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>
