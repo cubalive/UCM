@@ -86,15 +86,23 @@ const SANITIZE_SKIP_PATHS = new Set([
 export function inputSanitizer(req: Request, res: Response, next: NextFunction) {
   if (SANITIZE_SKIP_PATHS.has(req.path)) return next();
 
-  // Only sanitize JSON bodies and form data
-  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
-    // Log XSS attempts in query params (Express 5: req.query is read-only)
-    if (req.query && typeof req.query === "object") {
-      const originalQuery = JSON.stringify(req.query);
-      if (containsXss(originalQuery)) {
-        logSecurityEvent(req, "xss_attempt", "query");
+  // Sanitize query params for all methods
+  if (req.query && typeof req.query === "object") {
+    const originalQuery = JSON.stringify(req.query);
+    if (containsXss(originalQuery)) {
+      logSecurityEvent(req, "xss_attempt", "query");
+    }
+    // Sanitize query param values in-place
+    for (const key of Object.keys(req.query)) {
+      const val = (req.query as Record<string, any>)[key];
+      if (typeof val === "string") {
+        (req.query as Record<string, any>)[key] = sanitizeString(val);
       }
     }
+  }
+
+  // Only sanitize bodies for non-GET methods
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
     return next();
   }
 

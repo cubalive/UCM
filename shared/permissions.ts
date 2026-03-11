@@ -1,4 +1,4 @@
-export type AppRole = "SUPER_ADMIN" | "ADMIN" | "COMPANY_ADMIN" | "DISPATCH" | "DRIVER" | "VIEWER" | "CLINIC_ADMIN" | "CLINIC_USER" | "CLINIC_VIEWER" | "BROKER_ADMIN" | "BROKER_USER";
+export type AppRole = "SUPER_ADMIN" | "ADMIN" | "COMPANY_ADMIN" | "DISPATCH" | "DRIVER" | "VIEWER" | "CLINIC_ADMIN" | "CLINIC_USER" | "CLINIC_VIEWER" | "BROKER_ADMIN" | "BROKER_USER" | "PHARMACY_ADMIN" | "PHARMACY_USER";
 
 export type Resource =
   | "dashboard"
@@ -18,7 +18,8 @@ export type Resource =
   | "support"
   | "broker_marketplace"
   | "broker_contracts"
-  | "broker_settlements";
+  | "broker_settlements"
+  | "pharmacy_orders";
 
 export type Permission = "read" | "write" | "self";
 
@@ -42,6 +43,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: ["read", "write"],
     broker_contracts: ["read", "write"],
     broker_settlements: ["read", "write"],
+    pharmacy_orders: ["read", "write"],
   },
   ADMIN: {
     dashboard: ["read"],
@@ -62,6 +64,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: ["read", "write"],
     broker_contracts: ["read", "write"],
     broker_settlements: ["read", "write"],
+    pharmacy_orders: ["read", "write"],
   },
   COMPANY_ADMIN: {
     dashboard: ["read"],
@@ -82,6 +85,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: ["read", "write"],
     broker_contracts: ["read"],
     broker_settlements: ["read"],
+    pharmacy_orders: ["read", "write"],
   },
   DISPATCH: {
     dashboard: ["read"],
@@ -102,6 +106,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: ["read"],
     broker_contracts: [],
     broker_settlements: [],
+    pharmacy_orders: ["read"],
   },
   DRIVER: {
     dashboard: [],
@@ -122,6 +127,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: [],
     broker_contracts: [],
     broker_settlements: [],
+    pharmacy_orders: [],
   },
   VIEWER: {
     dashboard: [],
@@ -142,6 +148,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: [],
     broker_contracts: [],
     broker_settlements: [],
+    pharmacy_orders: [],
   },
   CLINIC_ADMIN: {
     dashboard: ["read"],
@@ -162,6 +169,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: [],
     broker_contracts: [],
     broker_settlements: [],
+    pharmacy_orders: [],
   },
   CLINIC_USER: {
     dashboard: ["read"],
@@ -182,6 +190,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: [],
     broker_contracts: [],
     broker_settlements: [],
+    pharmacy_orders: [],
   },
   CLINIC_VIEWER: {
     dashboard: ["read"],
@@ -202,6 +211,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: [],
     broker_contracts: [],
     broker_settlements: [],
+    pharmacy_orders: [],
   },
   BROKER_ADMIN: {
     dashboard: ["read"],
@@ -222,6 +232,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: ["read", "write"],
     broker_contracts: ["read", "write"],
     broker_settlements: ["read", "write"],
+    pharmacy_orders: [],
   },
   BROKER_USER: {
     dashboard: ["read"],
@@ -242,11 +253,55 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     broker_marketplace: ["read", "write"],
     broker_contracts: ["read"],
     broker_settlements: ["read"],
+    pharmacy_orders: [],
+  },
+  PHARMACY_ADMIN: {
+    dashboard: ["read"],
+    dispatch: [],
+    trips: ["read"],
+    patients: ["read"],
+    drivers: [],
+    vehicles: [],
+    clinics: [],
+    invoices: ["read"],
+    cities: [],
+    users: ["read", "write"],
+    audit: ["read"],
+    time_entries: [],
+    payroll: [],
+    billing: ["read"],
+    support: ["read", "write"],
+    broker_marketplace: [],
+    broker_contracts: [],
+    broker_settlements: [],
+    pharmacy_orders: ["read", "write"],
+  },
+  PHARMACY_USER: {
+    dashboard: ["read"],
+    dispatch: [],
+    trips: ["read"],
+    patients: ["read"],
+    drivers: [],
+    vehicles: [],
+    clinics: [],
+    invoices: [],
+    cities: [],
+    users: [],
+    audit: ["read"],
+    time_entries: [],
+    payroll: [],
+    billing: [],
+    support: ["read", "write"],
+    broker_marketplace: [],
+    broker_contracts: [],
+    broker_settlements: [],
+    pharmacy_orders: ["read", "write"],
   },
 };
 
 export const CLINIC_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"] as const;
 export const BROKER_ROLES = ["BROKER_ADMIN", "BROKER_USER"] as const;
+export const PHARMACY_ROLES = ["PHARMACY_ADMIN", "PHARMACY_USER"] as const;
 
 export function isClinicRole(role: string): boolean {
   return CLINIC_ROLES.includes(role.toUpperCase() as any);
@@ -254,6 +309,10 @@ export function isClinicRole(role: string): boolean {
 
 export function isBrokerRole(role: string): boolean {
   return BROKER_ROLES.includes(role.toUpperCase() as any);
+}
+
+export function isPharmacyRole(role: string): boolean {
+  return PHARMACY_ROLES.includes(role.toUpperCase() as any);
 }
 
 export function can(role: string, resource: Resource, permission: Permission = "read"): boolean {
