@@ -130,6 +130,8 @@ export function Profile({ onBack }: { onBack: () => void }) {
   const setNavPreference = useDriverStore((s) => s.setNavPreference);
   const rating = useDriverStore((s) => s.rating);
   const completedRides = useDriverStore((s) => s.completedRides);
+  const driverName = useDriverStore((s) => s.driverName);
+  const driverInitials = useDriverStore((s) => s.driverInitials);
 
   const [sounds, setSounds] = useState(true);
   const [haptics, setHaptics] = useState(true);
@@ -167,13 +169,13 @@ export function Profile({ onBack }: { onBack: () => void }) {
               }}
               data-testid="avatar-large"
             >
-              JD
+              {driverInitials || "DR"}
             </div>
             <div>
               <p className="text-lg font-bold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
-                John Driver
+                {driverName || "Driver"}
               </p>
-              <p className="text-xs" style={{ color: colors.textTertiary }}>ID: DRV-2024-0042</p>
+              <p className="text-xs" style={{ color: colors.textTertiary }}>UCM Driver</p>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-xs flex items-center gap-1" style={{ color: colors.warningNeon }}>
                   ★ {rating}

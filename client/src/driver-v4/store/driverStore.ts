@@ -45,6 +45,7 @@ export interface ActiveTrip {
   tripType?: string;
   status?: string;
   routePolyline?: string | null;
+  passengerPhone?: string | null;
 }
 
 export interface TripOffer {
@@ -161,6 +162,7 @@ function tripFromApiData(trip: any): ActiveTrip {
     tripType: getServiceLabel(trip.serviceType),
     status: trip.status,
     routePolyline: trip.routePolyline || null,
+    passengerPhone: trip.patientPhone || trip.passengerPhone || null,
   };
 }
 
