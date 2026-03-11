@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { DollarSign, TrendingUp, Calendar, ChevronLeft, Clock } from "lucide-react";
 import { useDriverStore } from "../store/driverStore";
@@ -7,19 +7,21 @@ import { glowColor } from "../design/theme";
 import { GlassCard } from "../components/ui/GlassCard";
 import { GlowProgressCircle } from "../components/ui/GlowProgressCircle";
 import { NebulaBackground } from "../components/ui/MapOverlay";
+import { resolveUrl, getStoredToken } from "@/lib/api";
+import { DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
 
-const MOCK_HISTORY = [
-  { id: "TRP-001", time: "2:45 PM", passenger: "Sarah M.", amount: 32.50, distance: "8.2 mi", duration: "22 min" },
-  { id: "TRP-002", time: "1:15 PM", passenger: "Robert K.", amount: 28.00, distance: "6.5 mi", duration: "18 min" },
-  { id: "TRP-003", time: "11:30 AM", passenger: "Lisa P.", amount: 45.00, distance: "12.1 mi", duration: "35 min" },
-  { id: "TRP-004", time: "10:00 AM", passenger: "James W.", amount: 22.50, distance: "4.8 mi", duration: "14 min" },
-  { id: "TRP-005", time: "8:45 AM", passenger: "Maria G.", amount: 38.00, distance: "9.7 mi", duration: "28 min" },
-  { id: "TRP-006", time: "Yesterday", passenger: "David L.", amount: 31.00, distance: "7.3 mi", duration: "20 min" },
-];
+interface TripHistoryItem {
+  id: string;
+  time: string;
+  passenger: string;
+  amount: number;
+  distance: string;
+  duration: string;
+}
 
-function MiniChart() {
-  const data = [65, 72, 58, 85, 92, 78, 88, 95, 82, 90, 76, 88];
-  const max = Math.max(...data);
+function MiniChart({ chartData }: { chartData?: number[] }) {
+  const data = chartData && chartData.length > 1 ? chartData : [0, 0];
+  const max = Math.max(...data, 1);
   const width = 280;
   const height = 60;
 
@@ -52,8 +54,63 @@ export function Earnings({ onBack }: { onBack: () => void }) {
   const earningsToday = useDriverStore((s) => s.earningsToday);
   const earningsWeek = useDriverStore((s) => s.earningsWeek);
   const completedRides = useDriverStore((s) => s.completedRides);
+  const [tripHistory, setTripHistory] = useState<TripHistoryItem[]>([]);
+  const [stats, setStats] = useState<{ avgPerTrip: number; onlineHours: number; perHour: number }>({ avgPerTrip: 0, onlineHours: 0, perHour: 0 });
+  const [chartData, setChartData] = useState<number[]>([]);
+  const [monthlyEarnings, setMonthlyEarnings] = useState(0);
 
-  const displayAmount = period === "day" ? earningsToday : period === "week" ? earningsWeek : earningsWeek * 3.8;
+  useEffect(() => {
+    const token = localStorage.getItem(DRIVER_TOKEN_KEY) || getStoredToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    fetch(resolveUrl("/api/driver/trip-history?limit=10"), { headers })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.trips?.length) {
+          setTripHistory(data.trips.map((t: any) => ({
+            id: t.publicId || `TRP-${t.id}`,
+            time: t.completedAt ? new Date(t.completedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+            passenger: t.patientName || "Patient",
+            amount: (t.totalCents || 0) / 100,
+            distance: t.distanceMiles ? `${t.distanceMiles.toFixed(1)} mi` : "—",
+            duration: t.durationMinutes ? `${t.durationMinutes} min` : "—",
+          })));
+        }
+      })
+      .catch(() => {});
+
+    fetch(resolveUrl(`/api/driver/earnings?range=${period}`), { headers })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) {
+          const total = (data.totalCents || 0) / 100;
+          const trips = data.tripCount || completedRides || 1;
+          const hours = data.onlineHours || 0;
+          setStats({
+            avgPerTrip: trips > 0 ? total / trips : 0,
+            onlineHours: hours,
+            perHour: hours > 0 ? total / hours : 0,
+          });
+          if (data.dailyBreakdown && Array.isArray(data.dailyBreakdown)) {
+            setChartData(data.dailyBreakdown.map((d: any) => (d.totalCents || 0) / 100));
+          }
+        }
+      })
+      .catch(() => {});
+
+    // Fetch monthly earnings separately for accurate display
+    if (period === "month") {
+      fetch(resolveUrl("/api/driver/earnings?range=month"), { headers })
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (data) setMonthlyEarnings((data.totalCents || 0) / 100);
+        })
+        .catch(() => {});
+    }
+  }, [period, completedRides]);
+
+  const displayAmount = period === "day" ? earningsToday : period === "week" ? earningsWeek : (monthlyEarnings || earningsWeek * 4);
 
   return (
     <NebulaBackground className="min-h-screen">
@@ -120,24 +177,24 @@ export function Earnings({ onBack }: { onBack: () => void }) {
               testID="progress-rides"
             />
           </div>
-          <MiniChart />
+          <MiniChart chartData={chartData} />
         </GlassCard>
 
         <GlassCard variant="default" testID="card-quick-stats" className="!p-3">
           <div className="grid grid-cols-3 gap-3">
             <div className="text-center">
               <DollarSign className="w-4 h-4 mx-auto mb-1" style={{ color: colors.neonCyan }} />
-              <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>$13.39</p>
+              <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>${stats.avgPerTrip.toFixed(2)}</p>
               <p className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>Avg/Trip</p>
             </div>
             <div className="text-center">
               <Clock className="w-4 h-4 mx-auto mb-1" style={{ color: colors.neonPurple }} />
-              <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>6.2h</p>
+              <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>{stats.onlineHours.toFixed(1)}h</p>
               <p className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>Online</p>
             </div>
             <div className="text-center">
               <TrendingUp className="w-4 h-4 mx-auto mb-1" style={{ color: colors.successNeon }} />
-              <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>$30.24</p>
+              <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>${stats.perHour.toFixed(2)}</p>
               <p className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>$/Hour</p>
             </div>
           </div>
@@ -148,7 +205,10 @@ export function Earnings({ onBack }: { onBack: () => void }) {
             Trip History
           </h2>
           <div className="space-y-2" data-testid="trip-history-list">
-            {MOCK_HISTORY.map((trip, i) => (
+            {tripHistory.length === 0 && (
+              <p className="text-center text-xs py-4" style={{ color: colors.textTertiary }}>No trip history yet</p>
+            )}
+            {tripHistory.map((trip, i) => (
               <motion.div
                 key={trip.id}
                 initial={{ opacity: 0, x: -10 }}

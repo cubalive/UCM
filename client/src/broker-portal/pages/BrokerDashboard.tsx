@@ -13,13 +13,14 @@ import {
 import { Link } from "wouter";
 
 export default function BrokerDashboard() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["/api/broker/dashboard"],
     queryFn: async () => {
       const res = await fetch(resolveUrl("/api/broker/dashboard"), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load dashboard");
       return res.json();
     },
+    retry: 2,
   });
 
   if (isLoading) {
@@ -29,6 +30,18 @@ export default function BrokerDashboard() {
           {[...Array(8)].map((_, i) => (
             <div key={i} className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 animate-pulse h-24" />
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
+          <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-white mb-1">Failed to Load Dashboard</h3>
+          <p className="text-sm text-gray-400">{(error as Error)?.message || "Something went wrong. Please try again."}</p>
         </div>
       </div>
     );

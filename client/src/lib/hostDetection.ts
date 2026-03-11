@@ -1,12 +1,18 @@
 const hostname = window.location.hostname;
 const isProdDomain = hostname.endsWith("unitedcaremobility.com");
 
-export const isDriverHost = isProdDomain && hostname.startsWith("driver.");
-export const isClinicHost = isProdDomain && hostname.startsWith("clinic.");
-export const isPharmacyHost = isProdDomain && hostname.startsWith("pharmacy.");
-export const isBrokerHost = isProdDomain && hostname.startsWith("broker.");
-export const isDispatchHost = isProdDomain && hostname.startsWith("dispatch.");
-export const isAdminHost = isProdDomain && hostname.startsWith("admin.");
+// Support portal detection via URL search params in development (localhost)
+// Usage: http://localhost:5000?portal=pharmacy
+const _searchParams = new URLSearchParams(window.location.search);
+const _devPortal = _searchParams.get("portal")?.toLowerCase() || "";
+const _isLocal = hostname === "localhost" || hostname.startsWith("127.") || hostname.startsWith("192.168.");
+
+export const isDriverHost = (isProdDomain && hostname.startsWith("driver.")) || (_isLocal && _devPortal === "driver");
+export const isClinicHost = (isProdDomain && hostname.startsWith("clinic.")) || (_isLocal && _devPortal === "clinic");
+export const isPharmacyHost = (isProdDomain && hostname.startsWith("pharmacy.")) || (_isLocal && _devPortal === "pharmacy");
+export const isBrokerHost = (isProdDomain && hostname.startsWith("broker.")) || (_isLocal && _devPortal === "broker");
+export const isDispatchHost = (isProdDomain && hostname.startsWith("dispatch.")) || (_isLocal && _devPortal === "dispatch");
+export const isAdminHost = (isProdDomain && hostname.startsWith("admin.")) || (_isLocal && _devPortal === "admin");
 export const isAppHost = isProdDomain && (hostname.startsWith("app.") || hostname === "app.unitedcaremobility.com");
 export const isProductionSubdomain = isDriverHost || isClinicHost || isPharmacyHost || isBrokerHost || isDispatchHost || isAdminHost || isAppHost;
 export { isProdDomain };

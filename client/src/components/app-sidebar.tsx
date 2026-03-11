@@ -90,6 +90,8 @@ import {
   Ban,
   CheckSquare,
   Bell,
+  Pill,
+  Package,
 } from "lucide-react";
 
 interface NavItem {
@@ -241,6 +243,14 @@ const adminGroups: NavGroup[] = [
     items: [
       { titleKey: "nav.brokers", url: "/admin/brokers", icon: Handshake, resource: "broker_marketplace", superAdminOnly: true },
       { titleKey: "nav.marketplace", url: "/marketplace", icon: ShoppingCart, resource: "broker_marketplace" },
+    ],
+  },
+  {
+    labelKey: "nav.group.pharmacy",
+    icon: Pill,
+    items: [
+      { titleKey: "nav.pharmacies", url: "/admin/pharmacies", icon: Pill, resource: "audit", superAdminOnly: true },
+      { titleKey: "nav.pharmacyOrders", url: "/admin/pharmacy-orders", icon: Package, resource: "audit", superAdminOnly: true },
     ],
   },
   {

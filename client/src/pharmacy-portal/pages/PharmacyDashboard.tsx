@@ -83,7 +83,7 @@ const PRIORITY_BADGES: Record<string, string> = {
 export default function PharmacyDashboard() {
   const { token } = useAuth();
 
-  const { data, isLoading } = useQuery<DashboardData>({
+  const { data, isLoading, isError, error } = useQuery<DashboardData>({
     queryKey: ["/api/pharmacy/dashboard"],
     queryFn: async () => {
       const res = await fetch(`${API_BASE_URL}/api/pharmacy/dashboard`, {
@@ -93,6 +93,7 @@ export default function PharmacyDashboard() {
       return res.json();
     },
     refetchInterval: 15000,
+    retry: 2,
   });
 
   if (isLoading) {
@@ -105,6 +106,18 @@ export default function PharmacyDashboard() {
               <div className="h-8 bg-gray-700 rounded w-16" />
             </div>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
+          <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-white mb-1">Failed to Load Dashboard</h3>
+          <p className="text-sm text-gray-400">{(error as Error)?.message || "Something went wrong. Please try again."}</p>
         </div>
       </div>
     );

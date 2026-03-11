@@ -130,10 +130,38 @@ export function Profile({ onBack }: { onBack: () => void }) {
   const setNavPreference = useDriverStore((s) => s.setNavPreference);
   const rating = useDriverStore((s) => s.rating);
   const completedRides = useDriverStore((s) => s.completedRides);
+  const driverName = useDriverStore((s) => s.driverName);
+  const driverInitials = useDriverStore((s) => s.driverInitials);
 
   const [sounds, setSounds] = useState(true);
   const [haptics, setHaptics] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [vehicleInfo, setVehicleInfo] = useState("Loading...");
+  const [documentCount, setDocumentCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("ucm_driver_token") || "";
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    fetch(resolveUrl("/api/driver/me"), { headers })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.driver) {
+          const d = data.driver;
+          const vehicle = d.vehicleMake && d.vehicleModel
+            ? `${d.vehicleMake} ${d.vehicleModel}${d.vehicleYear ? ` ${d.vehicleYear}` : ""}`
+            : d.vehicleName || d.assignedVehicle || "No vehicle assigned";
+          setVehicleInfo(vehicle);
+        } else {
+          setVehicleInfo("No vehicle assigned");
+        }
+        if (data?.documentCount !== undefined) {
+          setDocumentCount(data.documentCount);
+        }
+      })
+      .catch(() => setVehicleInfo("No vehicle assigned"));
+  }, []);
 
   const navLabels = { ask: "Ask Each Time", google: "Google Maps", apple: "Apple Maps", waze: "Waze" };
   const navOptions: ("ask" | "google" | "apple" | "waze")[] = ["ask", "google", "apple", "waze"];
@@ -167,13 +195,13 @@ export function Profile({ onBack }: { onBack: () => void }) {
               }}
               data-testid="avatar-large"
             >
-              JD
+              {driverInitials || "DR"}
             </div>
             <div>
               <p className="text-lg font-bold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
-                John Driver
+                {driverName || "Driver"}
               </p>
-              <p className="text-xs" style={{ color: colors.textTertiary }}>ID: DRV-2024-0042</p>
+              <p className="text-xs" style={{ color: colors.textTertiary }}>UCM Driver</p>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-xs flex items-center gap-1" style={{ color: colors.warningNeon }}>
                   ★ {rating}
@@ -222,9 +250,9 @@ export function Profile({ onBack }: { onBack: () => void }) {
           <p className="text-[10px] uppercase tracking-wider mb-1 px-1" style={{ color: colors.textTertiary }}>
             Information
           </p>
-          <SettingsRow icon={<Car className="w-4 h-4" />} label="Vehicle Info" value="Toyota Camry 2023" onPress={() => {}} testID="row-vehicle" />
-          <SettingsRow icon={<FileText className="w-4 h-4" />} label="Documents" value="3 uploaded" onPress={() => {}} accent={colors.neonPurple} testID="row-documents" />
-          <SettingsRow icon={<Shield className="w-4 h-4" />} label="Safety" onPress={() => {}} accent={colors.dangerNeon} testID="row-safety" />
+          <SettingsRow icon={<Car className="w-4 h-4" />} label="Vehicle Info" value={vehicleInfo} testID="row-vehicle" />
+          <SettingsRow icon={<FileText className="w-4 h-4" />} label="Documents" value={documentCount !== null ? `${documentCount} uploaded` : "—"} accent={colors.neonPurple} testID="row-documents" />
+          <SettingsRow icon={<Shield className="w-4 h-4" />} label="Safety" accent={colors.dangerNeon} testID="row-safety" />
         </GlassCard>
 
         <GlassCard variant="default" testID="card-settings-legal" className="!p-3">

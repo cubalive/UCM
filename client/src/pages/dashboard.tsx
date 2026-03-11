@@ -33,6 +33,7 @@ import {
   TrendingUp,
   BarChart3,
   RefreshCw,
+  Download,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { authHeaders } from "@/lib/auth";
@@ -127,6 +128,34 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (!stats) return;
+              const csv = [
+                ["Metric", "Value"],
+                ["Trips", stats.trips],
+                ["Completed", stats.completed],
+                ["Cancelled", stats.cancelled],
+                ["Active Drivers", stats.activeDrivers],
+                ["Active Vehicles", stats.activeVehicles],
+                ["Patients", stats.patients],
+                ["Clinics", stats.clinics],
+                ["Total Miles", stats.totalMiles],
+              ].map(r => r.join(",")).join("\n");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = `dashboard-${selectedDays}d-${new Date().toISOString().slice(0,10)}.csv`;
+              a.click(); URL.revokeObjectURL(url);
+            }}
+            disabled={!stats}
+            data-testid="button-export-csv"
+          >
+            <Download className="w-3.5 h-3.5 mr-1" />
+            Export
+          </Button>
           {selectedCity && (
             <Badge variant="secondary" data-testid="badge-city">
               <MapPin className="w-3 h-3 mr-1" />

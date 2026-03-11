@@ -108,6 +108,7 @@ export default function TripsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [assignTrip, setAssignTrip] = useState<any>(null);
   const [tripFilters, setTripFilters] = usePersistedFilters("trips");
+  const [selectedTripIds, setSelectedTripIds] = useState<Set<number>>(new Set());
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -288,6 +289,30 @@ export default function TripsPage() {
       toast({ title: "Trip permanently deleted" });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkCancelMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          apiFetch(`/api/trips/${id}/cancel`, token, {
+            method: "PATCH",
+            body: JSON.stringify({ reason: "Bulk cancelled by admin", type: "hard" }),
+          })
+        )
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      return { total: ids.length, failed };
+    },
+    onSuccess: ({ total, failed }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
+      setSelectedTripIds(new Set());
+      toast({
+        title: `Bulk cancel: ${total - failed}/${total} cancelled`,
+        variant: failed > 0 ? "destructive" : "default",
+      });
+    },
+    onError: (err: any) => toast({ title: "Bulk cancel failed", description: err.message, variant: "destructive" }),
   });
 
   const clinicDeleteMutation = useMutation({
@@ -501,6 +526,41 @@ export default function TripsPage() {
         storageKey="trips"
       />
 
+      {/* Bulk Actions Bar */}
+      {selectedTripIds.size > 0 && (
+        <div className="flex items-center gap-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+          <span className="text-sm font-medium">{selectedTripIds.size} selected</span>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              if (confirm(`Cancel ${selectedTripIds.size} trips?`)) {
+                bulkCancelMutation.mutate(Array.from(selectedTripIds));
+              }
+            }}
+            disabled={bulkCancelMutation.isPending}
+          >
+            <XCircle className="w-3.5 h-3.5 mr-1" />
+            Bulk Cancel
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedTripIds(new Set())}>
+            Clear Selection
+          </Button>
+          {filtered?.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const cancelable = filtered.filter((t: any) => ["SCHEDULED", "ASSIGNED"].includes(t.status));
+                setSelectedTripIds(new Set(cancelable.map((t: any) => t.id)));
+              }}
+            >
+              Select All Cancelable
+            </Button>
+          )}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
@@ -520,7 +580,22 @@ export default function TripsPage() {
             <Card key={trip.id} className="hover-elevate cursor-pointer" onClick={() => navigate(`/trips/${trip.id}`)} data-testid={`card-trip-${trip.id}`}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    {["SCHEDULED", "ASSIGNED"].includes(trip.status) && (
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border-muted-foreground/30 accent-primary cursor-pointer flex-shrink-0"
+                        checked={selectedTripIds.has(trip.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const next = new Set(selectedTripIds);
+                          if (e.target.checked) next.add(trip.id); else next.delete(trip.id);
+                          setSelectedTripIds(next);
+                        }}
+                        data-testid={`checkbox-trip-${trip.id}`}
+                      />
+                    )}
+                    <div className="space-y-1 min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-mono font-medium" data-testid={`text-trip-id-${trip.id}`}>
                         {trip.publicId}
@@ -570,6 +645,7 @@ export default function TripsPage() {
                         Recurring: {trip.recurringDays.join(", ")}
                       </p>
                     )}
+                  </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
                     <Button

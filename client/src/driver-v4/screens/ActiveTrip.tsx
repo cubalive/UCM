@@ -389,9 +389,15 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
             )}
 
             <div className="flex gap-2 mt-2">
-              <GlassButton icon={<Phone className="w-4 h-4" />} onPress={() => {}} label="Call Passenger" size={40} testID="btn-call" />
+              <GlassButton icon={<Phone className="w-4 h-4" />} onPress={() => {
+                if (activeTrip.passengerPhone) {
+                  window.open(`tel:${activeTrip.passengerPhone}`, "_self");
+                }
+              }} label="Call Passenger" size={40} testID="btn-call" />
               <GlassButton icon={<Navigation className="w-4 h-4" />} onPress={handleNavigate} label="Navigate" size={40} accentColor={colors.neonCyan} testID="btn-navigate" />
-              <GlassButton icon={<AlertTriangle className="w-3.5 h-3.5" />} onPress={() => {}} label="Report Issue" size={40} accentColor={colors.warningNeon} testID="btn-issue" />
+              <GlassButton icon={<AlertTriangle className="w-3.5 h-3.5" />} onPress={() => {
+                store.reportEmergency("Driver reported issue during trip");
+              }} label="Report Issue" size={40} accentColor={colors.warningNeon} testID="btn-issue" />
             </div>
           </GlassCard>
 

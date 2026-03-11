@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { CommandPalette } from "@/components/command-palette";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -107,6 +108,8 @@ const CityComparisonPage = React.lazy(() => import("@/pages/city-comparison"));
 const CascadeAlertsPage = React.lazy(() => import("@/pages/cascade-alerts"));
 const AiDashboardPage = React.lazy(() => import("@/pages/ai-dashboard"));
 const EdiBillingPage = React.lazy(() => import("@/pages/edi-billing"));
+const AdminPharmaciesPage = React.lazy(() => import("@/pages/admin-pharmacies"));
+const AdminPharmacyOrdersPage = React.lazy(() => import("@/pages/admin-pharmacy-orders"));
 
 // Lazy-loaded app shells
 const DriverAppV4 = React.lazy(() => import("@/driver-v4/DriverAppV4").then(m => ({ default: m.DriverAppV4 })));
@@ -474,6 +477,8 @@ function Router() {
       <Route path="/city-comparison">{() => <SuperAdminRoute component={CityComparisonPage} />}</Route>
       <Route path="/cascade-alerts">{() => <ProtectedRoute resource="dispatch" component={CascadeAlertsPage} />}</Route>
       <Route path="/ai-dashboard">{() => <SuperAdminRoute component={AiDashboardPage} />}</Route>
+      <Route path="/admin/pharmacies">{() => <SuperAdminRoute component={AdminPharmaciesPage} />}</Route>
+      <Route path="/admin/pharmacy-orders">{() => <SuperAdminRoute component={AdminPharmacyOrdersPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>
@@ -797,6 +802,7 @@ function AuthenticatedApp() {
               </main>
             </div>
           </div>
+          <CommandPalette />
           <AuthDebugPanel />
         </SidebarProvider>
       </AppErrorBoundary>
@@ -810,10 +816,10 @@ function AuthenticatedApp() {
     }
     return (
       <AppErrorBoundary label="Driver">
-        <main className="h-screen w-full overflow-auto">
-          <DriverSubdomainRouter />
-          <AuthDebugPanel />
-        </main>
+        <React.Suspense fallback={<PageLoadingFallback />}>
+          <DriverAppV4 />
+        </React.Suspense>
+        <AuthDebugPanel />
       </AppErrorBoundary>
     );
   }
@@ -822,10 +828,66 @@ function AuthenticatedApp() {
     return <CitySelectionModal />;
   }
 
-  // Main app: restrict to SUPER_ADMIN and company admins only
+  // Pharmacy users accessing main app → redirect to pharmacy portal
   {
     const role = user.role.toUpperCase();
-    const adminAllowed = ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
+    if (["PHARMACY_ADMIN", "PHARMACY_USER"].includes(role)) {
+      return (
+        <AppErrorBoundary label="Pharmacy">
+          <React.Suspense fallback={<PageLoadingFallback />}>
+            <PharmacyPortalLayout />
+          </React.Suspense>
+        </AppErrorBoundary>
+      );
+    }
+  }
+
+  // Broker users accessing main app → redirect to broker portal
+  {
+    const role = user.role.toUpperCase();
+    if (["BROKER_ADMIN", "BROKER_USER"].includes(role)) {
+      return (
+        <AppErrorBoundary label="Broker">
+          <React.Suspense fallback={<PageLoadingFallback />}>
+            <BrokerPortalLayout />
+          </React.Suspense>
+        </AppErrorBoundary>
+      );
+    }
+  }
+
+  // Driver users accessing main app → redirect to driver app v4
+  {
+    const role = user.role.toUpperCase();
+    if (role === "DRIVER") {
+      return (
+        <AppErrorBoundary label="Driver">
+          <React.Suspense fallback={<PageLoadingFallback />}>
+            <DriverAppV4 />
+          </React.Suspense>
+        </AppErrorBoundary>
+      );
+    }
+  }
+
+  // Clinic users accessing main app → redirect to clinic portal
+  {
+    const role = user.role.toUpperCase();
+    if (user.clinicId && ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"].includes(role)) {
+      return (
+        <AppErrorBoundary label="Clinic">
+          <React.Suspense fallback={<PageLoadingFallback />}>
+            <ClinicPortalLayout />
+          </React.Suspense>
+        </AppErrorBoundary>
+      );
+    }
+  }
+
+  // Main admin app: restrict to SUPER_ADMIN and company admins
+  {
+    const role = user.role.toUpperCase();
+    const adminAllowed = ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH", "VIEWER"];
     if (!adminAllowed.includes(role)) {
       return <AdminHostUnauthorized />;
     }
@@ -848,6 +910,7 @@ function AuthenticatedApp() {
             </main>
           </div>
         </div>
+        <CommandPalette />
         <AuthDebugPanel />
       </SidebarProvider>
     </AppErrorBoundary>

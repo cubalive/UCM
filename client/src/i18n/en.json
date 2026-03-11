@@ -100,6 +100,11 @@
     "reconciliation": "Reconciliation",
     "ratings": "Patient Ratings",
     "cityComparison": "City Comparison",
+    "pharmacies": "Pharmacies",
+    "pharmacyOrders": "Pharmacy Orders",
+    "aiDashboard": "AI Dashboard",
+    "driverEarnings": "Driver Earnings",
+    "financeConsole": "Finance Console",
     "group": {
       "dispatch": "Dispatch & Maps",
       "fleet": "Fleet & Scheduling",
@@ -114,6 +119,7 @@
       "audit": "Audit & Compliance",
       "intelligence": "Intelligence",
       "broker": "Broker Network",
+      "pharmacy": "Pharmacy",
       "system": "System"
     }
   },
