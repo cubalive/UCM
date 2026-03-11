@@ -207,6 +207,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Start listening EARLY so Railway/infra healthcheck (/api/health/live) can respond
+  // while the rest of boot (migrations, route registration, etc.) completes.
+  const port = parseInt(process.env.PORT || "5000", 10);
+  httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+    console.log(JSON.stringify({ event: "http_listening", port, ts: new Date().toISOString() }));
+  });
+
   const { dbReady, getDbSource, db: bootDb } = await import("./db");
   await dbReady;
 
@@ -956,22 +963,9 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  const port = parseInt(process.env.PORT || "5000", 10);
-
   httpServer.requestTimeout = 30_000;
   httpServer.headersTimeout = 15_000;
   httpServer.keepAliveTimeout = 65_000;
-
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
 
   const { startMemoryLogger } = await import("./lib/schedulerHarness");
   startMemoryLogger(5 * 60 * 1000);
