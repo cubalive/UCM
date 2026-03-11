@@ -88,13 +88,12 @@ export function inputSanitizer(req: Request, res: Response, next: NextFunction) 
 
   // Only sanitize JSON bodies and form data
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
-    // Still sanitize query params
+    // Log XSS attempts in query params (Express 5: req.query is read-only)
     if (req.query && typeof req.query === "object") {
       const originalQuery = JSON.stringify(req.query);
       if (containsXss(originalQuery)) {
         logSecurityEvent(req, "xss_attempt", "query");
       }
-      req.query = sanitizeObject(req.query) as typeof req.query;
     }
     return next();
   }
