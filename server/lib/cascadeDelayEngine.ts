@@ -63,9 +63,20 @@ export async function detectCascadeDelay(tripId: number): Promise<void> {
 
     if (scheduledMinutes == null) return;
 
-    // Calculate how many minutes late based on current time + ETA vs scheduled time
+    // Calculate how many minutes late based on current time + ETA vs scheduled time.
+    // Use the trip's timezone (from the trips table) to avoid multi-city clock skew.
+    const tripTz = (trip as any).tripTimezone || "America/Chicago";
     const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const tzFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: tripTz,
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    });
+    const parts = tzFormatter.formatToParts(now);
+    const tzHour = parseInt(parts.find(p => p.type === "hour")?.value || "0", 10);
+    const tzMinute = parseInt(parts.find(p => p.type === "minute")?.value || "0", 10);
+    const nowMinutes = tzHour * 60 + tzMinute;
     const estimatedArrivalMinutes = nowMinutes + etaMinutes;
     const delayMinutes = estimatedArrivalMinutes - scheduledMinutes;
 

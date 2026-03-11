@@ -49,53 +49,53 @@ describe("Rate Limiter (sliding window)", () => {
     return { req, res, next, isNextCalled: () => nextCalled, getStatus: () => statusCode, getBody: () => jsonBody };
   }
 
-  it("allows requests under the limit", () => {
+  it("allows requests under the limit", async () => {
     const limiter = rateLimiter({ max: 5, windowMs: 60000 });
     const { req, res, next, isNextCalled } = mockReqRes();
 
-    limiter(req, res, next);
+    await limiter(req, res, next);
     expect(isNextCalled()).toBe(true);
   });
 
-  it("blocks requests over the limit", () => {
+  it("blocks requests over the limit", async () => {
     const limiter = rateLimiter({ max: 3, windowMs: 60000 });
 
     for (let i = 0; i < 3; i++) {
       const { req, res, next } = mockReqRes();
-      limiter(req, res, next);
+      await limiter(req, res, next);
     }
 
     const { req, res, next, isNextCalled, getStatus } = mockReqRes();
-    limiter(req, res, next);
+    await limiter(req, res, next);
     expect(isNextCalled()).toBe(false);
     expect(getStatus()).toBe(429);
   });
 
-  it("sets proper rate limit headers", () => {
+  it("sets proper rate limit headers", async () => {
     const limiter = rateLimiter({ max: 10, windowMs: 60000 });
-    const { req, res, next } = mockReqRes();
+    const { req, res, next } = mockReqRes({ ip: "10.10.10.10", path: "/api/headers-test" });
 
-    limiter(req, res, next);
+    await limiter(req, res, next);
     expect(res._headers["X-RateLimit-Limit"]).toBe("10");
     expect(res._headers["X-RateLimit-Remaining"]).toBe("9");
   });
 
-  it("tracks different IPs separately", () => {
+  it("tracks different IPs separately", async () => {
     const limiter = rateLimiter({ max: 2, windowMs: 60000 });
 
     // IP 1 — exhaust limit
     for (let i = 0; i < 2; i++) {
       const { req, res, next } = mockReqRes({ ip: "1.1.1.1" });
-      limiter(req, res, next);
+      await limiter(req, res, next);
     }
 
     // IP 2 — should still be allowed
     const { req, res, next, isNextCalled } = mockReqRes({ ip: "2.2.2.2" });
-    limiter(req, res, next);
+    await limiter(req, res, next);
     expect(isNextCalled()).toBe(true);
   });
 
-  it("skips when skip function returns true", () => {
+  it("skips when skip function returns true", async () => {
     const limiter = rateLimiter({
       max: 1,
       windowMs: 60000,
@@ -104,22 +104,22 @@ describe("Rate Limiter (sliding window)", () => {
 
     // Exhaust limit
     const { req: req1, res: res1, next: next1 } = mockReqRes();
-    limiter(req1, res1, next1);
+    await limiter(req1, res1, next1);
 
     // Health check should bypass
     const { req, res, next, isNextCalled } = mockReqRes({ path: "/api/health" });
-    limiter(req, res, next);
+    await limiter(req, res, next);
     expect(isNextCalled()).toBe(true);
   });
 
-  it("returns retry-after in 429 response", () => {
+  it("returns retry-after in 429 response", async () => {
     const limiter = rateLimiter({ max: 1, windowMs: 60000, blockDurationMs: 30000 });
 
     const { req: r1, res: res1, next: n1 } = mockReqRes();
-    limiter(r1, res1, n1);
+    await limiter(r1, res1, n1);
 
     const { req, res, next, getBody } = mockReqRes();
-    limiter(req, res, next);
+    await limiter(req, res, next);
     expect(getBody().code).toBe("RATE_LIMITED");
     expect(getBody().retryAfterSeconds).toBeGreaterThan(0);
   });

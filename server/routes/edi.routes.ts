@@ -1,6 +1,6 @@
 import { Router, type Express } from "express";
 import type { Response } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requirePermission, type AuthRequest } from "../auth";
 import { requireTenantScope, getTenantId } from "../middleware";
 import { db } from "../db";
 import {
@@ -39,7 +39,7 @@ function generateClaimNumber(): string {
 router.post(
   "/api/edi/claims/generate",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -287,7 +287,7 @@ router.post(
 router.get(
   "/api/edi/claims",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -361,7 +361,7 @@ router.get(
 router.get(
   "/api/edi/claims/:id",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -430,7 +430,7 @@ router.get(
 router.post(
   "/api/edi/claims/:id/submit",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -492,7 +492,7 @@ router.post(
 router.post(
   "/api/edi/remittance/parse",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -620,7 +620,7 @@ router.post(
 router.get(
   "/api/edi/remittance/summary",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {

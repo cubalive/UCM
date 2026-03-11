@@ -127,10 +127,8 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
     const payload = verifyToken(token);
     req.user = payload;
 
-    if (payload.role === "SUPER_ADMIN") {
-      return next();
-    }
-
+    // All roles including SUPER_ADMIN are subject to session revocation.
+    // A compromised SUPER_ADMIN token must be revocable.
     try {
       const revokedAfterSec = await getLatestRevocation(payload.userId);
       if (revokedAfterSec && payload.iat && payload.iat < revokedAfterSec) {

@@ -1,5 +1,5 @@
 import { Router, type Express, type Response } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requirePermission, type AuthRequest } from "../auth";
 import { requireTenantScope } from "../middleware";
 import {
   createAdjustmentHandler,
@@ -34,7 +34,7 @@ router.post("/api/clinic/payment-methods/setup-intent", authMiddleware, clinicSe
 router.post("/api/clinic/payment-methods/default", authMiddleware, clinicSetDefaultPMHandler as any);
 router.delete("/api/clinic/payment-methods/:pmId", authMiddleware, clinicDetachPMHandler as any);
 
-router.post("/api/admin/finance/dunning/run", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+router.post("/api/admin/finance/dunning/run", authMiddleware, requirePermission("billing", "write"), async (req: AuthRequest, res: Response) => {
   try {
     const { runDunningCycle } = await import("../services/dunningService");
     const result = await runDunningCycle();
@@ -44,7 +44,7 @@ router.post("/api/admin/finance/dunning/run", authMiddleware, requireRole("SUPER
   }
 });
 
-router.post("/api/admin/finance/reconcile/:companyId", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+router.post("/api/admin/finance/reconcile/:companyId", authMiddleware, requirePermission("billing", "write"), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = parseInt(String(req.params.companyId));
     const { reconcileCompanyPayouts } = await import("../services/payoutReconciliationService");
@@ -56,7 +56,7 @@ router.post("/api/admin/finance/reconcile/:companyId", authMiddleware, requireRo
 });
 
 // Manual trigger for auto-invoice generation
-router.post("/api/admin/finance/auto-invoice/run", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+router.post("/api/admin/finance/auto-invoice/run", authMiddleware, requirePermission("billing", "write"), async (req: AuthRequest, res: Response) => {
   try {
     const { runAutoInvoiceGeneration } = await import("../services/autoInvoiceScheduler");
     const result = await runAutoInvoiceGeneration();
@@ -67,7 +67,7 @@ router.post("/api/admin/finance/auto-invoice/run", authMiddleware, requireRole("
 });
 
 // Manual trigger for dunning email cycle
-router.post("/api/admin/finance/dunning-email/run", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+router.post("/api/admin/finance/dunning-email/run", authMiddleware, requirePermission("billing", "write"), async (req: AuthRequest, res: Response) => {
   try {
     const { runDunningEmailCycle } = await import("../services/dunningEmailService");
     const result = await runDunningEmailCycle();
@@ -78,7 +78,7 @@ router.post("/api/admin/finance/dunning-email/run", authMiddleware, requireRole(
 });
 
 // Manual trigger for reconciliation
-router.post("/api/admin/finance/reconciliation/run", authMiddleware, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+router.post("/api/admin/finance/reconciliation/run", authMiddleware, requirePermission("billing", "write"), async (req: AuthRequest, res: Response) => {
   try {
     const { runAutoReconciliation } = await import("../services/autoReconciliationScheduler");
     const result = await runAutoReconciliation();
@@ -89,7 +89,7 @@ router.post("/api/admin/finance/reconciliation/run", authMiddleware, requireRole
 });
 
 // Subscription tier usage check
-router.get("/api/admin/finance/tier-usage/:companyId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (req: AuthRequest, res: Response) => {
+router.get("/api/admin/finance/tier-usage/:companyId", authMiddleware, requirePermission("billing", "read"), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = parseInt(String(req.params.companyId));
     const { getCompanyUsage } = await import("../services/subscriptionTiers");

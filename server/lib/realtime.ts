@@ -52,8 +52,28 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
       return;
     }
 
-    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-    const token = url.searchParams.get("token");
+    // Extract JWT from: 1) Sec-WebSocket-Protocol header, 2) Authorization header, 3) query param (legacy, deprecated)
+    let token: string | undefined;
+    const protocols = req.headers["sec-websocket-protocol"];
+    if (protocols) {
+      // Client sends token as a subprotocol: new WebSocket(url, ["access_token", "<jwt>"])
+      const parts = typeof protocols === "string" ? protocols.split(",").map(s => s.trim()) : protocols;
+      const tokenIdx = parts.indexOf("access_token");
+      if (tokenIdx !== -1 && parts[tokenIdx + 1]) {
+        token = parts[tokenIdx + 1];
+      }
+    }
+    if (!token) {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith("Bearer ")) {
+        token = authHeader.slice(7);
+      }
+    }
+    if (!token) {
+      // Legacy fallback: query param (deprecated — tokens in URLs may leak via logs/referrer)
+      const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+      token = url.searchParams.get("token") || undefined;
+    }
 
     if (!token) {
       ws.close(4001, "Missing token");

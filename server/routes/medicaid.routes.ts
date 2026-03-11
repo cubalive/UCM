@@ -1,6 +1,6 @@
 import { Router, type Express } from "express";
 import type { Response } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requirePermission, type AuthRequest } from "../auth";
 import { requireTenantScope, getTenantId } from "../middleware";
 import { db } from "../db";
 import {
@@ -32,7 +32,7 @@ const router = Router();
 router.get(
   "/api/medicaid/codes",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH"),
+  requirePermission("billing", "read"),
   async (req: AuthRequest, res: Response) => {
     try {
       const activeOnly = req.query.active !== "false";
@@ -59,7 +59,7 @@ router.get(
 router.post(
   "/api/medicaid/codes",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   async (req: AuthRequest, res: Response) => {
     try {
       const {
@@ -138,7 +138,7 @@ router.post(
 router.get(
   "/api/medicaid/claims",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH"),
+  requirePermission("billing", "read"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -215,7 +215,7 @@ router.get(
 router.post(
   "/api/medicaid/claims/generate",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -269,7 +269,7 @@ router.post(
 router.get(
   "/api/medicaid/claims/:id",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH"),
+  requirePermission("billing", "read"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -339,7 +339,7 @@ router.get(
 router.put(
   "/api/medicaid/claims/:id",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -420,7 +420,7 @@ router.put(
 router.post(
   "/api/medicaid/claims/:id/submit",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -486,7 +486,7 @@ router.post(
 router.post(
   "/api/medicaid/claims/batch-submit",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -556,7 +556,7 @@ router.post(
 router.post(
   "/api/medicaid/claims/:id/void",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -616,7 +616,7 @@ router.post(
 router.get(
   "/api/medicaid/claims/export/edi837",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -672,7 +672,7 @@ router.get(
 router.post(
   "/api/medicaid/remittance/import",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  requirePermission("billing", "write"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
@@ -717,7 +717,7 @@ router.post(
 router.get(
   "/api/medicaid/dashboard",
   authMiddleware,
-  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH"),
+  requirePermission("billing", "read"),
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {

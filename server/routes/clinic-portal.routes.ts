@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, requireRole, requirePermission, type AuthRequest } from "../auth";
 import { requireClinicScope, requireClinicAdmin } from "../middleware/requireClinicScope";
 import {
   clinicOpsHandler,
@@ -66,9 +66,9 @@ export function registerClinicPortalRoutes(app: Express) {
   app.post("/api/clinic/users/:id/reset", authMiddleware, requireClinicAdmin as any, resetClinicUserPasswordHandler as any);
   app.delete("/api/clinic/users/:id", authMiddleware, requireClinicAdmin as any, deleteClinicUserHandler as any);
 
-  app.get("/api/admin/clinic-features", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH") as any, adminAllClinicFeaturesHandler as any);
-  app.get("/api/admin/clinic-features/:clinicId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH") as any, adminClinicFeaturesListHandler as any);
-  app.post("/api/admin/clinic-features/:clinicId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH") as any, adminClinicFeatureToggleHandler as any);
-  app.get("/api/admin/clinic-capacity/:clinicId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH") as any, adminClinicCapacityConfigHandler as any);
-  app.post("/api/admin/clinic-capacity/:clinicId", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH") as any, adminClinicCapacityConfigHandler as any);
+  app.get("/api/admin/clinic-features", authMiddleware, requirePermission("clinics", "write") as any, adminAllClinicFeaturesHandler as any);
+  app.get("/api/admin/clinic-features/:clinicId", authMiddleware, requirePermission("clinics", "write") as any, adminClinicFeaturesListHandler as any);
+  app.post("/api/admin/clinic-features/:clinicId", authMiddleware, requirePermission("clinics", "write") as any, adminClinicFeatureToggleHandler as any);
+  app.get("/api/admin/clinic-capacity/:clinicId", authMiddleware, requirePermission("clinics", "write") as any, adminClinicCapacityConfigHandler as any);
+  app.post("/api/admin/clinic-capacity/:clinicId", authMiddleware, requirePermission("clinics", "write") as any, adminClinicCapacityConfigHandler as any);
 }

@@ -773,7 +773,18 @@ export async function updateCompanyHandler(req: AuthRequest, res: Response) {
 
 export const companyLogoUploadMiddleware = (() => {
   const multer = require("multer");
-  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+  const ALLOWED_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/svg+xml"]);
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 2 * 1024 * 1024 },
+    fileFilter: (_req: any, file: any, cb: any) => {
+      if (ALLOWED_IMAGE_MIMES.has(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`File type '${file.mimetype}' not allowed. Accepted: PNG, JPEG, WebP, SVG.`));
+      }
+    },
+  });
   return upload.single("logo");
 })();
 

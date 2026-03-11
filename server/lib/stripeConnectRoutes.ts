@@ -3,7 +3,7 @@ import { authMiddleware, requireRole, getActorContext, type AuthRequest } from "
 import { storage } from "../storage";
 import { db } from "../db";
 import { eq, and } from "drizzle-orm";
-import { invoices, companies, billingCycleInvoices } from "@shared/schema";
+import { invoices, companies, billingCycleInvoices, brokerSettlements, brokerEvents } from "@shared/schema";
 
 function getStripe() {
   const Stripe = require("stripe").default;
@@ -545,6 +545,118 @@ export function registerStripeConnectRoutes(app: Express) {
           return res.status(200).json({ received: true });
         } catch (disputeErr: any) {
           console.error("[StripeWebhook] Dispute handling error:", disputeErr.message);
+        }
+      }
+
+      // ─── Broker Settlement Payment ────────────────────────────────────
+      if (event.type === "checkout.session.completed" || event.type === "payment_intent.succeeded") {
+        const obj = event.data.object;
+        const metadata = obj.metadata || {};
+
+        if (metadata.type === "broker_settlement") {
+          const settlementId = parseInt(metadata.settlement_id);
+          if (isNaN(settlementId)) {
+            await storage.updateStripeWebhookEvent(event.id, "IGNORED", "Invalid settlement_id");
+            return res.status(200).json({ received: true });
+          }
+
+          const [settlement] = await db.select().from(brokerSettlements)
+            .where(eq(brokerSettlements.id, settlementId)).limit(1);
+
+          if (!settlement) {
+            await storage.updateStripeWebhookEvent(event.id, "IGNORED", `Settlement ${settlementId} not found`);
+            return res.status(200).json({ received: true });
+          }
+
+          if (settlement.status === "PAID") {
+            await storage.updateStripeWebhookEvent(event.id, "IGNORED", "Settlement already paid");
+            return res.status(200).json({ received: true });
+          }
+
+          // Validate broker/company match
+          if (metadata.broker_id && String(settlement.brokerId) !== metadata.broker_id) {
+            await storage.updateStripeWebhookEvent(event.id, "IGNORED", "Broker mismatch");
+            return res.status(200).json({ received: true });
+          }
+
+          const paymentIntentId = obj.payment_intent || obj.id || null;
+          const paidAmountCents = obj.amount_total || obj.amount || 0;
+          const paidAmountDollars = (paidAmountCents / 100).toFixed(2);
+
+          await db.update(brokerSettlements).set({
+            status: "PAID",
+            paidAt: new Date(),
+            paidAmount: paidAmountDollars,
+            stripePaymentIntentId: paymentIntentId,
+            updatedAt: new Date(),
+          }).where(eq(brokerSettlements.id, settlementId));
+
+          // Record broker event for audit trail
+          try {
+            await db.insert(brokerEvents).values({
+              brokerId: settlement.brokerId,
+              settlementId: settlement.id,
+              eventType: "settlement.paid",
+              description: `Settlement ${settlement.publicId} paid via Stripe (${paidAmountDollars})`,
+              metadata: {
+                stripeEventId: event.id,
+                paymentIntentId,
+                amountCents: paidAmountCents,
+              },
+            });
+          } catch {}
+
+          // Notify broker via outbound webhook
+          try {
+            const { deliverWebhook } = await import("./brokerWebhookEngine");
+            await deliverWebhook(settlement.brokerId, "settlement.ready", {
+              settlementId: settlement.id,
+              publicId: settlement.publicId,
+              status: "PAID",
+              paidAmount: paidAmountDollars,
+              paidAt: new Date().toISOString(),
+            });
+          } catch {}
+
+          // Write ledger entry for broker settlement payment
+          try {
+            const { ledgerEntries } = await import("@shared/schema");
+            const existing = await db.select().from(ledgerEntries)
+              .where(and(
+                eq(ledgerEntries.refType, "broker_settlement"),
+                eq(ledgerEntries.refId, String(settlementId)),
+              ))
+              .limit(1);
+
+            if (existing.length === 0) {
+              const { writePaymentSucceededJournal } = await import("../services/ledgerService");
+              await writePaymentSucceededJournal({
+                paymentIntentId: paymentIntentId || `settlement_${settlementId}`,
+                invoiceId: settlementId,
+                clinicId: null as any,
+                companyId: settlement.companyId,
+                totalCents: paidAmountCents,
+                platformFeeCents: Math.round(parseFloat(settlement.platformFee || "0") * 100),
+              });
+            }
+          } catch (ledgerErr: any) {
+            console.warn("[StripeWebhook] Broker settlement ledger write failed:", ledgerErr.message);
+          }
+
+          await storage.updateStripeWebhookEvent(event.id, "PROCESSED", `Settlement ${settlementId} paid`);
+          console.log(`[StripeWebhook] BrokerSettlement ${settlementId} (${settlement.publicId}) marked PAID`);
+          return res.status(200).json({ received: true, settlementId, status: "paid" });
+        }
+      }
+
+      // ─── Transfer events for Stripe Connect payouts ─────────────────
+      if (event.type === "transfer.created" || event.type === "payout.paid") {
+        const obj = event.data.object;
+        const metadata = obj.metadata || {};
+        if (metadata.settlement_id) {
+          console.log(`[StripeWebhook] ${event.type} for settlement ${metadata.settlement_id}`);
+          await storage.updateStripeWebhookEvent(event.id, "PROCESSED", `${event.type} logged`);
+          return res.status(200).json({ received: true });
         }
       }
 

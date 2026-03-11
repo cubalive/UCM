@@ -15,7 +15,23 @@ import {
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import multer from "multer";
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const ALLOWED_CSV_MIMES = new Set([
+  "text/csv",
+  "application/vnd.ms-excel",
+  "text/plain",
+]);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_CSV_MIMES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type '${file.mimetype}' not allowed. Accepted: CSV, TXT.`));
+    }
+  },
+});
 export const csvUploadMiddleware = upload.single("file");
 
 function getCompanyId(req: AuthRequest): number {

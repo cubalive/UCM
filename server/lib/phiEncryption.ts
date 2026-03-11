@@ -19,6 +19,8 @@ const AUTH_TAG_LENGTH = 16; // 128 bits
 const ENCODING: BufferEncoding = "base64";
 const SEPARATOR = ":";
 
+const IS_PROD = process.env.NODE_ENV === "production";
+
 let encryptionKey: Buffer | null = null;
 let keyWarningLogged = false;
 
@@ -27,6 +29,14 @@ function getKey(): Buffer | null {
 
   const rawKey = process.env.PHI_ENCRYPTION_KEY;
   if (!rawKey) {
+    if (IS_PROD) {
+      console.error(
+        "[PHI-ENCRYPT] FATAL: PHI_ENCRYPTION_KEY not set in production. " +
+        "HIPAA §164.312(a)(2)(iv) requires encryption of ePHI at rest. " +
+        "Set a 64-character hex string (32 bytes) and restart."
+      );
+      process.exit(1);
+    }
     if (!keyWarningLogged) {
       console.warn(
         "[PHI-ENCRYPT] PHI_ENCRYPTION_KEY not set — PHI fields will NOT be encrypted. " +
@@ -38,6 +48,13 @@ function getKey(): Buffer | null {
   }
 
   if (rawKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(rawKey)) {
+    if (IS_PROD) {
+      console.error(
+        "[PHI-ENCRYPT] FATAL: PHI_ENCRYPTION_KEY must be a 64-character hex string (32 bytes). " +
+        "Cannot start in production without valid encryption key."
+      );
+      process.exit(1);
+    }
     if (!keyWarningLogged) {
       console.error(
         "[PHI-ENCRYPT] PHI_ENCRYPTION_KEY must be a 64-character hex string (32 bytes). " +

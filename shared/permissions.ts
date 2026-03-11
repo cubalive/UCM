@@ -130,7 +130,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     pharmacy_orders: [],
   },
   VIEWER: {
-    dashboard: [],
+    dashboard: ["read"],
     dispatch: [],
     trips: ["read"],
     patients: ["read"],
@@ -144,7 +144,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     time_entries: [],
     payroll: [],
     billing: ["read"],
-    support: ["read", "write"],
+    support: ["read"],
     broker_marketplace: [],
     broker_contracts: [],
     broker_settlements: [],

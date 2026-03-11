@@ -17,7 +17,25 @@ import {
 } from "../lib/importEngine";
 import multer from "multer";
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const ALLOWED_IMPORT_MIMES = new Set([
+  "text/csv",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/json",
+  "text/plain",
+]);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_IMPORT_MIMES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type '${file.mimetype}' not allowed. Accepted: CSV, XLSX, JSON, TXT.`));
+    }
+  },
+});
 export const uploadMiddleware = upload.single("file");
 
 export async function createImportJob(req: AuthRequest, res: Response) {

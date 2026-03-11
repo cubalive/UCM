@@ -52,7 +52,7 @@ router.get("/api/recurring-schedules", authMiddleware, requirePermission("trips"
 router.post("/api/recurring-schedules", authMiddleware, requirePermission("trips", "write"), requireTenantScope, createRecurringScheduleHandler as any);
 router.patch("/api/recurring-schedules/:id", authMiddleware, requirePermission("trips", "write"), requireTenantScope, updateRecurringScheduleHandler as any);
 router.delete("/api/recurring-schedules/:id", authMiddleware, requirePermission("trips", "write"), requireTenantScope, deleteRecurringScheduleHandler as any);
-router.post("/api/recurring-schedules/generate", authMiddleware, requireRole("SUPER_ADMIN"), generateRecurringSchedulesHandler as any);
+router.post("/api/recurring-schedules/generate", authMiddleware, requirePermission("trips", "write"), generateRecurringSchedulesHandler as any);
 
 router.patch("/api/trips/:id/assign", authMiddleware, requirePermission("dispatch", "write"), requireTenantScope, assignTripHandler as any);
 
@@ -60,26 +60,26 @@ router.get("/api/trips/:id/messages", authMiddleware, requirePermission("trips",
 router.post("/api/trips/:id/messages", authMiddleware, requirePermission("trips", "write"), requireTenantScope, createTripMessageHandler as any);
 
 router.get("/api/trips", authMiddleware, requirePermission("trips", "read"), requireTenantScope, requireCityAccess, getTripsHandler as any);
-router.get("/api/trips/:id", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER"), requireTenantScope, getTripByIdHandler as any);
-router.post("/api/trips", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN", "SUPER_ADMIN"), requireTenantScope, requireSubscription, idempotencyMiddleware, createTripHandler as any);
+router.get("/api/trips/:id", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripByIdHandler as any);
+router.post("/api/trips", authMiddleware, requirePermission("trips", "write"), requireTenantScope, requireSubscription, idempotencyMiddleware, createTripHandler as any);
 router.patch("/api/trips/:id", authMiddleware, requirePermission("trips", "write"), requireTenantScope, updateTripHandler as any);
 
-router.patch("/api/trips/:id/status", authMiddleware, requireRole("ADMIN", "DISPATCH", "DRIVER", "SUPER_ADMIN", "COMPANY_ADMIN"), requireTenantScope, updateTripStatusHandler as any);
-router.post("/api/trips/:id/status/override", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN"), requireTenantScope, dispatchOverrideStatusHandler as any);
+router.patch("/api/trips/:id/status", authMiddleware, requirePermission("trips", "write"), requireTenantScope, updateTripStatusHandler as any);
+router.post("/api/trips/:id/status/override", authMiddleware, requirePermission("dispatch", "write"), requireTenantScope, dispatchOverrideStatusHandler as any);
 
-router.post("/api/trips/:id/accept", authMiddleware, requireRole("DRIVER"), requireTenantScope, acceptTripHandler as any);
+router.post("/api/trips/:id/accept", authMiddleware, requirePermission("trips", "self"), requireTenantScope, acceptTripHandler as any);
 
-router.get("/api/trips/:id/dialysis-return-check", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN"), requireTenantScope, dialysisReturnCheckHandler as any);
-router.post("/api/trips/:id/dialysis-return-adjust", authMiddleware, requireRole("ADMIN", "DISPATCH", "SUPER_ADMIN", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN"), requireTenantScope, dialysisReturnAdjustHandler as any);
+router.get("/api/trips/:id/dialysis-return-check", authMiddleware, requirePermission("trips", "read"), requireTenantScope, dialysisReturnCheckHandler as any);
+router.post("/api/trips/:id/dialysis-return-adjust", authMiddleware, requirePermission("trips", "write"), requireTenantScope, dialysisReturnAdjustHandler as any);
 
 router.patch("/api/trips/:id/approve", authMiddleware, requirePermission("trips", "write"), requireTenantScope, approveTripHandler as any);
-router.patch("/api/trips/:id/cancel-request", authMiddleware, requireRole("VIEWER", "CLINIC_USER", "CLINIC_ADMIN"), requireTenantScope, cancelRequestHandler as any);
+router.patch("/api/trips/:id/cancel-request", authMiddleware, requirePermission("trips", "read"), requireTenantScope, cancelRequestHandler as any);
 router.patch("/api/trips/:id/reject-cancel", authMiddleware, requirePermission("trips", "write"), requireTenantScope, rejectCancelHandler as any);
 router.patch("/api/trips/:id/cancel", authMiddleware, requirePermission("trips", "write"), requireTenantScope, cancelTripHandler as any);
 router.post("/api/trips/:id/cancel", authMiddleware, requirePermission("trips", "write"), requireTenantScope, cancelTripHandler as any);
 
 router.post("/api/trips/:id/archive", authMiddleware, requirePermission("trips", "write"), requireTenantScope, archiveTripHandler as any);
-router.delete("/api/trips/:id", authMiddleware, requireRole("SUPER_ADMIN"), requireTenantScope, permanentDeleteTripHandler as any);
+router.delete("/api/trips/:id", authMiddleware, requirePermission("trips", "write"), requireTenantScope, permanentDeleteTripHandler as any);
 
 router.post("/api/trips/:id/return-trip", authMiddleware, requirePermission("trips", "write"), requireTenantScope, createReturnTripHandler as any);
 router.get("/api/trips/:id/route", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripRouteHandler as any);
@@ -102,17 +102,17 @@ router.get("/api/trips/:id/gps-quality", authMiddleware, requirePermission("trip
   }
 });
 
-router.post("/api/trips/:id/signature/driver", authMiddleware, requireRole("DRIVER", "SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireTenantScope, driverSignatureHandler as any);
-router.post("/api/trips/:id/signature/clinic", authMiddleware, requireRole("CLINIC_USER", "CLINIC_ADMIN", "SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireTenantScope, clinicSignatureHandler as any);
+router.post("/api/trips/:id/signature/driver", authMiddleware, requirePermission("trips", "write"), requireTenantScope, driverSignatureHandler as any);
+router.post("/api/trips/:id/signature/clinic", authMiddleware, requirePermission("trips", "write"), requireTenantScope, clinicSignatureHandler as any);
 router.get("/api/trips/:id/signature", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getSignatureHandler as any);
 
-router.get("/api/trips/:id/pdf", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "DRIVER"), requireTenantScope, getTripPdfHandler as any);
-router.get("/api/trips/:id/pdf/download", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "DRIVER"), requireTenantScope, downloadTripPdfHandler as any);
+router.get("/api/trips/:id/pdf", authMiddleware, requirePermission("trips", "read"), requireTenantScope, getTripPdfHandler as any);
+router.get("/api/trips/:id/pdf/download", authMiddleware, requirePermission("trips", "read"), requireTenantScope, downloadTripPdfHandler as any);
 
-router.get("/api/trips/:id/invoice", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER"), requireTenantScope, getTripInvoiceHandler as any);
+router.get("/api/trips/:id/invoice", authMiddleware, requirePermission("invoices", "read"), requireTenantScope, getTripInvoiceHandler as any);
 router.post("/api/trips/:id/invoice", authMiddleware, requirePermission("invoices", "write"), requireTenantScope, requireSubscription, createTripInvoiceHandler as any);
 
-router.get("/api/trips/:id/financials", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"), requireTenantScope, async (req: any, res: any) => {
+router.get("/api/trips/:id/financials", authMiddleware, requirePermission("billing", "read"), requireTenantScope, async (req: any, res: any) => {
   try {
     const tripId = parseInt(req.params.id);
     if (isNaN(tripId)) return res.status(400).json({ error: "Invalid trip ID" });
@@ -126,7 +126,7 @@ router.get("/api/trips/:id/financials", authMiddleware, requireRole("SUPER_ADMIN
   }
 });
 
-router.get("/api/company/:companyId/ledger-summary", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"), requireTenantScope, async (req: any, res: any) => {
+router.get("/api/company/:companyId/ledger-summary", authMiddleware, requirePermission("billing", "read"), requireTenantScope, async (req: any, res: any) => {
   try {
     const companyId = parseInt(req.params.companyId);
     if (isNaN(companyId)) return res.status(400).json({ error: "Invalid company ID" });

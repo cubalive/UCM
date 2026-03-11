@@ -20,7 +20,7 @@ const router = express.Router();
 router.get("/api/invoices", authMiddleware, requirePermission("invoices", "read"), requireTenantScope, getInvoicesHandler as any);
 router.patch("/api/invoices/:id", authMiddleware, requirePermission("invoices", "write"), requireTenantScope, updateInvoiceHandler as any);
 router.patch("/api/invoices/:id/mark-paid", authMiddleware, requirePermission("invoices", "write"), requireTenantScope, markInvoicePaidHandler as any);
-router.post("/api/invoices/:id/pdf", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER"), requireTenantScope, invoicePdfHandler as any);
+router.post("/api/invoices/:id/pdf", authMiddleware, requirePermission("invoices", "read"), requireTenantScope, invoicePdfHandler as any);
 router.post("/api/invoices/:id/send-email", authMiddleware, requirePermission("invoices", "write"), requireTenantScope, sendInvoiceEmailHandler as any);
 router.get("/api/billing/weekly", authMiddleware, requirePermission("invoices", "read"), requireTenantScope, getWeeklyBillingHandler as any);
 router.get("/api/billing/weekly/preview", authMiddleware, requirePermission("invoices", "read"), requireTenantScope, getWeeklyBillingPreviewHandler as any);
