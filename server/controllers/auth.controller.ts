@@ -231,9 +231,20 @@ export async function authMeHandler(req: AuthRequest, res: Response) {
     });
 
     let companyName: string | null = null;
+    let companyBranding: { brandColor?: string | null; brandTagline?: string | null; customDomain?: string | null } = {};
     if (user.companyId) {
-      const [company] = await db.select({ name: companies.name }).from(companies).where(eq(companies.id, user.companyId));
+      const [company] = await db.select({
+        name: companies.name,
+        brandColor: companies.brandColor,
+        brandTagline: companies.brandTagline,
+        customDomain: companies.customDomain,
+      }).from(companies).where(eq(companies.id, user.companyId));
       companyName = company?.name ?? null;
+      companyBranding = {
+        brandColor: company?.brandColor ?? null,
+        brandTagline: company?.brandTagline ?? null,
+        customDomain: company?.customDomain ?? null,
+      };
     }
 
     let cityName: string | null = null;
@@ -244,7 +255,7 @@ export async function authMeHandler(req: AuthRequest, res: Response) {
 
     const { password, ...safeUser } = user;
     res.json({
-      user: { ...safeUser, cityAccess, companyName, cityName },
+      user: { ...safeUser, cityAccess, companyName, cityName, ...companyBranding },
       cities: dedupedCities,
       workingCityId: user.workingCityId ?? null,
       workingCityScope: user.workingCityScope ?? "CITY",

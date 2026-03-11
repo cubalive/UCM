@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import "@/i18n";
 import { isDriverHost, isClinicHost, isPharmacyHost, isBrokerHost, isDispatchHost, getTokenKey } from "@/lib/hostDetection";
 import { pushError } from "@/lib/errorLog";
+import { useBrandStyle } from "@/lib/useBrandStyle";
 import { CitySelectionModal } from "@/components/city-selection-modal";
 // Critical pages loaded eagerly (auth flow, initial render)
 import LoginPage from "@/pages/login";
@@ -671,6 +672,7 @@ class AppErrorBoundary extends React.Component<
 
 function AuthenticatedApp() {
   const { user, loading, error, retry, mustChangePassword, cityRequired, logout } = useAuth();
+  useBrandStyle();
 
   if (loading) {
     return (

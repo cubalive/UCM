@@ -13,6 +13,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { isDriverHost, getCredentials, getTokenKey } from "@/lib/hostDetection";
 import { resolveUrl } from "@/lib/api";
+import { useCustomDomainBranding } from "@/lib/useCustomDomainBranding";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -28,6 +29,7 @@ export default function LoginPage() {
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
   const searchString = useSearch();
+  const { branding } = useCustomDomainBranding();
 
   useEffect(() => {
     const params = new URLSearchParams(searchString);
@@ -135,12 +137,18 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
-          <LogoTileAnimation className="mb-4" />
+          {branding?.logoUrl ? (
+            <div className="flex justify-center mb-4">
+              <img src={branding.logoUrl} alt={branding.name} className="h-16 w-16 rounded-xl object-contain" />
+            </div>
+          ) : (
+            <LogoTileAnimation className="mb-4" />
+          )}
           <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-app-title">
-            {t("app.title")}
+            {branding?.name || t("app.title")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {t("app.subtitle")}
+            {branding?.brandTagline || t("app.subtitle")}
           </p>
         </div>
 

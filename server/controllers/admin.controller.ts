@@ -739,7 +739,7 @@ export async function updateCompanyHandler(req: AuthRequest, res: Response) {
     const company = await storage.getCompany(id);
     if (!company) return res.status(404).json({ message: "Company not found" });
 
-    const allowedFields = ["name", "dispatchPhone", "timezone"] as const;
+    const allowedFields = ["name", "dispatchPhone", "timezone", "brandColor", "brandSecondaryColor", "brandTagline", "customDomain"] as const;
     const updateData: Record<string, any> = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {

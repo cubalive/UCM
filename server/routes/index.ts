@@ -75,6 +75,7 @@ import { registerDeliveryProofRoutes } from "./delivery-proof.routes";
 import { performanceTracker, registerPerformanceMetricsRoute } from "../middleware/performanceTracker";
 import { registerAiRoutes } from "./ai.routes";
 import { registerEdiRoutes } from "./edi.routes";
+import { registerBrandingRoutes } from "./branding.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -209,6 +210,7 @@ export async function registerRoutes(
   registerPerformanceMetricsRoute(app);
   registerAiRoutes(app);
   registerEdiRoutes(app);
+  registerBrandingRoutes(app);
 
   return httpServer;
 }

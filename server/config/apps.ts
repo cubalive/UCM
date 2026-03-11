@@ -39,7 +39,20 @@ export function getAppKeyForHostname(hostname: string): AppKey {
   if (hostname.startsWith("pharmacy.")) return "pharmacy";
   if (hostname.startsWith("broker.")) return "broker";
   if (hostname.startsWith("dispatch.")) return "dispatch";
+  // Custom company domains resolve to admin app
   return "admin";
+}
+
+/** Check if hostname is a known system subdomain */
+const SYSTEM_PREFIXES = ["driver.", "clinic.", "pharmacy.", "broker.", "dispatch.", "admin.", "app."];
+export function isCustomHostname(hostname: string): boolean {
+  if (!hostname) return false;
+  const isProd = hostname.endsWith("unitedcaremobility.com");
+  if (isProd) {
+    return !SYSTEM_PREFIXES.some(p => hostname.startsWith(p)) && hostname !== "unitedcaremobility.com";
+  }
+  // Non-prod domain that's not localhost = custom domain
+  return !hostname.startsWith("localhost") && !hostname.startsWith("127.") && !hostname.startsWith("192.168.");
 }
 
 export function getNativeAppKey(appKey: AppKey): NativeAppKey {

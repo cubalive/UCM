@@ -445,10 +445,18 @@ export function AppSidebar() {
           )}
           <div className="min-w-0">
             <p className="text-sm font-bold tracking-wide truncate" data-testid="text-sidebar-title">
-              <span className="text-sidebar-foreground">UCM</span>
-              <span className="text-[hsl(var(--gold))] ml-1 text-[10px] font-semibold tracking-widest uppercase">Elite</span>
+              {(user as any)?.companyName ? (
+                <span className="text-sidebar-foreground">{(user as any).companyName}</span>
+              ) : (
+                <>
+                  <span className="text-sidebar-foreground">UCM</span>
+                  <span className="text-[hsl(var(--gold))] ml-1 text-[10px] font-semibold tracking-widest uppercase">Elite</span>
+                </>
+              )}
             </p>
-            <p className="text-[11px] text-sidebar-foreground/50 truncate tracking-wide">{t("nav.mobilitySystem")}</p>
+            <p className="text-[11px] text-sidebar-foreground/50 truncate tracking-wide">
+              {(user as any)?.brandTagline || t("nav.mobilitySystem")}
+            </p>
           </div>
         </div>
 

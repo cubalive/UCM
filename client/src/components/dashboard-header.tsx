@@ -121,7 +121,7 @@ export function DashboardHeader() {
           className="text-sm font-semibold hidden sm:inline truncate"
           data-testid="text-header-title"
         >
-          {t("app.title")}
+          {(user as any)?.companyName || t("app.title")}
         </span>
       </div>
 

@@ -11,6 +11,18 @@ export const isAppHost = isProdDomain && (hostname.startsWith("app.") || hostnam
 export const isProductionSubdomain = isDriverHost || isClinicHost || isPharmacyHost || isBrokerHost || isDispatchHost || isAdminHost || isAppHost;
 export { isProdDomain };
 
+/**
+ * Detect if the current hostname is a company custom domain/subdomain.
+ * Custom domains are any non-standard subdomain of the prod domain,
+ * or an entirely different domain (pointing via CNAME/DNS).
+ */
+const SYSTEM_PREFIXES = ["driver.", "clinic.", "pharmacy.", "broker.", "dispatch.", "admin.", "app."];
+export const isCustomDomain = !isProdDomain && hostname !== "localhost" && !hostname.startsWith("127.") && !hostname.startsWith("192.168.");
+export const isCustomSubdomain = isProdDomain && !SYSTEM_PREFIXES.some(p => hostname.startsWith(p)) && hostname !== "unitedcaremobility.com";
+
+/** The custom domain slug to resolve against companies.customDomain */
+export const customDomainSlug: string | null = isCustomDomain ? hostname : (isCustomSubdomain ? hostname.split(".")[0] : null);
+
 export const isNativePlatform =
   typeof (window as any).Capacitor !== "undefined" &&
   (window as any).Capacitor.isNativePlatform?.() === true;

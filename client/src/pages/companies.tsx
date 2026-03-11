@@ -361,6 +361,10 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
   const [companyTimezone, setCompanyTimezone] = useState((company as any).timezone || "America/Los_Angeles");
   const [logoPreview, setLogoPreview] = useState<string | null>((company as any).logoUrl || null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [brandColor, setBrandColor] = useState((company as any).brandColor || "#10b981");
+  const [brandSecondaryColor, setBrandSecondaryColor] = useState((company as any).brandSecondaryColor || "");
+  const [brandTagline, setBrandTagline] = useState((company as any).brandTagline || "");
+  const [customDomain, setCustomDomain] = useState((company as any).customDomain || "");
   const { token } = useAuth();
   const { toast } = useToast();
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -371,6 +375,10 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
       setDispatchPhone((company as any).dispatchPhone || "");
       setCompanyTimezone((company as any).timezone || "America/Los_Angeles");
       setLogoPreview((company as any).logoUrl || null);
+      setBrandColor((company as any).brandColor || "#10b981");
+      setBrandSecondaryColor((company as any).brandSecondaryColor || "");
+      setBrandTagline((company as any).brandTagline || "");
+      setCustomDomain((company as any).customDomain || "");
     }
   }, [open, company]);
 
@@ -380,6 +388,10 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
         name: name.trim(),
         dispatchPhone: dispatchPhone.trim() || null,
         timezone: companyTimezone,
+        brandColor: brandColor.trim() || null,
+        brandSecondaryColor: brandSecondaryColor.trim() || null,
+        brandTagline: brandTagline.trim() || null,
+        customDomain: customDomain.trim() || null,
       });
       return res.json();
     },
@@ -528,6 +540,73 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
               All trip scheduling, billing, and reporting will use this timezone.
             </p>
           </div>
+
+          <div className="border-t pt-4 mt-2">
+            <p className="text-sm font-semibold mb-3">Branding</p>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="edit-brand-color">Brand Color</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    id="edit-brand-color"
+                    value={brandColor}
+                    onChange={(e) => setBrandColor(e.target.value)}
+                    className="h-9 w-12 rounded border cursor-pointer"
+                    data-testid="input-brand-color"
+                  />
+                  <Input
+                    value={brandColor}
+                    onChange={(e) => setBrandColor(e.target.value)}
+                    placeholder="#10b981"
+                    className="flex-1"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">Primary brand color used in sidebar, headers, and PDFs.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-brand-secondary">Secondary Color</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    id="edit-brand-secondary"
+                    value={brandSecondaryColor || "#6366f1"}
+                    onChange={(e) => setBrandSecondaryColor(e.target.value)}
+                    className="h-9 w-12 rounded border cursor-pointer"
+                  />
+                  <Input
+                    value={brandSecondaryColor}
+                    onChange={(e) => setBrandSecondaryColor(e.target.value)}
+                    placeholder="#6366f1"
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-brand-tagline">Tagline</Label>
+                <Input
+                  id="edit-brand-tagline"
+                  value={brandTagline}
+                  onChange={(e) => setBrandTagline(e.target.value)}
+                  placeholder="e.g. Medical Transportation Services"
+                  data-testid="input-brand-tagline"
+                />
+                <p className="text-xs text-muted-foreground">Shown under company name in sidebar and on invoices.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-custom-domain">Custom Domain</Label>
+                <Input
+                  id="edit-custom-domain"
+                  value={customDomain}
+                  onChange={(e) => setCustomDomain(e.target.value)}
+                  placeholder="e.g. app.mycompany.com"
+                  data-testid="input-custom-domain"
+                />
+                <p className="text-xs text-muted-foreground">Custom subdomain for this company (requires DNS setup).</p>
+              </div>
+            </div>
+          </div>
+
           <Button
             className="w-full"
             onClick={() => updateMutation.mutate()}

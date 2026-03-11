@@ -1,13 +1,25 @@
 import PDFDocument from "pdfkit";
+import { db } from "../db";
+import { companies } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 interface InvoicePdfData {
   invoice: any;
   items: any[];
   clinic: any;
   payments: any[];
+  companyId?: number;
 }
 
-const COMPANY_NAME = process.env.COMPANY_NAME || "United Care Mobility LLC";
+interface CompanyBranding {
+  name: string;
+  brandColor: string | null;
+  brandTagline: string | null;
+  logoData: string | null;
+  logoMimeType: string | null;
+}
+
+const DEFAULT_COMPANY_NAME = process.env.COMPANY_NAME || "United Care Mobility LLC";
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || "billing@unitedcaremobility.com";
 
 const fmtCents = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
@@ -21,8 +33,29 @@ const fmtDate = (d: string | Date | null | undefined): string => {
   } catch { return "\u2014"; }
 };
 
+async function getCompanyBranding(companyId?: number): Promise<CompanyBranding | null> {
+  if (!companyId) return null;
+  try {
+    const [company] = await db.select({
+      name: companies.name,
+      brandColor: companies.brandColor,
+      brandTagline: companies.brandTagline,
+      logoData: companies.logoData,
+      logoMimeType: companies.logoMimeType,
+    }).from(companies).where(eq(companies.id, companyId)).limit(1);
+    return company || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function generateInvoicePdf(data: InvoicePdfData, res: any): Promise<void> {
-  const { invoice, items, clinic, payments } = data;
+  const { invoice, items, clinic, payments, companyId } = data;
+
+  const branding = await getCompanyBranding(companyId);
+  const companyName = branding?.name || DEFAULT_COMPANY_NAME;
+  const tagline = branding?.brandTagline || "Medical Transportation Services";
+  const accentColor = branding?.brandColor || "#10b981";
 
   const doc = new PDFDocument({ margin: 50, size: "LETTER", bufferPages: true });
 
@@ -32,14 +65,29 @@ export async function generateInvoicePdf(data: InvoicePdfData, res: any): Promis
   res.setHeader("Cache-Control", "no-store");
   doc.pipe(res);
 
-  doc.fontSize(18).font("Helvetica-Bold").text(COMPANY_NAME, 50, 50);
-  doc.fontSize(10).font("Helvetica").text("Medical Transportation Services", 50, 72);
+  // Header with company logo
+  let headerTextX = 50;
+  if (branding?.logoData && branding.logoMimeType) {
+    try {
+      const logoBuffer = Buffer.from(branding.logoData, "base64");
+      doc.image(logoBuffer, 50, 45, { width: 40, height: 40, fit: [40, 40] });
+      headerTextX = 100;
+    } catch {
+      // logo decode failed, skip
+    }
+  }
+
+  // Accent bar at top
+  doc.rect(0, 0, 612, 6).fill(accentColor);
+
+  doc.fontSize(18).font("Helvetica-Bold").text(companyName, headerTextX, 50);
+  doc.fontSize(10).font("Helvetica").text(tagline, headerTextX, 72);
   doc.moveDown(0.5);
 
   doc.fontSize(22).font("Helvetica-Bold").text("INVOICE", 400, 50, { align: "right" });
 
   let y = 110;
-  doc.moveTo(50, y).lineTo(562, y).strokeColor("#e0e0e0").stroke();
+  doc.moveTo(50, y).lineTo(562, y).strokeColor(accentColor).stroke();
   y += 15;
 
   doc.fontSize(10).font("Helvetica-Bold");
@@ -173,10 +221,10 @@ export async function generateInvoicePdf(data: InvoicePdfData, res: any): Promis
   }
 
   if (y > 700) { doc.addPage(); y = 50; }
-  doc.moveTo(50, y).lineTo(562, y).strokeColor("#e0e0e0").stroke();
+  doc.moveTo(50, y).lineTo(562, y).strokeColor(accentColor).stroke();
   y += 15;
   doc.font("Helvetica").fontSize(8).fillColor("#999999");
-  doc.text(`${COMPANY_NAME} | ${SUPPORT_EMAIL}`, 50, y, { align: "center", width: 512 });
+  doc.text(`${companyName} | ${SUPPORT_EMAIL}`, 50, y, { align: "center", width: 512 });
   y += 12;
   doc.text("Thank you for choosing our medical transportation services.", 50, y, { align: "center", width: 512 });
   doc.fillColor("#000000");

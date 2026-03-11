@@ -1603,7 +1603,7 @@ export function registerClinicBillingRoutes(app: Express) {
       const payments = await storage.getInvoicePayments(invoiceId);
 
       const { generateInvoicePdf } = await import("./invoicePdfGenerator");
-      await generateInvoicePdf({ invoice, items, clinic, payments }, res);
+      await generateInvoicePdf({ invoice, items, clinic, payments, companyId: req.user?.companyId ?? undefined }, res);
     } catch (err: any) {
       console.error("[InvoicePDF] Error:", err.message);
       if (!res.headersSent) res.status(500).json({ message: err.message });
