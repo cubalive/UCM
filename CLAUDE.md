@@ -26,6 +26,8 @@ United Care Mobility (UCM) — a multi-tenant Medical Transportation Management 
   - `client/src/lib/` — utilities, API client, auth
   - `client/src/driver-v4/` — dedicated driver app UI
   - `client/src/clinic-portal/` — clinic portal UI
+  - `client/src/pharmacy-portal/` — pharmacy portal UI
+  - `client/src/broker-portal/` — broker portal UI
   - `client/src/i18n/` — i18next internationalization
 - **`server/`** — Express 5 API server (Node 20, TypeScript)
   - `server/index.ts` — app entry point, middleware, boot sequence with inline schema migrations
@@ -52,7 +54,7 @@ United Care Mobility (UCM) — a multi-tenant Medical Transportation Management 
 
 ### Key Patterns
 
-- **Auth:** JWT-based with magic link login. Roles: SUPER_ADMIN, ADMIN, COMPANY_ADMIN, DISPATCH, DRIVER, VIEWER, CLINIC_ADMIN, CLINIC_USER, CLINIC_VIEWER
+- **Auth:** JWT-based with magic link login. Roles: SUPER_ADMIN, ADMIN, COMPANY_ADMIN, DISPATCH, DRIVER, VIEWER, CLINIC_ADMIN, CLINIC_USER, CLINIC_VIEWER, BROKER_ADMIN, BROKER_USER, PHARMACY_ADMIN, PHARMACY_USER
 - **Multi-tenancy:** Hard tenant enforcement via `tenantGuard` middleware and `requireCompanyScope`/`requireTenantScope` middleware. City-scoped data segregation.
 - **Trip lifecycle:** Deterministic state machine in `shared/tripStateMachine.ts`. All status transitions go through `transitionTripStatus()`.
 - **Process modes:** `RUN_MODE` env var controls `api` / `worker` / `all` split. Workers run background schedulers without HTTP.
@@ -66,7 +68,7 @@ PostgreSQL (Supabase), Google Maps Platform, Twilio (SMS), Resend (email), Strip
 
 ### Deployment
 
-Dockerfile (Node 20 Alpine), fly.toml (Fly.io, region `iad`), render.yaml. Production builds to `dist/`.
+Railway (primary), with Fly.io and Render as alternatives. API + Worker process separation via `RUN_MODE` env var. Railway configs: `railway.toml` (API, 2 replicas HA), `railway.worker.toml` (Worker). Health checks at `/api/health/live` (liveness) and `/api/health/ready` (readiness). Production builds to `dist/`.
 
 ## Important Conventions
 
@@ -75,3 +77,41 @@ Dockerfile (Node 20 Alpine), fly.toml (Fly.io, region `iad`), render.yaml. Produ
 - Route files follow the pattern `server/routes/*.routes.ts` with `register*Routes()` functions
 - The schema in `shared/schema.ts` uses Drizzle ORM with `drizzle-zod` for validation
 - DB connection requires `SUPABASE_DB_URL` or `DATABASE_URL` pointing to a Supabase instance
+
+## Current State (as of 2026-03-11)
+
+### Recently Completed (all merged to `main`)
+- Railway deployment with API/Worker separation (2 replicas HA)
+- Health check fixes: `/api/health/live` before middleware, worker mode minimal HTTP server
+- Dispatch subdomain routing (`dispatch.*` restricts to dispatch/admin roles)
+- **Pharmacy portal** — full CRUD: orders, tracking, notifications, metrics (`client/src/pharmacy-portal/`, `server/controllers/pharmacy-portal.controller.ts`)
+- **Broker portal** — dashboard, contracts, settlements, trip requests, marketplace (`client/src/broker-portal/`, `server/controllers/broker-portal.controller.ts`)
+- **Broker API v1** — external API with HMAC auth for broker integrations (`server/routes/broker-api-v1.routes.ts`, `server/lib/brokerApiAuth.ts`)
+- **EDI billing** — 837 claim generation + 835 remittance parsing (`server/lib/edi837Engine.ts`, `server/lib/edi835Parser.ts`)
+- **Medicaid billing engine** — full Medicaid claim lifecycle (`server/lib/medicaidBillingEngine.ts`)
+- **Fraud detection engine** — anomaly scoring for trips/billing (`server/lib/fraudDetectionEngine.ts`)
+- **Billing automation** — auto-invoicing, dunning emails, reconciliation, subscription tiers (`server/services/`)
+- **Driver app v4 redesign** — real route maps, navigation, proof of delivery (photo + signature)
+- **HIPAA compliance** — PHI encryption (`server/lib/phiEncryption.ts`), audit middleware (`server/middleware/phiAudit.ts`)
+- **Security hardening** — input sanitizer, rate limiter, performance tracker
+- **New engines** — SLA metrics, demand prediction, multi-stop optimizer, inter-city transfers, smart cancellation, cascade delays, trip grouping, dead mile tracking, patient ratings, SMS confirmation
+- **Mobile** — App Store readiness (account deletion, offline fallback, ATT, Capacitor configs)
+- **9 new UI pages** — AI dashboard, EDI billing, Medicaid billing, marketplace, ratings, reconciliation, city comparison, inter-city, dead mile, cascade alerts, smart cancel, trip groups
+
+### Known Issues / Technical Debt
+- TypeScript errors may exist — run `npm run check` to verify
+- Some new engines (fraud detection, demand prediction, AI routes) have placeholder/mock logic that needs real ML integration
+- Broker API v1 webhook engine (`server/lib/brokerWebhookEngine.ts`) needs production webhook URLs configured
+- PHI encryption requires `PHI_ENCRYPTION_KEY` env var in production
+- Redis (`UPSTASH_REDIS_REST_URL`) required for rate limiter, job queue, leader election
+- `shared/permissions.ts` was modified to add broker/pharmacy roles — verify RBAC matrix is correct
+
+### Suggested Next Steps
+- Run full test suite (`npx vitest run`) and fix any failures
+- Run `npm run check` and resolve TypeScript errors
+- Verify Railway deployment works end-to-end (API + Worker)
+- Configure production env vars: `PHI_ENCRYPTION_KEY`, `UPSTASH_REDIS_REST_URL`, broker webhook URLs
+- Real ML model integration for fraud detection and demand prediction
+- E2E tests for pharmacy portal, broker portal, and driver app v4
+- Stripe integration for broker settlements and pharmacy billing
+- Push notification testing (FCM) for pharmacy order updates
