@@ -16,6 +16,11 @@ import { apiRateLimiter } from "./middleware/rateLimiter";
 const app = express();
 const httpServer = createServer(app);
 
+// Healthcheck MUST be registered before any middleware to guarantee Railway/infra can reach it
+app.get("/api/health/live", (_req, res) => {
+  res.status(200).json({ status: "alive", uptime: Math.round(process.uptime()), pid: process.pid });
+});
+
 const IS_PROD = process.env.NODE_ENV === "production";
 if (IS_PROD) {
   app.set("trust proxy", 1);
