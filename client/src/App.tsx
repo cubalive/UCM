@@ -16,7 +16,7 @@ import { can, type Resource } from "@shared/permissions";
 import { API_BASE_URL } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 import "@/i18n";
-import { isDriverHost, isClinicHost, isPharmacyHost, isBrokerHost, getTokenKey } from "@/lib/hostDetection";
+import { isDriverHost, isClinicHost, isPharmacyHost, isBrokerHost, isDispatchHost, getTokenKey } from "@/lib/hostDetection";
 import { pushError } from "@/lib/errorLog";
 import { CitySelectionModal } from "@/components/city-selection-modal";
 // Critical pages loaded eagerly (auth flow, initial render)
@@ -343,9 +343,53 @@ function DriverSubdomainRouter() {
   );
 }
 
+function DispatchSubdomainRouter() {
+  return (
+    <React.Suspense fallback={<PageLoadingFallback />}>
+    <Switch>
+      <Route path="/">{() => <Redirect to="/dispatch" />}</Route>
+      <Route path="/dispatch">{() => <ProtectedRoute resource="dispatch" component={DispatchMapPage} />}</Route>
+      <Route path="/dispatch-board">{() => <ProtectedRoute resource="dispatch" component={DispatchBoardPage} />}</Route>
+      <Route path="/dispatch-swaps">{() => <ProtectedRoute resource="dispatch" component={DispatchSwapsPage} />}</Route>
+      <Route path="/fleet">{() => <ProtectedRoute resource="dispatch" component={FleetOpsPage} />}</Route>
+      <Route path="/assignments">{() => <ProtectedRoute resource="dispatch" component={AssignmentsPage} />}</Route>
+      <Route path="/ops-health">{() => <ProtectedRoute resource="dispatch" component={OpsHealthPage} />}</Route>
+      <Route path="/ops-checks">{() => <ProtectedRoute resource="dispatch" component={OpsChecksPage} />}</Route>
+      <Route path="/auto-assignment">{() => <ProtectedRoute resource="dispatch" component={AutoAssignmentPage} />}</Route>
+      <Route path="/trip-requests-queue">{() => <ProtectedRoute resource="dispatch" component={TripRequestsQueuePage} />}</Route>
+      <Route path="/schedule">{() => <ProtectedRoute resource="dispatch" component={SchedulePage} />}</Route>
+      <Route path="/eta-escalations">{() => <ProtectedRoute resource="dispatch" component={EtaEscalationsPage} />}</Route>
+      <Route path="/zero-touch-dialysis">{() => <ProtectedRoute resource="dispatch" component={ZeroTouchDialysisPage} />}</Route>
+      <Route path="/trip-groups">{() => <ProtectedRoute resource="dispatch" component={TripGroupsPage} />}</Route>
+      <Route path="/dead-mile">{() => <ProtectedRoute resource="dispatch" component={DeadMilePage} />}</Route>
+      <Route path="/smart-cancel">{() => <ProtectedRoute resource="dispatch" component={SmartCancelPage} />}</Route>
+      <Route path="/cascade-alerts">{() => <ProtectedRoute resource="dispatch" component={CascadeAlertsPage} />}</Route>
+      <Route path="/inter-city">{() => <ProtectedRoute resource="dispatch" component={InterCityPage} />}</Route>
+      <Route path="/live-map">{() => <LiveMapRoute />}</Route>
+      <Route path="/trips/:id">{() => <ProtectedRoute resource="trips" component={TripDetailPage} />}</Route>
+      <Route path="/trips">{() => <ProtectedRoute resource="trips" component={TripsPage} />}</Route>
+      <Route path="/patients/:id">{() => <ProtectedRoute resource="patients" component={PatientDetailPage} />}</Route>
+      <Route path="/patients">{() => <ProtectedRoute resource="patients" component={PatientsPage} />}</Route>
+      <Route path="/drivers/:id">{() => <ProtectedRoute resource="drivers" component={DriverDetailPage} />}</Route>
+      <Route path="/drivers">{() => <ProtectedRoute resource="drivers" component={DriversPage} />}</Route>
+      <Route path="/vehicles/:id">{() => <ProtectedRoute resource="vehicles" component={VehicleDetailPage} />}</Route>
+      <Route path="/vehicles">{() => <ProtectedRoute resource="vehicles" component={VehiclesPage} />}</Route>
+      <Route path="/archive">{() => <ArchiveRoute />}</Route>
+      <Route path="/login" component={LoginPage} />
+      <Route path="/unauthorized" component={UnauthorizedPage} />
+      <Route>{() => <Redirect to="/dispatch" />}</Route>
+    </Switch>
+    </React.Suspense>
+  );
+}
+
 function Router() {
   if (isDriverHost) {
     return <DriverSubdomainRouter />;
+  }
+
+  if (isDispatchHost) {
+    return <DispatchSubdomainRouter />;
   }
 
   return (
@@ -477,6 +521,60 @@ function DriverHostUnauthorized() {
             variant="destructive"
             className="w-full"
             data-testid="button-driver-host-logout"
+          >
+            Sign Out
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function DispatchHostUnauthorized() {
+  const { logout } = useAuth();
+  return (
+    <div className="flex items-center justify-center min-h-screen" data-testid="dispatch-host-unauthorized">
+      <Card className="w-full max-w-md mx-4">
+        <CardHeader className="flex flex-row items-center gap-3">
+          <AlertTriangle className="h-6 w-6 text-destructive flex-shrink-0" />
+          <CardTitle data-testid="text-dispatch-host-unauthorized-title">Dispatch Access Only</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground" data-testid="text-dispatch-host-unauthorized-message">
+            This portal is exclusively for dispatch operators. Your account does not have dispatch access. Please use the main application instead.
+          </p>
+          <Button
+            onClick={() => logout()}
+            variant="destructive"
+            className="w-full"
+            data-testid="button-dispatch-host-logout"
+          >
+            Sign Out
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AdminHostUnauthorized() {
+  const { logout } = useAuth();
+  return (
+    <div className="flex items-center justify-center min-h-screen" data-testid="admin-host-unauthorized">
+      <Card className="w-full max-w-md mx-4">
+        <CardHeader className="flex flex-row items-center gap-3">
+          <AlertTriangle className="h-6 w-6 text-destructive flex-shrink-0" />
+          <CardTitle data-testid="text-admin-host-unauthorized-title">Admin Access Only</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground" data-testid="text-admin-host-unauthorized-message">
+            This portal is restricted to administrators. Please use the appropriate portal for your role.
+          </p>
+          <Button
+            onClick={() => logout()}
+            variant="destructive"
+            className="w-full"
+            data-testid="button-admin-host-logout"
           >
             Sign Out
           </Button>
@@ -672,6 +770,37 @@ function AuthenticatedApp() {
     );
   }
 
+  if (isDispatchHost) {
+    const role = user.role.toUpperCase();
+    const dispatchAllowed = ["DISPATCH", "SUPER_ADMIN"];
+    if (!dispatchAllowed.includes(role)) {
+      return <DispatchHostUnauthorized />;
+    }
+    if (cityRequired) {
+      return <CitySelectionModal />;
+    }
+    const style = {
+      "--sidebar-width": "16rem",
+      "--sidebar-width-icon": "3rem",
+    };
+    return (
+      <AppErrorBoundary label="Dispatch">
+        <SidebarProvider style={style as React.CSSProperties}>
+          <div className="flex h-screen w-full">
+            <AppSidebar />
+            <div className="flex flex-col flex-1 min-w-0">
+              <DashboardHeader />
+              <main className="flex-1 overflow-auto">
+                <DispatchSubdomainRouter />
+              </main>
+            </div>
+          </div>
+          <AuthDebugPanel />
+        </SidebarProvider>
+      </AppErrorBoundary>
+    );
+  }
+
   if (isDriverHost) {
     const role = user.role.toUpperCase();
     if (role !== "DRIVER") {
@@ -689,6 +818,15 @@ function AuthenticatedApp() {
 
   if (cityRequired) {
     return <CitySelectionModal />;
+  }
+
+  // Main app: restrict to SUPER_ADMIN and company admins only
+  {
+    const role = user.role.toUpperCase();
+    const adminAllowed = ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
+    if (!adminAllowed.includes(role)) {
+      return <AdminHostUnauthorized />;
+    }
   }
 
   const style = {
