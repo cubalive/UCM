@@ -228,8 +228,8 @@ export function Earnings({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <NebulaBackground className="min-h-screen">
-      <div className="max-w-md mx-auto w-full px-4 py-6 space-y-4 overflow-y-auto" style={{ maxHeight: "100%" }}>
+    <NebulaBackground>
+      <div className="max-w-md mx-auto w-full px-4 py-6 space-y-4">
         {/* Header */}
         <div className="flex items-center gap-3 mb-2">
           <button

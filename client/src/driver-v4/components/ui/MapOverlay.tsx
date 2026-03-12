@@ -26,7 +26,7 @@ export function MapOverlay({ children, position, className = "", testID }: MapOv
 export function NebulaBackground({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
     <div
-      className={`relative min-h-screen overflow-hidden ${className}`}
+      className={`relative min-h-full ${className}`}
       style={{ background: `linear-gradient(160deg, ${colors.bg0} 0%, ${colors.bg1} 50%, ${colors.bg2} 100%)` }}
     >
       {/* Subtle warm ambient glow */}
