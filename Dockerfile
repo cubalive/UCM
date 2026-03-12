@@ -31,6 +31,7 @@ USER ucm
 COPY --from=deps --chown=ucm:ucm /app/node_modules ./node_modules
 COPY --from=build --chown=ucm:ucm /app/dist ./dist
 COPY --from=build --chown=ucm:ucm /app/package.json ./
+COPY --chown=ucm:ucm script/start-worker.sh ./script/start-worker.sh
 
 EXPOSE 5000
 CMD ["node", "dist/index.cjs"]
