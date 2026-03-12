@@ -4,9 +4,9 @@ import {
   Wallet, Star, MapPin, Car, Clock, TrendingUp, Shield,
   Zap, Navigation, Phone, ChevronUp, ChevronDown, Package, Ambulance,
   Accessibility, BedDouble, Weight, Route, Users, Check, X, Loader2,
-  Calendar, User
+  Calendar, User, Pill, AlertCircle, Thermometer
 } from "lucide-react";
-import { useDriverStore, type ServiceFilter } from "../store/driverStore";
+import { useDriverStore, type ServiceFilter, type ServiceType } from "../store/driverStore";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
 import { glowColor, statusGradient } from "../design/theme";
@@ -577,10 +577,13 @@ function WaitingIndicator() {
   );
 }
 
-/* ─── Service type filter ─── */
+/* ─── Service type filter (multi-select based on vehicle capability) ─── */
 function ServiceFilterBar() {
   const serviceFilter = useDriverStore((s) => s.serviceFilter);
+  const activeServiceFilters = useDriverStore((s) => s.activeServiceFilters);
+  const allowedServiceTypes = useDriverStore((s) => s.allowedServiceTypes);
   const setServiceFilter = useDriverStore((s) => s.setServiceFilter);
+  const toggleServiceFilter = useDriverStore((s) => s.toggleServiceFilter);
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -588,8 +591,7 @@ function ServiceFilterBar() {
   if (driverStatus !== "online" || shiftStatus !== "onShift") return null;
   if (tripPhase !== "none" && tripPhase !== "offer") return null;
 
-  const options: { value: ServiceFilter; label: string; icon: React.ReactNode }[] = [
-    { value: "all", label: "All", icon: <Car className="w-3.5 h-3.5" /> },
+  const serviceOptions: { value: ServiceType; label: string; icon: React.ReactNode }[] = [
     { value: "ambulatory", label: "Ambulatory", icon: <Ambulance className="w-3.5 h-3.5" /> },
     { value: "wheelchair", label: "Wheelchair", icon: <Accessibility className="w-3.5 h-3.5" /> },
     { value: "stretcher", label: "Stretcher", icon: <BedDouble className="w-3.5 h-3.5" /> },
@@ -599,6 +601,8 @@ function ServiceFilterBar() {
     { value: "multi_load", label: "Multi-Load", icon: <Users className="w-3.5 h-3.5" /> },
     { value: "delivery", label: "Delivery", icon: <Package className="w-3.5 h-3.5" /> },
   ];
+
+  const isAll = activeServiceFilters.length === allowedServiceTypes.length;
 
   return (
     <div
@@ -613,19 +617,40 @@ function ServiceFilterBar() {
       }}
       data-testid="service-filter-bar"
     >
-      {options.map((opt) => {
-        const isActive = serviceFilter === opt.value;
+      {/* All button */}
+      <motion.button
+        onClick={() => setServiceFilter("all")}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl whitespace-nowrap"
+        style={{
+          background: isAll
+            ? `linear-gradient(135deg, rgba(255,107,53,0.12), rgba(255,179,71,0.08))`
+            : "transparent",
+          border: isAll ? "1px solid rgba(255,107,53,0.2)" : "1px solid transparent",
+          color: isAll ? colors.sunrise : colors.textTertiary,
+        }}
+        whileTap={{ scale: 0.95 }}
+      >
+        <Car className="w-3.5 h-3.5" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider">All</span>
+      </motion.button>
+
+      {/* Service type buttons - only show allowed for vehicle */}
+      {serviceOptions.map((opt) => {
+        const isAllowed = allowedServiceTypes.includes(opt.value);
+        const isActive = activeServiceFilters.includes(opt.value);
+        if (!isAllowed) return null;
+
         return (
           <motion.button
             key={opt.value}
-            onClick={() => setServiceFilter(opt.value)}
+            onClick={() => toggleServiceFilter(opt.value)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl whitespace-nowrap"
             style={{
-              background: isActive
+              background: isActive && !isAll
                 ? `linear-gradient(135deg, rgba(255,107,53,0.12), rgba(255,179,71,0.08))`
                 : "transparent",
-              border: isActive ? "1px solid rgba(255,107,53,0.2)" : "1px solid transparent",
-              color: isActive ? colors.sunrise : colors.textTertiary,
+              border: isActive && !isAll ? "1px solid rgba(255,107,53,0.2)" : "1px solid transparent",
+              color: isActive && !isAll ? colors.sunrise : colors.textTertiary,
             }}
             whileTap={{ scale: 0.95 }}
           >
@@ -817,6 +842,182 @@ function ScheduleView() {
   );
 }
 
+/* ─── Active Pharmacy Deliveries ─── */
+function PharmacyDeliveriesCard() {
+  const pharmacyDeliveries = useDriverStore((s) => s.pharmacyDeliveries);
+  const driverStatus = useDriverStore((s) => s.driverStatus);
+  const shiftStatus = useDriverStore((s) => s.shiftStatus);
+  const tripPhase = useDriverStore((s) => s.tripPhase);
+  const advancePharmacyStatus = useDriverStore((s) => s.advancePharmacyStatus);
+  const navPreference = useDriverStore((s) => s.navPreference);
+  const reduced = useReducedMotion();
+
+  if (driverStatus !== "online" || shiftStatus !== "onShift") return null;
+  if (tripPhase !== "none") return null;
+  if (pharmacyDeliveries.length === 0) return null;
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case "DRIVER_ASSIGNED": return "Go to Pharmacy";
+      case "EN_ROUTE_PICKUP": return "At Pharmacy";
+      case "PICKED_UP": return "Start Delivery";
+      case "EN_ROUTE_DELIVERY": return "Deliver";
+      default: return status;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "DRIVER_ASSIGNED": return colors.sky;
+      case "EN_ROUTE_PICKUP": return colors.warning;
+      case "PICKED_UP": return colors.sunrise;
+      case "EN_ROUTE_DELIVERY": return colors.success;
+      default: return colors.textTertiary;
+    }
+  };
+
+  const handleNavigate = (lat: string | null, lng: string | null) => {
+    if (!lat || !lng) return;
+    const destLat = parseFloat(lat);
+    const destLng = parseFloat(lng);
+    if (navPreference === "waze") {
+      window.open(`https://waze.com/ul?ll=${destLat},${destLng}&navigate=yes`, "_blank");
+    } else if (navPreference === "apple") {
+      window.open(`maps://maps.apple.com/?daddr=${destLat},${destLng}&dirflg=d`, "_blank");
+    } else {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`, "_blank");
+    }
+  };
+
+  return (
+    <motion.div
+      initial={reduced ? {} : { opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-4"
+    >
+      <div
+        className="rounded-2xl overflow-hidden space-y-2 p-3"
+        style={{
+          background: "rgba(255,255,255,0.95)",
+          backdropFilter: "blur(24px)",
+          border: "1px solid rgba(0,0,0,0.06)",
+          boxShadow: colors.shadowXl,
+          maxHeight: "50vh",
+          overflowY: "auto",
+        }}
+      >
+        <div className="flex items-center gap-2 px-2 pb-1">
+          <Pill className="w-4 h-4" style={{ color: colors.sunrise }} />
+          <span className="text-xs font-bold" style={{ color: colors.textPrimary }}>
+            Active Deliveries
+          </span>
+          <span
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+            style={{ background: glowColor(colors.sunrise, 0.1), color: colors.sunrise }}
+          >
+            {pharmacyDeliveries.length}
+          </span>
+        </div>
+
+        {pharmacyDeliveries.map((delivery) => {
+          const isPickupPhase = ["DRIVER_ASSIGNED", "EN_ROUTE_PICKUP"].includes(delivery.status);
+          const navLat = isPickupPhase ? delivery.pickupLat : delivery.deliveryLat;
+          const navLng = isPickupPhase ? delivery.pickupLng : delivery.deliveryLng;
+          const address = isPickupPhase ? delivery.pickupAddress : delivery.deliveryAddress;
+          const statusColor = getStatusColor(delivery.status);
+
+          return (
+            <div
+              key={delivery.id}
+              className="rounded-xl p-3 space-y-2"
+              style={{ background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.04)" }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Package className="w-3.5 h-3.5" style={{ color: statusColor }} />
+                  <span className="text-xs font-semibold" style={{ color: colors.textPrimary }}>
+                    {delivery.publicId}
+                  </span>
+                  {delivery.isControlledSubstance && (
+                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: "rgba(255,59,48,0.1)", color: colors.danger }}>
+                      CONTROLLED
+                    </span>
+                  )}
+                  {delivery.temperatureRequirement && delivery.temperatureRequirement !== "NONE" && (
+                    <Thermometer className="w-3 h-3" style={{ color: colors.sky }} />
+                  )}
+                </div>
+                <span
+                  className="text-[9px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: glowColor(statusColor, 0.1), color: statusColor }}
+                >
+                  {delivery.status.replace(/_/g, " ")}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <MapPin className="w-3 h-3 flex-shrink-0" style={{ color: colors.textTertiary }} />
+                <span className="text-[10px] truncate" style={{ color: colors.textSecondary }}>
+                  {address}
+                </span>
+              </div>
+
+              {delivery.recipientName && (
+                <div className="flex items-center gap-2">
+                  <User className="w-3 h-3 flex-shrink-0" style={{ color: colors.textTertiary }} />
+                  <span className="text-[10px]" style={{ color: colors.textSecondary }}>
+                    {delivery.recipientName}
+                  </span>
+                </div>
+              )}
+
+              {delivery.items.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  {delivery.items.slice(0, 3).map((item, idx) => (
+                    <span key={idx} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,0,0,0.04)", color: colors.textSecondary }}>
+                      {item.medicationName} x{item.quantity}
+                    </span>
+                  ))}
+                  {delivery.items.length > 3 && (
+                    <span className="text-[9px]" style={{ color: colors.textTertiary }}>+{delivery.items.length - 3} more</span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <motion.button
+                  onClick={() => handleNavigate(navLat, navLng)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl"
+                  style={{
+                    background: `linear-gradient(135deg, ${statusColor}, ${glowColor(statusColor, 0.8)})`,
+                    color: "#fff",
+                  }}
+                  whileTap={!reduced ? { scale: 0.95 } : undefined}
+                >
+                  <Navigation className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-semibold">Navigate</span>
+                </motion.button>
+
+                {delivery.recipientPhone && (
+                  <motion.button
+                    onClick={() => window.open(`tel:${delivery.recipientPhone}`, "_self")}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl"
+                    style={{ background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.06)" }}
+                    whileTap={!reduced ? { scale: 0.95 } : undefined}
+                  >
+                    <Phone className="w-3.5 h-3.5" style={{ color: colors.textSecondary }} />
+                    <span className="text-[10px] font-semibold" style={{ color: colors.textSecondary }}>Call</span>
+                  </motion.button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
+
 /* ─── Map background ─── */
 function MapBackground() {
   const activeTrip = useDriverStore((s) => s.activeTrip);
@@ -933,6 +1134,9 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
       <AnimatePresence>
         {showActiveTrip && <ActiveTripMapCard key="active-trip" onOpenTrip={handleOpenTrip} />}
       </AnimatePresence>
+
+      {/* Active pharmacy deliveries */}
+      <PharmacyDeliveriesCard />
     </div>
   );
 }

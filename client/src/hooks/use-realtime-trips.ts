@@ -76,6 +76,12 @@ export function useRealtimeTrips({
               queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trips"] });
               queryClient.invalidateQueries({ queryKey: ["/api/trips"] });
             }
+
+            // Auto-invalidate trip request queries when request status changes
+            if (msg.data?.type === "request_status_change") {
+              queryClient.invalidateQueries({ queryKey: ["/api/clinic/trip-requests"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/dispatch/trip-requests"] });
+            }
           }
         } catch {}
       };

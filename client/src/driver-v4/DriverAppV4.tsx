@@ -243,6 +243,7 @@ export function DriverAppV4() {
   const initialize = useDriverStore((s) => s.initialize);
   const pollOffers = useDriverStore((s) => s.pollOffers);
   const pollActiveTrip = useDriverStore((s) => s.pollActiveTrip);
+  const pollPharmacyDeliveries = useDriverStore((s) => s.pollPharmacyDeliveries);
   const updateLocation = useDriverStore((s) => s.updateLocation);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const geoRef = useRef<number | null>(null);
@@ -263,12 +264,13 @@ export function DriverAppV4() {
     pollRef.current = setInterval(() => {
       if (tripPhase === "none") {
         pollOffers();
+        pollPharmacyDeliveries();
       } else if (tripPhase !== "offer" && tripPhase !== "complete") {
         pollActiveTrip();
       }
     }, 10_000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [isAuthenticated, tripPhase, pollOffers, pollActiveTrip]);
+  }, [isAuthenticated, tripPhase, pollOffers, pollActiveTrip, pollPharmacyDeliveries]);
 
   // GPS tracking
   useEffect(() => {
