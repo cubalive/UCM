@@ -175,7 +175,7 @@ router.patch(
   requireTenantScope,
   async (req: AuthRequest, res: Response) => {
     try {
-      const invoiceId = parseInt(req.params.id);
+      const invoiceId = parseInt(req.params.id as string);
       const { reason } = req.body;
       if (!reason || typeof reason !== "string") {
         return res.status(400).json({ message: "Write-off reason is required" });
@@ -353,7 +353,7 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const claimId = parseInt(req.params.id);
+      const claimId = parseInt(req.params.id as string);
       const events = await db
         .select()
         .from(ediClaimEvents)
