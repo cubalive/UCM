@@ -1,7 +1,7 @@
 import express, { type Express } from "express";
 import { authMiddleware, requirePermission } from "../auth";
 import { requireTenantScope, requireCityAccess } from "../middleware";
-import { phiAuditDbMiddleware } from "../middleware/phiAuditMiddleware";
+import { phiAuditDbMiddleware } from "../middleware/phiAudit";
 import {
   getPatientsHandler,
   getPatientByIdHandler,

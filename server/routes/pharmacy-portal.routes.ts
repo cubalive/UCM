@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { authMiddleware, requireRole } from "../auth";
 import { requirePharmacyScope, requirePharmacyAdmin } from "../middleware/requirePharmacyScope";
-import { phiAuditFor } from "../middleware/phiAuditMiddleware";
+import { phiAuditFor } from "../middleware/phiAudit";
 import {
   pharmacyDashboardHandler,
   pharmacyOrdersListHandler,

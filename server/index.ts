@@ -769,6 +769,12 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS pharmacy_id INTEGER`);
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS broker_id INTEGER`);
 
+    // Audit log indexes for HIPAA compliance queries
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS audit_log_user_created_idx ON audit_log(user_id, created_at)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS audit_log_action_created_idx ON audit_log(action, created_at)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS audit_log_entity_idx ON audit_log(entity, entity_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS audit_log_company_created_idx ON audit_log(company_id, created_at)`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);

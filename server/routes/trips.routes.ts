@@ -3,7 +3,7 @@ import { authMiddleware, requireRole, requirePermission, type AuthRequest } from
 import { requireTenantScope, requireCityAccess } from "../middleware";
 import { idempotencyMiddleware } from "../lib/idempotency";
 import { requireSubscription } from "../middleware/requireSubscription";
-import { phiAuditDbMiddleware } from "../middleware/phiAuditMiddleware";
+import { phiAuditDbMiddleware } from "../middleware/phiAudit";
 import {
   getRecurringSchedulesHandler,
   createRecurringScheduleHandler,
