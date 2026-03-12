@@ -290,7 +290,7 @@ export function DriverAppV4() {
           animate={{ opacity: 1 }}
           exit={reduced ? {} : { opacity: 0 }}
           transition={{ duration: 0.2 }}
-          style={{ height: "100%", paddingBottom: showTabBar ? 88 : 0 }}
+          style={{ height: "100%", paddingBottom: showTabBar ? 88 : 0, overflowY: "auto", WebkitOverflowScrolling: "touch" }}
         >
           {screen === "dashboard" && (
             <Dashboard onNavigate={navigate} />

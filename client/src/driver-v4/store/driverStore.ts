@@ -239,6 +239,7 @@ export const useDriverStore = create<DriverState>()(
   setOnline: async () => {
     set({ actionLoading: true });
     try {
+      await driverApi("/api/driver/connect", { method: "POST", body: "{}" });
       await driverApi("/api/driver/me/active", { method: "POST", body: JSON.stringify({ active: true }) });
       set({ driverStatus: "online", actionLoading: false });
       showToast("success", "You are now online");
@@ -251,6 +252,7 @@ export const useDriverStore = create<DriverState>()(
     set({ actionLoading: true });
     try {
       await driverApi("/api/driver/me/active", { method: "POST", body: JSON.stringify({ active: false }) });
+      await driverApi("/api/driver/disconnect", { method: "POST", body: "{}" }).catch(() => {});
       set({ driverStatus: "offline", shiftStatus: "offShift", actionLoading: false });
       showToast("info", "You are now offline");
     } catch (err: any) {
@@ -284,10 +286,16 @@ export const useDriverStore = create<DriverState>()(
     const s = get();
     set({ actionLoading: true });
     try {
+      // Step 1: Establish connection (sets driver.connected=true on server)
+      await driverApi("/api/driver/connect", { method: "POST", body: "{}" });
+
+      // Step 2: Set dispatch status to available if offline
       if (s.driverStatus === "offline") {
         await driverApi("/api/driver/me/active", { method: "POST", body: JSON.stringify({ active: true }) });
         set({ driverStatus: "online" });
       }
+
+      // Step 3: Start shift
       if (s.shiftStatus === "offShift" || get().shiftStatus === "offShift") {
         await driverApi("/api/driver/shift/start", { method: "POST", body: "{}" });
         set({ shiftStatus: "onShift" });
