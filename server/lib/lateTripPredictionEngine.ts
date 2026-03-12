@@ -66,6 +66,7 @@ export async function predictLateness(tripId: number): Promise<LatenessPredictio
       dropoffLat: trips.dropoffLat,
       dropoffLng: trips.dropoffLng,
       status: trips.status,
+      clinicId: trips.clinicId,
       distanceMiles: trips.distanceMiles,
       durationMinutes: trips.durationMinutes,
       startedAt: trips.startedAt,

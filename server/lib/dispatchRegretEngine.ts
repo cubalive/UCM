@@ -12,7 +12,7 @@
 
 import { db } from "../db";
 import { trips, drivers, companies, isVehicleCompatible } from "@shared/schema";
-import { eq, and, gte, lte, isNull, sql, ne, inArray } from "drizzle-orm";
+import { eq, and, isNull, sql, ne, inArray } from "drizzle-orm";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ function timeToMinutes(time: string): number {
  */
 function quickScore(
   driver: { id: number; lastLat: number | null; lastLng: number | null; vehicleCapability: string },
-  trip: { pickupLat: string | null; pickupLng: string | null; mobilityRequirement: string },
+  trip: { pickupLat: number | null; pickupLng: number | null; mobilityRequirement: string },
   maxDistanceMeters: number
 ): number {
   // Hard fail: incompatible vehicle
@@ -68,7 +68,7 @@ function quickScore(
   if (driver.lastLat && driver.lastLng && trip.pickupLat && trip.pickupLng) {
     const dist = haversineMeters(
       driver.lastLat, driver.lastLng,
-      Number(trip.pickupLat), Number(trip.pickupLng)
+      trip.pickupLat, trip.pickupLng
     );
     proximityScore = Math.max(0, Math.min(100, 100 - (dist / maxDistanceMeters) * 100));
   }
@@ -142,7 +142,7 @@ export async function simulateAssignment(
         eq(trips.scheduledDate, trip.scheduledDate),
         isNull(trips.driverId),
         isNull(trips.deletedAt),
-        inArray(trips.status, ["SCHEDULED", "PENDING"]),
+        eq(trips.status, "SCHEDULED"),
         sql`${trips.id} != ${tripId}`
       )
     )

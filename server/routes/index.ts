@@ -78,6 +78,7 @@ import { registerEdiRoutes } from "./edi.routes";
 import { registerBrandingRoutes } from "./branding.routes";
 import { registerAdminPharmacyRoutes } from "./admin-pharmacy.routes";
 import { registerAdminSettingsRoutes } from "./admin-settings.routes";
+import { registerCommandCenterRoutes } from "./commandCenter.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -215,6 +216,7 @@ export async function registerRoutes(
   registerBrandingRoutes(app);
   registerAdminPharmacyRoutes(app);
   registerAdminSettingsRoutes(app);
+  registerCommandCenterRoutes(app);
 
   return httpServer;
 }

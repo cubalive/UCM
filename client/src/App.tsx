@@ -115,6 +115,7 @@ const SystemSettingsPage = React.lazy(() => import("@/pages/system-settings"));
 const FleetReportsPage = React.lazy(() => import("@/pages/fleet-reports"));
 const ClaimStatusPage = React.lazy(() => import("@/pages/claim-status"));
 const NotificationPreferencesPage = React.lazy(() => import("@/pages/notification-preferences"));
+const CareCommandCenterPage = React.lazy(() => import("@/pages/care-command-center"));
 
 // Lazy-loaded app shells
 const DriverAppV4 = React.lazy(() => import("@/driver-v4/DriverAppV4").then(m => ({ default: m.DriverAppV4 })));
@@ -429,6 +430,8 @@ function Router() {
       <Route path="/ops-checks">{() => <ProtectedRoute resource="dispatch" component={OpsChecksPage} />}</Route>
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>
       <Route path="/auto-assignment">{() => <ProtectedRoute resource="dispatch" component={AutoAssignmentPage} />}</Route>
+      <Route path="/command-center">{() => <ProtectedRoute resource="dispatch" component={CareCommandCenterPage} />}</Route>
+      <Route path="/command-center">{() => <ProtectedRoute resource="dispatch" component={CareCommandCenterPage} />}</Route>
       <Route path="/dispatch-board">{() => <ProtectedRoute resource="dispatch" component={DispatchBoardPage} />}</Route>
       <Route path="/trip-requests-queue">{() => <ProtectedRoute resource="dispatch" component={TripRequestsQueuePage} />}</Route>
       <Route path="/schedule">{() => <ProtectedRoute resource="dispatch" component={SchedulePage} />}</Route>

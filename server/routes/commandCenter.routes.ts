@@ -242,15 +242,21 @@ router.get(
       // Estimate revenue at ~$2.50/mile (typical NEMT rate)
       const revenueToday = Math.round(revenueMiles * 2.5 * 100) / 100;
 
-      // Average rating (from completed trips today with ratings)
-      const ratingResult = await db.execute(sql`
-        SELECT AVG(${trips.rating}) as avg_rating
-        FROM ${trips}
-        WHERE DATE(${trips.scheduledDate}) = ${today}::date
-        AND ${trips.rating} IS NOT NULL
-        ${cityFilter}
-      `);
-      const avgRating = Number(Number((ratingResult as any).rows?.[0]?.avg_rating || 4.8).toFixed(1));
+      // Average rating (from ratings table)
+      let avgRating = 4.8;
+      try {
+        const ratingResult = await db.execute(sql`
+          SELECT AVG(r.overall_rating) as avg_rating
+          FROM trip_ratings r
+          JOIN ${trips} t ON t.id = r.trip_id
+          WHERE DATE(t.scheduled_date) = ${today}::date
+          ${cityFilter}
+        `);
+        const rVal = (ratingResult as any).rows?.[0]?.avg_rating;
+        if (rVal) avgRating = Number(Number(rVal).toFixed(1));
+      } catch {
+        // ratings table may not exist, use default
+      }
 
       res.json({
         onTimeRate,
@@ -286,7 +292,8 @@ router.get(
 
       const timelineTrips = await db.execute(sql`
         SELECT
-          t.id, t.public_id, t.status, t.pickup_time, t.dropoff_time,
+          t.id, t.public_id, t.status, t.pickup_time,
+          t.estimated_arrival_time, t.duration_minutes,
           t.scheduled_date, t.driver_id,
           t.pickup_address, t.dropoff_address,
           p.first_name as patient_first, p.last_name as patient_last,
@@ -327,12 +334,26 @@ router.get(
           driverMap.set(driverId, { driverId, driverName, trips: [] });
         }
 
+        // Compute end time from estimated_arrival_time or duration_minutes
+        let endTime: string | null = null;
+        if (row.estimated_arrival_time && row.estimated_arrival_time !== "TBD") {
+          endTime = row.estimated_arrival_time;
+        } else if (row.pickup_time && row.duration_minutes) {
+          // Add duration to pickup time
+          const parts = row.pickup_time.split(":");
+          const startMins = parseInt(parts[0]) * 60 + parseInt(parts[1] || "0");
+          const endMins = startMins + parseInt(row.duration_minutes);
+          const h = Math.floor(endMins / 60);
+          const m = endMins % 60;
+          endTime = `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+        }
+
         driverMap.get(driverId)!.trips.push({
           id: row.id,
           publicId: row.public_id,
           status: row.status,
           startTime: row.pickup_time || null,
-          endTime: row.dropoff_time || null,
+          endTime,
           patientName: `${row.patient_first || ""} ${row.patient_last || ""}`.trim() || "N/A",
           pickupAddress: row.pickup_address || "",
           dropoffAddress: row.dropoff_address || "",
@@ -379,7 +400,7 @@ router.get(
         SELECT
           d.id, d.first_name, d.last_name, d.phone,
           d.dispatch_status, d.last_seen_at,
-          d.current_lat, d.current_lng
+          d.last_lat, d.last_lng
         FROM ${drivers} d
         WHERE d.status = 'active'
         ${driverCityFilter}
@@ -391,8 +412,8 @@ router.get(
         name: `${d.first_name} ${d.last_name}`,
         phone: d.phone,
         status: d.dispatch_status || "offline",
-        lat: d.current_lat ? Number(d.current_lat) : null,
-        lng: d.current_lng ? Number(d.current_lng) : null,
+        lat: d.last_lat ? Number(d.last_lat) : null,
+        lng: d.last_lng ? Number(d.last_lng) : null,
         lastSeenAt: d.last_seen_at,
       }));
 

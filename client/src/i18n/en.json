@@ -45,6 +45,7 @@
     "vehicles": "Vehicles",
     "clinics": "Clinics",
     "invoices": "Invoices",
+    "commandCenter": "Command Center",
     "dispatchBoard": "Dispatch Board",
     "tripRequestsQueue": "Trip Requests",
     "opsHealth": "Ops Health",

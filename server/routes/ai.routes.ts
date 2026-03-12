@@ -700,6 +700,208 @@ router.get(
   }
 );
 
+// ─── No-Show Prediction ─────────────────────────────────────────────────────
+
+router.get(
+  "/api/ai/predict/no-show/:tripId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tripId = parseInt(req.params.tripId as string);
+      if (!tripId) {
+        return res.status(400).json({ error: "Valid tripId is required" });
+      }
+
+      const { predictNoShow } = await import("../lib/noShowPredictionEngine");
+      const prediction = await predictNoShow(tripId);
+      res.json(prediction);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] no-show prediction error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+router.get(
+  "/api/ai/predict/no-shows",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : req.user?.companyId;
+
+      if (!companyId) {
+        return res.status(400).json({ error: "companyId is required" });
+      }
+
+      const { batchPredictNoShows } = await import("../lib/noShowPredictionEngine");
+      const predictions = await batchPredictNoShows(date, companyId);
+      res.json({
+        date,
+        companyId,
+        total: predictions.length,
+        highRisk: predictions.filter(p => p.riskLevel === "critical" || p.riskLevel === "high").length,
+        predictions,
+      });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] batch no-show prediction error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Lateness Prediction ────────────────────────────────────────────────────
+
+// NOTE: /active must be registered before /:tripId to avoid Express matching "active" as a tripId param
+router.get(
+  "/api/ai/predict/lateness/active",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : req.user?.companyId;
+
+      if (!companyId) {
+        return res.status(400).json({ error: "companyId is required" });
+      }
+
+      const { batchPredictLateness } = await import("../lib/lateTripPredictionEngine");
+      const predictions = await batchPredictLateness(companyId);
+      res.json({
+        companyId,
+        total: predictions.length,
+        critical: predictions.filter(p => p.riskLevel === "critical").length,
+        likelyLate: predictions.filter(p => p.riskLevel === "likely_late").length,
+        atRisk: predictions.filter(p => p.riskLevel === "at_risk").length,
+        predictions,
+      });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] batch lateness prediction error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+router.get(
+  "/api/ai/predict/lateness/:tripId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tripId = parseInt(req.params.tripId as string);
+      if (!tripId) {
+        return res.status(400).json({ error: "Valid tripId is required" });
+      }
+
+      const { predictLateness } = await import("../lib/lateTripPredictionEngine");
+      const prediction = await predictLateness(tripId);
+      res.json(prediction);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] lateness prediction error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Cancellation Prediction ────────────────────────────────────────────────
+
+router.get(
+  "/api/ai/predict/cancellation/:tripId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tripId = parseInt(req.params.tripId as string);
+      if (!tripId) {
+        return res.status(400).json({ error: "Valid tripId is required" });
+      }
+
+      const { predictCancellation } = await import("../lib/cancellationPredictionEngine");
+      const prediction = await predictCancellation(tripId);
+      res.json(prediction);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] cancellation prediction error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Driver Churn Prediction ────────────────────────────────────────────────
+
+router.get(
+  "/api/ai/predict/driver-churn/:driverId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const driverId = parseInt(req.params.driverId as string);
+      if (!driverId) {
+        return res.status(400).json({ error: "Valid driverId is required" });
+      }
+
+      const { predictDriverChurn } = await import("../lib/driverChurnEngine");
+      const prediction = await predictDriverChurn(driverId);
+      res.json(prediction);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] driver churn prediction error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+router.get(
+  "/api/ai/predict/driver-churn",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : req.user?.companyId;
+
+      if (!companyId) {
+        return res.status(400).json({ error: "companyId is required" });
+      }
+
+      const { batchPredictChurn } = await import("../lib/driverChurnEngine");
+      const results = await batchPredictChurn(companyId);
+      res.json({
+        companyId,
+        total: results.length,
+        highRisk: results.filter(r => r.riskLevel === "high").length,
+        mediumRisk: results.filter(r => r.riskLevel === "medium").length,
+        drivers: results,
+      });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] batch driver churn prediction error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Patient Care Profile ───────────────────────────────────────────────────
+
+router.get(
+  "/api/ai/patient-profile/:patientId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const patientId = parseInt(req.params.patientId as string);
+      if (!patientId) {
+        return res.status(400).json({ error: "Valid patientId is required" });
+      }
+
+      const { buildPatientProfile } = await import("../lib/patientRiskEngine");
+      const profile = await buildPatientProfile(patientId);
+      res.json(profile);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] patient profile error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 // ─── Dispatch Hotspots ───────────────────────────────────────────────────────
 
 router.get(
