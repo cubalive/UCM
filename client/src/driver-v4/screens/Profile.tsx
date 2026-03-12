@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft, User, Car, FileText, Volume2, Vibrate,
   Eye, Navigation, Shield, Info, ChevronRight, Settings, ExternalLink, Star,
-  Bell, BellOff, Zap, Clock, MapPin, Route, Sliders
+  Bell, BellOff, Zap, Clock, MapPin, Route, Sliders, Phone, AlertTriangle, Palette, Hash, Calendar
 } from "lucide-react";
 import { useDriverStore } from "../store/driverStore";
 import { colors } from "../design/tokens";
@@ -191,7 +191,12 @@ export function Profile({ onBack }: { onBack: () => void }) {
   const [haptics, setHaptics] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [vehicleInfo, setVehicleInfo] = useState("Loading...");
+  const [vehicleDetail, setVehicleDetail] = useState<{ make?: string; model?: string; year?: string; plate?: string; color?: string; vin?: string } | null>(null);
   const [documentCount, setDocumentCount] = useState<number | null>(null);
+
+  // Expandable sections
+  const [showVehicleDetail, setShowVehicleDetail] = useState(false);
+  const [showSafetyDetail, setShowSafetyDetail] = useState(false);
 
   // Auto-accept state
   const [autoAcceptEnabled, setAutoAcceptEnabled] = useState(false);
@@ -234,6 +239,16 @@ export function Profile({ onBack }: { onBack: () => void }) {
                 : vehicleObj)
               || "No vehicle assigned";
           setVehicleInfo(vehicle);
+          // Capture detailed vehicle info for expandable section
+          const vObj = vehicleObj && typeof vehicleObj === "object" ? vehicleObj : {};
+          setVehicleDetail({
+            make: d.vehicleMake || vObj.make || undefined,
+            model: d.vehicleModel || vObj.model || undefined,
+            year: d.vehicleYear || vObj.year || undefined,
+            plate: d.vehiclePlate || vObj.plate || vObj.licensePlate || undefined,
+            color: d.vehicleColor || vObj.color || undefined,
+            vin: vObj.vin || undefined,
+          });
         } else {
           setVehicleInfo("No vehicle assigned");
         }
@@ -405,9 +420,111 @@ export function Profile({ onBack }: { onBack: () => void }) {
           <p className="text-[10px] uppercase tracking-wider mb-1 px-1 font-semibold" style={{ color: colors.textTertiary }}>
             Information
           </p>
-          <SettingsRow icon={<Car className="w-4 h-4" />} label="Vehicle Info" value={vehicleInfo} testID="row-vehicle" />
-          <SettingsRow icon={<FileText className="w-4 h-4" />} label="Documents" value={documentCount !== null ? `${documentCount} uploaded` : "-"} accent={colors.sky} testID="row-documents" />
-          <SettingsRow icon={<Shield className="w-4 h-4" />} label="Safety" accent={colors.danger} testID="row-safety" />
+          <SettingsRow icon={<Car className="w-4 h-4" />} label="Vehicle Info" value={vehicleInfo} onPress={() => setShowVehicleDetail(!showVehicleDetail)} testID="row-vehicle" />
+          <AnimatePresence>
+            {showVehicleDetail && vehicleDetail && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="grid grid-cols-2 gap-2 py-3 px-1">
+                  {vehicleDetail.make && (
+                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                      <Car className="w-3.5 h-3.5" style={{ color: colors.sunrise }} />
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Make</p>
+                        <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.make}</p>
+                      </div>
+                    </div>
+                  )}
+                  {vehicleDetail.model && (
+                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                      <Info className="w-3.5 h-3.5" style={{ color: colors.sky }} />
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Model</p>
+                        <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.model}</p>
+                      </div>
+                    </div>
+                  )}
+                  {vehicleDetail.year && (
+                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                      <Calendar className="w-3.5 h-3.5" style={{ color: colors.warning }} />
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Year</p>
+                        <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.year}</p>
+                      </div>
+                    </div>
+                  )}
+                  {vehicleDetail.plate && (
+                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                      <Hash className="w-3.5 h-3.5" style={{ color: colors.success }} />
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Plate</p>
+                        <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.plate}</p>
+                      </div>
+                    </div>
+                  )}
+                  {vehicleDetail.color && (
+                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                      <Palette className="w-3.5 h-3.5" style={{ color: colors.coral }} />
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Color</p>
+                        <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.color}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {!vehicleDetail.make && !vehicleDetail.model && !vehicleDetail.plate && (
+                  <p className="text-[10px] py-2 px-1" style={{ color: colors.textTertiary }}>
+                    No vehicle details available. Contact your dispatcher.
+                  </p>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <SettingsRow icon={<FileText className="w-4 h-4" />} label="Documents" value={documentCount !== null ? `${documentCount} uploaded` : "-"} accent={colors.sky} onPress={() => window.open("/driver/documents", "_self")} testID="row-documents" />
+          <SettingsRow icon={<Shield className="w-4 h-4" />} label="Safety" accent={colors.danger} onPress={() => setShowSafetyDetail(!showSafetyDetail)} testID="row-safety" />
+          <AnimatePresence>
+            {showSafetyDetail && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="py-3 px-1 space-y-2">
+                  <button
+                    onClick={() => window.open("tel:911")}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all"
+                    style={{ background: glowColor(colors.danger, 0.06), border: `1px solid ${glowColor(colors.danger, 0.12)}` }}
+                    data-testid="btn-emergency-911"
+                  >
+                    <Phone className="w-4 h-4" style={{ color: colors.danger }} />
+                    <div className="text-left">
+                      <p className="text-xs font-semibold" style={{ color: colors.danger }}>Emergency — 911</p>
+                      <p className="text-[10px]" style={{ color: colors.textTertiary }}>Call for immediate help</p>
+                    </div>
+                  </button>
+                  <div className="flex items-start gap-3 px-3 py-2.5 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                    <AlertTriangle className="w-4 h-4 mt-0.5" style={{ color: colors.warning }} />
+                    <div>
+                      <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Report Safety Issue</p>
+                      <p className="text-[10px]" style={{ color: colors.textTertiary }}>Contact your dispatcher to report incidents, unsafe conditions, or vehicle issues.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 px-3 py-2.5 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                    <Shield className="w-4 h-4 mt-0.5" style={{ color: colors.success }} />
+                    <div>
+                      <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Safe Driving Tips</p>
+                      <p className="text-[10px]" style={{ color: colors.textTertiary }}>Always wear your seatbelt, follow speed limits, and secure passengers before driving.</p>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </GlassCard>
 
         {/* Auto-Accept Preferences */}
