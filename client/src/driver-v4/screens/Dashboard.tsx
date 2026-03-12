@@ -81,13 +81,13 @@ function ConnectButton() {
   const isFullyOnline = driverStatus === "online" && shiftStatus === "onShift";
   const hasTripActivity = tripPhase !== "none" && tripPhase !== "complete";
 
-  // Hide center button when online (disconnect moves to bottom tab bar orb)
-  if (hasTripActivity || isFullyOnline) return null;
-
   const handlePress = useCallback(() => {
     if (actionLoading) return;
     connectAndStartShift();
   }, [actionLoading, connectAndStartShift]);
+
+  // Hide center button when online (disconnect moves to bottom tab bar orb)
+  if (hasTripActivity || isFullyOnline) return null;
 
   return (
     <div className="flex flex-col items-center gap-3">
