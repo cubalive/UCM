@@ -17,8 +17,7 @@ export function StatusToggle({
   testID,
 }: StatusToggleProps) {
   const reduced = useReducedMotion();
-  const activeColor = colors.neonCyan;
-  const inactiveColor = "rgba(255,255,255,0.2)";
+  const activeColor = colors.success;
 
   return (
     <button
@@ -36,9 +35,9 @@ export function StatusToggle({
           width: 56,
           height: 30,
           borderRadius: 15,
-          background: value ? glowColor(activeColor, 0.25) : "rgba(255,255,255,0.08)",
-          border: `1.5px solid ${value ? glowColor(activeColor, 0.5) : "rgba(255,255,255,0.15)"}`,
-          boxShadow: value ? `0 0 16px ${glowColor(activeColor, 0.3)}` : "none",
+          background: value ? glowColor(activeColor, 0.2) : "rgba(0,0,0,0.06)",
+          border: `1.5px solid ${value ? glowColor(activeColor, 0.3) : "rgba(0,0,0,0.08)"}`,
+          boxShadow: value ? `0 2px 8px ${glowColor(activeColor, 0.2)}` : "none",
           transition: reduced ? "none" : "all 0.3s ease",
         }}
       >
@@ -49,9 +48,9 @@ export function StatusToggle({
             width: 22,
             height: 22,
             borderRadius: 11,
-            background: value ? activeColor : inactiveColor,
+            background: value ? activeColor : "rgba(0,0,0,0.15)",
             marginLeft: value ? 30 : 4,
-            boxShadow: value ? `0 0 12px ${glowColor(activeColor, 0.6)}` : "none",
+            boxShadow: value ? `0 2px 8px ${glowColor(activeColor, 0.3)}` : colors.shadowSm,
           }}
         />
       </div>
@@ -62,11 +61,9 @@ export function StatusToggle({
           animate={{ opacity: 1, y: 0 }}
           exit={reduced ? {} : { opacity: 0, y: 4 }}
           transition={{ duration: 0.15 }}
-          className="text-xs font-bold tracking-[0.15em] uppercase"
+          className="text-xs font-semibold tracking-wider uppercase"
           style={{
             color: value ? activeColor : colors.textTertiary,
-            fontFamily: "'Space Grotesk', system-ui",
-            textShadow: value ? `0 0 10px ${glowColor(activeColor, 0.5)}` : "none",
           }}
         >
           {value ? labels.on : labels.off}

@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { useReducedMotion } from "../../design/accessibility";
-import { colors, radii } from "../../design/tokens";
+import { colors } from "../../design/tokens";
 import { glowColor } from "../../design/theme";
 
 interface GlassButtonProps {
@@ -18,7 +18,7 @@ export function GlassButton({
   onPress,
   label,
   size = 44,
-  accentColor = colors.neonCyan,
+  accentColor = colors.sunrise,
   badge,
   testID,
 }: GlassButtonProps) {
@@ -34,14 +34,15 @@ export function GlassButton({
         width: size,
         height: size,
         borderRadius: size / 2,
-        background: "rgba(255,255,255,0.08)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        border: `1px solid rgba(255,255,255,0.12)`,
+        background: "rgba(255,255,255,0.80)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        border: `1px solid ${colors.glassStroke}`,
         color: colors.textPrimary,
         cursor: "pointer",
+        boxShadow: colors.shadowSm,
       }}
-      whileHover={!reduced ? { scale: 1.1, boxShadow: `0 0 16px ${glowColor(accentColor, 0.3)}` } : undefined}
+      whileHover={!reduced ? { scale: 1.1, boxShadow: colors.shadowMd } : undefined}
       whileTap={!reduced ? { scale: 0.92 } : undefined}
     >
       {icon}
@@ -52,9 +53,9 @@ export function GlassButton({
             width: 18,
             height: 18,
             borderRadius: 9,
-            background: colors.dangerNeon,
+            background: colors.danger,
             color: "#fff",
-            boxShadow: `0 0 8px ${glowColor(colors.dangerNeon, 0.5)}`,
+            boxShadow: `0 2px 6px ${glowColor(colors.danger, 0.3)}`,
           }}
         >
           {badge > 9 ? "9+" : badge}

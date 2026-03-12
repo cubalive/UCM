@@ -1,67 +1,72 @@
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { useCallback, useMemo } from "react";
 import {
   Wallet, Star, MapPin, Car, Clock, TrendingUp, Shield,
   Zap, Navigation, Phone, ChevronUp, ChevronDown, Package, Ambulance,
-  Accessibility, BedDouble, Weight, Route, Users
+  Accessibility, BedDouble, Weight, Route, Users, Check, X
 } from "lucide-react";
 import { useDriverStore, type ServiceFilter } from "../store/driverStore";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
-import { glowColor } from "../design/theme";
+import { glowColor, statusGradient } from "../design/theme";
 import { GlassCard } from "../components/ui/GlassCard";
 import { NeonButton } from "../components/ui/NeonButton";
 import { DriverTripMap } from "../components/DriverTripMap";
 
-/* ─── Availability status chip ─── */
-function AvailabilityChip() {
+/* ─── Availability status pill ─── */
+function StatusPill() {
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
   const tripPhase = useDriverStore((s) => s.tripPhase);
 
   let label: string;
-  let chipColor: string;
+  let bgColor: string;
+  let textColor: string;
   let dotColor: string;
   let animate = false;
 
   if (driverStatus === "offline") {
-    label = "OFFLINE";
-    chipColor = "rgba(255,255,255,0.12)";
-    dotColor = "rgba(255,255,255,0.3)";
+    label = "Offline";
+    bgColor = "rgba(0,0,0,0.06)";
+    textColor = colors.textTertiary;
+    dotColor = colors.textTertiary;
   } else if (shiftStatus === "offShift") {
-    label = "ONLINE";
-    chipColor = "rgba(255,170,0,0.2)";
-    dotColor = colors.warningNeon;
+    label = "Online";
+    bgColor = "rgba(255,149,0,0.12)";
+    textColor = colors.warning;
+    dotColor = colors.warning;
   } else if (tripPhase !== "none" && tripPhase !== "complete" && tripPhase !== "offer") {
-    label = "BUSY";
-    chipColor = "rgba(255,0,170,0.2)";
-    dotColor = colors.neonMagenta;
+    label = "In Trip";
+    bgColor = "rgba(74,144,217,0.12)";
+    textColor = colors.sky;
+    dotColor = colors.sky;
   } else {
-    label = "AVAILABLE";
-    chipColor = "rgba(0,255,136,0.2)";
-    dotColor = colors.successNeon;
+    label = "Available";
+    bgColor = "rgba(52,199,89,0.12)";
+    textColor = colors.success;
+    dotColor = colors.success;
     animate = true;
   }
 
   return (
     <div
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-      style={{ background: chipColor, border: "1px solid rgba(255,255,255,0.08)" }}
+      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full"
+      style={{ background: bgColor }}
     >
       <motion.div
-        className="w-1.5 h-1.5 rounded-full"
+        className="w-2 h-2 rounded-full"
         style={{ background: dotColor }}
         animate={animate ? { scale: [1, 1.4, 1], opacity: [1, 0.5, 1] } : {}}
         transition={{ duration: 2, repeat: Infinity }}
       />
-      <span className="text-[9px] font-bold tracking-[0.2em]" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
+      <span className="text-xs font-semibold" style={{ color: textColor }}>
         {label}
       </span>
     </div>
   );
 }
 
-/* ─── Big round connect/start button ─── */
+/* ─── Connect / Go Online button ─── */
 function ConnectButton() {
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
@@ -74,7 +79,6 @@ function ConnectButton() {
   const isFullyOnline = driverStatus === "online" && shiftStatus === "onShift";
   const hasTripActivity = tripPhase !== "none" && tripPhase !== "complete";
 
-  // Don't show the connect button when there's an active trip
   if (hasTripActivity) return null;
 
   const handlePress = useCallback(() => {
@@ -86,114 +90,91 @@ function ConnectButton() {
     }
   }, [isFullyOnline, connectAndStartShift, setOffline, endShift]);
 
-  const size = 88;
-  const bgColor = isFullyOnline
-    ? `linear-gradient(135deg, ${colors.successNeon}, #00cc6a)`
-    : `linear-gradient(135deg, ${colors.neonCyan}, ${colors.neonPurple})`;
-  const glowShadow = isFullyOnline
-    ? `0 0 30px ${glowColor(colors.successNeon, 0.5)}, 0 0 60px ${glowColor(colors.successNeon, 0.2)}`
-    : `0 0 30px ${glowColor(colors.neonCyan, 0.5)}, 0 0 60px ${glowColor(colors.neonPurple, 0.2)}`;
-
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-3">
       <motion.button
         onClick={handlePress}
         className="relative flex items-center justify-center rounded-full"
         style={{
-          width: size,
-          height: size,
-          background: bgColor,
-          boxShadow: glowShadow,
-          border: "2px solid rgba(255,255,255,0.2)",
+          width: 80,
+          height: 80,
+          background: isFullyOnline
+            ? `linear-gradient(135deg, ${colors.success}, #2BB84E)`
+            : `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})`,
+          boxShadow: isFullyOnline
+            ? `0 8px 32px rgba(52,199,89,0.4)`
+            : `0 8px 32px rgba(255,107,53,0.35)`,
+          border: "4px solid rgba(255,255,255,0.9)",
         }}
         whileHover={!reduced ? { scale: 1.08 } : undefined}
         whileTap={!reduced ? { scale: 0.92 } : undefined}
         data-testid="btn-connect"
-        aria-label={isFullyOnline ? "Disconnect" : "Connect & Start Shift"}
+        aria-label={isFullyOnline ? "Go Offline" : "Go Online"}
       >
-        {/* Pulsing ring */}
-        {!isFullyOnline && !reduced && (
+        {/* Pulse ring */}
+        {!reduced && (
           <motion.div
-            className="absolute inset-0 rounded-full"
-            animate={{ scale: [1, 1.3, 1], opacity: [0.4, 0, 0.4] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-            style={{ border: `2px solid ${colors.neonCyan}`, pointerEvents: "none" }}
-          />
-        )}
-        {isFullyOnline && !reduced && (
-          <motion.div
-            className="absolute inset-0 rounded-full"
-            animate={{ scale: [1, 1.15, 1], opacity: [0.3, 0, 0.3] }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-            style={{ border: `2px solid ${colors.successNeon}`, pointerEvents: "none" }}
+            className="absolute inset-[-6px] rounded-full"
+            animate={{
+              scale: [1, 1.2, 1],
+              opacity: [0.3, 0, 0.3],
+            }}
+            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+            style={{
+              border: `2px solid ${isFullyOnline ? colors.success : colors.sunrise}`,
+              pointerEvents: "none",
+            }}
           />
         )}
         <div className="flex flex-col items-center">
-          <Zap
-            className="w-7 h-7"
-            style={{
-              color: "#000",
-              filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))",
-            }}
-          />
-          <span
-            className="text-[8px] font-bold tracking-wider uppercase mt-0.5"
-            style={{ color: "rgba(0,0,0,0.7)", fontFamily: "'Space Grotesk', system-ui" }}
-          >
+          <Zap className="w-7 h-7 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.2))" }} />
+          <span className="text-[9px] font-bold tracking-wider uppercase text-white/80 mt-0.5">
             {isFullyOnline ? "STOP" : "GO"}
           </span>
         </div>
       </motion.button>
-      <span className="text-[10px] font-medium" style={{ color: colors.textSecondary, fontFamily: "'Space Grotesk', system-ui" }}>
-        {isFullyOnline ? "Tap to disconnect" : "Tap to connect & start"}
+      <span className="text-xs font-medium" style={{ color: colors.textSecondary }}>
+        {isFullyOnline ? "Tap to go offline" : "Tap to go online"}
       </span>
     </div>
   );
 }
 
-/* ─── Mini stats bar (overlay on map) ─── */
-function StatsBar() {
+/* ─── Stats Card ─── */
+function QuickStats() {
   const earningsToday = useDriverStore((s) => s.earningsToday);
   const completedRides = useDriverStore((s) => s.completedRides);
   const rating = useDriverStore((s) => s.rating);
 
   return (
-    <div
-      className="flex items-center justify-around py-2 px-3 rounded-2xl"
-      style={{
-        background: "rgba(0,0,0,0.7)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        border: "1px solid rgba(255,255,255,0.08)",
-      }}
-      data-testid="stats-bar"
-    >
-      <div className="flex items-center gap-1.5">
-        <Wallet className="w-3.5 h-3.5" style={{ color: colors.neonCyan }} />
-        <span className="text-xs font-bold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
-          ${earningsToday.toFixed(0)}
-        </span>
-      </div>
-      <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.1)" }} />
-      <div className="flex items-center gap-1.5">
-        <Star className="w-3.5 h-3.5" style={{ color: colors.warningNeon }} />
-        <span className="text-xs font-bold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
-          {rating.toFixed(1)}
-        </span>
-      </div>
-      <div className="w-px h-4" style={{ background: "rgba(255,255,255,0.1)" }} />
-      <div className="flex items-center gap-1.5">
-        <Car className="w-3.5 h-3.5" style={{ color: colors.neonMagenta }} />
-        <span className="text-xs font-bold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
-          {completedRides}
-        </span>
-      </div>
+    <div className="flex items-center gap-2">
+      {[
+        { icon: <Wallet className="w-3.5 h-3.5" />, value: `$${earningsToday.toFixed(0)}`, color: colors.sunrise },
+        { icon: <Star className="w-3.5 h-3.5" />, value: rating.toFixed(1), color: colors.warning },
+        { icon: <Car className="w-3.5 h-3.5" />, value: String(completedRides), color: colors.sky },
+      ].map((stat, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl"
+          style={{
+            background: "rgba(255,255,255,0.80)",
+            backdropFilter: "blur(12px)",
+            border: "1px solid rgba(0,0,0,0.04)",
+            boxShadow: colors.shadowSm,
+          }}
+        >
+          <span style={{ color: stat.color }}>{stat.icon}</span>
+          <span className="text-xs font-bold" style={{ color: colors.textPrimary }}>
+            {stat.value}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
 
-/* ─── Trip Offer Card with ETA + Duration ─── */
-function TripOfferCard() {
+/* ─── Swipeable Trip Offer Card ─── */
+function SwipeableTripOffer() {
   const activeTrip = useDriverStore((s) => s.activeTrip);
   const pendingOffer = useDriverStore((s) => s.pendingOffer);
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -201,147 +182,199 @@ function TripOfferCard() {
   const declineOffer = useDriverStore((s) => s.declineOffer);
   const reduced = useReducedMotion();
 
+  const x = useMotionValue(0);
+  const rotateZ = useTransform(x, [-200, 0, 200], [-8, 0, 8]);
+  const acceptOpacity = useTransform(x, [0, 100], [0, 1]);
+  const declineOpacity = useTransform(x, [-100, 0], [1, 0]);
+
   if (tripPhase !== "offer" || !activeTrip) return null;
 
   const etaToPickup = pendingOffer?.etaToPickupMinutes || activeTrip.etaMinutes || 12;
   const estimatedTrip = pendingOffer?.estimatedTripMinutes || 25;
 
+  const handleDragEnd = (_: any, info: PanInfo) => {
+    if (info.offset.x > 120) {
+      acceptOffer();
+    } else if (info.offset.x < -120) {
+      declineOffer();
+    }
+  };
+
   return (
     <motion.div
-      initial={reduced ? {} : { y: 100, opacity: 0, scale: 0.9 }}
-      animate={{ y: 0, opacity: 1, scale: 1 }}
-      exit={reduced ? {} : { y: 100, opacity: 0 }}
+      initial={reduced ? {} : { y: 80, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={reduced ? {} : { y: 80, opacity: 0 }}
       transition={{ type: "spring", stiffness: 300, damping: 25 }}
-      className="absolute bottom-0 left-0 right-0 z-40 px-4 pb-6"
+      className="absolute bottom-0 left-0 right-0 z-40 px-4 pb-4"
     >
-      <div
-        className="rounded-3xl overflow-hidden"
-        style={{
-          background: "rgba(10,0,21,0.92)",
-          backdropFilter: "blur(30px)",
-          WebkitBackdropFilter: "blur(30px)",
-          border: `1px solid ${glowColor(colors.neonCyan, 0.3)}`,
-          boxShadow: `0 -8px 40px rgba(0,0,0,0.6), 0 0 30px ${glowColor(colors.neonCyan, 0.15)}`,
-        }}
+      {/* Swipe hint indicators */}
+      <div className="flex items-center justify-between px-6 mb-2">
+        <motion.div
+          className="flex items-center gap-1 px-3 py-1 rounded-full"
+          style={{ opacity: declineOpacity, background: colors.dangerLight }}
+        >
+          <X className="w-3.5 h-3.5" style={{ color: colors.danger }} />
+          <span className="text-[10px] font-semibold" style={{ color: colors.danger }}>Decline</span>
+        </motion.div>
+        <motion.div
+          className="flex items-center gap-1 px-3 py-1 rounded-full"
+          style={{ opacity: acceptOpacity, background: colors.successLight }}
+        >
+          <Check className="w-3.5 h-3.5" style={{ color: colors.success }} />
+          <span className="text-[10px] font-semibold" style={{ color: colors.success }}>Accept</span>
+        </motion.div>
+      </div>
+
+      {/* Draggable card */}
+      <motion.div
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={0.7}
+        onDragEnd={handleDragEnd}
+        style={{ x, rotateZ }}
+        className="cursor-grab active:cursor-grabbing"
         data-testid="card-trip-offer"
       >
-        {/* Header with pulse */}
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-          <div className="flex items-center gap-2">
-            <motion.div
-              animate={!reduced ? { scale: [1, 1.3, 1] } : {}}
-              transition={{ duration: 1.5, repeat: Infinity }}
-            >
-              <Zap className="w-5 h-5" style={{ color: colors.neonCyan, filter: `drop-shadow(0 0 6px ${colors.neonCyan})` }} />
-            </motion.div>
-            <span className="text-sm font-bold tracking-wider uppercase" style={{ color: colors.neonCyan, fontFamily: "'Space Grotesk', system-ui" }}>
-              {activeTrip.tripType === "Delivery" ? "New Delivery Request" : "New Trip Request"}
+        <div
+          className="rounded-3xl overflow-hidden"
+          style={{
+            background: "rgba(255,255,255,0.95)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            border: "1px solid rgba(0,0,0,0.06)",
+            boxShadow: colors.shadowXl,
+          }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 pt-5 pb-2">
+            <div className="flex items-center gap-2">
+              <motion.div
+                className="w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ background: `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})` }}
+                animate={!reduced ? { scale: [1, 1.1, 1] } : {}}
+                transition={{ duration: 2, repeat: Infinity }}
+              >
+                <Zap className="w-4 h-4 text-white" />
+              </motion.div>
+              <span className="text-sm font-bold" style={{ color: colors.textPrimary }}>
+                {activeTrip.tripType === "Delivery" ? "New Delivery" : "New Trip Request"}
+              </span>
+            </div>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{
+              background: "rgba(255,107,53,0.1)",
+              color: colors.sunrise,
+            }}>
+              Swipe to respond
             </span>
           </div>
-        </div>
 
-        {/* ETA badges - prominent */}
-        <div className="flex gap-3 px-5 pb-3">
-          <div
-            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-2xl"
-            style={{
-              background: `linear-gradient(135deg, ${glowColor(colors.neonCyan, 0.15)}, ${glowColor(colors.neonCyan, 0.05)})`,
-              border: `1px solid ${glowColor(colors.neonCyan, 0.2)}`,
-            }}
-          >
-            <Navigation className="w-4 h-4" style={{ color: colors.neonCyan }} />
-            <div>
-              <p className="text-lg font-bold leading-none" style={{ color: colors.neonCyan, fontFamily: "'Space Grotesk', system-ui" }}>
-                {etaToPickup} min
-              </p>
-              <p className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>
-                To Pickup
-              </p>
+          {/* ETA badges */}
+          <div className="flex gap-3 px-5 py-3">
+            <div
+              className="flex-1 flex items-center gap-2.5 px-3.5 py-3 rounded-2xl"
+              style={{
+                background: "rgba(52,199,89,0.08)",
+                border: "1px solid rgba(52,199,89,0.12)",
+              }}
+            >
+              <Navigation className="w-4 h-4" style={{ color: colors.success }} />
+              <div>
+                <p className="text-lg font-bold leading-none" style={{ color: colors.success }}>
+                  {etaToPickup} min
+                </p>
+                <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>
+                  To Pickup
+                </p>
+              </div>
+            </div>
+            <div
+              className="flex-1 flex items-center gap-2.5 px-3.5 py-3 rounded-2xl"
+              style={{
+                background: "rgba(74,144,217,0.08)",
+                border: "1px solid rgba(74,144,217,0.12)",
+              }}
+            >
+              <Clock className="w-4 h-4" style={{ color: colors.sky }} />
+              <div>
+                <p className="text-lg font-bold leading-none" style={{ color: colors.sky }}>
+                  {estimatedTrip} min
+                </p>
+                <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>
+                  Trip Duration
+                </p>
+              </div>
             </div>
           </div>
-          <div
-            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-2xl"
-            style={{
-              background: `linear-gradient(135deg, ${glowColor(colors.neonPurple, 0.15)}, ${glowColor(colors.neonPurple, 0.05)})`,
-              border: `1px solid ${glowColor(colors.neonPurple, 0.2)}`,
-            }}
-          >
-            <Clock className="w-4 h-4" style={{ color: colors.neonPurple }} />
-            <div>
-              <p className="text-lg font-bold leading-none" style={{ color: colors.neonPurple, fontFamily: "'Space Grotesk', system-ui" }}>
-                {estimatedTrip} min
-              </p>
-              <p className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>
-                Trip Duration
-              </p>
+
+          {/* Addresses */}
+          <div className="px-5 space-y-2.5 pb-3">
+            <div className="flex items-start gap-3">
+              <div className="flex flex-col items-center gap-0.5 pt-1">
+                <div className="w-3 h-3 rounded-full" style={{ background: colors.success, boxShadow: `0 2px 6px ${glowColor(colors.success, 0.3)}` }} />
+                <div className="w-0.5 h-6 rounded-full" style={{ background: "rgba(0,0,0,0.08)" }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Pickup</span>
+                <p className="text-sm truncate font-medium" style={{ color: colors.textPrimary }}>{activeTrip.pickupAddress}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="flex flex-col items-center pt-1">
+                <div className="w-3 h-3 rounded-full" style={{ background: colors.sunrise, boxShadow: `0 2px 6px ${glowColor(colors.sunrise, 0.3)}` }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Dropoff</span>
+                <p className="text-sm truncate font-medium" style={{ color: colors.textPrimary }}>{activeTrip.dropoffAddress}</p>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Addresses */}
-        <div className="px-5 space-y-2 pb-3">
-          <div className="flex items-start gap-2">
-            <div className="w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0" style={{ background: colors.successNeon, boxShadow: `0 0 6px ${colors.successNeon}` }} />
-            <div className="flex-1 min-w-0">
-              <span className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>Pickup</span>
-              <p className="text-sm truncate" style={{ color: colors.textPrimary }}>{activeTrip.pickupAddress}</p>
-            </div>
+          {/* Patient info */}
+          <div className="flex items-center gap-2 px-5 pb-3">
+            <Shield className="w-3.5 h-3.5" style={{ color: colors.textTertiary }} />
+            <span className="text-xs" style={{ color: colors.textSecondary }}>
+              {activeTrip.passengerName} • {activeTrip.tripType || "Medical"}
+            </span>
           </div>
-          <div className="flex items-start gap-2">
-            <div className="w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0" style={{ background: colors.neonMagenta, boxShadow: `0 0 6px ${colors.neonMagenta}` }} />
-            <div className="flex-1 min-w-0">
-              <span className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>Dropoff</span>
-              <p className="text-sm truncate" style={{ color: colors.textPrimary }}>{activeTrip.dropoffAddress}</p>
-            </div>
+
+          {/* Fallback buttons (for non-gesture users) */}
+          <div className="flex gap-3 px-5 pb-5">
+            <motion.button
+              onClick={() => declineOffer()}
+              className="flex-1 py-3 rounded-2xl text-sm font-semibold"
+              style={{
+                background: colors.dangerLight,
+                color: colors.danger,
+                border: `1px solid rgba(255,59,48,0.15)`,
+              }}
+              whileTap={!reduced ? { scale: 0.95 } : undefined}
+              data-testid="btn-decline-offer"
+            >
+              Decline
+            </motion.button>
+            <motion.button
+              onClick={() => acceptOffer()}
+              className="flex-[2] py-3 rounded-2xl text-sm font-semibold"
+              style={{
+                background: `linear-gradient(135deg, ${colors.success}, #2BB84E)`,
+                color: "#fff",
+                boxShadow: `0 4px 16px rgba(52,199,89,0.3)`,
+              }}
+              whileHover={!reduced ? { scale: 1.02 } : undefined}
+              whileTap={!reduced ? { scale: 0.95 } : undefined}
+              data-testid="btn-accept-offer"
+            >
+              Accept Trip
+            </motion.button>
           </div>
         </div>
-
-        {/* Patient info */}
-        <div className="flex items-center gap-2 px-5 pb-3">
-          <Shield className="w-3.5 h-3.5" style={{ color: colors.textTertiary }} />
-          <span className="text-xs" style={{ color: colors.textSecondary }}>
-            {activeTrip.passengerName} • {activeTrip.tripType || "Medical"}
-          </span>
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex gap-3 px-5 pb-5">
-          <motion.button
-            onClick={() => declineOffer()}
-            className="flex-1 py-3.5 rounded-2xl text-sm font-bold uppercase tracking-wider"
-            style={{
-              background: "rgba(255,51,85,0.12)",
-              color: colors.dangerNeon,
-              border: `1px solid ${glowColor(colors.dangerNeon, 0.3)}`,
-              fontFamily: "'Space Grotesk', system-ui",
-            }}
-            whileTap={!reduced ? { scale: 0.95 } : undefined}
-            data-testid="btn-decline-offer"
-          >
-            Decline
-          </motion.button>
-          <motion.button
-            onClick={() => acceptOffer()}
-            className="flex-[2] py-3.5 rounded-2xl text-sm font-bold uppercase tracking-wider"
-            style={{
-              background: `linear-gradient(135deg, ${colors.neonCyan}, ${colors.successNeon})`,
-              color: "#000",
-              boxShadow: `0 0 20px ${glowColor(colors.neonCyan, 0.4)}, 0 0 40px ${glowColor(colors.successNeon, 0.15)}`,
-              fontFamily: "'Space Grotesk', system-ui",
-            }}
-            whileHover={!reduced ? { scale: 1.02 } : undefined}
-            whileTap={!reduced ? { scale: 0.95 } : undefined}
-            data-testid="btn-accept-offer"
-          >
-            Accept Trip
-          </motion.button>
-        </div>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }
 
-/* ─── Active Trip Bottom Card (mini card on map) ─── */
+/* ─── Active Trip Bottom Card ─── */
 function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
   const activeTrip = useDriverStore((s) => s.activeTrip);
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -352,7 +385,7 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
   if (!activeTrip || !activePhasesVisible.includes(tripPhase)) return null;
 
   const isPickupPhase = ["toPickup", "arrivedPickup", "waiting"].includes(tripPhase);
-  const phaseLabel = isPickupPhase ? "En Route to Pickup" : "En Route to Dropoff";
+  const phaseLabel = isPickupPhase ? "En route to pickup" : "Transporting patient";
   const address = isPickupPhase ? activeTrip.pickupAddress : activeTrip.dropoffAddress;
   const nextAction = store.getNextAction();
 
@@ -379,16 +412,16 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
     <motion.div
       initial={reduced ? {} : { y: 80, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      className="absolute bottom-0 left-0 right-0 z-40 px-4 pb-6"
+      className="absolute bottom-0 left-0 right-0 z-40 px-4 pb-4"
     >
       <div
         className="rounded-3xl overflow-hidden"
         style={{
-          background: "rgba(10,0,21,0.92)",
-          backdropFilter: "blur(30px)",
-          WebkitBackdropFilter: "blur(30px)",
-          border: `1px solid ${glowColor(isPickupPhase ? colors.neonCyan : colors.neonMagenta, 0.3)}`,
-          boxShadow: `0 -8px 40px rgba(0,0,0,0.6)`,
+          background: "rgba(255,255,255,0.95)",
+          backdropFilter: "blur(24px)",
+          WebkitBackdropFilter: "blur(24px)",
+          border: "1px solid rgba(0,0,0,0.06)",
+          boxShadow: colors.shadowXl,
         }}
         data-testid="card-active-trip"
       >
@@ -397,24 +430,22 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
           <div className="flex items-center gap-2">
             <motion.div
               className="w-2.5 h-2.5 rounded-full"
-              style={{ background: isPickupPhase ? colors.neonCyan : colors.neonMagenta }}
+              style={{ background: isPickupPhase ? colors.success : colors.sky }}
               animate={{ scale: [1, 1.4, 1] }}
               transition={{ duration: 1.5, repeat: Infinity }}
             />
-            <span className="text-xs font-bold tracking-wider uppercase" style={{ color: isPickupPhase ? colors.neonCyan : colors.neonMagenta, fontFamily: "'Space Grotesk', system-ui" }}>
+            <span className="text-xs font-bold" style={{ color: isPickupPhase ? colors.success : colors.sky }}>
               {phaseLabel}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-lg font-bold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
-              {activeTrip.etaMinutes}m
-            </span>
-          </div>
+          <span className="text-lg font-bold" style={{ color: colors.textPrimary }}>
+            {activeTrip.etaMinutes}m
+          </span>
         </div>
 
         {/* Address & Patient */}
         <div className="px-5 pb-3">
-          <p className="text-sm truncate" style={{ color: colors.textPrimary }}>{address}</p>
+          <p className="text-sm truncate font-medium" style={{ color: colors.textPrimary }}>{address}</p>
           <p className="text-[10px] mt-0.5" style={{ color: colors.textTertiary }}>
             {activeTrip.passengerName} • {activeTrip.id}
           </p>
@@ -426,24 +457,27 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
             onClick={handleNavigate}
             className="flex items-center justify-center gap-1.5 px-4 py-3 rounded-2xl"
             style={{
-              background: `linear-gradient(135deg, ${isPickupPhase ? colors.successNeon : colors.neonMagenta}, ${isPickupPhase ? "#00cc6a" : "#cc0088"})`,
+              background: isPickupPhase
+                ? `linear-gradient(135deg, ${colors.success}, #2BB84E)`
+                : `linear-gradient(135deg, ${colors.sky}, ${colors.ocean})`,
               color: "#fff",
-              fontFamily: "'Space Grotesk', system-ui",
-              boxShadow: `0 4px 16px ${isPickupPhase ? colors.successNeon : colors.neonMagenta}44`,
+              boxShadow: isPickupPhase
+                ? `0 4px 16px rgba(52,199,89,0.3)`
+                : `0 4px 16px rgba(74,144,217,0.3)`,
             }}
             whileTap={!reduced ? { scale: 0.95 } : undefined}
             data-testid="btn-navigate"
           >
             <Navigation className="w-4 h-4" />
-            <span className="text-xs font-bold uppercase tracking-wider">Navigate</span>
+            <span className="text-xs font-semibold">Navigate</span>
           </motion.button>
 
           <motion.button
             onClick={() => onOpenTrip()}
             className="flex items-center justify-center px-3 py-3 rounded-2xl"
             style={{
-              background: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(0,0,0,0.04)",
+              border: "1px solid rgba(0,0,0,0.06)",
             }}
             whileTap={!reduced ? { scale: 0.95 } : undefined}
             data-testid="btn-trip-details"
@@ -453,12 +487,11 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
 
           <motion.button
             onClick={handleAction}
-            className="flex-1 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider"
+            className="flex-1 py-3 rounded-2xl text-xs font-bold"
             style={{
-              background: colors.neonCyan,
-              color: "#000",
-              boxShadow: `0 0 16px ${glowColor(colors.neonCyan, 0.4)}`,
-              fontFamily: "'Space Grotesk', system-ui",
+              background: `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})`,
+              color: "#fff",
+              boxShadow: `0 4px 16px rgba(255,107,53,0.3)`,
             }}
             whileTap={!reduced ? { scale: 0.95 } : undefined}
             data-testid="btn-trip-action"
@@ -471,7 +504,7 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
   );
 }
 
-/* ─── Waiting for trips indicator ─── */
+/* ─── Waiting indicator ─── */
 function WaitingIndicator() {
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
@@ -483,27 +516,28 @@ function WaitingIndicator() {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex items-center gap-2 px-4 py-2 rounded-full"
+      className="flex items-center gap-2 px-4 py-2.5 rounded-full"
       style={{
-        background: "rgba(0,0,0,0.7)",
-        backdropFilter: "blur(20px)",
-        border: `1px solid ${glowColor(colors.successNeon, 0.2)}`,
+        background: "rgba(255,255,255,0.85)",
+        backdropFilter: "blur(12px)",
+        border: "1px solid rgba(52,199,89,0.15)",
+        boxShadow: colors.shadowSm,
       }}
     >
       <motion.div
         className="w-2 h-2 rounded-full"
-        style={{ background: colors.successNeon }}
+        style={{ background: colors.success }}
         animate={{ opacity: [1, 0.3, 1] }}
         transition={{ duration: 1.5, repeat: Infinity }}
       />
-      <span className="text-xs font-medium" style={{ color: colors.textSecondary, fontFamily: "'Space Grotesk', system-ui" }}>
-        Waiting for trip requests...
+      <span className="text-xs font-medium" style={{ color: colors.textSecondary }}>
+        Searching for trips nearby...
       </span>
     </motion.div>
   );
 }
 
-/* ─── Service type filter (Trips / Deliveries / All) ─── */
+/* ─── Service type filter ─── */
 function ServiceFilterBar() {
   const serviceFilter = useDriverStore((s) => s.serviceFilter);
   const setServiceFilter = useDriverStore((s) => s.setServiceFilter);
@@ -530,10 +564,11 @@ function ServiceFilterBar() {
     <div
       className="flex items-center gap-1 p-1 rounded-2xl overflow-x-auto no-scrollbar"
       style={{
-        background: "rgba(0,0,0,0.7)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.85)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        border: "1px solid rgba(0,0,0,0.04)",
+        boxShadow: colors.shadowSm,
         maxWidth: "100vw",
       }}
       data-testid="service-filter-bar"
@@ -544,21 +579,18 @@ function ServiceFilterBar() {
           <motion.button
             key={opt.value}
             onClick={() => setServiceFilter(opt.value)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl whitespace-nowrap"
             style={{
               background: isActive
-                ? `linear-gradient(135deg, ${colors.neonCyan}22, ${colors.neonPurple}22)`
+                ? `linear-gradient(135deg, rgba(255,107,53,0.12), rgba(255,179,71,0.08))`
                 : "transparent",
-              border: isActive
-                ? `1px solid ${colors.neonCyan}44`
-                : "1px solid transparent",
-              color: isActive ? colors.neonCyan : colors.textTertiary,
-              fontFamily: "'Space Grotesk', system-ui",
+              border: isActive ? "1px solid rgba(255,107,53,0.2)" : "1px solid transparent",
+              color: isActive ? colors.sunrise : colors.textTertiary,
             }}
             whileTap={{ scale: 0.95 }}
           >
             {opt.icon}
-            <span className="text-[10px] font-bold uppercase tracking-wider">
+            <span className="text-[10px] font-semibold uppercase tracking-wider">
               {opt.label}
             </span>
           </motion.button>
@@ -568,7 +600,7 @@ function ServiceFilterBar() {
   );
 }
 
-/* ─── Map background component ─── */
+/* ─── Map background ─── */
 function MapBackground() {
   const activeTrip = useDriverStore((s) => s.activeTrip);
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -595,7 +627,6 @@ function MapBackground() {
     );
   }
 
-  // Driver-only map: show driver location on dark map
   return (
     <DriverTripMap
       pickupLat={driverLat || 25.7617}
@@ -614,12 +645,10 @@ function MapBackground() {
 /* ─── Main Dashboard ─── */
 export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => void }) {
   const driverName = useDriverStore((s) => s.driverName);
-  const driverInitials = useDriverStore((s) => s.driverInitials);
   const tripPhase = useDriverStore((s) => s.tripPhase);
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
 
-  const isFullyOnline = driverStatus === "online" && shiftStatus === "onShift";
   const hasTripActivity = tripPhase !== "none" && tripPhase !== "complete";
   const showOffer = tripPhase === "offer";
   const showActiveTrip = hasTripActivity && !showOffer;
@@ -630,7 +659,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
   }, [onNavigate]);
 
   return (
-    <div className="relative w-full" style={{ height: "100vh", maxHeight: "100dvh" }}>
+    <div className="relative w-full" style={{ height: "100%", minHeight: "100%" }}>
       {/* Full-screen map */}
       <div className="absolute inset-0 z-0">
         <MapBackground />
@@ -640,45 +669,24 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
       <div
         className="absolute top-0 left-0 right-0 z-30 px-4 pt-4 pb-8"
         style={{
-          background: "linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.3) 70%, transparent 100%)",
+          background: "linear-gradient(to bottom, rgba(250,250,248,0.92) 0%, rgba(250,250,248,0.4) 70%, transparent 100%)",
         }}
       >
         <div className="flex items-center justify-between">
-          {/* Hamburger + Avatar */}
-          <div className="flex items-center gap-3">
-            <motion.button
-              onClick={() => onNavigate?.("menu")}
-              className="flex items-center justify-center w-10 h-10 rounded-full"
-              style={{
-                background: "rgba(255,255,255,0.1)",
-                backdropFilter: "blur(20px)",
-                border: "1px solid rgba(255,255,255,0.1)",
-              }}
-              whileTap={{ scale: 0.9 }}
-              data-testid="btn-hamburger"
-              aria-label="Menu"
-            >
-              <div className="flex flex-col gap-[3px]">
-                <div className="w-4 h-[2px] rounded-full" style={{ background: colors.textPrimary }} />
-                <div className="w-3 h-[2px] rounded-full" style={{ background: colors.textPrimary }} />
-                <div className="w-4 h-[2px] rounded-full" style={{ background: colors.textPrimary }} />
-              </div>
-            </motion.button>
-            <div>
-              <p className="text-sm font-semibold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
-                {driverName || "Driver"}
-              </p>
-              <AvailabilityChip />
-            </div>
+          {/* Greeting + status */}
+          <div>
+            <p className="text-lg font-bold" style={{ color: colors.textPrimary }}>
+              {getGreeting()}, {(driverName || "Driver").split(" ")[0]}
+            </p>
+            <StatusPill />
           </div>
-
-          {/* Stats bar */}
-          <StatsBar />
+          {/* Quick stats */}
+          <QuickStats />
         </div>
       </div>
 
       {/* Service type filter */}
-      <div className="absolute top-20 left-0 right-0 z-25 flex justify-center pointer-events-none">
+      <div className="absolute top-24 left-0 right-0 z-25 flex justify-center pointer-events-none">
         <div className="pointer-events-auto">
           <ServiceFilterBar />
         </div>
@@ -696,9 +704,9 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
         </div>
       )}
 
-      {/* Trip offer overlay */}
+      {/* Trip offer overlay - swipeable */}
       <AnimatePresence>
-        {showOffer && <TripOfferCard key="trip-offer" />}
+        {showOffer && <SwipeableTripOffer key="trip-offer" />}
       </AnimatePresence>
 
       {/* Active trip card */}
@@ -707,4 +715,11 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
       </AnimatePresence>
     </div>
   );
+}
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }

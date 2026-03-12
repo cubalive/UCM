@@ -1,12 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Home, Map, DollarSign, User, X, Navigation,
-  Car, Shield, FileText, Phone, Settings, LogOut
-} from "lucide-react";
+import { Home, DollarSign, User, Navigation2, MapPin } from "lucide-react";
 import { useReducedMotion } from "./design/accessibility";
 import { colors } from "./design/tokens";
-import { glowColor } from "./design/theme";
 import { useDriverStore } from "./store/driverStore";
 import { useAuth } from "@/lib/auth";
 
@@ -18,189 +14,195 @@ import { Profile } from "./screens/Profile";
 
 type Screen = "onboarding" | "dashboard" | "activeTrip" | "earnings" | "profile";
 
-/* ─── Slide-out Drawer Menu ─── */
-function DrawerMenu({
-  isOpen,
-  onClose,
-  onNavigate,
+/* ─── Bottom Tab Bar ─── */
+function BottomTabBar({
   activeScreen,
+  onNavigate,
+  tripPhase,
 }: {
-  isOpen: boolean;
-  onClose: () => void;
-  onNavigate: (screen: Screen) => void;
   activeScreen: Screen;
+  onNavigate: (screen: Screen) => void;
+  tripPhase: string;
 }) {
   const reduced = useReducedMotion();
-  const driverName = useDriverStore((s) => s.driverName);
-  const driverInitials = useDriverStore((s) => s.driverInitials);
-  const rating = useDriverStore((s) => s.rating);
-  const completedRides = useDriverStore((s) => s.completedRides);
-  const earningsWeek = useDriverStore((s) => s.earningsWeek);
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
+  const hasActiveTrip = tripPhase !== "none" && tripPhase !== "complete" && tripPhase !== "offer";
 
-  const menuItems: { key: Screen; icon: typeof Home; label: string }[] = [
+  const tabs: { key: Screen; icon: typeof Home; label: string }[] = [
     { key: "dashboard", icon: Home, label: "Home" },
-    { key: "activeTrip", icon: Map, label: "Active Trip" },
     { key: "earnings", icon: DollarSign, label: "Earnings" },
-    { key: "profile", icon: User, label: "Profile & Settings" },
+    // Center orb is inserted manually
+    { key: "activeTrip", icon: Navigation2, label: "Trip" },
+    { key: "profile", icon: User, label: "Profile" },
   ];
 
-  const handleNav = (screen: Screen) => {
-    onNavigate(screen);
-    onClose();
-  };
+  const isOnline = driverStatus === "online" && shiftStatus === "onShift";
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            className="fixed inset-0 z-[100]"
-            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
-          {/* Drawer panel */}
-          <motion.div
-            className="fixed top-0 left-0 bottom-0 z-[101] w-[280px] flex flex-col"
+    <div
+      className="absolute bottom-0 left-0 right-0 z-50"
+      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+    >
+      <div
+        className="flex items-end justify-around px-2 pt-2 pb-3"
+        style={{
+          background: "rgba(255,255,255,0.92)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderTop: "1px solid rgba(0,0,0,0.06)",
+          boxShadow: "0 -4px 24px rgba(0,0,0,0.04)",
+        }}
+      >
+        {/* Home tab */}
+        <TabItem
+          tab={tabs[0]}
+          isActive={activeScreen === "dashboard"}
+          onPress={() => onNavigate("dashboard")}
+          reduced={reduced}
+        />
+
+        {/* Earnings tab */}
+        <TabItem
+          tab={tabs[1]}
+          isActive={activeScreen === "earnings"}
+          onPress={() => onNavigate("earnings")}
+          reduced={reduced}
+        />
+
+        {/* Center Status Orb */}
+        <div className="flex flex-col items-center -mt-6">
+          <motion.button
+            onClick={() => onNavigate(hasActiveTrip ? "activeTrip" : "dashboard")}
+            className="relative flex items-center justify-center"
             style={{
-              background: "linear-gradient(135deg, #0a0015 0%, #0d001a 50%, #000000 100%)",
-              borderRight: `1px solid ${glowColor(colors.neonCyan, 0.15)}`,
-              boxShadow: `4px 0 40px rgba(0,0,0,0.8), 0 0 30px ${glowColor(colors.neonCyan, 0.05)}`,
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              background: hasActiveTrip
+                ? `linear-gradient(135deg, ${colors.sky}, ${colors.ocean})`
+                : isOnline
+                ? `linear-gradient(135deg, ${colors.success}, #2BB84E)`
+                : `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})`,
+              boxShadow: hasActiveTrip
+                ? `0 4px 20px rgba(74,144,217,0.4)`
+                : isOnline
+                ? `0 4px 20px rgba(52,199,89,0.4)`
+                : `0 4px 20px rgba(255,107,53,0.35)`,
+              border: "3px solid rgba(255,255,255,0.95)",
             }}
-            initial={reduced ? {} : { x: -280 }}
-            animate={{ x: 0 }}
-            exit={reduced ? {} : { x: -280 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            whileHover={!reduced ? { scale: 1.08 } : undefined}
+            whileTap={!reduced ? { scale: 0.92 } : undefined}
+            data-testid="orb-status"
+            aria-label={hasActiveTrip ? "Active trip" : isOnline ? "Online" : "Go online"}
           >
-            {/* Close button */}
-            <button
-              onClick={onClose}
-              className="absolute top-4 right-4 p-1 rounded-full"
-              style={{ background: "rgba(255,255,255,0.08)" }}
-              data-testid="btn-close-drawer"
-            >
-              <X className="w-5 h-5" style={{ color: colors.textSecondary }} />
-            </button>
-
-            {/* Driver profile header */}
-            <div className="px-5 pt-8 pb-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold mb-3"
+            {/* Pulse ring */}
+            {(isOnline || hasActiveTrip) && !reduced && (
+              <motion.div
+                className="absolute inset-[-4px] rounded-full"
+                animate={{ scale: [1, 1.25, 1], opacity: [0.4, 0, 0.4] }}
+                transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
                 style={{
-                  background: `linear-gradient(135deg, ${colors.neonCyan}, ${colors.neonPurple})`,
-                  color: "#000",
-                  boxShadow: `0 0 20px ${glowColor(colors.neonCyan, 0.3)}`,
-                  fontFamily: "'Space Grotesk', system-ui",
+                  border: `2px solid ${hasActiveTrip ? colors.sky : colors.success}`,
+                  pointerEvents: "none",
                 }}
-              >
-                {driverInitials || "DR"}
-              </div>
-              <p className="text-base font-bold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
-                {driverName || "Driver"}
-              </p>
-              <div className="flex items-center gap-3 mt-1.5">
-                <span className="text-xs flex items-center gap-1" style={{ color: colors.warningNeon }}>
-                  ★ {rating.toFixed(1)}
-                </span>
-                <span className="text-xs" style={{ color: colors.textTertiary }}>
-                  {completedRides} rides
-                </span>
-              </div>
-              {/* Quick stats */}
-              <div className="flex gap-3 mt-3">
-                <div className="flex-1 py-2 rounded-xl text-center" style={{ background: "rgba(255,255,255,0.05)" }}>
-                  <p className="text-sm font-bold" style={{ color: colors.neonCyan, fontFamily: "'Space Grotesk', system-ui" }}>
-                    ${earningsWeek.toFixed(0)}
-                  </p>
-                  <p className="text-[8px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>This Week</p>
-                </div>
-                <div className="flex-1 py-2 rounded-xl text-center" style={{ background: "rgba(255,255,255,0.05)" }}>
-                  <p className="text-sm font-bold" style={{
-                    color: driverStatus === "online" && shiftStatus === "onShift" ? colors.successNeon : colors.textTertiary,
-                    fontFamily: "'Space Grotesk', system-ui",
-                  }}>
-                    {driverStatus === "online" ? (shiftStatus === "onShift" ? "ON" : "ONLINE") : "OFF"}
-                  </p>
-                  <p className="text-[8px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>Status</p>
-                </div>
-              </div>
-            </div>
+              />
+            )}
+            {hasActiveTrip ? (
+              <Navigation2 className="w-6 h-6 text-white" />
+            ) : (
+              <MapPin className="w-6 h-6 text-white" />
+            )}
+          </motion.button>
+          <span
+            className="text-[9px] font-semibold mt-1 uppercase tracking-wider"
+            style={{
+              color: hasActiveTrip ? colors.sky : isOnline ? colors.success : colors.sunrise,
+            }}
+          >
+            {hasActiveTrip ? "In Trip" : isOnline ? "Online" : "Offline"}
+          </span>
+        </div>
 
-            {/* Navigation items */}
-            <div className="flex-1 py-3 px-3">
-              {menuItems.map((item) => {
-                const isActive = activeScreen === item.key;
-                const Icon = item.icon;
-                return (
-                  <motion.button
-                    key={item.key}
-                    onClick={() => handleNav(item.key)}
-                    className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl mb-1 transition-colors"
-                    style={{
-                      background: isActive ? glowColor(colors.neonCyan, 0.1) : "transparent",
-                      border: isActive ? `1px solid ${glowColor(colors.neonCyan, 0.15)}` : "1px solid transparent",
-                    }}
-                    whileTap={{ scale: 0.97 }}
-                    data-testid={`menu-${item.key}`}
-                  >
-                    <div
-                      className="w-8 h-8 rounded-xl flex items-center justify-center"
-                      style={{
-                        background: isActive ? glowColor(colors.neonCyan, 0.15) : "rgba(255,255,255,0.05)",
-                      }}
-                    >
-                      <Icon
-                        className="w-4 h-4"
-                        style={{
-                          color: isActive ? colors.neonCyan : colors.textTertiary,
-                          filter: isActive ? `drop-shadow(0 0 4px ${colors.neonCyan})` : "none",
-                        }}
-                      />
-                    </div>
-                    <span
-                      className="text-sm font-medium"
-                      style={{
-                        color: isActive ? colors.neonCyan : colors.textPrimary,
-                        fontFamily: "'Space Grotesk', system-ui",
-                      }}
-                    >
-                      {item.label}
-                    </span>
-                  </motion.button>
-                );
-              })}
-            </div>
+        {/* Trip tab */}
+        <TabItem
+          tab={tabs[2]}
+          isActive={activeScreen === "activeTrip"}
+          onPress={() => onNavigate("activeTrip")}
+          reduced={reduced}
+          badge={hasActiveTrip}
+        />
 
-            {/* Bottom section */}
-            <div className="px-5 pb-6" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-              <button
-                className="flex items-center gap-3 w-full py-3 mt-2"
-                style={{ color: colors.textTertiary }}
-                data-testid="menu-support"
-              >
-                <Phone className="w-4 h-4" />
-                <span className="text-sm">Support</span>
-              </button>
-              <p className="text-[9px] mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>
-                UCM Driver • v4.0
-              </p>
-            </div>
-          </motion.div>
-        </>
+        {/* Profile tab */}
+        <TabItem
+          tab={tabs[3]}
+          isActive={activeScreen === "profile"}
+          onPress={() => onNavigate("profile")}
+          reduced={reduced}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TabItem({
+  tab,
+  isActive,
+  onPress,
+  reduced,
+  badge,
+}: {
+  tab: { key: string; icon: typeof Home; label: string };
+  isActive: boolean;
+  onPress: () => void;
+  reduced: boolean;
+  badge?: boolean;
+}) {
+  const Icon = tab.icon;
+  return (
+    <motion.button
+      onClick={onPress}
+      className="relative flex flex-col items-center gap-0.5 px-3 py-1"
+      whileTap={!reduced ? { scale: 0.9 } : undefined}
+      data-testid={`tab-${tab.key}`}
+    >
+      <div className="relative">
+        <Icon
+          className="w-5 h-5"
+          style={{
+            color: isActive ? colors.sunrise : colors.textTertiary,
+            strokeWidth: isActive ? 2.5 : 1.8,
+          }}
+        />
+        {badge && (
+          <div
+            className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full"
+            style={{ background: colors.sky, border: "2px solid white" }}
+          />
+        )}
+      </div>
+      <span
+        className="text-[10px] font-medium"
+        style={{ color: isActive ? colors.sunrise : colors.textTertiary }}
+      >
+        {tab.label}
+      </span>
+      {/* Active indicator dot */}
+      {isActive && (
+        <motion.div
+          layoutId="tab-indicator"
+          className="w-1 h-1 rounded-full"
+          style={{ background: colors.sunrise }}
+          transition={{ type: "spring", stiffness: 500, damping: 30 }}
+        />
       )}
-    </AnimatePresence>
+    </motion.button>
   );
 }
 
 /* ─── Main App Container ─── */
 export function DriverAppV4() {
   const [screen, setScreen] = useState<Screen>("onboarding");
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const reduced = useReducedMotion();
   const tripPhase = useDriverStore((s) => s.tripPhase);
   const { user, token } = useAuth();
@@ -247,18 +249,7 @@ export function DriverAppV4() {
     return () => { if (geoRef.current !== null) navigator.geolocation.clearWatch(geoRef.current); };
   }, [isAuthenticated, updateLocation]);
 
-  // Auto-navigate to active trip screen when trip is accepted
-  useEffect(() => {
-    if (tripPhase === "toPickup" && screen === "dashboard") {
-      // Stay on dashboard — the active trip card with navigation shows on the map
-    }
-  }, [tripPhase, screen]);
-
   const navigate = useCallback((target: string) => {
-    if (target === "menu") {
-      setDrawerOpen(true);
-      return;
-    }
     setScreen(target as Screen);
   }, []);
 
@@ -270,25 +261,30 @@ export function DriverAppV4() {
     return <Onboarding onContinue={handleContinue} />;
   }
 
-  return (
-    <div className="relative" style={{ maxWidth: 430, margin: "0 auto", height: "100vh", maxHeight: "100dvh", overflow: "hidden" }}>
-      {/* Drawer menu */}
-      <DrawerMenu
-        isOpen={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onNavigate={(s) => setScreen(s)}
-        activeScreen={screen}
-      />
+  // Hide tab bar during active trip full view
+  const showTabBar = screen !== "onboarding";
 
-      {/* Screen content — no bottom padding needed, map fills all */}
+  return (
+    <div
+      className="relative"
+      style={{
+        maxWidth: 430,
+        margin: "0 auto",
+        height: "100vh",
+        maxHeight: "100dvh",
+        overflow: "hidden",
+        background: colors.bg0,
+      }}
+    >
+      {/* Screen content */}
       <AnimatePresence mode="wait">
         <motion.div
           key={screen}
           initial={reduced ? {} : { opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={reduced ? {} : { opacity: 0 }}
-          transition={{ duration: 0.15 }}
-          style={{ height: "100%" }}
+          transition={{ duration: 0.2 }}
+          style={{ height: "100%", paddingBottom: showTabBar ? 88 : 0 }}
         >
           {screen === "dashboard" && (
             <Dashboard onNavigate={navigate} />
@@ -304,6 +300,15 @@ export function DriverAppV4() {
           )}
         </motion.div>
       </AnimatePresence>
+
+      {/* Bottom Tab Bar */}
+      {showTabBar && (
+        <BottomTabBar
+          activeScreen={screen}
+          onNavigate={(s) => setScreen(s)}
+          tripPhase={tripPhase}
+        />
+      )}
     </div>
   );
 }

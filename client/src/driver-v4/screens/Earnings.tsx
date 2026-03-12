@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import { DollarSign, TrendingUp, Calendar, ChevronLeft, Clock } from "lucide-react";
 import { useDriverStore } from "../store/driverStore";
 import { colors } from "../design/tokens";
-import { glowColor } from "../design/theme";
 import { GlassCard } from "../components/ui/GlassCard";
 import { GlowProgressCircle } from "../components/ui/GlowProgressCircle";
 import { NebulaBackground } from "../components/ui/MapOverlay";
@@ -28,22 +27,21 @@ function MiniChart({ chartData }: { chartData?: number[] }) {
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="w-full" data-testid="earnings-chart">
       <defs>
-        <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={colors.neonCyan} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={colors.neonCyan} stopOpacity="0" />
+        <linearGradient id="chartGradSunrise" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={colors.sunrise} stopOpacity="0.2" />
+          <stop offset="100%" stopColor={colors.sunrise} stopOpacity="0" />
         </linearGradient>
       </defs>
       <path
         d={`M 0 ${height} ${data.map((d, i) => `L ${(i / (data.length - 1)) * width} ${height - (d / max) * height}`).join(" ")} L ${width} ${height} Z`}
-        fill="url(#chartGrad)"
+        fill="url(#chartGradSunrise)"
       />
       <path
         d={data.map((d, i) => `${i === 0 ? "M" : "L"} ${(i / (data.length - 1)) * width} ${height - (d / max) * height}`).join(" ")}
         fill="none"
-        stroke={colors.neonCyan}
-        strokeWidth="2"
+        stroke={colors.sunrise}
+        strokeWidth="2.5"
         strokeLinecap="round"
-        style={{ filter: `drop-shadow(0 0 4px ${glowColor(colors.neonCyan, 0.5)})` }}
       />
     </svg>
   );
@@ -73,8 +71,8 @@ export function Earnings({ onBack }: { onBack: () => void }) {
             time: t.completedAt ? new Date(t.completedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
             passenger: t.patientName || "Patient",
             amount: (t.totalCents || 0) / 100,
-            distance: t.distanceMiles ? `${t.distanceMiles.toFixed(1)} mi` : "—",
-            duration: t.durationMinutes ? `${t.durationMinutes} min` : "—",
+            distance: t.distanceMiles ? `${t.distanceMiles.toFixed(1)} mi` : "-",
+            duration: t.durationMinutes ? `${t.durationMinutes} min` : "-",
           })));
         }
       })
@@ -99,7 +97,6 @@ export function Earnings({ onBack }: { onBack: () => void }) {
       })
       .catch(() => {});
 
-    // Fetch monthly earnings separately for accurate display
     if (period === "month") {
       fetch(resolveUrl("/api/driver/earnings?range=month"), { headers })
         .then((r) => r.ok ? r.json() : null)
@@ -114,32 +111,33 @@ export function Earnings({ onBack }: { onBack: () => void }) {
 
   return (
     <NebulaBackground className="min-h-screen">
-      <div className="max-w-md mx-auto w-full px-4 py-6 space-y-4">
+      <div className="max-w-md mx-auto w-full px-4 py-6 space-y-4 overflow-y-auto" style={{ maxHeight: "100%" }}>
+        {/* Header */}
         <div className="flex items-center gap-3 mb-2">
           <button
             onClick={onBack}
-            className="flex items-center justify-center w-8 h-8 rounded-full"
-            style={{ background: "rgba(255,255,255,0.08)", color: colors.textPrimary }}
+            className="flex items-center justify-center w-9 h-9 rounded-full"
+            style={{ background: "rgba(255,255,255,0.80)", color: colors.textPrimary, boxShadow: colors.shadowSm, border: "1px solid rgba(0,0,0,0.04)" }}
             data-testid="btn-back"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-xl font-bold" style={{ color: colors.textPrimary, fontFamily: "'Space Grotesk', system-ui" }}>
+          <h1 className="text-xl font-bold" style={{ color: colors.textPrimary }}>
             Earnings
           </h1>
         </div>
 
-        <div className="flex gap-1 p-1 rounded-2xl" style={{ background: "rgba(255,255,255,0.06)" }} data-testid="period-filter">
+        {/* Period toggle */}
+        <div className="flex gap-1 p-1 rounded-2xl" style={{ background: "rgba(255,255,255,0.60)", border: "1px solid rgba(0,0,0,0.04)" }} data-testid="period-filter">
           {(["day", "week", "month"] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className="flex-1 py-2 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all"
+              className="flex-1 py-2.5 rounded-xl text-xs font-semibold capitalize transition-all"
               style={{
-                background: period === p ? glowColor(colors.neonCyan, 0.2) : "transparent",
-                color: period === p ? colors.neonCyan : colors.textTertiary,
-                border: period === p ? `1px solid ${glowColor(colors.neonCyan, 0.3)}` : "1px solid transparent",
-                fontFamily: "'Space Grotesk', system-ui",
+                background: period === p ? "white" : "transparent",
+                color: period === p ? colors.sunrise : colors.textTertiary,
+                boxShadow: period === p ? colors.shadowSm : "none",
               }}
               data-testid={`filter-${p}`}
             >
@@ -148,10 +146,11 @@ export function Earnings({ onBack }: { onBack: () => void }) {
           ))}
         </div>
 
+        {/* Summary card */}
         <GlassCard variant="elevated" testID="card-earnings-summary">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: colors.textTertiary }}>
+              <p className="text-[10px] uppercase tracking-wider mb-1 font-medium" style={{ color: colors.textTertiary }}>
                 Total Earnings
               </p>
               <motion.p
@@ -159,11 +158,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="text-3xl font-bold"
-                style={{
-                  color: colors.textPrimary,
-                  fontFamily: "'Space Grotesk', system-ui",
-                  textShadow: `0 0 20px ${glowColor(colors.neonCyan, 0.3)}`,
-                }}
+                style={{ color: colors.textPrimary }}
               >
                 ${displayAmount.toFixed(2)}
               </motion.p>
@@ -173,35 +168,43 @@ export function Earnings({ onBack }: { onBack: () => void }) {
               label={String(completedRides)}
               sublabel="Rides"
               size={64}
-              accentColor={colors.neonPurple}
+              accentColor={colors.sunrise}
               testID="progress-rides"
             />
           </div>
           <MiniChart chartData={chartData} />
         </GlassCard>
 
+        {/* Quick stats */}
         <GlassCard variant="default" testID="card-quick-stats" className="!p-3">
           <div className="grid grid-cols-3 gap-3">
             <div className="text-center">
-              <DollarSign className="w-4 h-4 mx-auto mb-1" style={{ color: colors.neonCyan }} />
+              <div className="w-8 h-8 rounded-xl mx-auto mb-1.5 flex items-center justify-center" style={{ background: "rgba(255,107,53,0.08)" }}>
+                <DollarSign className="w-4 h-4" style={{ color: colors.sunrise }} />
+              </div>
               <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>${stats.avgPerTrip.toFixed(2)}</p>
-              <p className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>Avg/Trip</p>
+              <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Avg/Trip</p>
             </div>
             <div className="text-center">
-              <Clock className="w-4 h-4 mx-auto mb-1" style={{ color: colors.neonPurple }} />
+              <div className="w-8 h-8 rounded-xl mx-auto mb-1.5 flex items-center justify-center" style={{ background: "rgba(74,144,217,0.08)" }}>
+                <Clock className="w-4 h-4" style={{ color: colors.sky }} />
+              </div>
               <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>{stats.onlineHours.toFixed(1)}h</p>
-              <p className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>Online</p>
+              <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Online</p>
             </div>
             <div className="text-center">
-              <TrendingUp className="w-4 h-4 mx-auto mb-1" style={{ color: colors.successNeon }} />
+              <div className="w-8 h-8 rounded-xl mx-auto mb-1.5 flex items-center justify-center" style={{ background: "rgba(52,199,89,0.08)" }}>
+                <TrendingUp className="w-4 h-4" style={{ color: colors.success }} />
+              </div>
               <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>${stats.perHour.toFixed(2)}</p>
-              <p className="text-[9px] uppercase tracking-wider" style={{ color: colors.textTertiary }}>$/Hour</p>
+              <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>$/Hour</p>
             </div>
           </div>
         </GlassCard>
 
+        {/* Trip history */}
         <div>
-          <h2 className="text-sm font-semibold mb-3 px-1" style={{ color: colors.textSecondary, fontFamily: "'Space Grotesk', system-ui" }}>
+          <h2 className="text-sm font-semibold mb-3 px-1" style={{ color: colors.textSecondary }}>
             Trip History
           </h2>
           <div className="space-y-2" data-testid="trip-history-list">
@@ -215,14 +218,14 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.05 }}
               >
-                <GlassCard variant="subtle" className="!p-3 !rounded-2xl" testID={`trip-history-${trip.id}`}>
+                <GlassCard variant="default" className="!p-3 !rounded-2xl" testID={`trip-history-${trip.id}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div
                         className="w-9 h-9 rounded-xl flex items-center justify-center"
-                        style={{ background: "rgba(0,240,255,0.1)" }}
+                        style={{ background: "rgba(255,107,53,0.08)" }}
                       >
-                        <Calendar className="w-4 h-4" style={{ color: colors.neonCyan }} />
+                        <Calendar className="w-4 h-4" style={{ color: colors.sunrise }} />
                       </div>
                       <div>
                         <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{trip.passenger}</p>
@@ -231,7 +234,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                         </p>
                       </div>
                     </div>
-                    <span className="text-sm font-bold" style={{ color: colors.successNeon, fontFamily: "'Space Grotesk', system-ui" }}>
+                    <span className="text-sm font-bold" style={{ color: colors.success }}>
                       +${trip.amount.toFixed(2)}
                     </span>
                   </div>
