@@ -10,7 +10,7 @@
  */
 
 import { db } from "../db";
-import { trips, drivers, fraudAlerts } from "@shared/schema";
+import { trips, drivers, fraudAlerts, deadMileDailySummary } from "@shared/schema";
 import { eq, and, sql, gte, lte, isNull, desc } from "drizzle-orm";
 import { setJson, getJson } from "./redis";
 import { cache } from "./cache";
@@ -35,6 +35,56 @@ interface FraudScoreResult {
   factors: { name: string; weight: number; flagged: boolean; detail: string }[];
 }
 
+// ─── Statistical Baseline Types ──────────────────────────────────────────────
+
+interface DriverBaseline {
+  driverId: number;
+  sampleSize: number;
+  avgTripDurationMin: number;
+  stdTripDurationMin: number;
+  avgMilesPerTrip: number;
+  stdMilesPerTrip: number;
+  avgTripsPerDay: number;
+  avgDeadMileRatio: number;
+  stdDeadMileRatio: number;
+  /** Hours of day the driver normally operates (0-23), derived from trip start times */
+  normalOperatingHours: number[];
+  computedAt: string;
+}
+
+interface CompanyFraudProfile {
+  companyId: number;
+  sampleSize: number;
+  avgTripDurationMin: number;
+  stdTripDurationMin: number;
+  avgMilesPerTrip: number;
+  stdMilesPerTrip: number;
+  avgTripsPerDriverPerDay: number;
+  avgDeadMileRatio: number;
+  stdDeadMileRatio: number;
+  computedAt: string;
+}
+
+interface StatisticalAnomaly {
+  type: string;
+  zScore: number;
+  observed: number;
+  expected: number;
+  stdDev: number;
+  description: string;
+}
+
+interface StatisticalAnomalyResult {
+  tripId: number;
+  driverId: number;
+  anomalyScore: number; // 0-1
+  anomalies: StatisticalAnomaly[];
+}
+
+const BASELINE_LOOKBACK_DAYS = 60;
+const Z_SCORE_THRESHOLD = 2.0;
+const BASELINE_CACHE_TTL = 3600; // 1 hour
+
 const CACHE_PREFIX = "fraud_detection";
 const CACHE_TTL_SECONDS = 600;
 
@@ -47,6 +97,457 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ─── Statistical Baseline: Driver ────────────────────────────────────────────
+
+/**
+ * Computes statistical baselines from the last 60 days of a driver's completed trips.
+ * Uses mean and standard deviation to establish "normal" behavior for comparison.
+ */
+export async function computeDriverBaseline(driverId: number): Promise<DriverBaseline | null> {
+  const cacheKey = `${CACHE_PREFIX}:baseline:driver:${driverId}`;
+
+  try {
+    const cached = await getJson<DriverBaseline>(cacheKey);
+    if (cached) return cached;
+  } catch {
+    const memCached = cache.get<DriverBaseline>(cacheKey);
+    if (memCached) return memCached;
+  }
+
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - BASELINE_LOOKBACK_DAYS);
+  const cutoff = cutoffDate.toISOString().slice(0, 10);
+
+  // Fetch completed trips for this driver in the lookback window
+  const driverTrips = await db
+    .select({
+      id: trips.id,
+      distanceMiles: trips.distanceMiles,
+      durationMinutes: trips.durationMinutes,
+      actualDurationSeconds: trips.actualDurationSeconds,
+      scheduledDate: trips.scheduledDate,
+      startedAt: trips.startedAt,
+      pickupTime: trips.pickupTime,
+    })
+    .from(trips)
+    .where(
+      and(
+        eq(trips.driverId, driverId),
+        eq(trips.status, "COMPLETED"),
+        gte(trips.scheduledDate, cutoff),
+        isNull(trips.deletedAt)
+      )
+    );
+
+  if (driverTrips.length < 5) return null; // not enough data for meaningful stats
+
+  // Compute duration stats (prefer actual, fall back to estimated)
+  const durations: number[] = [];
+  for (const t of driverTrips) {
+    if (t.actualDurationSeconds) {
+      durations.push(t.actualDurationSeconds / 60);
+    } else if (t.durationMinutes) {
+      durations.push(t.durationMinutes);
+    }
+  }
+
+  // Compute miles stats
+  const miles: number[] = [];
+  for (const t of driverTrips) {
+    if (t.distanceMiles) {
+      const m = parseFloat(t.distanceMiles);
+      if (m > 0) miles.push(m);
+    }
+  }
+
+  // Trips per day
+  const datesSet = new Set(driverTrips.map((t) => t.scheduledDate));
+  const tripsByDate = new Map<string, number>();
+  for (const t of driverTrips) {
+    tripsByDate.set(t.scheduledDate, (tripsByDate.get(t.scheduledDate) || 0) + 1);
+  }
+  const tripsPerDayValues = Array.from(tripsByDate.values());
+  const avgTripsPerDay = tripsPerDayValues.length > 0
+    ? tripsPerDayValues.reduce((a, b) => a + b, 0) / tripsPerDayValues.length
+    : 0;
+
+  // Normal operating hours (derived from pickupTime or startedAt)
+  const hourCounts = new Map<number, number>();
+  for (const t of driverTrips) {
+    let hour: number | null = null;
+    if (t.startedAt) {
+      hour = new Date(t.startedAt).getHours();
+    } else if (t.pickupTime) {
+      const match = t.pickupTime.match(/^(\d{1,2}):/);
+      if (match) hour = parseInt(match[1], 10);
+    }
+    if (hour !== null) {
+      hourCounts.set(hour, (hourCounts.get(hour) || 0) + 1);
+    }
+  }
+  // Consider "normal" hours as those with at least 5% of trips
+  const totalHourEntries = Array.from(hourCounts.values()).reduce((a, b) => a + b, 0);
+  const normalHours: number[] = [];
+  for (const [h, count] of hourCounts) {
+    if (count / totalHourEntries >= 0.05) normalHours.push(h);
+  }
+  normalHours.sort((a, b) => a - b);
+
+  // Dead mile ratio from daily summaries
+  const deadMileData = await db
+    .select({
+      deadMileRatio: deadMileDailySummary.deadMileRatio,
+    })
+    .from(deadMileDailySummary)
+    .where(
+      and(
+        eq(deadMileDailySummary.driverId, driverId),
+        gte(deadMileDailySummary.summaryDate, cutoff)
+      )
+    );
+
+  const deadMileRatios = deadMileData.map((d) => parseFloat(d.deadMileRatio));
+
+  const baseline: DriverBaseline = {
+    driverId,
+    sampleSize: driverTrips.length,
+    avgTripDurationMin: mean(durations),
+    stdTripDurationMin: stddev(durations),
+    avgMilesPerTrip: mean(miles),
+    stdMilesPerTrip: stddev(miles),
+    avgTripsPerDay,
+    avgDeadMileRatio: mean(deadMileRatios),
+    stdDeadMileRatio: stddev(deadMileRatios),
+    normalOperatingHours: normalHours,
+    computedAt: new Date().toISOString(),
+  };
+
+  try {
+    await setJson(cacheKey, baseline, BASELINE_CACHE_TTL);
+  } catch {
+    cache.set(cacheKey, baseline, BASELINE_CACHE_TTL * 1000);
+  }
+
+  return baseline;
+}
+
+// ─── Statistical Baseline: Company ──────────────────────────────────────────
+
+/**
+ * Computes company-wide fraud baselines for cross-driver comparison.
+ * Useful when a driver has insufficient history for individual baseline.
+ */
+export async function buildCompanyFraudProfile(companyId: number): Promise<CompanyFraudProfile | null> {
+  const cacheKey = `${CACHE_PREFIX}:baseline:company:${companyId}`;
+
+  try {
+    const cached = await getJson<CompanyFraudProfile>(cacheKey);
+    if (cached) return cached;
+  } catch {
+    const memCached = cache.get<CompanyFraudProfile>(cacheKey);
+    if (memCached) return memCached;
+  }
+
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - BASELINE_LOOKBACK_DAYS);
+  const cutoff = cutoffDate.toISOString().slice(0, 10);
+
+  // Aggregate stats across all completed trips for the company
+  const stats = await db
+    .select({
+      avgDuration: sql<number>`coalesce(avg(coalesce(${trips.actualDurationSeconds} / 60.0, ${trips.durationMinutes})), 0)::float`,
+      stdDuration: sql<number>`coalesce(stddev_pop(coalesce(${trips.actualDurationSeconds} / 60.0, ${trips.durationMinutes})), 0)::float`,
+      avgMiles: sql<number>`coalesce(avg(${trips.distanceMiles}::float), 0)::float`,
+      stdMiles: sql<number>`coalesce(stddev_pop(${trips.distanceMiles}::float), 0)::float`,
+      totalTrips: sql<number>`count(*)::int`,
+      distinctDays: sql<number>`count(distinct ${trips.scheduledDate})::int`,
+      distinctDriverDays: sql<number>`count(distinct (${trips.driverId} || '-' || ${trips.scheduledDate}))::int`,
+    })
+    .from(trips)
+    .where(
+      and(
+        eq(trips.companyId, companyId),
+        eq(trips.status, "COMPLETED"),
+        gte(trips.scheduledDate, cutoff),
+        sql`${trips.driverId} IS NOT NULL`,
+        isNull(trips.deletedAt)
+      )
+    );
+
+  const s = stats[0];
+  if (!s || s.totalTrips < 10) return null;
+
+  const avgTripsPerDriverPerDay = s.distinctDriverDays > 0
+    ? s.totalTrips / s.distinctDriverDays
+    : 0;
+
+  // Dead mile ratios across the company
+  const deadMileData = await db
+    .select({
+      avgRatio: sql<number>`coalesce(avg(${deadMileDailySummary.deadMileRatio}::float), 0)::float`,
+      stdRatio: sql<number>`coalesce(stddev_pop(${deadMileDailySummary.deadMileRatio}::float), 0)::float`,
+    })
+    .from(deadMileDailySummary)
+    .where(
+      and(
+        eq(deadMileDailySummary.companyId, companyId),
+        gte(deadMileDailySummary.summaryDate, cutoff)
+      )
+    );
+
+  const dm = deadMileData[0];
+
+  const profile: CompanyFraudProfile = {
+    companyId,
+    sampleSize: s.totalTrips,
+    avgTripDurationMin: s.avgDuration,
+    stdTripDurationMin: s.stdDuration,
+    avgMilesPerTrip: s.avgMiles,
+    stdMilesPerTrip: s.stdMiles,
+    avgTripsPerDriverPerDay: avgTripsPerDriverPerDay,
+    avgDeadMileRatio: dm?.avgRatio || 0,
+    stdDeadMileRatio: dm?.stdRatio || 0,
+    computedAt: new Date().toISOString(),
+  };
+
+  try {
+    await setJson(cacheKey, profile, BASELINE_CACHE_TTL);
+  } catch {
+    cache.set(cacheKey, profile, BASELINE_CACHE_TTL * 1000);
+  }
+
+  return profile;
+}
+
+// ─── Statistical Anomaly Detection ──────────────────────────────────────────
+
+/**
+ * Compares a trip's metrics against the driver's (or company's) baseline using
+ * z-score calculations. Flags metrics that are > 2 standard deviations from
+ * the mean — a practical approximation of isolation-forest-style anomaly detection.
+ *
+ * Returns an anomaly score (0-1) and a list of detected anomalies.
+ */
+export async function detectStatisticalAnomalies(
+  tripId: number,
+  driverId: number
+): Promise<StatisticalAnomalyResult> {
+  const result: StatisticalAnomalyResult = {
+    tripId,
+    driverId,
+    anomalyScore: 0,
+    anomalies: [],
+  };
+
+  // Fetch the trip
+  const [trip] = await db.select().from(trips).where(eq(trips.id, tripId)).limit(1);
+  if (!trip) return result;
+
+  // Get driver baseline, fall back to company baseline
+  let baseline = await computeDriverBaseline(driverId);
+  let companyProfile: CompanyFraudProfile | null = null;
+  let usingCompanyFallback = false;
+
+  if (!baseline) {
+    companyProfile = await buildCompanyFraudProfile(trip.companyId);
+    if (!companyProfile) return result; // no data at all
+    usingCompanyFallback = true;
+    // Adapt company profile to baseline shape for uniform z-score checks
+    baseline = {
+      driverId,
+      sampleSize: companyProfile.sampleSize,
+      avgTripDurationMin: companyProfile.avgTripDurationMin,
+      stdTripDurationMin: companyProfile.stdTripDurationMin,
+      avgMilesPerTrip: companyProfile.avgMilesPerTrip,
+      stdMilesPerTrip: companyProfile.stdMilesPerTrip,
+      avgTripsPerDay: companyProfile.avgTripsPerDriverPerDay,
+      avgDeadMileRatio: companyProfile.avgDeadMileRatio,
+      stdDeadMileRatio: companyProfile.stdDeadMileRatio,
+      normalOperatingHours: [], // can't determine from company aggregate
+      computedAt: companyProfile.computedAt,
+    };
+  }
+
+  const anomalies: StatisticalAnomaly[] = [];
+
+  // --- Check 1: Unusually LONG trip duration ---
+  const tripDuration = trip.actualDurationSeconds
+    ? trip.actualDurationSeconds / 60
+    : trip.durationMinutes || null;
+
+  if (tripDuration !== null && baseline.stdTripDurationMin > 0) {
+    const z = (tripDuration - baseline.avgTripDurationMin) / baseline.stdTripDurationMin;
+    if (z > Z_SCORE_THRESHOLD) {
+      anomalies.push({
+        type: "UNUSUALLY_LONG_TRIP",
+        zScore: roundTo(z, 2),
+        observed: roundTo(tripDuration, 1),
+        expected: roundTo(baseline.avgTripDurationMin, 1),
+        stdDev: roundTo(baseline.stdTripDurationMin, 1),
+        description: `Trip duration ${roundTo(tripDuration, 1)} min is ${roundTo(z, 1)} std devs above driver avg (${roundTo(baseline.avgTripDurationMin, 1)} min)`,
+      });
+    }
+
+    // --- Check 2: Unusually SHORT trip duration (potential ghost/phantom trip) ---
+    if (z < -Z_SCORE_THRESHOLD && tripDuration > 0) {
+      anomalies.push({
+        type: "UNUSUALLY_SHORT_TRIP",
+        zScore: roundTo(Math.abs(z), 2),
+        observed: roundTo(tripDuration, 1),
+        expected: roundTo(baseline.avgTripDurationMin, 1),
+        stdDev: roundTo(baseline.stdTripDurationMin, 1),
+        description: `Trip duration ${roundTo(tripDuration, 1)} min is ${roundTo(Math.abs(z), 1)} std devs below driver avg (${roundTo(baseline.avgTripDurationMin, 1)} min)`,
+      });
+    }
+  }
+
+  // --- Check 3: Unusually long/short distance ---
+  if (trip.distanceMiles && baseline.stdMilesPerTrip > 0) {
+    const miles = parseFloat(trip.distanceMiles);
+    if (miles > 0) {
+      const z = (miles - baseline.avgMilesPerTrip) / baseline.stdMilesPerTrip;
+      if (Math.abs(z) > Z_SCORE_THRESHOLD) {
+        const direction = z > 0 ? "above" : "below";
+        anomalies.push({
+          type: z > 0 ? "UNUSUALLY_LONG_DISTANCE" : "UNUSUALLY_SHORT_DISTANCE",
+          zScore: roundTo(Math.abs(z), 2),
+          observed: roundTo(miles, 1),
+          expected: roundTo(baseline.avgMilesPerTrip, 1),
+          stdDev: roundTo(baseline.stdMilesPerTrip, 1),
+          description: `Distance ${roundTo(miles, 1)} mi is ${roundTo(Math.abs(z), 1)} std devs ${direction} driver avg (${roundTo(baseline.avgMilesPerTrip, 1)} mi)`,
+        });
+      }
+    }
+  }
+
+  // --- Check 4: Trip outside normal operating hours ---
+  if (baseline.normalOperatingHours.length > 0) {
+    let tripHour: number | null = null;
+    if (trip.startedAt) {
+      tripHour = new Date(trip.startedAt).getHours();
+    } else if (trip.pickupTime) {
+      const match = trip.pickupTime.match(/^(\d{1,2}):/);
+      if (match) tripHour = parseInt(match[1], 10);
+    }
+
+    if (tripHour !== null && !baseline.normalOperatingHours.includes(tripHour)) {
+      anomalies.push({
+        type: "OUTSIDE_NORMAL_HOURS",
+        zScore: Z_SCORE_THRESHOLD, // categorical flag, assign threshold z-score
+        observed: tripHour,
+        expected: baseline.normalOperatingHours[0], // representative normal hour
+        stdDev: 0,
+        description: `Trip at hour ${tripHour}:00 is outside driver's normal operating hours (${formatHourRange(baseline.normalOperatingHours)})`,
+      });
+    }
+  }
+
+  // --- Check 5: Too many trips in a day ---
+  if (baseline.avgTripsPerDay > 0 && trip.scheduledDate) {
+    const dayTripCount = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(trips)
+      .where(
+        and(
+          eq(trips.driverId, driverId),
+          eq(trips.scheduledDate, trip.scheduledDate),
+          eq(trips.status, "COMPLETED"),
+          isNull(trips.deletedAt)
+        )
+      );
+
+    const count = dayTripCount[0]?.count || 0;
+    // Use a pseudo std dev for trips-per-day (sqrt of avg as approximation if not available)
+    const stdTripsPerDay = Math.max(Math.sqrt(baseline.avgTripsPerDay), 1);
+    const z = (count - baseline.avgTripsPerDay) / stdTripsPerDay;
+
+    if (z > Z_SCORE_THRESHOLD) {
+      anomalies.push({
+        type: "EXCESSIVE_DAILY_TRIPS",
+        zScore: roundTo(z, 2),
+        observed: count,
+        expected: roundTo(baseline.avgTripsPerDay, 1),
+        stdDev: roundTo(stdTripsPerDay, 1),
+        description: `Driver completed ${count} trips on ${trip.scheduledDate}, ${roundTo(z, 1)} std devs above daily avg (${roundTo(baseline.avgTripsPerDay, 1)})`,
+      });
+    }
+  }
+
+  // --- Check 6: Excessive dead miles ---
+  if (baseline.stdDeadMileRatio > 0 && trip.scheduledDate) {
+    const daySummary = await db
+      .select({ deadMileRatio: deadMileDailySummary.deadMileRatio })
+      .from(deadMileDailySummary)
+      .where(
+        and(
+          eq(deadMileDailySummary.driverId, driverId),
+          eq(deadMileDailySummary.summaryDate, trip.scheduledDate)
+        )
+      )
+      .limit(1);
+
+    if (daySummary.length > 0) {
+      const ratio = parseFloat(daySummary[0].deadMileRatio);
+      const z = (ratio - baseline.avgDeadMileRatio) / baseline.stdDeadMileRatio;
+      if (z > Z_SCORE_THRESHOLD) {
+        anomalies.push({
+          type: "EXCESSIVE_DEAD_MILES",
+          zScore: roundTo(z, 2),
+          observed: roundTo(ratio, 4),
+          expected: roundTo(baseline.avgDeadMileRatio, 4),
+          stdDev: roundTo(baseline.stdDeadMileRatio, 4),
+          description: `Dead mile ratio ${roundTo(ratio * 100, 1)}% is ${roundTo(z, 1)} std devs above driver avg (${roundTo(baseline.avgDeadMileRatio * 100, 1)}%)`,
+        });
+      }
+    }
+  }
+
+  // Compute composite anomaly score (0-1)
+  // Each anomaly contributes proportionally based on its z-score severity
+  if (anomalies.length > 0) {
+    // Sigmoid-like mapping: sum of individual anomaly weights, capped at 1.0
+    // Each anomaly weight = min(0.3, (|z| - threshold) / (threshold * 2))
+    // This ensures a single extreme anomaly can contribute up to 0.3, and
+    // multiple moderate anomalies compound.
+    let totalWeight = 0;
+    for (const a of anomalies) {
+      const excess = Math.abs(a.zScore) - Z_SCORE_THRESHOLD;
+      const weight = Math.min(0.3, excess / (Z_SCORE_THRESHOLD * 2));
+      totalWeight += weight;
+    }
+    result.anomalyScore = Math.min(1.0, roundTo(totalWeight, 4));
+    result.anomalies = anomalies;
+  }
+
+  return result;
+}
+
+// ─── Utility: Math Helpers ───────────────────────────────────────────────────
+
+function mean(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function stddev(values: number[]): number {
+  if (values.length < 2) return 0;
+  const m = mean(values);
+  const variance = values.reduce((s, v) => s + (v - m) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function roundTo(n: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round(n * factor) / factor;
+}
+
+function formatHourRange(hours: number[]): string {
+  if (hours.length === 0) return "N/A";
+  const min = Math.min(...hours);
+  const max = Math.max(...hours);
+  return `${min}:00-${max}:59`;
 }
 
 // ─── Scan for Fraud ──────────────────────────────────────────────────────────
@@ -436,6 +937,44 @@ export async function getFraudScore(tripId: number): Promise<FraudScoreResult> {
       flagged,
       detail: flagged ? `${dupeCount} duplicate(s) found` : "No duplicates",
     });
+  }
+
+  // Factor 6: Statistical anomaly detection (weight: up to 25, additive)
+  // Uses z-score analysis against driver/company baselines
+  if (trip.driverId) {
+    try {
+      const anomalyResult = await detectStatisticalAnomalies(tripId, trip.driverId);
+      if (anomalyResult.anomalyScore > 0) {
+        // Convert 0-1 anomaly score to 0-25 point contribution
+        const statisticalPoints = Math.round(anomalyResult.anomalyScore * 25);
+        totalScore += statisticalPoints;
+
+        const anomalyNames = anomalyResult.anomalies.map((a) => a.type).join(", ");
+        const maxZ = Math.max(...anomalyResult.anomalies.map((a) => a.zScore));
+        factors.push({
+          name: "Statistical anomaly (z-score)",
+          weight: 25,
+          flagged: true,
+          detail: `${anomalyResult.anomalies.length} anomalie(s) detected [${anomalyNames}], max z-score ${maxZ.toFixed(1)}, +${statisticalPoints} pts`,
+        });
+      } else {
+        factors.push({
+          name: "Statistical anomaly (z-score)",
+          weight: 25,
+          flagged: false,
+          detail: "Trip metrics within normal range for driver baseline",
+        });
+      }
+    } catch (err: any) {
+      // Don't let statistical detection failure break the overall scoring
+      console.warn(`[FRAUD] Statistical anomaly detection failed for trip ${tripId}: ${err.message}`);
+      factors.push({
+        name: "Statistical anomaly (z-score)",
+        weight: 25,
+        flagged: false,
+        detail: "Could not compute (insufficient baseline data)",
+      });
+    }
   }
 
   const result: FraudScoreResult = {

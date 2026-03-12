@@ -47,6 +47,8 @@ async function startAllSchedulerLoops(): Promise<void> {
   const { startTrackingHealthScheduler } = await import("./driverTrackingHealth");
   const { startRouteOptimizerWorker } = await import("../workers/routeOptimizerWorker");
   const { startTripGroupingScheduler } = await import("./tripGroupingScheduler");
+  const { startMedicaidAutoSubmitScheduler } = await import("./medicaidBillingEngine");
+  const { startDriverPreferenceLearningScheduler } = await import("./driverPreferenceLearning");
 
   startOpsAlertScheduler();
   startRouteScheduler();
@@ -101,6 +103,8 @@ async function startAllSchedulerLoops(): Promise<void> {
   startTrackingHealthScheduler();
   startRouteOptimizerWorker();
   startTripGroupingScheduler();
+  startMedicaidAutoSubmitScheduler();
+  startDriverPreferenceLearningScheduler();
 
   const { startJobProcessor } = await import("./jobProcessor");
   startJobProcessor();
@@ -122,6 +126,7 @@ async function startAllSchedulerLoops(): Promise<void> {
       "dialysis", "sms_reminder",
       "job_engine_eta", "job_engine_autoassign",
       "orchestrator", "routes_worker", "breadcrumb_flusher", "route_optimizer", "trip_grouping",
+      "medicaid_auto_submit", "driver_preference_learning",
     ],
     ts: new Date().toISOString(),
   }));

@@ -15,10 +15,14 @@ import {
   medicaidBillingCodes,
   medicaidClaims,
   medicaidRemittance,
+  ediClaims,
+  ediClaimEvents,
+  automationEvents,
   type MedicaidClaim,
   type MedicaidBillingCode,
 } from "@shared/schema";
 import { eq, and, lte, gte, isNull, or, sql, inArray, between, desc } from "drizzle-orm";
+import { createHarnessedTask, registerInterval, type HarnessedTask } from "./schedulerHarness";
 
 // ─── HCPCS Code Resolution ──────────────────────────────────────────────────
 
@@ -806,4 +810,212 @@ export async function getMedicaidDashboardStats(
     stats.totalBilledCents - stats.totalPaidCents;
 
   return stats;
+}
+
+// ─── Medicaid Claim Auto-Submission ──────────────────────────────────────────
+
+const AUTO_SUBMIT_INTERVAL_MS = 30 * 60_000; // Every 30 minutes
+
+/**
+ * Auto-submit all pending Medicaid claims (status "draft") for a given company.
+ * Validates each claim before transitioning to "submitted".
+ * Also processes EDI claims in "GENERATED" status -> "SUBMITTED".
+ *
+ * Returns counts of submitted, skipped (validation failures), and errored claims.
+ */
+export async function autoSubmitPendingClaims(
+  companyId: number,
+): Promise<{ medicaidSubmitted: number; ediSubmitted: number; skipped: number; errors: string[] }> {
+  let medicaidSubmitted = 0;
+  let ediSubmitted = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  // ── 1. Process Medicaid claims in "draft" status ──
+  const draftClaims = await db
+    .select()
+    .from(medicaidClaims)
+    .where(
+      and(
+        eq(medicaidClaims.companyId, companyId),
+        eq(medicaidClaims.status, "draft"),
+      ),
+    );
+
+  for (const claim of draftClaims) {
+    try {
+      // Validate the claim before submission
+      const validationErrors = validateClaim(claim);
+      if (validationErrors.length > 0) {
+        skipped++;
+        continue;
+      }
+
+      await db
+        .update(medicaidClaims)
+        .set({
+          status: "submitted",
+          submittedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(medicaidClaims.id, claim.id));
+
+      // Log the auto-submission event
+      await db.insert(automationEvents).values({
+        eventType: "MEDICAID_CLAIM_AUTO_SUBMITTED",
+        companyId,
+        payload: {
+          claimId: claim.id,
+          claimNumber: claim.claimNumber,
+          tripId: claim.tripId,
+          amountCents: claim.amountCents,
+          hcpcsCode: claim.hcpcsCode,
+        },
+      });
+
+      medicaidSubmitted++;
+    } catch (err: any) {
+      errors.push(`Medicaid claim ${claim.claimNumber}: ${err.message}`);
+    }
+  }
+
+  // ── 2. Process EDI claims in "GENERATED" status ──
+  const generatedEdiClaims = await db
+    .select()
+    .from(ediClaims)
+    .where(
+      and(
+        eq(ediClaims.companyId, companyId),
+        eq(ediClaims.status, "GENERATED"),
+      ),
+    );
+
+  for (const claim of generatedEdiClaims) {
+    try {
+      await db
+        .update(ediClaims)
+        .set({
+          status: "SUBMITTED",
+          submittedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(ediClaims.id, claim.id));
+
+      // Record EDI claim event
+      await db.insert(ediClaimEvents).values({
+        claimId: claim.id,
+        eventType: "AUTO_SUBMITTED",
+        description: `Claim auto-submitted by Medicaid auto-submit scheduler`,
+      });
+
+      // Log the auto-submission event
+      await db.insert(automationEvents).values({
+        eventType: "EDI_CLAIM_AUTO_SUBMITTED",
+        companyId,
+        payload: {
+          ediClaimId: claim.id,
+          claimNumber: claim.claimNumber,
+          tripId: claim.tripId,
+        },
+      });
+
+      ediSubmitted++;
+    } catch (err: any) {
+      errors.push(`EDI claim ${claim.claimNumber}: ${err.message}`);
+    }
+  }
+
+  return { medicaidSubmitted, ediSubmitted, skipped, errors };
+}
+
+/**
+ * Run a single cycle of the auto-submit scheduler.
+ * Finds all companies and processes their pending claims.
+ * Companies opt-in via the `medicaidAutoSubmit` setting stored in company settings
+ * (checked as a JSON field on the companies table or a dedicated flag).
+ * For now, any company that has at least one Medicaid or EDI claim is considered eligible.
+ */
+async function runAutoSubmitCycle(): Promise<void> {
+  // Find companies that have pending claims (draft Medicaid or GENERATED EDI)
+  const companiesWithDraftMedicaid = await db
+    .selectDistinct({ companyId: medicaidClaims.companyId })
+    .from(medicaidClaims)
+    .where(eq(medicaidClaims.status, "draft"));
+
+  const companiesWithGeneratedEdi = await db
+    .selectDistinct({ companyId: ediClaims.companyId })
+    .from(ediClaims)
+    .where(eq(ediClaims.status, "GENERATED"));
+
+  // Merge unique company IDs
+  const companyIdSet = new Set<number>();
+  for (const row of companiesWithDraftMedicaid) {
+    companyIdSet.add(row.companyId);
+  }
+  for (const row of companiesWithGeneratedEdi) {
+    companyIdSet.add(row.companyId);
+  }
+
+  if (companyIdSet.size === 0) {
+    console.log("[MEDICAID-AUTO-SUBMIT] No companies with pending claims, skipping cycle");
+    return;
+  }
+
+  let totalMedicaidSubmitted = 0;
+  let totalEdiSubmitted = 0;
+  let totalSkipped = 0;
+  let totalErrors = 0;
+
+  for (const companyId of companyIdSet) {
+    try {
+      const result = await autoSubmitPendingClaims(companyId);
+      totalMedicaidSubmitted += result.medicaidSubmitted;
+      totalEdiSubmitted += result.ediSubmitted;
+      totalSkipped += result.skipped;
+      totalErrors += result.errors.length;
+
+      if (result.errors.length > 0) {
+        console.warn(
+          `[MEDICAID-AUTO-SUBMIT] Company ${companyId} had ${result.errors.length} errors:`,
+          result.errors.slice(0, 5),
+        );
+      }
+    } catch (err: any) {
+      totalErrors++;
+      console.error(
+        `[MEDICAID-AUTO-SUBMIT] Failed processing company ${companyId}: ${err.message}`,
+      );
+    }
+  }
+
+  console.log(
+    JSON.stringify({
+      event: "medicaid_auto_submit_cycle_complete",
+      companiesProcessed: companyIdSet.size,
+      medicaidSubmitted: totalMedicaidSubmitted,
+      ediSubmitted: totalEdiSubmitted,
+      skipped: totalSkipped,
+      errors: totalErrors,
+      ts: new Date().toISOString(),
+    }),
+  );
+}
+
+// ─── Scheduler Registration ──────────────────────────────────────────────────
+
+let autoSubmitTask: HarnessedTask | null = null;
+
+export function startMedicaidAutoSubmitScheduler(): void {
+  if (autoSubmitTask) return;
+
+  autoSubmitTask = createHarnessedTask({
+    name: "medicaid_auto_submit",
+    lockKey: "scheduler:lock:medicaid_auto_submit",
+    lockTtlSeconds: 120,
+    timeoutMs: 300_000,
+    fn: runAutoSubmitCycle,
+  });
+
+  registerInterval("medicaid_auto_submit", AUTO_SUBMIT_INTERVAL_MS, autoSubmitTask);
+  console.log("[MEDICAID-AUTO-SUBMIT] Scheduler started (interval: 30min)");
 }

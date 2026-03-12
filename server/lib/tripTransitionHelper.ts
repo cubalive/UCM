@@ -315,6 +315,18 @@ export async function transitionTripStatus(
     }).catch(() => {});
   }
 
+  // When a trip is cancelled and had a driver, suggest reassignment alternatives
+  if (nextStatus === "CANCELLED" && updatedTrip.driverId) {
+    try {
+      const { autoReassignIfConfigured } = await import("./reassignmentEngine");
+      autoReassignIfConfigured(tripId).catch((err: any) => {
+        console.warn(`[TRANSITION] Reassignment suggestion failed for trip ${tripId}:`, err.message);
+      });
+    } catch (err: any) {
+      console.warn(`[TRANSITION] Failed to load reassignment engine:`, err.message);
+    }
+  }
+
   if (TERMINAL_STATUSES.includes(nextStatus)) {
     storage.revokeTokensForTrip(tripId).catch(() => {});
 

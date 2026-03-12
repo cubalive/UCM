@@ -2,6 +2,7 @@ import { db } from "../db";
 import { trips, drivers, companies, patients, autoAssignRuns, autoAssignRunCandidates, automationEvents, isVehicleCompatible } from "@shared/schema";
 import { eq, and, inArray, isNull, sql, ne, gte, lte } from "drizzle-orm";
 import { checkTripFeasibility } from "./tripFeasibility";
+import { getPreferenceScore } from "./driverPreferenceLearning";
 
 const COOLDOWN_MAP = new Map<number, number>();
 const COOLDOWN_MS = 30_000;
@@ -223,6 +224,14 @@ export async function scoreDriversForTrip(
     const hoursWorked = eligible ? await getDriverHoursWorkedToday(driver.id) : 0;
     const fatigueScore = eligible ? Math.max(0, 1 - (hoursWorked / SHIFT_LIMIT_HOURS)) : 0;
     const clinicAffinity = eligible ? await getClinicAffinityScore(driver.id, trip.clinicId) : 0;
+    const preferenceScore = eligible ? await getPreferenceScore(driver.id, {
+      pickupTime: trip.pickupTime,
+      pickupLat: Number(trip.pickupLat),
+      pickupLng: Number(trip.pickupLng),
+      pickupZip: trip.pickupZip,
+      mobilityRequirement: trip.mobilityRequirement,
+      routeDistanceMeters: trip.routeDistanceMeters,
+    }) : 0;
 
     let preferredBonus = 0;
     if (eligible && driver.id === patientPreferredDriverId) preferredBonus = 1000;
@@ -238,9 +247,10 @@ export async function scoreDriversForTrip(
       : 0;
 
     const clinicAffinityBonus = clinicAffinity * 200;
+    const preferenceBonus = preferenceScore * 100;
     const trackingPenalty = (driver.trackingStatus !== "OK" && driver.trackingStatus !== "UNKNOWN") ? -50 : 0;
 
-    const finalScore = baseScore + preferredBonus + clinicAffinityBonus + trackingPenalty;
+    const finalScore = baseScore + preferredBonus + clinicAffinityBonus + preferenceBonus + trackingPenalty;
 
     candidates.push({
       driverId: driver.id,
