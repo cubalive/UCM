@@ -10,6 +10,7 @@ import {
   autoGroupTrips,
   savingsReport,
 } from "../lib/tripGroupingEngine";
+import { findPickupClusterTrips } from "../lib/tripGroupingScheduler";
 
 const router = express.Router();
 
@@ -222,6 +223,44 @@ router.post(
 
       const ordered = await optimizeGroupPickupOrder(groupId);
       res.json({ ok: true, ordered });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── POST /api/trip-groups/pickup-clusters — Find pickup-based groupings ───
+router.post(
+  "/api/trip-groups/pickup-clusters",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.body.companyId || req.user?.companyId;
+      const date = req.body.date;
+
+      if (!companyId) {
+        return res.status(400).json({ error: "companyId is required" });
+      }
+      if (!date) {
+        return res.status(400).json({ error: "date is required" });
+      }
+
+      const suggestions = await findPickupClusterTrips(companyId, date);
+      res.json({
+        ok: true,
+        suggestions: suggestions.map((s) => ({
+          pickupArea: s.pickupArea,
+          type: s.type,
+          tripCount: s.trips.length,
+          trips: s.trips.map((t) => ({
+            id: t.id,
+            pickupTime: t.pickupTime,
+            pickupAddress: t.pickupAddress,
+            dropoffAddress: t.dropoffAddress,
+          })),
+        })),
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

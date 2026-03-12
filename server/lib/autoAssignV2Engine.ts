@@ -564,6 +564,22 @@ export async function assignTripAutomatically(
         reason: result.reason,
         runId: result.runId,
       }));
+
+      // Attempt auto-accept for high-rated drivers
+      try {
+        const { attemptAutoAccept } = await import("./driverAutoAcceptEngine");
+        const autoAcceptResult = await attemptAutoAccept(tripId, result.selectedDriverId);
+        if (autoAcceptResult.autoAccepted) {
+          console.log(JSON.stringify({
+            event: "auto_accept_applied",
+            tripId,
+            driverId: result.selectedDriverId,
+            reason: autoAcceptResult.reason,
+          }));
+        }
+      } catch (aaErr: any) {
+        console.warn(`[AUTO-ASSIGN] Auto-accept check failed for trip ${tripId}:`, aaErr.message);
+      }
     } else {
       console.log(JSON.stringify({
         event: "auto_assign_failed",

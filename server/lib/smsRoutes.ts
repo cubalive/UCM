@@ -17,6 +17,7 @@ import {
   processConfirmationLink,
   getConfirmationStats,
 } from "./smsConfirmationEngine";
+import { handleInboundSms } from "./sms/smsConversationEngine";
 
 const VALID_NOTIFY_STATUSES: TripNotifyStatus[] = [
   "scheduled",
@@ -358,53 +359,19 @@ export function registerSmsRoutes(app: Express) {
 
   app.post("/api/twilio/inbound", async (req, res) => {
     try {
-      const body = (req.body.Body || "").trim().toUpperCase();
       const rawFrom = req.body.From || "";
+      const body = (req.body.Body || "").trim();
+      const messageSid = req.body.MessageSid || undefined;
 
-      if (!rawFrom) {
+      if (!rawFrom || !body) {
         res.type("text/xml").send("<Response></Response>");
         return;
       }
 
-      const from = normalizePhone(rawFrom) || rawFrom;
-      const messageSid = req.body.MessageSid || undefined;
+      const result = await handleInboundSms(rawFrom, body, messageSid);
 
-      const stopWords = ["STOP", "UNSUBSCRIBE", "CANCEL", "QUIT", "END"];
-      const startWords = ["START", "UNSTOP"];
-
-      let responseText = "";
-
-      if (stopWords.includes(body)) {
-        await storage.setPhoneOptOut(from, true);
-        responseText = "You have been unsubscribed. Reply START to re-subscribe.";
-        console.log(`[SMS] Opt-out received from ${from}`);
-      } else if (startWords.includes(body)) {
-        await storage.setPhoneOptOut(from, false);
-        responseText = "You have been re-subscribed to notifications.";
-        console.log(`[SMS] Opt-in received from ${from}`);
-      } else {
-        // Try to process as a trip confirmation response (YES/NO/Y/N/CONFIRM/DECLINE)
-        try {
-          const confirmResult = await processConfirmationResponse(
-            from,
-            req.body.Body || "",
-            messageSid
-          );
-          if (confirmResult.handled) {
-            if (confirmResult.action === "confirmed") {
-              responseText = "Thank you! Your ride is confirmed. We look forward to serving you.";
-            } else if (confirmResult.action === "declined") {
-              responseText = "Your ride cancellation request has been noted. A dispatcher will follow up with you.";
-            }
-            console.log(`[SMS] Confirmation reply from ${from}: ${confirmResult.action} for trip ${confirmResult.tripId}`);
-          }
-        } catch (err: any) {
-          console.error(`[SMS] Confirmation processing error:`, err.message);
-        }
-      }
-
-      const twiml = responseText
-        ? `<Response><Message>${responseText}</Message></Response>`
+      const twiml = result.responseText
+        ? `<Response><Message>${result.responseText}</Message></Response>`
         : "<Response></Response>";
 
       res.type("text/xml").send(twiml);
