@@ -499,6 +499,211 @@ function CapacityForecastCard({ capacity }: { capacity: any }) {
   );
 }
 
+function AnalyticsDashboardSection() {
+  const { user } = useAuth();
+  const [dateRange, setDateRange] = useState(() => {
+    const end = new Date().toISOString().split("T")[0];
+    const start = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+    return { startDate: start, endDate: end };
+  });
+
+  const { data: analyticsData, isLoading: analyticsLoading } = useQuery<any>({
+    queryKey: ["/api/clinic/advanced-metrics", dateRange.startDate, dateRange.endDate],
+    queryFn: async () => {
+      const params = new URLSearchParams({ startDate: dateRange.startDate, endDate: dateRange.endDate });
+      const res = await fetch(`/api/clinic/advanced-metrics?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load analytics");
+      return res.json();
+    },
+    enabled: !!user?.clinicId,
+  });
+
+  const analytics = analyticsData as any;
+  const dailyData = analytics?.dailyData || [];
+  const statusBreakdown = analytics?.statusBreakdown || {};
+  const maxDailyTotal = Math.max(...dailyData.map((d: any) => d.total), 1);
+
+  const statusColors: Record<string, string> = {
+    COMPLETED: "#10b981",
+    CANCELLED: "#ef4444",
+    NO_SHOW: "#f59e0b",
+    SCHEDULED: "#6b7280",
+    ASSIGNED: "#6366f1",
+    EN_ROUTE_TO_PICKUP: "#3b82f6",
+    PICKED_UP: "#a855f7",
+    IN_PROGRESS: "#22c55e",
+  };
+
+  const totalStatusTrips = Object.values(statusBreakdown).reduce((s: number, v: any) => s + (v as number), 0) as number;
+
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden" data-testid="analytics-section">
+      <div className="px-5 py-4 border-b border-[#1e293b] flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-emerald-400" />
+          Analytics
+        </h2>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={dateRange.startDate}
+            onChange={(e) => setDateRange(r => ({ ...r, startDate: e.target.value }))}
+            className="bg-[#0a0f1e] border border-[#1e293b] text-white text-xs rounded px-2 py-1.5"
+          />
+          <span className="text-gray-600 text-xs">to</span>
+          <input
+            type="date"
+            value={dateRange.endDate}
+            onChange={(e) => setDateRange(r => ({ ...r, endDate: e.target.value }))}
+            className="bg-[#0a0f1e] border border-[#1e293b] text-white text-xs rounded px-2 py-1.5"
+          />
+        </div>
+      </div>
+
+      {analyticsLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : (
+        <div className="p-5 space-y-6">
+          {/* SLA Metrics Row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-emerald-400">{analytics?.onTimeRate ?? 0}%</p>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">On-Time Rate</p>
+            </div>
+            <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-amber-400">{analytics?.noShowRate ?? 0}%</p>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">No-Show Rate</p>
+            </div>
+            <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-white">{analytics?.avgWaitMinutes ?? 0}m</p>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">Avg Wait</p>
+            </div>
+            <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-white">{analytics?.summary?.total ?? 0}</p>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">Total Trips</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Trip Volume Chart */}
+            <div className="lg:col-span-2">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Trip Volume Over Time</h3>
+              <div className="space-y-1 max-h-[250px] overflow-y-auto">
+                {dailyData.length === 0 ? (
+                  <p className="text-xs text-gray-600 text-center py-6">No data for selected period</p>
+                ) : (
+                  dailyData.map((day: any, i: number) => (
+                    <div key={day.date} className="flex items-center gap-2 text-xs" data-testid={`chart-day-${i}`}>
+                      <span className="text-gray-500 w-[70px] shrink-0 font-mono text-[10px]">{day.date.slice(5)}</span>
+                      <div className="flex-1 h-5 bg-[#0a0f1e] rounded-sm overflow-hidden relative flex">
+                        {day.completed > 0 && (
+                          <div
+                            className="h-full bg-emerald-500/50"
+                            style={{ width: `${(day.completed / maxDailyTotal) * 100}%` }}
+                            title={`${day.completed} completed`}
+                          />
+                        )}
+                        {day.cancelled > 0 && (
+                          <div
+                            className="h-full bg-red-500/50"
+                            style={{ width: `${(day.cancelled / maxDailyTotal) * 100}%` }}
+                            title={`${day.cancelled} cancelled`}
+                          />
+                        )}
+                        {day.noShow > 0 && (
+                          <div
+                            className="h-full bg-amber-500/50"
+                            style={{ width: `${(day.noShow / maxDailyTotal) * 100}%` }}
+                            title={`${day.noShow} no-show`}
+                          />
+                        )}
+                        {(day.total - day.completed - day.cancelled - day.noShow) > 0 && (
+                          <div
+                            className="h-full bg-gray-500/30"
+                            style={{ width: `${((day.total - day.completed - day.cancelled - day.noShow) / maxDailyTotal) * 100}%` }}
+                          />
+                        )}
+                      </div>
+                      <span className="text-white font-medium w-6 text-right">{day.total}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              {dailyData.length > 0 && (
+                <div className="flex items-center gap-4 mt-3 text-[10px] text-gray-500">
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/50" /> Completed</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-500/50" /> Cancelled</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500/50" /> No-Show</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-gray-500/30" /> Other</span>
+                </div>
+              )}
+            </div>
+
+            {/* Status Breakdown Pie */}
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Status Breakdown</h3>
+              {totalStatusTrips === 0 ? (
+                <p className="text-xs text-gray-600 text-center py-6">No data</p>
+              ) : (
+                <div className="space-y-2">
+                  {Object.entries(statusBreakdown)
+                    .sort(([, a], [, b]) => (b as number) - (a as number))
+                    .map(([status, count]) => {
+                      const pct = ((count as number) / totalStatusTrips) * 100;
+                      const color = statusColors[status] || "#6b7280";
+                      return (
+                        <div key={status} className="space-y-1" data-testid={`status-${status}`}>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-400">{status.replace(/_/g, " ")}</span>
+                            <span className="text-white font-medium">{count as number} ({pct.toFixed(0)}%)</span>
+                          </div>
+                          <div className="h-2 bg-[#0a0f1e] rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${pct}%`, backgroundColor: color }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* On-time trend */}
+          {analytics?.weeklyOnTime?.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">On-Time Rate Trend (Weekly)</h3>
+              <div className="flex items-end gap-1 h-20">
+                {analytics.weeklyOnTime.map((w: any, i: number) => (
+                  <div
+                    key={w.week}
+                    className="flex-1 flex flex-col items-center gap-1"
+                    title={`Week of ${w.week}: ${w.rate}%`}
+                  >
+                    <span className="text-[9px] text-gray-500">{w.rate}%</span>
+                    <div
+                      className="w-full rounded-t transition-all"
+                      style={{
+                        height: `${Math.max(w.rate * 0.6, 4)}px`,
+                        backgroundColor: w.rate >= 90 ? "#10b981" : w.rate >= 75 ? "#f59e0b" : "#ef4444",
+                      }}
+                    />
+                    <span className="text-[8px] text-gray-600">{w.week.slice(5)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ClinicDashboard() {
   const { user } = useAuth();
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -861,6 +1066,8 @@ export default function ClinicDashboard() {
           )}
         </div>
       )}
+
+      <AnalyticsDashboardSection />
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4" data-testid="kpi-section">
         <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="stat-patients">

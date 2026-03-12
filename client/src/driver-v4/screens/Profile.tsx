@@ -1,15 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   ChevronLeft, User, Car, FileText, Volume2, Vibrate,
-  Eye, Navigation, Shield, Info, ChevronRight, Settings, ExternalLink, Star
+  Eye, Navigation, Shield, Info, ChevronRight, Settings, ExternalLink, Star,
+  Bell, BellOff, Zap, Clock, MapPin, Route, Sliders
 } from "lucide-react";
 import { useDriverStore } from "../store/driverStore";
 import { colors } from "../design/tokens";
 import { glowColor } from "../design/theme";
 import { GlassCard } from "../components/ui/GlassCard";
 import { NebulaBackground } from "../components/ui/MapOverlay";
-import { resolveUrl } from "@/lib/api";
+import { resolveUrl, getStoredToken } from "@/lib/api";
+import { DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
+import { useNotifications } from "../hooks/useNotifications";
 
 function ProfileVersionDisplay() {
   const [buildVersion, setBuildVersion] = useState("...");
@@ -125,6 +128,57 @@ function ToggleRow({
   );
 }
 
+/* ─── Slider control for preferences ─── */
+function PreferenceSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  unit,
+  onChange,
+  accent = colors.sunrise,
+  testID,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  unit: string;
+  onChange: (v: number) => void;
+  accent?: string;
+  testID: string;
+}) {
+  return (
+    <div className="py-2 px-1" data-testid={testID}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs" style={{ color: colors.textSecondary }}>{label}</span>
+        <span className="text-xs font-bold tabular-nums" style={{ color: accent }}>
+          {value}{unit}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+        style={{
+          background: `linear-gradient(to right, ${accent} 0%, ${accent} ${((value - min) / (max - min)) * 100}%, rgba(0,0,0,0.08) ${((value - min) / (max - min)) * 100}%, rgba(0,0,0,0.08) 100%)`,
+          accentColor: accent,
+        }}
+      />
+      <div className="flex justify-between mt-1">
+        <span className="text-[9px]" style={{ color: colors.textTertiary }}>{min}{unit}</span>
+        <span className="text-[9px]" style={{ color: colors.textTertiary }}>{max}{unit}</span>
+      </div>
+    </div>
+  );
+}
+
 export function Profile({ onBack }: { onBack: () => void }) {
   const navPreference = useDriverStore((s) => s.navPreference);
   const setNavPreference = useDriverStore((s) => s.setNavPreference);
@@ -139,10 +193,32 @@ export function Profile({ onBack }: { onBack: () => void }) {
   const [vehicleInfo, setVehicleInfo] = useState("Loading...");
   const [documentCount, setDocumentCount] = useState<number | null>(null);
 
-  useEffect(() => {
-    const token = localStorage.getItem("ucm_driver_token") || "";
-    const headers: Record<string, string> = {};
+  // Auto-accept state
+  const [autoAcceptEnabled, setAutoAcceptEnabled] = useState(false);
+  const [autoAcceptLoading, setAutoAcceptLoading] = useState(false);
+  const [maxDistance, setMaxDistance] = useState(15);
+  const [preferredTimeStart, setPreferredTimeStart] = useState(6);
+  const [preferredTimeEnd, setPreferredTimeEnd] = useState(22);
+  const [preferredServiceTypes, setPreferredServiceTypes] = useState<string[]>([]);
+  const [learnedPreferences, setLearnedPreferences] = useState<{
+    topServiceTypes?: string[];
+    avgDistance?: number;
+    peakHours?: string;
+    acceptRate?: number;
+  } | null>(null);
+
+  // Notification hook
+  const { status: notifStatus, isSupported: notifSupported, requestPermission } = useNotifications();
+
+  const getHeaders = useCallback(() => {
+    const token = localStorage.getItem(DRIVER_TOKEN_KEY) || getStoredToken() || "";
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
+  }, []);
+
+  useEffect(() => {
+    const headers = getHeaders();
 
     fetch(resolveUrl("/api/driver/me"), { headers })
       .then((r) => r.ok ? r.json() : null)
@@ -161,7 +237,77 @@ export function Profile({ onBack }: { onBack: () => void }) {
         }
       })
       .catch(() => setVehicleInfo("No vehicle assigned"));
-  }, []);
+
+    // Fetch auto-accept settings
+    fetch(resolveUrl("/api/driver/settings"), { headers })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) {
+          setAutoAcceptEnabled(data.autoAcceptEnabled ?? false);
+          setMaxDistance(data.maxDistance ?? 15);
+          setPreferredTimeStart(data.preferredTimeStart ?? 6);
+          setPreferredTimeEnd(data.preferredTimeEnd ?? 22);
+          setPreferredServiceTypes(data.preferredServiceTypes ?? []);
+          if (data.learnedPreferences) {
+            setLearnedPreferences(data.learnedPreferences);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [getHeaders]);
+
+  const saveAutoAcceptSettings = useCallback((updates: Record<string, any>) => {
+    setAutoAcceptLoading(true);
+    const headers = getHeaders();
+
+    fetch(resolveUrl("/api/driver/settings"), {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(updates),
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .finally(() => setAutoAcceptLoading(false));
+  }, [getHeaders]);
+
+  const handleAutoAcceptToggle = useCallback((enabled: boolean) => {
+    setAutoAcceptEnabled(enabled);
+    saveAutoAcceptSettings({ autoAcceptEnabled: enabled });
+  }, [saveAutoAcceptSettings]);
+
+  const handleMaxDistanceChange = useCallback((value: number) => {
+    setMaxDistance(value);
+    saveAutoAcceptSettings({ maxDistance: value });
+  }, [saveAutoAcceptSettings]);
+
+  const handleTimeStartChange = useCallback((value: number) => {
+    setPreferredTimeStart(value);
+    saveAutoAcceptSettings({ preferredTimeStart: value });
+  }, [saveAutoAcceptSettings]);
+
+  const handleTimeEndChange = useCallback((value: number) => {
+    setPreferredTimeEnd(value);
+    saveAutoAcceptSettings({ preferredTimeEnd: value });
+  }, [saveAutoAcceptSettings]);
+
+  const toggleServiceType = useCallback((serviceType: string) => {
+    setPreferredServiceTypes((prev) => {
+      const next = prev.includes(serviceType)
+        ? prev.filter((s) => s !== serviceType)
+        : [...prev, serviceType];
+      saveAutoAcceptSettings({ preferredServiceTypes: next });
+      return next;
+    });
+  }, [saveAutoAcceptSettings]);
+
+  const serviceTypeOptions = [
+    { key: "ambulatory", label: "Ambulatory" },
+    { key: "wheelchair", label: "Wheelchair" },
+    { key: "stretcher", label: "Stretcher" },
+    { key: "bariatric", label: "Bariatric" },
+    { key: "gurney", label: "Gurney" },
+    { key: "long_distance", label: "Long Distance" },
+    { key: "delivery", label: "Delivery" },
+  ];
 
   const navLabels = { ask: "Ask", google: "Google", apple: "Apple", waze: "Waze" };
   const navOptions: ("ask" | "google" | "apple" | "waze")[] = ["ask", "google", "apple", "waze"];
@@ -257,6 +403,204 @@ export function Profile({ onBack }: { onBack: () => void }) {
           <SettingsRow icon={<Car className="w-4 h-4" />} label="Vehicle Info" value={vehicleInfo} testID="row-vehicle" />
           <SettingsRow icon={<FileText className="w-4 h-4" />} label="Documents" value={documentCount !== null ? `${documentCount} uploaded` : "-"} accent={colors.sky} testID="row-documents" />
           <SettingsRow icon={<Shield className="w-4 h-4" />} label="Safety" accent={colors.danger} testID="row-safety" />
+        </GlassCard>
+
+        {/* Auto-Accept Preferences */}
+        <GlassCard variant="default" testID="card-auto-accept" className="!p-4">
+          <p className="text-[10px] uppercase tracking-wider mb-1 px-1 font-semibold" style={{ color: colors.textTertiary }}>
+            Auto-Accept
+          </p>
+          <ToggleRow
+            icon={<Zap className="w-4 h-4" />}
+            label="Auto-Accept Trips"
+            value={autoAcceptEnabled}
+            onChange={handleAutoAcceptToggle}
+            accent={colors.success}
+            testID="toggle-auto-accept"
+          />
+
+          {autoAcceptEnabled && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-2 space-y-1"
+            >
+              <PreferenceSlider
+                label="Max Distance"
+                value={maxDistance}
+                min={1}
+                max={50}
+                step={1}
+                unit=" mi"
+                onChange={handleMaxDistanceChange}
+                accent={colors.sky}
+                testID="slider-max-distance"
+              />
+              <PreferenceSlider
+                label="Available From"
+                value={preferredTimeStart}
+                min={0}
+                max={23}
+                step={1}
+                unit=":00"
+                onChange={handleTimeStartChange}
+                accent={colors.sunrise}
+                testID="slider-time-start"
+              />
+              <PreferenceSlider
+                label="Available Until"
+                value={preferredTimeEnd}
+                min={1}
+                max={24}
+                step={1}
+                unit=":00"
+                onChange={handleTimeEndChange}
+                accent={colors.sunrise}
+                testID="slider-time-end"
+              />
+
+              {/* Service type preferences */}
+              <div className="pt-2 px-1">
+                <p className="text-[10px] uppercase tracking-wider mb-2 font-semibold" style={{ color: colors.textTertiary }}>
+                  Service Types
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {serviceTypeOptions.map((opt) => {
+                    const isActive = preferredServiceTypes.includes(opt.key);
+                    return (
+                      <button
+                        key={opt.key}
+                        onClick={() => toggleServiceType(opt.key)}
+                        className="px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all"
+                        style={{
+                          background: isActive ? glowColor(colors.sunrise, 0.12) : "rgba(0,0,0,0.03)",
+                          color: isActive ? colors.sunrise : colors.textTertiary,
+                          border: `1px solid ${isActive ? glowColor(colors.sunrise, 0.2) : "rgba(0,0,0,0.04)"}`,
+                        }}
+                        data-testid={`service-pref-${opt.key}`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {preferredServiceTypes.length === 0 && (
+                  <p className="text-[9px] mt-1.5" style={{ color: colors.textTertiary }}>
+                    No filter — all service types accepted
+                  </p>
+                )}
+              </div>
+
+              {/* Learned preferences display */}
+              {learnedPreferences && (
+                <div className="pt-3 px-1">
+                  <p className="text-[10px] uppercase tracking-wider mb-2 font-semibold" style={{ color: colors.textTertiary }}>
+                    Learned Preferences
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {learnedPreferences.topServiceTypes && learnedPreferences.topServiceTypes.length > 0 && (
+                      <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                        <Route className="w-3.5 h-3.5" style={{ color: colors.sky }} />
+                        <div>
+                          <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Top Types</p>
+                          <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>
+                            {learnedPreferences.topServiceTypes.slice(0, 2).join(", ")}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {learnedPreferences.avgDistance != null && (
+                      <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                        <MapPin className="w-3.5 h-3.5" style={{ color: colors.success }} />
+                        <div>
+                          <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Avg Dist</p>
+                          <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>
+                            {learnedPreferences.avgDistance.toFixed(1)} mi
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {learnedPreferences.peakHours && (
+                      <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                        <Clock className="w-3.5 h-3.5" style={{ color: colors.warning }} />
+                        <div>
+                          <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Peak Hours</p>
+                          <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>
+                            {learnedPreferences.peakHours}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {learnedPreferences.acceptRate != null && (
+                      <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                        <Zap className="w-3.5 h-3.5" style={{ color: colors.sunrise }} />
+                        <div>
+                          <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Accept Rate</p>
+                          <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>
+                            {(learnedPreferences.acceptRate * 100).toFixed(0)}%
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </GlassCard>
+
+        {/* Notifications */}
+        <GlassCard variant="default" testID="card-notifications" className="!p-4">
+          <p className="text-[10px] uppercase tracking-wider mb-1 px-1 font-semibold" style={{ color: colors.textTertiary }}>
+            Notifications
+          </p>
+          <div className="flex items-center justify-between py-3 px-1 border-b" style={{ borderColor: "rgba(0,0,0,0.04)" }}>
+            <div className="flex items-center gap-3">
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center"
+                style={{ background: glowColor(notifStatus === "granted" ? colors.success : colors.warning, 0.08) }}
+              >
+                {notifStatus === "granted" ? (
+                  <Bell className="w-4 h-4" style={{ color: colors.success }} />
+                ) : (
+                  <BellOff className="w-4 h-4" style={{ color: colors.warning }} />
+                )}
+              </div>
+              <div>
+                <span className="text-sm" style={{ color: colors.textPrimary }}>Push Notifications</span>
+                <p className="text-[10px]" style={{ color: colors.textTertiary }}>
+                  {notifStatus === "granted"
+                    ? "Enabled — you'll receive trip alerts"
+                    : notifStatus === "denied"
+                    ? "Blocked — enable in browser settings"
+                    : !notifSupported
+                    ? "Not supported in this browser"
+                    : "Tap to enable notifications"}
+                </p>
+              </div>
+            </div>
+            {notifStatus !== "granted" && notifStatus !== "denied" && notifSupported && (
+              <button
+                onClick={requestPermission}
+                className="px-3 py-1.5 rounded-full text-[10px] font-semibold"
+                style={{
+                  background: glowColor(colors.sunrise, 0.1),
+                  color: colors.sunrise,
+                  border: `1px solid ${glowColor(colors.sunrise, 0.15)}`,
+                }}
+                data-testid="btn-enable-notifications"
+              >
+                Enable
+              </button>
+            )}
+            {notifStatus === "granted" && (
+              <div
+                className="w-2.5 h-2.5 rounded-full"
+                style={{ background: colors.success, boxShadow: `0 0 8px ${glowColor(colors.success, 0.4)}` }}
+              />
+            )}
+          </div>
         </GlassCard>
 
         {/* Legal */}

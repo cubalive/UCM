@@ -9,6 +9,8 @@ import {
   AlertTriangle,
   TrendingUp,
   ArrowRight,
+  Star,
+  MessageSquare,
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -238,6 +240,104 @@ export default function PharmacyDashboard() {
           <span>{summary.delivered} delivered</span>
           <span>{summary.totalToday} total</span>
         </div>
+      </div>
+
+      {/* Customer Feedback Section */}
+      <CustomerFeedbackSection token={token!} />
+    </div>
+  );
+}
+
+function CustomerFeedbackSection({ token }: { token: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/pharmacy/feedback"],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/api/pharmacy/feedback`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load feedback");
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 animate-pulse">
+        <div className="h-4 bg-gray-700 rounded w-32 mb-4" />
+        <div className="h-24 bg-gray-800 rounded" />
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { summary: feedbackSummary, feedback } = data;
+  const recentWithComments = feedback?.filter((f: any) => f.comment).slice(0, 5) || [];
+
+  function StarRating({ rating }: { rating: number }) {
+    return (
+      <div className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`w-3 h-3 ${star <= rating ? "text-amber-400 fill-amber-400" : "text-gray-700"}`}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-[#111827] border border-[#1e293b] rounded-xl">
+      <div className="px-5 py-4 border-b border-[#1e293b] flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-violet-400" />
+          Customer Feedback
+        </h2>
+      </div>
+      <div className="p-5">
+        {/* Rating summary */}
+        <div className="flex items-center gap-6 mb-5">
+          <div className="text-center">
+            <p className="text-4xl font-bold text-white">{feedbackSummary?.averageRating?.toFixed(1) || "0.0"}</p>
+            <StarRating rating={Math.round(feedbackSummary?.averageRating || 0)} />
+            <p className="text-[10px] text-gray-500 mt-1">{feedbackSummary?.totalRatings || 0} ratings</p>
+          </div>
+          <div className="flex-1 space-y-1">
+            {feedbackSummary?.ratingDistribution?.map((d: any) => (
+              <div key={d.stars} className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-500 w-3">{d.stars}</span>
+                <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                <div className="flex-1 bg-[#1e293b] rounded-full h-1.5">
+                  <div
+                    className="bg-amber-400 h-1.5 rounded-full"
+                    style={{ width: `${feedbackSummary.totalRatings > 0 ? (d.count / feedbackSummary.totalRatings) * 100 : 0}%` }}
+                  />
+                </div>
+                <span className="text-[10px] text-gray-600 w-6 text-right">{d.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent comments */}
+        {recentWithComments.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500 font-medium">Recent Comments</p>
+            {recentWithComments.map((f: any) => (
+              <div key={f.orderId} className="bg-[#0a0f1e] rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-white font-medium">{f.recipientName}</span>
+                  <StarRating rating={f.rating} />
+                </div>
+                <p className="text-xs text-gray-400">{f.comment}</p>
+                <p className="text-[10px] text-gray-600 mt-1">
+                  {f.deliveredAt ? new Date(f.deliveredAt).toLocaleDateString() : "---"}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

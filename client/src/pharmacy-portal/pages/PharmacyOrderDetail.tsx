@@ -337,6 +337,11 @@ export default function PharmacyOrderDetail() {
         </div>
       )}
 
+      {/* Temperature Monitoring (for cold-chain orders) */}
+      {order.temperatureRequirement !== "AMBIENT" && (
+        <TemperatureMonitor orderId={order.id} token={token!} />
+      )}
+
       {/* Timeline */}
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5">
         <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
@@ -361,6 +366,123 @@ export default function PharmacyOrderDetail() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TemperatureMonitor({ orderId, token }: { orderId: number; token: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/pharmacy/orders", orderId, "temperature-log"],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/api/pharmacy/orders/${orderId}/temperature-log`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load temperature log");
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 animate-pulse">
+        <div className="h-4 bg-gray-700 rounded w-40 mb-4" />
+        <div className="h-24 bg-gray-800 rounded" />
+      </div>
+    );
+  }
+
+  if (!data || !data.isColdChain) return null;
+
+  const readings = data.readings || [];
+  const hasExcursion = data.hasExcursion;
+
+  // Find min/max actual temperatures
+  const temps = readings.map((r: any) => r.temperatureC);
+  const minActual = temps.length > 0 ? Math.min(...temps) : 0;
+  const maxActual = temps.length > 0 ? Math.max(...temps) : 0;
+
+  // Simple sparkline-like display
+  const tempRange = (data.maxTempC - data.minTempC) || 1;
+
+  return (
+    <div className="space-y-4">
+      {/* Excursion Alert */}
+      {hasExcursion && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-red-400">Temperature Excursion Detected</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Temperature readings went outside the acceptable range ({data.minTempC}C to {data.maxTempC}C).
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Thermometer className="w-4 h-4 text-blue-400" />
+            Temperature Monitoring
+          </h3>
+          <div className="flex items-center gap-3">
+            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+              data.currentStatus === "MONITORING" ? "bg-blue-500/10 text-blue-400" :
+              data.currentStatus === "COMPLETED" ? "bg-emerald-500/10 text-emerald-400" :
+              "bg-gray-800 text-gray-500"
+            }`}>
+              {data.currentStatus === "MONITORING" ? "Live Monitoring" :
+               data.currentStatus === "COMPLETED" ? "Complete" : "N/A"}
+            </span>
+          </div>
+        </div>
+
+        {/* Temperature Stats */}
+        <div className="grid grid-cols-4 gap-3 mb-4">
+          <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase">Target</p>
+            <p className="text-lg font-bold text-white">{data.targetTempC}°C</p>
+          </div>
+          <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase">Range</p>
+            <p className="text-lg font-bold text-blue-400">{data.minTempC}° — {data.maxTempC}°C</p>
+          </div>
+          <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase">Actual Min</p>
+            <p className={`text-lg font-bold ${minActual < data.minTempC ? "text-red-400" : "text-emerald-400"}`}>{minActual.toFixed(1)}°C</p>
+          </div>
+          <div className="bg-[#0a0f1e] rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase">Actual Max</p>
+            <p className={`text-lg font-bold ${maxActual > data.maxTempC ? "text-red-400" : "text-emerald-400"}`}>{maxActual.toFixed(1)}°C</p>
+          </div>
+        </div>
+
+        {/* Temperature Timeline (simple bar representation) */}
+        {readings.length > 0 && (
+          <div>
+            <p className="text-[10px] text-gray-500 mb-2">{readings.length} readings</p>
+            <div className="flex items-end gap-px h-16">
+              {readings.slice(-48).map((r: any, i: number) => {
+                const normalizedPos = ((r.temperatureC - data.minTempC) / tempRange) * 100;
+                const clampedPos = Math.max(5, Math.min(95, normalizedPos));
+                return (
+                  <div
+                    key={i}
+                    className={`flex-1 rounded-sm ${r.isExcursion ? "bg-red-500" : "bg-blue-500/70"}`}
+                    style={{ height: `${clampedPos}%` }}
+                    title={`${new Date(r.timestamp).toLocaleTimeString()}: ${r.temperatureC}°C`}
+                  />
+                );
+              })}
+            </div>
+            <div className="flex justify-between text-[9px] text-gray-600 mt-1">
+              <span>{readings.length > 0 ? new Date(readings[Math.max(0, readings.length - 48)].timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+              <span>{readings.length > 0 ? new Date(readings[readings.length - 1].timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+            </div>
           </div>
         )}
       </div>

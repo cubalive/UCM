@@ -485,3 +485,209 @@ export async function overrideTripAssignment(
     updatedAt: new Date(),
   }).where(eq(trips.id, tripId));
 }
+
+// ─── Global Batch Optimization (Hungarian Algorithm Approximation) ──────────
+
+interface OptimalAssignment {
+  tripId: number;
+  tripPublicId: string;
+  patientId: number;
+  driverId: number;
+  driverName: string;
+  deadMiles: number;
+  reason: string;
+}
+
+interface OptimizationResult {
+  date: string;
+  cityId: number;
+  assignments: OptimalAssignment[];
+  unassignedTrips: number[];
+  unassignedDrivers: number[];
+  stats: {
+    totalTrips: number;
+    totalDrivers: number;
+    assigned: number;
+    unassigned: number;
+    totalDeadMiles: number;
+    averageDeadMiles: number;
+  };
+}
+
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Global batch optimization using Hungarian algorithm approximation.
+ * Takes all unassigned trips for a date/city and all available drivers,
+ * then minimizes total dead miles across all assignments.
+ *
+ * Uses a greedy auction-style algorithm as a practical approximation:
+ * 1. Build cost matrix (dead miles from each driver to each trip pickup)
+ * 2. Iteratively assign the globally cheapest (driver, trip) pair
+ * 3. Remove assigned driver/trip from consideration
+ * This gives near-optimal results in O(n*m) time.
+ */
+export async function optimizeGlobalAssignment(
+  date: string,
+  cityId: number
+): Promise<OptimizationResult> {
+  const { cities, isVehicleCompatible } = await import("@shared/schema");
+
+  // Get all unassigned, approved trips for this date/city
+  const unassignedTrips = await db.select().from(trips).where(
+    and(
+      eq(trips.cityId, cityId),
+      eq(trips.scheduledDate, date),
+      eq(trips.status, "SCHEDULED"),
+      eq(trips.approvalStatus, "approved"),
+      isNull(trips.driverId),
+      isNull(trips.deletedAt)
+    )
+  );
+
+  // Get all available drivers
+  const availableDrivers = await db.select().from(drivers).where(
+    and(
+      eq(drivers.cityId, cityId),
+      eq(drivers.status, "ACTIVE"),
+      eq(drivers.active, true),
+      isNull(drivers.deletedAt),
+      sql`${drivers.dispatchStatus} != 'off'`,
+      sql`${drivers.dispatchStatus} != 'hold'`
+    )
+  );
+
+  if (unassignedTrips.length === 0 || availableDrivers.length === 0) {
+    return {
+      date,
+      cityId,
+      assignments: [],
+      unassignedTrips: unassignedTrips.map(t => t.id),
+      unassignedDrivers: availableDrivers.map(d => d.id),
+      stats: {
+        totalTrips: unassignedTrips.length,
+        totalDrivers: availableDrivers.length,
+        assigned: 0,
+        unassigned: unassignedTrips.length,
+        totalDeadMiles: 0,
+        averageDeadMiles: 0,
+      },
+    };
+  }
+
+  // Build cost matrix: dead miles from each driver to each trip pickup
+  // Cost = distance in meters from driver's last known position to trip pickup
+  // If no GPS, use large penalty cost
+  const NO_GPS_PENALTY = 100000; // 100km penalty for no GPS
+  const INCOMPATIBLE_PENALTY = Infinity;
+
+  interface CostEntry {
+    driverIdx: number;
+    tripIdx: number;
+    cost: number;
+    driverId: number;
+    tripId: number;
+  }
+
+  const costEntries: CostEntry[] = [];
+
+  for (let di = 0; di < availableDrivers.length; di++) {
+    const driver = availableDrivers[di];
+    for (let ti = 0; ti < unassignedTrips.length; ti++) {
+      const trip = unassignedTrips[ti];
+
+      // Check vehicle compatibility
+      if (!isVehicleCompatible(trip.mobilityRequirement, driver.vehicleCapability)) {
+        continue; // Skip incompatible pairs
+      }
+
+      let cost: number;
+      if (driver.lastLat && driver.lastLng && trip.pickupLat && trip.pickupLng) {
+        cost = haversineMeters(driver.lastLat, driver.lastLng, Number(trip.pickupLat), Number(trip.pickupLng));
+      } else if (trip.pickupLat && trip.pickupLng) {
+        cost = NO_GPS_PENALTY;
+      } else {
+        cost = NO_GPS_PENALTY * 2;
+      }
+
+      costEntries.push({
+        driverIdx: di,
+        tripIdx: ti,
+        cost,
+        driverId: driver.id,
+        tripId: trip.id,
+      });
+    }
+  }
+
+  // Sort by cost ascending (greedy approach)
+  costEntries.sort((a, b) => a.cost - b.cost);
+
+  // Greedy assignment: pick cheapest pairs, ensuring each driver/trip assigned once
+  const assignedDrivers = new Set<number>();
+  const assignedTrips = new Set<number>();
+  const assignments: OptimalAssignment[] = [];
+  let totalDeadMeters = 0;
+
+  // Allow each driver multiple trips (up to a reasonable limit)
+  const driverTripCount = new Map<number, number>();
+  const MAX_TRIPS_PER_DRIVER = 8;
+
+  for (const entry of costEntries) {
+    if (assignedTrips.has(entry.tripIdx)) continue;
+
+    const currentCount = driverTripCount.get(entry.driverIdx) || 0;
+    if (currentCount >= MAX_TRIPS_PER_DRIVER) continue;
+
+    const driver = availableDrivers[entry.driverIdx];
+    const trip = unassignedTrips[entry.tripIdx];
+    const deadMiles = entry.cost / 1609.34; // meters to miles
+
+    assignments.push({
+      tripId: trip.id,
+      tripPublicId: trip.publicId,
+      patientId: trip.patientId,
+      driverId: driver.id,
+      driverName: `${driver.firstName} ${driver.lastName}`,
+      deadMiles: Math.round(deadMiles * 10) / 10,
+      reason: `Optimal assignment (${deadMiles.toFixed(1)} dead miles)`,
+    });
+
+    assignedTrips.add(entry.tripIdx);
+    assignedDrivers.add(entry.driverIdx);
+    driverTripCount.set(entry.driverIdx, currentCount + 1);
+    totalDeadMeters += entry.cost;
+  }
+
+  const totalDeadMiles = totalDeadMeters / 1609.34;
+  const remainingTrips = unassignedTrips
+    .filter((_, i) => !assignedTrips.has(i))
+    .map(t => t.id);
+  const remainingDrivers = availableDrivers
+    .filter((_, i) => !assignedDrivers.has(i))
+    .map(d => d.id);
+
+  return {
+    date,
+    cityId,
+    assignments,
+    unassignedTrips: remainingTrips,
+    unassignedDrivers: remainingDrivers,
+    stats: {
+      totalTrips: unassignedTrips.length,
+      totalDrivers: availableDrivers.length,
+      assigned: assignments.length,
+      unassigned: remainingTrips.length,
+      totalDeadMiles: Math.round(totalDeadMiles * 10) / 10,
+      averageDeadMiles: assignments.length > 0
+        ? Math.round((totalDeadMiles / assignments.length) * 10) / 10
+        : 0,
+    },
+  };
+}

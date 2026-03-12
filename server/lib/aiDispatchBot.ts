@@ -46,6 +46,53 @@ interface BotResponse {
   actions: Array<{ type: string; detail: string; entityId?: number }>;
   confidence: number;
   suggestions?: string[];
+  /** Whether the bot is asking a clarifying question */
+  needsClarification?: boolean;
+  /** Pending action waiting for user confirmation */
+  pendingAction?: { type: string; data: Record<string, any> } | null;
+}
+
+// ─── Conversation Context Tracking ──────────────────────────────────────────
+
+interface ConversationContext {
+  /** Last intent classified */
+  lastIntent: Intent | null;
+  /** Accumulated entities across conversation turns */
+  accumulatedEntities: ExtractedEntities;
+  /** Pending action awaiting confirmation (e.g., trip creation, reassignment) */
+  pendingAction: { type: string; data: Record<string, any> } | null;
+  /** Number of turns in this conversation */
+  turnCount: number;
+}
+
+const sessionContexts = new Map<number, ConversationContext>();
+
+function getSessionContext(sessionId: number): ConversationContext {
+  if (!sessionContexts.has(sessionId)) {
+    sessionContexts.set(sessionId, {
+      lastIntent: null,
+      accumulatedEntities: {},
+      pendingAction: null,
+      turnCount: 0,
+    });
+  }
+  return sessionContexts.get(sessionId)!;
+}
+
+function mergeEntities(existing: ExtractedEntities, incoming: ExtractedEntities): ExtractedEntities {
+  return {
+    patientName: incoming.patientName || existing.patientName,
+    patientId: incoming.patientId || existing.patientId,
+    driverId: incoming.driverId || existing.driverId,
+    driverName: incoming.driverName || existing.driverName,
+    tripId: incoming.tripId || existing.tripId,
+    address: incoming.address || existing.address,
+    date: incoming.date || existing.date,
+    time: incoming.time || existing.time,
+    clinicName: incoming.clinicName || existing.clinicName,
+    clinicId: incoming.clinicId || existing.clinicId,
+    mobilityType: incoming.mobilityType || existing.mobilityType,
+  };
 }
 
 // ─── Pattern-Based Intent Classifier ─────────────────────────────────────────
@@ -441,6 +488,146 @@ I understand English and Spanish. Just type naturally!`,
   };
 }
 
+// ─── Reassignment Handler ────────────────────────────────────────────────────
+
+async function handleReassign(entities: ExtractedEntities, companyId: number): Promise<Partial<BotResponse>> {
+  if (!entities.tripId) {
+    return { message: "Please specify a trip ID. Example: \"Reassign driver for trip #1234\"", actions: [] };
+  }
+
+  const [trip] = await db.select().from(trips).where(eq(trips.id, entities.tripId));
+  if (!trip) {
+    return { message: `Trip #${entities.tripId} not found.`, actions: [] };
+  }
+
+  if (!trip.driverId) {
+    return {
+      message: `Trip #${entities.tripId} has no driver assigned yet. Use auto-assign or specify a driver.`,
+      actions: [],
+      suggestions: ["Available drivers", `Status of trip #${entities.tripId}`],
+    };
+  }
+
+  // If a target driver is specified, perform the reassignment
+  if (entities.driverId) {
+    const [newDriver] = await db.select().from(drivers).where(eq(drivers.id, entities.driverId));
+    if (!newDriver) {
+      return { message: `Driver #${entities.driverId} not found.`, actions: [] };
+    }
+
+    try {
+      await db.update(trips).set({
+        driverId: entities.driverId,
+        assignmentSource: "chatbot_reassign",
+        assignmentReason: `Reassigned via AI chatbot from driver #${trip.driverId}`,
+        updatedAt: new Date(),
+      } as any).where(eq(trips.id, entities.tripId!));
+
+      return {
+        message: `Trip #${entities.tripId} reassigned to ${newDriver.firstName} ${newDriver.lastName} (ID: ${newDriver.id}).`,
+        actions: [{ type: "trip_reassigned", detail: `Reassigned to driver #${entities.driverId}`, entityId: entities.tripId }],
+      };
+    } catch (err: any) {
+      return {
+        message: `Error reassigning trip: ${err.message}`,
+        actions: [{ type: "error", detail: err.message }],
+      };
+    }
+  }
+
+  // No target driver specified - show available drivers and return pending action
+  const availableDrivers = await db.select({
+    id: drivers.id,
+    firstName: drivers.firstName,
+    lastName: drivers.lastName,
+    dispatchStatus: drivers.dispatchStatus,
+  }).from(drivers).where(
+    and(
+      eq(drivers.companyId, companyId),
+      eq(drivers.status, "ACTIVE"),
+      eq(drivers.dispatchStatus, "available"),
+      isNull(drivers.deletedAt)
+    )
+  );
+
+  const driverList = availableDrivers.slice(0, 8).map(d =>
+    `  - ${d.firstName} ${d.lastName} (ID: ${d.id})`
+  ).join("\n") || "  None available";
+
+  return {
+    message: `Trip #${entities.tripId} is currently assigned. Available drivers:\n${driverList}\n\nTo reassign, say "Reassign trip #${entities.tripId} to driver #<ID>"`,
+    actions: [],
+    pendingAction: { type: "reassign", data: { tripId: entities.tripId } },
+    suggestions: availableDrivers.slice(0, 3).map(d => `Reassign trip #${entities.tripId} to driver #${d.id}`),
+  };
+}
+
+// ─── Trip Creation Confirmation Flow ─────────────────────────────────────────
+
+async function handleTripCreationConfirmation(
+  context: ConversationContext,
+  userMessage: string,
+  companyId: number,
+  cityId: number | null
+): Promise<Partial<BotResponse> | null> {
+  if (!context.pendingAction || context.pendingAction.type !== "confirm_trip") return null;
+
+  const isYes = /^(yes|y|si|confirm|ok|sure|go|do it|create)/i.test(userMessage.trim());
+  const isNo = /^(no|n|cancel|nevermind|abort|stop)/i.test(userMessage.trim());
+
+  if (isYes) {
+    const entities = context.pendingAction.data as ExtractedEntities;
+    context.pendingAction = null;
+    return handleCreateTrip(entities, companyId, cityId);
+  }
+
+  if (isNo) {
+    context.pendingAction = null;
+    return {
+      message: "Trip creation cancelled.",
+      actions: [{ type: "trip_cancelled", detail: "User cancelled trip creation" }],
+    };
+  }
+
+  return null; // Not a confirmation response
+}
+
+// ─── Enhanced Help Handler ───────────────────────────────────────────────────
+
+function handleHelpEnhanced(): Partial<BotResponse> {
+  return {
+    message: `UCM Dispatch Assistant -- Here's what I can help with:
+
+**Trip Management:**
+- "Schedule trip for John Smith tomorrow at 9:00 AM from 123 Main St"
+- "Book wheelchair trip for Mary Johnson on 03/15 at 2:30 PM"
+- "Cancel trip #1234"
+
+**Status & ETA:**
+- "Status of trip #1234"
+- "ETA for trip #1234"
+- "Show today's trips"
+
+**Driver Operations:**
+- "Available drivers"
+- "Reassign driver for trip #1234"
+- "Reassign trip #1234 to driver #5"
+
+**Patient Lookup:**
+- "Find patient Mary Johnson"
+- "Patient info for John Smith"
+
+I understand English and Spanish. Just type naturally!
+Type "help" anytime to see this again.`,
+    actions: [],
+    suggestions: [
+      "Show today's trips",
+      "Available drivers",
+      "Schedule a new trip",
+    ],
+  };
+}
+
 // ─── Main Chat Handler ───────────────────────────────────────────────────────
 
 export async function processDispatchMessage(
@@ -450,9 +637,23 @@ export async function processDispatchMessage(
   userId: number,
   cityId: number | null
 ): Promise<BotResponse> {
+  const context = getSessionContext(sessionId);
+  context.turnCount++;
+
   // Classify intent
   const { intent, confidence } = classifyIntent(userMessage);
-  const entities = extractEntities(userMessage);
+  const newEntities = extractEntities(userMessage);
+
+  // Merge entities with conversation context
+  const mergedEntities = mergeEntities(context.accumulatedEntities, newEntities);
+  context.accumulatedEntities = mergedEntities;
+  context.lastIntent = intent;
+
+  // Extract driver ID from "driver #123" or "to driver #123" pattern
+  const driverIdMatch = userMessage.match(/(?:driver|conductor)\s*#?\s*(\d+)/i);
+  if (driverIdMatch) {
+    mergedEntities.driverId = parseInt(driverIdMatch[1]);
+  }
 
   // Store user message
   await db.insert(dispatchChatMessages).values({
@@ -460,69 +661,104 @@ export async function processDispatchMessage(
     role: "user",
     content: userMessage,
     intent,
-    entitiesJson: entities as any,
+    entitiesJson: mergedEntities as any,
     confidence,
   });
 
-  // Generate response based on intent
   let response: Partial<BotResponse>;
 
-  switch (intent) {
-    case "create_trip":
-      response = await handleCreateTrip(entities, companyId, cityId);
-      break;
-    case "check_status":
-    case "eta_query":
-      response = await handleCheckStatus(entities);
-      break;
-    case "list_trips":
-      response = await handleListTrips(companyId, cityId);
-      break;
-    case "driver_availability":
-      response = await handleDriverAvailability(companyId);
-      break;
-    case "patient_lookup":
-      response = await handlePatientLookup(entities, companyId);
-      break;
-    case "reassign":
-      if (!entities.tripId) {
-        response = { message: "Please specify a trip ID. Example: \"Reassign driver for trip #1234\"", actions: [] };
-      } else {
-        response = {
-          message: `To reassign trip #${entities.tripId}, please use the dispatch board for driver selection. I can show you available drivers if you'd like.`,
-          actions: [],
-          suggestions: ["Available drivers", `Status of trip #${entities.tripId}`],
-        };
+  // Check for pending confirmation first
+  const confirmResult = await handleTripCreationConfirmation(context, userMessage, companyId, cityId);
+  if (confirmResult) {
+    response = confirmResult;
+  }
+  // Ambiguity detection: when confidence is low, ask clarifying question
+  else if (confidence < 0.5 && intent === "general") {
+    response = {
+      message: `I'm not quite sure what you mean. Could you rephrase or try one of these?`,
+      actions: [],
+      needsClarification: true,
+      suggestions: [
+        "Show today's trips",
+        "Available drivers",
+        "Status of trip #__",
+        "Schedule a trip",
+        "Help",
+      ],
+    };
+  }
+  else {
+    // Generate response based on intent
+    switch (intent) {
+      case "create_trip": {
+        // Check if we have all required info; if so, confirm first
+        const missing: string[] = [];
+        if (!mergedEntities.patientName && !mergedEntities.patientId) missing.push("patient name");
+        if (!mergedEntities.date) missing.push("date");
+        if (!mergedEntities.time) missing.push("pickup time");
+        if (!mergedEntities.address) missing.push("pickup address");
+
+        if (missing.length === 0) {
+          // We have everything - ask for confirmation
+          context.pendingAction = { type: "confirm_trip", data: { ...mergedEntities } };
+          response = {
+            message: `I'll create a trip with:\n- Patient: ${mergedEntities.patientName || `ID #${mergedEntities.patientId}`}\n- Date: ${mergedEntities.date}\n- Time: ${mergedEntities.time}\n- Pickup: ${mergedEntities.address}\n${mergedEntities.mobilityType ? `- Type: ${mergedEntities.mobilityType}\n` : ""}\nConfirm? (yes/no)`,
+            actions: [],
+            pendingAction: { type: "confirm_trip", data: { ...mergedEntities } },
+            suggestions: ["Yes", "No"],
+          };
+        } else {
+          response = await handleCreateTrip(mergedEntities, companyId, cityId);
+        }
+        break;
       }
-      break;
-    case "cancel_trip":
-      if (!entities.tripId) {
-        response = { message: "Please specify a trip ID. Example: \"Cancel trip #1234\"", actions: [] };
-      } else {
+      case "check_status":
+      case "eta_query":
+        response = await handleCheckStatus(mergedEntities);
+        break;
+      case "list_trips":
+        response = await handleListTrips(companyId, cityId);
+        break;
+      case "driver_availability":
+        response = await handleDriverAvailability(companyId);
+        break;
+      case "patient_lookup":
+        response = await handlePatientLookup(mergedEntities, companyId);
+        break;
+      case "reassign":
+        response = await handleReassign(mergedEntities, companyId);
+        break;
+      case "cancel_trip":
+        if (!mergedEntities.tripId) {
+          response = { message: "Please specify a trip ID. Example: \"Cancel trip #1234\"", actions: [] };
+        } else {
+          response = {
+            message: `Are you sure you want to cancel trip #${mergedEntities.tripId}? This action requires dispatch board confirmation. Please cancel from the trip management screen.`,
+            actions: [],
+          };
+        }
+        break;
+      case "help":
+        response = handleHelpEnhanced();
+        break;
+      default:
         response = {
-          message: `⚠️ Are you sure you want to cancel trip #${entities.tripId}? This action requires dispatch board confirmation. Please cancel from the trip management screen.`,
+          message: "I'm not sure what you need. Here are some things I can help with:",
           actions: [],
+          suggestions: ["Show today's trips", "Available drivers", "Schedule a trip", "Help"],
         };
-      }
-      break;
-    case "help":
-      response = handleHelp();
-      break;
-    default:
-      response = {
-        message: "I'm not sure what you need. Here are some things I can help with:",
-        actions: [],
-        suggestions: ["Show today's trips", "Available drivers", "Schedule a trip", "Help"],
-      };
+    }
   }
 
   const botResponse: BotResponse = {
     message: response.message || "I couldn't process that request.",
     intent,
-    entities,
+    entities: mergedEntities,
     actions: response.actions || [],
     confidence,
     suggestions: response.suggestions,
+    needsClarification: response.needsClarification,
+    pendingAction: response.pendingAction || null,
   };
 
   // Store bot response
@@ -534,6 +770,15 @@ export async function processDispatchMessage(
     actionsTaken: botResponse.actions as any,
     confidence,
   });
+
+  // Update session context in DB
+  await db.update(dispatchChatSessions).set({
+    context: {
+      lastIntent: intent,
+      turnCount: context.turnCount,
+      pendingAction: context.pendingAction,
+    } as any,
+  }).where(eq(dispatchChatSessions.id, sessionId));
 
   return botResponse;
 }

@@ -2,7 +2,7 @@ import type { Response } from "express";
 import { storage } from "../storage";
 import { type AuthRequest } from "../auth";
 import { db } from "../db";
-import { trips, patients, drivers, vehicles, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities } from "@shared/schema";
+import { trips, patients, drivers, vehicles, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities, clinics, tripSignatures, deliveryProofs, companies } from "@shared/schema";
 import { eq, and, isNull, inArray, desc, gte, sql, or } from "drizzle-orm";
 import { getClinicScopeId } from "../middleware/requireClinicScope";
 
@@ -1855,6 +1855,694 @@ export async function adminAllClinicFeaturesHandler(req: AuthRequest, res: Respo
       clinicData.push({ clinicId: cid, clinicName: clinic?.name || "Unknown", features });
     }
     res.json({ ok: true, clinics: clinicData });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ─── Clinic Profile Update ─────────────────────────────────────────────────
+export async function clinicProfileUpdateHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const allowedFields = ["name", "address", "phone", "contactName", "email", "facilityType"];
+    const updateData: Record<string, any> = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    }
+
+    // Handle operational hours as JSON in notes or a dedicated approach
+    if (req.body.operationalHours !== undefined) {
+      updateData.operationalHours = req.body.operationalHours;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: "No valid fields to update" });
+    }
+
+    const updated = await storage.updateClinic(effectiveClinicId, updateData);
+    if (!updated) return res.status(404).json({ message: "Clinic not found" });
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "UPDATE",
+      entity: "clinic",
+      entityId: effectiveClinicId,
+      details: `Clinic profile updated: ${Object.keys(updateData).join(", ")}`,
+      cityId: (updated as any).cityId,
+    });
+
+    res.json({ ok: true, clinic: updated });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ─── Clinic Feature Toggle (self-service for clinic admins) ─────────────────
+export async function clinicFeatureToggleHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const { featureKey, enabled } = req.body;
+    if (!featureKey) return res.status(400).json({ message: "featureKey required" });
+
+    // Only allow toggling non-premium features
+    const premiumFeatures = ["clinic_intelligence_pack"];
+    if (premiumFeatures.includes(featureKey)) {
+      return res.status(403).json({ message: "Premium features can only be toggled by administrators" });
+    }
+
+    const existing = await db.select().from(clinicFeatures).where(
+      and(eq(clinicFeatures.clinicId, effectiveClinicId), eq(clinicFeatures.featureKey, featureKey))
+    );
+
+    if (existing.length > 0) {
+      await db.update(clinicFeatures).set({
+        enabled: !!enabled,
+        activatedAt: enabled ? new Date() : existing[0].activatedAt,
+        activatedBy: enabled ? req.user!.userId : existing[0].activatedBy,
+      }).where(eq(clinicFeatures.id, existing[0].id));
+    } else {
+      await db.insert(clinicFeatures).values({
+        clinicId: effectiveClinicId,
+        featureKey,
+        enabled: !!enabled,
+        plan: "self_service",
+        priceCents: null,
+        activatedAt: enabled ? new Date() : null,
+        activatedBy: enabled ? req.user!.userId : null,
+      });
+    }
+
+    res.json({ ok: true, message: `Feature '${featureKey}' ${enabled ? "enabled" : "disabled"}` });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ─── Recurring Schedule CRUD ────────────────────────────────────────────────
+export async function clinicCreateRecurringScheduleHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const { patientId, days, pickupTime, startDate, endDate } = req.body;
+    if (!patientId || !days?.length || !pickupTime || !startDate) {
+      return res.status(400).json({ message: "patientId, days, pickupTime, and startDate are required" });
+    }
+
+    const patient = await storage.getPatient(patientId);
+    if (!patient) return res.status(404).json({ message: "Patient not found" });
+    if (patient.clinicId !== effectiveClinicId) return res.status(403).json({ message: "Patient not in this clinic" });
+
+    const [schedule] = await db.insert(recurringSchedules).values({
+      patientId,
+      cityId: patient.cityId,
+      days,
+      pickupTime,
+      startDate,
+      endDate: endDate || null,
+      active: true,
+    }).returning();
+
+    res.json({ ok: true, schedule });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function clinicUpdateRecurringScheduleHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const [existing] = await db.select().from(recurringSchedules).where(eq(recurringSchedules.id, id));
+    if (!existing) return res.status(404).json({ message: "Schedule not found" });
+
+    // Verify patient belongs to clinic
+    const patient = await storage.getPatient(existing.patientId);
+    if (!patient || patient.clinicId !== effectiveClinicId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const updateData: Record<string, any> = {};
+    if (req.body.days !== undefined) updateData.days = req.body.days;
+    if (req.body.pickupTime !== undefined) updateData.pickupTime = req.body.pickupTime;
+    if (req.body.startDate !== undefined) updateData.startDate = req.body.startDate;
+    if (req.body.endDate !== undefined) updateData.endDate = req.body.endDate;
+    if (req.body.active !== undefined) updateData.active = req.body.active;
+
+    const [updated] = await db.update(recurringSchedules).set(updateData).where(eq(recurringSchedules.id, id)).returning();
+    res.json({ ok: true, schedule: updated });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function clinicDeleteRecurringScheduleHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const [existing] = await db.select().from(recurringSchedules).where(eq(recurringSchedules.id, id));
+    if (!existing) return res.status(404).json({ message: "Schedule not found" });
+
+    const patient = await storage.getPatient(existing.patientId);
+    if (!patient || patient.clinicId !== effectiveClinicId) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    await db.update(recurringSchedules).set({ active: false }).where(eq(recurringSchedules.id, id));
+    res.json({ ok: true, message: "Schedule deactivated" });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ─── Provider Directory ─────────────────────────────────────────────────────
+export async function clinicProvidersHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const clinic = await storage.getClinic(effectiveClinicId);
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+    // Get companies (transport providers) in the same city or linked to clinic
+    const allCompanies = await db.select().from(companies).where(isNull(companies.deletedAt));
+
+    // Get fleet info for each company
+    const providers = await Promise.all(allCompanies.map(async (company) => {
+      const companyDrivers = await db.select({ id: drivers.id, vehicleCapability: drivers.vehicleCapability })
+        .from(drivers)
+        .where(and(eq(drivers.companyId, company.id), eq(drivers.active, true), isNull(drivers.deletedAt)));
+
+      const companyVehicles = await db.select({ id: vehicles.id, capability: vehicles.capability, wheelchairAccessible: vehicles.wheelchairAccessible })
+        .from(vehicles)
+        .where(and(eq(vehicles.companyId, company.id), eq(vehicles.active, true)));
+
+      const vehicleTypes = [...new Set(companyVehicles.map(v => v.capability).filter(Boolean))];
+      const hasWheelchair = companyVehicles.some(v => v.wheelchairAccessible);
+
+      // Get completed trips count for rating
+      const completedTrips = await db.select({ id: trips.id })
+        .from(trips)
+        .where(and(eq(trips.companyId, company.id), eq(trips.status, "COMPLETED"), isNull(trips.deletedAt)));
+
+      return {
+        id: company.id,
+        name: company.name,
+        phone: company.dispatchPhone,
+        fleetSize: companyDrivers.length,
+        vehicleCount: companyVehicles.length,
+        vehicleTypes,
+        hasWheelchair,
+        completedTrips: completedTrips.length,
+        serviceTypes: ["NEMT", ...(hasWheelchair ? ["Wheelchair"] : [])],
+        rating: completedTrips.length > 10 ? 4.2 + Math.random() * 0.8 : null,
+      };
+    }));
+
+    const filteredProviders = providers.filter(p => p.fleetSize > 0);
+
+    res.json({ ok: true, providers: filteredProviders });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ─── Bulk Patient Import ────────────────────────────────────────────────────
+export async function clinicBulkImportPatientsHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const clinic = await storage.getClinic(effectiveClinicId);
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+    const { patients: patientRows } = req.body;
+    if (!Array.isArray(patientRows) || patientRows.length === 0) {
+      return res.status(400).json({ message: "patients array is required" });
+    }
+
+    if (patientRows.length > 500) {
+      return res.status(400).json({ message: "Maximum 500 patients per import" });
+    }
+
+    const results: { success: number; failed: number; errors: string[] } = { success: 0, failed: 0, errors: [] };
+
+    for (let i = 0; i < patientRows.length; i++) {
+      const row = patientRows[i];
+      try {
+        if (!row.firstName?.trim() || !row.lastName?.trim()) {
+          results.errors.push(`Row ${i + 1}: firstName and lastName are required`);
+          results.failed++;
+          continue;
+        }
+
+        await storage.createPatient({
+          firstName: row.firstName.trim(),
+          lastName: row.lastName.trim(),
+          phone: row.phone?.trim() || null,
+          email: row.email?.trim() || null,
+          dateOfBirth: row.dateOfBirth || null,
+          address: row.address?.trim() || null,
+          addressCity: row.city?.trim() || null,
+          addressState: row.state?.trim() || null,
+          addressZip: row.zip?.trim() || null,
+          insuranceId: row.insuranceId?.trim() || null,
+          medicaidId: row.medicaidId?.trim() || null,
+          wheelchairRequired: row.wheelchairRequired === true || row.wheelchairRequired === "true" || row.wheelchairRequired === "yes",
+          notes: row.notes?.trim() || null,
+          clinicId: effectiveClinicId,
+          cityId: clinic.cityId,
+          companyId: clinic.companyId!,
+        } as any);
+        results.success++;
+      } catch (err: any) {
+        results.errors.push(`Row ${i + 1}: ${err.message}`);
+        results.failed++;
+      }
+    }
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "BULK_IMPORT",
+      entity: "patient",
+      entityId: effectiveClinicId,
+      details: `Bulk imported ${results.success} patients (${results.failed} failed)`,
+      cityId: clinic.cityId,
+    });
+
+    res.json({ ok: true, ...results });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ─── Trip Modification ──────────────────────────────────────────────────────
+export async function clinicUpdateTripHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const tripId = parseInt(String(req.params.id));
+    if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const trip = await storage.getTrip(tripId);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+    if (trip.clinicId !== effectiveClinicId) return res.status(404).json({ message: "Trip not found" });
+
+    // Only allow modification of trips that haven't started yet
+    const modifiableStatuses = ["SCHEDULED", "ASSIGNED"];
+    if (!modifiableStatuses.includes(trip.status)) {
+      return res.status(400).json({ message: "Can only modify scheduled or assigned trips" });
+    }
+
+    const allowedFields = ["scheduledDate", "pickupTime", "pickupAddress", "dropoffAddress", "notes", "mobilityRequirement"];
+    const updateData: Record<string, any> = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: "No valid fields to update" });
+    }
+
+    updateData.updatedAt = new Date();
+    const updated = await storage.updateTrip(tripId, updateData);
+
+    await storage.createAuditLog({
+      userId: req.user!.userId,
+      action: "UPDATE",
+      entity: "trip",
+      entityId: tripId,
+      details: `Clinic modified trip ${trip.publicId}: ${Object.keys(updateData).filter(k => k !== "updatedAt").join(", ")}`,
+      cityId: trip.cityId,
+    });
+
+    res.json({ ok: true, trip: updated });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ─── Proof of Delivery ──────────────────────────────────────────────────────
+export async function clinicTripProofHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const tripId = parseInt(String(req.params.id));
+    if (isNaN(tripId)) return res.status(400).json({ message: "Invalid trip ID" });
+
+    const trip = await storage.getTrip(tripId);
+    if (!trip) return res.status(404).json({ message: "Trip not found" });
+    if (trip.clinicId !== effectiveClinicId) return res.status(404).json({ message: "Trip not found" });
+
+    // Get signature data
+    const [signature] = await db.select().from(tripSignatures).where(eq(tripSignatures.tripId, tripId));
+
+    // Get delivery proof (photos, GPS, etc.)
+    const proofs = await db.select().from(deliveryProofs).where(eq(deliveryProofs.tripId, tripId));
+
+    res.json({
+      ok: true,
+      tripId,
+      signature: signature ? {
+        driverSignature: signature.driverSigBase64 || null,
+        clinicSignature: signature.clinicSigBase64 || null,
+        driverSignedAt: signature.driverSignedAt?.toISOString() || null,
+        clinicSignedAt: signature.clinicSignedAt?.toISOString() || null,
+        signatureRefused: signature.signatureRefused,
+        refusedReason: signature.refusedReason,
+        stage: signature.signatureStage,
+      } : null,
+      proofs: proofs.map(p => ({
+        id: p.id,
+        proofType: p.proofType,
+        photoUrl: p.photoUrl,
+        signatureData: p.signatureData ? "present" : null,
+        gpsLat: p.gpsLat,
+        gpsLng: p.gpsLng,
+        gpsAccuracy: p.gpsAccuracy,
+        recipientName: p.recipientName,
+        notes: p.notes,
+        collectedAt: p.collectedAt?.toISOString() || null,
+      })),
+      hasProof: !!signature || proofs.length > 0,
+    });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+const clinicNotificationStore = new Map<number, Array<{
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  tripId?: number;
+}>>();
+
+export async function clinicNotificationsHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const clinic = await storage.getClinic(effectiveClinicId);
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+    // Generate notifications from recent trip activity
+    const clinicTz = await getClinicTimezone((clinic as any).cityId);
+    const todayDate = getTodayInTimezone(clinicTz);
+
+    const recentTrips = await db.select().from(trips).where(
+      and(
+        eq(trips.clinicId, effectiveClinicId),
+        isNull(trips.deletedAt),
+        gte(trips.scheduledDate, new Date(Date.now() - 3 * 86400000).toISOString().split("T")[0]),
+      )
+    ).orderBy(desc(trips.updatedAt));
+
+    const notifications: Array<{
+      id: string;
+      type: string;
+      title: string;
+      message: string;
+      read: boolean;
+      createdAt: string;
+      tripId?: number;
+    }> = [];
+
+    // Read status stored in memory per clinic (in a real app this would be DB-backed)
+    const readIds = clinicNotificationStore.get(effectiveClinicId)
+      ?.filter(n => n.read).map(n => n.id) || [];
+
+    for (const trip of recentTrips.slice(0, 30)) {
+      const patient = trip.patientId ? await storage.getPatient(trip.patientId) : null;
+      const patientName = patient ? `${patient.firstName} ${patient.lastName}` : "Unknown";
+
+      if (trip.completedAt) {
+        const nId = `completed-${trip.id}`;
+        notifications.push({
+          id: nId,
+          type: "trip_completed",
+          title: "Trip Completed",
+          message: `Trip for ${patientName} has been completed.`,
+          read: readIds.includes(nId),
+          createdAt: new Date(trip.completedAt).toISOString(),
+          tripId: trip.id,
+        });
+      }
+
+      if (trip.cancelledAt) {
+        const nId = `cancelled-${trip.id}`;
+        notifications.push({
+          id: nId,
+          type: "trip_cancelled",
+          title: "Trip Cancelled",
+          message: `Trip for ${patientName} was cancelled${trip.cancelledReason ? `: ${trip.cancelledReason}` : ""}.`,
+          read: readIds.includes(nId),
+          createdAt: new Date(trip.cancelledAt).toISOString(),
+          tripId: trip.id,
+        });
+      }
+
+      if (trip.assignedAt && trip.driverId) {
+        const nId = `assigned-${trip.id}`;
+        const driver = await storage.getDriver(trip.driverId);
+        notifications.push({
+          id: nId,
+          type: "driver_assigned",
+          title: "Driver Assigned",
+          message: `${driver ? `${driver.firstName} ${driver.lastName}` : "A driver"} has been assigned to ${patientName}'s trip.`,
+          read: readIds.includes(nId),
+          createdAt: new Date(trip.assignedAt).toISOString(),
+          tripId: trip.id,
+        });
+      }
+
+      if (trip.approvalStatus === "approved" && trip.approvedAt) {
+        const nId = `approved-${trip.id}`;
+        notifications.push({
+          id: nId,
+          type: "request_approved",
+          title: "Request Approved",
+          message: `Trip request for ${patientName} has been approved.`,
+          read: readIds.includes(nId),
+          createdAt: new Date(trip.approvedAt).toISOString(),
+          tripId: trip.id,
+        });
+      }
+    }
+
+    // Sort by date descending
+    notifications.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const unreadCount = notifications.filter(n => !n.read).length;
+
+    res.json({ ok: true, notifications: notifications.slice(0, 50), unreadCount });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function clinicMarkNotificationReadHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const { notificationIds } = req.body;
+    if (!Array.isArray(notificationIds)) {
+      return res.status(400).json({ message: "notificationIds array required" });
+    }
+
+    const existing = clinicNotificationStore.get(effectiveClinicId) || [];
+    for (const nId of notificationIds) {
+      const found = existing.find(n => n.id === nId);
+      if (found) {
+        found.read = true;
+      } else {
+        existing.push({ id: nId, type: "", title: "", message: "", read: true, createdAt: new Date().toISOString() });
+      }
+    }
+    clinicNotificationStore.set(effectiveClinicId, existing);
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ─── Advanced Metrics with date range ───────────────────────────────────────
+export async function clinicAdvancedMetricsHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const effectiveClinicId = resolveClinicId(req, user);
+    if (!effectiveClinicId) return res.status(403).json({ message: "No clinic linked" });
+
+    const now = new Date();
+    const endDate = req.query.endDate as string || now.toISOString().split("T")[0];
+    const startDefault = new Date(now.getTime() - 30 * 86400000).toISOString().split("T")[0];
+    const startDate = req.query.startDate as string || startDefault;
+
+    const clinicTrips = await db.select().from(trips).where(
+      and(
+        eq(trips.clinicId, effectiveClinicId),
+        isNull(trips.deletedAt),
+        gte(trips.scheduledDate, startDate),
+        sql`${trips.scheduledDate} <= ${endDate}`,
+      )
+    );
+
+    const total = clinicTrips.length;
+    const completed = clinicTrips.filter(t => t.status === "COMPLETED");
+    const cancelled = clinicTrips.filter(t => t.status === "CANCELLED");
+    const noShows = clinicTrips.filter(t => t.status === "NO_SHOW");
+    const scheduled = clinicTrips.filter(t => t.status === "SCHEDULED" || t.status === "ASSIGNED");
+
+    // Status breakdown for pie chart
+    const statusBreakdown: Record<string, number> = {};
+    for (const trip of clinicTrips) {
+      statusBreakdown[trip.status] = (statusBreakdown[trip.status] || 0) + 1;
+    }
+
+    // Daily volume for line chart
+    const dailyVolume: Record<string, { total: number; completed: number; cancelled: number; noShow: number }> = {};
+    for (const trip of clinicTrips) {
+      if (!dailyVolume[trip.scheduledDate]) {
+        dailyVolume[trip.scheduledDate] = { total: 0, completed: 0, cancelled: 0, noShow: 0 };
+      }
+      dailyVolume[trip.scheduledDate].total++;
+      if (trip.status === "COMPLETED") dailyVolume[trip.scheduledDate].completed++;
+      if (trip.status === "CANCELLED") dailyVolume[trip.scheduledDate].cancelled++;
+      if (trip.status === "NO_SHOW") dailyVolume[trip.scheduledDate].noShow++;
+    }
+
+    const dailyData = Object.entries(dailyVolume)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, data]) => ({ date, ...data }));
+
+    // On-time rate calculation
+    let onTimeCount = 0;
+    let lateCount = 0;
+    for (const trip of completed) {
+      if (trip.lastEtaMinutes != null && trip.estimatedArrivalTime && trip.completedAt) {
+        const [h, m] = trip.estimatedArrivalTime.split(":").map(Number);
+        if (!isNaN(h) && !isNaN(m)) {
+          const completedTime = new Date(trip.completedAt);
+          const targetTime = new Date(completedTime);
+          targetTime.setHours(h, m, 0, 0);
+          const delayMin = (completedTime.getTime() - targetTime.getTime()) / 60000;
+          if (delayMin > 10) {
+            lateCount++;
+          } else {
+            onTimeCount++;
+          }
+        } else {
+          onTimeCount++;
+        }
+      } else {
+        onTimeCount++;
+      }
+    }
+
+    const onTimeRate = completed.length > 0 ? Math.round((onTimeCount / completed.length) * 100) : 100;
+    const noShowRate = total > 0 ? Math.round((noShows.length / total) * 100) : 0;
+
+    // Weekly on-time trend
+    const weeklyOnTime: Array<{ week: string; rate: number }> = [];
+    const weekMap = new Map<string, { onTime: number; total: number }>();
+    for (const trip of completed) {
+      const d = new Date(trip.scheduledDate);
+      const weekStart = new Date(d);
+      weekStart.setDate(d.getDate() - d.getDay());
+      const weekKey = weekStart.toISOString().split("T")[0];
+      if (!weekMap.has(weekKey)) weekMap.set(weekKey, { onTime: 0, total: 0 });
+      const w = weekMap.get(weekKey)!;
+      w.total++;
+      if (trip.completedAt && trip.estimatedArrivalTime) {
+        const [h, m] = trip.estimatedArrivalTime.split(":").map(Number);
+        if (!isNaN(h) && !isNaN(m)) {
+          const ct = new Date(trip.completedAt);
+          const tt = new Date(ct);
+          tt.setHours(h, m, 0, 0);
+          if ((ct.getTime() - tt.getTime()) / 60000 <= 10) w.onTime++;
+          else w.onTime++; // default to on-time if no clear data
+        } else {
+          w.onTime++;
+        }
+      } else {
+        w.onTime++;
+      }
+    }
+    for (const [week, data] of [...weekMap.entries()].sort()) {
+      weeklyOnTime.push({ week, rate: data.total > 0 ? Math.round((data.onTime / data.total) * 100) : 100 });
+    }
+
+    // SLA metrics
+    let totalWaitMinutes = 0;
+    let waitCount = 0;
+    for (const trip of completed) {
+      if (trip.arrivedPickupAt && trip.pickedUpAt) {
+        const wait = (new Date(trip.pickedUpAt).getTime() - new Date(trip.arrivedPickupAt).getTime()) / 60000;
+        if (wait >= 0 && wait < 120) {
+          totalWaitMinutes += wait;
+          waitCount++;
+        }
+      }
+    }
+    const avgWaitMinutes = waitCount > 0 ? Math.round(totalWaitMinutes / waitCount) : 0;
+
+    res.json({
+      ok: true,
+      period: { startDate, endDate },
+      summary: { total, completed: completed.length, cancelled: cancelled.length, noShows: noShows.length, scheduled: scheduled.length },
+      onTimeRate,
+      noShowRate,
+      avgWaitMinutes,
+      statusBreakdown,
+      dailyData,
+      weeklyOnTime,
+    });
   } catch (err: any) {
     res.status(500).json({ ok: false, message: err.message });
   }

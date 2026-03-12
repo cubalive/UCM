@@ -150,6 +150,256 @@ function AgingTab() {
   );
 }
 
+function WriteOffTab() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+  const [invoiceId, setInvoiceId] = useState("");
+  const [reason, setReason] = useState("");
+
+  const writeOffMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/invoices/${invoiceId}/write-off`, { reason });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Invoice written off", description: `Invoice #${data.invoiceId} has been written off.` });
+      setInvoiceId("");
+      setReason("");
+      queryClient.invalidateQueries({ queryKey: ["/api/reconciliation"] });
+    },
+    onError: (err: any) => toast({ title: "Write-off failed", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-lg font-medium">Write-Off Management</h3>
+        <p className="text-sm text-muted-foreground">Mark uncollectable invoices as written off</p>
+      </div>
+      <Card>
+        <CardContent className="py-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Invoice ID</label>
+              <Input
+                type="number"
+                placeholder="Enter invoice ID"
+                value={invoiceId}
+                onChange={(e) => setInvoiceId(e.target.value)}
+                data-testid="input-writeoff-invoice-id"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Write-Off Reason</label>
+              <Input
+                placeholder="Reason for write-off"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                data-testid="input-writeoff-reason"
+              />
+            </div>
+          </div>
+          <Button
+            onClick={() => writeOffMutation.mutate()}
+            disabled={!invoiceId || !reason.trim() || writeOffMutation.isPending}
+            data-testid="button-submit-writeoff"
+          >
+            {writeOffMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <AlertTriangle className="w-4 h-4 mr-2" />}
+            Write Off Invoice
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AgedARTab() {
+  const { token } = useAuth();
+  const arQuery = useQuery<any>({
+    queryKey: ["/api/billing/aged-ar"],
+    queryFn: () => apiFetch("/api/billing/aged-ar", token),
+    enabled: !!token,
+  });
+
+  if (arQuery.isLoading) return <Skeleton className="h-40 w-full" />;
+  if (!arQuery.data) return <p className="text-muted-foreground">No data available</p>;
+
+  const { buckets, totalOutstanding, totalCount } = arQuery.data;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-medium">Aged Accounts Receivable</h3>
+          <p className="text-sm text-muted-foreground">Outstanding invoices by aging bucket</p>
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-bold">{fmt(totalOutstanding)}</p>
+          <p className="text-xs text-muted-foreground">{totalCount} invoices outstanding</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {(["0-30", "31-60", "61-90", "90+"] as const).map((bucket) => {
+          const data = buckets[bucket];
+          const colors: Record<string, string> = {
+            "0-30": "text-emerald-500",
+            "31-60": "text-amber-500",
+            "61-90": "text-orange-500",
+            "90+": "text-red-500",
+          };
+          return (
+            <Card key={bucket}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-muted-foreground">{bucket} Days</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className={`text-xl font-bold ${colors[bucket]}`} data-testid={`text-ar-${bucket}`}>
+                  {fmt(data.totalCents)}
+                </p>
+                <p className="text-xs text-muted-foreground">{data.count} invoices</p>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+      {/* Invoices in worst bucket */}
+      {buckets["90+"]?.invoices?.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base text-red-500">90+ Day Outstanding</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Invoice #</TableHead>
+                  <TableHead>Patient</TableHead>
+                  <TableHead>Service Date</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Age (Days)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {buckets["90+"].invoices.map((inv: any) => (
+                  <TableRow key={inv.id}>
+                    <TableCell className="font-mono text-sm">#{inv.id}</TableCell>
+                    <TableCell>{inv.patientName}</TableCell>
+                    <TableCell>{inv.serviceDate}</TableCell>
+                    <TableCell className="text-right">{fmt(inv.amount)}</TableCell>
+                    <TableCell className="text-right text-red-500 font-medium">{inv.ageDays}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function PaymentMethodsTab() {
+  const { token } = useAuth();
+  const { toast } = useToast();
+
+  const pmQuery = useQuery<any>({
+    queryKey: ["/api/billing/payment-methods"],
+    queryFn: () => apiFetch("/api/billing/payment-methods", token),
+    enabled: !!token,
+  });
+
+  const setDefaultMutation = useMutation({
+    mutationFn: (pmId: string) =>
+      apiFetch(`/api/billing/payment-methods/${pmId}/set-default`, token, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-methods"] });
+      toast({ title: "Default payment method updated" });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (pmId: string) =>
+      apiFetch(`/api/billing/payment-methods/${pmId}`, token, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-methods"] });
+      toast({ title: "Payment method removed" });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  if (pmQuery.isLoading) return <Skeleton className="h-40 w-full" />;
+
+  const methods = pmQuery.data?.paymentMethods || [];
+  const brandIcons: Record<string, string> = { visa: "Visa", mastercard: "Mastercard", amex: "Amex", discover: "Discover" };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-lg font-medium">Payment Methods</h3>
+        <p className="text-sm text-muted-foreground">Manage saved payment methods</p>
+      </div>
+      {methods.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <DollarSign className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <p>No payment methods on file</p>
+            <p className="text-xs mt-1">Configure Stripe to add payment methods</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {methods.map((pm: any) => (
+            <Card key={pm.id}>
+              <CardContent className="py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-7 rounded bg-muted flex items-center justify-center text-xs font-bold">
+                    {brandIcons[pm.brand] || pm.brand}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">
+                      {pm.type === "card" ? `${(brandIcons[pm.brand] || pm.brand).toUpperCase()} ending in ${pm.last4}` : pm.type}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Expires {pm.expMonth}/{pm.expYear}</p>
+                  </div>
+                  {pm.isDefault && <Badge variant="default" className="text-xs">Default</Badge>}
+                </div>
+                <div className="flex gap-2">
+                  {!pm.isDefault && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setDefaultMutation.mutate(pm.id)}
+                      disabled={setDefaultMutation.isPending}
+                      data-testid={`button-set-default-${pm.id}`}
+                    >
+                      Set Default
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => {
+                      if (window.confirm("Remove this payment method?")) {
+                        removeMutation.mutate(pm.id);
+                      }
+                    }}
+                    disabled={removeMutation.isPending}
+                    data-testid={`button-remove-${pm.id}`}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ReconciliationPage() {
   return (
     <div className="p-6 space-y-6">
@@ -159,14 +409,20 @@ export default function ReconciliationPage() {
       </div>
 
       <Tabs defaultValue="dashboard">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="dashboard"><BarChart3 className="w-4 h-4 mr-1" />Dashboard</TabsTrigger>
           <TabsTrigger value="runs"><Play className="w-4 h-4 mr-1" />Runs</TabsTrigger>
           <TabsTrigger value="aging"><Clock className="w-4 h-4 mr-1" />Aging Report</TabsTrigger>
+          <TabsTrigger value="aged-ar" data-testid="tab-aged-ar"><DollarSign className="w-4 h-4 mr-1" />Aged AR</TabsTrigger>
+          <TabsTrigger value="write-off" data-testid="tab-write-off"><AlertTriangle className="w-4 h-4 mr-1" />Write-Off</TabsTrigger>
+          <TabsTrigger value="payment-methods" data-testid="tab-payment-methods"><DollarSign className="w-4 h-4 mr-1" />Payment Methods</TabsTrigger>
         </TabsList>
         <TabsContent value="dashboard" className="mt-4"><DashboardTab /></TabsContent>
         <TabsContent value="runs" className="mt-4"><RunsTab /></TabsContent>
         <TabsContent value="aging" className="mt-4"><AgingTab /></TabsContent>
+        <TabsContent value="aged-ar" className="mt-4"><AgedARTab /></TabsContent>
+        <TabsContent value="write-off" className="mt-4"><WriteOffTab /></TabsContent>
+        <TabsContent value="payment-methods" className="mt-4"><PaymentMethodsTab /></TabsContent>
       </Tabs>
     </div>
   );

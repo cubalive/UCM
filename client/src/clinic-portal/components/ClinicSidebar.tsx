@@ -12,6 +12,8 @@ import {
   Users,
   Brain,
   UserCog,
+  RotateCcw,
+  Building2,
 } from "lucide-react";
 
 interface ClinicSidebarProps {
@@ -27,6 +29,8 @@ const NAV_ITEMS = [
   { path: "/patients", label: "Patients", icon: Users, testId: "nav-patients" },
   { path: "/live", label: "Live View", icon: MapPin, testId: "nav-live" },
   { path: "/scheduling", label: "AI Scheduling", icon: Brain, testId: "nav-scheduling" },
+  { path: "/recurring-schedules", label: "Recurring Schedules", icon: RotateCcw, testId: "nav-recurring" },
+  { path: "/providers", label: "Provider Directory", icon: Building2, testId: "nav-providers" },
   { path: "/billing", label: "Billing", icon: CreditCard, testId: "nav-billing" },
   { path: "/users", label: "User Management", icon: UserCog, testId: "nav-users" },
   { path: "/profile", label: "Profile", icon: User, testId: "nav-profile" },

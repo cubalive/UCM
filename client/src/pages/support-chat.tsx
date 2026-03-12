@@ -10,7 +10,10 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Send, Plus, Loader2, AlertTriangle } from "lucide-react";
+import { MessageSquare, Send, Plus, Loader2, AlertTriangle, Search, Filter } from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { getStoredCompanyScopeId } from "@/lib/api";
 
 export default function SupportChatPage() {
@@ -19,6 +22,8 @@ export default function SupportChatPage() {
   const [selectedThread, setSelectedThread] = useState<number | null>(null);
   const [newMessage, setNewMessage] = useState("");
   const [newSubject, setNewSubject] = useState("");
+  const [threadSearch, setThreadSearch] = useState("");
+  const [threadStatusFilter, setThreadStatusFilter] = useState<"all" | "OPEN" | "CLOSED">("all");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const isClinic = user?.role === "VIEWER" || user?.role === "CLINIC_USER";
@@ -109,7 +114,17 @@ export default function SupportChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messagesQuery.data]);
 
-  const threads = threadsQuery.data || [];
+  const allThreads = threadsQuery.data || [];
+  const threads = allThreads.filter((t: any) => {
+    if (threadStatusFilter !== "all" && t.status !== threadStatusFilter) return false;
+    if (threadSearch.trim()) {
+      const q = threadSearch.toLowerCase();
+      const subjectMatch = t.subject?.toLowerCase().includes(q);
+      const clinicMatch = t.clinicName?.toLowerCase().includes(q);
+      if (!subjectMatch && !clinicMatch) return false;
+    }
+    return true;
+  });
   const messages = messagesQuery.data?.messages || [];
   const currentThread = messagesQuery.data?.thread;
 
@@ -151,6 +166,28 @@ export default function SupportChatPage() {
             <CardTitle className="text-base">Threads</CardTitle>
             <MessageSquare className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
+          <div className="px-3 pb-2 space-y-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search threads..."
+                value={threadSearch}
+                onChange={(e) => setThreadSearch(e.target.value)}
+                className="pl-8 h-8 text-xs"
+                data-testid="input-thread-search"
+              />
+            </div>
+            <Select value={threadStatusFilter} onValueChange={(v) => setThreadStatusFilter(v as any)}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-thread-status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="OPEN">Open</SelectItem>
+                <SelectItem value="CLOSED">Closed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <CardContent className="flex-1 overflow-y-auto p-2 space-y-1">
             {threadsQuery.isLoading ? (
               <div className="space-y-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>

@@ -10,6 +10,12 @@ import {
   LogOut,
   ShoppingCart,
   Gavel,
+  Shield,
+  ClipboardCheck,
+  MessageSquare,
+  Scale,
+  Navigation,
+  Settings,
 } from "lucide-react";
 
 interface BrokerSidebarProps {
@@ -21,10 +27,16 @@ interface BrokerSidebarProps {
 const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
   { path: "/trip-requests", label: "Trip Requests", icon: FileText, testId: "nav-trip-requests" },
+  { path: "/live-tracking", label: "Live Tracking", icon: Navigation, testId: "nav-live-tracking" },
   { path: "/marketplace", label: "Marketplace", icon: ShoppingCart, testId: "nav-marketplace" },
   { path: "/contracts", label: "Contracts", icon: Handshake, testId: "nav-contracts" },
   { path: "/settlements", label: "Settlements", icon: DollarSign, testId: "nav-settlements" },
+  { path: "/sla-monitoring", label: "SLA Monitoring", icon: Shield, testId: "nav-sla-monitoring" },
+  { path: "/disputes", label: "Disputes", icon: Scale, testId: "nav-disputes" },
+  { path: "/compliance", label: "Compliance", icon: ClipboardCheck, testId: "nav-compliance" },
+  { path: "/communications", label: "Communications", icon: MessageSquare, testId: "nav-communications" },
   { path: "/analytics", label: "Analytics", icon: BarChart3, testId: "nav-analytics" },
+  { path: "/settings", label: "Settings", icon: Settings, testId: "nav-settings" },
   { path: "/profile", label: "Profile", icon: User, testId: "nav-profile" },
 ];
 
@@ -54,7 +66,7 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
         </div>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1" data-testid="broker-nav">
+      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto" data-testid="broker-nav">
         {NAV_ITEMS.map(({ path, label, icon: Icon, testId }) => {
           const isActive = currentPath === path || (path !== "/" && currentPath.startsWith(path));
           return (
@@ -62,7 +74,7 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
               <button
                 onClick={onClose}
                 className={`
-                  w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all
+                  w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all
                   ${isActive
                     ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
                     : "text-gray-400 hover:text-white hover:bg-white/5 border border-transparent"

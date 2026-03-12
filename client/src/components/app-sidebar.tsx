@@ -127,6 +127,7 @@ const operationGroups: NavGroup[] = [
     icon: Car,
     items: [
       { titleKey: "nav.fleet", url: "/fleet", icon: Gauge, resource: "dispatch" },
+      { titleKey: "nav.fleetReports", url: "/fleet-reports", icon: BarChart3, resource: "dispatch" },
       { titleKey: "nav.assignments", url: "/assignments", icon: CalendarCheck, resource: "dispatch" },
       { titleKey: "nav.schedule", url: "/schedule", icon: Calendar, resource: "dispatch" },
       { titleKey: "nav.shiftSwaps", url: "/dispatch-swaps", icon: ArrowLeftRight, resource: "dispatch" },
@@ -181,6 +182,7 @@ const operationGroups: NavGroup[] = [
       { titleKey: "nav.feeRules", url: "/fee-rules", icon: Settings2, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.medicaidBilling", url: "/medicaid-billing", icon: FileText, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.ediBilling", url: "/edi-billing", icon: FileText, resource: "billing", superAdminOnly: true },
+      { titleKey: "nav.claimStatus", url: "/claim-status", icon: FileText, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.reconciliation", url: "/reconciliation", icon: CheckSquare, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.clinicBillingV2", url: "/clinic-billing-v2", icon: Receipt, resource: "billing" },
     ],
@@ -190,6 +192,7 @@ const operationGroups: NavGroup[] = [
     icon: MessageSquare,
     items: [
       { titleKey: "nav.supportChat", url: "/support-chat", icon: MessageSquare, resource: "support" },
+      { titleKey: "nav.notificationPrefs", url: "/notification-preferences", icon: Bell, resource: "support" },
     ],
   },
 ];
@@ -261,6 +264,7 @@ const adminGroups: NavGroup[] = [
       { titleKey: "nav.publishCenter", url: "/publish-center", icon: Send, resource: "audit", superAdminOnly: true },
       { titleKey: "nav.dataImport", url: "/admin/imports", icon: Upload, resource: "audit", superAdminOnly: true },
       { titleKey: "nav.systemStatus", url: "/system-status", icon: Gauge, resource: "audit", superAdminOnly: true },
+      { titleKey: "nav.systemSettings", url: "/system-settings", icon: Settings2, resource: "audit", superAdminOnly: true },
     ],
   },
 ];

@@ -77,6 +77,7 @@ import { registerAiRoutes } from "./ai.routes";
 import { registerEdiRoutes } from "./edi.routes";
 import { registerBrandingRoutes } from "./branding.routes";
 import { registerAdminPharmacyRoutes } from "./admin-pharmacy.routes";
+import { registerAdminSettingsRoutes } from "./admin-settings.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -213,6 +214,7 @@ export async function registerRoutes(
   registerEdiRoutes(app);
   registerBrandingRoutes(app);
   registerAdminPharmacyRoutes(app);
+  registerAdminSettingsRoutes(app);
 
   return httpServer;
 }

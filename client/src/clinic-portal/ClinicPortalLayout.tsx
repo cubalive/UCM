@@ -13,9 +13,13 @@ import ClinicTripRequestDetail from "./pages/ClinicTripRequestDetail";
 import ClinicPatients from "./pages/ClinicPatients";
 import ClinicScheduling from "./pages/ClinicScheduling";
 import ClinicUsers from "./pages/ClinicUsers";
+import ClinicRecurringSchedules from "./pages/ClinicRecurringSchedules";
+import ClinicProviderDirectory from "./pages/ClinicProviderDirectory";
 import LoginPage from "@/pages/login";
 import { useState } from "react";
-import { Menu, X, AlertTriangle } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Menu, X, AlertTriangle, Bell } from "lucide-react";
 
 const CLINIC_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"];
 const ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
@@ -32,6 +36,8 @@ function ClinicPortalRoutes() {
       <Route path="/patients" component={ClinicPatients} />
       <Route path="/live" component={ClinicLiveView} />
       <Route path="/scheduling" component={ClinicScheduling} />
+      <Route path="/recurring-schedules" component={ClinicRecurringSchedules} />
+      <Route path="/providers" component={ClinicProviderDirectory} />
       <Route path="/billing" component={ClinicBilling} />
       <Route path="/users" component={ClinicUsers} />
       <Route path="/profile" component={ClinicProfile} />
@@ -60,6 +66,104 @@ function ClinicHostUnauthorized() {
           Sign Out
         </button>
       </div>
+    </div>
+  );
+}
+
+function NotificationBell() {
+  const [open, setOpen] = useState(false);
+  const { data } = useQuery<any>({
+    queryKey: ["/api/clinic/notifications"],
+    refetchInterval: 30000,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await apiRequest("POST", "/api/clinic/notifications/mark-read", { notificationIds: ids });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/notifications"] });
+    },
+  });
+
+  const notifications = (data as any)?.notifications || [];
+  const unreadCount = (data as any)?.unreadCount || 0;
+
+  const handleMarkAllRead = () => {
+    const unreadIds = notifications.filter((n: any) => !n.read).map((n: any) => n.id);
+    if (unreadIds.length > 0) markReadMutation.mutate(unreadIds);
+  };
+
+  const typeIcons: Record<string, string> = {
+    trip_completed: "text-emerald-400",
+    trip_cancelled: "text-red-400",
+    driver_assigned: "text-blue-400",
+    request_approved: "text-purple-400",
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="relative p-2 hover:bg-white/5 rounded-lg transition-colors"
+        data-testid="notification-bell"
+      >
+        <Bell className="w-5 h-5 text-gray-400" />
+        {unreadCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center" data-testid="notification-badge">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-2 w-80 bg-[#111827] border border-[#1e293b] rounded-xl shadow-2xl z-50 overflow-hidden" data-testid="notification-dropdown">
+            <div className="px-4 py-3 border-b border-[#1e293b] flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Notifications</h3>
+              {unreadCount > 0 && (
+                <button
+                  onClick={handleMarkAllRead}
+                  className="text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors"
+                >
+                  Mark all read
+                </button>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto divide-y divide-[#1e293b]/50">
+              {notifications.length === 0 ? (
+                <div className="p-6 text-center">
+                  <Bell className="w-8 h-8 text-gray-700 mx-auto mb-2" />
+                  <p className="text-xs text-gray-500">No notifications yet</p>
+                </div>
+              ) : (
+                notifications.slice(0, 20).map((n: any) => (
+                  <button
+                    key={n.id}
+                    onClick={() => {
+                      if (!n.read) markReadMutation.mutate([n.id]);
+                    }}
+                    className={`w-full text-left px-4 py-3 hover:bg-white/[0.02] transition-colors ${!n.read ? "bg-emerald-500/[0.03]" : ""}`}
+                    data-testid={`notification-${n.id}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 mt-1.5" />}
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-medium ${typeIcons[n.type] || "text-gray-400"}`}>{n.title}</p>
+                        <p className="text-[11px] text-gray-400 mt-0.5 truncate">{n.message}</p>
+                        <p className="text-[10px] text-gray-600 mt-1">
+                          {new Date(n.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -158,6 +262,7 @@ export function ClinicPortalLayout() {
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3">
+            <NotificationBell />
             <div className="text-right">
               <p className="text-xs text-gray-400">{user.email}</p>
               <p className="text-[10px] text-gray-600 uppercase">{user.role}</p>

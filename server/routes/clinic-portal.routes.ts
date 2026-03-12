@@ -17,7 +17,19 @@ import {
   clinicDeleteTripHandler,
   clinicPatientsHandler,
   clinicProfileHandler,
+  clinicProfileUpdateHandler,
   clinicRecurringSchedulesHandler,
+  clinicCreateRecurringScheduleHandler,
+  clinicUpdateRecurringScheduleHandler,
+  clinicDeleteRecurringScheduleHandler,
+  clinicProvidersHandler,
+  clinicBulkImportPatientsHandler,
+  clinicUpdateTripHandler,
+  clinicTripProofHandler,
+  clinicNotificationsHandler,
+  clinicMarkNotificationReadHandler,
+  clinicFeatureToggleHandler,
+  clinicAdvancedMetricsHandler,
   clinicInboundLiveHandler,
   clinicAlertInputsHandler,
   clinicForecastHandler,
@@ -52,7 +64,19 @@ export function registerClinicPortalRoutes(app: Express) {
   app.delete("/api/clinic/trips/:id", authMiddleware, requireClinicScope as any, clinicDeleteTripHandler as any);
   app.get("/api/clinic/patients", authMiddleware, requireClinicScope as any, clinicPatientsHandler as any);
   app.get("/api/clinic/profile", authMiddleware, requireClinicScope as any, clinicProfileHandler as any);
+  app.patch("/api/clinic/profile", authMiddleware, requireClinicAdmin as any, clinicProfileUpdateHandler as any);
   app.get("/api/clinic/recurring-schedules", authMiddleware, requireClinicScope as any, clinicRecurringSchedulesHandler as any);
+  app.post("/api/clinic/recurring-schedules", authMiddleware, requireClinicAdmin as any, clinicCreateRecurringScheduleHandler as any);
+  app.patch("/api/clinic/recurring-schedules/:id", authMiddleware, requireClinicAdmin as any, clinicUpdateRecurringScheduleHandler as any);
+  app.delete("/api/clinic/recurring-schedules/:id", authMiddleware, requireClinicAdmin as any, clinicDeleteRecurringScheduleHandler as any);
+  app.get("/api/clinic/providers", authMiddleware, requireClinicScope as any, clinicProvidersHandler as any);
+  app.post("/api/clinic/patients/bulk-import", authMiddleware, requireClinicAdmin as any, clinicBulkImportPatientsHandler as any);
+  app.patch("/api/clinic/trips/:id", authMiddleware, requireClinicScope as any, clinicUpdateTripHandler as any);
+  app.get("/api/clinic/trips/:id/proof", authMiddleware, requireClinicScope as any, clinicTripProofHandler as any);
+  app.get("/api/clinic/notifications", authMiddleware, requireClinicScope as any, clinicNotificationsHandler as any);
+  app.post("/api/clinic/notifications/mark-read", authMiddleware, requireClinicScope as any, clinicMarkNotificationReadHandler as any);
+  app.post("/api/clinic/features/toggle", authMiddleware, requireClinicAdmin as any, clinicFeatureToggleHandler as any);
+  app.get("/api/clinic/advanced-metrics", authMiddleware, requireClinicScope as any, clinicAdvancedMetricsHandler as any);
   app.get("/api/clinic/inbound-live", authMiddleware, requireClinicScope as any, clinicInboundLiveHandler as any);
   app.get("/api/clinic/alert-inputs", authMiddleware, requireClinicScope as any, clinicAlertInputsHandler as any);
 

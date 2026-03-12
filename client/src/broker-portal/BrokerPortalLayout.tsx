@@ -12,6 +12,12 @@ import BrokerSettlements from "./pages/BrokerSettlements";
 import BrokerSettlementDetail from "./pages/BrokerSettlementDetail";
 import BrokerAnalytics from "./pages/BrokerAnalytics";
 import BrokerProfile from "./pages/BrokerProfile";
+import BrokerSLAMonitoring from "./pages/BrokerSLAMonitoring";
+import BrokerCompliance from "./pages/BrokerCompliance";
+import BrokerCommunications from "./pages/BrokerCommunications";
+import BrokerDisputes from "./pages/BrokerDisputes";
+import BrokerLiveTracking from "./pages/BrokerLiveTracking";
+import BrokerSettings from "./pages/BrokerSettings";
 import LoginPage from "@/pages/login";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
@@ -25,12 +31,18 @@ function BrokerPortalRoutes() {
       <Route path="/trip-requests/new" component={BrokerTripRequestNew} />
       <Route path="/trip-requests/:id" component={BrokerTripRequestDetail} />
       <Route path="/trip-requests" component={BrokerTripRequests} />
+      <Route path="/live-tracking" component={BrokerLiveTracking} />
       <Route path="/marketplace" component={BrokerMarketplace} />
       <Route path="/contracts/:id" component={BrokerContractDetail} />
       <Route path="/contracts" component={BrokerContracts} />
       <Route path="/settlements/:id" component={BrokerSettlementDetail} />
       <Route path="/settlements" component={BrokerSettlements} />
+      <Route path="/sla-monitoring" component={BrokerSLAMonitoring} />
+      <Route path="/disputes" component={BrokerDisputes} />
+      <Route path="/compliance" component={BrokerCompliance} />
+      <Route path="/communications" component={BrokerCommunications} />
       <Route path="/analytics" component={BrokerAnalytics} />
+      <Route path="/settings" component={BrokerSettings} />
       <Route path="/profile" component={BrokerProfile} />
       <Route>{() => <Redirect to="/" />}</Route>
     </Switch>
