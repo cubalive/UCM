@@ -162,12 +162,203 @@ export default function PharmacySettings() {
               <p className="mt-2 text-gray-600">To update pharmacy settings, contact your UCM administrator.</p>
             </div>
           </div>
+
+          {/* Workflow Automation */}
+          <WorkflowAutomationSettings token={token!} />
         </div>
       ) : (
         <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 text-center text-gray-500">
           Pharmacy profile not found
         </div>
       )}
+    </div>
+  );
+}
+
+function ToggleSwitch({ enabled, onChange, label, description }: { enabled: boolean; onChange: (v: boolean) => void; label: string; description?: string }) {
+  return (
+    <div className="flex items-center justify-between py-2">
+      <div>
+        <p className="text-sm text-white">{label}</p>
+        {description && <p className="text-[10px] text-gray-500 mt-0.5">{description}</p>}
+      </div>
+      <button
+        onClick={() => onChange(!enabled)}
+        className={`relative w-10 h-5 rounded-full transition-colors ${enabled ? "bg-violet-600" : "bg-gray-700"}`}
+      >
+        <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${enabled ? "translate-x-5" : ""}`} />
+      </button>
+    </div>
+  );
+}
+
+function WorkflowAutomationSettings({ token }: { token: string }) {
+  const queryClient = useQueryClient();
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/pharmacy/automation-settings"],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/api/pharmacy/automation-settings`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load settings");
+      return res.json();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (updates: Record<string, any>) => {
+      const res = await fetch(`${API_BASE_URL}/api/pharmacy/automation-settings`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pharmacy/automation-settings"] });
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    },
+    onMutate: () => setSaveStatus("saving"),
+  });
+
+  const settings = data?.settings || {};
+
+  const update = (key: string, value: any) => {
+    updateMutation.mutate({ [key]: value });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 animate-pulse">
+        <div className="h-4 bg-gray-700 rounded w-48 mb-4" />
+        <div className="space-y-3">
+          {[...Array(5)].map((_, i) => <div key={i} className="h-8 bg-gray-800 rounded" />)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Automation Rules */}
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Zap className="w-4 h-4 text-violet-400" />
+            Workflow Automation
+          </h3>
+          {saveStatus === "saved" && (
+            <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> Saved
+            </span>
+          )}
+        </div>
+
+        <div className="divide-y divide-[#1e293b]">
+          <ToggleSwitch
+            enabled={settings.autoConfirmOrders || false}
+            onChange={(v) => update("autoConfirmOrders", v)}
+            label="Auto-confirm new orders"
+            description="Automatically move new orders from PENDING to CONFIRMED"
+          />
+          <ToggleSwitch
+            enabled={settings.autoDispatch || false}
+            onChange={(v) => update("autoDispatch", v)}
+            label="Auto-dispatch to drivers"
+            description="Automatically assign available drivers when orders are ready"
+          />
+          <ToggleSwitch
+            enabled={settings.escalateToManager || false}
+            onChange={(v) => update("escalateToManager", v)}
+            label="SLA escalation to manager"
+            description="Alert pharmacy manager when SLA thresholds are breached"
+          />
+        </div>
+      </div>
+
+      {/* SLA Thresholds */}
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 space-y-4">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-400" />
+          SLA Escalation Thresholds
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="text-[10px] uppercase text-gray-500 block mb-1">Warning Threshold (minutes)</label>
+            <input
+              type="number"
+              value={settings.slaWarningMinutes || 45}
+              onChange={(e) => update("slaWarningMinutes", Number(e.target.value))}
+              className="w-full bg-[#0a0f1e] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
+            />
+            <p className="text-[10px] text-gray-600 mt-1">Warn when delivery is approaching SLA limit</p>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase text-gray-500 block mb-1">Escalation Threshold (minutes)</label>
+            <input
+              type="number"
+              value={settings.slaEscalationMinutes || 60}
+              onChange={(e) => update("slaEscalationMinutes", Number(e.target.value))}
+              className="w-full bg-[#0a0f1e] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
+            />
+            <p className="text-[10px] text-gray-600 mt-1">Escalate when delivery exceeds this time</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Notification Preferences */}
+      <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 space-y-4">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Bell className="w-4 h-4 text-violet-400" />
+          Notification Preferences
+        </h3>
+        <div className="divide-y divide-[#1e293b]">
+          <ToggleSwitch
+            enabled={settings.notifyOnNewOrder ?? true}
+            onChange={(v) => update("notifyOnNewOrder", v)}
+            label="New order notifications"
+          />
+          <ToggleSwitch
+            enabled={settings.notifyOnStatusChange ?? true}
+            onChange={(v) => update("notifyOnStatusChange", v)}
+            label="Status change notifications"
+          />
+          <ToggleSwitch
+            enabled={settings.notifyOnDriverAssigned ?? true}
+            onChange={(v) => update("notifyOnDriverAssigned", v)}
+            label="Driver assignment notifications"
+          />
+          <ToggleSwitch
+            enabled={settings.notifyOnDeliveryComplete ?? true}
+            onChange={(v) => update("notifyOnDeliveryComplete", v)}
+            label="Delivery completion notifications"
+          />
+          <ToggleSwitch
+            enabled={settings.notifyOnFailure ?? true}
+            onChange={(v) => update("notifyOnFailure", v)}
+            label="Delivery failure alerts"
+          />
+        </div>
+        <div className="pt-2 border-t border-[#1e293b]">
+          <p className="text-[10px] text-gray-500 uppercase mb-2">Notification Channels</p>
+          <div className="flex gap-4">
+            <ToggleSwitch
+              enabled={settings.emailNotifications ?? true}
+              onChange={(v) => update("emailNotifications", v)}
+              label="Email"
+            />
+            <ToggleSwitch
+              enabled={settings.smsNotifications ?? false}
+              onChange={(v) => update("smsNotifications", v)}
+              label="SMS"
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

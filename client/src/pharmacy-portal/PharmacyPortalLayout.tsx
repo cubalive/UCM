@@ -8,6 +8,10 @@ import PharmacyNewOrder from "./pages/PharmacyNewOrder";
 import PharmacyTracking from "./pages/PharmacyTracking";
 import PharmacyMetrics from "./pages/PharmacyMetrics";
 import PharmacySettings from "./pages/PharmacySettings";
+import PharmacyInventory from "./pages/PharmacyInventory";
+import PharmacyPrescriptions from "./pages/PharmacyPrescriptions";
+import PharmacyBilling from "./pages/PharmacyBilling";
+import PharmacyCompliance from "./pages/PharmacyCompliance";
 import LoginPage from "@/pages/login";
 import { useState } from "react";
 import { Menu, X, Pill } from "lucide-react";
@@ -22,7 +26,11 @@ function PharmacyPortalRoutes() {
       <Route path="/orders/:id" component={PharmacyOrderDetail} />
       <Route path="/orders" component={PharmacyOrders} />
       <Route path="/tracking" component={PharmacyTracking} />
+      <Route path="/inventory" component={PharmacyInventory} />
+      <Route path="/prescriptions" component={PharmacyPrescriptions} />
+      <Route path="/billing" component={PharmacyBilling} />
       <Route path="/metrics" component={PharmacyMetrics} />
+      <Route path="/compliance" component={PharmacyCompliance} />
       <Route path="/settings" component={PharmacySettings} />
       <Route>{() => <Redirect to="/" />}</Route>
     </Switch>

@@ -10,6 +10,10 @@ import {
   Pill,
   X,
   Plus,
+  Boxes,
+  FileText,
+  DollarSign,
+  ShieldCheck,
 } from "lucide-react";
 
 interface PharmacySidebarProps {
@@ -23,7 +27,11 @@ const NAV_ITEMS = [
   { path: "/orders", label: "Orders", icon: Package },
   { path: "/orders/new", label: "New Order", icon: Plus },
   { path: "/tracking", label: "Live Tracking", icon: Truck },
+  { path: "/inventory", label: "Inventory", icon: Boxes },
+  { path: "/prescriptions", label: "Prescriptions", icon: FileText },
+  { path: "/billing", label: "Billing", icon: DollarSign },
   { path: "/metrics", label: "Analytics", icon: BarChart3 },
+  { path: "/compliance", label: "Compliance", icon: ShieldCheck },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
