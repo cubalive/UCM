@@ -9,7 +9,7 @@ RUN npm ci --omit=dev
 # ── Build client (Vite) + server (esbuild) ──
 FROM base AS build
 COPY package.json package-lock.json ./
-RUN rm -rf node_modules/.vite && npm ci
+RUN rm -rf /app/node_modules && npm ci
 COPY tsconfig.json vite.config.ts tailwind.config.ts postcss.config.js components.json ./
 COPY script/ ./script/
 COPY server/ ./server/

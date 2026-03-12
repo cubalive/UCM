@@ -225,9 +225,14 @@ export function Profile({ onBack }: { onBack: () => void }) {
       .then((data) => {
         if (data?.driver) {
           const d = data.driver;
+          const vehicleObj = d.assignedVehicle;
           const vehicle = d.vehicleMake && d.vehicleModel
             ? `${d.vehicleMake} ${d.vehicleModel}${d.vehicleYear ? ` ${d.vehicleYear}` : ""}`
-            : d.vehicleName || d.assignedVehicle || "No vehicle assigned";
+            : d.vehicleName
+              || (vehicleObj && typeof vehicleObj === "object"
+                ? `${vehicleObj.make || ""} ${vehicleObj.model || ""} ${vehicleObj.year || ""}`.trim() || vehicleObj.name || vehicleObj.plate || "No vehicle assigned"
+                : vehicleObj)
+              || "No vehicle assigned";
           setVehicleInfo(vehicle);
         } else {
           setVehicleInfo("No vehicle assigned");

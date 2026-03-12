@@ -431,7 +431,6 @@ function Router() {
       <Route path="/live-map">{() => <LiveMapRoute />}</Route>
       <Route path="/auto-assignment">{() => <ProtectedRoute resource="dispatch" component={AutoAssignmentPage} />}</Route>
       <Route path="/command-center">{() => <ProtectedRoute resource="dispatch" component={CareCommandCenterPage} />}</Route>
-      <Route path="/command-center">{() => <ProtectedRoute resource="dispatch" component={CareCommandCenterPage} />}</Route>
       <Route path="/dispatch-board">{() => <ProtectedRoute resource="dispatch" component={DispatchBoardPage} />}</Route>
       <Route path="/trip-requests-queue">{() => <ProtectedRoute resource="dispatch" component={TripRequestsQueuePage} />}</Route>
       <Route path="/schedule">{() => <ProtectedRoute resource="dispatch" component={SchedulePage} />}</Route>

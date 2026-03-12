@@ -174,19 +174,29 @@ const operationGroups: NavGroup[] = [
     icon: CreditCard,
     items: [
       { titleKey: "nav.invoices", url: "/invoices", icon: FileText, resource: "invoices" },
-      { titleKey: "nav.billing", url: "/billing", icon: Receipt, resource: "invoices" },
-      { titleKey: "nav.clinicBilling", url: "/clinic-billing", icon: DollarSign, resource: "invoices" },
+      { titleKey: "nav.clinicBillingV2", url: "/clinic-billing-v2", icon: Receipt, resource: "billing" },
+      { titleKey: "nav.billingConfig", url: "/billing-config", icon: Settings2, resource: "billing" },
+      { titleKey: "nav.reconciliation", url: "/reconciliation", icon: CheckSquare, resource: "billing", superAdminOnly: true },
+    ],
+  },
+  {
+    labelKey: "nav.group.payroll",
+    icon: Banknote,
+    items: [
       { titleKey: "nav.timecards", url: "/timecards", icon: Clock, resource: "time_entries" },
       { titleKey: "nav.tpPayroll", url: "/tp-payroll", icon: Banknote, resource: "payroll" },
       { titleKey: "nav.payrollSettings", url: "/payroll-settings", icon: Settings2, resource: "payroll" },
-      { titleKey: "nav.billingConfig", url: "/billing-config", icon: Settings2, resource: "billing" },
+    ],
+  },
+  {
+    labelKey: "nav.group.adminBilling",
+    icon: DollarSign,
+    items: [
       { titleKey: "nav.platformFees", url: "/platform-fees", icon: DollarSign, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.feeRules", url: "/fee-rules", icon: Settings2, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.medicaidBilling", url: "/medicaid-billing", icon: FileText, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.ediBilling", url: "/edi-billing", icon: FileText, resource: "billing", superAdminOnly: true },
       { titleKey: "nav.claimStatus", url: "/claim-status", icon: FileText, resource: "billing", superAdminOnly: true },
-      { titleKey: "nav.reconciliation", url: "/reconciliation", icon: CheckSquare, resource: "billing", superAdminOnly: true },
-      { titleKey: "nav.clinicBillingV2", url: "/clinic-billing-v2", icon: Receipt, resource: "billing" },
     ],
   },
   {
