@@ -1897,7 +1897,9 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
       return res.status(400).json({ message: "Cannot complete trip: no pickup timestamp recorded." });
     }
 
-    const { manualOverride } = req.body;
+    const allowedOverrideRoles = ["ADMIN", "DISPATCH", "COMPANY_ADMIN", "SUPER_ADMIN"];
+    const canOverride = allowedOverrideRoles.includes(req.user?.role || "");
+    const manualOverride = canOverride ? req.body.manualOverride : false;
     const MANUAL_FALLBACK_RADIUS = 300;
 
     if (process.env.GEOFENCE_ENABLED === "true") {

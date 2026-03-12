@@ -1,6 +1,8 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { resolveUrl, getStoredToken } from "@/lib/api";
 import { DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
+import { showToast } from "../components/ui/Toast";
 
 export type DriverStatus = "offline" | "online";
 export type ShiftStatus = "offShift" | "onShift";
@@ -91,7 +93,9 @@ interface DriverState {
   driverLng: number | null;
   driverHeading: number | null;
   loading: boolean;
+  actionLoading: boolean;
   error: string | null;
+  offerExpiresAt: number | null;
 
   initialize: () => Promise<void>;
   setOnline: () => Promise<void>;
@@ -166,7 +170,15 @@ function tripFromApiData(trip: any): ActiveTrip {
   };
 }
 
-export const useDriverStore = create<DriverState>((set, get) => ({
+function handleError(err: any, context: string, set: any) {
+  const msg = err.message || "Something went wrong";
+  set({ error: msg, actionLoading: false });
+  showToast("error", `${context}: ${msg}`);
+}
+
+export const useDriverStore = create<DriverState>()(
+  persist(
+    (set, get) => ({
   driverStatus: "offline",
   shiftStatus: "offShift",
   activeTrip: null,
@@ -184,7 +196,9 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   driverLng: null,
   driverHeading: null,
   loading: false,
+  actionLoading: false,
   error: null,
+  offerExpiresAt: null,
 
   initialize: async () => {
     set({ loading: true, error: null });
@@ -223,43 +237,52 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   },
 
   setOnline: async () => {
+    set({ actionLoading: true });
     try {
       await driverApi("/api/driver/me/active", { method: "POST", body: JSON.stringify({ active: true }) });
-      set({ driverStatus: "online" });
+      set({ driverStatus: "online", actionLoading: false });
+      showToast("success", "You are now online");
     } catch (err: any) {
-      set({ error: err.message });
+      handleError(err, "Go online failed", set);
     }
   },
 
   setOffline: async () => {
+    set({ actionLoading: true });
     try {
       await driverApi("/api/driver/me/active", { method: "POST", body: JSON.stringify({ active: false }) });
-      set({ driverStatus: "offline", shiftStatus: "offShift" });
+      set({ driverStatus: "offline", shiftStatus: "offShift", actionLoading: false });
+      showToast("info", "You are now offline");
     } catch (err: any) {
-      set({ error: err.message });
+      handleError(err, "Go offline failed", set);
     }
   },
 
   startShift: async () => {
+    set({ actionLoading: true });
     try {
       await driverApi("/api/driver/shift/start", { method: "POST", body: "{}" });
-      set({ shiftStatus: "onShift" });
+      set({ shiftStatus: "onShift", actionLoading: false });
+      showToast("success", "Shift started");
     } catch (err: any) {
-      set({ error: err.message });
+      handleError(err, "Start shift failed", set);
     }
   },
 
   endShift: async () => {
+    set({ actionLoading: true });
     try {
       await driverApi("/api/driver/shift/end", { method: "POST", body: "{}" });
-      set({ shiftStatus: "offShift" });
+      set({ shiftStatus: "offShift", actionLoading: false });
+      showToast("info", "Shift ended");
     } catch (err: any) {
-      set({ error: err.message });
+      handleError(err, "End shift failed", set);
     }
   },
 
   connectAndStartShift: async () => {
     const s = get();
+    set({ actionLoading: true });
     try {
       if (s.driverStatus === "offline") {
         await driverApi("/api/driver/me/active", { method: "POST", body: JSON.stringify({ active: true }) });
@@ -269,41 +292,49 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         await driverApi("/api/driver/shift/start", { method: "POST", body: "{}" });
         set({ shiftStatus: "onShift" });
       }
+      set({ actionLoading: false });
+      showToast("success", "You're online and shift started!");
     } catch (err: any) {
-      set({ error: err.message });
+      handleError(err, "Connect failed", set);
     }
   },
 
   acceptOffer: async () => {
     const offer = get().pendingOffer;
     if (!offer) return;
+    set({ actionLoading: true });
     try {
       const result = await driverApi(`/api/driver/offers/${offer.offerId}/accept`, { method: "POST", body: "{}" });
-      set({ pendingOffer: null });
+      set({ pendingOffer: null, offerExpiresAt: null });
       if (result.tripId) {
         const tripData = await driverApi(`/api/driver/trips/${result.tripId}`);
         const trip = tripData.trip || tripData;
-        set({ activeTrip: tripFromApiData(trip), tripPhase: statusToPhase(trip.status) });
+        set({ activeTrip: tripFromApiData(trip), tripPhase: statusToPhase(trip.status), actionLoading: false });
+      } else {
+        set({ actionLoading: false });
       }
+      showToast("success", "Trip accepted!");
     } catch (err: any) {
-      set({ error: err.message });
+      handleError(err, "Accept trip failed", set);
     }
   },
 
   declineOffer: async () => {
     const offer = get().pendingOffer;
     if (!offer) return;
+    set({ actionLoading: true });
     try {
       await driverApi(`/api/driver/offers/${offer.offerId}/decline`, { method: "POST", body: "{}" });
-      set({ pendingOffer: null, tripPhase: "none", activeTrip: null });
+      set({ pendingOffer: null, tripPhase: "none", activeTrip: null, offerExpiresAt: null, actionLoading: false });
     } catch (err: any) {
-      set({ error: err.message });
+      handleError(err, "Decline failed", set);
     }
   },
 
   advanceTripStatus: async (newStatus: string) => {
     const trip = get().activeTrip;
     if (!trip) return;
+    set({ actionLoading: true });
     try {
       const idempotencyKey = `${trip.tripId}_${newStatus}_${Date.now()}`;
       await driverApi(`/api/driver/trips/${trip.tripId}/status`, {
@@ -311,7 +342,15 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         body: JSON.stringify({ status: newStatus, idempotencyKey }),
       });
       const newPhase = statusToPhase(newStatus);
-      set({ tripPhase: newPhase, activeTrip: { ...trip, status: newStatus } });
+      set({ tripPhase: newPhase, activeTrip: { ...trip, status: newStatus }, actionLoading: false });
+
+      const statusLabels: Record<string, string> = {
+        ARRIVED_PICKUP: "Arrived at pickup",
+        PICKED_UP: "Patient picked up",
+        ARRIVED_DROPOFF: "Arrived at dropoff",
+        COMPLETED: "Trip completed!",
+      };
+      showToast("success", statusLabels[newStatus] || `Status: ${newStatus}`);
 
       if (newStatus === "COMPLETED") {
         set((s) => ({ completedRides: s.completedRides + 1, activeTrip: null }));
@@ -321,7 +360,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         }).catch(() => {});
       }
     } catch (err: any) {
-      set({ error: err.message });
+      handleError(err, "Status update failed", set);
     }
   },
 
@@ -354,9 +393,11 @@ export const useDriverStore = create<DriverState>((set, get) => ({
           etaToPickupMinutes: offer.etaToPickupMinutes || offer.lastEtaMinutes || 12,
           estimatedTripMinutes: offer.estimatedTripMinutes || offer.tripDurationMinutes || 25,
         };
+        const expiresAt = offer.expiresAt ? new Date(offer.expiresAt).getTime() : Date.now() + (offer.secondsRemaining || 30) * 1000;
         set({
           pendingOffer: enrichedOffer,
           tripPhase: "offer",
+          offerExpiresAt: expiresAt,
           activeTrip: {
             id: offer.publicId || String(offer.tripId),
             tripId: offer.tripId,
@@ -371,6 +412,9 @@ export const useDriverStore = create<DriverState>((set, get) => ({
             routePolyline: offer.routePolyline || null,
           },
         });
+      } else if (get().tripPhase === "offer") {
+        // Offer expired server-side
+        set({ pendingOffer: null, tripPhase: "none", activeTrip: null, offerExpiresAt: null });
       }
     } catch {}
   },
@@ -398,8 +442,9 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     const { driverLat, driverLng } = get();
     try {
       await driverApi("/api/driver/emergency", { method: "POST", body: JSON.stringify({ lat: driverLat, lng: driverLng, note }) });
+      showToast("info", "Emergency reported — dispatch has been notified");
     } catch (err: any) {
-      set({ error: err.message });
+      handleError(err, "Emergency report failed", set);
     }
   },
 
@@ -433,4 +478,15 @@ export const useDriverStore = create<DriverState>((set, get) => ({
         return { label: "Ready", actionKey: "", disabled: true, hint: "", variant: "secondary" };
     }
   },
-}));
+}),
+    {
+      name: "ucm-driver-store",
+      partialize: (state) => ({
+        serviceFilter: state.serviceFilter,
+        navPreference: state.navPreference,
+        driverName: state.driverName,
+        driverInitials: state.driverInitials,
+      }),
+    },
+  ),
+);

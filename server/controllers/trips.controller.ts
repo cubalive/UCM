@@ -84,7 +84,12 @@ export async function updateRecurringScheduleHandler(req: AuthRequest, res: Resp
     const current = (await db.select().from(recurringSchedules).where(eq(recurringSchedules.id, id)).limit(1))[0];
     if (!current) return res.status(404).json({ message: "Schedule not found" });
 
-    const merged = { ...current, ...req.body };
+    const allowedFields = ['days', 'pickupTime', 'dropoffAddress', 'dropoffLat', 'dropoffLng', 'pickupAddress', 'pickupLat', 'pickupLng', 'notes', 'active', 'startDate', 'endDate', 'serviceType', 'wheelchairRequired', 'returnTrip'];
+    const updates: any = {};
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    const merged = { ...current, ...updates };
     if (merged.active) {
       if (!merged.days?.length || !merged.pickupTime) {
         return res.status(400).json({ message: "Cannot activate schedule without days and pickup time" });

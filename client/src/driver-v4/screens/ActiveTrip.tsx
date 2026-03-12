@@ -15,6 +15,8 @@ import { GlowProgressCircle } from "../components/ui/GlowProgressCircle";
 import { GlassButton } from "../components/ui/GlassButton";
 import { NebulaBackground } from "../components/ui/MapOverlay";
 import { DriverTripMap } from "../components/DriverTripMap";
+import { ProofOfDelivery } from "../components/ProofOfDelivery";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 
 const PHASE_STEPS: { key: TripPhase; label: string; icon: typeof MapPin }[] = [
   { key: "toPickup", label: "En Route", icon: Navigation },
@@ -169,6 +171,8 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
   const reduced = useReducedMotion();
   const [showComplete, setShowComplete] = useState(false);
   const [completedTrip, setCompletedTrip] = useState<any>(null);
+  const [showPOD, setShowPOD] = useState(false);
+  const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
 
   const nextAction = useMemo(() => store.getNextAction(), [tripPhase]);
 
@@ -180,9 +184,33 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
   }, [tripPhase]);
 
   const handleAction = useCallback(() => {
+    // Intercept "Complete Trip" to show POD screen first
+    if (nextAction.actionKey === "completeTrip" && !showPOD) {
+      setShowPOD(true);
+      return;
+    }
     const fn = (store as any)[nextAction.actionKey];
     if (typeof fn === "function") fn();
-  }, [nextAction.actionKey, store]);
+  }, [nextAction.actionKey, store, showPOD]);
+
+  if (showPOD && activeTrip) {
+    return (
+      <NebulaBackground>
+        <ProofOfDelivery
+          tripId={activeTrip.tripId}
+          passengerName={activeTrip.passengerName}
+          onComplete={() => {
+            setShowPOD(false);
+            store.completeTrip();
+          }}
+          onSkip={() => {
+            setShowPOD(false);
+            store.completeTrip();
+          }}
+        />
+      </NebulaBackground>
+    );
+  }
 
   if (showComplete && completedTrip) {
     return (
@@ -268,7 +296,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
             </button>
             <GlassButton
               icon={<AlertTriangle className="w-4 h-4" style={{ color: colors.danger }} />}
-              onPress={() => store.reportEmergency()}
+              onPress={() => setShowEmergencyConfirm(true)}
               label="Emergency"
               size={38}
               accentColor={colors.danger}
@@ -417,6 +445,20 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
           )}
         </motion.div>
       </div>
+
+      <ConfirmDialog
+        open={showEmergencyConfirm}
+        title="Report Emergency?"
+        message="This will immediately alert dispatch about an emergency at your current location. Only use for real emergencies."
+        confirmLabel="Report Emergency"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={() => {
+          setShowEmergencyConfirm(false);
+          store.reportEmergency("Emergency reported by driver during active trip");
+        }}
+        onCancel={() => setShowEmergencyConfirm(false)}
+      />
     </div>
   );
 }

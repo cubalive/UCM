@@ -238,21 +238,12 @@ export async function runAutoInvoiceGeneration(): Promise<AutoInvoiceResult> {
           });
         }
 
-        // Auto-finalize the invoice
-        await db
-          .update(billingCycleInvoices)
-          .set({
-            status: "finalized",
-            finalizedAt: new Date(),
-            locked: true,
-            balanceDueCents: totalCents,
-            updatedAt: new Date(),
-          })
-          .where(eq(billingCycleInvoices.id, invoice.id));
+        // Leave as draft for admin review and approval
+        // Invoice stays in "draft" status until manually finalized
 
         // Write audit
         await writeBillingAudit({
-          action: "auto_invoice_generated",
+          action: "auto_invoice_draft_generated",
           entityType: "invoice",
           entityId: invoice.id,
           scopeClinicId: clinic.id,

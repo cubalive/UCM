@@ -150,11 +150,15 @@ export async function brokerTripRequestDetailHandler(req: AuthRequest, res: Resp
     const brokerId = getBrokerScopeId(req);
     const requestId = Number(req.params.id);
 
+    if (!brokerId) {
+      return res.status(403).json({ message: "Broker scope required" });
+    }
+
     const [request] = await db.select()
       .from(brokerTripRequests)
       .where(and(
         eq(brokerTripRequests.id, requestId),
-        brokerId ? eq(brokerTripRequests.brokerId, brokerId) : sql`true`,
+        eq(brokerTripRequests.brokerId, brokerId),
       ))
       .limit(1);
 
@@ -296,11 +300,15 @@ export async function brokerUpdateTripRequestStatusHandler(req: AuthRequest, res
     const requestId = Number(req.params.id);
     const { status, reason } = req.body;
 
+    if (!brokerId) {
+      return res.status(403).json({ message: "Broker scope required" });
+    }
+
     const [request] = await db.select()
       .from(brokerTripRequests)
       .where(and(
         eq(brokerTripRequests.id, requestId),
-        brokerId ? eq(brokerTripRequests.brokerId, brokerId) : sql`true`,
+        eq(brokerTripRequests.brokerId, brokerId),
       ))
       .limit(1);
 
@@ -432,6 +440,10 @@ export async function brokerAwardBidHandler(req: AuthRequest, res: Response) {
     const brokerId = getBrokerScopeId(req);
     const bidId = Number(req.params.bidId);
 
+    if (!brokerId) {
+      return res.status(403).json({ message: "Broker scope required" });
+    }
+
     const [bid] = await db.select()
       .from(brokerBids)
       .where(eq(brokerBids.id, bidId))
@@ -446,7 +458,7 @@ export async function brokerAwardBidHandler(req: AuthRequest, res: Response) {
       .from(brokerTripRequests)
       .where(and(
         eq(brokerTripRequests.id, bid.tripRequestId),
-        brokerId ? eq(brokerTripRequests.brokerId, brokerId) : sql`true`,
+        eq(brokerTripRequests.brokerId, brokerId),
       ))
       .limit(1);
 
@@ -560,7 +572,14 @@ export async function brokerCreateContractHandler(req: AuthRequest, res: Respons
 
     const publicId = generateContractPublicId();
     const [contract] = await db.insert(brokerContracts).values({
-      ...req.body,
+      companyId: req.body.companyId,
+      name: req.body.name,
+      effectiveDate: req.body.effectiveDate || req.body.startDate,
+      expirationDate: req.body.expirationDate || req.body.endDate || null,
+      serviceTypes: req.body.serviceTypes,
+      baseRatePerMile: req.body.baseRatePerMile || req.body.ratePerMile || null,
+      baseRatePerTrip: req.body.baseRatePerTrip || req.body.ratePerTrip || null,
+      notes: req.body.notes,
       publicId,
       brokerId,
       status: "DRAFT",
@@ -586,6 +605,10 @@ export async function brokerContractDetailHandler(req: AuthRequest, res: Respons
     const brokerId = getBrokerScopeId(req);
     const contractId = Number(req.params.id);
 
+    if (!brokerId) {
+      return res.status(403).json({ message: "Broker scope required" });
+    }
+
     const [contract] = await db.select({
       contract: brokerContracts,
       companyName: companies.name,
@@ -594,7 +617,7 @@ export async function brokerContractDetailHandler(req: AuthRequest, res: Respons
       .leftJoin(companies, eq(brokerContracts.companyId, companies.id))
       .where(and(
         eq(brokerContracts.id, contractId),
-        brokerId ? eq(brokerContracts.brokerId, brokerId) : sql`true`,
+        eq(brokerContracts.brokerId, brokerId),
       ))
       .limit(1);
 
@@ -664,6 +687,10 @@ export async function brokerSettlementDetailHandler(req: AuthRequest, res: Respo
     const brokerId = getBrokerScopeId(req);
     const settlementId = Number(req.params.id);
 
+    if (!brokerId) {
+      return res.status(403).json({ message: "Broker scope required" });
+    }
+
     const [settlement] = await db.select({
       settlement: brokerSettlements,
       companyName: companies.name,
@@ -672,7 +699,7 @@ export async function brokerSettlementDetailHandler(req: AuthRequest, res: Respo
       .leftJoin(companies, eq(brokerSettlements.companyId, companies.id))
       .where(and(
         eq(brokerSettlements.id, settlementId),
-        brokerId ? eq(brokerSettlements.brokerId, brokerId) : sql`true`,
+        eq(brokerSettlements.brokerId, brokerId),
       ))
       .limit(1);
 
@@ -889,8 +916,22 @@ export async function adminCreateBrokerHandler(req: AuthRequest, res: Response) 
   try {
     const publicId = generateBrokerPublicId();
     const [broker] = await db.insert(brokers).values({
-      ...req.body,
+      name: req.body.name,
+      type: req.body.type || req.body.businessType || "PRIVATE_PAYER",
+      legalName: req.body.legalName || null,
+      contactName: req.body.contactName,
+      contactEmail: req.body.contactEmail,
+      contactPhone: req.body.contactPhone,
+      address: req.body.address,
+      city: req.body.city,
+      state: req.body.state,
+      zip: req.body.zip || req.body.zipCode || null,
+      taxId: req.body.taxId,
+      email: req.body.email || req.body.contactEmail,
+      phone: req.body.phone || req.body.contactPhone,
+      notes: req.body.notes,
       publicId,
+      status: "PENDING_APPROVAL",
     }).returning();
 
     await db.insert(brokerEvents).values({

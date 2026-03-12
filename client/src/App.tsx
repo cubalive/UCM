@@ -713,7 +713,7 @@ function AuthenticatedApp() {
 
   if (isClinicHost) {
     const role = user.role.toUpperCase();
-    const clinicAllowed = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER", "CLINIC", "SUPER_ADMIN"];
+    const clinicAllowed = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER", "SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
     if (!clinicAllowed.includes(role)) {
       return (
         <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">

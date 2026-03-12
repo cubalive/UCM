@@ -105,7 +105,9 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
       try {
         const msg = JSON.parse(raw.toString());
         handleMessage(ws, msg);
-      } catch {}
+      } catch (err) {
+        console.error("[REALTIME] Failed to parse WebSocket message:", err);
+      }
     });
 
     ws.on("close", () => {
@@ -121,7 +123,9 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
       try {
         const { cleanupChannelSubscriptions } = require("./tripTransitionHelper");
         cleanupChannelSubscriptions(ws);
-      } catch {}
+      } catch (err) {
+        console.error("[REALTIME] Failed to cleanup channel subscriptions:", err);
+      }
     });
 
     ws.send(JSON.stringify({ type: "connected", ts: Date.now() }));

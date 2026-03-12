@@ -106,7 +106,7 @@ export async function loginJwtHandler(req: Request, res: Response) {
 
     const valid = await comparePassword(parsed.data.password, user.password);
     if (!valid) {
-      console.warn(`[AUTH] login-jwt: password mismatch userId=${user.id} email="${normalizedEmail}" hashPrefix="${user.password?.substring(0, 7)}"`);
+      console.warn(`[AUTH] login-jwt: password mismatch userId=${user.id} email="${normalizedEmail}"`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
@@ -334,17 +334,7 @@ export async function meHandler(req: Request, res: Response) {
 }
 
 export async function authHealthHandler(_req: Request, res: Response) {
-  const { allowedAppOrigins } = await import("../index");
-  res.json({
-    ok: true,
-    allowedOrigins: Array.from(allowedAppOrigins),
-    appBaseUrl: process.env.PUBLIC_BASE_URL_APP || "https://app.unitedcaremobility.com",
-    driverBaseUrl: process.env.PUBLIC_BASE_URL_DRIVER || "https://driver.unitedcaremobility.com",
-    apiBaseUrl: process.env.PUBLIC_BASE_URL_API || null,
-    twilioConfigured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
-    geofenceEnabled: process.env.GEOFENCE_ENABLED === "true",
-    smsReminderEnabled: process.env.SMS_REMINDER_ENABLED === "true",
-  });
+  res.json({ ok: true });
 }
 
 export async function setWorkingCityHandler(req: Request, res: Response) {

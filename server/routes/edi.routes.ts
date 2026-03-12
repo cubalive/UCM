@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { Router, type Express } from "express";
 import type { Response } from "express";
 import { authMiddleware, requirePermission, type AuthRequest } from "../auth";
@@ -29,7 +30,7 @@ const router = Router();
 
 function generateClaimNumber(): string {
   const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const rand = randomUUID().slice(0, 8).toUpperCase();
   return `EDI-${ts}-${rand}`;
 }
 

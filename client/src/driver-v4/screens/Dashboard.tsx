@@ -1,13 +1,14 @@
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import {
   Wallet, Star, MapPin, Car, Clock, TrendingUp, Shield,
   Zap, Navigation, Phone, ChevronUp, ChevronDown, Package, Ambulance,
-  Accessibility, BedDouble, Weight, Route, Users, Check, X
+  Accessibility, BedDouble, Weight, Route, Users, Check, X, Loader2
 } from "lucide-react";
 import { useDriverStore, type ServiceFilter } from "../store/driverStore";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { glowColor, statusGradient } from "../design/theme";
 import { GlassCard } from "../components/ui/GlassCard";
 import { NeonButton } from "../components/ui/NeonButton";
@@ -71,10 +72,12 @@ function ConnectButton() {
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
   const tripPhase = useDriverStore((s) => s.tripPhase);
+  const actionLoading = useDriverStore((s) => s.actionLoading);
   const connectAndStartShift = useDriverStore((s) => s.connectAndStartShift);
   const setOffline = useDriverStore((s) => s.setOffline);
   const endShift = useDriverStore((s) => s.endShift);
   const reduced = useReducedMotion();
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
 
   const isFullyOnline = driverStatus === "online" && shiftStatus === "onShift";
   const hasTripActivity = tripPhase !== "none" && tripPhase !== "complete";
@@ -82,61 +85,84 @@ function ConnectButton() {
   if (hasTripActivity) return null;
 
   const handlePress = useCallback(() => {
+    if (actionLoading) return;
     if (isFullyOnline) {
-      endShift();
-      setOffline();
+      setShowEndConfirm(true);
     } else {
       connectAndStartShift();
     }
-  }, [isFullyOnline, connectAndStartShift, setOffline, endShift]);
+  }, [isFullyOnline, actionLoading, connectAndStartShift]);
+
+  const confirmEndShift = useCallback(() => {
+    setShowEndConfirm(false);
+    endShift().then(() => setOffline());
+  }, [endShift, setOffline]);
 
   return (
-    <div className="flex flex-col items-center gap-3">
-      <motion.button
-        onClick={handlePress}
-        className="relative flex items-center justify-center rounded-full"
-        style={{
-          width: 80,
-          height: 80,
-          background: isFullyOnline
-            ? `linear-gradient(135deg, ${colors.success}, #2BB84E)`
-            : `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})`,
-          boxShadow: isFullyOnline
-            ? `0 8px 32px rgba(52,199,89,0.4)`
-            : `0 8px 32px rgba(255,107,53,0.35)`,
-          border: "4px solid rgba(255,255,255,0.9)",
-        }}
-        whileHover={!reduced ? { scale: 1.08 } : undefined}
-        whileTap={!reduced ? { scale: 0.92 } : undefined}
-        data-testid="btn-connect"
-        aria-label={isFullyOnline ? "Go Offline" : "Go Online"}
-      >
-        {/* Pulse ring */}
-        {!reduced && (
-          <motion.div
-            className="absolute inset-[-6px] rounded-full"
-            animate={{
-              scale: [1, 1.2, 1],
-              opacity: [0.3, 0, 0.3],
-            }}
-            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-            style={{
-              border: `2px solid ${isFullyOnline ? colors.success : colors.sunrise}`,
-              pointerEvents: "none",
-            }}
-          />
-        )}
-        <div className="flex flex-col items-center">
-          <Zap className="w-7 h-7 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.2))" }} />
-          <span className="text-[9px] font-bold tracking-wider uppercase text-white/80 mt-0.5">
-            {isFullyOnline ? "STOP" : "GO"}
-          </span>
-        </div>
-      </motion.button>
-      <span className="text-xs font-medium" style={{ color: colors.textSecondary }}>
-        {isFullyOnline ? "Tap to go offline" : "Tap to go online"}
-      </span>
-    </div>
+    <>
+      <div className="flex flex-col items-center gap-3">
+        <motion.button
+          onClick={handlePress}
+          className="relative flex items-center justify-center rounded-full"
+          style={{
+            width: 80,
+            height: 80,
+            background: isFullyOnline
+              ? `linear-gradient(135deg, ${colors.success}, #2BB84E)`
+              : `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})`,
+            boxShadow: isFullyOnline
+              ? `0 8px 32px rgba(52,199,89,0.4)`
+              : `0 8px 32px rgba(255,107,53,0.35)`,
+            border: "4px solid rgba(255,255,255,0.9)",
+            opacity: actionLoading ? 0.7 : 1,
+          }}
+          whileHover={!reduced && !actionLoading ? { scale: 1.08 } : undefined}
+          whileTap={!reduced && !actionLoading ? { scale: 0.92 } : undefined}
+          data-testid="btn-connect"
+          aria-label={isFullyOnline ? "Go Offline" : "Go Online"}
+          disabled={actionLoading}
+        >
+          {/* Pulse ring */}
+          {!reduced && !actionLoading && (
+            <motion.div
+              className="absolute inset-[-6px] rounded-full"
+              animate={{
+                scale: [1, 1.2, 1],
+                opacity: [0.3, 0, 0.3],
+              }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+              style={{
+                border: `2px solid ${isFullyOnline ? colors.success : colors.sunrise}`,
+                pointerEvents: "none",
+              }}
+            />
+          )}
+          <div className="flex flex-col items-center">
+            {actionLoading ? (
+              <Loader2 className="w-7 h-7 text-white animate-spin" />
+            ) : (
+              <Zap className="w-7 h-7 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.2))" }} />
+            )}
+            <span className="text-[9px] font-bold tracking-wider uppercase text-white/80 mt-0.5">
+              {actionLoading ? "..." : isFullyOnline ? "STOP" : "GO"}
+            </span>
+          </div>
+        </motion.button>
+        <span className="text-xs font-medium" style={{ color: colors.textSecondary }}>
+          {actionLoading ? "Please wait..." : isFullyOnline ? "Tap to go offline" : "Tap to go online"}
+        </span>
+      </div>
+      <ConfirmDialog
+        open={showEndConfirm}
+        title="End Shift?"
+        message="Make sure all your trips are complete before ending your shift. This will set you offline."
+        confirmLabel="End Shift"
+        cancelLabel="Keep Working"
+        variant="danger"
+        onConfirm={confirmEndShift}
+        onCancel={() => setShowEndConfirm(false)}
+      />
+    </>
   );
 }
 
@@ -173,6 +199,25 @@ function QuickStats() {
   );
 }
 
+/* ─── Offer Countdown Hook ─── */
+function useOfferCountdown(): number {
+  const expiresAt = useDriverStore((s) => s.offerExpiresAt);
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!expiresAt) { setSeconds(0); return; }
+    const update = () => {
+      const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+      setSeconds(remaining);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+
+  return seconds;
+}
+
 /* ─── Swipeable Trip Offer Card ─── */
 function SwipeableTripOffer() {
   const activeTrip = useDriverStore((s) => s.activeTrip);
@@ -180,7 +225,9 @@ function SwipeableTripOffer() {
   const tripPhase = useDriverStore((s) => s.tripPhase);
   const acceptOffer = useDriverStore((s) => s.acceptOffer);
   const declineOffer = useDriverStore((s) => s.declineOffer);
+  const actionLoading = useDriverStore((s) => s.actionLoading);
   const reduced = useReducedMotion();
+  const countdown = useOfferCountdown();
 
   const x = useMotionValue(0);
   const rotateZ = useTransform(x, [-200, 0, 200], [-8, 0, 8]);
@@ -261,12 +308,25 @@ function SwipeableTripOffer() {
                 {activeTrip.tripType === "Delivery" ? "New Delivery" : "New Trip Request"}
               </span>
             </div>
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{
-              background: "rgba(255,107,53,0.1)",
-              color: colors.sunrise,
-            }}>
-              Swipe to respond
-            </span>
+            <div className="flex items-center gap-2">
+              {countdown > 0 && (
+                <span
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-full tabular-nums"
+                  style={{
+                    background: countdown <= 10 ? "rgba(255,59,48,0.1)" : "rgba(255,149,0,0.1)",
+                    color: countdown <= 10 ? colors.danger : colors.warning,
+                  }}
+                >
+                  {countdown}s
+                </span>
+              )}
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{
+                background: "rgba(255,107,53,0.1)",
+                color: colors.sunrise,
+              }}>
+                Swipe to respond
+              </span>
+            </div>
           </div>
 
           {/* ETA badges */}
@@ -347,24 +407,29 @@ function SwipeableTripOffer() {
                 background: colors.dangerLight,
                 color: colors.danger,
                 border: `1px solid rgba(255,59,48,0.15)`,
+                opacity: actionLoading ? 0.6 : 1,
               }}
               whileTap={!reduced ? { scale: 0.95 } : undefined}
               data-testid="btn-decline-offer"
+              disabled={actionLoading}
             >
               Decline
             </motion.button>
             <motion.button
               onClick={() => acceptOffer()}
-              className="flex-[2] py-3 rounded-2xl text-sm font-semibold"
+              className="flex-[2] py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2"
               style={{
                 background: `linear-gradient(135deg, ${colors.success}, #2BB84E)`,
                 color: "#fff",
                 boxShadow: `0 4px 16px rgba(52,199,89,0.3)`,
+                opacity: actionLoading ? 0.7 : 1,
               }}
-              whileHover={!reduced ? { scale: 1.02 } : undefined}
-              whileTap={!reduced ? { scale: 0.95 } : undefined}
+              whileHover={!reduced && !actionLoading ? { scale: 1.02 } : undefined}
+              whileTap={!reduced && !actionLoading ? { scale: 0.95 } : undefined}
               data-testid="btn-accept-offer"
+              disabled={actionLoading}
             >
+              {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
               Accept Trip
             </motion.button>
           </div>

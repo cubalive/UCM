@@ -37,18 +37,29 @@ async function processJob(job: any): Promise<void> {
       case "pdf_batch_zip":
         result = await processBatchPdfJob(job);
         break;
-      case "invoice_generate":
-        result = { status: "completed", message: "Invoice generation not yet implemented in worker" };
+      case "invoice_generate": {
+        const { generateInvoiceForJob } = await import("./lib/invoiceWorker");
+        result = await generateInvoiceForJob(job);
         break;
-      case "billing_rollup":
-        result = { status: "completed", message: "Billing rollup not yet implemented in worker" };
+      }
+      case "billing_rollup": {
+        const { runBillingRollupJob } = await import("./lib/billingRollupWorker");
+        result = await runBillingRollupJob(job);
         break;
-      case "email_send":
-        result = { status: "completed", message: "Email send not yet implemented in worker" };
+      }
+      case "email_send": {
+        const { sendEmail } = await import("./lib/email");
+        const { to, subject, html } = (job.payload || {}) as { to?: string; subject?: string; html?: string };
+        if (!to || !subject || !html) throw new Error("email_send requires to, subject, html in payload");
+        const emailResult = await sendEmail({ to, subject, html });
+        result = { status: emailResult.success ? "completed" : "failed", ...emailResult };
         break;
-      case "map_snapshot":
-        result = { status: "completed", message: "Map snapshot not yet implemented in worker" };
+      }
+      case "map_snapshot": {
+        console.warn(`[WORKER] map_snapshot job ${job.id} — not yet implemented (requires headless browser)`);
+        result = { status: "skipped", message: "Map snapshot requires headless browser — not yet available in worker" };
         break;
+      }
       case "score_recompute": {
         const companyId = (job.payload as any)?.companyId;
         const window = (job.payload as any)?.window || "7d";

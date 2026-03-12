@@ -11,6 +11,7 @@ import { Dashboard } from "./screens/Dashboard";
 import { ActiveTrip } from "./screens/ActiveTrip";
 import { Earnings } from "./screens/Earnings";
 import { Profile } from "./screens/Profile";
+import { ToastContainer } from "./components/ui/Toast";
 
 type Screen = "onboarding" | "dashboard" | "activeTrip" | "earnings" | "profile";
 
@@ -258,7 +259,12 @@ export function DriverAppV4() {
   }, []);
 
   if (!isAuthenticated) {
-    return <Onboarding onContinue={handleContinue} />;
+    return (
+      <>
+        <ToastContainer />
+        <Onboarding onContinue={handleContinue} />
+      </>
+    );
   }
 
   // Hide tab bar during active trip full view
@@ -309,6 +315,9 @@ export function DriverAppV4() {
           tripPhase={tripPhase}
         />
       )}
+
+      {/* Global Toast Notifications */}
+      <ToastContainer />
     </div>
   );
 }

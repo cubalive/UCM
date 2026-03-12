@@ -16,6 +16,7 @@ import {
   tripBilling,
   clinicInvoicesMonthly,
   clinicInvoiceItems,
+  billingCycleInvoices,
   insertClinicTariffSchema,
 } from "@shared/schema";
 import { eq, and, sql, gte, lte, isNull, inArray, desc } from "drizzle-orm";
@@ -1002,7 +1003,7 @@ export function registerClinicBillingRoutes(app: Express) {
       res.json(settings || {
         clinicId,
         billingCycle: "weekly",
-        anchorDow: 1,
+        anchorDow: 7,
         anchorDom: 1,
         biweeklyMode: "1_15",
         anchorDate: null,
@@ -1071,7 +1072,7 @@ export function registerClinicBillingRoutes(app: Express) {
         const defaultSettings = settings || {
           clinicId,
           billingCycle: "weekly" as const,
-          anchorDow: 1,
+          anchorDow: 7,
           anchorDom: 1,
           biweeklyMode: "1_15" as const,
           anchorDate: null,
@@ -1151,7 +1152,7 @@ export function registerClinicBillingRoutes(app: Express) {
         const defaultSettings = settings || {
           clinicId,
           billingCycle: "weekly" as const,
-          anchorDow: 1,
+          anchorDow: 7,
           anchorDom: 1,
           biweeklyMode: "1_15" as const,
           anchorDate: null,
@@ -1295,6 +1296,61 @@ export function registerClinicBillingRoutes(app: Express) {
       } as any);
 
       res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Batch finalize all draft cycle invoices (approve all pending)
+  app.post("/api/cycle-invoices/batch-finalize", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"), async (req: AuthRequest, res) => {
+    try {
+      const { clinicId } = req.body;
+
+      const drafts = await db.select()
+        .from(billingCycleInvoices)
+        .where(and(
+          eq(billingCycleInvoices.status, "draft"),
+          ...(clinicId ? [eq(billingCycleInvoices.clinicId, Number(clinicId))] : []),
+        ));
+
+      const results: { finalized: number[]; errors: string[] } = { finalized: [], errors: [] };
+
+      for (const invoice of drafts) {
+        try {
+          const access = await checkClinicAccess(req, invoice.clinicId);
+          if (!access.allowed) {
+            results.errors.push(`Invoice ${invoice.id}: ${access.reason}`);
+            continue;
+          }
+
+          const items = await storage.getBillingCycleInvoiceItems(invoice.id);
+          const recalcSubtotal = items.reduce((sum, item) => sum + item.amountCents, 0);
+          const totalCents = recalcSubtotal + (invoice.feesCents || 0) + (invoice.taxCents || 0);
+          const invoiceNumber = await storage.nextInvoiceNumber();
+          const settings = await storage.getClinicBillingSettings(invoice.clinicId);
+          const graceDays = settings?.graceDays || 0;
+          const dueDate = new Date(new Date(invoice.periodEnd).getTime() + graceDays * 24 * 60 * 60 * 1000);
+
+          await storage.updateBillingCycleInvoice(invoice.id, {
+            status: "finalized",
+            finalizedAt: new Date(),
+            subtotalCents: recalcSubtotal,
+            totalCents,
+            invoiceNumber,
+            paymentStatus: "unpaid",
+            amountPaidCents: 0,
+            balanceDueCents: totalCents,
+            dueDate,
+            updatedAt: new Date(),
+          } as any);
+
+          results.finalized.push(invoice.id);
+        } catch (err: any) {
+          results.errors.push(`Invoice ${invoice.id}: ${err.message}`);
+        }
+      }
+
+      res.json({ message: `Finalized ${results.finalized.length} invoices`, ...results });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

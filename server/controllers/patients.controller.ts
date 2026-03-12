@@ -20,7 +20,8 @@ export async function getPatientsHandler(req: AuthRequest, res: Response) {
         isNull(patients.deletedAt),
       ];
       if (scope.companyId) conditions.push(eq(patients.companyId, scope.companyId));
-      const q = (req.query.q as string)?.trim();
+      let q = (req.query.q as string)?.trim();
+      if (q && q.length > 200) q = q.substring(0, 200);
       if (q) {
         const pattern = `%${q}%`;
         conditions.push(or(
@@ -58,7 +59,8 @@ export async function getPatientsHandler(req: AuthRequest, res: Response) {
       conditions.push(eq(patients.source, "private"));
     }
 
-    const q = (req.query.q as string)?.trim();
+    let q = (req.query.q as string)?.trim();
+    if (q && q.length > 200) q = q.substring(0, 200);
     if (q) {
       const pattern = `%${q}%`;
       conditions.push(or(

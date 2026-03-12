@@ -140,11 +140,15 @@ export async function pharmacyOrderDetailHandler(req: AuthRequest, res: Response
     const pharmacyId = getPharmacyScopeId(req);
     const orderId = Number(req.params.id);
 
+    if (!pharmacyId) {
+      return res.status(403).json({ message: "Pharmacy scope required" });
+    }
+
     const [order] = await db.select()
       .from(pharmacyOrders)
       .where(and(
         eq(pharmacyOrders.id, orderId),
-        pharmacyId ? eq(pharmacyOrders.pharmacyId, pharmacyId) : sql`true`,
+        eq(pharmacyOrders.pharmacyId, pharmacyId),
       ))
       .limit(1);
 
@@ -304,11 +308,15 @@ export async function pharmacyUpdateOrderStatusHandler(req: AuthRequest, res: Re
     const orderId = Number(req.params.id);
     const { status, notes } = req.body;
 
+    if (!pharmacyId) {
+      return res.status(403).json({ message: "Pharmacy scope required" });
+    }
+
     const [order] = await db.select()
       .from(pharmacyOrders)
       .where(and(
         eq(pharmacyOrders.id, orderId),
-        pharmacyId ? eq(pharmacyOrders.pharmacyId, pharmacyId) : sql`true`,
+        eq(pharmacyOrders.pharmacyId, pharmacyId),
       ))
       .limit(1);
 

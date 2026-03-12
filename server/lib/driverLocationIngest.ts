@@ -323,11 +323,21 @@ async function storeTripBreadcrumbs(driverId: number, points: NormalizedPoint[])
   }
 }
 
-const tripSequenceCounters = new Map<number, number>();
+const tripSequenceCounters = new Map<number, { seq: number; lastUsed: number }>();
 
 function getNextSeq(tripId: number): number {
-  const seq = (tripSequenceCounters.get(tripId) || 0) + 1;
-  tripSequenceCounters.set(tripId, seq);
+  const now = Date.now();
+  const entry = tripSequenceCounters.get(tripId);
+  const seq = (entry?.seq || 0) + 1;
+  tripSequenceCounters.set(tripId, { seq, lastUsed: now });
+
+  if (tripSequenceCounters.size > 5000) {
+    const cutoff = now - 3600_000;
+    for (const [id, e] of tripSequenceCounters) {
+      if (e.lastUsed < cutoff) tripSequenceCounters.delete(id);
+    }
+  }
+
   return seq;
 }
 

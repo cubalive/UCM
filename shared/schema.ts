@@ -1619,7 +1619,7 @@ export const paymentMethodEnum = pgEnum("payment_method", [
 export const clinicBillingSettings = pgTable("clinic_billing_settings", {
   clinicId: integer("clinic_id").primaryKey().references(() => clinics.id),
   billingCycle: billingCycleEnum("billing_cycle").notNull().default("weekly"),
-  anchorDow: integer("anchor_dow"),
+  anchorDow: integer("anchor_dow").default(7),
   anchorDom: integer("anchor_dom"),
   biweeklyMode: biweeklyModeEnum("biweekly_mode").notNull().default("1_15"),
   anchorDate: text("anchor_date"),
