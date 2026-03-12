@@ -1,8 +1,8 @@
 import express, { type Response } from "express";
-import { authMiddleware, requireRole, type AuthRequest } from "../auth";
+import { authMiddleware, type AuthRequest } from "../auth";
 import { db } from "../db";
-import { trips, drivers, invoices } from "@shared/schema";
-import { sql, eq, and, gte, lte, count, sum, inArray, isNull, isNotNull } from "drizzle-orm";
+import { trips, drivers } from "@shared/schema";
+import { sql } from "drizzle-orm";
 
 const router = express.Router();
 
