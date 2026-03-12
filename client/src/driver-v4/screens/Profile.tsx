@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft, User, Car, FileText, Volume2, Vibrate,
   Eye, Navigation, Shield, Info, ChevronRight, Settings, ExternalLink, Star,
-  Bell, BellOff, Zap, Clock, MapPin, Route, Sliders, Phone, AlertTriangle, Palette, Hash, Calendar
+  Bell, BellOff, Zap, Clock, MapPin, Route, Sliders, Phone, AlertTriangle, Palette, Hash, Calendar, LogOut
 } from "lucide-react";
 import { useDriverStore } from "../store/driverStore";
 import { colors } from "../design/tokens";
@@ -13,6 +13,8 @@ import { NebulaBackground } from "../components/ui/MapOverlay";
 import { resolveUrl, getStoredToken } from "@/lib/api";
 import { DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
 import { useNotifications } from "../hooks/useNotifications";
+import { useAuth } from "@/lib/auth";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 
 function ProfileVersionDisplay() {
   const [buildVersion, setBuildVersion] = useState("...");
@@ -211,6 +213,10 @@ export function Profile({ onBack }: { onBack: () => void }) {
     peakHours?: string;
     acceptRate?: number;
   } | null>(null);
+
+  // Auth + logout
+  const { logout } = useAuth();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Notification hook
   const { status: notifStatus, isSupported: notifSupported, requestPermission } = useNotifications();
@@ -745,7 +751,33 @@ export function Profile({ onBack }: { onBack: () => void }) {
           />
           <ProfileVersionDisplay />
         </GlassCard>
+
+        {/* Logout */}
+        <motion.button
+          onClick={() => setShowLogoutConfirm(true)}
+          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl"
+          style={{
+            background: glowColor(colors.danger, 0.06),
+            border: `1px solid ${glowColor(colors.danger, 0.12)}`,
+          }}
+          whileTap={{ scale: 0.97 }}
+          data-testid="btn-logout"
+        >
+          <LogOut className="w-4 h-4" style={{ color: colors.danger }} />
+          <span className="text-sm font-semibold" style={{ color: colors.danger }}>Log Out</span>
+        </motion.button>
       </div>
+
+      <ConfirmDialog
+        open={showLogoutConfirm}
+        title="Log Out?"
+        message="You will need to sign in again to access your driver account."
+        confirmLabel="Log Out"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={() => { setShowLogoutConfirm(false); logout(); }}
+        onCancel={() => setShowLogoutConfirm(false)}
+      />
     </NebulaBackground>
   );
 }

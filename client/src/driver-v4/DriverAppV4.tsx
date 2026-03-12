@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Home, DollarSign, User, Navigation2, MapPin } from "lucide-react";
+import { Home, DollarSign, User, Navigation2, MapPin, Power } from "lucide-react";
 import { useReducedMotion } from "./design/accessibility";
 import { colors } from "./design/tokens";
 import { useDriverStore } from "./store/driverStore";
 import { useAuth } from "@/lib/auth";
+import { ConfirmDialog } from "./components/ui/ConfirmDialog";
 
 import { Onboarding } from "./screens/Onboarding";
 import { Dashboard } from "./screens/Dashboard";
@@ -29,6 +30,9 @@ function BottomTabBar({
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
   const hasActiveTrip = tripPhase !== "none" && tripPhase !== "complete" && tripPhase !== "offer";
+  const endShift = useDriverStore((s) => s.endShift);
+  const setOffline = useDriverStore((s) => s.setOffline);
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
 
   const tabs: { key: Screen; icon: typeof Home; label: string }[] = [
     { key: "dashboard", icon: Home, label: "Home" },
@@ -40,109 +44,138 @@ function BottomTabBar({
 
   const isOnline = driverStatus === "online" && shiftStatus === "onShift";
 
+  const handleOrbPress = useCallback(() => {
+    if (hasActiveTrip) {
+      onNavigate("activeTrip");
+    } else if (isOnline) {
+      setShowEndConfirm(true);
+    } else {
+      onNavigate("dashboard");
+    }
+  }, [hasActiveTrip, isOnline, onNavigate]);
+
+  const confirmEndShift = useCallback(() => {
+    setShowEndConfirm(false);
+    endShift().then(() => setOffline());
+  }, [endShift, setOffline]);
+
   return (
-    <div
-      className="absolute bottom-0 left-0 right-0 z-50"
-      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)", pointerEvents: "auto" }}
-    >
+    <>
       <div
-        className="flex items-end justify-around px-2 pt-2 pb-3"
-        style={{
-          background: "rgba(255,255,255,0.92)",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-          borderTop: "1px solid rgba(0,0,0,0.06)",
-          boxShadow: "0 -4px 24px rgba(0,0,0,0.04)",
-        }}
+        className="absolute bottom-0 left-0 right-0 z-50"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)", pointerEvents: "auto" }}
       >
-        {/* Home tab */}
-        <TabItem
-          tab={tabs[0]}
-          isActive={activeScreen === "dashboard"}
-          onPress={() => onNavigate("dashboard")}
-          reduced={reduced}
-        />
+        <div
+          className="flex items-end justify-around px-2 pt-2 pb-3"
+          style={{
+            background: "rgba(255,255,255,0.92)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            borderTop: "1px solid rgba(0,0,0,0.06)",
+            boxShadow: "0 -4px 24px rgba(0,0,0,0.04)",
+          }}
+        >
+          {/* Home tab */}
+          <TabItem
+            tab={tabs[0]}
+            isActive={activeScreen === "dashboard"}
+            onPress={() => onNavigate("dashboard")}
+            reduced={reduced}
+          />
 
-        {/* Earnings tab */}
-        <TabItem
-          tab={tabs[1]}
-          isActive={activeScreen === "earnings"}
-          onPress={() => onNavigate("earnings")}
-          reduced={reduced}
-        />
+          {/* Earnings tab */}
+          <TabItem
+            tab={tabs[1]}
+            isActive={activeScreen === "earnings"}
+            onPress={() => onNavigate("earnings")}
+            reduced={reduced}
+          />
 
-        {/* Center Status Orb */}
-        <div className="flex flex-col items-center -mt-6">
-          <motion.button
-            onClick={() => onNavigate(hasActiveTrip ? "activeTrip" : "dashboard")}
-            className="relative flex items-center justify-center"
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 28,
-              background: hasActiveTrip
-                ? `linear-gradient(135deg, ${colors.sky}, ${colors.ocean})`
-                : isOnline
-                ? `linear-gradient(135deg, ${colors.success}, #2BB84E)`
-                : `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})`,
-              boxShadow: hasActiveTrip
-                ? `0 4px 20px rgba(74,144,217,0.4)`
-                : isOnline
-                ? `0 4px 20px rgba(52,199,89,0.4)`
-                : `0 4px 20px rgba(255,107,53,0.35)`,
-              border: "3px solid rgba(255,255,255,0.95)",
-            }}
-            whileHover={!reduced ? { scale: 1.08 } : undefined}
-            whileTap={!reduced ? { scale: 0.92 } : undefined}
-            data-testid="orb-status"
-            aria-label={hasActiveTrip ? "Active trip" : isOnline ? "Online" : "Go online"}
-          >
-            {/* Pulse ring */}
-            {(isOnline || hasActiveTrip) && !reduced && (
-              <motion.div
-                className="absolute inset-[-4px] rounded-full"
-                animate={{ scale: [1, 1.25, 1], opacity: [0.4, 0, 0.4] }}
-                transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-                style={{
-                  border: `2px solid ${hasActiveTrip ? colors.sky : colors.success}`,
-                  pointerEvents: "none",
-                }}
-              />
-            )}
-            {hasActiveTrip ? (
-              <Navigation2 className="w-6 h-6 text-white" />
-            ) : (
-              <MapPin className="w-6 h-6 text-white" />
-            )}
-          </motion.button>
-          <span
-            className="text-[9px] font-semibold mt-1 uppercase tracking-wider"
-            style={{
-              color: hasActiveTrip ? colors.sky : isOnline ? colors.success : colors.sunrise,
-            }}
-          >
-            {hasActiveTrip ? "In Trip" : isOnline ? "Online" : "Offline"}
-          </span>
+          {/* Center Status Orb — when online, this becomes the disconnect button */}
+          <div className="flex flex-col items-center -mt-6">
+            <motion.button
+              onClick={handleOrbPress}
+              className="relative flex items-center justify-center"
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                background: hasActiveTrip
+                  ? `linear-gradient(135deg, ${colors.sky}, ${colors.ocean})`
+                  : isOnline
+                  ? `linear-gradient(135deg, ${colors.danger}, #E53935)`
+                  : `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})`,
+                boxShadow: hasActiveTrip
+                  ? `0 4px 20px rgba(74,144,217,0.4)`
+                  : isOnline
+                  ? `0 4px 20px rgba(255,59,48,0.4)`
+                  : `0 4px 20px rgba(255,107,53,0.35)`,
+                border: "3px solid rgba(255,255,255,0.95)",
+              }}
+              whileHover={!reduced ? { scale: 1.08 } : undefined}
+              whileTap={!reduced ? { scale: 0.92 } : undefined}
+              data-testid="orb-status"
+              aria-label={hasActiveTrip ? "Active trip" : isOnline ? "Go offline" : "Go online"}
+            >
+              {/* Pulse ring */}
+              {(isOnline || hasActiveTrip) && !reduced && (
+                <motion.div
+                  className="absolute inset-[-4px] rounded-full"
+                  animate={{ scale: [1, 1.25, 1], opacity: [0.4, 0, 0.4] }}
+                  transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                  style={{
+                    border: `2px solid ${hasActiveTrip ? colors.sky : colors.danger}`,
+                    pointerEvents: "none",
+                  }}
+                />
+              )}
+              {hasActiveTrip ? (
+                <Navigation2 className="w-6 h-6 text-white" />
+              ) : isOnline ? (
+                <Power className="w-6 h-6 text-white" />
+              ) : (
+                <MapPin className="w-6 h-6 text-white" />
+              )}
+            </motion.button>
+            <span
+              className="text-[9px] font-semibold mt-1 uppercase tracking-wider"
+              style={{
+                color: hasActiveTrip ? colors.sky : isOnline ? colors.danger : colors.sunrise,
+              }}
+            >
+              {hasActiveTrip ? "In Trip" : isOnline ? "Stop" : "Offline"}
+            </span>
+          </div>
+
+          {/* Trip tab */}
+          <TabItem
+            tab={tabs[2]}
+            isActive={activeScreen === "activeTrip"}
+            onPress={() => onNavigate("activeTrip")}
+            reduced={reduced}
+            badge={hasActiveTrip}
+          />
+
+          {/* Profile tab */}
+          <TabItem
+            tab={tabs[3]}
+            isActive={activeScreen === "profile"}
+            onPress={() => onNavigate("profile")}
+            reduced={reduced}
+          />
         </div>
-
-        {/* Trip tab */}
-        <TabItem
-          tab={tabs[2]}
-          isActive={activeScreen === "activeTrip"}
-          onPress={() => onNavigate("activeTrip")}
-          reduced={reduced}
-          badge={hasActiveTrip}
-        />
-
-        {/* Profile tab */}
-        <TabItem
-          tab={tabs[3]}
-          isActive={activeScreen === "profile"}
-          onPress={() => onNavigate("profile")}
-          reduced={reduced}
-        />
       </div>
-    </div>
+      <ConfirmDialog
+        open={showEndConfirm}
+        title="End Shift?"
+        message="Make sure all your trips are complete before ending your shift. This will set you offline."
+        confirmLabel="End Shift"
+        cancelLabel="Keep Working"
+        variant="danger"
+        onConfirm={confirmEndShift}
+        onCancel={() => setShowEndConfirm(false)}
+      />
+    </>
   );
 }
 

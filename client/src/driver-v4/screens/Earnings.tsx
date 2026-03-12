@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { DollarSign, TrendingUp, Calendar, ChevronLeft, Clock, CreditCard, Loader2, ChevronDown, Wallet, BarChart3 } from "lucide-react";
+import { DollarSign, TrendingUp, Calendar, ChevronLeft, Clock, CreditCard, Loader2, ChevronDown, Wallet, BarChart3, Settings } from "lucide-react";
 import { useDriverStore } from "../store/driverStore";
 import { colors } from "../design/tokens";
 import { glowColor } from "../design/theme";
@@ -431,19 +431,27 @@ export function Earnings({ onBack }: { onBack: () => void }) {
               ))}
             </div>
           ) : (
-            <div className="flex items-center gap-3 py-3 px-1">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center"
-                style={{ background: "rgba(0,0,0,0.03)" }}
-              >
-                <Wallet className="w-4 h-4" style={{ color: colors.textTertiary }} />
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 py-3 px-1">
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ background: "rgba(0,0,0,0.03)" }}
+                >
+                  <Wallet className="w-4 h-4" style={{ color: colors.textTertiary }} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-medium" style={{ color: colors.textSecondary }}>
+                    Direct Deposit
+                  </p>
+                  <p className="text-[10px]" style={{ color: colors.textTertiary }}>
+                    Earnings deposited to your account on file
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs font-medium" style={{ color: colors.textSecondary }}>
-                  Direct Deposit
-                </p>
-                <p className="text-[10px]" style={{ color: colors.textTertiary }}>
-                  Earnings deposited to your account on file
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                <Settings className="w-3.5 h-3.5" style={{ color: colors.sky }} />
+                <p className="text-[10px]" style={{ color: colors.textSecondary }}>
+                  To update your payment method, contact your dispatcher or admin.
                 </p>
               </div>
             </div>
