@@ -898,7 +898,10 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
   const { APP_VERSION } = await import("./controllers/health.controller");
   console.log(`[BOOT] UCM version: ${APP_VERSION}, env: ${process.env.NODE_ENV || "development"}`);
 
-  app.get("/api/boot", (_req, res) => {
+  app.get("/api/boot", (_req: any, res) => {
+    if (!_req.user || _req.user.role !== "SUPER_ADMIN") {
+      return res.status(403).json({ message: "Forbidden: SUPER_ADMIN role required" });
+    }
     res.json({
       nodeEnv: process.env.NODE_ENV || "undefined",
       appBaseUrl: process.env.PUBLIC_BASE_URL || "(not set)",
@@ -912,7 +915,10 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     });
   });
 
-  app.get("/api/system/origins", (_req, res) => {
+  app.get("/api/system/origins", (_req: any, res) => {
+    if (!_req.user || _req.user.role !== "SUPER_ADMIN") {
+      return res.status(403).json({ message: "Forbidden: SUPER_ADMIN role required" });
+    }
     const origin = _req.headers.origin || "(none)";
     const host = _req.hostname || "(none)";
     res.json({
@@ -927,7 +933,10 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     });
   });
 
-  app.get("/api/system/auth-health", (req, res) => {
+  app.get("/api/system/auth-health", (req: any, res) => {
+    if (!req.user || req.user.role !== "SUPER_ADMIN") {
+      return res.status(403).json({ message: "Forbidden: SUPER_ADMIN role required" });
+    }
     const origin = req.headers.origin || "(none)";
     const hasSession = !!(req as any).session?.userId;
     const hasBearer = !!req.headers.authorization?.startsWith("Bearer ");

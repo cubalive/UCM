@@ -1731,7 +1731,7 @@ export async function clinicCapacityForecastHandler(req: AuthRequest, res: Respo
     const forecast = await getClinicForecast(effectiveClinicId, 180, 15, capClinicTz);
     const capacity = await getClinicCapacityForecast(effectiveClinicId, forecast);
 
-    try { await saveClinicForecastSnapshot(effectiveClinicId, capClinicTz); } catch (_) {}
+    try { await saveClinicForecastSnapshot(effectiveClinicId, capClinicTz); } catch (_) { console.error("[CLINIC] Failed to save forecast snapshot:", _); }
 
     res.json({ ok: true, ...capacity });
   } catch (err: any) {

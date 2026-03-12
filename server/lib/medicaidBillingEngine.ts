@@ -5,6 +5,7 @@
  * EDI 837P generation, and EDI 835 remittance parsing for NEMT Medicaid billing.
  */
 
+import { randomUUID } from "crypto";
 import { db } from "../db";
 import {
   trips,
@@ -147,7 +148,7 @@ export async function calculateMedicaidRate(
 
 function generateClaimNumber(): string {
   const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const rand = randomUUID().slice(0, 8).toUpperCase();
   return `MCL-${ts}-${rand}`;
 }
 
@@ -434,9 +435,15 @@ export async function generateEdi837(claimIds: number[]): Promise<string> {
 
   // 2010AA - Billing Provider
   segments.push(`NM1*85*2*${company?.name || "PROVIDER"}*****XX*${claimsData[0].providerNpi}~`);
-  segments.push(`N3*ADDRESS LINE 1~`);
-  segments.push(`N4*CITY*ST*00000~`);
-  segments.push(`REF*EI*000000000~`); // Tax ID placeholder
+  // Use company data with fallbacks (address/taxId fields not yet on companies table)
+  const companyAddress = (company as any)?.address || (company as any)?.addressLine1 || "ADDRESS LINE 1";
+  const companyCity = (company as any)?.city || (company as any)?.addressCity || "CITY";
+  const companyState = (company as any)?.state || (company as any)?.addressState || "ST";
+  const companyZip = (company as any)?.zip || (company as any)?.addressZip || "00000";
+  const companyTaxId = (company as any)?.taxId || (company as any)?.ein || "000000000";
+  segments.push(`N3*${companyAddress}~`);
+  segments.push(`N4*${companyCity}*${companyState}*${companyZip}~`);
+  segments.push(`REF*EI*${companyTaxId}~`);
 
   // For each claim, generate subscriber and claim loops
   for (const claim of claimsData) {
