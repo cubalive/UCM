@@ -29,7 +29,7 @@ router.get(
   authMiddleware,
   async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user!.userId;
       let prefs = notificationPrefsStore.get(userId);
       if (!prefs) {
         prefs = {};
@@ -50,7 +50,7 @@ router.patch(
   authMiddleware,
   async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user!.userId;
       const { preferences } = req.body;
       if (!preferences || typeof preferences !== "object") {
         return res.status(400).json({ message: "preferences object is required" });
@@ -192,7 +192,7 @@ router.patch(
       }
 
       // Update to a 'notes' field indicating write-off since schema doesn't have a dedicated field
-      const writeOffNote = `[WRITTEN OFF] ${new Date().toISOString()} by user #${req.user!.id}: ${reason}`;
+      const writeOffNote = `[WRITTEN OFF] ${new Date().toISOString()} by user #${req.user!.userId}: ${reason}`;
       const existingNotes = inv.notes || "";
       await db
         .update(invoices)
@@ -287,7 +287,7 @@ router.get(
         .select({
           status: ediClaims.status,
           cnt: sql<number>`count(*)::int`,
-          totalAmount: sql<number>`coalesce(sum(${ediClaims.amountCents}), 0)::int`,
+          totalAmount: sql<number>`coalesce(sum(${ediClaims.paymentAmount}), 0)::int`,
         })
         .from(ediClaims)
         .groupBy(ediClaims.status);
@@ -310,22 +310,25 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { q, status, from, to } = req.query;
+      const q = req.query.q as string | undefined;
+      const status = req.query.status as string | undefined;
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
       const conditions = [];
 
       if (status && status !== "all") {
-        conditions.push(eq(ediClaims.status, status as string));
+        conditions.push(eq(ediClaims.status, status as typeof ediClaims.status.enumValues[number]));
       }
       if (from) {
-        conditions.push(gte(ediClaims.createdAt, new Date(from as string)));
+        conditions.push(gte(ediClaims.createdAt, new Date(from)));
       }
       if (to) {
-        conditions.push(lte(ediClaims.createdAt, new Date(to as string)));
+        conditions.push(lte(ediClaims.createdAt, new Date(to)));
       }
       if (q) {
         conditions.push(
           or(
-            like(ediClaims.claimNumber, `%${q}%`),
+            like(ediClaims.claimNumber, `%${q as string}%`),
           )!
         );
       }
@@ -378,8 +381,8 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { days = "30" } = req.query;
-      const daysNum = parseInt(days as string) || 30;
+      const days = (req.query.days as string) || "30";
+      const daysNum = parseInt(days) || 30;
       const since = new Date();
       since.setDate(since.getDate() - daysNum);
 
@@ -463,7 +466,7 @@ router.post(
       for (const userId of userIds) {
         await db
           .update(users)
-          .set({ active: false, deletedAt: new Date(), deletedBy: req.user!.id })
+          .set({ active: false, deletedAt: new Date(), deletedBy: req.user!.userId })
           .where(eq(users.id, userId));
         archived++;
       }
@@ -582,7 +585,7 @@ router.get(
   authMiddleware,
   async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user!.userId;
       const notifications = getUserNotifications(userId);
       const unreadCount = notifications.filter((n) => !n.read).length;
       res.json({ notifications, unreadCount });
@@ -597,7 +600,7 @@ router.patch(
   authMiddleware,
   async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user!.userId;
       const notifications = getUserNotifications(userId);
       const notif = notifications.find((n) => n.id === req.params.id);
       if (notif) {
@@ -615,7 +618,7 @@ router.post(
   authMiddleware,
   async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user!.userId;
       const notifications = getUserNotifications(userId);
       notifications.forEach((n) => (n.read = true));
       res.json({ success: true });
