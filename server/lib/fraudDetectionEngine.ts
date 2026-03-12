@@ -44,6 +44,33 @@ interface FraudScoreResult {
   factors: { name: string; weight: number; flagged: boolean; detail: string }[];
 }
 
+// ─── Trip Data Shape (used by detection functions) ──────────────────────────
+
+interface FraudTripData {
+  id: number;
+  publicId?: string | null;
+  companyId: number;
+  cityId?: number | null;
+  patientId: number;
+  driverId?: number | null;
+  scheduledDate: string;
+  pickupTime?: string | null;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
+  pickupLat?: number | null;
+  pickupLng?: number | null;
+  dropoffLat?: number | null;
+  dropoffLng?: number | null;
+  distanceMiles?: string | null;
+  actualDistanceMeters?: number | null;
+  actualPolyline?: string | null;
+  startedAt?: Date | string | null;
+  pickedUpAt?: Date | string | null;
+  status: string;
+  isRoundTrip?: boolean | null;
+  pairedTripId?: number | null;
+}
+
 // ─── Statistical Baseline Types ──────────────────────────────────────────────
 
 interface DriverBaseline {
@@ -617,9 +644,9 @@ export async function scanForFraud(
 
 // ─── Duplicate Detection ─────────────────────────────────────────────────────
 
-function detectDuplicates(tripData: any[], companyId: number): FraudAlert[] {
+function detectDuplicates(tripData: FraudTripData[], companyId: number): FraudAlert[] {
   const alerts: FraudAlert[] = [];
-  const seen = new Map<string, any[]>();
+  const seen = new Map<string, FraudTripData[]>();
 
   for (const t of tripData) {
     // Key: patient + date + pickup time + dropoff address (normalized)
@@ -645,7 +672,7 @@ function detectDuplicates(tripData: any[], companyId: number): FraudAlert[] {
           patientId: group[0].patientId,
           date: group[0].scheduledDate,
           pickupTime: group[0].pickupTime,
-          tripIds: group.map((t: any) => t.id),
+          tripIds: group.map((t) => t.id),
           count: group.length,
         },
       });
@@ -657,7 +684,7 @@ function detectDuplicates(tripData: any[], companyId: number): FraudAlert[] {
 
 // ─── Impossible Distance Detection ───────────────────────────────────────────
 
-function detectImpossibleDistances(tripData: any[], companyId: number): FraudAlert[] {
+function detectImpossibleDistances(tripData: FraudTripData[], companyId: number): FraudAlert[] {
   const alerts: FraudAlert[] = [];
   const DISTANCE_RATIO_THRESHOLD = 3.0; // claimed > 3x straight-line is suspicious
 
@@ -701,7 +728,7 @@ function detectImpossibleDistances(tripData: any[], companyId: number): FraudAle
 
 // ─── Ghost Trip Detection ────────────────────────────────────────────────────
 
-function detectGhostTrips(tripData: any[], companyId: number): FraudAlert[] {
+function detectGhostTrips(tripData: FraudTripData[], companyId: number): FraudAlert[] {
   const alerts: FraudAlert[] = [];
 
   for (const t of tripData) {
@@ -745,7 +772,7 @@ function detectGhostTrips(tripData: any[], companyId: number): FraudAlert[] {
 
 // ─── Round-Trip Anomaly Detection ────────────────────────────────────────────
 
-function detectRoundTripAnomalies(tripData: any[], companyId: number): FraudAlert[] {
+function detectRoundTripAnomalies(tripData: FraudTripData[], companyId: number): FraudAlert[] {
   const alerts: FraudAlert[] = [];
   const IDENTICAL_THRESHOLD_KM = 0.1; // ~100 meters
 

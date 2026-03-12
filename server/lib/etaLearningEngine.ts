@@ -446,13 +446,31 @@ export async function predictETA(tripId: number): Promise<ETAPrediction> {
     }
   }
 
-  // 6. Weather/traffic multiplier placeholder
-  // In production, integrate with a weather API and traffic data
-  corrections.push({
-    type: "weather_traffic",
-    factor: 1.0,
-    description: "Weather/traffic placeholder (no adjustment)",
-  });
+  // 6. Time-based traffic adjustment
+  // Rush hour (7-9 AM, 4-7 PM) adds congestion; nights are faster
+  if (hour !== null) {
+    let trafficFactor = 1.0;
+    let trafficDesc = "Normal traffic conditions";
+    if ((hour >= 7 && hour <= 9) || (hour >= 16 && hour <= 19)) {
+      trafficFactor = 1.15; // 15% slower during rush hour
+      trafficDesc = "Rush hour congestion adjustment (+15%)";
+    } else if (hour >= 22 || hour < 5) {
+      trafficFactor = 0.9; // 10% faster at night
+      trafficDesc = "Low-traffic night hours (-10%)";
+    } else if (hour >= 11 && hour <= 13) {
+      trafficFactor = 1.05; // slight lunch-hour congestion
+      trafficDesc = "Lunch hour slight congestion (+5%)";
+    }
+    if (trafficFactor !== 1.0) {
+      combinedFactor *= trafficFactor;
+      corrections.push({
+        type: "traffic_time",
+        factor: trafficFactor,
+        description: trafficDesc,
+      });
+      factorCount++;
+    }
+  }
 
   // Compute adjusted ETA
   const adjustedMinutes = baseMinutes * combinedFactor;

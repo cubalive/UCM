@@ -88,7 +88,7 @@ export async function calculateSLAMetrics(
     ${cityFilter}
   `);
 
-  const row = (metricsResult as any).rows?.[0] || {};
+  const row = ((metricsResult as { rows?: Record<string, unknown>[] }).rows?.[0]) || {} as Record<string, unknown>;
   const total = Number(row.total) || 0;
   const completed = Number(row.completed) || 0;
   const cancelled = Number(row.cancelled) || 0;
@@ -134,7 +134,7 @@ export async function calculateSLAMetrics(
     ${driverFilter}
   `);
 
-  const dRow = (utilizationResult as any).rows?.[0] || {};
+  const dRow = ((utilizationResult as { rows?: Record<string, unknown>[] }).rows?.[0]) || {} as Record<string, unknown>;
   const totalActive = Number(dRow.total_active) || 0;
   const utilized = Number(dRow.utilized) || 0;
   const driverUtilizationRate = totalActive > 0

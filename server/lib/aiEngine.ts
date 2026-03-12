@@ -122,20 +122,38 @@ async function computeSnapshot(): Promise<EngineSnapshot> {
   const offDrivers = activeDrivers.filter(d => d.dispatchStatus === "off" || !d.dispatchStatus);
 
   const completedWithDuration = completedTrips.filter(t => {
-    const pickup = tripTimeToMinutes(t.pickupTime || t.scheduledTime);
-    const dropoff = tripTimeToMinutes(t.completedAt ? new Date(t.completedAt).getHours() + ":" + new Date(t.completedAt).getMinutes() : null);
-    return pickup != null && dropoff != null;
+    if (t.actualDurationSeconds && t.actualDurationSeconds > 0) return true;
+    if (t.startedAt && t.completedAt) return true;
+    return false;
   });
   const avgDuration = completedWithDuration.length > 0
-    ? Math.round(completedTrips.reduce((s, t) => {
-        const dur = t.distanceMiles ? parseFloat(t.distanceMiles) * 2.5 : 30;
-        return s + dur;
-      }, 0) / completedTrips.length)
+    ? Math.round(completedWithDuration.reduce((s, t) => {
+        // Use actual duration if available, else compute from timestamps
+        if (t.actualDurationSeconds && t.actualDurationSeconds > 0) {
+          return s + t.actualDurationSeconds / 60;
+        }
+        if (t.startedAt && t.completedAt) {
+          const started = new Date(t.startedAt).getTime();
+          const completed = new Date(t.completedAt).getTime();
+          return s + (completed - started) / 60000;
+        }
+        // Fallback: use route duration or estimated duration
+        if (t.routeDurationSeconds) return s + t.routeDurationSeconds / 60;
+        if (t.durationMinutes) return s + t.durationMinutes;
+        return s + 30; // last resort default
+      }, 0) / completedWithDuration.length)
     : 0;
 
   const todayRevenueDelta = completedTrips.reduce((s, t) => {
-    const price = (t as any).price ? parseFloat((t as any).price) : 0;
-    return s + price;
+    // Use priceTotalCents if available, else estimate from distance-based rate
+    if (t.priceTotalCents) return s + t.priceTotalCents / 100;
+    if (t.distanceMiles) {
+      const miles = parseFloat(t.distanceMiles);
+      const baseFare = 15;
+      const perMile = 2.5;
+      return s + baseFare + miles * perMile;
+    }
+    return s;
   }, 0);
 
   const reqMetrics = getRequestMetricsSummary();
@@ -188,14 +206,25 @@ async function computeSnapshot(): Promise<EngineSnapshot> {
   const remainingTrips = scheduledTrips.length + assignedTrips.length + inProgressTrips.length;
   const totalDriverCap = Math.max(availableDrivers.length + onTripDrivers.length, 1);
   const utilizationPct = Math.round((onTripDrivers.length / totalDriverCap) * 100);
+
+  // Capacity status uses trip-to-driver ratio weighted by avg trip duration
+  // A driver can handle ~2 trips/hour at 30min avg, ~1 at 60min avg
+  const effectiveTripsPerDriverPerHour = avgDuration > 0 ? 60 / avgDuration : 2;
+  const hoursRemaining = 8; // assume 8-hour operational window
+  const maxTripsPerDriver = effectiveTripsPerDriverPerHour * hoursRemaining;
+  const totalFleetCapacity = totalDriverCap * maxTripsPerDriver;
+
   let capacityStatus: "ok" | "tight" | "overloaded" = "ok";
-  if (remainingTrips > totalDriverCap * 3) capacityStatus = "overloaded";
-  else if (remainingTrips > totalDriverCap * 1.5) capacityStatus = "tight";
+  if (remainingTrips > totalFleetCapacity * 0.9) capacityStatus = "overloaded";
+  else if (remainingTrips > totalFleetCapacity * 0.7) capacityStatus = "tight";
 
   let estimatedCompletionTime: string | null = null;
   if (remainingTrips > 0 && avgDuration > 0 && totalDriverCap > 0) {
-    const minutesNeeded = (remainingTrips * avgDuration) / totalDriverCap;
-    const completionDate = new Date(Date.now() + minutesNeeded * 60_000);
+    // Account for both queued and in-progress trips
+    const inProgressMinutesRemaining = inProgressTrips.length * (avgDuration / 2); // assume half-done on avg
+    const queuedMinutes = (scheduledTrips.length + assignedTrips.length) * avgDuration;
+    const totalMinutes = (inProgressMinutesRemaining + queuedMinutes) / totalDriverCap;
+    const completionDate = new Date(Date.now() + totalMinutes * 60_000);
     estimatedCompletionTime = completionDate.toISOString();
   }
 
