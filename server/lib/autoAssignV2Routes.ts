@@ -221,7 +221,15 @@ export function registerAutoAssignV2Routes(app: Express) {
         const [trip] = await db.select().from(trips).where(eq(trips.id, tripId));
         if (!trip) return res.status(404).json({ message: "Trip not found" });
 
-        await db.update(trips).set({
+        // Only allow override if trip is in an assignable status
+        const overridableStatuses = ["SCHEDULED", "PENDING", "ASSIGNED"];
+        if (!overridableStatuses.includes(trip.status)) {
+          return res.status(409).json({ message: `Trip status is ${trip.status}, cannot override assignment` });
+        }
+
+        // Optimistic locking: check current status in WHERE to prevent concurrent overwrites
+        const previousStatus = trip.status;
+        const updated = await db.update(trips).set({
           driverId,
           status: "ASSIGNED",
           assignedAt: new Date(),
@@ -229,7 +237,11 @@ export function registerAutoAssignV2Routes(app: Express) {
           assignmentReason: `Manual override by user ${req.user?.userId}`,
           autoAssignStatus: "PAUSED",
           autoAssignSelectedDriverId: driverId,
-        } as any).where(eq(trips.id, tripId));
+        } as any).where(and(eq(trips.id, tripId), eq(trips.status, previousStatus))).returning();
+
+        if (!updated.length) {
+          return res.status(409).json({ message: "Concurrent update detected — trip was modified by another process" });
+        }
 
         await db.insert(automationEvents).values({
           eventType: "AUTO_ASSIGN_OVERRIDE",
@@ -237,7 +249,7 @@ export function registerAutoAssignV2Routes(app: Express) {
           driverId,
           companyId: trip.companyId,
           actorUserId: req.user?.userId || null,
-          payload: { reason: "Manual override" },
+          payload: { reason: "Manual override", previousStatus },
         });
 
         res.json({ message: "Trip assigned manually", tripId, driverId });
