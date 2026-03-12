@@ -1,12 +1,21 @@
 /**
  * Fraud Detection Engine
  *
- * Detects suspicious patterns in trips and billing data:
+ * Detects suspicious patterns in trips and billing data using two layers:
+ *
+ * Layer 1 — Heuristic rules:
  *   - Duplicate trips (same patient, time, destination)
  *   - Impossible distances (claimed miles >> actual route)
  *   - Ghost trips (no GPS data during trip)
  *   - Unusual billing patterns (spikes in per-driver revenue)
  *   - Round-trip anomalies (suspiciously identical pickup/dropoff)
+ *
+ * Layer 2 — Statistical anomaly detection (z-score / isolation-forest-style):
+ *   - Driver baselines computed from 60-day history (mean + stddev)
+ *   - Company-wide baselines as fallback for new drivers
+ *   - Z-score checks: unusually long/short trips, abnormal distance,
+ *     out-of-hours operations, excessive daily trips, high dead-mile ratio
+ *   - Composite anomaly score (0-1) mapped to additive fraud points
  */
 
 import { db } from "../db";
@@ -163,7 +172,6 @@ export async function computeDriverBaseline(driverId: number): Promise<DriverBas
   }
 
   // Trips per day
-  const datesSet = new Set(driverTrips.map((t) => t.scheduledDate));
   const tripsByDate = new Map<string, number>();
   for (const t of driverTrips) {
     tripsByDate.set(t.scheduledDate, (tripsByDate.get(t.scheduledDate) || 0) + 1);
