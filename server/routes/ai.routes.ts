@@ -1,6 +1,14 @@
 import express, { type Express, type Response } from "express";
 import { authMiddleware, requireRole, type AuthRequest } from "../auth";
-import { predictDemand, getDemandHeatmap, getOptimalDriverPositioning } from "../lib/demandPredictionEngine";
+import {
+  predictDemand,
+  getDemandHeatmap,
+  getOptimalDriverPositioning,
+  computeSeasonalPattern,
+  predictCityDemand,
+  predictDriverNeed,
+  getDailyForecasts,
+} from "../lib/demandPredictionEngine";
 import { optimizeMultiStopRoute, batchOptimizeRoutes } from "../lib/multiStopOptimizer";
 import { scanForFraud, getFraudScore } from "../lib/fraudDetectionEngine";
 import { db } from "../db";
@@ -81,6 +89,122 @@ router.get(
       res.json({ date, hour, positions });
     } catch (err: any) {
       console.error("[AI-ROUTES] driver-positioning error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Seasonal Pattern Analysis ───────────────────────────────────────────────
+
+router.get(
+  "/api/ai/seasonal-pattern",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cityId = parseInt(req.query.cityId as string);
+      const lookbackDays = req.query.lookbackDays ? parseInt(req.query.lookbackDays as string) : 90;
+
+      if (!cityId) {
+        return res.status(400).json({ error: "cityId is required" });
+      }
+
+      const pattern = await computeSeasonalPattern(cityId, lookbackDays);
+      res.json({
+        cityId,
+        lookbackDays,
+        pattern: {
+          dayOfWeek: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((name, i) => ({
+            day: name,
+            factor: pattern.dayOfWeekFactors[i],
+          })),
+          hourOfDay: pattern.hourOfDayFactors.map((factor, hour) => ({ hour, factor })),
+          weekOfMonth: pattern.weekOfMonthFactors.map((factor, week) => ({ week: week + 1, factor })),
+          specialDates: pattern.specialDates,
+          baseDailyAverage: pattern.baseDailyAvg,
+          totalDataPoints: pattern.dataPoints,
+        },
+      });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] seasonal-pattern error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── City-Level Demand Forecast ─────────────────────────────────────────────
+
+router.get(
+  "/api/ai/demand-forecast",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cityId = parseInt(req.query.cityId as string);
+      const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+      const hour = req.query.hour ? parseInt(req.query.hour as string) : undefined;
+
+      if (!cityId) {
+        return res.status(400).json({ error: "cityId is required" });
+      }
+
+      const prediction = await predictCityDemand(cityId, date, hour);
+      res.json({ date, hour: hour ?? "all", cityId, ...prediction });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] demand-forecast error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Driver Need Prediction ─────────────────────────────────────────────────
+
+router.get(
+  "/api/ai/driver-need",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cityId = parseInt(req.query.cityId as string);
+      const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+
+      if (!cityId) {
+        return res.status(400).json({ error: "cityId is required" });
+      }
+
+      const forecast = await predictDriverNeed(cityId, date);
+      res.json(forecast);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] driver-need error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Multi-Day Forecast (dispatch planning view) ────────────────────────────
+
+router.get(
+  "/api/ai/demand-forecast/range",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cityId = parseInt(req.query.cityId as string);
+      const startDate = (req.query.startDate as string) || new Date().toISOString().slice(0, 10);
+      const days = Math.min(parseInt(req.query.days as string) || 7, 14);
+
+      if (!cityId) {
+        return res.status(400).json({ error: "cityId is required" });
+      }
+
+      const endDateObj = new Date(startDate + "T12:00:00Z");
+      endDateObj.setDate(endDateObj.getDate() + days - 1);
+      const endDate = endDateObj.toISOString().slice(0, 10);
+
+      const forecasts = await getDailyForecasts(cityId, startDate, endDate);
+      res.json({ cityId, startDate, endDate, days, forecasts });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] demand-forecast-range error:", err.message);
       res.status(500).json({ error: err.message });
     }
   }
