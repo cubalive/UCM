@@ -43,7 +43,7 @@ function BottomTabBar({
   return (
     <div
       className="absolute bottom-0 left-0 right-0 z-50"
-      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)", pointerEvents: "auto" }}
     >
       <div
         className="flex items-end justify-around px-2 pt-2 pb-3"
