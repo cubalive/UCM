@@ -12,6 +12,7 @@ import { tenantGuard } from "./lib/tenantGuard";
 import { phiAuditMiddleware } from "./middleware/phiAudit";
 import { inputSanitizer } from "./middleware/inputSanitizer";
 import { apiRateLimiter } from "./middleware/rateLimiter";
+import { structuredLoggerMiddleware } from "./middleware/structuredLogger";
 
 const app = express();
 const httpServer = createServer(app);
@@ -196,6 +197,10 @@ app.use("/api", apiRateLimiter);
 app.use(tenantGuard);
 app.use(phiAuditMiddleware);
 
+// Structured request logger — logs every API request in structured JSON with PII masking.
+// Placed after auth/tenant middleware so user info is available.
+app.use(structuredLoggerMiddleware);
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -203,20 +208,6 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      const auth = (req as any).user;
-      const entry: Record<string, unknown> = {
-        requestId: req.requestId,
-        method: req.method,
-        route: path,
-        status: res.statusCode,
-        ms: duration,
-      };
-      if (auth?.userId) entry.userId = auth.userId;
-      if (auth?.role) entry.role = auth.role;
-      if (auth?.companyId) entry.companyId = auth.companyId;
-
-      console.log(JSON.stringify(entry));
-
       recordReqMetric(req.method, path, res.statusCode, duration);
     }
   });

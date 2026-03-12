@@ -774,6 +774,147 @@ router.get(
   }
 );
 
+// ─── Neural Dispatch v2: Confidence Scoring ──────────────────────────────────
+
+router.get(
+  "/api/dispatch/confidence/:tripId/:driverId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tripId = parseInt(req.params.tripId as string);
+      const driverId = parseInt(req.params.driverId as string);
+      if (!tripId || !driverId) {
+        return res.status(400).json({ error: "Valid tripId and driverId are required" });
+      }
+
+      const { scoreDispatchDecision } = await import("../lib/dispatchConfidenceEngine");
+      const confidence = await scoreDispatchDecision(tripId, driverId);
+      res.json(confidence);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] dispatch-confidence error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Neural Dispatch v2: Explanation Engine ───────────────────────────────────
+
+router.get(
+  "/api/dispatch/explain/:tripId/:driverId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tripId = parseInt(req.params.tripId as string);
+      const driverId = parseInt(req.params.driverId as string);
+      if (!tripId || !driverId) {
+        return res.status(400).json({ error: "Valid tripId and driverId are required" });
+      }
+
+      const { scoreDispatchDecision } = await import("../lib/dispatchConfidenceEngine");
+      const { explainDispatchDecision } = await import("../lib/dispatchExplanationEngine");
+
+      const confidence = await scoreDispatchDecision(tripId, driverId);
+      const explanation = await explainDispatchDecision(tripId, driverId, confidence);
+
+      res.json({ tripId, driverId, confidence, explanation });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] dispatch-explain error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Neural Dispatch v2: Override Recording ───────────────────────────────────
+
+router.post(
+  "/api/dispatch/override",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { tripId, suggestedDriverId, overrideDriverId, reason } = req.body;
+
+      if (!tripId || !suggestedDriverId || !overrideDriverId) {
+        return res.status(400).json({ error: "tripId, suggestedDriverId, and overrideDriverId are required" });
+      }
+      if (!reason || typeof reason !== "string") {
+        return res.status(400).json({ error: "reason is required" });
+      }
+
+      const { recordOverride } = await import("../lib/dispatchOverrideLearning");
+      await recordOverride({
+        tripId,
+        suggestedDriverId,
+        overrideDriverId,
+        reason,
+        timestamp: new Date(),
+      });
+
+      res.json({ ok: true, message: "Override recorded successfully" });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] dispatch-override error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Neural Dispatch v2: Override Patterns ────────────────────────────────────
+
+router.get(
+  "/api/dispatch/override-patterns",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : req.user?.companyId;
+      if (!companyId) {
+        return res.status(400).json({ error: "companyId is required" });
+      }
+
+      const { getOverridePatterns } = await import("../lib/dispatchOverrideLearning");
+      const patterns = await getOverridePatterns(companyId);
+
+      res.json({ companyId, patterns, totalPatterns: patterns.length });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] override-patterns error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Neural Dispatch v2: Regret Minimization Simulation ──────────────────────
+
+router.get(
+  "/api/dispatch/simulate/:tripId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tripId = parseInt(req.params.tripId as string);
+      if (!tripId) {
+        return res.status(400).json({ error: "Valid tripId is required" });
+      }
+
+      const candidateDrivers = req.query.drivers
+        ? (req.query.drivers as string).split(",").map(Number).filter(Boolean)
+        : [];
+      const lookaheadMinutes = req.query.lookahead
+        ? Math.min(parseInt(req.query.lookahead as string), 180)
+        : 60;
+
+      const { simulateAssignment } = await import("../lib/dispatchRegretEngine");
+      const result = await simulateAssignment(tripId, candidateDrivers, lookaheadMinutes);
+
+      res.json({ tripId, lookaheadMinutes, ...result });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] dispatch-simulate error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 export function registerAiRoutes(app: Express) {
   app.use(router);
 }
