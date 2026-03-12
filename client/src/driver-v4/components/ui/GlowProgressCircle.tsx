@@ -1,7 +1,6 @@
 import { motion } from "framer-motion";
 import { useReducedMotion } from "../../design/accessibility";
 import { colors } from "../../design/tokens";
-import { glowColor } from "../../design/theme";
 
 interface GlowProgressCircleProps {
   progress: number;
@@ -16,7 +15,7 @@ export function GlowProgressCircle({
   progress,
   label,
   size = 80,
-  accentColor = colors.neonCyan,
+  accentColor = colors.sunrise,
   sublabel,
   testID,
 }: GlowProgressCircleProps) {
@@ -39,7 +38,7 @@ export function GlowProgressCircle({
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke="rgba(255,255,255,0.08)"
+            stroke="rgba(0,0,0,0.06)"
             strokeWidth={strokeWidth}
           />
           <motion.circle
@@ -57,7 +56,6 @@ export function GlowProgressCircle({
             style={{
               transform: "rotate(-90deg)",
               transformOrigin: "center",
-              filter: `drop-shadow(0 0 6px ${glowColor(accentColor, 0.5)})`,
             }}
           />
         </svg>
@@ -66,7 +64,7 @@ export function GlowProgressCircle({
             className="text-sm font-bold"
             style={{
               color: colors.textPrimary,
-              fontFamily: "'Space Grotesk', system-ui",
+              fontFamily: "'Inter', system-ui",
             }}
           >
             {label}
@@ -74,7 +72,7 @@ export function GlowProgressCircle({
         </div>
       </div>
       {sublabel && (
-        <span className="text-[10px] tracking-wider uppercase" style={{ color: colors.textTertiary }}>
+        <span className="text-[10px] tracking-wider uppercase font-medium" style={{ color: colors.textTertiary }}>
           {sublabel}
         </span>
       )}

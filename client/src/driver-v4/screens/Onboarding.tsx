@@ -1,47 +1,45 @@
 import { motion } from "framer-motion";
-import { Fingerprint, QrCode, ChevronRight, Shield } from "lucide-react";
+import { Fingerprint, QrCode, ChevronRight, Shield, Sun } from "lucide-react";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
 import { glowColor } from "../design/theme";
 import { NeonButton } from "../components/ui/NeonButton";
 import { GlassCard } from "../components/ui/GlassCard";
-import { NebulaBackground } from "../components/ui/MapOverlay";
 
-function ParticleField() {
+function FloatingOrbs() {
   const reduced = useReducedMotion();
   if (reduced) return null;
 
-  const particles = Array.from({ length: 20 }, (_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    size: 1 + Math.random() * 2,
-    delay: Math.random() * 5,
-    duration: 3 + Math.random() * 4,
-  }));
+  const orbs = [
+    { x: 15, y: 20, size: 120, color: colors.sunrise, opacity: 0.08, delay: 0 },
+    { x: 75, y: 30, size: 80, color: colors.golden, opacity: 0.06, delay: 1 },
+    { x: 50, y: 70, size: 100, color: colors.sky, opacity: 0.05, delay: 2 },
+    { x: 85, y: 80, size: 60, color: colors.coral, opacity: 0.07, delay: 0.5 },
+    { x: 20, y: 85, size: 90, color: colors.golden, opacity: 0.04, delay: 1.5 },
+  ];
 
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
-      {particles.map((p) => (
+      {orbs.map((orb, i) => (
         <motion.div
-          key={p.id}
+          key={i}
           className="absolute rounded-full"
           style={{
-            left: `${p.x}%`,
-            top: `${p.y}%`,
-            width: p.size,
-            height: p.size,
-            background: colors.neonCyan,
-            opacity: 0,
+            left: `${orb.x}%`,
+            top: `${orb.y}%`,
+            width: orb.size,
+            height: orb.size,
+            background: `radial-gradient(circle, ${glowColor(orb.color, orb.opacity)} 0%, transparent 70%)`,
+            transform: "translate(-50%, -50%)",
           }}
           animate={{
-            opacity: [0, 0.6, 0],
-            scale: [0.5, 1, 0.5],
+            y: [0, -20, 0],
+            scale: [1, 1.1, 1],
           }}
           transition={{
-            duration: p.duration,
+            duration: 6 + i,
             repeat: Infinity,
-            delay: p.delay,
+            delay: orb.delay,
             ease: "easeInOut",
           }}
         />
@@ -54,33 +52,39 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
   const reduced = useReducedMotion();
 
   return (
-    <NebulaBackground className="flex flex-col min-h-screen">
-      <ParticleField />
+    <div
+      className="relative flex flex-col min-h-screen overflow-hidden"
+      style={{
+        background: `linear-gradient(160deg, #FFFAF5 0%, #FFF5EB 30%, #FFE8D6 60%, #F5F0EB 100%)`,
+      }}
+    >
+      <FloatingOrbs />
 
-      <div className="flex-1 flex flex-col items-center justify-center px-6 max-w-md mx-auto w-full">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 max-w-md mx-auto w-full relative z-10">
         <motion.div
           initial={reduced ? {} : { opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
           className="mb-8 text-center"
         >
+          {/* Logo */}
           <motion.div
             className="w-24 h-24 mx-auto mb-6 rounded-3xl flex items-center justify-center"
             style={{
-              background: `linear-gradient(135deg, ${colors.neonCyan}, ${colors.neonPurple})`,
-              boxShadow: `0 0 40px ${glowColor(colors.neonCyan, 0.4)}, 0 0 80px ${glowColor(colors.neonPurple, 0.2)}`,
+              background: `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})`,
+              boxShadow: `0 12px 40px rgba(255,107,53,0.3), 0 4px 12px rgba(255,107,53,0.2)`,
             }}
             animate={reduced ? {} : {
               boxShadow: [
-                `0 0 40px ${glowColor(colors.neonCyan, 0.3)}, 0 0 80px ${glowColor(colors.neonPurple, 0.15)}`,
-                `0 0 60px ${glowColor(colors.neonCyan, 0.5)}, 0 0 100px ${glowColor(colors.neonPurple, 0.25)}`,
-                `0 0 40px ${glowColor(colors.neonCyan, 0.3)}, 0 0 80px ${glowColor(colors.neonPurple, 0.15)}`,
+                `0 12px 40px rgba(255,107,53,0.25), 0 4px 12px rgba(255,107,53,0.15)`,
+                `0 16px 52px rgba(255,107,53,0.35), 0 6px 16px rgba(255,107,53,0.25)`,
+                `0 12px 40px rgba(255,107,53,0.25), 0 4px 12px rgba(255,107,53,0.15)`,
               ],
             }}
             transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
             data-testid="logo-glow"
           >
-            <span className="text-4xl font-bold" style={{ color: "#000", fontFamily: "'Space Grotesk', system-ui" }}>
+            <span className="text-4xl font-bold text-white" style={{ textShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>
               U
             </span>
           </motion.div>
@@ -90,11 +94,7 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
             className="text-3xl font-bold mb-2"
-            style={{
-              color: colors.textPrimary,
-              fontFamily: "'Space Grotesk', system-ui",
-              textShadow: `0 0 30px ${glowColor(colors.neonCyan, 0.2)}`,
-            }}
+            style={{ color: colors.textPrimary }}
           >
             UCM Driver
           </motion.h1>
@@ -115,7 +115,7 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
         >
-          <GlassCard variant="default" className="!p-0">
+          <GlassCard variant="elevated" className="!p-0">
             <button
               className="w-full flex items-center gap-4 p-4"
               style={{ color: colors.textPrimary }}
@@ -123,9 +123,9 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
             >
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ background: glowColor(colors.neonPurple, 0.15) }}
+                style={{ background: `rgba(139,92,246,0.08)` }}
               >
-                <QrCode className="w-5 h-5" style={{ color: colors.neonPurple }} />
+                <QrCode className="w-5 h-5" style={{ color: "#8B5CF6" }} />
               </div>
               <div className="flex-1 text-left">
                 <p className="text-sm font-medium">Scan QR Code</p>
@@ -135,7 +135,7 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
             </button>
           </GlassCard>
 
-          <GlassCard variant="default" className="!p-0">
+          <GlassCard variant="elevated" className="!p-0">
             <button
               className="w-full flex items-center gap-4 p-4"
               style={{ color: colors.textPrimary }}
@@ -143,9 +143,9 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
             >
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ background: glowColor(colors.neonCyan, 0.15) }}
+                style={{ background: `rgba(255,107,53,0.08)` }}
               >
-                <Fingerprint className="w-5 h-5" style={{ color: colors.neonCyan }} />
+                <Fingerprint className="w-5 h-5" style={{ color: colors.sunrise }} />
               </div>
               <div className="flex-1 text-left">
                 <p className="text-sm font-medium">Biometric Login</p>
@@ -165,7 +165,7 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
             />
           </div>
 
-          <div className="flex items-center justify-center gap-1 pt-2">
+          <div className="flex items-center justify-center gap-1.5 pt-2">
             <Shield className="w-3 h-3" style={{ color: colors.textTertiary }} />
             <span className="text-[10px]" style={{ color: colors.textTertiary }}>
               Secured by UCM • HIPAA Compliant
@@ -173,6 +173,6 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
           </div>
         </motion.div>
       </div>
-    </NebulaBackground>
+    </div>
   );
 }

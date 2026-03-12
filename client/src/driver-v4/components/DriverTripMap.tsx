@@ -40,15 +40,18 @@ async function loadMapsScript(apiKey: string): Promise<void> {
   });
 }
 
-const DARK_MAP_STYLE: google.maps.MapTypeStyle[] = [
-  { elementType: "geometry", stylers: [{ color: "#0a0e17" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#0a0e17" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#4a5568" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#1a202c" }] },
-  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#2d3748" }] },
-  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#1e293b" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0c1222" }] },
+const LIGHT_MAP_STYLE: google.maps.MapTypeStyle[] = [
+  { elementType: "geometry", stylers: [{ color: "#F5F0EB" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#FAFAF8" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#6B7280" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#E5E7EB" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#FFECD2" }] },
+  { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#FFD4A8" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#DBEAFE" }] },
+  { featureType: "landscape.natural", elementType: "geometry", stylers: [{ color: "#EDE7DF" }] },
   { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#D4F5DD" }] },
   { featureType: "transit", stylers: [{ visibility: "off" }] },
 ];
 
@@ -152,7 +155,7 @@ export function DriverTripMap({
           const path = result.routes[0]?.overview_path || [];
           driverRouteLineRef.current = new google.maps.Polyline({
             path,
-            strokeColor: isPickupPhase ? "#00ff88" : "#ff00aa",
+            strokeColor: isPickupPhase ? "#34C759" : "#FF6B35",
             strokeOpacity: 0.7,
             strokeWeight: 4,
             geodesic: true,
@@ -184,7 +187,7 @@ export function DriverTripMap({
         streetViewControl: false,
         fullscreenControl: false,
         gestureHandling: "greedy",
-        styles: DARK_MAP_STYLE,
+        styles: LIGHT_MAP_STYLE,
       });
     }
 
@@ -195,13 +198,13 @@ export function DriverTripMap({
       map: mapRef.current,
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
-        fillColor: "#00ff88",
+        fillColor: "#34C759",
         fillOpacity: 1,
         strokeWeight: isPickupPhase ? 4 : 2,
-        strokeColor: isPickupPhase ? "#00ff8866" : "#0a0e17",
+        strokeColor: isPickupPhase ? "#34C759" : "#E5E7EB",
         scale: isPickupPhase ? 12 : 7,
       },
-      label: isPickupPhase ? { text: "P", color: "#0a0e17", fontSize: "10px", fontWeight: "bold" } : undefined,
+      label: isPickupPhase ? { text: "P", color: "#1A1A2E", fontSize: "10px", fontWeight: "bold" } : undefined,
       zIndex: 3,
     });
 
@@ -212,10 +215,10 @@ export function DriverTripMap({
       map: mapRef.current,
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
-        fillColor: "#ff00aa",
+        fillColor: "#FF6B35",
         fillOpacity: 1,
         strokeWeight: !isPickupPhase ? 4 : 2,
-        strokeColor: !isPickupPhase ? "#ff00aa66" : "#0a0e17",
+        strokeColor: !isPickupPhase ? "#FF6B35" : "#E5E7EB",
         scale: !isPickupPhase ? 12 : 7,
       },
       label: !isPickupPhase ? { text: "D", color: "#fff", fontSize: "10px", fontWeight: "bold" } : undefined,
@@ -236,7 +239,7 @@ export function DriverTripMap({
       // Use the real route from server
       routeLineRef.current = new google.maps.Polyline({
         path: routePath,
-        strokeColor: "#00f0ff",
+        strokeColor: "#4A90D9",
         strokeOpacity: 0.6,
         strokeWeight: 4,
         geodesic: true,
@@ -258,7 +261,7 @@ export function DriverTripMap({
             if (routeLineRef.current) routeLineRef.current.setMap(null);
             routeLineRef.current = new google.maps.Polyline({
               path,
-              strokeColor: "#00f0ff",
+              strokeColor: "#4A90D9",
               strokeOpacity: 0.6,
               strokeWeight: 4,
               geodesic: true,
@@ -289,10 +292,10 @@ export function DriverTripMap({
         map: mapRef.current,
         icon: {
           path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-          fillColor: "#00f0ff",
+          fillColor: "#FF6B35",
           fillOpacity: 1,
-          strokeColor: "#0a0e17",
-          strokeWeight: 2,
+          strokeColor: "#FFFFFF",
+          strokeWeight: 2.5,
           scale: 8,
           rotation: driverHeading ?? 0,
           anchor: new google.maps.Point(0, 2.5),
@@ -330,7 +333,7 @@ export function DriverTripMap({
 
   if (error) {
     return (
-      <div className={`flex items-center justify-center ${className}`} style={{ background: "#0a0e17" }}>
+      <div className={`flex items-center justify-center ${className}`} style={{ background: "#FFFFFF" }}>
         <span style={{ color: "#4a5568", fontSize: 12 }}>Map unavailable</span>
       </div>
     );

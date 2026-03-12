@@ -1,7 +1,6 @@
 import { motion } from "framer-motion";
 import { useReducedMotion } from "../../design/accessibility";
 import { colors, blur as blurTokens, radii } from "../../design/tokens";
-import { glowColor } from "../../design/theme";
 
 interface GlassCardProps {
   children: React.ReactNode;
@@ -26,35 +25,36 @@ export function GlassCard({
 }: GlassCardProps) {
   const reduced = useReducedMotion();
 
-  const opacityMap = { default: 0.10, elevated: 0.16, subtle: 0.06 };
+  const bgMap = {
+    default: "rgba(255,255,255,0.72)",
+    elevated: "rgba(255,255,255,0.88)",
+    subtle: "rgba(255,255,255,0.50)",
+  };
+  const shadowMap = {
+    default: colors.shadowSm,
+    elevated: colors.shadowMd,
+    subtle: "none",
+  };
   const blurMap = { default: blurTokens.md, elevated: blurTokens.lg, subtle: blurTokens.sm };
-
-  const bgOpacity = opacityMap[variant];
-  const blurAmount = blurMap[variant];
-  const borderColor = glowAccent
-    ? glowColor(glowAccent, 0.3)
-    : colors.glassStroke;
 
   return (
     <motion.div
       data-testid={testID}
       onClick={onClick}
-      initial={reduced ? {} : { opacity: 0, scale: 0.97 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
+      initial={reduced ? {} : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: "easeOut" }}
       className={`relative overflow-hidden ${padding} ${className}`}
       style={{
-        background: `rgba(255,255,255,${bgOpacity})`,
-        backdropFilter: `blur(${blurAmount}px)`,
-        WebkitBackdropFilter: `blur(${blurAmount}px)`,
-        border: `1px solid ${borderColor}`,
+        background: bgMap[variant],
+        backdropFilter: `blur(${blurMap[variant]}px)`,
+        WebkitBackdropFilter: `blur(${blurMap[variant]}px)`,
+        border: `1px solid ${colors.glassStroke}`,
         borderRadius: radii[radius],
-        boxShadow: glowAccent
-          ? `0 0 20px ${glowColor(glowAccent, 0.15)}, inset 0 1px 0 rgba(255,255,255,0.08)`
-          : `inset 0 1px 0 rgba(255,255,255,0.08)`,
+        boxShadow: shadowMap[variant],
         cursor: onClick ? "pointer" : undefined,
       }}
-      whileHover={onClick && !reduced ? { scale: 1.01 } : undefined}
+      whileHover={onClick && !reduced ? { scale: 1.01, boxShadow: colors.shadowMd } : undefined}
       whileTap={onClick && !reduced ? { scale: 0.98 } : undefined}
       aria-label={testID}
     >
