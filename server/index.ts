@@ -796,9 +796,7 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
       ts: new Date().toISOString(),
     }));
 
-    await initSchedulers();
-
-    // Minimal HTTP server so Railway healthcheck passes in worker mode
+    // Start healthcheck HTTP server FIRST so Railway healthcheck passes while schedulers init
     const workerPort = Number(process.env.PORT) || 5000;
     const workerHttp = createServer((_req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -807,6 +805,8 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     workerHttp.listen(workerPort, "0.0.0.0", () => {
       console.log(JSON.stringify({ event: "worker_healthcheck_server", port: workerPort, ts: new Date().toISOString() }));
     });
+
+    await initSchedulers();
 
     const { startMemoryLogger } = await import("./lib/schedulerHarness");
     startMemoryLogger(5 * 60 * 1000);

@@ -3,9 +3,9 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "RUN_MODE=worker node dist/index.cjs"
+startCommand = "sh script/start-worker.sh"
 healthcheckPath = "/api/health/live"
-healthcheckTimeout = 60
+healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 5
 numReplicas = 1

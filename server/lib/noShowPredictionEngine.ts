@@ -34,7 +34,28 @@ export interface NoShowPrediction {
 
 const LOOKBACK_DAYS = 90;
 const BASE_NO_SHOW_RATE = 15; // baseline 15% no-show probability
-const WEATHER_MULTIPLIER = 1.0; // configurable — set > 1.0 for bad weather days
+/**
+ * Compute a seasonal/environmental risk multiplier based on month and day.
+ * Winter months (Dec-Feb) have higher no-show risk due to weather.
+ * Extreme heat months (Jul-Aug) also increase risk slightly.
+ * First-of-month has lower risk (dialysis/recurring appointments).
+ */
+function computeEnvironmentalMultiplier(scheduledDate: string): number {
+  const date = new Date(scheduledDate + "T12:00:00Z");
+  const month = date.getMonth(); // 0-11
+  let multiplier = 1.0;
+
+  // Winter weather risk (Dec=11, Jan=0, Feb=1)
+  if (month === 11 || month === 0 || month === 1) {
+    multiplier = 1.15; // 15% higher no-show risk in winter
+  }
+  // Summer heat risk (Jul=6, Aug=7)
+  else if (month === 6 || month === 7) {
+    multiplier = 1.08; // 8% higher in peak summer
+  }
+  // Spring/Fall are baseline
+  return multiplier;
+}
 
 // ─── Haversine ──────────────────────────────────────────────────────────────
 
@@ -322,16 +343,21 @@ export async function predictNoShow(tripId: number): Promise<NoShowPrediction> {
     }
   }
 
-  // ── Factor 9: Weather multiplier ──
-  if (WEATHER_MULTIPLIER !== 1.0) {
-    const weatherImpact = Math.round((WEATHER_MULTIPLIER - 1.0) * 20);
-    if (weatherImpact !== 0) {
-      probability += weatherImpact;
-      factors.push({
-        name: "Weather conditions",
-        impact: weatherImpact,
-        detail: `Weather multiplier: ${WEATHER_MULTIPLIER}x`,
-      });
+  // ── Factor 9: Seasonal/environmental risk ──
+  if (trip.scheduledDate) {
+    const envMultiplier = computeEnvironmentalMultiplier(trip.scheduledDate);
+    if (envMultiplier !== 1.0) {
+      const weatherImpact = Math.round((envMultiplier - 1.0) * 20);
+      if (weatherImpact !== 0) {
+        probability += weatherImpact;
+        const date = new Date(trip.scheduledDate + "T12:00:00Z");
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        factors.push({
+          name: "Seasonal conditions",
+          impact: weatherImpact,
+          detail: `${monthNames[date.getMonth()]} seasonal risk multiplier: ${envMultiplier}x`,
+        });
+      }
     }
   }
 
