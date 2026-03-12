@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Fingerprint, QrCode, ChevronRight, Shield, Sun } from "lucide-react";
+import { ChevronRight, Shield, Truck, MapPin, Clock } from "lucide-react";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
 import { glowColor } from "../design/theme";
@@ -115,44 +115,24 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
         >
-          <GlassCard variant="elevated" className="!p-0">
-            <button
-              className="w-full flex items-center gap-4 p-4"
-              style={{ color: colors.textPrimary }}
-              data-testid="btn-scan-qr"
-            >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ background: `rgba(139,92,246,0.08)` }}
-              >
-                <QrCode className="w-5 h-5" style={{ color: "#8B5CF6" }} />
-              </div>
-              <div className="flex-1 text-left">
-                <p className="text-sm font-medium">Scan QR Code</p>
-                <p className="text-[10px]" style={{ color: colors.textTertiary }}>Quick login with company QR</p>
-              </div>
-              <ChevronRight className="w-4 h-4" style={{ color: colors.textTertiary }} />
-            </button>
-          </GlassCard>
-
-          <GlassCard variant="elevated" className="!p-0">
-            <button
-              className="w-full flex items-center gap-4 p-4"
-              style={{ color: colors.textPrimary }}
-              data-testid="btn-biometric"
-            >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ background: `rgba(255,107,53,0.08)` }}
-              >
-                <Fingerprint className="w-5 h-5" style={{ color: colors.sunrise }} />
-              </div>
-              <div className="flex-1 text-left">
-                <p className="text-sm font-medium">Biometric Login</p>
-                <p className="text-[10px]" style={{ color: colors.textTertiary }}>Use Face ID or fingerprint</p>
-              </div>
-              <ChevronRight className="w-4 h-4" style={{ color: colors.textTertiary }} />
-            </button>
+          <GlassCard variant="elevated" className="!p-4">
+            <div className="space-y-3">
+              {[
+                { icon: <Truck className="w-4 h-4" style={{ color: colors.sunrise }} />, title: "Real-time trips", desc: "Accept and manage trips on the go" },
+                { icon: <MapPin className="w-4 h-4" style={{ color: colors.success }} />, title: "Live navigation", desc: "Turn-by-turn directions to pickup and dropoff" },
+                { icon: <Clock className="w-4 h-4" style={{ color: colors.sky }} />, title: "Track your shift", desc: "Clock in/out, view earnings, and shift history" },
+              ].map((f, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(0,0,0,0.03)" }}>
+                    {f.icon}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>{f.title}</p>
+                    <p className="text-[10px]" style={{ color: colors.textTertiary }}>{f.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </GlassCard>
 
           <div className="pt-3">

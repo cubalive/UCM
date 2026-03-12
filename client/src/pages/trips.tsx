@@ -546,12 +546,12 @@ export default function TripsPage() {
           <Button size="sm" variant="ghost" onClick={() => setSelectedTripIds(new Set())}>
             Clear Selection
           </Button>
-          {filtered?.length > 0 && (
+          {(filtered?.length ?? 0) > 0 && (
             <Button
               size="sm"
               variant="ghost"
               onClick={() => {
-                const cancelable = filtered.filter((t: any) => ["SCHEDULED", "ASSIGNED"].includes(t.status));
+                const cancelable = (filtered ?? []).filter((t: any) => ["SCHEDULED", "ASSIGNED"].includes(t.status));
                 setSelectedTripIds(new Set(cancelable.map((t: any) => t.id)));
               }}
             >

@@ -224,6 +224,34 @@ app.use((req, res, next) => {
   next();
 });
 
+// Track boot readiness so pre-boot handler can serve appropriate responses
+let bootReady = false;
+
+// Pre-boot handler: serve a loading page for non-API requests while boot is in progress.
+// This prevents the browser from getting no response (or unexpected JSON) during the
+// long migration/seed sequence. Once boot finishes, serveStatic takes over.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (bootReady) return next();
+  // Let API and health routes through to their handlers
+  if (req.path.startsWith("/api")) return next();
+  // During boot, serve a minimal loading page for browser requests
+  const acceptsHtml = (req.headers.accept || "").includes("text/html");
+  if (acceptsHtml) {
+    res.status(503).set("Retry-After", "5").set("Cache-Control", "no-store").send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UCM - Starting</title>
+<style>body{display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;
+font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}
+.c{text-align:center}.spinner{width:40px;height:40px;border:4px solid #334155;
+border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}</style>
+<script>setTimeout(()=>location.reload(),5000)</script>
+</head><body><div class="c"><div class="spinner"></div><p>Starting UCM Platform...</p></div></body></html>`);
+    return;
+  }
+  next();
+});
+
 (async () => {
   // Start listening EARLY so Railway/infra healthcheck (/api/health/live) can respond
   // while the rest of boot (migrations, route registration, etc.) completes.
@@ -988,6 +1016,9 @@ app.use((req, res, next) => {
       requestId: req.requestId,
     });
   });
+
+  // Mark boot complete — the pre-boot loading handler will now pass through
+  bootReady = true;
 
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
