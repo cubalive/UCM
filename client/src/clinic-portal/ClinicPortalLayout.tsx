@@ -14,11 +14,12 @@ import ClinicPatients from "./pages/ClinicPatients";
 import ClinicScheduling from "./pages/ClinicScheduling";
 import ClinicUsers from "./pages/ClinicUsers";
 import LoginPage from "@/pages/login";
-import UnauthorizedPage from "@/pages/unauthorized";
 import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, X, AlertTriangle } from "lucide-react";
 
-const ALLOWED_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER", "SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
+const CLINIC_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"];
+const ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
+const ALLOWED_ROLES = [...CLINIC_ROLES, ...ADMIN_ROLES];
 
 function ClinicPortalRoutes() {
   return (
@@ -99,6 +100,34 @@ export function ClinicPortalLayout() {
 
   const role = user.role.toUpperCase();
   if (!ALLOWED_ROLES.includes(role)) {
+    return <ClinicHostUnauthorized />;
+  }
+
+  // Admin users without a clinicId can't use the clinic portal — redirect to admin panel
+  if (ADMIN_ROLES.includes(role) && !user.clinicId) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
+        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 max-w-md text-center space-y-4">
+          <div className="w-16 h-16 mx-auto bg-amber-500/10 rounded-full flex items-center justify-center">
+            <AlertTriangle className="w-8 h-8 text-amber-400" />
+          </div>
+          <h2 className="text-xl font-semibold text-white">No Clinic Assigned</h2>
+          <p className="text-gray-400">
+            Your account is not linked to a specific clinic. Use the admin panel to manage clinic billing and settings.
+          </p>
+          <a
+            href={window.location.hostname === "localhost" || window.location.hostname.startsWith("127.") ? "/?portal=admin" : "/"}
+            className="inline-block px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
+          >
+            Go to Admin Panel
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Clinic-scoped users must have a clinicId
+  if (CLINIC_ROLES.includes(role) && !user.clinicId) {
     return <ClinicHostUnauthorized />;
   }
 

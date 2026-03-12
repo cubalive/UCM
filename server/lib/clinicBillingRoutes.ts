@@ -1003,7 +1003,7 @@ export function registerClinicBillingRoutes(app: Express) {
       res.json(settings || {
         clinicId,
         billingCycle: "weekly",
-        anchorDow: 1,
+        anchorDow: 7,
         anchorDom: 1,
         biweeklyMode: "1_15",
         anchorDate: null,
@@ -1072,7 +1072,7 @@ export function registerClinicBillingRoutes(app: Express) {
         const defaultSettings = settings || {
           clinicId,
           billingCycle: "weekly" as const,
-          anchorDow: 1,
+          anchorDow: 7,
           anchorDom: 1,
           biweeklyMode: "1_15" as const,
           anchorDate: null,
@@ -1152,7 +1152,7 @@ export function registerClinicBillingRoutes(app: Express) {
         const defaultSettings = settings || {
           clinicId,
           billingCycle: "weekly" as const,
-          anchorDow: 1,
+          anchorDow: 7,
           anchorDom: 1,
           biweeklyMode: "1_15" as const,
           anchorDate: null,
