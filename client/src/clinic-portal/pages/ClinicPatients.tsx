@@ -26,6 +26,9 @@ import {
   Activity,
   Accessibility,
   Hash,
+  Upload,
+  Download,
+  CheckCircle2,
 } from "lucide-react";
 
 interface Patient {
@@ -587,6 +590,212 @@ function AddPatientModal({
   );
 }
 
+// ─── Bulk Import Modal ────────────────────────────────────────────────────────
+
+function BulkImportModal({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [csvData, setCsvData] = useState<Record<string, any>[]>([]);
+  const [parsing, setParsing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setParsing(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+        if (lines.length < 2) {
+          toast({ title: "Invalid CSV", description: "CSV must have a header row and at least one data row.", variant: "destructive" });
+          setParsing(false);
+          return;
+        }
+
+        const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/\s+/g, "").replace(/["']/g, ""));
+        const headerMap: Record<string, string> = {
+          "firstname": "firstName",
+          "first_name": "firstName",
+          "lastname": "lastName",
+          "last_name": "lastName",
+          "phone": "phone",
+          "email": "email",
+          "dateofbirth": "dateOfBirth",
+          "date_of_birth": "dateOfBirth",
+          "dob": "dateOfBirth",
+          "address": "address",
+          "city": "city",
+          "state": "state",
+          "zip": "zip",
+          "zipcode": "zip",
+          "insuranceid": "insuranceId",
+          "insurance_id": "insuranceId",
+          "medicaidid": "medicaidId",
+          "medicaid_id": "medicaidId",
+          "wheelchair": "wheelchairRequired",
+          "wheelchairrequired": "wheelchairRequired",
+          "notes": "notes",
+        };
+
+        const mappedHeaders = headers.map(h => headerMap[h] || h);
+        const rows: Record<string, any>[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          // Basic CSV parsing (handles simple cases)
+          const values = lines[i].split(",").map(v => v.trim().replace(/^["']|["']$/g, ""));
+          const row: Record<string, any> = {};
+          mappedHeaders.forEach((header, idx) => {
+            if (values[idx] !== undefined && values[idx] !== "") {
+              row[header] = values[idx];
+            }
+          });
+          if (row.firstName || row.lastName) {
+            rows.push(row);
+          }
+        }
+
+        setCsvData(rows);
+      } catch (err) {
+        toast({ title: "Failed to parse CSV", description: "Please check the file format.", variant: "destructive" });
+      }
+      setParsing(false);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImport = async () => {
+    if (csvData.length === 0) return;
+    setImporting(true);
+    try {
+      const res = await apiRequest("POST", "/api/clinic/patients/bulk-import", { patients: csvData });
+      const data = await res.json();
+      setResult({ success: data.success, failed: data.failed, errors: data.errors || [] });
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic/patients"] });
+    } catch (err: any) {
+      toast({ title: "Import failed", description: err.message, variant: "destructive" });
+    }
+    setImporting(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-[#111827] border border-[#1e293b] rounded-xl w-full max-w-2xl mx-4 shadow-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e293b] shrink-0">
+          <h2 className="text-base font-semibold text-white flex items-center gap-2">
+            <Upload className="w-5 h-5 text-emerald-400" />
+            Bulk Import Patients
+          </h2>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-white transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto space-y-5">
+          {result ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+                <div>
+                  <p className="text-sm font-semibold text-white">Import Complete</p>
+                  <p className="text-xs text-gray-400">{result.success} patients imported, {result.failed} failed</p>
+                </div>
+              </div>
+              {result.errors.length > 0 && (
+                <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
+                  <p className="text-xs text-red-400 font-medium mb-2">Errors:</p>
+                  <ul className="space-y-1 max-h-40 overflow-y-auto">
+                    {result.errors.map((err, i) => (
+                      <li key={i} className="text-xs text-gray-400">{err}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <button
+                onClick={onClose}
+                className="w-full px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="bg-[#0a0f1e] border border-[#1e293b] border-dashed rounded-xl p-8 text-center">
+                <Upload className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+                <p className="text-sm text-gray-400 mb-2">Upload a CSV file with patient data</p>
+                <p className="text-xs text-gray-600 mb-4">
+                  Required columns: firstName, lastName. Optional: phone, email, dateOfBirth, address, city, state, zip, insuranceId, medicaidId, wheelchair, notes
+                </p>
+                <label className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors cursor-pointer">
+                  <Upload className="w-4 h-4" />
+                  Choose File
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {parsing && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
+                  <span className="text-sm text-gray-400 ml-2">Parsing CSV...</span>
+                </div>
+              )}
+
+              {csvData.length > 0 && (
+                <>
+                  <div className="bg-[#0a0f1e] border border-[#1e293b] rounded-xl p-4">
+                    <p className="text-sm text-white font-medium">{csvData.length} patients ready to import</p>
+                    <div className="mt-3 max-h-40 overflow-y-auto space-y-1">
+                      {csvData.slice(0, 10).map((row, i) => (
+                        <div key={i} className="text-xs text-gray-400 flex items-center gap-2">
+                          <span className="text-gray-600 w-5">{i + 1}.</span>
+                          <span className="text-white">{row.firstName} {row.lastName}</span>
+                          {row.phone && <span className="text-gray-500">{row.phone}</span>}
+                        </div>
+                      ))}
+                      {csvData.length > 10 && (
+                        <p className="text-xs text-gray-600">... and {csvData.length - 10} more</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={onClose}
+                      className="flex-1 px-4 py-2.5 text-sm text-gray-400 border border-[#1e293b] rounded-lg hover:bg-[#1e293b] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleImport}
+                      disabled={importing}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                      {importing ? "Importing..." : `Import ${csvData.length} Patients`}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function ClinicPatients() {
@@ -597,6 +806,7 @@ export default function ClinicPatients() {
   const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all");
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
 
   const { data, isLoading } = useQuery<{ patients: Patient[] }>({
     queryKey: ["/api/clinic/patients"],
@@ -681,13 +891,23 @@ export default function ClinicPatients() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Manage patients, view history, and create trip requests</p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-emerald-900/20"
-        >
-          <Plus className="w-4 h-4" />
-          Add Patient
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowBulkImport(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#111827] border border-[#1e293b] hover:border-emerald-500/30 text-white text-sm font-medium rounded-lg transition-colors"
+            data-testid="button-bulk-import"
+          >
+            <Upload className="w-4 h-4" />
+            Import CSV
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-emerald-900/20"
+          >
+            <Plus className="w-4 h-4" />
+            Add Patient
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -944,6 +1164,11 @@ export default function ClinicPatients() {
           onSubmit={(data) => createMutation.mutate(data)}
           isPending={createMutation.isPending}
         />
+      )}
+
+      {/* Bulk Import Modal */}
+      {showBulkImport && (
+        <BulkImportModal onClose={() => setShowBulkImport(false)} />
       )}
     </div>
   );

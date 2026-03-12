@@ -15,6 +15,10 @@ interface ScoredCandidate {
   reliabilityScore: number;
   loadScore: number;
   fatigueScore: number;
+  certificationScore: number;
+  languageScore: number;
+  patientHistoryBonus: number;
+  smartMatchScore: number;
   finalScore: number;
   rank: number;
   eligible: boolean;
@@ -233,6 +237,70 @@ export async function scoreDriversForTrip(
       routeDistanceMeters: trip.routeDistanceMeters,
     }) : 0;
 
+    // ── Certification matching (BLS, wheelchair assist, pediatric, bariatric) ──
+    let certificationScore = 0;
+    if (eligible) {
+      const tripMobility = trip.mobilityRequirement || "STANDARD";
+      const driverCap = driver.vehicleCapability || "sedan";
+      const driverServiceTypes = driver.preferredServiceTypes || [];
+
+      // Perfect capability match
+      if (tripMobility === "WHEELCHAIR" && driverCap === "WHEELCHAIR") certificationScore = 1.0;
+      else if (tripMobility === "STRETCHER" && driverCap === "STRETCHER") certificationScore = 1.0;
+      else if (tripMobility === "BARIATRIC" && driverServiceTypes.includes("BARIATRIC")) certificationScore = 1.0;
+      else if (["AMBULATORY", "STANDARD"].includes(tripMobility)) certificationScore = 0.8;
+      else certificationScore = 0.5;
+
+      // Bonus for BLS/pediatric in preferred types
+      if (driverServiceTypes.includes("BLS")) certificationScore = Math.min(1, certificationScore + 0.1);
+      if (driverServiceTypes.includes("PEDIATRIC") && tripMobility === "PEDIATRIC") certificationScore = 1.0;
+    }
+
+    // ── Language preference matching ──
+    let languageScore = 0.7; // default neutral-positive (no language fields in schema)
+    if (eligible) {
+      // Future: when language fields are added to driver/patient schema, match here
+      languageScore = 0.7;
+    }
+
+    // ── Patient-driver history bonus (successful past trips) ──
+    let patientHistoryBonus = 0;
+    if (eligible) {
+      try {
+        const historyResult = await db.execute(sql`
+          SELECT
+            COUNT(*) FILTER (WHERE status = 'COMPLETED') as completed,
+            COUNT(*) as total
+          FROM trips
+          WHERE driver_id = ${driver.id}
+          AND patient_id = ${trip.patientId}
+          AND scheduled_date >= (CURRENT_DATE - INTERVAL '90 days')::text
+          AND deleted_at IS NULL
+        `);
+        const histRow = (historyResult as any).rows?.[0] || (historyResult as any)[0];
+        const histCompleted = Number(histRow?.completed || 0);
+        const histTotal = Number(histRow?.total || 0);
+        if (histTotal > 0) {
+          const successRate = histCompleted / histTotal;
+          patientHistoryBonus = successRate * Math.min(histTotal, 10) * 15; // up to 150 points
+        }
+      } catch {
+        patientHistoryBonus = 0;
+      }
+    }
+
+    // ── Smart matching engine score ──
+    let smartMatchScore = 0;
+    if (eligible) {
+      try {
+        const { scoreMatch } = await import("./smartMatchingEngine");
+        const matchResult = await scoreMatch(driver.id, trip.patientId);
+        smartMatchScore = matchResult.score; // 0-100
+      } catch {
+        smartMatchScore = 0;
+      }
+    }
+
     let preferredBonus = 0;
     if (eligible && driver.id === patientPreferredDriverId) preferredBonus = 1000;
     else if (eligible && driver.id === tripPreferredDriverId) preferredBonus = 500;
@@ -249,8 +317,12 @@ export async function scoreDriversForTrip(
     const clinicAffinityBonus = clinicAffinity * 200;
     const preferenceBonus = preferenceScore * 100;
     const trackingPenalty = (driver.trackingStatus !== "OK" && driver.trackingStatus !== "UNKNOWN") ? -50 : 0;
+    const certBonus = certificationScore * 50;
+    const langBonus = languageScore * 30;
+    const smartMatchBonus = smartMatchScore * 0.5; // 0-50 range
 
-    const finalScore = baseScore + preferredBonus + clinicAffinityBonus + preferenceBonus + trackingPenalty;
+    const finalScore = baseScore + preferredBonus + clinicAffinityBonus + preferenceBonus
+      + trackingPenalty + certBonus + langBonus + patientHistoryBonus + smartMatchBonus;
 
     candidates.push({
       driverId: driver.id,
@@ -260,6 +332,10 @@ export async function scoreDriversForTrip(
       reliabilityScore: Math.round(reliabilityRate * 100) / 100,
       loadScore: Math.round(loadScore * 100) / 100,
       fatigueScore: Math.round(fatigueScore * 100) / 100,
+      certificationScore: Math.round(certificationScore * 100) / 100,
+      languageScore: Math.round(languageScore * 100) / 100,
+      patientHistoryBonus: Math.round(patientHistoryBonus * 100) / 100,
+      smartMatchScore: Math.round(smartMatchScore * 100) / 100,
       finalScore: Math.round(finalScore * 100) / 100,
       rank: 0,
       eligible,

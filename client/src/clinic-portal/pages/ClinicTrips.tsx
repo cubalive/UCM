@@ -1,5 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatDateTime } from "@/lib/timezone";
 import { useState, useMemo } from "react";
 import {
@@ -17,6 +19,13 @@ import {
   XCircle,
   Truck,
   Calendar,
+  Edit3,
+  Save,
+  Loader2,
+  FileCheck,
+  Camera,
+  Pen,
+  Navigation,
 } from "lucide-react";
 
 const STATUS_OPTIONS = [

@@ -386,6 +386,394 @@ router.post(
   }
 );
 
+// ─── ETA Prediction (Learning Model) ─────────────────────────────────────────
+
+router.get(
+  "/api/ai/eta-prediction/:tripId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tripId = parseInt(req.params.tripId as string);
+      if (!tripId) {
+        return res.status(400).json({ error: "Valid tripId is required" });
+      }
+
+      const { predictETA } = await import("../lib/etaLearningEngine");
+      const prediction = await predictETA(tripId);
+      res.json(prediction);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] eta-prediction error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Anomaly Detection ───────────────────────────────────────────────────────
+
+router.get(
+  "/api/ai/anomaly-score/:tripId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tripId = parseInt(req.params.tripId as string);
+      if (!tripId) {
+        return res.status(400).json({ error: "Valid tripId is required" });
+      }
+
+      const { detectTripAnomalies } = await import("../lib/anomalyDetectionEngine");
+      const result = await detectTripAnomalies(tripId);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] anomaly-score error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Smart Driver Matching ───────────────────────────────────────────────────
+
+router.get(
+  "/api/ai/driver-match/:tripId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tripId = parseInt(req.params.tripId as string);
+      const limit = Math.min(parseInt(req.query.limit as string) || 5, 20);
+      if (!tripId) {
+        return res.status(400).json({ error: "Valid tripId is required" });
+      }
+
+      const { getTopDrivers } = await import("../lib/smartMatchingEngine");
+      const result = await getTopDrivers(tripId, limit);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] driver-match error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Enhanced Chatbot ────────────────────────────────────────────────────────
+
+router.post(
+  "/api/ai/chatbot/message",
+  authMiddleware,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const userId = req.user!.userId;
+      const { message, sessionId: providedSessionId } = req.body;
+      if (!message || typeof message !== "string") {
+        return res.status(400).json({ error: "message is required" });
+      }
+
+      const { processDispatchMessage, getActiveSession, createChatSession } = await import("../lib/aiDispatchBot");
+      const { storage } = await import("../storage");
+
+      let sessionId = providedSessionId;
+      if (!sessionId) {
+        sessionId = await getActiveSession(userId);
+      }
+      if (!sessionId) {
+        const user = await storage.getUser(userId);
+        if (!user) return res.status(404).json({ error: "User not found" });
+        sessionId = await createChatSession(
+          user.companyId || 0,
+          userId,
+          (user as any).cityId || null,
+          "web"
+        );
+      }
+
+      const user = await storage.getUser(userId);
+      const response = await processDispatchMessage(
+        sessionId,
+        message,
+        user?.companyId || 0,
+        userId,
+        (user as any)?.cityId || null
+      );
+
+      res.json({ ok: true, sessionId, ...response });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] chatbot error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Dispatch Suggestions ────────────────────────────────────────────────────
+
+router.get(
+  "/api/dispatch/suggestions",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : req.user?.companyId;
+      const cityId = req.query.cityId ? parseInt(req.query.cityId as string) : undefined;
+
+      if (!companyId) {
+        return res.status(400).json({ error: "companyId is required" });
+      }
+
+      const { trips: tripsTable } = await import("@shared/schema");
+      const unassignedTrips = await db
+        .select({ id: tripsTable.id, patientId: tripsTable.patientId })
+        .from(tripsTable)
+        .where(
+          and(
+            eq(tripsTable.companyId, companyId),
+            sql`${tripsTable.driverId} IS NULL`,
+            eq(tripsTable.status, "SCHEDULED"),
+            sql`${tripsTable.deletedAt} IS NULL`,
+            ...(cityId ? [eq(tripsTable.cityId, cityId)] : [])
+          )
+        )
+        .limit(20);
+
+      const { getTopDrivers } = await import("../lib/smartMatchingEngine");
+      const suggestions = [];
+
+      for (const trip of unassignedTrips) {
+        try {
+          const match = await getTopDrivers(trip.id, 3);
+          suggestions.push({
+            tripId: trip.id,
+            patientId: trip.patientId,
+            topDrivers: match.topDrivers.map(d => ({
+              driverId: d.driverId,
+              driverName: d.driverName,
+              score: d.score,
+              reason: d.factors.filter(f => f.score > f.maxScore * 0.5).map(f => f.name).join(", ") || "Best available",
+            })),
+          });
+        } catch {
+          // Skip failed suggestions
+        }
+      }
+
+      res.json({ suggestions, totalUnassigned: unassignedTrips.length });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] dispatch-suggestions error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Dispatch Performance Analytics ──────────────────────────────────────────
+
+router.get(
+  "/api/dispatch/performance",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : req.user?.companyId;
+      const days = Math.min(parseInt(req.query.days as string) || 30, 90);
+
+      if (!companyId) {
+        return res.status(400).json({ error: "companyId is required" });
+      }
+
+      const { trips: tripsTable } = await import("@shared/schema");
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+      // Average assignment time (time from creation to assignment)
+      const assignmentTimeStats = await db
+        .select({
+          avgSeconds: sql<number>`coalesce(avg(extract(epoch from (${tripsTable.assignedAt} - ${tripsTable.createdAt}))), 0)::float`,
+          medianApprox: sql<number>`coalesce(percentile_cont(0.5) within group (order by extract(epoch from (${tripsTable.assignedAt} - ${tripsTable.createdAt}))), 0)::float`,
+        })
+        .from(tripsTable)
+        .where(
+          and(
+            eq(tripsTable.companyId, companyId),
+            sql`${tripsTable.assignedAt} IS NOT NULL`,
+            sql`${tripsTable.scheduledDate} >= ${cutoffStr}`,
+            sql`${tripsTable.deletedAt} IS NULL`
+          )
+        );
+
+      // Reassignment rate
+      const reassignStats = await db
+        .select({
+          totalAssigned: sql<number>`count(*) filter (where ${tripsTable.driverId} is not null)::int`,
+          reassigned: sql<number>`count(*) filter (where ${tripsTable.assignmentSource} = 'chatbot_reassign' or ${tripsTable.assignmentSource} = 'manual_reassign' or ${tripsTable.assignmentReason} like '%reassign%')::int`,
+        })
+        .from(tripsTable)
+        .where(
+          and(
+            eq(tripsTable.companyId, companyId),
+            sql`${tripsTable.scheduledDate} >= ${cutoffStr}`,
+            sql`${tripsTable.deletedAt} IS NULL`
+          )
+        );
+
+      // On-time dispatch rate
+      const onTimeStats = await db
+        .select({
+          total: sql<number>`count(*)::int`,
+          onTime: sql<number>`count(*) filter (where ${tripsTable.startedAt} IS NOT NULL)::int`,
+          completed: sql<number>`count(*) filter (where ${tripsTable.status} = 'COMPLETED')::int`,
+          noShow: sql<number>`count(*) filter (where ${tripsTable.status} = 'NO_SHOW')::int`,
+          cancelled: sql<number>`count(*) filter (where ${tripsTable.status} = 'CANCELLED')::int`,
+        })
+        .from(tripsTable)
+        .where(
+          and(
+            eq(tripsTable.companyId, companyId),
+            sql`${tripsTable.scheduledDate} >= ${cutoffStr}`,
+            sql`${tripsTable.deletedAt} IS NULL`
+          )
+        );
+
+      // Trips per day distribution
+      const dailyStats = await db
+        .select({
+          date: tripsTable.scheduledDate,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(tripsTable)
+        .where(
+          and(
+            eq(tripsTable.companyId, companyId),
+            sql`${tripsTable.scheduledDate} >= ${cutoffStr}`,
+            sql`${tripsTable.deletedAt} IS NULL`
+          )
+        )
+        .groupBy(tripsTable.scheduledDate)
+        .orderBy(tripsTable.scheduledDate);
+
+      // Peak hour analysis
+      const hourlyStats = await db
+        .select({
+          hour: sql<number>`extract(hour from ${tripsTable.pickupTime}::time)::int`,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(tripsTable)
+        .where(
+          and(
+            eq(tripsTable.companyId, companyId),
+            sql`${tripsTable.scheduledDate} >= ${cutoffStr}`,
+            sql`${tripsTable.deletedAt} IS NULL`,
+            sql`${tripsTable.pickupTime} IS NOT NULL`
+          )
+        )
+        .groupBy(sql`extract(hour from ${tripsTable.pickupTime}::time)`)
+        .orderBy(sql`extract(hour from ${tripsTable.pickupTime}::time)`);
+
+      const stats = assignmentTimeStats[0] || { avgSeconds: 0, medianApprox: 0 };
+      const reassign = reassignStats[0] || { totalAssigned: 0, reassigned: 0 };
+      const onTime = onTimeStats[0] || { total: 0, onTime: 0, completed: 0, noShow: 0, cancelled: 0 };
+
+      res.json({
+        period: { days, from: cutoffStr, to: new Date().toISOString().slice(0, 10) },
+        averageAssignmentTime: {
+          averageSeconds: Math.round(stats.avgSeconds),
+          averageMinutes: Math.round(stats.avgSeconds / 60 * 10) / 10,
+          medianSeconds: Math.round(stats.medianApprox),
+        },
+        reassignmentRate: {
+          totalAssigned: reassign.totalAssigned,
+          reassigned: reassign.reassigned,
+          rate: reassign.totalAssigned > 0 ? Math.round((reassign.reassigned / reassign.totalAssigned) * 10000) / 100 : 0,
+        },
+        tripOutcomes: {
+          total: onTime.total,
+          completed: onTime.completed,
+          noShow: onTime.noShow,
+          cancelled: onTime.cancelled,
+          completionRate: onTime.total > 0 ? Math.round((onTime.completed / onTime.total) * 10000) / 100 : 0,
+        },
+        peakHours: hourlyStats.map(h => ({ hour: h.hour, trips: h.count })),
+        dailyTrends: dailyStats.slice(-14), // last 14 days
+      });
+    } catch (err: any) {
+      console.error("[AI-ROUTES] dispatch-performance error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Dispatch Hotspots ───────────────────────────────────────────────────────
+
+router.get(
+  "/api/dispatch/hotspots",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : req.user?.companyId;
+      const cityId = parseInt(req.query.cityId as string);
+      const date = req.query.date as string | undefined;
+
+      if (!companyId || !cityId) {
+        return res.status(400).json({ error: "companyId and cityId are required" });
+      }
+
+      const { analyzeHotspots } = await import("../lib/dispatchHotspotEngine");
+      const result = await analyzeHotspots(cityId, companyId, date);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] dispatch-hotspots error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Driver Fatigue Alerts ───────────────────────────────────────────────────
+
+router.get(
+  "/api/dispatch/fatigue-alerts",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : req.user?.companyId;
+      const cityId = parseInt(req.query.cityId as string);
+
+      if (!companyId || !cityId) {
+        return res.status(400).json({ error: "companyId and cityId are required" });
+      }
+
+      const { getFatigueAlerts } = await import("../lib/driverFatigueEngine");
+      const result = await getFatigueAlerts(companyId, cityId);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] fatigue-alerts error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Single Driver Fatigue Check ─────────────────────────────────────────────
+
+router.get(
+  "/api/dispatch/fatigue/:driverId",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "DISPATCH"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const driverId = parseInt(req.params.driverId as string);
+      if (!driverId) {
+        return res.status(400).json({ error: "Valid driverId is required" });
+      }
+
+      const { getDriverFatigueStatus } = await import("../lib/driverFatigueEngine");
+      const status = await getDriverFatigueStatus(driverId);
+      res.json(status);
+    } catch (err: any) {
+      console.error("[AI-ROUTES] fatigue-driver error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 export function registerAiRoutes(app: Express) {
   app.use(router);
 }

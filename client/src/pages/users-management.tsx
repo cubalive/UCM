@@ -130,6 +130,67 @@ export default function UsersPage() {
     onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });
 
+  const bulkArchiveMutation = useMutation({
+    mutationFn: (userIds: number[]) =>
+      apiFetch("/api/admin/users/bulk-archive", token, {
+        method: "POST",
+        body: JSON.stringify({ userIds }),
+      }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setSelectedUserIds(new Set());
+      toast({ title: "Bulk archive complete", description: `${data.archived} users archived` });
+    },
+    onError: (err: any) => toast({ title: "Bulk archive failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkActivateMutation = useMutation({
+    mutationFn: (userIds: number[]) =>
+      apiFetch("/api/admin/users/bulk-activate", token, {
+        method: "POST",
+        body: JSON.stringify({ userIds }),
+      }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setSelectedUserIds(new Set());
+      toast({ title: "Bulk activate complete", description: `${data.activated} users activated` });
+    },
+    onError: (err: any) => toast({ title: "Bulk activate failed", description: err.message, variant: "destructive" }),
+  });
+
+  const bulkRoleMutation = useMutation({
+    mutationFn: ({ userIds, role }: { userIds: number[]; role: string }) =>
+      apiFetch("/api/admin/users/bulk-role", token, {
+        method: "POST",
+        body: JSON.stringify({ userIds, role }),
+      }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setSelectedUserIds(new Set());
+      setBulkRoleDialogOpen(false);
+      toast({ title: "Bulk role change complete", description: `${data.updated} users updated to ${data.role}` });
+    },
+    onError: (err: any) => toast({ title: "Bulk role change failed", description: err.message, variant: "destructive" }),
+  });
+
+  const toggleSelectUser = (userId: number) => {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!filtered) return;
+    if (selectedUserIds.size === filtered.length) {
+      setSelectedUserIds(new Set());
+    } else {
+      setSelectedUserIds(new Set(filtered.map((u: any) => u.id)));
+    }
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: any) =>
       apiFetch("/api/users", token, {
@@ -269,6 +330,20 @@ export default function UsersPage() {
             Clear
           </Button>
         )}
+        {isSuperAdmin && filtered && filtered.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleSelectAll}
+            data-testid="button-select-all"
+          >
+            <Checkbox
+              checked={filtered.length > 0 && selectedUserIds.size === filtered.length}
+              className="mr-1"
+            />
+            {selectedUserIds.size === filtered?.length ? "Deselect All" : "Select All"}
+          </Button>
+        )}
         <div className="text-sm text-muted-foreground">
           {filtered?.length || 0} users
         </div>
@@ -366,6 +441,91 @@ export default function UsersPage() {
         </Card>
       )}
 
+      {/* Bulk Operations Bar */}
+      {isSuperAdmin && selectedUserIds.size > 0 && (
+        <Card>
+          <CardContent className="py-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <p className="text-sm font-medium">{selectedUserIds.size} selected</p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (window.confirm(`Archive ${selectedUserIds.size} users? They will be deactivated.`)) {
+                    bulkArchiveMutation.mutate(Array.from(selectedUserIds));
+                  }
+                }}
+                disabled={bulkArchiveMutation.isPending}
+                data-testid="button-bulk-archive"
+              >
+                <Archive className="w-3 h-3 mr-1" />
+                Bulk Archive
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (window.confirm(`Activate ${selectedUserIds.size} users?`)) {
+                    bulkActivateMutation.mutate(Array.from(selectedUserIds));
+                  }
+                }}
+                disabled={bulkActivateMutation.isPending}
+                data-testid="button-bulk-activate"
+              >
+                <Power className="w-3 h-3 mr-1" />
+                Bulk Activate
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setBulkRoleDialogOpen(true)}
+                data-testid="button-bulk-role"
+              >
+                <Users className="w-3 h-3 mr-1" />
+                Change Role
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedUserIds(new Set())}
+                data-testid="button-clear-selection"
+              >
+                Clear Selection
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Bulk Role Dialog */}
+      {bulkRoleDialogOpen && (
+        <Dialog open={bulkRoleDialogOpen} onOpenChange={setBulkRoleDialogOpen}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Change Role for {selectedUserIds.size} Users</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+              <Select value={bulkRole} onValueChange={setBulkRole}>
+                <SelectTrigger data-testid="select-bulk-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALL_ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>{role.replace(/_/g, " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                className="w-full"
+                onClick={() => bulkRoleMutation.mutate({ userIds: Array.from(selectedUserIds), role: bulkRole })}
+                disabled={bulkRoleMutation.isPending}
+                data-testid="button-confirm-bulk-role"
+              >
+                {bulkRoleMutation.isPending ? "Updating..." : `Set ${selectedUserIds.size} Users to ${bulkRole}`}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
@@ -386,6 +546,15 @@ export default function UsersPage() {
             <Card key={u.id} className={!u.active ? "opacity-60" : ""}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    {isSuperAdmin && u.role !== "SUPER_ADMIN" && (
+                      <Checkbox
+                        checked={selectedUserIds.has(u.id)}
+                        onCheckedChange={() => toggleSelectUser(u.id)}
+                        className="mt-1"
+                        data-testid={`checkbox-user-${u.id}`}
+                      />
+                    )}
                   <div className="space-y-1 min-w-0">
                     <p className="font-medium" data-testid={`text-user-fullname-${u.id}`}>{u.firstName} {u.lastName}</p>
                     <p className="text-xs font-mono text-muted-foreground">{u.publicId}</p>
@@ -401,6 +570,7 @@ export default function UsersPage() {
                         {citiesMap.get(u.workingCityId) || `City #${u.workingCityId}`}
                       </p>
                     )}
+                  </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <Badge variant={roleColors[u.role] as any || "secondary"} data-testid={`badge-user-role-${u.id}`}>

@@ -41,6 +41,47 @@ import { authHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 import { useRealtimeTrips } from "@/hooks/use-realtime-trips";
+import { Switch } from "@/components/ui/switch";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Settings } from "lucide-react";
+
+const DASHBOARD_WIDGETS = ["kpis", "charts", "driverPresence", "recentActivity"] as const;
+type WidgetKey = typeof DASHBOARD_WIDGETS[number];
+
+const WIDGET_LABELS: Record<WidgetKey, string> = {
+  kpis: "KPI Cards",
+  charts: "Charts",
+  driverPresence: "Driver Presence",
+  recentActivity: "Recent Activity",
+};
+
+function loadWidgetPrefs(): Record<WidgetKey, boolean> {
+  try {
+    const raw = localStorage.getItem("ucm_dashboard_widgets");
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { kpis: true, charts: true, driverPresence: true, recentActivity: true };
+}
+
+function saveWidgetPrefs(prefs: Record<WidgetKey, boolean>) {
+  try { localStorage.setItem("ucm_dashboard_widgets", JSON.stringify(prefs)); } catch {}
+}
+
+function loadSelectedDays(): number {
+  try {
+    const raw = localStorage.getItem("ucm_dashboard_days");
+    if (raw) return parseInt(raw) || 14;
+  } catch {}
+  return 14;
+}
+
+function saveSelectedDays(days: number) {
+  try { localStorage.setItem("ucm_dashboard_days", String(days)); } catch {}
+}
 
 const TIME_RANGES = [
   { label: "Hoy", value: 1 },
@@ -62,8 +103,22 @@ export default function DashboardPage() {
   const { user, token, selectedCity, isSuperAdmin } = useAuth();
   const { t } = useTranslation();
   const [, navigate] = useLocation();
-  const [selectedDays, setSelectedDays] = useState(14);
+  const [selectedDays, setSelectedDays] = useState(loadSelectedDays);
+  const [widgetPrefs, setWidgetPrefs] = useState(loadWidgetPrefs);
   const queryClient = useQueryClient();
+
+  const handleDaysChange = (days: number) => {
+    setSelectedDays(days);
+    saveSelectedDays(days);
+  };
+
+  const toggleWidget = (key: WidgetKey) => {
+    setWidgetPrefs((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      saveWidgetPrefs(next);
+      return next;
+    });
+  };
 
   // Real-time WebSocket subscription for live dashboard updates
   const { isConnected } = useRealtimeTrips({
@@ -166,7 +221,7 @@ export default function DashboardPage() {
             {TIME_RANGES.map((range) => (
               <button
                 key={range.value}
-                onClick={() => setSelectedDays(range.value)}
+                onClick={() => handleDaysChange(range.value)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
                   selectedDays === range.value
                     ? "bg-primary text-primary-foreground shadow-sm"
@@ -178,6 +233,28 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-8 w-8" title="Dashboard settings" data-testid="button-dashboard-settings">
+                <Settings className="w-4 h-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56" align="end">
+              <p className="text-sm font-medium mb-2">Visible Widgets</p>
+              <div className="space-y-2">
+                {DASHBOARD_WIDGETS.map((key) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="text-sm">{WIDGET_LABELS[key]}</span>
+                    <Switch
+                      checked={widgetPrefs[key]}
+                      onCheckedChange={() => toggleWidget(key)}
+                      data-testid={`switch-widget-${key}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
           <Button
             size="sm"
             variant="outline"
@@ -221,7 +298,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {widgetPrefs.kpis && <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
           <>
             {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -289,10 +366,10 @@ export default function DashboardPage() {
             </div>
           </>
         )}
-      </div>
+      </div>}
 
       {/* Charts Row */}
-      {trends.length > 0 && (
+      {widgetPrefs.charts && trends.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
@@ -351,13 +428,13 @@ export default function DashboardPage() {
       )}
 
       {/* Driver Presence Panel */}
-      {user &&
+      {widgetPrefs.driverPresence && user &&
         ["SUPER_ADMIN", "ADMIN", "DISPATCH", "COMPANY_ADMIN"].includes(
           user.role
         ) && <DriverPresencePanel />}
 
       {/* Recent Activity & Trip Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {widgetPrefs.recentActivity && <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
             <div className="flex items-center gap-2">
@@ -386,7 +463,7 @@ export default function DashboardPage() {
             <TripStatusSummary />
           </CardContent>
         </Card>
-      </div>
+      </div>}
     </div>
   );
 }
