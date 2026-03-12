@@ -52,6 +52,7 @@
     "autoAssign": "Auto Assign",
     "schedule": "Schedule",
     "shiftSwaps": "Shift Swaps",
+    "pharmacyDeliveries": "Pharmacy Deliveries",
     "timecards": "Timecards",
     "tpPayroll": "Time & Pay Payroll",
     "payrollSettings": "Pay Rules",

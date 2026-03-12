@@ -230,33 +230,93 @@ export async function notifyPatientDeliveryUpdate(
 const PREFIX = "United Care Mobility:";
 const OPT_OUT = "\nReply STOP to opt out.";
 
+function trackingUrl(publicId: string): string {
+  const base = process.env.APP_URL || "https://app.unitedcaremobility.com";
+  return `${base}/track/${publicId}`;
+}
+
 function buildPatientSmsMessage(
   order: { publicId: string; recipientName: string; deliveryAddress: string },
   status: string,
+  options?: { etaMinutes?: number; driverName?: string },
 ): string {
+  const track = trackingUrl(order.publicId);
+  const etaText = options?.etaMinutes ? ` ETA: ~${options.etaMinutes} min.` : "";
+  const driverText = options?.driverName ? ` Driver: ${options.driverName}.` : "";
+
   switch (status) {
     case "CONFIRMED":
-      return `${PREFIX} Your pharmacy delivery (${order.publicId}) has been confirmed and is being prepared.${OPT_OUT}`;
-
+      return `${PREFIX} Hi ${order.recipientName}, your pharmacy delivery (${order.publicId}) has been confirmed and is being prepared. Track: ${track}${OPT_OUT}`;
     case "READY_FOR_PICKUP":
-      return `${PREFIX} Your medication order (${order.publicId}) is ready and a driver will be assigned shortly.${OPT_OUT}`;
-
+      return `${PREFIX} Your medication order (${order.publicId}) is ready and a driver will be assigned shortly. Track: ${track}${OPT_OUT}`;
     case "DRIVER_ASSIGNED":
-      return `${PREFIX} A driver has been assigned to deliver your medication (${order.publicId}).${OPT_OUT}`;
-
+      return `${PREFIX} A driver has been assigned to deliver your medication (${order.publicId}).${driverText} Track: ${track}${OPT_OUT}`;
+    case "EN_ROUTE_PICKUP":
+      return `${PREFIX} Your driver is heading to the pharmacy to pick up your medication (${order.publicId}).${driverText}${etaText} Track: ${track}${OPT_OUT}`;
+    case "PICKED_UP":
+      return `${PREFIX} Your medication (${order.publicId}) has been picked up from the pharmacy and will be delivered soon.${etaText} Track: ${track}${OPT_OUT}`;
     case "EN_ROUTE_DELIVERY":
-      return `${PREFIX} Your medication (${order.publicId}) is on the way to ${order.deliveryAddress}.${OPT_OUT}`;
-
+      return `${PREFIX} Your medication (${order.publicId}) is on the way!${etaText}${driverText} Track: ${track}${OPT_OUT}`;
+    case "ARRIVING_SOON":
+      return `${PREFIX} Your medication (${order.publicId}) is arriving in ~${options?.etaMinutes || 5} minutes! Please be ready.${driverText} Track: ${track}${OPT_OUT}`;
     case "DELIVERED":
-      return `${PREFIX} Your medication (${order.publicId}) has been delivered. Thank you!${OPT_OUT}`;
-
+      return `${PREFIX} Your medication (${order.publicId}) has been delivered to ${order.deliveryAddress}. Thank you!${OPT_OUT}`;
     case "FAILED":
       return `${PREFIX} We were unable to complete delivery of your medication (${order.publicId}). Please contact your pharmacy for assistance.${OPT_OUT}`;
-
     case "CANCELLED":
       return `${PREFIX} Your medication delivery (${order.publicId}) has been cancelled. Contact your pharmacy for more information.${OPT_OUT}`;
-
     default:
-      return `${PREFIX} Update on your pharmacy delivery (${order.publicId}): ${statusLabel(status)}.${OPT_OUT}`;
+      return `${PREFIX} Update on your pharmacy delivery (${order.publicId}): ${statusLabel(status)}. Track: ${track}${OPT_OUT}`;
   }
+}
+
+// ─── Enhanced Patient Notification with ETA and Driver Info ───────────────────
+
+export async function notifyPatientDeliveryUpdateEnhanced(
+  orderId: number,
+  status: string,
+  options?: { etaMinutes?: number },
+): Promise<{ smsSent: boolean }> {
+  try {
+    const [order] = await db.select().from(pharmacyOrders).where(eq(pharmacyOrders.id, orderId)).limit(1);
+    if (!order) return { smsSent: false };
+
+    let phone = order.recipientPhone;
+    if (!phone && order.patientId) {
+      const [patient] = await db.select({ phone: patients.phone }).from(patients).where(eq(patients.id, order.patientId)).limit(1);
+      phone = patient?.phone || null;
+    }
+    if (!phone) return { smsSent: false };
+
+    let driverName: string | undefined;
+    if (order.driverId) {
+      const [driver] = await db.select({ firstName: drivers.firstName, lastName: drivers.lastName }).from(drivers).where(eq(drivers.id, order.driverId)).limit(1);
+      if (driver) driverName = `${driver.firstName} ${driver.lastName?.charAt(0) || ""}.`;
+    }
+
+    const message = buildPatientSmsMessage(order, status, { etaMinutes: options?.etaMinutes, driverName });
+    const result = await sendSms(phone, message);
+
+    if (result.success) {
+      await db.insert(pharmacyOrderEvents).values({
+        orderId, eventType: "PATIENT_SMS_SENT",
+        description: `SMS sent to patient: ${statusLabel(status)}${options?.etaMinutes ? ` (ETA: ${options.etaMinutes}min)` : ""}`,
+        metadata: { status, phoneLast4: phone.slice(-4), sid: result.sid, etaMinutes: options?.etaMinutes, driverName },
+      });
+    }
+
+    return { smsSent: result.success };
+  } catch (err: any) {
+    console.error(`[PharmacyPatientSms] Enhanced notify failed for order ${orderId}: ${err.message}`);
+    return { smsSent: false };
+  }
+}
+
+// ─── Arriving Soon Notification ──────────────────────────────────────────────
+
+export async function notifyPatientArrivingSoon(
+  orderId: number,
+  etaMinutes: number,
+): Promise<{ smsSent: boolean }> {
+  return notifyPatientDeliveryUpdateEnhanced(orderId, "ARRIVING_SOON", { etaMinutes });
 }

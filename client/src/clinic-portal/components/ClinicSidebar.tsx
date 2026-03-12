@@ -9,6 +9,9 @@ import {
   LogOut,
   Activity,
   ClipboardList,
+  Users,
+  Brain,
+  UserCog,
 } from "lucide-react";
 
 interface ClinicSidebarProps {
@@ -21,8 +24,11 @@ const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
   { path: "/requests", label: "Trip Requests", icon: ClipboardList, testId: "nav-requests" },
   { path: "/trips", label: "Trips", icon: Car, testId: "nav-trips" },
+  { path: "/patients", label: "Patients", icon: Users, testId: "nav-patients" },
   { path: "/live", label: "Live View", icon: MapPin, testId: "nav-live" },
+  { path: "/scheduling", label: "AI Scheduling", icon: Brain, testId: "nav-scheduling" },
   { path: "/billing", label: "Billing", icon: CreditCard, testId: "nav-billing" },
+  { path: "/users", label: "User Management", icon: UserCog, testId: "nav-users" },
   { path: "/profile", label: "Profile", icon: User, testId: "nav-profile" },
 ];
 

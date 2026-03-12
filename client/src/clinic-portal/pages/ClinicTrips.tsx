@@ -64,6 +64,7 @@ interface TripDrawerProps {
 }
 
 function TripDrawer({ trip, onClose }: TripDrawerProps) {
+  const patient = trip.patient;
   const progressSteps = [
     { key: "created", label: "Created", time: trip.createdAt },
     { key: "approved", label: "Approved", time: trip.approvedAt },
@@ -98,8 +99,9 @@ function TripDrawer({ trip, onClose }: TripDrawerProps) {
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
-          <div className="flex items-center gap-3">
+        <div className="p-6 space-y-5">
+          {/* Status + Schedule + ETA */}
+          <div className="flex items-center gap-3 flex-wrap">
             <span className={`px-3 py-1.5 rounded-full text-xs font-medium border ${statusColor(trip.status)}`} data-testid="drawer-status">
               {(trip.status || "").replace(/_/g, " ")}
             </span>
@@ -109,8 +111,110 @@ function TripDrawer({ trip, onClose }: TripDrawerProps) {
                 {trip.scheduledDate} {trip.pickupTime || ""}
               </span>
             )}
+            {trip.lastEtaMinutes && (
+              <span className="text-xs text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-1 rounded-full">
+                <Clock className="w-3 h-3" />
+                ETA: {trip.lastEtaMinutes} min
+              </span>
+            )}
+            {trip.mobilityRequirement && trip.mobilityRequirement !== "STANDARD" && (
+              <span className="text-[10px] px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full">
+                {trip.mobilityRequirement}
+              </span>
+            )}
           </div>
 
+          {/* Patient Card - Enhanced */}
+          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="drawer-patient-full">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                <User className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">{trip.patientName || "Unknown Patient"}</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider">Patient Information</p>
+              </div>
+              {trip.wheelchairRequired && (
+                <span className="ml-auto text-[10px] px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full flex items-center gap-1">
+                  ♿ Wheelchair
+                </span>
+              )}
+              {patient?.isFrequent && (
+                <span className="text-[10px] px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">
+                  ⭐ Frequent
+                </span>
+              )}
+            </div>
+
+            {patient ? (
+              <div className="grid grid-cols-2 gap-3">
+                {patient.phone && (
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-3.5 h-3.5 text-gray-500" />
+                    <div>
+                      <p className="text-[10px] text-gray-500">Phone</p>
+                      <a href={`tel:${patient.phone}`} className="text-xs text-emerald-400 hover:underline">{patient.phone}</a>
+                    </div>
+                  </div>
+                )}
+                {patient.email && (
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-3.5 h-3.5 text-gray-500" />
+                    <div>
+                      <p className="text-[10px] text-gray-500">Email</p>
+                      <p className="text-xs text-gray-300 truncate">{patient.email}</p>
+                    </div>
+                  </div>
+                )}
+                {patient.dateOfBirth && (
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                    <div>
+                      <p className="text-[10px] text-gray-500">Date of Birth</p>
+                      <p className="text-xs text-gray-300">{patient.dateOfBirth}</p>
+                    </div>
+                  </div>
+                )}
+                {patient.insuranceId && (
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-gray-500" />
+                    <div>
+                      <p className="text-[10px] text-gray-500">Insurance ID</p>
+                      <p className="text-xs text-gray-300">{patient.insuranceId}</p>
+                    </div>
+                  </div>
+                )}
+                {patient.medicaidId && (
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-gray-500" />
+                    <div>
+                      <p className="text-[10px] text-gray-500">Medicaid</p>
+                      <p className="text-xs text-gray-300">{patient.medicaidId} {patient.medicaidState ? `(${patient.medicaidState})` : ""}</p>
+                    </div>
+                  </div>
+                )}
+                {patient.address && (
+                  <div className="col-span-2 flex items-start gap-2">
+                    <MapPin className="w-3.5 h-3.5 text-gray-500 mt-0.5" />
+                    <div>
+                      <p className="text-[10px] text-gray-500">Home Address</p>
+                      <p className="text-xs text-gray-300">{patient.address}</p>
+                    </div>
+                  </div>
+                )}
+                {patient.notes && (
+                  <div className="col-span-2 bg-amber-500/5 border border-amber-500/10 rounded-lg p-2 mt-1">
+                    <p className="text-[10px] text-amber-400 font-medium">Patient Notes</p>
+                    <p className="text-xs text-gray-300 mt-0.5">{patient.notes}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500 italic">No detailed patient information available</p>
+            )}
+          </div>
+
+          {/* Route Card */}
           <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 space-y-4" data-testid="drawer-locations">
             <div className="flex gap-3">
               <div className="flex flex-col items-center">
@@ -129,42 +233,65 @@ function TripDrawer({ trip, onClose }: TripDrawerProps) {
                 </div>
               </div>
             </div>
+            {(trip.distanceMiles || trip.totalDurationMinutes) && (
+              <div className="flex gap-4 text-xs text-gray-500 border-t border-[#1e293b] pt-3">
+                {trip.distanceMiles && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="w-3 h-3" /> {trip.distanceMiles} mi
+                  </span>
+                )}
+                {trip.totalDurationMinutes && (
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> {trip.totalDurationMinutes} min
+                  </span>
+                )}
+                {trip.waitTimeMinutes != null && (
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> Wait: {trip.waitTimeMinutes} min
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
+          {/* Driver & Vehicle */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="drawer-patient">
-              <div className="flex items-center gap-2 mb-2">
-                <User className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs text-gray-500 uppercase">Patient</span>
-              </div>
-              <p className="text-sm text-white font-medium">{trip.patientName || "Not assigned"}</p>
-            </div>
             <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="drawer-driver">
               <div className="flex items-center gap-2 mb-2">
                 <Car className="w-4 h-4 text-cyan-400" />
                 <span className="text-xs text-gray-500 uppercase">Driver</span>
               </div>
               <p className="text-sm text-white font-medium">
-                {trip.driverName || <span className="text-amber-400">Driver not assigned</span>}
+                {trip.driverName || <span className="text-amber-400">Not assigned</span>}
               </p>
               {trip.driverPhone && (
-                <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                <a href={`tel:${trip.driverPhone}`} className="text-xs text-emerald-400 hover:underline flex items-center gap-1 mt-1">
                   <Phone className="w-3 h-3" /> {trip.driverPhone}
-                </p>
+                </a>
               )}
             </div>
-          </div>
-
-          {(trip.vehicleLabel || trip.vehicleMake) && (
             <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="drawer-vehicle">
               <div className="flex items-center gap-2 mb-2">
                 <Truck className="w-4 h-4 text-purple-400" />
                 <span className="text-xs text-gray-500 uppercase">Vehicle</span>
               </div>
-              <p className="text-sm text-white font-medium">{trip.vehicleLabel || `${trip.vehicleMake || ""} ${trip.vehicleModel || ""}`.trim() || "Not assigned"}</p>
+              <p className="text-sm text-white font-medium">
+                {trip.vehicleLabel || `${trip.vehicleMake || ""} ${trip.vehicleModel || ""}`.trim() || "Not assigned"}
+              </p>
+              {trip.vehicleColor && (
+                <p className="text-xs text-gray-500 mt-0.5">{trip.vehicleColor}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Map Snapshot */}
+          {trip.routeImageUrl && (
+            <div className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden">
+              <img src={trip.routeImageUrl} alt="Route map" className="w-full h-40 object-cover" />
             </div>
           )}
 
+          {/* Timeline */}
           <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4" data-testid="drawer-timeline">
             <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-4">Timeline</h3>
             <div className="space-y-0">

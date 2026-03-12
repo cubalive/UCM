@@ -37,6 +37,7 @@ const ALL_PAGES: PageEntry[] = [
   { title: "Assignments", url: "/assignments", icon: Calendar, group: "Fleet", keywords: "assignments driver vehicle" },
   { title: "Schedule", url: "/schedule", icon: Calendar, group: "Fleet", keywords: "schedule shift" },
   { title: "Shift Swaps", url: "/dispatch-swaps", icon: ArrowLeftRight, group: "Fleet", keywords: "shift swap exchange" },
+  { title: "Pharmacy Deliveries", url: "/pharmacy-deliveries", icon: Pill, group: "Fleet", keywords: "pharmacy delivery medication rx" },
   { title: "Dead Mile Tracking", url: "/dead-mile", icon: TrendingDown, group: "Fleet", keywords: "dead mile empty" },
   { title: "Inter-City Transfers", url: "/inter-city", icon: ArrowLeftRight, group: "Fleet", keywords: "inter city transfer" },
   // Automation
