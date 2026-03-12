@@ -8,11 +8,8 @@ RUN npm ci --omit=dev
 
 # ── Build client (Vite) + server (esbuild) ──
 FROM base AS build
-WORKDIR /tmp/deps
 COPY package.json package-lock.json ./
 RUN npm ci
-WORKDIR /app
-RUN cp -a /tmp/deps/node_modules ./node_modules
 COPY tsconfig.json vite.config.ts tailwind.config.ts postcss.config.js components.json ./
 COPY script/ ./script/
 COPY server/ ./server/
