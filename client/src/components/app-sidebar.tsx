@@ -92,6 +92,7 @@ import {
   Bell,
   Pill,
   Package,
+  Crosshair,
 } from "lucide-react";
 
 interface NavItem {
@@ -116,6 +117,7 @@ const operationGroups: NavGroup[] = [
     defaultOpen: true,
     items: [
       { titleKey: "nav.dashboard", url: "/", icon: LayoutDashboard, resource: "dashboard" },
+      { titleKey: "nav.commandCenter", url: "/command-center", icon: Crosshair, resource: "dispatch" },
       { titleKey: "nav.dispatch", url: "/dispatch", icon: Radio, resource: "dispatch" },
       { titleKey: "nav.dispatchBoard", url: "/dispatch-board", icon: ClipboardCheck, resource: "dispatch" },
       { titleKey: "nav.tripRequestsQueue", url: "/trip-requests-queue", icon: ClipboardCheck, resource: "dispatch" },

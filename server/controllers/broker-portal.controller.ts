@@ -12,6 +12,8 @@ import {
   brokerRateCards,
   brokerPerformanceMetrics,
   companies,
+  trips,
+  patients,
 } from "@shared/schema";
 import { eq, and, desc, sql, count, sum, avg, inArray, gte, lte } from "drizzle-orm";
 import { getBrokerScopeId } from "../middleware/requireBrokerScope";
@@ -500,11 +502,146 @@ export async function brokerAwardBidHandler(req: AuthRequest, res: Response) {
       performedBy: req.user?.userId,
     });
 
-    res.json({ success: true, message: "Bid awarded successfully" });
+    // ── Create trip from awarded broker request ──────────────────────────
+    let createdTripId: number | null = null;
+    try {
+      createdTripId = await createTripFromBrokerRequest(request, bid.companyId);
+      // Link the created trip back to the broker request
+      await db.update(brokerTripRequests)
+        .set({ tripId: createdTripId, updatedAt: new Date() })
+        .where(eq(brokerTripRequests.id, request.id));
+    } catch (tripErr: any) {
+      console.error("[BrokerAwardBid] Trip creation failed:", tripErr.message);
+      // Award still stands — trip can be created manually
+    }
+
+    res.json({ success: true, message: "Bid awarded successfully", tripId: createdTripId });
   } catch (err: any) {
     console.error("[BrokerAwardBid]", err);
     res.status(500).json({ message: "Failed to award bid" });
   }
+}
+
+/**
+ * Creates a trip record from a broker trip request after award.
+ * Finds or creates a patient, then inserts the trip as SCHEDULED.
+ */
+async function createTripFromBrokerRequest(
+  request: any,
+  awardedCompanyId: number,
+): Promise<number> {
+  const { generatePublicId } = await import("../public-id");
+
+  // Parse member name into first/last
+  const nameParts = (request.memberName || "Broker Patient").trim().split(/\s+/);
+  const firstName = nameParts[0] || "Broker";
+  const lastName = nameParts.slice(1).join(" ") || "Patient";
+
+  // Determine cityId — use request's cityId or fall back to company default
+  let cityId = request.cityId;
+  if (!cityId) {
+    const [company] = await db.select().from(companies).where(eq(companies.id, awardedCompanyId)).limit(1);
+    cityId = (company as any)?.defaultCityId || 1;
+  }
+
+  // Find existing patient by memberId + company, or create new
+  let patientId: number;
+  if (request.memberId) {
+    const existing = await db
+      .select({ id: patients.id })
+      .from(patients)
+      .where(
+        and(
+          eq(patients.companyId, awardedCompanyId),
+          eq(patients.insuranceId, request.memberId),
+        ),
+      )
+      .limit(1);
+
+    if (existing.length > 0) {
+      patientId = existing[0].id;
+    } else {
+      patientId = await createBrokerPatient(
+        firstName, lastName, request, awardedCompanyId, cityId,
+      );
+    }
+  } else {
+    patientId = await createBrokerPatient(
+      firstName, lastName, request, awardedCompanyId, cityId,
+    );
+  }
+
+  // Create the trip
+  const tripPublicId = await generatePublicId();
+  const [newTrip] = await db
+    .insert(trips)
+    .values({
+      publicId: tripPublicId,
+      cityId,
+      patientId,
+      companyId: awardedCompanyId,
+      pickupAddress: request.pickupAddress,
+      pickupLat: request.pickupLat,
+      pickupLng: request.pickupLng,
+      dropoffAddress: request.dropoffAddress,
+      dropoffLat: request.dropoffLat,
+      dropoffLng: request.dropoffLng,
+      scheduledDate: request.requestedDate,
+      pickupTime: request.requestedPickupTime,
+      estimatedArrivalTime: "TBD",
+      status: "SCHEDULED",
+      requestSource: "broker",
+      mobilityRequirement: request.wheelchairRequired
+        ? "WHEELCHAIR"
+        : request.stretcherRequired
+          ? "STRETCHER"
+          : "STANDARD",
+      notes: [
+        request.specialNeeds,
+        request.pickupNotes ? `Pickup: ${request.pickupNotes}` : null,
+        request.dropoffNotes ? `Dropoff: ${request.dropoffNotes}` : null,
+        `Broker request #${request.publicId}`,
+      ]
+        .filter(Boolean)
+        .join(" | "),
+    })
+    .returning({ id: trips.id });
+
+  console.log(
+    `[BrokerAwardBid] Created trip ${tripPublicId} (id=${newTrip.id}) from broker request ${request.publicId}`,
+  );
+
+  return newTrip.id;
+}
+
+async function createBrokerPatient(
+  firstName: string,
+  lastName: string,
+  request: any,
+  companyId: number,
+  cityId: number,
+): Promise<number> {
+  const { generatePublicId } = await import("../public-id");
+  const patientPublicId = await generatePublicId();
+
+  const [newPatient] = await db
+    .insert(patients)
+    .values({
+      publicId: patientPublicId,
+      cityId,
+      companyId,
+      firstName,
+      lastName,
+      phone: request.memberPhone || null,
+      dateOfBirth: request.memberDob || null,
+      insuranceId: request.memberId || null,
+      address: request.pickupAddress,
+      wheelchairRequired: request.wheelchairRequired || false,
+      source: "broker",
+    })
+    .returning({ id: patients.id });
+
+  return newPatient.id;
 }
 
 export async function brokerAutoAwardHandler(req: AuthRequest, res: Response) {

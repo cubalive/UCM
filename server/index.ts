@@ -12,6 +12,7 @@ import { tenantGuard } from "./lib/tenantGuard";
 import { phiAuditMiddleware } from "./middleware/phiAudit";
 import { inputSanitizer } from "./middleware/inputSanitizer";
 import { apiRateLimiter } from "./middleware/rateLimiter";
+import { structuredLoggerMiddleware } from "./middleware/structuredLogger";
 
 const app = express();
 const httpServer = createServer(app);
@@ -196,6 +197,10 @@ app.use("/api", apiRateLimiter);
 app.use(tenantGuard);
 app.use(phiAuditMiddleware);
 
+// Structured request logger — logs every API request in structured JSON with PII masking.
+// Placed after auth/tenant middleware so user info is available.
+app.use(structuredLoggerMiddleware);
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -203,20 +208,6 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      const auth = (req as any).user;
-      const entry: Record<string, unknown> = {
-        requestId: req.requestId,
-        method: req.method,
-        route: path,
-        status: res.statusCode,
-        ms: duration,
-      };
-      if (auth?.userId) entry.userId = auth.userId;
-      if (auth?.role) entry.role = auth.role;
-      if (auth?.companyId) entry.companyId = auth.companyId;
-
-      console.log(JSON.stringify(entry));
-
       recordReqMetric(req.method, path, res.statusCode, duration);
     }
   });
@@ -966,6 +957,19 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     console.error("Seed error:", err);
   }
 
+  // Initialize domain events table and start periodic DB flush
+  try {
+    const { ensureDomainEventsTable, startFlushTimer } = await import("./lib/domainEvents");
+    await ensureDomainEventsTable();
+    startFlushTimer();
+  } catch (err: any) {
+    console.warn(JSON.stringify({
+      event: "domain_events_init_error",
+      error: err.message?.slice(0, 300),
+      ts: new Date().toISOString(),
+    }));
+  }
+
   await registerRoutes(httpServer, app);
 
   const { initWebSocket } = await import("./lib/realtime");
@@ -1094,6 +1098,13 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
         wss.close();
         console.log(JSON.stringify({ event: "websocket_closed", ts: new Date().toISOString() }));
       }
+    } catch {}
+
+    // Flush pending domain events before closing DB
+    try {
+      const { stopFlushTimer } = await import("./lib/domainEvents");
+      await stopFlushTimer();
+      console.log(JSON.stringify({ event: "domain_events_flushed", ts: new Date().toISOString() }));
     } catch {}
 
     httpServer.close(() => {
