@@ -20,6 +20,7 @@ const WS_MAX_CONNECTIONS = parseInt(process.env.WS_MAX_CONNECTIONS || "1000", 10
 const WS_MAX_PAYLOAD_BYTES = 4096;
 
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let zombieSweepTimer: ReturnType<typeof setInterval> | null = null;
 
 function verifyJwt(token: string): { userId: number; role: string; companyId?: number | null } | null {
   try {
@@ -41,6 +42,78 @@ function checkRateLimit(ws: WebSocket): boolean {
   }
   meta._msgTimestamps.push(now);
   return true;
+}
+
+/**
+ * Clean up all subscriptions for a given WebSocket.
+ * Called on close events and by the periodic zombie sweep.
+ */
+function cleanupWebSocket(ws: WebSocket): void {
+  const meta = ws as any;
+
+  // Remove from trip subscriptions
+  const subscribedTrips = meta._subscribedTrips as Set<number> | undefined;
+  if (subscribedTrips) {
+    for (const tripId of subscribedTrips) {
+      const subs = tripSubscriptions.get(tripId);
+      if (subs) {
+        subs.delete(ws);
+        if (subs.size === 0) tripSubscriptions.delete(tripId);
+      }
+    }
+    subscribedTrips.clear();
+  }
+
+  // Remove from driver subscriptions
+  if (meta._subscribedDriverId) {
+    const driverId = meta._subscribedDriverId;
+    const subs = driverSubscriptions.get(driverId);
+    if (subs) {
+      subs.delete(ws);
+      if (subs.size === 0) driverSubscriptions.delete(driverId);
+    }
+    meta._subscribedDriverId = null;
+  }
+
+  // Clean up channel subscriptions (company/clinic channels)
+  try {
+    const { cleanupChannelSubscriptions } = require("./tripTransitionHelper");
+    cleanupChannelSubscriptions(ws);
+  } catch (err) {
+    console.error("[REALTIME] Failed to cleanup channel subscriptions:", err);
+  }
+}
+
+/**
+ * Periodic sweep that removes zombie WebSockets (not in OPEN state)
+ * from all subscription maps. Runs every 60 seconds.
+ */
+function sweepZombieSubscriptions(): void {
+  let removed = 0;
+
+  for (const [tripId, subs] of tripSubscriptions) {
+    for (const ws of subs) {
+      if (ws.readyState !== WebSocket.OPEN) {
+        subs.delete(ws);
+        removed++;
+      }
+    }
+    if (subs.size === 0) tripSubscriptions.delete(tripId);
+  }
+
+  for (const [driverId, subs] of driverSubscriptions) {
+    for (const ws of subs) {
+      if (ws.readyState !== WebSocket.OPEN) {
+        subs.delete(ws);
+        removed++;
+      }
+    }
+    if (subs.size === 0) driverSubscriptions.delete(driverId);
+  }
+
+  if (removed > 0) {
+    console.log(`[WS] Zombie sweep: removed ${removed} stale subscription(s)`);
+  }
 }
 
 export function initWebSocket(httpServer: Server): WebSocketServer {
@@ -111,21 +184,7 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
     });
 
     ws.on("close", () => {
-      const subscribed = meta._subscribedTrips as Set<number> | undefined;
-      if (subscribed) {
-        for (const tripId of subscribed) {
-          unsubscribeFromTrip(ws, tripId);
-        }
-      }
-      if (meta._subscribedDriverId) {
-        unsubscribeFromDriver(ws, meta._subscribedDriverId);
-      }
-      try {
-        const { cleanupChannelSubscriptions } = require("./tripTransitionHelper");
-        cleanupChannelSubscriptions(ws);
-      } catch (err) {
-        console.error("[REALTIME] Failed to cleanup channel subscriptions:", err);
-      }
+      cleanupWebSocket(ws);
     });
 
     ws.send(JSON.stringify({ type: "connected", ts: Date.now() }));
@@ -144,7 +203,10 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
     });
   }, WS_HEARTBEAT_INTERVAL_MS);
 
-  console.log("[WS] WebSocket server initialized on /ws (rate-limit: 60 msg/min, heartbeat: 30s)");
+  // Periodic zombie sweep: remove stale WebSockets from subscription maps every 60s
+  zombieSweepTimer = setInterval(sweepZombieSubscriptions, 60_000);
+
+  console.log("[WS] WebSocket server initialized on /ws (rate-limit: 60 msg/min, heartbeat: 30s, zombie-sweep: 60s)");
   return wss;
 }
 

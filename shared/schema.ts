@@ -1769,6 +1769,7 @@ export const jobs = pgTable("jobs", {
   result: jsonb("result"),
   lastError: text("last_error"),
   lockedUntil: timestamp("locked_until"),
+  idempotencyKey: text("idempotency_key"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [

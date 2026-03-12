@@ -32,21 +32,42 @@ export async function enqueueJob(
   const jobId = `job_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
   const { companyId = null, priority = 0, maxAttempts = 3 } = opts;
 
+  // Fast path: check Redis cache for idempotency (distributed, but not race-proof alone)
   if (opts.idempotencyKey) {
     const existing = await getJson<string>(`idempo:job:${opts.idempotencyKey}`);
     if (existing) return existing;
   }
 
-  await db.insert(jobs).values({
-    id: jobId,
-    companyId,
-    type,
-    status: "queued",
-    attempts: 0,
-    maxAttempts,
-    priority,
-    payload,
-  });
+  try {
+    await db.insert(jobs).values({
+      id: jobId,
+      companyId,
+      type,
+      status: "queued",
+      attempts: 0,
+      maxAttempts,
+      priority,
+      payload,
+      idempotencyKey: opts.idempotencyKey ?? null,
+    });
+  } catch (err: any) {
+    // If the insert fails due to a duplicate idempotency_key (unique constraint violation),
+    // another process already inserted the job between our Redis check and insert (TOCTOU).
+    // Return the existing job ID instead of throwing.
+    if (opts.idempotencyKey && (err.code === "23505" || err.message?.includes("duplicate") || err.message?.includes("unique"))) {
+      const existing = await db
+        .select({ id: jobs.id })
+        .from(jobs)
+        .where(eq(jobs.idempotencyKey, opts.idempotencyKey))
+        .limit(1);
+      if (existing.length > 0) {
+        // Also populate Redis cache so future checks hit the fast path
+        await setJson(`idempo:job:${opts.idempotencyKey}`, existing[0].id, 86400);
+        return existing[0].id;
+      }
+    }
+    throw err;
+  }
 
   const redisKey = companyId
     ? `company:${companyId}:queue:${type}`

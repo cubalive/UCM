@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,11 +34,13 @@ import {
   BarChart3,
   RefreshCw,
   Download,
+  Wifi,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { authHeaders } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { useTranslation } from "react-i18next";
+import { useRealtimeTrips } from "@/hooks/use-realtime-trips";
 
 const TIME_RANGES = [
   { label: "Hoy", value: 1 },
@@ -48,11 +50,33 @@ const TIME_RANGES = [
   { label: "90 Dias", value: 90 },
 ] as const;
 
+const DASHBOARD_QUERY_KEYS = [
+  "/api/stats",
+  "/api/analytics/trends",
+  "/api/stats/trip-status",
+  "/api/dashboard/driver-stats",
+  "/api/trips/recent",
+];
+
 export default function DashboardPage() {
   const { user, token, selectedCity, isSuperAdmin } = useAuth();
   const { t } = useTranslation();
   const [, navigate] = useLocation();
   const [selectedDays, setSelectedDays] = useState(14);
+  const queryClient = useQueryClient();
+
+  // Real-time WebSocket subscription for live dashboard updates
+  const { isConnected } = useRealtimeTrips({
+    companyId: user?.companyId,
+    invalidateKeys: ["/api/stats", "/api/analytics/trends", "/api/stats/trip-status", "/api/dashboard/driver-stats"],
+    enabled: !!token && !!user?.companyId,
+  });
+
+  const handleRefreshAll = useCallback(() => {
+    for (const key of DASHBOARD_QUERY_KEYS) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  }, [queryClient]);
 
   const cityParam = selectedCity ? `?cityId=${selectedCity.id}` : "";
 
@@ -99,16 +123,42 @@ export default function DashboardPage() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1
-            className="text-2xl font-semibold tracking-tight"
-            data-testid="text-dashboard-title"
+        <div className="flex items-center gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1
+                className="text-2xl font-semibold tracking-tight"
+                data-testid="text-dashboard-title"
+              >
+                {t("dashboard.title")}
+              </h1>
+              <Badge
+                variant={isConnected ? "default" : "secondary"}
+                className={`text-[10px] px-1.5 py-0 h-5 ${
+                  isConnected
+                    ? "bg-emerald-600 hover:bg-emerald-600"
+                    : "text-muted-foreground"
+                }`}
+                data-testid="badge-live-indicator"
+              >
+                <Wifi className="w-3 h-3 mr-0.5" />
+                {isConnected ? "Live" : "Offline"}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              {t("dashboard.welcomeBack", { name: user?.firstName })}
+            </p>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={handleRefreshAll}
+            className="h-8 w-8"
+            title="Refresh all dashboard data"
+            data-testid="button-refresh-dashboard"
           >
-            {t("dashboard.title")}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t("dashboard.welcomeBack", { name: user?.firstName })}
-          </p>
+            <RefreshCw className="w-4 h-4" />
+          </Button>
         </div>
         <div className="flex items-center gap-2">
           {/* Time Range Selector */}
@@ -444,7 +494,7 @@ function DriverPresencePanel() {
         token
       ),
     enabled: !!token,
-    refetchInterval: 15000,
+    refetchInterval: 30000,
   });
 
   const buckets = [
@@ -713,6 +763,7 @@ function TripStatusSummary() {
       return res.json();
     },
     enabled: !!token,
+    refetchInterval: 60000,
   });
 
   const statuses = [

@@ -3,9 +3,9 @@ import { authMiddleware, type AuthRequest } from "../auth";
 import { checkRateLimit } from "../lib/rateLimiter";
 import { loginHandler, loginJwtHandler, devSessionHandler, authMeHandler, meHandler, changePasswordHandler, setWorkingCityHandler, authHealthHandler, forgotPasswordHandler, tokenLoginHandler, deleteAccountHandler } from "../controllers/auth.controller";
 
-function loginRateLimit(req: Request, res: Response, next: NextFunction) {
+async function loginRateLimit(req: Request, res: Response, next: NextFunction) {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
-  const { allowed, retryAfterMs } = checkRateLimit(`login:${ip}`, 10, 300);
+  const { allowed, retryAfterMs } = await checkRateLimit(`login:${ip}`, 10, 300);
   if (!allowed) {
     return res.status(429).json({
       message: "Too many login attempts. Please try again later.",

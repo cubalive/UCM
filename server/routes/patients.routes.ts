@@ -12,8 +12,7 @@ import {
 
 const router = express.Router();
 
-// PHI audit logging applied to all patient routes (HIPAA §164.312(b))
-router.use(authMiddleware, phiAuditDbMiddleware as any);
+// PHI audit is handled globally by phiAuditMiddleware in index.ts
 
 router.get("/api/patients", authMiddleware, requirePermission("patients", "read"), requireTenantScope, requireCityAccess, getPatientsHandler as any);
 router.get("/api/patients/clinic-groups", authMiddleware, requirePermission("patients", "read"), requireTenantScope, getPatientClinicGroupsHandler as any);

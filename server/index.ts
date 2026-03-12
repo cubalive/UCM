@@ -775,6 +775,10 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS audit_log_entity_idx ON audit_log(entity, entity_id)`);
     await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS audit_log_company_created_idx ON audit_log(company_id, created_at)`);
 
+    // Add idempotency_key column to jobs table with unique index for TOCTOU protection
+    await bootDb.execute(bootSql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS idempotency_key TEXT`);
+    await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS jobs_idempotency_key_unique_idx ON jobs(idempotency_key) WHERE idempotency_key IS NOT NULL`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);

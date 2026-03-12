@@ -16,8 +16,8 @@ function getRateLimitKey(req: Request): string {
   return `maps:${ip}`;
 }
 
-function rateLimitMiddleware(req: Request, res: Response): boolean {
-  const { allowed, remaining, retryAfterMs } = checkRateLimit(getRateLimitKey(req), 60, 60);
+async function rateLimitMiddleware(req: Request, res: Response): Promise<boolean> {
+  const { allowed, remaining, retryAfterMs } = await checkRateLimit(getRateLimitKey(req), 60, 60);
   res.setHeader("X-RateLimit-Remaining", remaining);
   if (!allowed) {
     res.status(429).json({
@@ -85,7 +85,7 @@ export function registerMapsRoutes(app: Express): void {
   });
 
   app.post("/api/maps/geocode", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "COMPANY_ADMIN", "SUPER_ADMIN"), async (req: Request, res: Response) => {
-    if (!rateLimitMiddleware(req, res)) return;
+    if (!(await rateLimitMiddleware(req, res))) return;
 
     const parsed = geocodeSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -101,7 +101,7 @@ export function registerMapsRoutes(app: Express): void {
   });
 
   app.post("/api/maps/places/autocomplete", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "COMPANY_ADMIN", "SUPER_ADMIN"), async (req: Request, res: Response) => {
-    if (!rateLimitMiddleware(req, res)) return;
+    if (!(await rateLimitMiddleware(req, res))) return;
 
     const parsed = autocompleteSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -117,7 +117,7 @@ export function registerMapsRoutes(app: Express): void {
   });
 
   app.post("/api/maps/places/details", authMiddleware, requireRole("ADMIN", "DISPATCH", "VIEWER", "CLINIC_USER", "CLINIC_ADMIN", "CLINIC_VIEWER", "COMPANY_ADMIN", "SUPER_ADMIN"), async (req: Request, res: Response) => {
-    if (!rateLimitMiddleware(req, res)) return;
+    if (!(await rateLimitMiddleware(req, res))) return;
 
     const parsed = placeDetailsSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -133,7 +133,7 @@ export function registerMapsRoutes(app: Express): void {
   });
 
   app.post("/api/maps/eta", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
-    if (!rateLimitMiddleware(req, res)) return;
+    if (!(await rateLimitMiddleware(req, res))) return;
 
     const parsed = etaSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -149,7 +149,7 @@ export function registerMapsRoutes(app: Express): void {
   });
 
   app.post("/api/maps/route", authMiddleware, requireRole("ADMIN", "DISPATCH"), async (req: Request, res: Response) => {
-    if (!rateLimitMiddleware(req, res)) return;
+    if (!(await rateLimitMiddleware(req, res))) return;
 
     const parsed = routeSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -169,7 +169,7 @@ export function registerMapsRoutes(app: Express): void {
   });
 
   app.get("/api/eta", authMiddleware, async (req: Request, res: Response) => {
-    if (!rateLimitMiddleware(req, res)) return;
+    if (!(await rateLimitMiddleware(req, res))) return;
 
     const originLat = parseFloat(req.query.originLat as string);
     const originLng = parseFloat(req.query.originLng as string);
@@ -218,7 +218,7 @@ export function registerMapsRoutes(app: Express): void {
   });
 
   app.post("/api/dispatch/nearest-driver", authMiddleware, requirePermission("dispatch", "write"), async (req: Request, res: Response) => {
-    if (!rateLimitMiddleware(req, res)) return;
+    if (!(await rateLimitMiddleware(req, res))) return;
 
     const parsed = nearestDriverSchema.safeParse(req.body);
     if (!parsed.success) {

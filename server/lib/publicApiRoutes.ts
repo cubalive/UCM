@@ -15,12 +15,12 @@ router.get("/health", (_req: Request, res: Response) => {
 // CORS is handled globally in server/index.ts for all /api/* routes
 
 function rateLimitMiddleware(limit: number, windowSec: number) {
-  return (req: Request, res: Response, next: () => void) => {
+  return async (req: Request, res: Response, next: () => void) => {
     const ip =
       (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
       req.socket.remoteAddress ||
       "unknown";
-    const rl = checkRateLimit(`public:${ip}`, limit, windowSec);
+    const rl = await checkRateLimit(`public:${ip}`, limit, windowSec);
     res.setHeader("X-RateLimit-Remaining", String(rl.remaining));
     if (!rl.allowed) {
       return res.status(429).json({

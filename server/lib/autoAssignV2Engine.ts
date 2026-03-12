@@ -389,7 +389,42 @@ export async function runAutoAssignForTrip(tripId: number, actorUserId?: number)
     autoAssignFailureReason: null,
   };
 
-  await db.update(trips).set(updateData).where(eq(trips.id, tripId));
+  // Optimistic locking: only update if the trip status is still eligible for assignment.
+  // This prevents two concurrent auto-assign operations from overwriting each other.
+  const previousStatus = trip.status;
+  const assignableStatuses = ["SCHEDULED", "PENDING"];
+  if (!assignableStatuses.includes(previousStatus)) {
+    await db.update(autoAssignRuns).set({
+      result: "FAILED",
+      endedAt: new Date(),
+      reason: `Trip status changed to ${previousStatus} before assignment`,
+    }).where(eq(autoAssignRuns.id, run.id));
+
+    return { success: false, runId: run.id, reason: `Trip status is ${previousStatus}, not assignable`, candidates };
+  }
+
+  const updated = await db.update(trips).set(updateData)
+    .where(and(eq(trips.id, tripId), eq(trips.status, previousStatus)))
+    .returning();
+
+  if (!updated.length) {
+    // Concurrent update detected — another process already changed the trip status
+    await db.update(autoAssignRuns).set({
+      result: "FAILED",
+      endedAt: new Date(),
+      reason: "Concurrent update detected — trip status changed during assignment",
+    }).where(eq(autoAssignRuns.id, run.id));
+
+    await db.insert(automationEvents).values({
+      eventType: "AUTO_ASSIGN_FAIL",
+      tripId,
+      companyId: trip.companyId,
+      runId: run.id,
+      payload: { reason: "Concurrent update detected", previousStatus },
+    });
+
+    return { success: false, runId: run.id, reason: "Concurrent update detected — trip was modified by another process", candidates };
+  }
 
   await db.update(autoAssignRuns).set({
     result: "SUCCESS",
@@ -529,6 +564,22 @@ export async function assignTripAutomatically(
         reason: result.reason,
         runId: result.runId,
       }));
+
+      // Attempt auto-accept for high-rated drivers
+      try {
+        const { attemptAutoAccept } = await import("./driverAutoAcceptEngine");
+        const autoAcceptResult = await attemptAutoAccept(tripId, result.selectedDriverId);
+        if (autoAcceptResult.autoAccepted) {
+          console.log(JSON.stringify({
+            event: "auto_accept_applied",
+            tripId,
+            driverId: result.selectedDriverId,
+            reason: autoAcceptResult.reason,
+          }));
+        }
+      } catch (aaErr: any) {
+        console.warn(`[AUTO-ASSIGN] Auto-accept check failed for trip ${tripId}:`, aaErr.message);
+      }
     } else {
       console.log(JSON.stringify({
         event: "auto_assign_failed",
