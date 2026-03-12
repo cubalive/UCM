@@ -65,7 +65,7 @@ function ClaimTimeline({ claimId }: { claimId: number }) {
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Amount</p>
-            <p className="font-medium">{fmt(claim.amountCents)}</p>
+            <p className="font-medium">{fmt(claim.paymentAmount || 0)}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Trip ID</p>
@@ -256,7 +256,7 @@ export default function ClaimStatusPage() {
                   <TableRow key={claim.id} data-testid={`row-claim-${claim.id}`}>
                     <TableCell className="font-mono text-sm">{claim.claimNumber}</TableCell>
                     <TableCell>{claim.tripId}</TableCell>
-                    <TableCell>{fmt(claim.amountCents)}</TableCell>
+                    <TableCell>{fmt(claim.paymentAmount || 0)}</TableCell>
                     <TableCell>{claimStatusBadge(claim.status)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(claim.createdAt).toLocaleDateString()}
