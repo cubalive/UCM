@@ -37,13 +37,13 @@ export function computeBillingWindow(
 
   switch (settings.billingCycle) {
     case "weekly":
-      return computeWeeklyWindow(zonedNow, settings.anchorDow ?? 1, tz);
+      return computeWeeklyWindow(zonedNow, settings.anchorDow ?? 7, tz);
     case "biweekly":
       return computeBiweeklyWindow(zonedNow, settings, tz);
     case "monthly":
       return computeMonthlyWindow(zonedNow, settings.anchorDom ?? 1, tz);
     default:
-      return computeWeeklyWindow(zonedNow, 1, tz);
+      return computeWeeklyWindow(zonedNow, 7, tz);
   }
 }
 
@@ -92,7 +92,7 @@ function computeBiweeklyWindow(
 
   const anchorStr = settings.anchorDate;
   if (!anchorStr) {
-    return computeWeeklyWindow(zonedNow, 1, tz);
+    return computeWeeklyWindow(zonedNow, 7, tz);
   }
   const anchor = parseISO(anchorStr);
   const daysSinceAnchor = differenceInDays(startOfDay(zonedNow), startOfDay(anchor));

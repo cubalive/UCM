@@ -66,9 +66,32 @@ import {
 function getToday(): string {
   return new Date().toISOString().split("T")[0];
 }
-function getWeekAgo(): string {
+/** Returns the most recent Sunday (start of billing week) */
+function getLastSunday(): string {
   const d = new Date();
-  d.setDate(d.getDate() - 6);
+  const day = d.getDay(); // 0=Sun
+  d.setDate(d.getDate() - day);
+  return d.toISOString().split("T")[0];
+}
+/** Returns the Saturday ending the current billing week */
+function getNextSaturday(): string {
+  const d = new Date();
+  const day = d.getDay();
+  d.setDate(d.getDate() + (6 - day));
+  return d.toISOString().split("T")[0];
+}
+/** Returns Sunday of the PREVIOUS billing week */
+function getPrevWeekSunday(): string {
+  const d = new Date();
+  const day = d.getDay();
+  d.setDate(d.getDate() - day - 7);
+  return d.toISOString().split("T")[0];
+}
+/** Returns Saturday of the PREVIOUS billing week */
+function getPrevWeekSaturday(): string {
+  const d = new Date();
+  const day = d.getDay();
+  d.setDate(d.getDate() - day - 1);
   return d.toISOString().split("T")[0];
 }
 
@@ -444,8 +467,8 @@ function downloadTripsLogPdf(grouped: Record<string, any>, tripsList: any[], tot
 function TripsLogTab() {
   const { token } = useAuth();
   const [clinicId, setClinicId] = useState<string>("");
-  const [startDate, setStartDate] = useState(getWeekAgo());
-  const [endDate, setEndDate] = useState(getToday());
+  const [startDate, setStartDate] = useState(getPrevWeekSunday());
+  const [endDate, setEndDate] = useState(getPrevWeekSaturday());
   const [outcomeFilter, setOutcomeFilter] = useState<string>("all");
   const [passengerFilter, setPassengerFilter] = useState<string>("all");
 
@@ -641,8 +664,8 @@ function InvoicesTab() {
   const { toast } = useToast();
   const [clinicId, setClinicId] = useState<string>("");
   const [cityId, setCityId] = useState<string>("");
-  const [weekStart, setWeekStart] = useState(getWeekAgo());
-  const [weekEnd, setWeekEnd] = useState(getToday());
+  const [weekStart, setWeekStart] = useState(getPrevWeekSunday());
+  const [weekEnd, setWeekEnd] = useState(getPrevWeekSaturday());
   const [showDetail, setShowDetail] = useState<number | null>(null);
   const [filterClinic, setFilterClinic] = useState<string>("all");
   const [filterCity, setFilterCity] = useState<string>("all");
@@ -1103,7 +1126,7 @@ function BillingCycleSettingsTab() {
   });
 
   const [cycle, setCycle] = useState("weekly");
-  const [anchorDow, setAnchorDow] = useState("1");
+  const [anchorDow, setAnchorDow] = useState("7");
   const [anchorDom, setAnchorDom] = useState("1");
   const [biweeklyMode, setBiweeklyMode] = useState("1_15");
   const [anchorDate, setAnchorDate] = useState("");
@@ -1116,7 +1139,7 @@ function BillingCycleSettingsTab() {
     if (settingsQ.data) {
       const s = settingsQ.data;
       setCycle(s.billingCycle || "weekly");
-      setAnchorDow(String(s.anchorDow ?? 1));
+      setAnchorDow(String(s.anchorDow ?? 7));
       setAnchorDom(String(s.anchorDom ?? 1));
       setBiweeklyMode(s.biweeklyMode || "1_15");
       setAnchorDate(s.anchorDate || "");
@@ -1297,7 +1320,7 @@ function BillingCycleSettingsTab() {
                 data-testid="checkbox-auto-generate"
                 className="rounded"
               />
-              <Label htmlFor="auto-generate" className="cursor-pointer">Auto-generate invoices (display only)</Label>
+              <Label htmlFor="auto-generate" className="cursor-pointer">Auto-generate draft invoices weekly (review &amp; approve manually)</Label>
             </div>
 
             <Button onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-billing-settings">
@@ -1440,6 +1463,20 @@ function CycleInvoicesTab() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
+  const batchFinalizeMutation = useMutation({
+    mutationFn: () => apiFetch("/api/cycle-invoices/batch-finalize", token, {
+      method: "POST",
+      body: JSON.stringify(selectedClinicId ? { clinicId: parseInt(selectedClinicId) } : {}),
+    }),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clinics", selectedClinicId, "cycle-invoices"] });
+      toast({ title: `Approved ${data.finalized?.length || 0} invoices` });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const draftCount = (invoicesQ.data || []).filter((i: any) => i.status === "draft").length;
+
   const loadInvoice = async (invoiceId: number) => {
     try {
       const data = await apiFetch(`/api/cycle-invoices/${invoiceId}`, token);
@@ -1545,6 +1582,12 @@ function CycleInvoicesTab() {
                 {createDraftMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                 <span className="ml-1.5">Create Draft</span>
               </Button>
+              {draftCount > 0 && (
+                <Button onClick={() => batchFinalizeMutation.mutate()} disabled={batchFinalizeMutation.isPending} data-testid="button-approve-all">
+                  {batchFinalizeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  <span className="ml-1.5">Approve All ({draftCount})</span>
+                </Button>
+              )}
             </div>
           </>
         )}
@@ -1838,44 +1881,37 @@ export default function ClinicBillingPage() {
         <h1 className="text-xl font-semibold" data-testid="text-clinic-billing-title">Clinic Billing</h1>
       </div>
 
-      <Tabs defaultValue="prices">
+      <Tabs defaultValue="cycle-invoices">
         <TabsList data-testid="tabs-clinic-billing">
-          <TabsTrigger value="prices" data-testid="tab-prices" className="gap-1.5">
-            <DollarSign className="w-4 h-4" />
-            Prices
+          <TabsTrigger value="cycle-invoices" data-testid="tab-cycle-invoices" className="gap-1.5">
+            <FileText className="w-4 h-4" />
+            Invoices
           </TabsTrigger>
           <TabsTrigger value="trips-log" data-testid="tab-trips-log" className="gap-1.5">
             <ClipboardList className="w-4 h-4" />
             Trips Log
           </TabsTrigger>
-          <TabsTrigger value="invoices" data-testid="tab-invoices" className="gap-1.5">
-            <FileText className="w-4 h-4" />
-            Invoices
+          <TabsTrigger value="prices" data-testid="tab-prices" className="gap-1.5">
+            <DollarSign className="w-4 h-4" />
+            Rates
           </TabsTrigger>
           <TabsTrigger value="billing-settings" data-testid="tab-billing-settings" className="gap-1.5">
             <Settings className="w-4 h-4" />
-            Billing Cycles
-          </TabsTrigger>
-          <TabsTrigger value="cycle-invoices" data-testid="tab-cycle-invoices" className="gap-1.5">
-            <Calendar className="w-4 h-4" />
-            Cycle Invoices
+            Settings
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="prices">
-          <PricesTab />
+        <TabsContent value="cycle-invoices">
+          <CycleInvoicesTab />
         </TabsContent>
         <TabsContent value="trips-log">
           <TripsLogTab />
         </TabsContent>
-        <TabsContent value="invoices">
-          <InvoicesTab />
+        <TabsContent value="prices">
+          <PricesTab />
         </TabsContent>
         <TabsContent value="billing-settings">
           <BillingCycleSettingsTab />
-        </TabsContent>
-        <TabsContent value="cycle-invoices">
-          <CycleInvoicesTab />
         </TabsContent>
       </Tabs>
     </div>

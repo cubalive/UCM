@@ -18,7 +18,7 @@ import UnauthorizedPage from "@/pages/unauthorized";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 
-const ALLOWED_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER", "CLINIC", "SUPER_ADMIN"];
+const ALLOWED_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER", "SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
 
 function ClinicPortalRoutes() {
   return (
@@ -98,7 +98,7 @@ export function ClinicPortalLayout() {
   }
 
   const role = user.role.toUpperCase();
-  if (!ALLOWED_ROLES.includes(role) && !user.clinicId) {
+  if (!ALLOWED_ROLES.includes(role)) {
     return <ClinicHostUnauthorized />;
   }
 
