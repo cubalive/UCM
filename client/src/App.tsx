@@ -489,11 +489,7 @@ function Router() {
       <Route path="/system-settings">{() => <SuperAdminRoute component={SystemSettingsPage} />}</Route>
       <Route path="/fleet-reports">{() => <ProtectedRoute resource="dispatch" component={FleetReportsPage} />}</Route>
       <Route path="/claim-status">{() => <SuperAdminRoute component={ClaimStatusPage} />}</Route>
-      <Route path="/notification-preferences">{() => {
-        const { user } = useAuth();
-        if (!user) return <Redirect to="/unauthorized" />;
-        return <NotificationPreferencesPage />;
-      }}</Route>
+      <Route path="/notification-preferences">{() => <ProtectedRoute resource="support" component={NotificationPreferencesPage} />}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

@@ -106,6 +106,10 @@
     "aiDashboard": "AI Dashboard",
     "driverEarnings": "Driver Earnings",
     "financeConsole": "Finance Console",
+    "fleetReports": "Fleet Reports",
+    "claimStatus": "Claim Status",
+    "systemSettings": "System Settings",
+    "notificationPrefs": "Notifications",
     "group": {
       "dispatch": "Dispatch & Maps",
       "fleet": "Fleet & Scheduling",

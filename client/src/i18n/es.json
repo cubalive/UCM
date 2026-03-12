@@ -105,6 +105,10 @@
     "aiDashboard": "Panel IA",
     "driverEarnings": "Ganancias de Conductores",
     "financeConsole": "Consola Financiera",
+    "fleetReports": "Reportes de Flota",
+    "claimStatus": "Estado de Reclamos",
+    "systemSettings": "Configuracion del Sistema",
+    "notificationPrefs": "Notificaciones",
     "group": {
       "dispatch": "Despacho y Mapas",
       "fleet": "Flota y Horarios",
