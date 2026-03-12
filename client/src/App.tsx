@@ -63,6 +63,7 @@ const BillingPage = React.lazy(() => import("@/pages/billing"));
 const ClinicBillingPage = React.lazy(() => import("@/pages/clinic-billing"));
 const SchedulePage = React.lazy(() => import("@/pages/schedule"));
 const DispatchSwapsPage = React.lazy(() => import("@/pages/dispatch-swaps"));
+const DispatchPharmacyDeliveriesPage = React.lazy(() => import("@/pages/dispatch-pharmacy-deliveries"));
 const PricingPage = React.lazy(() => import("@/pages/pricing"));
 const MetricsPage = React.lazy(() => import("@/pages/metrics"));
 const IntelligencePage = React.lazy(() => import("@/pages/intelligence"));
@@ -355,6 +356,7 @@ function DispatchSubdomainRouter() {
       <Route path="/dispatch">{() => <ProtectedRoute resource="dispatch" component={DispatchMapPage} />}</Route>
       <Route path="/dispatch-board">{() => <ProtectedRoute resource="dispatch" component={DispatchBoardPage} />}</Route>
       <Route path="/dispatch-swaps">{() => <ProtectedRoute resource="dispatch" component={DispatchSwapsPage} />}</Route>
+      <Route path="/pharmacy-deliveries">{() => <ProtectedRoute resource="dispatch" component={DispatchPharmacyDeliveriesPage} />}</Route>
       <Route path="/fleet">{() => <ProtectedRoute resource="dispatch" component={FleetOpsPage} />}</Route>
       <Route path="/assignments">{() => <ProtectedRoute resource="dispatch" component={AssignmentsPage} />}</Route>
       <Route path="/ops-health">{() => <ProtectedRoute resource="dispatch" component={OpsHealthPage} />}</Route>
@@ -427,6 +429,7 @@ function Router() {
       <Route path="/trip-requests-queue">{() => <ProtectedRoute resource="dispatch" component={TripRequestsQueuePage} />}</Route>
       <Route path="/schedule">{() => <ProtectedRoute resource="dispatch" component={SchedulePage} />}</Route>
       <Route path="/dispatch-swaps">{() => <ProtectedRoute resource="dispatch" component={DispatchSwapsPage} />}</Route>
+      <Route path="/pharmacy-deliveries">{() => <ProtectedRoute resource="dispatch" component={DispatchPharmacyDeliveriesPage} />}</Route>
       <Route path="/clinic-trip/:id">{() => <ClinicRoute component={ClinicTripDetailsPage} />}</Route>
       <Route path="/clinic-trips">{() => <ClinicRoute component={ClinicTripsPage} />}</Route>
       <Route path="/clinic-users">{() => <ClinicAdminRoute component={ClinicUsersPage} />}</Route>

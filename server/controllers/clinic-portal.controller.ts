@@ -989,6 +989,24 @@ export async function clinicTripByIdHandler(req: AuthRequest, res: Response) {
       transportMinutes: enriched.pickedUpAt && enriched.arrivedDropoffAt
         ? Math.round((new Date(enriched.arrivedDropoffAt).getTime() - new Date(enriched.pickedUpAt).getTime()) / 60000)
         : null,
+      // Full patient details for clinic view
+      patient: patient ? {
+        id: patient.id,
+        publicId: patient.publicId,
+        firstName: patient.firstName,
+        lastName: patient.lastName,
+        phone: patient.phone,
+        email: patient.email,
+        dateOfBirth: patient.dateOfBirth,
+        address: patient.address,
+        insuranceId: patient.insuranceId,
+        medicaidId: patient.medicaidId,
+        medicaidState: patient.medicaidState,
+        wheelchairRequired: patient.wheelchairRequired,
+        isFrequent: patient.isFrequent,
+        notes: patient.notes,
+      } : null,
+      driverPhone: enriched.driverPhone || null,
     };
 
     res.json(clinicSafe);

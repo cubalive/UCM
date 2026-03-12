@@ -130,6 +130,7 @@ const operationGroups: NavGroup[] = [
       { titleKey: "nav.assignments", url: "/assignments", icon: CalendarCheck, resource: "dispatch" },
       { titleKey: "nav.schedule", url: "/schedule", icon: Calendar, resource: "dispatch" },
       { titleKey: "nav.shiftSwaps", url: "/dispatch-swaps", icon: ArrowLeftRight, resource: "dispatch" },
+      { titleKey: "nav.pharmacyDeliveries", url: "/pharmacy-deliveries", icon: Pill, resource: "dispatch" },
       { titleKey: "nav.deadMile", url: "/dead-mile", icon: TrendingDown, resource: "dispatch" },
       { titleKey: "nav.interCity", url: "/inter-city", icon: ArrowLeftRight, resource: "dispatch" },
     ],
