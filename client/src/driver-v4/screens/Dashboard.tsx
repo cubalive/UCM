@@ -3,16 +3,19 @@ import { useCallback, useMemo, useState, useEffect } from "react";
 import {
   Wallet, Star, MapPin, Car, Clock, TrendingUp, Shield,
   Zap, Navigation, Phone, ChevronUp, ChevronDown, Package, Ambulance,
-  Accessibility, BedDouble, Weight, Route, Users, Check, X, Loader2
+  Accessibility, BedDouble, Weight, Route, Users, Check, X, Loader2,
+  Calendar, User
 } from "lucide-react";
 import { useDriverStore, type ServiceFilter } from "../store/driverStore";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
-import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { glowColor, statusGradient } from "../design/theme";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { GlassCard } from "../components/ui/GlassCard";
 import { NeonButton } from "../components/ui/NeonButton";
 import { DriverTripMap } from "../components/DriverTripMap";
+import { resolveUrl, getStoredToken } from "@/lib/api";
+import { DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
 
 /* ─── Availability status pill ─── */
 function StatusPill() {
@@ -665,6 +668,183 @@ function ServiceFilterBar() {
   );
 }
 
+/* ─── Schedule View — upcoming assigned trips for the day ─── */
+interface ScheduledTrip {
+  id: string;
+  tripId: number;
+  patientName: string;
+  pickupAddress: string;
+  pickupTime: string;
+  serviceType?: string;
+  status?: string;
+}
+
+function ScheduleView() {
+  const driverStatus = useDriverStore((s) => s.driverStatus);
+  const shiftStatus = useDriverStore((s) => s.shiftStatus);
+  const tripPhase = useDriverStore((s) => s.tripPhase);
+  const reduced = useReducedMotion();
+  const [schedule, setSchedule] = useState<ScheduledTrip[]>([]);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem(DRIVER_TOKEN_KEY) || getStoredToken();
+    if (!token) return;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    };
+
+    fetch(resolveUrl("/api/driver/schedule?date=today"), { headers })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.trips && Array.isArray(data.trips)) {
+          setSchedule(data.trips.map((t: any) => ({
+            id: t.publicId || String(t.id),
+            tripId: t.id,
+            patientName: t.patientName || "Patient",
+            pickupAddress: t.pickupAddress || "",
+            pickupTime: t.pickupTime || t.scheduledTime || "",
+            serviceType: t.serviceType || "transport",
+            status: t.status || "SCHEDULED",
+          })));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Only show when online and not in active trip
+  if (driverStatus !== "online" || shiftStatus !== "onShift") return null;
+  if (tripPhase !== "none") return null;
+  if (schedule.length === 0) return null;
+
+  const visibleTrips = expanded ? schedule : schedule.slice(0, 3);
+
+  const formatTime = (timeStr: string) => {
+    try {
+      const date = new Date(timeStr);
+      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return timeStr;
+    }
+  };
+
+  return (
+    <motion.div
+      initial={reduced ? {} : { opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="absolute top-36 left-0 right-0 z-20 px-4"
+    >
+      <div
+        className="rounded-2xl overflow-hidden"
+        style={{
+          background: "rgba(255,255,255,0.92)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          border: "1px solid rgba(0,0,0,0.06)",
+          boxShadow: colors.shadowMd,
+          maxHeight: expanded ? "60vh" : "auto",
+          overflowY: expanded ? "auto" : "hidden",
+        }}
+        data-testid="schedule-view"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-3.5 h-3.5" style={{ color: colors.sunrise }} />
+            <span className="text-xs font-bold" style={{ color: colors.textPrimary }}>
+              Today's Schedule
+            </span>
+            <span
+              className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+              style={{ background: glowColor(colors.sunrise, 0.1), color: colors.sunrise }}
+            >
+              {schedule.length}
+            </span>
+          </div>
+          {schedule.length > 3 && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-[10px] font-semibold"
+              style={{ color: colors.sky }}
+            >
+              {expanded ? "Show Less" : "View All"}
+            </button>
+          )}
+        </div>
+
+        {/* Trip list */}
+        <div className="px-3 pb-3 space-y-1.5">
+          {visibleTrips.map((trip, i) => (
+            <motion.div
+              key={trip.id}
+              initial={reduced ? {} : { opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+              style={{
+                background: i === 0 ? glowColor(colors.sunrise, 0.04) : "rgba(0,0,0,0.02)",
+                border: `1px solid ${i === 0 ? glowColor(colors.sunrise, 0.08) : "rgba(0,0,0,0.03)"}`,
+              }}
+              data-testid={`schedule-trip-${trip.id}`}
+            >
+              {/* Time badge */}
+              <div className="flex flex-col items-center min-w-[48px]">
+                <span
+                  className="text-xs font-bold tabular-nums"
+                  style={{ color: i === 0 ? colors.sunrise : colors.textPrimary }}
+                >
+                  {formatTime(trip.pickupTime)}
+                </span>
+                {i === 0 && (
+                  <span className="text-[8px] uppercase font-bold tracking-wider" style={{ color: colors.sunrise }}>
+                    Next
+                  </span>
+                )}
+              </div>
+
+              {/* Divider */}
+              <div className="w-0.5 h-8 rounded-full" style={{ background: i === 0 ? colors.sunrise : "rgba(0,0,0,0.08)" }} />
+
+              {/* Trip info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <User className="w-3 h-3" style={{ color: colors.textTertiary }} />
+                  <span className="text-xs font-medium truncate" style={{ color: colors.textPrimary }}>
+                    {trip.patientName}
+                  </span>
+                </div>
+                <p className="text-[10px] truncate mt-0.5" style={{ color: colors.textTertiary }}>
+                  {trip.pickupAddress}
+                </p>
+              </div>
+
+              {/* Status */}
+              <div
+                className="px-2 py-0.5 rounded-full"
+                style={{
+                  background: trip.status === "ASSIGNED"
+                    ? glowColor(colors.sky, 0.1)
+                    : "rgba(0,0,0,0.04)",
+                }}
+              >
+                <span
+                  className="text-[9px] font-semibold uppercase"
+                  style={{
+                    color: trip.status === "ASSIGNED" ? colors.sky : colors.textTertiary,
+                  }}
+                >
+                  {trip.status === "ASSIGNED" ? "Assigned" : "Scheduled"}
+                </span>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 /* ─── Map background ─── */
 function MapBackground() {
   const activeTrip = useDriverStore((s) => s.activeTrip);
@@ -756,6 +936,9 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
           <ServiceFilterBar />
         </div>
       </div>
+
+      {/* Schedule view — upcoming trips for the day */}
+      <ScheduleView />
 
       {/* Center content: connect button + waiting indicator */}
       {showConnectBtn && (

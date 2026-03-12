@@ -37,6 +37,9 @@ export default function UsersPage() {
   const [search, setSearch] = useState("");
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
   const [cityPermsUser, setCityPermsUser] = useState<any | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
+  const [bulkRoleDialogOpen, setBulkRoleDialogOpen] = useState(false);
+  const [bulkRole, setBulkRole] = useState("VIEWER");
 
   const [roleFilter, setRoleFilter] = useState("all");
   const [companyFilter, setCompanyFilter] = useState("all");

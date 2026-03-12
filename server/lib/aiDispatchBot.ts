@@ -46,6 +46,53 @@ interface BotResponse {
   actions: Array<{ type: string; detail: string; entityId?: number }>;
   confidence: number;
   suggestions?: string[];
+  /** Whether the bot is asking a clarifying question */
+  needsClarification?: boolean;
+  /** Pending action waiting for user confirmation */
+  pendingAction?: { type: string; data: Record<string, any> } | null;
+}
+
+// ─── Conversation Context Tracking ──────────────────────────────────────────
+
+interface ConversationContext {
+  /** Last intent classified */
+  lastIntent: Intent | null;
+  /** Accumulated entities across conversation turns */
+  accumulatedEntities: ExtractedEntities;
+  /** Pending action awaiting confirmation (e.g., trip creation, reassignment) */
+  pendingAction: { type: string; data: Record<string, any> } | null;
+  /** Number of turns in this conversation */
+  turnCount: number;
+}
+
+const sessionContexts = new Map<number, ConversationContext>();
+
+function getSessionContext(sessionId: number): ConversationContext {
+  if (!sessionContexts.has(sessionId)) {
+    sessionContexts.set(sessionId, {
+      lastIntent: null,
+      accumulatedEntities: {},
+      pendingAction: null,
+      turnCount: 0,
+    });
+  }
+  return sessionContexts.get(sessionId)!;
+}
+
+function mergeEntities(existing: ExtractedEntities, incoming: ExtractedEntities): ExtractedEntities {
+  return {
+    patientName: incoming.patientName || existing.patientName,
+    patientId: incoming.patientId || existing.patientId,
+    driverId: incoming.driverId || existing.driverId,
+    driverName: incoming.driverName || existing.driverName,
+    tripId: incoming.tripId || existing.tripId,
+    address: incoming.address || existing.address,
+    date: incoming.date || existing.date,
+    time: incoming.time || existing.time,
+    clinicName: incoming.clinicName || existing.clinicName,
+    clinicId: incoming.clinicId || existing.clinicId,
+    mobilityType: incoming.mobilityType || existing.mobilityType,
+  };
 }
 
 // ─── Pattern-Based Intent Classifier ─────────────────────────────────────────

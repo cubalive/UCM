@@ -1,14 +1,35 @@
 {
-  "name": "Driver UCM",
+  "name": "UCM Driver",
   "short_name": "UCM Driver",
-  "description": "UCM Driver - Non-Emergency Medical Transportation",
-  "start_url": "/",
+  "description": "United Care Mobility - Driver Platform for Non-Emergency Medical Transportation",
+  "start_url": "/driver",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#ffffff",
-  "theme_color": "#0B2A4A",
+  "background_color": "#FAFAF8",
+  "theme_color": "#FF6B35",
+  "categories": ["medical", "transportation", "business"],
   "icons": [
+    {
+      "src": "/app-icons/driver/pwa/icon-72.png",
+      "sizes": "72x72",
+      "type": "image/png"
+    },
+    {
+      "src": "/app-icons/driver/pwa/icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png"
+    },
+    {
+      "src": "/app-icons/driver/pwa/icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png"
+    },
+    {
+      "src": "/app-icons/driver/pwa/icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png"
+    },
     {
       "src": "/app-icons/driver/pwa/icon-192.png",
       "sizes": "192x192",
@@ -31,5 +52,8 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false,
+  "related_applications": []
 }

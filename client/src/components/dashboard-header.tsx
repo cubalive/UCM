@@ -20,6 +20,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { UniversalSearchBar } from "@/components/universal-search";
+import { NotificationCenter } from "@/components/notification-center";
 import { useTranslation } from "react-i18next";
 import { getStoredCompanyScopeId, setStoredCompanyScopeId } from "@/lib/api";
 import type { Company } from "@shared/schema";
@@ -182,6 +183,7 @@ export function DashboardHeader() {
         <Badge variant="secondary" className="hidden sm:inline-flex" data-testid="badge-header-role">
           {roleLabel}
         </Badge>
+        <NotificationCenter />
         <LanguageSwitcher />
         <Button
           size="icon"

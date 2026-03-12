@@ -1,10 +1,11 @@
 import { motion } from "framer-motion";
-import { ChevronRight, Shield, Truck, MapPin, Clock } from "lucide-react";
+import { ChevronRight, Shield, Truck, MapPin, Clock, Bell } from "lucide-react";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
 import { glowColor } from "../design/theme";
 import { NeonButton } from "../components/ui/NeonButton";
 import { GlassCard } from "../components/ui/GlassCard";
+import { useNotifications } from "../hooks/useNotifications";
 
 function FloatingOrbs() {
   const reduced = useReducedMotion();
@@ -50,6 +51,15 @@ function FloatingOrbs() {
 
 export function Onboarding({ onContinue }: { onContinue: () => void }) {
   const reduced = useReducedMotion();
+  const { status: notifStatus, isSupported: notifSupported, requestPermission } = useNotifications();
+
+  const handleContinue = async () => {
+    // Request notification permission during onboarding if not yet decided
+    if (notifSupported && notifStatus === "default") {
+      await requestPermission();
+    }
+    onContinue();
+  };
 
   return (
     <div
@@ -121,6 +131,7 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
                 { icon: <Truck className="w-4 h-4" style={{ color: colors.sunrise }} />, title: "Real-time trips", desc: "Accept and manage trips on the go" },
                 { icon: <MapPin className="w-4 h-4" style={{ color: colors.success }} />, title: "Live navigation", desc: "Turn-by-turn directions to pickup and dropoff" },
                 { icon: <Clock className="w-4 h-4" style={{ color: colors.sky }} />, title: "Track your shift", desc: "Clock in/out, view earnings, and shift history" },
+                { icon: <Bell className="w-4 h-4" style={{ color: colors.warning }} />, title: "Push notifications", desc: "Instant alerts for new trip offers" },
               ].map((f, i) => (
                 <div key={i} className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(0,0,0,0.03)" }}>
@@ -138,7 +149,7 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
           <div className="pt-3">
             <NeonButton
               title="Continue"
-              onPress={onContinue}
+              onPress={handleContinue}
               variant="primary"
               testID="btn-continue"
               icon={<ChevronRight className="w-5 h-5" />}

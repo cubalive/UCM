@@ -19,6 +19,20 @@ import {
   driverActiveDeliveriesHandler,
   dispatchPharmacyDeliveriesHandler,
   dispatchAssignPharmacyDeliveryHandler,
+  pharmacyInventoryListHandler,
+  pharmacyInventoryAdjustHandler,
+  pharmacyInventoryAddHandler,
+  pharmacyPrescriptionsListHandler,
+  pharmacyPrescriptionCreateHandler,
+  pharmacyBillingInvoicesHandler,
+  pharmacyBillingSummaryHandler,
+  pharmacyAdvancedMetricsHandler,
+  pharmacyTemperatureLogHandler,
+  pharmacyComplianceSummaryHandler,
+  pharmacyChainOfCustodyHandler,
+  pharmacyFeedbackHandler,
+  pharmacyAutomationSettingsGetHandler,
+  pharmacyAutomationSettingsUpdateHandler,
 } from "../controllers/pharmacy-portal.controller";
 
 export function registerPharmacyPortalRoutes(app: Express) {
@@ -58,6 +72,36 @@ export function registerPharmacyPortalRoutes(app: Express) {
   // Dispatch pharmacy deliveries panel (for dispatch/admin roles)
   app.get("/api/dispatch/pharmacy-deliveries", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH") as any, dispatchPharmacyDeliveriesHandler as any);
   app.post("/api/dispatch/pharmacy-deliveries/:id/assign", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH") as any, dispatchAssignPharmacyDeliveryHandler as any);
+
+  // Inventory management
+  app.get("/api/pharmacy/inventory", authMiddleware, requirePharmacyScope as any, pharmacyInventoryListHandler as any);
+  app.post("/api/pharmacy/inventory", authMiddleware, requirePharmacyScope as any, pharmacyInventoryAddHandler as any);
+  app.patch("/api/pharmacy/inventory", authMiddleware, requirePharmacyScope as any, pharmacyInventoryAdjustHandler as any);
+
+  // Prescription management
+  app.get("/api/pharmacy/prescriptions", authMiddleware, phiAuditFor("pharmacy_prescription") as any, requirePharmacyScope as any, pharmacyPrescriptionsListHandler as any);
+  app.post("/api/pharmacy/prescriptions", authMiddleware, phiAuditFor("pharmacy_prescription") as any, requirePharmacyScope as any, pharmacyPrescriptionCreateHandler as any);
+
+  // Billing
+  app.get("/api/pharmacy/billing/invoices", authMiddleware, requirePharmacyScope as any, pharmacyBillingInvoicesHandler as any);
+  app.get("/api/pharmacy/billing/summary", authMiddleware, requirePharmacyScope as any, pharmacyBillingSummaryHandler as any);
+
+  // Advanced analytics
+  app.get("/api/pharmacy/analytics", authMiddleware, requirePharmacyScope as any, pharmacyAdvancedMetricsHandler as any);
+
+  // Temperature monitoring
+  app.get("/api/pharmacy/orders/:id/temperature-log", authMiddleware, requirePharmacyScope as any, pharmacyTemperatureLogHandler as any);
+
+  // Compliance
+  app.get("/api/pharmacy/compliance/summary", authMiddleware, phiAuditFor("pharmacy_compliance") as any, requirePharmacyScope as any, pharmacyComplianceSummaryHandler as any);
+  app.get("/api/pharmacy/compliance/chain-of-custody/:orderId", authMiddleware, phiAuditFor("pharmacy_compliance") as any, requirePharmacyScope as any, pharmacyChainOfCustodyHandler as any);
+
+  // Customer feedback
+  app.get("/api/pharmacy/feedback", authMiddleware, requirePharmacyScope as any, pharmacyFeedbackHandler as any);
+
+  // Automation settings
+  app.get("/api/pharmacy/automation-settings", authMiddleware, requirePharmacyAdmin as any, pharmacyAutomationSettingsGetHandler as any);
+  app.patch("/api/pharmacy/automation-settings", authMiddleware, requirePharmacyAdmin as any, pharmacyAutomationSettingsUpdateHandler as any);
 
   // Public tracking (NO auth required)
   app.get("/api/pharmacy/track/:publicId", pharmacyPublicTrackingHandler as any);

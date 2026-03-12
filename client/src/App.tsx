@@ -111,6 +111,10 @@ const AiDashboardPage = React.lazy(() => import("@/pages/ai-dashboard"));
 const EdiBillingPage = React.lazy(() => import("@/pages/edi-billing"));
 const AdminPharmaciesPage = React.lazy(() => import("@/pages/admin-pharmacies"));
 const AdminPharmacyOrdersPage = React.lazy(() => import("@/pages/admin-pharmacy-orders"));
+const SystemSettingsPage = React.lazy(() => import("@/pages/system-settings"));
+const FleetReportsPage = React.lazy(() => import("@/pages/fleet-reports"));
+const ClaimStatusPage = React.lazy(() => import("@/pages/claim-status"));
+const NotificationPreferencesPage = React.lazy(() => import("@/pages/notification-preferences"));
 
 // Lazy-loaded app shells
 const DriverAppV4 = React.lazy(() => import("@/driver-v4/DriverAppV4").then(m => ({ default: m.DriverAppV4 })));
@@ -482,6 +486,14 @@ function Router() {
       <Route path="/ai-dashboard">{() => <SuperAdminRoute component={AiDashboardPage} />}</Route>
       <Route path="/admin/pharmacies">{() => <SuperAdminRoute component={AdminPharmaciesPage} />}</Route>
       <Route path="/admin/pharmacy-orders">{() => <SuperAdminRoute component={AdminPharmacyOrdersPage} />}</Route>
+      <Route path="/system-settings">{() => <SuperAdminRoute component={SystemSettingsPage} />}</Route>
+      <Route path="/fleet-reports">{() => <ProtectedRoute resource="dispatch" component={FleetReportsPage} />}</Route>
+      <Route path="/claim-status">{() => <SuperAdminRoute component={ClaimStatusPage} />}</Route>
+      <Route path="/notification-preferences">{() => {
+        const { user } = useAuth();
+        if (!user) return <Redirect to="/unauthorized" />;
+        return <NotificationPreferencesPage />;
+      }}</Route>
       <Route path="/unauthorized" component={UnauthorizedPage} />
       <Route component={NotFound} />
     </Switch>

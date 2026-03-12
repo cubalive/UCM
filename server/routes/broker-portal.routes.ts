@@ -19,6 +19,22 @@ import {
   brokerGenerateSettlementHandler,
   brokerProfileHandler,
   brokerAnalyticsHandler,
+  brokerAnalyticsEnhancedHandler,
+  brokerSLASummaryHandler,
+  brokerSLAViolationsHandler,
+  brokerComplianceSummaryHandler,
+  brokerComplianceAuditTrailHandler,
+  brokerMessagesListHandler,
+  brokerSendMessageHandler,
+  brokerMessageTemplatesHandler,
+  brokerDisputesListHandler,
+  brokerCreateDisputeHandler,
+  brokerUpdateDisputeHandler,
+  brokerLiveTripsHandler,
+  brokerProviderRatingsHandler,
+  brokerSubmitRatingHandler,
+  brokerSettingsGetHandler,
+  brokerSettingsUpdateHandler,
   marketplaceOpenRequestsHandler,
   adminBrokersListHandler,
   adminCreateBrokerHandler,
@@ -57,6 +73,36 @@ export function registerBrokerPortalRoutes(app: Express) {
 
   // Analytics
   app.get("/api/broker/analytics", authMiddleware, requireBrokerScope as any, brokerAnalyticsHandler as any);
+  app.get("/api/broker/analytics/enhanced", authMiddleware, requireBrokerScope as any, brokerAnalyticsEnhancedHandler as any);
+
+  // SLA Monitoring
+  app.get("/api/broker/sla/summary", authMiddleware, requireBrokerScope as any, brokerSLASummaryHandler as any);
+  app.get("/api/broker/sla/violations", authMiddleware, requireBrokerScope as any, brokerSLAViolationsHandler as any);
+
+  // Compliance
+  app.get("/api/broker/compliance/summary", authMiddleware, requireBrokerScope as any, brokerComplianceSummaryHandler as any);
+  app.get("/api/broker/compliance/audit-trail", authMiddleware, requireBrokerScope as any, brokerComplianceAuditTrailHandler as any);
+
+  // Communications
+  app.get("/api/broker/messages", authMiddleware, requireBrokerScope as any, brokerMessagesListHandler as any);
+  app.post("/api/broker/messages", authMiddleware, requireBrokerScope as any, brokerSendMessageHandler as any);
+  app.get("/api/broker/message-templates", authMiddleware, requireBrokerScope as any, brokerMessageTemplatesHandler as any);
+
+  // Disputes
+  app.get("/api/broker/disputes", authMiddleware, requireBrokerScope as any, brokerDisputesListHandler as any);
+  app.post("/api/broker/disputes", authMiddleware, requireBrokerScope as any, brokerCreateDisputeHandler as any);
+  app.patch("/api/broker/disputes/:id", authMiddleware, requireBrokerScope as any, brokerUpdateDisputeHandler as any);
+
+  // Live Trip Tracking
+  app.get("/api/broker/live-trips", authMiddleware, requireBrokerScope as any, brokerLiveTripsHandler as any);
+
+  // Provider Ratings
+  app.get("/api/broker/provider-ratings", authMiddleware, requireBrokerScope as any, brokerProviderRatingsHandler as any);
+  app.post("/api/broker/provider-ratings", authMiddleware, requireBrokerScope as any, brokerSubmitRatingHandler as any);
+
+  // Settings
+  app.get("/api/broker/settings", authMiddleware, requireBrokerScope as any, brokerSettingsGetHandler as any);
+  app.patch("/api/broker/settings", authMiddleware, requireBrokerAdmin as any, brokerSettingsUpdateHandler as any);
 
   // ─── Marketplace Routes (for transport companies to find & bid) ───────────
 
