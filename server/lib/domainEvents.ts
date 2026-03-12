@@ -202,7 +202,7 @@ export async function replayFromDb(
     const { db } = await import("../db");
     const { sql } = await import("drizzle-orm");
 
-    const rows: any[] = await db.execute(
+    const result = await db.execute(
       sql`SELECT id, type, payload, metadata, created_at
           FROM domain_events
           WHERE type = ${type} AND created_at >= ${since.toISOString()}
@@ -210,7 +210,7 @@ export async function replayFromDb(
           LIMIT 1000`,
     );
 
-    const resultRows = Array.isArray(rows) ? rows : (rows as any).rows || [];
+    const resultRows = Array.isArray(result) ? result : (result as any).rows || [];
 
     return resultRows.map((row: any) => ({
       id: row.id,

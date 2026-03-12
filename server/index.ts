@@ -957,6 +957,19 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     console.error("Seed error:", err);
   }
 
+  // Initialize domain events table and start periodic DB flush
+  try {
+    const { ensureDomainEventsTable, startFlushTimer } = await import("./lib/domainEvents");
+    await ensureDomainEventsTable();
+    startFlushTimer();
+  } catch (err: any) {
+    console.warn(JSON.stringify({
+      event: "domain_events_init_error",
+      error: err.message?.slice(0, 300),
+      ts: new Date().toISOString(),
+    }));
+  }
+
   await registerRoutes(httpServer, app);
 
   const { initWebSocket } = await import("./lib/realtime");
@@ -1085,6 +1098,13 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
         wss.close();
         console.log(JSON.stringify({ event: "websocket_closed", ts: new Date().toISOString() }));
       }
+    } catch {}
+
+    // Flush pending domain events before closing DB
+    try {
+      const { stopFlushTimer } = await import("./lib/domainEvents");
+      await stopFlushTimer();
+      console.log(JSON.stringify({ event: "domain_events_flushed", ts: new Date().toISOString() }));
     } catch {}
 
     httpServer.close(() => {
