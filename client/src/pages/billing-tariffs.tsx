@@ -181,7 +181,7 @@ export default function BillingTariffsPage() {
     mutationFn: () =>
       apiFetch(`/api/company/billing/backfill?from=${backfillFrom}&to=${backfillTo}`, token, { method: "POST" }),
     onSuccess: (data: any) => {
-      toast({ title: "Backfill complete", description: `Processed ${data.processed} trips, ${data.errors} errors` });
+      toast({ title: t("billingConfig.backfillComplete"), description: t("billingConfig.processedTrips", { processed: data.processed, errors: data.errors }) });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -194,7 +194,7 @@ export default function BillingTariffsPage() {
       }),
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/billing/invoices"] });
-      toast({ title: "Invoice generated", description: `Invoice #${data.invoiceNumber}` });
+      toast({ title: t("billingConfig.invoiceGenerated"), description: `Invoice #${data.invoiceNumber}` });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -210,7 +210,7 @@ export default function BillingTariffsPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="billing-error">
         <AlertTriangle className="w-10 h-10 text-destructive" />
-        <h2 className="text-lg font-semibold">Failed to load billing data</h2>
+        <h2 className="text-lg font-semibold">{t("billingConfig.failedLoadBilling")}</h2>
         <p className="text-sm text-muted-foreground text-center max-w-md">{errorMsg}</p>
         <Button
           variant="outline"
@@ -221,7 +221,7 @@ export default function BillingTariffsPage() {
           }}
           data-testid="button-retry-billing"
         >
-          Retry
+          {t("common.retry")}
         </Button>
       </div>
     );
