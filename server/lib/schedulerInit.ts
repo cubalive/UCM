@@ -51,6 +51,7 @@ async function startAllSchedulerLoops(): Promise<void> {
   const { startDriverPreferenceLearningScheduler } = await import("./driverPreferenceLearning");
   const { startDemandForecastScheduler } = await import("./demandPredictionEngine");
   const { startWebhookRetryScheduler } = await import("./brokerWebhookEngine");
+  const { startDataRetentionScheduler } = await import("./dataRetentionEngine");
 
   startOpsAlertScheduler();
   startRouteScheduler();
@@ -109,6 +110,7 @@ async function startAllSchedulerLoops(): Promise<void> {
   startDriverPreferenceLearningScheduler();
   startDemandForecastScheduler();
   startWebhookRetryScheduler();
+  startDataRetentionScheduler();
 
   const { startJobProcessor } = await import("./jobProcessor");
   startJobProcessor();
@@ -130,7 +132,7 @@ async function startAllSchedulerLoops(): Promise<void> {
       "dialysis", "sms_reminder",
       "job_engine_eta", "job_engine_autoassign",
       "orchestrator", "routes_worker", "breadcrumb_flusher", "route_optimizer", "trip_grouping",
-      "medicaid_auto_submit", "driver_preference_learning", "demand_forecast", "webhook_retry",
+      "medicaid_auto_submit", "driver_preference_learning", "demand_forecast", "webhook_retry", "data_retention",
     ],
     ts: new Date().toISOString(),
   }));
