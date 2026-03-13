@@ -1041,7 +1041,6 @@ function OpsMapSection({ activeTrips, clinic, selectedTrip, onSelectTrip }: {
     const container = document.createElement("div");
     container.className = "w-full h-full ucm-map-container";
     container.style.minHeight = "300px";
-    console.log("MAP INIT clinic-ops-map");
     const map = new google.maps.Map(container, {
       center,
       zoom: 12,
@@ -2159,7 +2158,6 @@ function TripTrackingView({ tripId, onClose }: { tripId: number; onClose: () => 
       const container = document.createElement("div");
       container.className = "w-full h-full ucm-map-container";
       container.style.minHeight = "256px";
-      console.log("MAP INIT clinic-tracking");
       const map = new google.maps.Map(container, {
         center: driverPos,
         zoom: 13,
