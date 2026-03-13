@@ -15,6 +15,7 @@ import PharmacyCompliance from "./pages/PharmacyCompliance";
 import LoginPage from "@/pages/login";
 import { useState } from "react";
 import { Menu, X, Pill } from "lucide-react";
+import { usePharmacyWs } from "@/hooks/use-pharmacy-ws";
 
 const ALLOWED_ROLES = ["PHARMACY_ADMIN", "PHARMACY_USER", "SUPER_ADMIN"];
 
@@ -79,6 +80,12 @@ export function PharmacyPortalLayout() {
   if (!user) {
     return <LoginPage />;
   }
+
+  // Connect pharmacy WebSocket for real-time order updates
+  usePharmacyWs({
+    pharmacyId: user.pharmacyId,
+    enabled: true,
+  });
 
   const role = user.role.toUpperCase();
   if (!ALLOWED_ROLES.includes(role) && !user.pharmacyId) {

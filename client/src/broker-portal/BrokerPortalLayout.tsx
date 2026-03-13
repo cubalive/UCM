@@ -21,6 +21,7 @@ import BrokerSettings from "./pages/BrokerSettings";
 import LoginPage from "@/pages/login";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import { useBrokerWs } from "@/hooks/use-broker-ws";
 
 const ALLOWED_ROLES = ["BROKER_ADMIN", "BROKER_USER", "SUPER_ADMIN"];
 
@@ -68,6 +69,12 @@ export function BrokerPortalLayout() {
   if (!user) {
     return <LoginPage />;
   }
+
+  // Connect broker WebSocket for real-time trip/bid updates
+  useBrokerWs({
+    brokerId: (user as any).brokerId,
+    enabled: true,
+  });
 
   const role = user.role.toUpperCase();
   if (!ALLOWED_ROLES.includes(role)) {

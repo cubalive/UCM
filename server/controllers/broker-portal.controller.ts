@@ -344,6 +344,17 @@ export async function brokerUpdateTripRequestStatusHandler(req: AuthRequest, res
       performedBy: req.user?.userId,
     });
 
+    // Broadcast status change to broker portal subscribers
+    try {
+      const { broadcastBrokerTripUpdate } = await import("../lib/tripTransitionHelper");
+      broadcastBrokerTripUpdate(brokerId, {
+        type: "request_status_change",
+        requestId,
+        status,
+        publicId: updated.publicId,
+      });
+    } catch {}
+
     res.json({ request: updated });
   } catch (err: any) {
     console.error("[BrokerUpdateTripRequest]", err);
@@ -430,6 +441,18 @@ export async function brokerSubmitBidHandler(req: AuthRequest, res: Response) {
       performedBy: req.user?.userId,
     });
 
+    // Notify broker that a new bid was submitted
+    try {
+      const { broadcastBrokerTripUpdate } = await import("../lib/tripTransitionHelper");
+      broadcastBrokerTripUpdate(request.brokerId, {
+        type: "bid_submitted",
+        requestId,
+        bidId: bid.id,
+        companyId,
+        bidAmount,
+      });
+    } catch {}
+
     res.status(201).json({ bid });
   } catch (err: any) {
     console.error("[BrokerSubmitBid]", err);
@@ -514,6 +537,20 @@ export async function brokerAwardBidHandler(req: AuthRequest, res: Response) {
       console.error("[BrokerAwardBid] Trip creation failed:", tripErr.message);
       // Award still stands — trip can be created manually
     }
+
+    // Broadcast to broker portal via WebSocket
+    try {
+      const { broadcastBrokerTripUpdate } = await import("../lib/tripTransitionHelper");
+      broadcastBrokerTripUpdate(brokerId, {
+        type: "bid_awarded",
+        requestId: request.id,
+        bidId,
+        tripId: createdTripId,
+        status: "AWARDED",
+        awardedCompanyId: bid.companyId,
+        bidAmount: bid.bidAmount,
+      });
+    } catch {}
 
     res.json({ success: true, message: "Bid awarded successfully", tripId: createdTripId });
   } catch (err: any) {

@@ -278,6 +278,56 @@ function handleMessage(ws: WebSocket, msg: any): void {
       ws.send(JSON.stringify({ type: "unsubscribed_clinic", clinicId }));
       break;
     }
+    case "subscribe_pharmacy": {
+      const user = (ws as any)._user;
+      if (!user) return;
+      const pharmacyId = parseInt(msg.pharmacyId);
+      if (isNaN(pharmacyId)) return;
+      if (user.role !== "SUPER_ADMIN") {
+        const hasAccess = user.pharmacyId != null && user.pharmacyId === pharmacyId;
+        if (!hasAccess && !["ADMIN", "COMPANY_ADMIN"].includes(user.role)) {
+          ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+          return;
+        }
+      }
+      const { subscribeToPharmacyChannel } = require("./tripTransitionHelper");
+      subscribeToPharmacyChannel(ws, pharmacyId);
+      ws.send(JSON.stringify({ type: "subscribed_pharmacy", pharmacyId }));
+      break;
+    }
+    case "unsubscribe_pharmacy": {
+      const pharmacyId = parseInt(msg.pharmacyId);
+      if (isNaN(pharmacyId)) return;
+      const { unsubscribeFromPharmacyChannel } = require("./tripTransitionHelper");
+      unsubscribeFromPharmacyChannel(ws, pharmacyId);
+      ws.send(JSON.stringify({ type: "unsubscribed_pharmacy", pharmacyId }));
+      break;
+    }
+    case "subscribe_broker": {
+      const user = (ws as any)._user;
+      if (!user) return;
+      const brokerId = parseInt(msg.brokerId);
+      if (isNaN(brokerId)) return;
+      if (user.role !== "SUPER_ADMIN") {
+        const hasAccess = user.brokerId != null && user.brokerId === brokerId;
+        if (!hasAccess && !["ADMIN", "COMPANY_ADMIN"].includes(user.role)) {
+          ws.send(JSON.stringify({ type: "error", message: "access_denied" }));
+          return;
+        }
+      }
+      const { subscribeToBrokerChannel } = require("./tripTransitionHelper");
+      subscribeToBrokerChannel(ws, brokerId);
+      ws.send(JSON.stringify({ type: "subscribed_broker", brokerId }));
+      break;
+    }
+    case "unsubscribe_broker": {
+      const brokerId = parseInt(msg.brokerId);
+      if (isNaN(brokerId)) return;
+      const { unsubscribeFromBrokerChannel } = require("./tripTransitionHelper");
+      unsubscribeFromBrokerChannel(ws, brokerId);
+      ws.send(JSON.stringify({ type: "unsubscribed_broker", brokerId }));
+      break;
+    }
     case "subscribe_driver": {
       const user = (ws as any)._user;
       if (!user) return;

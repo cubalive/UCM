@@ -285,6 +285,46 @@ export async function transitionTripStatus(
     publicId: updatedTrip.publicId,
   });
 
+  // Broadcast to pharmacy portal if this trip originated from a pharmacy order
+  if (updatedTrip.requestSource === "pharmacy") {
+    try {
+      const { pharmacyOrders } = await import("@shared/schema");
+      const [order] = await db.select().from(pharmacyOrders)
+        .where(eq(pharmacyOrders.tripId, tripId))
+        .limit(1);
+      if (order?.pharmacyId) {
+        broadcastPharmacyOrderUpdate(order.pharmacyId, {
+          type: "trip_status_change",
+          orderId: order.id,
+          tripId,
+          status: nextStatus,
+          previousStatus,
+          driverId: updatedTrip.driverId,
+        });
+      }
+    } catch {}
+  }
+
+  // Broadcast to broker portal if this trip originated from a broker request
+  if (updatedTrip.requestSource === "broker") {
+    try {
+      const { brokerTripRequests } = await import("@shared/schema");
+      const [request] = await db.select().from(brokerTripRequests)
+        .where(eq(brokerTripRequests.tripId, tripId))
+        .limit(1);
+      if (request?.brokerId) {
+        broadcastBrokerTripUpdate(request.brokerId, {
+          type: "trip_status_change",
+          requestId: request.id,
+          tripId,
+          status: nextStatus,
+          previousStatus,
+          driverId: updatedTrip.driverId,
+        });
+      }
+    } catch {}
+  }
+
   if (updatedTrip.driverId && ["ARRIVED_PICKUP", "PICKED_UP", "ARRIVED_DROPOFF", "EN_ROUTE_TO_DROPOFF"].includes(nextStatus)) {
     try {
       const { persistOnStatusEvent, getDriverLocationFromCache } = await import("./driverLocationIngest");
@@ -405,6 +445,8 @@ export async function transitionTripStatus(
 
 const companyChannelSubscriptions = new Map<number, Set<import("ws").WebSocket>>();
 const clinicChannelSubscriptions = new Map<number, Set<import("ws").WebSocket>>();
+const pharmacyChannelSubscriptions = new Map<number, Set<import("ws").WebSocket>>();
+const brokerChannelSubscriptions = new Map<number, Set<import("ws").WebSocket>>();
 
 export function subscribeToCompanyChannel(ws: import("ws").WebSocket, companyId: number): void {
   let subs = companyChannelSubscriptions.get(companyId);
@@ -476,6 +518,76 @@ export function broadcastClinicTripUpdate(clinicId: number, data: any): void {
   if (subs.size === 0) clinicChannelSubscriptions.delete(clinicId);
 }
 
+// ─── Pharmacy Channel ─────────────────────────────────────────────────────
+
+export function subscribeToPharmacyChannel(ws: import("ws").WebSocket, pharmacyId: number): void {
+  let subs = pharmacyChannelSubscriptions.get(pharmacyId);
+  if (!subs) {
+    subs = new Set();
+    pharmacyChannelSubscriptions.set(pharmacyId, subs);
+  }
+  subs.add(ws);
+}
+
+export function unsubscribeFromPharmacyChannel(ws: import("ws").WebSocket, pharmacyId: number): void {
+  const subs = pharmacyChannelSubscriptions.get(pharmacyId);
+  if (subs) {
+    subs.delete(ws);
+    if (subs.size === 0) pharmacyChannelSubscriptions.delete(pharmacyId);
+  }
+}
+
+export function broadcastPharmacyOrderUpdate(pharmacyId: number, data: any): void {
+  const subs = pharmacyChannelSubscriptions.get(pharmacyId);
+  if (!subs || subs.size === 0) return;
+
+  const { WebSocket } = require("ws");
+  const payload = JSON.stringify({ type: "order_update", pharmacyId, data, ts: Date.now() });
+  for (const ws of subs) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+    } else {
+      subs.delete(ws);
+    }
+  }
+  if (subs.size === 0) pharmacyChannelSubscriptions.delete(pharmacyId);
+}
+
+// ─── Broker Channel ───────────────────────────────────────────────────────
+
+export function subscribeToBrokerChannel(ws: import("ws").WebSocket, brokerId: number): void {
+  let subs = brokerChannelSubscriptions.get(brokerId);
+  if (!subs) {
+    subs = new Set();
+    brokerChannelSubscriptions.set(brokerId, subs);
+  }
+  subs.add(ws);
+}
+
+export function unsubscribeFromBrokerChannel(ws: import("ws").WebSocket, brokerId: number): void {
+  const subs = brokerChannelSubscriptions.get(brokerId);
+  if (subs) {
+    subs.delete(ws);
+    if (subs.size === 0) brokerChannelSubscriptions.delete(brokerId);
+  }
+}
+
+export function broadcastBrokerTripUpdate(brokerId: number, data: any): void {
+  const subs = brokerChannelSubscriptions.get(brokerId);
+  if (!subs || subs.size === 0) return;
+
+  const { WebSocket } = require("ws");
+  const payload = JSON.stringify({ type: "broker_update", brokerId, data, ts: Date.now() });
+  for (const ws of subs) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+    } else {
+      subs.delete(ws);
+    }
+  }
+  if (subs.size === 0) brokerChannelSubscriptions.delete(brokerId);
+}
+
 export function cleanupChannelSubscriptions(ws: import("ws").WebSocket): void {
   for (const [companyId, subs] of companyChannelSubscriptions) {
     subs.delete(ws);
@@ -484,6 +596,14 @@ export function cleanupChannelSubscriptions(ws: import("ws").WebSocket): void {
   for (const [clinicId, subs] of clinicChannelSubscriptions) {
     subs.delete(ws);
     if (subs.size === 0) clinicChannelSubscriptions.delete(clinicId);
+  }
+  for (const [pharmacyId, subs] of pharmacyChannelSubscriptions) {
+    subs.delete(ws);
+    if (subs.size === 0) pharmacyChannelSubscriptions.delete(pharmacyId);
+  }
+  for (const [brokerId, subs] of brokerChannelSubscriptions) {
+    subs.delete(ws);
+    if (subs.size === 0) brokerChannelSubscriptions.delete(brokerId);
   }
 }
 
@@ -496,6 +616,18 @@ export function getCompanyChannelCount(): number {
 export function getClinicChannelCount(): number {
   let total = 0;
   for (const subs of clinicChannelSubscriptions.values()) total += subs.size;
+  return total;
+}
+
+export function getPharmacyChannelCount(): number {
+  let total = 0;
+  for (const subs of pharmacyChannelSubscriptions.values()) total += subs.size;
+  return total;
+}
+
+export function getBrokerChannelCount(): number {
+  let total = 0;
+  for (const subs of brokerChannelSubscriptions.values()) total += subs.size;
   return total;
 }
 
