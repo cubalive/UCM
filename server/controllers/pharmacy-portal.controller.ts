@@ -959,22 +959,32 @@ export async function pharmacyInventoryAddHandler(req: AuthRequest, res: Respons
     if (!pharmacyId) return res.status(403).json({ message: "Pharmacy scope required" });
 
     const { medicationName, ndc, stockLevel, lowStockThreshold = 10, isControlled, requiresRefrigeration } = req.body;
-    if (!medicationName) return res.status(400).json({ message: "medicationName required" });
+    if (!medicationName || typeof medicationName !== "string" || medicationName.trim().length === 0) {
+      return res.status(400).json({ message: "medicationName required" });
+    }
+    const parsedStock = Number(stockLevel);
+    const parsedThreshold = Number(lowStockThreshold);
+    if (stockLevel !== undefined && (isNaN(parsedStock) || parsedStock < 0)) {
+      return res.status(400).json({ message: "stockLevel must be a non-negative number" });
+    }
+    if (isNaN(parsedThreshold) || parsedThreshold < 0) {
+      return res.status(400).json({ message: "lowStockThreshold must be a non-negative number" });
+    }
 
     const [item] = await db.insert(pharmacyInventory).values({
       pharmacyId,
-      medicationName,
+      medicationName: medicationName.trim(),
       ndc: ndc || null,
-      stockLevel: Number(stockLevel) || 0,
-      lowStockThreshold: Number(lowStockThreshold),
-      isControlled: isControlled || false,
-      requiresRefrigeration: requiresRefrigeration || false,
+      stockLevel: parsedStock || 0,
+      lowStockThreshold: parsedThreshold,
+      isControlled: !!isControlled,
+      requiresRefrigeration: !!requiresRefrigeration,
     }).returning();
 
-    if (Number(stockLevel) > 0) {
+    if (parsedStock > 0) {
       await db.insert(pharmacyInventoryAdjustments).values({
         inventoryItemId: item.id,
-        adjustment: Number(stockLevel),
+        adjustment: parsedStock,
         reason: "Initial stock",
         performedBy: req.user?.userId,
       });
@@ -1101,22 +1111,40 @@ export async function pharmacyPrescriptionCreateHandler(req: AuthRequest, res: R
       isControlled, scheduleClass,
     } = req.body;
 
-    if (!rxNumber || !medicationName || !patientName) {
-      return res.status(400).json({ message: "rxNumber, medicationName, and patientName are required" });
+    if (!rxNumber || typeof rxNumber !== "string" || rxNumber.trim().length === 0) {
+      return res.status(400).json({ message: "rxNumber is required" });
+    }
+    if (!medicationName || typeof medicationName !== "string" || medicationName.trim().length === 0) {
+      return res.status(400).json({ message: "medicationName is required" });
+    }
+    if (!patientName || typeof patientName !== "string" || patientName.trim().length === 0) {
+      return res.status(400).json({ message: "patientName is required" });
+    }
+    const parsedQty = quantity !== undefined ? Number(quantity) : 1;
+    const parsedRefillsRem = refillsRemaining !== undefined ? Number(refillsRemaining) : 0;
+    const parsedRefillsTotal = refillsTotal !== undefined ? Number(refillsTotal) : 0;
+    if (isNaN(parsedQty) || parsedQty < 1) {
+      return res.status(400).json({ message: "quantity must be a positive number" });
+    }
+    if (isNaN(parsedRefillsRem) || parsedRefillsRem < 0) {
+      return res.status(400).json({ message: "refillsRemaining must be non-negative" });
+    }
+    if (isNaN(parsedRefillsTotal) || parsedRefillsTotal < 0) {
+      return res.status(400).json({ message: "refillsTotal must be non-negative" });
     }
 
     const [rx] = await db.insert(pharmacyPrescriptions).values({
       pharmacyId,
-      rxNumber,
-      medicationName,
+      rxNumber: rxNumber.trim(),
+      medicationName: medicationName.trim(),
       ndc: ndc || null,
-      patientName,
+      patientName: patientName.trim(),
       prescriber: prescriber || null,
-      quantity: Number(quantity) || 1,
+      quantity: parsedQty,
       unit: unit || "each",
-      refillsRemaining: Number(refillsRemaining) || 0,
-      refillsTotal: Number(refillsTotal) || 0,
-      isControlled: isControlled || false,
+      refillsRemaining: parsedRefillsRem,
+      refillsTotal: parsedRefillsTotal,
+      isControlled: !!isControlled,
       scheduleClass: scheduleClass || null,
       validationStatus: isControlled ? "PENDING_VERIFICATION" : "VALID",
     }).returning();

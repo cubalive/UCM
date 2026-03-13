@@ -1587,8 +1587,21 @@ export async function brokerCreateDisputeHandler(req: AuthRequest, res: Response
     }
 
     const { tripRequestId, companyId, category, subject, description, priority } = req.body;
-    if (!subject || !description) {
-      return res.status(400).json({ message: "Subject and description are required" });
+    if (!subject || typeof subject !== "string" || subject.trim().length === 0) {
+      return res.status(400).json({ message: "Subject is required" });
+    }
+    if (!description || typeof description !== "string" || description.trim().length === 0) {
+      return res.status(400).json({ message: "Description is required" });
+    }
+    const validCategories = ["GENERAL", "BILLING", "SERVICE_QUALITY", "COMPLIANCE", "LATE_ARRIVAL", "NO_SHOW", "DAMAGE"];
+    const validPriorities = ["LOW", "MEDIUM", "HIGH", "URGENT"];
+    const safeCategory = validCategories.includes(category) ? category : "GENERAL";
+    const safePriority = validPriorities.includes(priority) ? priority : "MEDIUM";
+    if (tripRequestId && (typeof tripRequestId !== "number" || tripRequestId < 1)) {
+      return res.status(400).json({ message: "Invalid tripRequestId" });
+    }
+    if (companyId && (typeof companyId !== "number" || companyId < 1)) {
+      return res.status(400).json({ message: "Invalid companyId" });
     }
 
     const [dispute] = await db
@@ -1597,10 +1610,10 @@ export async function brokerCreateDisputeHandler(req: AuthRequest, res: Response
         brokerId,
         tripRequestId: tripRequestId || null,
         companyId: companyId || null,
-        category: category || "GENERAL",
-        subject,
-        description,
-        priority: priority || "MEDIUM",
+        category: safeCategory,
+        subject: subject.trim().slice(0, 500),
+        description: description.trim().slice(0, 5000),
+        priority: safePriority,
         status: "OPEN",
         createdBy: req.user?.userId,
       })
