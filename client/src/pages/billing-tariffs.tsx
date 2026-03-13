@@ -231,12 +231,12 @@ export default function BillingTariffsPage() {
     <div className="p-4 space-y-6 max-w-7xl mx-auto" data-testid="billing-tariffs-page">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Billing Configuration</h1>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("billingConfig.title")}</h1>
           {isSuperAdmin && (
             <Select value={companyScopeId || ""} onValueChange={handleCompanyChange}>
               <SelectTrigger className="w-52" data-testid="select-company-switch">
                 <Building2 className="w-4 h-4 mr-1 text-muted-foreground shrink-0" />
-                <SelectValue placeholder="Switch company..." />
+                <SelectValue placeholder={t("billingConfig.switchCompany")} />
               </SelectTrigger>
               <SelectContent>
                 {(companiesQuery.data || []).map((c: any) => (
