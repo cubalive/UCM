@@ -360,6 +360,20 @@ export async function dispatchApproveTripRequest(req: AuthRequest, res: Response
       console.warn("[APPROVE] Auto-assign failed:", err.message);
     }
 
+    // Broadcast approval to clinic via WebSocket
+    if (request.clinicId) {
+      try {
+        const { broadcastClinicTripUpdate } = await import("../lib/tripTransitionHelper");
+        broadcastClinicTripUpdate(request.clinicId, {
+          type: "request_status_change",
+          requestId: id,
+          status: "APPROVED",
+          tripId: trip.id,
+          returnTripId,
+        });
+      } catch {}
+    }
+
     return res.json({
       message: "Trip request approved",
       tripId: trip.id,
@@ -398,6 +412,19 @@ export async function dispatchRejectTripRequest(req: AuthRequest, res: Response)
       .where(eq(tripRequests.id, id))
       .returning();
 
+    // Broadcast rejection to clinic via WebSocket
+    if (request.clinicId) {
+      try {
+        const { broadcastClinicTripUpdate } = await import("../lib/tripTransitionHelper");
+        broadcastClinicTripUpdate(request.clinicId, {
+          type: "request_status_change",
+          requestId: id,
+          status: "REJECTED",
+          reason: req.body.reason || null,
+        });
+      } catch {}
+    }
+
     return res.json(updated);
   } catch (err: any) {
     console.error("Error rejecting trip request:", err);
@@ -425,6 +452,19 @@ export async function dispatchNeedsInfoTripRequest(req: AuthRequest, res: Respon
       })
       .where(eq(tripRequests.id, id))
       .returning();
+
+    // Broadcast needs-info to clinic via WebSocket
+    if (request.clinicId) {
+      try {
+        const { broadcastClinicTripUpdate } = await import("../lib/tripTransitionHelper");
+        broadcastClinicTripUpdate(request.clinicId, {
+          type: "request_status_change",
+          requestId: id,
+          status: "NEEDS_INFO",
+          notes: req.body.notes || null,
+        });
+      } catch {}
+    }
 
     if (req.body.message) {
       const [thread] = await db.select().from(chatThreads)

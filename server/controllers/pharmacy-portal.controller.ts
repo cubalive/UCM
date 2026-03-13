@@ -345,6 +345,17 @@ export async function pharmacyUpdateOrderStatusHandler(req: AuthRequest, res: Re
       performedBy: req.user?.userId,
     });
 
+    // Broadcast status change to pharmacy portal subscribers
+    try {
+      const { broadcastPharmacyOrderUpdate } = await import("../lib/tripTransitionHelper");
+      broadcastPharmacyOrderUpdate(pharmacyId, {
+        type: "order_status_change",
+        orderId,
+        status,
+        publicId: updated.publicId,
+      });
+    } catch {}
+
     res.json({ order: updated });
   } catch (err: any) {
     console.error("[PharmacyUpdateOrder]", err);
@@ -843,6 +854,20 @@ export async function dispatchAssignPharmacyDeliveryHandler(req: AuthRequest, re
     // Notify driver
     const { notifyPharmacyOrderUpdate } = await import("../lib/pharmacyNotifications");
     notifyPharmacyOrderUpdate(orderId, "DRIVER_ASSIGNED").catch(() => {});
+
+    // Broadcast to pharmacy portal via WebSocket
+    if (updated.pharmacyId) {
+      try {
+        const { broadcastPharmacyOrderUpdate } = await import("../lib/tripTransitionHelper");
+        broadcastPharmacyOrderUpdate(updated.pharmacyId, {
+          type: "order_status_change",
+          orderId,
+          status: "DRIVER_ASSIGNED",
+          driverId,
+          publicId: updated.publicId,
+        });
+      } catch {}
+    }
 
     res.json({ success: true, order: updated });
   } catch (err: any) {

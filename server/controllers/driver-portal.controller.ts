@@ -2287,6 +2287,86 @@ export async function getDriverEarningsHandler(req: AuthRequest, res: Response) 
   }
 }
 
+export async function getDriverTripHistoryHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+    const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const completedTrips = await db.select().from(trips)
+      .where(and(
+        eq(trips.driverId, user.driverId),
+        eq(trips.status, "COMPLETED"),
+        isNull(trips.deletedAt),
+      ))
+      .orderBy(desc(trips.completedAt))
+      .limit(limit)
+      .offset(offset);
+
+    if (completedTrips.length === 0) {
+      return res.json({ trips: [] });
+    }
+
+    const billingRecords = await db.select().from(tripBilling)
+      .where(inArray(tripBilling.tripId, completedTrips.map(t => t.id)));
+
+    const billingMap = new Map(billingRecords.map(b => [b.tripId, b]));
+
+    // Load patient names
+    const patientIds = [...new Set(completedTrips.map(t => t.patientId).filter(Boolean))] as number[];
+    let patientMap = new Map<number, string>();
+    if (patientIds.length > 0) {
+      const { patients } = await import("@shared/schema");
+      const batchPatients = await db.select({ id: patients.id, firstName: patients.firstName, lastName: patients.lastName })
+        .from(patients).where(inArray(patients.id, patientIds));
+      patientMap = new Map(batchPatients.map(p => [p.id, `${p.firstName} ${p.lastName}`]));
+    }
+
+    const tripItems = completedTrips.map(t => {
+      const billing = billingMap.get(t.id);
+      const startTime = t.startedAt ? new Date(t.startedAt).getTime() : 0;
+      const endTime = t.completedAt ? new Date(t.completedAt).getTime() : 0;
+      const durationMinutes = startTime && endTime ? Math.round((endTime - startTime) / 60000) : null;
+
+      return {
+        id: t.id,
+        publicId: t.publicId,
+        completedAt: t.completedAt,
+        patientName: t.patientId ? patientMap.get(t.patientId) || "Patient" : "Patient",
+        totalCents: billing?.totalCents || 0,
+        distanceMiles: (t as any).actualMiles || (t as any).estimatedMiles || null,
+        durationMinutes,
+        serviceType: (t as any).serviceType || "transport",
+        pickupAddress: t.pickupAddress,
+        dropoffAddress: t.dropoffAddress,
+      };
+    });
+
+    res.json({ trips: tripItems });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+export async function getDriverPaymentMethodsHandler(req: AuthRequest, res: Response) {
+  try {
+    const user = await storage.getUser(req.user!.userId);
+    if (!user?.driverId) return res.status(403).json({ message: "No driver profile linked" });
+
+    // Drivers typically receive payouts via direct deposit configured by admin
+    // Return a standard "Direct Deposit" method for display
+    res.json({
+      methods: [],
+      payoutMethod: "direct_deposit",
+      message: "Payouts are processed via direct deposit. Contact your dispatcher for details.",
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 export async function postDriverEmergencyHandler(req: AuthRequest, res: Response) {
   try {
     const user = await storage.getUser(req.user!.userId);
@@ -2632,17 +2712,31 @@ export async function getDriverScheduleHandler(req: AuthRequest, res: Response) 
         sql`${trips.status} NOT IN ('COMPLETED','CANCELLED','NO_SHOW')`,
       )).orderBy(trips.scheduledDate, trips.pickupTime);
 
+    // Batch-load patient names for schedule display
+    const patientIds = [...new Set(scheduled.map(t => t.patientId).filter(Boolean))] as number[];
+    let patientMap = new Map<number, string>();
+    if (patientIds.length > 0) {
+      const { patients } = await import("@shared/schema");
+      const batchPatients = await db.select({ id: patients.id, firstName: patients.firstName, lastName: patients.lastName })
+        .from(patients).where(inArray(patients.id, patientIds));
+      patientMap = new Map(batchPatients.map(p => [p.id, `${p.firstName} ${p.lastName}`]));
+    }
+
     const items = scheduled.map(trip => ({
+      id: trip.id,
       tripId: trip.id,
       publicId: trip.publicId,
       date: trip.scheduledDate,
-      time: trip.pickupTime,
+      pickupTime: trip.pickupTime,
+      scheduledTime: trip.pickupTime,
       pickupAddress: trip.pickupAddress,
       dropoffAddress: trip.dropoffAddress,
       status: trip.status,
+      patientName: trip.patientId ? patientMap.get(trip.patientId) || "Patient" : "Patient",
+      serviceType: (trip as any).serviceType || "transport",
     }));
 
-    res.json({ items });
+    res.json({ trips: items, items });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

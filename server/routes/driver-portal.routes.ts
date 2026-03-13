@@ -75,6 +75,8 @@ import {
   markNoShowHandler,
   getWaitConfigHandler,
   postDriverTelemetryHandler,
+  getDriverTripHistoryHandler,
+  getDriverPaymentMethodsHandler,
 } from "../controllers/driver-portal.controller";
 
 const router = express.Router();
@@ -137,7 +139,9 @@ router.delete("/api/driver/push-token", authMiddleware, requireRole("DRIVER"), d
 router.get("/api/driver/score-history", authMiddleware, requireRole("DRIVER"), getDriverScoreHistoryHandler as any);
 
 router.get("/api/driver/trips", authMiddleware, requireRole("DRIVER"), getDriverTripsHandler as any);
+router.get("/api/driver/trip-history", authMiddleware, requireRole("DRIVER"), getDriverTripHistoryHandler as any);
 router.get("/api/driver/earnings", authMiddleware, requireRole("DRIVER"), getDriverEarningsHandler as any);
+router.get("/api/driver/payment-methods", authMiddleware, requireRole("DRIVER"), getDriverPaymentMethodsHandler as any);
 router.post("/api/driver/emergency", authMiddleware, requireRole("DRIVER"), postDriverEmergencyHandler as any);
 
 router.post("/api/driver/connect", authMiddleware, requireRole("DRIVER"), postDriverConnectHandler as any);

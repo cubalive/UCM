@@ -6,7 +6,19 @@ import { showToast } from "../components/ui/Toast";
 
 export type DriverStatus = "offline" | "online";
 export type ShiftStatus = "offShift" | "onShift";
-export type ServiceFilter = "all" | "transport" | "delivery" | "ambulatory" | "wheelchair" | "stretcher" | "bariatric" | "gurney" | "long_distance" | "multi_load";
+export type ServiceType = "transport" | "delivery" | "ambulatory" | "wheelchair" | "stretcher" | "bariatric" | "gurney" | "long_distance" | "multi_load";
+export type ServiceFilter = "all" | ServiceType;
+
+// Map vehicle capabilities to allowed service types
+const VEHICLE_SERVICE_MAP: Record<string, ServiceType[]> = {
+  sedan: ["ambulatory", "delivery", "long_distance"],
+  suv: ["ambulatory", "delivery", "long_distance", "multi_load"],
+  wheelchair: ["ambulatory", "wheelchair", "delivery", "long_distance"],
+  stretcher: ["ambulatory", "wheelchair", "stretcher", "delivery", "long_distance"],
+  both: ["ambulatory", "wheelchair", "delivery", "long_distance"],
+  bariatric: ["ambulatory", "wheelchair", "bariatric", "delivery", "long_distance"],
+  gurney: ["ambulatory", "wheelchair", "stretcher", "gurney", "delivery", "long_distance"],
+};
 
 const SERVICE_LABELS: Record<string, string> = {
   transport: "Medical",
@@ -67,6 +79,26 @@ export interface TripOffer {
   estimatedTripMinutes?: number;
 }
 
+export interface PharmacyDelivery {
+  id: number;
+  publicId: string;
+  status: string;
+  priority: string;
+  pickupAddress: string;
+  pickupLat: string | null;
+  pickupLng: string | null;
+  deliveryAddress: string;
+  deliveryLat: string | null;
+  deliveryLng: string | null;
+  recipientName: string | null;
+  recipientPhone: string | null;
+  isControlledSubstance: boolean;
+  requiresSignature: boolean;
+  requiresIdVerification: boolean;
+  temperatureRequirement: string | null;
+  items: { medicationName: string; quantity: number; isControlled: boolean }[];
+}
+
 export interface NextAction {
   label: string;
   actionKey: string;
@@ -86,12 +118,16 @@ interface DriverState {
   rating: number;
   completedRides: number;
   serviceFilter: ServiceFilter;
+  activeServiceFilters: ServiceType[];
+  vehicleCapability: string;
+  allowedServiceTypes: ServiceType[];
   navPreference: "ask" | "google" | "apple" | "waze";
   driverName: string;
   driverInitials: string;
   driverLat: number | null;
   driverLng: number | null;
   driverHeading: number | null;
+  pharmacyDeliveries: PharmacyDelivery[];
   loading: boolean;
   actionLoading: boolean;
   error: string | null;
@@ -111,11 +147,14 @@ interface DriverState {
   markArrivedDropoff: () => Promise<void>;
   completeTrip: () => Promise<void>;
   setServiceFilter: (f: ServiceFilter) => void;
+  toggleServiceFilter: (s: ServiceType) => void;
   setNavPreference: (p: "ask" | "google" | "apple" | "waze") => void;
   pollOffers: () => Promise<void>;
   pollActiveTrip: () => Promise<void>;
   updateLocation: (lat: number, lng: number, heading?: number) => void;
   reportEmergency: (note?: string) => Promise<void>;
+  pollPharmacyDeliveries: () => Promise<void>;
+  advancePharmacyStatus: (orderId: number, newStatus: string) => Promise<void>;
   getNextAction: () => NextAction;
 }
 
@@ -189,12 +228,16 @@ export const useDriverStore = create<DriverState>()(
   rating: 0,
   completedRides: 0,
   serviceFilter: "all",
+  activeServiceFilters: [],
+  vehicleCapability: "sedan",
+  allowedServiceTypes: ["ambulatory", "delivery", "long_distance"],
   navPreference: "ask",
   driverName: "",
   driverInitials: "",
   driverLat: null,
   driverLng: null,
   driverHeading: null,
+  pharmacyDeliveries: [],
   loading: false,
   actionLoading: false,
   error: null,
@@ -213,6 +256,9 @@ export const useDriverStore = create<DriverState>()(
       const firstName = driver.firstName || "";
       const lastName = driver.lastName || "";
 
+      const capability = driver.vehicleCapability || driver.assignedVehicle?.category || "sedan";
+      const allowed = VEHICLE_SERVICE_MAP[capability] || VEHICLE_SERVICE_MAP.sedan;
+
       set({
         driverName: driver.displayName || `${firstName} ${lastName}`,
         driverInitials: `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase(),
@@ -222,6 +268,9 @@ export const useDriverStore = create<DriverState>()(
         completedRides: summary?.today?.completed ?? 0,
         earningsWeek: earnings ? earnings.totalCents / 100 : 0,
         earningsToday: 0,
+        vehicleCapability: capability,
+        allowedServiceTypes: allowed,
+        activeServiceFilters: allowed, // Start with all allowed types active
       });
 
       if (summary?.activeTripId) {
@@ -229,6 +278,8 @@ export const useDriverStore = create<DriverState>()(
       } else {
         await get().pollOffers();
       }
+      // Also poll for pharmacy deliveries
+      get().pollPharmacyDeliveries();
     } catch (err: any) {
       set({ error: err.message });
     } finally {
@@ -378,8 +429,27 @@ export const useDriverStore = create<DriverState>()(
   completeTrip: async () => { await get().advanceTripStatus("COMPLETED"); },
 
   setServiceFilter: (f) => {
-    set({ serviceFilter: f });
-    // Re-poll offers with the new filter
+    if (f === "all") {
+      set({ serviceFilter: "all", activeServiceFilters: get().allowedServiceTypes });
+    } else {
+      set({ serviceFilter: f, activeServiceFilters: [f] });
+    }
+    get().pollOffers();
+  },
+
+  toggleServiceFilter: (s) => {
+    const current = get().activeServiceFilters;
+    const allowed = get().allowedServiceTypes;
+    let next: ServiceType[];
+    if (current.includes(s)) {
+      next = current.filter(x => x !== s);
+      if (next.length === 0) next = allowed; // Can't deselect all
+    } else {
+      if (!allowed.includes(s)) return; // Not allowed for this vehicle
+      next = [...current, s];
+    }
+    const isAll = next.length === allowed.length && allowed.every(a => next.includes(a));
+    set({ activeServiceFilters: next, serviceFilter: isAll ? "all" : next[0] });
     get().pollOffers();
   },
 
@@ -390,8 +460,10 @@ export const useDriverStore = create<DriverState>()(
 
   pollOffers: async () => {
     try {
-      const filter = get().serviceFilter;
-      const qs = filter !== "all" ? `?serviceType=${filter}` : "";
+      const filters = get().activeServiceFilters;
+      const allAllowed = get().allowedServiceTypes;
+      const isAll = filters.length === allAllowed.length;
+      const qs = !isAll && filters.length > 0 ? `?serviceType=${filters.join(",")}` : "";
       const data = await driverApi(`/api/driver/offers/active${qs}`);
       const offers = data.offers || [];
       if (offers.length > 0) {
@@ -444,6 +516,47 @@ export const useDriverStore = create<DriverState>()(
       method: "POST",
       body: JSON.stringify({ lat, lng, heading, ts: Date.now(), source: "gps" }),
     }).catch(() => {});
+  },
+
+  pollPharmacyDeliveries: async () => {
+    try {
+      const data = await driverApi("/api/driver/pharmacy-deliveries");
+      const deliveries = (data.deliveries || []).map((d: any) => ({
+        id: d.id,
+        publicId: d.publicId,
+        status: d.status,
+        priority: d.priority || "STANDARD",
+        pickupAddress: d.pickupAddress || "",
+        pickupLat: d.pickupLat,
+        pickupLng: d.pickupLng,
+        deliveryAddress: d.deliveryAddress || "",
+        deliveryLat: d.deliveryLat,
+        deliveryLng: d.deliveryLng,
+        recipientName: d.recipientName,
+        recipientPhone: d.recipientPhone,
+        isControlledSubstance: d.isControlledSubstance || false,
+        requiresSignature: d.requiresSignature || false,
+        requiresIdVerification: d.requiresIdVerification || false,
+        temperatureRequirement: d.temperatureRequirement,
+        items: d.items || [],
+      }));
+      set({ pharmacyDeliveries: deliveries });
+    } catch {}
+  },
+
+  advancePharmacyStatus: async (orderId: number, newStatus: string) => {
+    set({ actionLoading: true });
+    try {
+      await driverApi(`/api/driver/deliveries/${orderId}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      showToast("success", `Delivery status: ${newStatus.replace(/_/g, " ").toLowerCase()}`);
+      await get().pollPharmacyDeliveries();
+      set({ actionLoading: false });
+    } catch (err: any) {
+      handleError(err, "Delivery update failed", set);
+    }
   },
 
   reportEmergency: async (note?) => {
