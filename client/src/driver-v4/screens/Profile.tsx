@@ -198,6 +198,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
 
   // Expandable sections
   const [showVehicleDetail, setShowVehicleDetail] = useState(false);
+  const [showDocumentsDetail, setShowDocumentsDetail] = useState(false);
   const [showSafetyDetail, setShowSafetyDetail] = useState(false);
 
   // Auto-accept state
@@ -490,7 +491,37 @@ export function Profile({ onBack }: { onBack: () => void }) {
               </motion.div>
             )}
           </AnimatePresence>
-          <SettingsRow icon={<FileText className="w-4 h-4" />} label="Documents" value={documentCount !== null ? `${documentCount} uploaded` : "-"} accent={colors.sky} onPress={() => window.open("/driver/documents", "_self")} testID="row-documents" />
+          <SettingsRow icon={<FileText className="w-4 h-4" />} label="Documents" value={documentCount !== null ? `${documentCount} uploaded` : "-"} accent={colors.sky} onPress={() => setShowDocumentsDetail(!showDocumentsDetail)} testID="row-documents" />
+          <AnimatePresence>
+            {showDocumentsDetail && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="py-3 px-1 space-y-2">
+                  <div className="flex items-start gap-3 px-3 py-2.5 rounded-xl" style={{ background: glowColor(colors.sky, 0.06), border: `1px solid ${glowColor(colors.sky, 0.12)}` }}>
+                    <FileText className="w-4 h-4 mt-0.5" style={{ color: colors.sky }} />
+                    <div>
+                      <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Document Management</p>
+                      <p className="text-[10px]" style={{ color: colors.textTertiary }}>
+                        Your documents (license, insurance, vehicle registration) are managed by your dispatcher. Contact them to upload or update documents.
+                      </p>
+                    </div>
+                  </div>
+                  {documentCount !== null && documentCount > 0 && (
+                    <div className="flex items-center gap-3 px-3 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
+                      <Info className="w-3.5 h-3.5" style={{ color: colors.success }} />
+                      <p className="text-[10px]" style={{ color: colors.textSecondary }}>
+                        {documentCount} document{documentCount !== 1 ? "s" : ""} on file
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <SettingsRow icon={<Shield className="w-4 h-4" />} label="Safety" accent={colors.danger} onPress={() => setShowSafetyDetail(!showSafetyDetail)} testID="row-safety" />
           <AnimatePresence>
             {showSafetyDetail && (
