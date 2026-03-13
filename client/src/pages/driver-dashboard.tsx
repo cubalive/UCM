@@ -259,7 +259,6 @@ function useNativeBackgroundTracking(token: string | null) {
       watcherIdRef.current = id;
       setTracking(true);
       setBgPermissionDenied(false);
-      console.log('[BG-GPS] Background tracking started, watcher id:', id);
     } catch (err) {
       console.error('[BG-GPS] Failed to start:', err);
     }
@@ -374,7 +373,6 @@ function useGeolocation(isActive: boolean) {
   const retryCountRef = useRef(0);
 
   useEffect(() => {
-    console.log("[GPS] mode:", isStandalone ? "standalone (PWA)" : "browser");
     if (!navigator.geolocation) {
       console.warn("[GPS] Geolocation API not available");
       setPermission("denied");
@@ -383,11 +381,8 @@ function useGeolocation(isActive: boolean) {
 
   const requestPermission = useCallback(() => {
     if (!navigator.geolocation) return;
-    console.log("[GPS] requestPermission called, attempting getCurrentPosition (highAccuracy)");
-
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        console.log("[GPS] Position acquired:", pos.coords.latitude.toFixed(5), pos.coords.longitude.toFixed(5));
         setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: pos.timestamp });
         setPermission("granted");
         setWatchError(false);
@@ -398,10 +393,8 @@ function useGeolocation(isActive: boolean) {
         if (err.code === 1) {
           setPermission("denied");
         } else if (err.code === 3) {
-          console.log("[GPS] Timeout — retrying with enableHighAccuracy:false");
           navigator.geolocation.getCurrentPosition(
             (pos) => {
-              console.log("[GPS] Fallback position acquired:", pos.coords.latitude.toFixed(5), pos.coords.longitude.toFixed(5));
               setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: pos.timestamp });
               setPermission("granted");
               setWatchError(false);
@@ -429,7 +422,6 @@ function useGeolocation(isActive: boolean) {
         navigator.geolocation.clearWatch(watchRef.current);
       }
       setWatchError(false);
-      console.log("[GPS] Starting watchPosition");
       watchRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: pos.timestamp });
@@ -749,7 +741,6 @@ function getOrCreateDriverMap(key: string, center: { lat: number; lng: number })
   container.className = "w-full h-full ucm-map-container";
   container.setAttribute("data-testid", "div-driver-live-map");
 
-  console.log("MAP INIT driver-fullscreen");
   const map = new google.maps.Map(container, {
     center,
     zoom: 14,
@@ -982,7 +973,6 @@ export default function DriverDashboard() {
         const { PushNotifications } = await (new Function('m', 'return import(m)') as (m: string) => Promise<any>)(mod);
         const perm = await PushNotifications.requestPermissions();
         if (perm.receive !== 'granted') {
-          console.log('[PUSH] Permission not granted');
           return;
         }
 
@@ -1007,9 +997,7 @@ export default function DriverDashboard() {
         });
 
         await PushNotifications.register();
-        console.log('[PUSH] Push notifications initialized');
       } catch (err: any) {
-        console.log('[PUSH] Push not available:', err.message);
       }
     })();
   }, [token]);
@@ -1165,7 +1153,6 @@ export default function DriverDashboard() {
     const ts = timestamp ?? Date.now();
     if (!navigator.onLine) {
       queueLocation(lat, lng, accuracy ?? null, ts);
-      console.log("[GPS] Offline — queued location");
       return;
     }
     try {
@@ -1177,7 +1164,6 @@ export default function DriverDashboard() {
       setLastSentTime(Date.now());
     } catch {
       queueLocation(lat, lng, accuracy ?? null, ts);
-      console.log("[GPS] Send failed — queued location");
     }
   }, [token]);
 
@@ -1185,7 +1171,6 @@ export default function DriverDashboard() {
     if (!token || !navigator.onLine) return;
     const queue = getQueuedLocations();
     if (queue.length === 0) return;
-    console.log("[GPS] Flushing", queue.length, "queued locations");
     clearLocationQueue();
     for (const loc of queue) {
       try {
@@ -1270,7 +1255,6 @@ export default function DriverDashboard() {
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible" && geoLocation) {
-        console.log("[GPS] App returned to foreground - sending burst ping");
         sendLocation(geoLocation.lat, geoLocation.lng, geoLocation.accuracy, geoLocation.timestamp);
         flushQueue();
       }
@@ -1583,7 +1567,6 @@ export default function DriverDashboard() {
     if (!token || !navigator.onLine) return;
     const queue = getQueuedActions();
     if (queue.length === 0) return;
-    console.log("[QUEUE] Flushing", queue.length, "queued actions");
     let flushed = 0;
     let retryCount = 0;
     for (const action of queue) {
