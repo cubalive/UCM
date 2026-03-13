@@ -75,14 +75,6 @@ export async function getSystemMap(_req: AuthRequest, res: Response) {
       firebase: { configured: !!process.env.FIREBASE_PROJECT_ID, purpose: "Push notifications" },
     };
 
-    console.log("\n=== UCM SYSTEM MAP ===");
-    console.log("API Routes:", JSON.stringify(apiRoutes, null, 2));
-    console.log("Background Jobs:", JSON.stringify(backgroundJobs, null, 2));
-    console.log("Auth Middleware:", JSON.stringify(authMiddleware, null, 2));
-    console.log("DB Tables:", JSON.stringify(dbTables, null, 2));
-    console.log("External Services:", JSON.stringify(externalServices, null, 2));
-    console.log("=== END SYSTEM MAP ===\n");
-
     res.json({
       version: APP_VERSION,
       apiRoutes,

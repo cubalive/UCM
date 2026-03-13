@@ -158,7 +158,7 @@ router.post(
         return res.status(400).json({ message: "phoneNumber is required" });
       }
       // In production, send via Twilio. For now, simulate.
-      console.log(`[SMS_TEST] To: ${phoneNumber}, Template: ${tpl.name}, Text: ${tpl.template}`);
+      console.info(JSON.stringify({ event: "sms_test_sent", to: phoneNumber, template: tpl.name }));
       res.json({ sent: true, to: phoneNumber, preview: tpl.template });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, Component, type ReactNode, type ErrorInfo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Home, DollarSign, User, Navigation2, MapPin, Power } from "lucide-react";
+import { Home, DollarSign, User, Navigation2, MapPin, Power, AlertTriangle, RefreshCw } from "lucide-react";
 import { useReducedMotion } from "./design/accessibility";
 import { colors } from "./design/tokens";
 import { useDriverStore } from "./store/driverStore";
@@ -234,6 +234,55 @@ function TabItem({
   );
 }
 
+/* ─── Error Boundary ─── */
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class DriverErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[DriverApp] Uncaught error:", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          className="flex flex-col items-center justify-center gap-4 p-8 text-center"
+          style={{ height: "100vh", maxWidth: 430, margin: "0 auto", background: colors.bg0 }}
+        >
+          <AlertTriangle className="w-12 h-12" style={{ color: colors.warning }} />
+          <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>
+            Something went wrong
+          </h2>
+          <p className="text-sm" style={{ color: colors.textSecondary }}>
+            The app encountered an unexpected error. Please try refreshing.
+          </p>
+          <button
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              window.location.reload();
+            }}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white"
+            style={{ background: `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})` }}
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh App
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 /* ─── Main App Container ─── */
 export function DriverAppV4() {
   const [screen, setScreen] = useState<Screen>("onboarding");
@@ -295,10 +344,10 @@ export function DriverAppV4() {
 
   if (!isAuthenticated) {
     return (
-      <>
+      <DriverErrorBoundary>
         <ToastContainer />
         <Onboarding onContinue={handleContinue} />
-      </>
+      </DriverErrorBoundary>
     );
   }
 
@@ -306,53 +355,55 @@ export function DriverAppV4() {
   const showTabBar = screen !== "onboarding";
 
   return (
-    <div
-      className="relative"
-      style={{
-        maxWidth: 430,
-        margin: "0 auto",
-        height: "100vh",
-        maxHeight: "100dvh",
-        overflow: "hidden",
-        background: colors.bg0,
-      }}
-    >
-      {/* Screen content */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={screen}
-          initial={reduced ? {} : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={reduced ? {} : { opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          style={{ height: "100%", paddingBottom: showTabBar ? 88 : 0, overflowY: "auto", WebkitOverflowScrolling: "touch" }}
-        >
-          {screen === "dashboard" && (
-            <Dashboard onNavigate={navigate} />
-          )}
-          {screen === "activeTrip" && (
-            <ActiveTrip onBack={() => setScreen("dashboard")} />
-          )}
-          {screen === "earnings" && (
-            <Earnings onBack={() => setScreen("dashboard")} />
-          )}
-          {screen === "profile" && (
-            <Profile onBack={() => setScreen("dashboard")} />
-          )}
-        </motion.div>
-      </AnimatePresence>
+    <DriverErrorBoundary>
+      <div
+        className="relative"
+        style={{
+          maxWidth: 430,
+          margin: "0 auto",
+          height: "100vh",
+          maxHeight: "100dvh",
+          overflow: "hidden",
+          background: colors.bg0,
+        }}
+      >
+        {/* Screen content */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={screen}
+            initial={reduced ? {} : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reduced ? {} : { opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ height: "100%", paddingBottom: showTabBar ? 88 : 0, overflowY: "auto", WebkitOverflowScrolling: "touch" }}
+          >
+            {screen === "dashboard" && (
+              <Dashboard onNavigate={navigate} />
+            )}
+            {screen === "activeTrip" && (
+              <ActiveTrip onBack={() => setScreen("dashboard")} />
+            )}
+            {screen === "earnings" && (
+              <Earnings onBack={() => setScreen("dashboard")} />
+            )}
+            {screen === "profile" && (
+              <Profile onBack={() => setScreen("dashboard")} />
+            )}
+          </motion.div>
+        </AnimatePresence>
 
-      {/* Bottom Tab Bar */}
-      {showTabBar && (
-        <BottomTabBar
-          activeScreen={screen}
-          onNavigate={(s) => setScreen(s)}
-          tripPhase={tripPhase}
-        />
-      )}
+        {/* Bottom Tab Bar */}
+        {showTabBar && (
+          <BottomTabBar
+            activeScreen={screen}
+            onNavigate={(s) => setScreen(s)}
+            tripPhase={tripPhase}
+          />
+        )}
 
-      {/* Global Toast Notifications */}
-      <ToastContainer />
-    </div>
+        {/* Global Toast Notifications */}
+        <ToastContainer />
+      </div>
+    </DriverErrorBoundary>
   );
 }

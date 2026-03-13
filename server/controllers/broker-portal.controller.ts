@@ -646,9 +646,7 @@ async function createTripFromBrokerRequest(
     })
     .returning({ id: trips.id });
 
-  console.log(
-    `[BrokerAwardBid] Created trip ${tripPublicId} (id=${newTrip.id}) from broker request ${request.publicId}`,
-  );
+  console.info(JSON.stringify({ event: "broker_trip_created", tripPublicId, tripId: newTrip.id, requestPublicId: request.publicId }));
 
   return newTrip.id;
 }

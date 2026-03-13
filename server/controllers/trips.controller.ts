@@ -1157,7 +1157,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
           if (parsed.data.status === "ARRIVED_PICKUP" && trip.pickupLat && trip.pickupLng) {
             const dist = haversine(driverLoc.lat, driverLoc.lng, trip.pickupLat, trip.pickupLng);
             const effectiveRadius = manualOverride ? MANUAL_FALLBACK_RADIUS : PICKUP_RADIUS;
-            console.log(`[GEOFENCE] Trip ${id} ARRIVED_PICKUP: dist=${Math.round(dist)}m, radius=${effectiveRadius}m, manual=${!!manualOverride}`);
+            console.info(JSON.stringify({ event: "geofence_check", tripId: id, type: "ARRIVED_PICKUP", dist: Math.round(dist), radius: effectiveRadius, manual: !!manualOverride }));
             if (dist > effectiveRadius) {
               return res.status(400).json({
                 ok: false,
@@ -1181,7 +1181,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
           if (parsed.data.status === "ARRIVED_DROPOFF" && trip.dropoffLat && trip.dropoffLng) {
             const dist = haversine(driverLoc.lat, driverLoc.lng, trip.dropoffLat, trip.dropoffLng);
             const effectiveRadius = manualOverride ? MANUAL_FALLBACK_RADIUS : DROPOFF_RADIUS;
-            console.log(`[GEOFENCE] Trip ${id} ARRIVED_DROPOFF: dist=${Math.round(dist)}m, radius=${effectiveRadius}m, manual=${!!manualOverride}`);
+            console.info(JSON.stringify({ event: "geofence_check", tripId: id, type: "ARRIVED_DROPOFF", dist: Math.round(dist), radius: effectiveRadius, manual: !!manualOverride }));
             if (dist > effectiveRadius) {
               return res.status(400).json({
                 ok: false,
@@ -1223,7 +1223,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       updateData.waitingReason = null;
       updateData.waitingOverride = false;
       updateData.waitingExtendCount = 0;
-      console.log(`[WAITING] Trip ${id}: waiting timer started, ${waitMinutes} min`);
+      console.info(JSON.stringify({ event: "waiting_timer_started", tripId: id, waitMinutes }));
     }
 
     const updated = await db.update(trips).set(updateData).where(and(eq(trips.id, id), eq(trips.status, trip.status))).returning();
@@ -2585,7 +2585,7 @@ export async function createTripInvoiceHandler(req: AuthRequest, res: Response) 
         const { sendInvoicePaymentEmail } = await import("../services/invoiceEmailService");
         const emailResult = await sendInvoicePaymentEmail(invoice.id);
         if (emailResult.success) {
-          console.log(`[Invoice] Auto-sent payment email for invoice #${invoice.id} to ${patient.email}`);
+          console.info(JSON.stringify({ event: "invoice_email_sent", invoiceId: invoice.id, to: patient.email }));
         } else {
           console.error(`[Invoice] Auto-send failed for invoice #${invoice.id}:`, emailResult.error);
         }
