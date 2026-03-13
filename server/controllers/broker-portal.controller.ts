@@ -1642,7 +1642,16 @@ export async function brokerUpdateDisputeHandler(req: AuthRequest, res: Response
     }
 
     const disputeId = Number(req.params.id);
+    if (isNaN(disputeId) || disputeId < 1) {
+      return res.status(400).json({ message: "Invalid dispute ID" });
+    }
     const { status, note, resolution } = req.body;
+
+    // Validate status if provided
+    const validStatuses = ["OPEN", "IN_REVIEW", "RESOLVED", "ESCALATED", "CLOSED"];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({ message: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
+    }
 
     // Verify dispute exists and belongs to this broker
     const [existing] = await db

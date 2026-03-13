@@ -924,7 +924,13 @@ export async function pharmacyInventoryAdjustHandler(req: AuthRequest, res: Resp
     if (!pharmacyId) return res.status(403).json({ message: "Pharmacy scope required" });
 
     const { medicationName, adjustment, reason } = req.body;
-    if (!medicationName) return res.status(400).json({ message: "medicationName required" });
+    if (!medicationName || typeof medicationName !== "string") {
+      return res.status(400).json({ message: "medicationName required" });
+    }
+    const parsedAdj = Number(adjustment);
+    if (adjustment === undefined || isNaN(parsedAdj)) {
+      return res.status(400).json({ message: "adjustment must be a number" });
+    }
 
     // Find existing item
     const [existing] = await db.select().from(pharmacyInventory)
@@ -933,7 +939,7 @@ export async function pharmacyInventoryAdjustHandler(req: AuthRequest, res: Resp
 
     if (!existing) return res.status(404).json({ message: "Inventory item not found" });
 
-    const newLevel = Math.max(0, existing.stockLevel + Number(adjustment));
+    const newLevel = Math.max(0, existing.stockLevel + parsedAdj);
     const [updated] = await db.update(pharmacyInventory)
       .set({ stockLevel: newLevel, updatedAt: new Date() })
       .where(eq(pharmacyInventory.id, existing.id))
@@ -941,7 +947,7 @@ export async function pharmacyInventoryAdjustHandler(req: AuthRequest, res: Resp
 
     await db.insert(pharmacyInventoryAdjustments).values({
       inventoryItemId: existing.id,
-      adjustment: Number(adjustment),
+      adjustment: parsedAdj,
       reason: reason || "Manual adjustment",
       performedBy: req.user?.userId,
     });
