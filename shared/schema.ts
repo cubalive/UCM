@@ -3673,6 +3673,91 @@ export const pharmacyOrderEvents = pgTable("pharmacy_order_events", {
   index("idx_pharmacy_order_events_order").on(table.orderId, table.createdAt),
 ]);
 
+// ─── Pharmacy Inventory ──────────────────────────────────────────────────────
+
+export const pharmacyInventory = pgTable("pharmacy_inventory", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  pharmacyId: integer("pharmacy_id").notNull().references(() => pharmacies.id),
+  medicationName: text("medication_name").notNull(),
+  ndc: text("ndc"),
+  stockLevel: integer("stock_level").notNull().default(0),
+  lowStockThreshold: integer("low_stock_threshold").notNull().default(10),
+  isControlled: boolean("is_controlled").notNull().default(false),
+  requiresRefrigeration: boolean("requires_refrigeration").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_pharmacy_inventory_pharmacy").on(table.pharmacyId),
+]);
+
+export const pharmacyInventoryAdjustments = pgTable("pharmacy_inventory_adjustments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  inventoryItemId: integer("inventory_item_id").notNull().references(() => pharmacyInventory.id),
+  adjustment: integer("adjustment").notNull(),
+  reason: text("reason"),
+  performedBy: integer("performed_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ─── Pharmacy Prescriptions ──────────────────────────────────────────────────
+
+export const pharmacyPrescriptions = pgTable("pharmacy_prescriptions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  pharmacyId: integer("pharmacy_id").notNull().references(() => pharmacies.id),
+  rxNumber: text("rx_number").notNull(),
+  medicationName: text("medication_name").notNull(),
+  ndc: text("ndc"),
+  patientName: text("patient_name").notNull(),
+  prescriber: text("prescriber"),
+  quantity: integer("quantity").notNull().default(1),
+  unit: text("unit").default("each"),
+  refillsRemaining: integer("refills_remaining").notNull().default(0),
+  refillsTotal: integer("refills_total").notNull().default(0),
+  isControlled: boolean("is_controlled").notNull().default(false),
+  scheduleClass: text("schedule_class"),
+  validationStatus: text("validation_status").notNull().default("PENDING_VERIFICATION"),
+  linkedOrderId: integer("linked_order_id").references(() => pharmacyOrders.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_pharmacy_prescriptions_pharmacy").on(table.pharmacyId),
+  index("idx_pharmacy_prescriptions_rx").on(table.pharmacyId, table.rxNumber),
+]);
+
+// ─── Broker Disputes ─────────────────────────────────────────────────────────
+
+export const brokerDisputeStatusEnum = pgEnum("broker_dispute_status", [
+  "OPEN", "IN_REVIEW", "RESOLVED", "ESCALATED", "CLOSED",
+]);
+
+export const brokerDisputes = pgTable("broker_disputes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  brokerId: integer("broker_id").notNull().references(() => brokers.id),
+  tripRequestId: integer("trip_request_id").references(() => brokerTripRequests.id),
+  companyId: integer("company_id").references(() => companies.id),
+  category: text("category").notNull().default("GENERAL"),
+  subject: text("subject").notNull(),
+  description: text("description"),
+  priority: text("priority").notNull().default("MEDIUM"),
+  status: brokerDisputeStatusEnum("status").notNull().default("OPEN"),
+  resolution: text("resolution"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: integer("resolved_by"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_broker_disputes_broker_status").on(table.brokerId, table.status),
+]);
+
+export const brokerDisputeNotes = pgTable("broker_dispute_notes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  disputeId: integer("dispute_id").notNull().references(() => brokerDisputes.id),
+  text: text("text").notNull(),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Schemas & Types
 export const insertPharmacySchema = createInsertSchema(pharmacies).omit({ createdAt: true });
 export const insertPharmacyOrderSchema = createInsertSchema(pharmacyOrders).omit({ createdAt: true, updatedAt: true });

@@ -50,6 +50,10 @@ async function startAllSchedulerLoops(): Promise<void> {
   const { startMedicaidAutoSubmitScheduler } = await import("./medicaidBillingEngine");
   const { startDriverPreferenceLearningScheduler } = await import("./driverPreferenceLearning");
   const { startDemandForecastScheduler } = await import("./demandPredictionEngine");
+  const { startWebhookRetryScheduler } = await import("./brokerWebhookEngine");
+  const { startDataRetentionScheduler } = await import("./dataRetentionEngine");
+  const { startFraudMonitor } = await import("./fraudDetectionEngine");
+  const { startStuckTripMonitor } = await import("./stuckTripDetector");
 
   startOpsAlertScheduler();
   startRouteScheduler();
@@ -107,6 +111,10 @@ async function startAllSchedulerLoops(): Promise<void> {
   startMedicaidAutoSubmitScheduler();
   startDriverPreferenceLearningScheduler();
   startDemandForecastScheduler();
+  startWebhookRetryScheduler();
+  startDataRetentionScheduler();
+  startFraudMonitor();
+  startStuckTripMonitor();
 
   const { startJobProcessor } = await import("./jobProcessor");
   startJobProcessor();
@@ -128,7 +136,8 @@ async function startAllSchedulerLoops(): Promise<void> {
       "dialysis", "sms_reminder",
       "job_engine_eta", "job_engine_autoassign",
       "orchestrator", "routes_worker", "breadcrumb_flusher", "route_optimizer", "trip_grouping",
-      "medicaid_auto_submit", "driver_preference_learning", "demand_forecast",
+      "medicaid_auto_submit", "driver_preference_learning", "demand_forecast", "webhook_retry", "data_retention",
+      "fraud_monitor", "stuck_trip_detector",
     ],
     ts: new Date().toISOString(),
   }));
@@ -213,9 +222,11 @@ export async function stopSchedulers(): Promise<void> {
     const { stopOrchestrator } = await import("../orchestrator/index");
     const { stopRoutesWorker } = await import("../workers/routesWorker");
     const { stopBreadcrumbFlusher } = await import("./breadcrumbBuffer");
+    const { stopRateLimiterCleanup } = await import("./rateLimiter");
     stopOrchestrator();
     stopRoutesWorker();
     stopBreadcrumbFlusher();
+    stopRateLimiterCleanup();
   } catch {}
 
   try {

@@ -11,6 +11,8 @@ import {
   brokerEvents,
   brokerRateCards,
   brokerPerformanceMetrics,
+  brokerDisputes as brokerDisputesTable,
+  brokerDisputeNotes,
   companies,
   trips,
   patients,
@@ -644,9 +646,7 @@ async function createTripFromBrokerRequest(
     })
     .returning({ id: trips.id });
 
-  console.log(
-    `[BrokerAwardBid] Created trip ${tripPublicId} (id=${newTrip.id}) from broker request ${request.publicId}`,
-  );
+  console.info(JSON.stringify({ event: "broker_trip_created", tripPublicId, tripId: newTrip.id, requestPublicId: request.publicId }));
 
   return newTrip.id;
 }
@@ -1536,9 +1536,6 @@ export async function brokerMessageTemplatesHandler(req: AuthRequest, res: Respo
 
 // ─── Disputes ────────────────────────────────────────────────────────────────
 
-const brokerDisputes: Map<number, any[]> = new Map();
-let disputeIdCounter = 1;
-
 export async function brokerDisputesListHandler(req: AuthRequest, res: Response) {
   try {
     const brokerId = getBrokerScopeId(req);
@@ -1547,12 +1544,35 @@ export async function brokerDisputesListHandler(req: AuthRequest, res: Response)
     }
 
     const { status } = req.query;
-    let disputes = brokerDisputes.get(brokerId) || [];
+    const conditions = [eq(brokerDisputesTable.brokerId, brokerId)];
     if (status && status !== "ALL") {
-      disputes = disputes.filter(d => d.status === status);
+      conditions.push(eq(brokerDisputesTable.status, status as any));
     }
 
-    res.json({ disputes, total: disputes.length });
+    const disputes = await db
+      .select()
+      .from(brokerDisputesTable)
+      .where(and(...conditions))
+      .orderBy(desc(brokerDisputesTable.createdAt));
+
+    // Attach notes for each dispute
+    const disputeIds = disputes.map(d => d.id);
+    const notes = disputeIds.length > 0
+      ? await db.select().from(brokerDisputeNotes).where(inArray(brokerDisputeNotes.disputeId, disputeIds))
+      : [];
+
+    const notesByDispute = new Map<number, typeof notes>();
+    for (const n of notes) {
+      if (!notesByDispute.has(n.disputeId)) notesByDispute.set(n.disputeId, []);
+      notesByDispute.get(n.disputeId)!.push(n);
+    }
+
+    const enriched = disputes.map(d => ({
+      ...d,
+      notes: notesByDispute.get(d.id) || [],
+    }));
+
+    res.json({ disputes: enriched, total: enriched.length });
   } catch (err: any) {
     console.error("[BrokerDisputesList]", err);
     res.status(500).json({ message: "Failed to load disputes" });
@@ -1567,38 +1587,37 @@ export async function brokerCreateDisputeHandler(req: AuthRequest, res: Response
     }
 
     const { tripRequestId, companyId, category, subject, description, priority } = req.body;
-    if (!subject || !description) {
-      return res.status(400).json({ message: "Subject and description are required" });
+    if (!subject || typeof subject !== "string" || subject.trim().length === 0) {
+      return res.status(400).json({ message: "Subject is required" });
+    }
+    if (!description || typeof description !== "string" || description.trim().length === 0) {
+      return res.status(400).json({ message: "Description is required" });
+    }
+    const validCategories = ["GENERAL", "BILLING", "SERVICE_QUALITY", "COMPLIANCE", "LATE_ARRIVAL", "NO_SHOW", "DAMAGE"];
+    const validPriorities = ["LOW", "MEDIUM", "HIGH", "URGENT"];
+    const safeCategory = validCategories.includes(category) ? category : "GENERAL";
+    const safePriority = validPriorities.includes(priority) ? priority : "MEDIUM";
+    if (tripRequestId && (typeof tripRequestId !== "number" || tripRequestId < 1)) {
+      return res.status(400).json({ message: "Invalid tripRequestId" });
+    }
+    if (companyId && (typeof companyId !== "number" || companyId < 1)) {
+      return res.status(400).json({ message: "Invalid companyId" });
     }
 
-    const dispute = {
-      id: disputeIdCounter++,
-      brokerId,
-      tripRequestId: tripRequestId || null,
-      companyId: companyId || null,
-      category: category || "GENERAL",
-      subject,
-      description,
-      priority: priority || "MEDIUM",
-      status: "OPEN",
-      createdBy: req.user?.userId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      timeline: [
-        {
-          action: "CREATED",
-          description: "Dispute created",
-          performedBy: req.user?.userId,
-          timestamp: new Date().toISOString(),
-        },
-      ],
-      notes: [],
-    };
-
-    if (!brokerDisputes.has(brokerId)) {
-      brokerDisputes.set(brokerId, []);
-    }
-    brokerDisputes.get(brokerId)!.push(dispute);
+    const [dispute] = await db
+      .insert(brokerDisputesTable)
+      .values({
+        brokerId,
+        tripRequestId: tripRequestId || null,
+        companyId: companyId || null,
+        category: safeCategory,
+        subject: subject.trim().slice(0, 500),
+        description: description.trim().slice(0, 5000),
+        priority: safePriority,
+        status: "OPEN",
+        createdBy: req.user?.userId,
+      })
+      .returning();
 
     await db.insert(brokerEvents).values({
       brokerId,
@@ -1608,7 +1627,7 @@ export async function brokerCreateDisputeHandler(req: AuthRequest, res: Response
       performedBy: req.user?.userId,
     });
 
-    res.status(201).json({ dispute });
+    res.status(201).json({ dispute: { ...dispute, notes: [] } });
   } catch (err: any) {
     console.error("[BrokerCreateDispute]", err);
     res.status(500).json({ message: "Failed to create dispute" });
@@ -1623,44 +1642,51 @@ export async function brokerUpdateDisputeHandler(req: AuthRequest, res: Response
     }
 
     const disputeId = Number(req.params.id);
+    if (isNaN(disputeId) || disputeId < 1) {
+      return res.status(400).json({ message: "Invalid dispute ID" });
+    }
     const { status, note, resolution } = req.body;
 
-    const disputes = brokerDisputes.get(brokerId) || [];
-    const dispute = disputes.find(d => d.id === disputeId);
-    if (!dispute) {
+    // Validate status if provided
+    const validStatuses = ["OPEN", "IN_REVIEW", "RESOLVED", "ESCALATED", "CLOSED"];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({ message: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
+    }
+
+    // Verify dispute exists and belongs to this broker
+    const [existing] = await db
+      .select()
+      .from(brokerDisputesTable)
+      .where(and(eq(brokerDisputesTable.id, disputeId), eq(brokerDisputesTable.brokerId, brokerId)))
+      .limit(1);
+
+    if (!existing) {
       return res.status(404).json({ message: "Dispute not found" });
     }
 
-    if (status) {
-      dispute.status = status;
-      dispute.timeline.push({
-        action: `STATUS_${status}`,
-        description: `Status changed to ${status}`,
-        performedBy: req.user?.userId,
-        timestamp: new Date().toISOString(),
-      });
+    // Build update fields
+    const updates: Record<string, any> = { updatedAt: new Date() };
+    if (status) updates.status = status;
+    if (resolution) {
+      updates.resolution = resolution;
+      updates.resolvedAt = new Date();
+      updates.resolvedBy = req.user?.userId;
     }
 
+    const [updated] = await db
+      .update(brokerDisputesTable)
+      .set(updates)
+      .where(eq(brokerDisputesTable.id, disputeId))
+      .returning();
+
+    // Add note if provided
     if (note) {
-      dispute.notes.push({
+      await db.insert(brokerDisputeNotes).values({
+        disputeId,
         text: note,
         createdBy: req.user?.userId,
-        createdAt: new Date().toISOString(),
-      });
-      dispute.timeline.push({
-        action: "NOTE_ADDED",
-        description: "Note added",
-        performedBy: req.user?.userId,
-        timestamp: new Date().toISOString(),
       });
     }
-
-    if (resolution) {
-      dispute.resolution = resolution;
-      dispute.resolvedAt = new Date().toISOString();
-    }
-
-    dispute.updatedAt = new Date().toISOString();
 
     await db.insert(brokerEvents).values({
       brokerId,
@@ -1669,7 +1695,14 @@ export async function brokerUpdateDisputeHandler(req: AuthRequest, res: Response
       performedBy: req.user?.userId,
     });
 
-    res.json({ dispute });
+    // Fetch notes for response
+    const notes = await db
+      .select()
+      .from(brokerDisputeNotes)
+      .where(eq(brokerDisputeNotes.disputeId, disputeId))
+      .orderBy(brokerDisputeNotes.createdAt);
+
+    res.json({ dispute: { ...updated, notes } });
   } catch (err: any) {
     console.error("[BrokerUpdateDispute]", err);
     res.status(500).json({ message: "Failed to update dispute" });

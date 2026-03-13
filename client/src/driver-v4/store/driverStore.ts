@@ -153,9 +153,61 @@ interface DriverState {
   pollActiveTrip: () => Promise<void>;
   updateLocation: (lat: number, lng: number, heading?: number) => void;
   reportEmergency: (note?: string) => Promise<void>;
+  flushOfflineQueue: () => Promise<void>;
   pollPharmacyDeliveries: () => Promise<void>;
   advancePharmacyStatus: (orderId: number, newStatus: string) => Promise<void>;
   getNextAction: () => NextAction;
+}
+
+// ─── Offline Queue Utilities ─────────────────────────────────────────────────
+
+const LOC_QUEUE_KEY = "ucm_driver_v4_loc_queue";
+const ACTION_QUEUE_KEY = "ucm_driver_v4_action_queue";
+
+interface QueuedLocation {
+  lat: number;
+  lng: number;
+  heading?: number;
+  ts: number;
+}
+
+interface QueuedAction {
+  id: string;
+  type: "status_transition";
+  tripId: number;
+  status: string;
+  idempotencyKey: string;
+  ts: number;
+}
+
+function getQueuedLocations(): QueuedLocation[] {
+  try { return JSON.parse(localStorage.getItem(LOC_QUEUE_KEY) || "[]"); } catch { return []; }
+}
+
+function queueLocation(loc: QueuedLocation) {
+  const q = getQueuedLocations();
+  q.push(loc);
+  // Keep max 200 entries to avoid storage bloat
+  if (q.length > 200) q.splice(0, q.length - 200);
+  localStorage.setItem(LOC_QUEUE_KEY, JSON.stringify(q));
+}
+
+function clearLocationQueue() {
+  localStorage.removeItem(LOC_QUEUE_KEY);
+}
+
+function getQueuedActions(): QueuedAction[] {
+  try { return JSON.parse(localStorage.getItem(ACTION_QUEUE_KEY) || "[]"); } catch { return []; }
+}
+
+function queueActionItem(action: QueuedAction) {
+  const q = getQueuedActions();
+  q.push(action);
+  localStorage.setItem(ACTION_QUEUE_KEY, JSON.stringify(q));
+}
+
+function clearActionQueue() {
+  localStorage.removeItem(ACTION_QUEUE_KEY);
 }
 
 function getToken(): string | null {
@@ -280,6 +332,10 @@ export const useDriverStore = create<DriverState>()(
       }
       // Also poll for pharmacy deliveries
       get().pollPharmacyDeliveries();
+
+      // Flush any offline queued data and listen for reconnects
+      get().flushOfflineQueue();
+      window.addEventListener("online", () => get().flushOfflineQueue());
     } catch (err: any) {
       set({ error: err.message });
     } finally {
@@ -394,8 +450,18 @@ export const useDriverStore = create<DriverState>()(
     const trip = get().activeTrip;
     if (!trip) return;
     set({ actionLoading: true });
+    const idempotencyKey = `${trip.tripId}_${newStatus}_${Date.now()}`;
+
+    // If offline, queue the action and update UI optimistically
+    if (!navigator.onLine) {
+      queueActionItem({ id: idempotencyKey, type: "status_transition", tripId: trip.tripId, status: newStatus, idempotencyKey, ts: Date.now() });
+      const newPhase = statusToPhase(newStatus);
+      set({ tripPhase: newPhase, activeTrip: { ...trip, status: newStatus }, actionLoading: false });
+      showToast("info", "Queued — will sync when back online");
+      return;
+    }
+
     try {
-      const idempotencyKey = `${trip.tripId}_${newStatus}_${Date.now()}`;
       await driverApi(`/api/driver/trips/${trip.tripId}/status`, {
         method: "POST",
         body: JSON.stringify({ status: newStatus, idempotencyKey }),
@@ -419,7 +485,10 @@ export const useDriverStore = create<DriverState>()(
         }).catch(() => {});
       }
     } catch (err: any) {
-      handleError(err, "Status update failed", set);
+      // Network error — queue for retry
+      queueActionItem({ id: idempotencyKey, type: "status_transition", tripId: trip.tripId, status: newStatus, idempotencyKey, ts: Date.now() });
+      set({ tripPhase: statusToPhase(newStatus), activeTrip: { ...trip, status: newStatus }, actionLoading: false });
+      showToast("info", "Queued — will sync when back online");
     }
   },
 
@@ -512,10 +581,17 @@ export const useDriverStore = create<DriverState>()(
 
   updateLocation: (lat, lng, heading?) => {
     set({ driverLat: lat, driverLng: lng, driverHeading: heading ?? null });
+    const ts = Date.now();
+    if (!navigator.onLine) {
+      queueLocation({ lat, lng, heading, ts });
+      return;
+    }
     driverApi("/api/driver/me/location", {
       method: "POST",
-      body: JSON.stringify({ lat, lng, heading, ts: Date.now(), source: "gps" }),
-    }).catch(() => {});
+      body: JSON.stringify({ lat, lng, heading, ts, source: "gps" }),
+    }).catch(() => {
+      queueLocation({ lat, lng, heading, ts });
+    });
   },
 
   pollPharmacyDeliveries: async () => {
@@ -556,6 +632,45 @@ export const useDriverStore = create<DriverState>()(
       set({ actionLoading: false });
     } catch (err: any) {
       handleError(err, "Delivery update failed", set);
+    }
+  },
+
+  flushOfflineQueue: async () => {
+    if (!navigator.onLine) return;
+
+    // Flush queued locations
+    const locs = getQueuedLocations();
+    if (locs.length > 0) {
+      clearLocationQueue();
+      for (const loc of locs) {
+        try {
+          await driverApi("/api/driver/me/location", {
+            method: "POST",
+            body: JSON.stringify({ lat: loc.lat, lng: loc.lng, heading: loc.heading, ts: loc.ts, source: "gps" }),
+          });
+        } catch {
+          // Re-queue remaining on failure
+          queueLocation(loc);
+          break;
+        }
+      }
+    }
+
+    // Flush queued status transitions
+    const actions = getQueuedActions();
+    if (actions.length > 0) {
+      clearActionQueue();
+      for (const action of actions) {
+        try {
+          await driverApi(`/api/driver/trips/${action.tripId}/status`, {
+            method: "POST",
+            body: JSON.stringify({ status: action.status, idempotencyKey: action.idempotencyKey }),
+          });
+        } catch {
+          queueActionItem(action);
+          break;
+        }
+      }
     }
   },
 

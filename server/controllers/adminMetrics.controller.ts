@@ -21,7 +21,7 @@ const CACHE_TTL_MS = 15_000;
 async function safeQuery(sql: string, params: any[] = [], timeoutMs = 2000): Promise<any[]> {
   const client = await pool.connect();
   try {
-    await client.query(`SET statement_timeout = ${timeoutMs}`);
+    await client.query(`SET statement_timeout = $1`, [timeoutMs]);
     const result = await client.query(sql, params);
     return result.rows;
   } finally {

@@ -379,7 +379,7 @@ export async function postDispatchRevokeSessionsHandler(req: AuthRequest, res: R
       cityId: driver.cityId,
     });
 
-    console.log(`[SESSION-REVOKE] User ${req.user!.userId} revoked sessions for driver ${driverId} (userId=${driverUser.id})`);
+    console.info(JSON.stringify({ event: "session_revoke", userId: req.user!.userId, driverId, targetUserId: driverUser.id }));
     res.json({ message: "All sessions revoked", driverId, userId: driverUser.id });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -403,7 +403,7 @@ export async function deleteDispatchDriverDeviceHandler(req: AuthRequest, res: R
     const device = await db.select().from(driverDevices).where(and(eq(driverDevices.id, deviceId), eq(driverDevices.driverId, driverId))).then(r => r[0]);
     if (!device) return res.status(404).json({ message: "Device not found" });
     await db.delete(driverDevices).where(eq(driverDevices.id, deviceId));
-    console.log(`[DEVICE-BIND] Device ${deviceId} removed from driver ${driverId} by user ${req.user!.userId}`);
+    console.info(JSON.stringify({ event: "device_removed", deviceId, driverId, userId: req.user!.userId }));
     res.json({ message: "Device removed" });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
@@ -1673,7 +1673,7 @@ export async function postDriverSupportEventHandler(req: AuthRequest, res: Respo
       }
     }
 
-    console.log(`[SUPPORT-EVENT] Driver ${driver?.firstName} ${driver?.lastName} reported ${eventType} for trip ${tripId || "N/A"}`);
+    console.info(JSON.stringify({ event: "support_event", driverId: driver?.id, eventType, tripId: tripId || null }));
 
     res.json({ event });
   } catch (err: any) {
@@ -1923,7 +1923,7 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
           if (newStatus === "ARRIVED_PICKUP" && trip.pickupLat && trip.pickupLng) {
             const dist = haversine(driverLoc.lat, driverLoc.lng, trip.pickupLat, trip.pickupLng);
             const effectiveRadius = manualOverride ? MANUAL_FALLBACK_RADIUS : PICKUP_RADIUS;
-            console.log(`[GEOFENCE] Trip ${tripId} ARRIVED_PICKUP check: dist=${Math.round(dist)}m, radius=${effectiveRadius}m, manual=${!!manualOverride}, enable=${dist <= effectiveRadius}`);
+            console.info(JSON.stringify({ event: "geofence_check", tripId, type: "ARRIVED_PICKUP", dist: Math.round(dist), radius: effectiveRadius, manual: !!manualOverride }));
             if (dist > effectiveRadius) {
               return res.status(400).json({ ok: false, code: "GEOFENCE_REQUIRED", message: `Must be within ${effectiveRadius}m of pickup. Current: ${Math.round(dist)}m.`, distanceMeters: Math.round(dist), radiusMeters: effectiveRadius });
             }
@@ -1941,7 +1941,7 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
           if (newStatus === "ARRIVED_DROPOFF" && trip.dropoffLat && trip.dropoffLng) {
             const dist = haversine(driverLoc.lat, driverLoc.lng, trip.dropoffLat, trip.dropoffLng);
             const effectiveRadius = manualOverride ? MANUAL_FALLBACK_RADIUS : DROPOFF_RADIUS;
-            console.log(`[GEOFENCE] Trip ${tripId} ARRIVED_DROPOFF check: dist=${Math.round(dist)}m, radius=${effectiveRadius}m, manual=${!!manualOverride}, enable=${dist <= effectiveRadius}`);
+            console.info(JSON.stringify({ event: "geofence_check", tripId, type: "ARRIVED_DROPOFF", dist: Math.round(dist), radius: effectiveRadius, manual: !!manualOverride }));
             if (dist > effectiveRadius) {
               return res.status(400).json({ ok: false, code: "GEOFENCE_REQUIRED", message: `Must be within ${effectiveRadius}m of dropoff. Current: ${Math.round(dist)}m.`, distanceMeters: Math.round(dist), radiusMeters: effectiveRadius });
             }
@@ -1957,7 +1957,7 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
             }
           }
         } else {
-          console.log(`[GEOFENCE] Trip ${tripId} ${newStatus}: no cached driver location, allowing transition`);
+          console.info(JSON.stringify({ event: "geofence_skip", tripId, status: newStatus, reason: "no_cached_location" }));
         }
       }
     }
@@ -1977,7 +1977,7 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
       updateData.waitingReason = null;
       updateData.waitingOverride = false;
       updateData.waitingExtendCount = 0;
-      console.log(`[WAITING] Trip ${tripId}: waiting timer started, ${waitMinutes} min`);
+      console.info(JSON.stringify({ event: "waiting_timer_started", tripId, waitMinutes }));
     }
 
     const [updated] = await db.update(trips).set(updateData).where(eq(trips.id, tripId)).returning();
@@ -2099,7 +2099,7 @@ export async function extendWaitingHandler(req: AuthRequest, res: Response) {
       timeline: sql`COALESCE(${trips.timeline}, '[]'::jsonb) || ${JSON.stringify([timelineEntry])}::jsonb`,
     }).where(eq(trips.id, tripId)).catch(() => {});
 
-    console.log(`[WAITING] Trip ${tripId}: wait extended #${newExtendCount}, total ${newWaitMinutes} min`);
+    console.info(JSON.stringify({ event: "waiting_extended", tripId, extendCount: newExtendCount, totalMinutes: newWaitMinutes }));
     res.json({
       ...updated,
       waitConfig: { maxExtensions: maxExtends, extendMinutes, currentCount: newExtendCount, canExtendMore: newExtendCount < maxExtends },
@@ -2203,7 +2203,7 @@ export async function markNoShowHandler(req: AuthRequest, res: Response) {
       cityId: trip.cityId,
     }).catch(() => {});
 
-    console.log(`[NO_SHOW] Trip ${tripId}: marked no-show by driver ${user.driverId}, reason: ${reason}`);
+    console.info(JSON.stringify({ event: "no_show_marked", tripId, driverId: user.driverId, reason }));
     res.json({ ok: true, trip: updated });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
