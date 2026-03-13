@@ -222,9 +222,11 @@ export async function stopSchedulers(): Promise<void> {
     const { stopOrchestrator } = await import("../orchestrator/index");
     const { stopRoutesWorker } = await import("../workers/routesWorker");
     const { stopBreadcrumbFlusher } = await import("./breadcrumbBuffer");
+    const { stopRateLimiterCleanup } = await import("./rateLimiter");
     stopOrchestrator();
     stopRoutesWorker();
     stopBreadcrumbFlusher();
+    stopRateLimiterCleanup();
   } catch {}
 
   try {

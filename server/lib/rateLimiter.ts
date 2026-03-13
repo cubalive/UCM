@@ -7,12 +7,19 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>();
 
-setInterval(() => {
+let cleanupInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
   const now = Date.now();
   store.forEach((entry, key) => {
     if (now > entry.resetAt) store.delete(key);
   });
 }, 60_000);
+
+export function stopRateLimiterCleanup(): void {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+}
 
 function checkRateLimitInMemory(
   identifier: string,
