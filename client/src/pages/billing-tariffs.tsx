@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -50,6 +51,7 @@ function cents(v: number): string {
 
 export default function BillingTariffsPage() {
   const { token, user } = useAuth();
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [editTariff, setEditTariff] = useState<any>(null);
@@ -81,9 +83,9 @@ export default function BillingTariffsPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="billing-no-company">
         <Building2 className="w-10 h-10 text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Select a Company</h2>
+        <h2 className="text-lg font-semibold">{t("billingConfig.selectCompany")}</h2>
         <p className="text-sm text-muted-foreground text-center max-w-md">
-          As a Super Admin, select a company to access its billing configuration.
+          {t("billingConfig.selectCompanyDesc")}
         </p>
         <div className="w-full max-w-xs">
           {companiesQuery.isLoading ? (

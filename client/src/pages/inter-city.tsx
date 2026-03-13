@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -32,6 +33,7 @@ function statusBadge(status: string) {
 export default function InterCityPage() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [statusFilter, setStatusFilter] = useState("ALL");
 
   const transfersQuery = useQuery<any>({
@@ -51,25 +53,25 @@ export default function InterCityPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">
         <ArrowLeftRight className="h-6 w-6 text-indigo-400" />
-        <h1 className="text-2xl font-bold">Inter-City Transfers</h1>
+        <h1 className="text-2xl font-bold">{t("interCity.title")}</h1>
       </div>
 
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Active Transfers</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("interCity.activeTransfers")}</CardTitle></CardHeader>
             <CardContent><p className="text-2xl font-bold">{stats.activeCount || 0}</p></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Completed</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("interCity.completed")}</CardTitle></CardHeader>
             <CardContent><p className="text-2xl font-bold text-emerald-400">{stats.completedCount || 0}</p></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Avg Handoff Time</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("interCity.avgHandoffTime")}</CardTitle></CardHeader>
             <CardContent><p className="text-2xl font-bold">{stats.avgHandoffMinutes || 0} min</p></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Cities Connected</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("interCity.citiesConnected")}</CardTitle></CardHeader>
             <CardContent><p className="text-2xl font-bold">{stats.citiesConnected || 0}</p></CardContent>
           </Card>
         </div>
@@ -80,7 +82,7 @@ export default function InterCityPage() {
           <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
           <SelectContent>
             {["ALL", "REQUESTED", "DRIVERS_ASSIGNED", "LEG1_IN_PROGRESS", "AT_TRANSFER_POINT", "LEG2_IN_PROGRESS", "COMPLETED", "CANCELLED"].map(s => (
-              <SelectItem key={s} value={s}>{s === "ALL" ? "All Statuses" : s.replace(/_/g, " ")}</SelectItem>
+              <SelectItem key={s} value={s}>{s === "ALL" ? t("interCity.allStatuses") : s.replace(/_/g, " ")}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -91,30 +93,30 @@ export default function InterCityPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Origin City</TableHead>
-                <TableHead>Destination City</TableHead>
-                <TableHead>Transfer Point</TableHead>
-                <TableHead>Leg 1 Driver</TableHead>
-                <TableHead>Leg 2 Driver</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>{t("common.id")}</TableHead>
+                <TableHead>{t("interCity.originCity")}</TableHead>
+                <TableHead>{t("interCity.destinationCity")}</TableHead>
+                <TableHead>{t("interCity.transferPoint")}</TableHead>
+                <TableHead>{t("interCity.leg1Driver")}</TableHead>
+                <TableHead>{t("interCity.leg2Driver")}</TableHead>
+                <TableHead>{t("interCity.status")}</TableHead>
+                <TableHead>{t("interCity.created")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {transfers.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No inter-city transfers</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">{t("interCity.noTransfers")}</TableCell></TableRow>
               ) : (
-                transfers.map((t: any) => (
-                  <TableRow key={t.id}>
-                    <TableCell className="font-mono text-xs">#{t.id}</TableCell>
-                    <TableCell>{t.originCityName || `City #${t.originCityId}`}</TableCell>
-                    <TableCell>{t.destinationCityName || `City #${t.destinationCityId}`}</TableCell>
-                    <TableCell className="text-xs max-w-[150px] truncate">{t.transferPointAddress || "TBD"}</TableCell>
-                    <TableCell>{t.leg1DriverName || "Unassigned"}</TableCell>
-                    <TableCell>{t.leg2DriverName || "Unassigned"}</TableCell>
-                    <TableCell>{statusBadge(t.status)}</TableCell>
-                    <TableCell className="text-xs">{t.createdAt ? new Date(t.createdAt).toLocaleDateString("en-US") : "—"}</TableCell>
+                transfers.map((tr: any) => (
+                  <TableRow key={tr.id}>
+                    <TableCell className="font-mono text-xs">#{tr.id}</TableCell>
+                    <TableCell>{tr.originCityName || `City #${tr.originCityId}`}</TableCell>
+                    <TableCell>{tr.destinationCityName || `City #${tr.destinationCityId}`}</TableCell>
+                    <TableCell className="text-xs max-w-[150px] truncate">{tr.transferPointAddress || t("interCity.tbd")}</TableCell>
+                    <TableCell>{tr.leg1DriverName || t("interCity.unassigned")}</TableCell>
+                    <TableCell>{tr.leg2DriverName || t("interCity.unassigned")}</TableCell>
+                    <TableCell>{statusBadge(tr.status)}</TableCell>
+                    <TableCell className="text-xs">{tr.createdAt ? new Date(tr.createdAt).toLocaleDateString() : "—"}</TableCell>
                   </TableRow>
                 ))
               )}
