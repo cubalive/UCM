@@ -321,6 +321,24 @@ export async function transitionTripStatus(
           previousStatus,
           driverId: updatedTrip.driverId,
         });
+
+        // Deliver HTTP webhook to broker's registered endpoints
+        try {
+          const { deliverWebhook } = await import("./brokerWebhookEngine");
+          const webhookEvent = nextStatus === "COMPLETED" ? "trip.completed" as const
+            : nextStatus === "CANCELLED" ? "trip.cancelled" as const
+            : "trip.status_changed" as const;
+          deliverWebhook(request.brokerId, webhookEvent, {
+            tripId,
+            requestId: request.id,
+            status: nextStatus,
+            previousStatus,
+            driverId: updatedTrip.driverId,
+            publicId: updatedTrip.publicId,
+            completedAt: updatedTrip.completedAt,
+            cancelledAt: updatedTrip.cancelledAt,
+          }).catch(() => {});
+        } catch {}
       }
     } catch {}
   }

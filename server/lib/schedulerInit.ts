@@ -50,6 +50,7 @@ async function startAllSchedulerLoops(): Promise<void> {
   const { startMedicaidAutoSubmitScheduler } = await import("./medicaidBillingEngine");
   const { startDriverPreferenceLearningScheduler } = await import("./driverPreferenceLearning");
   const { startDemandForecastScheduler } = await import("./demandPredictionEngine");
+  const { startWebhookRetryScheduler } = await import("./brokerWebhookEngine");
 
   startOpsAlertScheduler();
   startRouteScheduler();
@@ -107,6 +108,7 @@ async function startAllSchedulerLoops(): Promise<void> {
   startMedicaidAutoSubmitScheduler();
   startDriverPreferenceLearningScheduler();
   startDemandForecastScheduler();
+  startWebhookRetryScheduler();
 
   const { startJobProcessor } = await import("./jobProcessor");
   startJobProcessor();
@@ -128,7 +130,7 @@ async function startAllSchedulerLoops(): Promise<void> {
       "dialysis", "sms_reminder",
       "job_engine_eta", "job_engine_autoassign",
       "orchestrator", "routes_worker", "breadcrumb_flusher", "route_optimizer", "trip_grouping",
-      "medicaid_auto_submit", "driver_preference_learning", "demand_forecast",
+      "medicaid_auto_submit", "driver_preference_learning", "demand_forecast", "webhook_retry",
     ],
     ts: new Date().toISOString(),
   }));

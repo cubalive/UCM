@@ -10,6 +10,9 @@ import {
   drivers,
   trips,
   deliveryProofs,
+  pharmacyInventory,
+  pharmacyInventoryAdjustments,
+  pharmacyPrescriptions,
 } from "@shared/schema";
 import { eq, and, desc, asc, sql, count, inArray, like, gte, lte, or } from "drizzle-orm";
 import { getPharmacyScopeId } from "../middleware/requirePharmacyScope";
@@ -878,13 +881,6 @@ export async function dispatchAssignPharmacyDeliveryHandler(req: AuthRequest, re
 
 // ─── Inventory Management ───────────────────────────────────────────────────
 
-// In-memory inventory store (in production, this would be a dedicated DB table)
-const inventoryStore = new Map<string, Map<number, any>>();
-
-function getPharmacyInventory(pharmacyId: number): any[] {
-  return Array.from(inventoryStore.get(String(pharmacyId))?.values() || []);
-}
-
 export async function pharmacyInventoryListHandler(req: AuthRequest, res: Response) {
   try {
     const pharmacyId = getPharmacyScopeId(req);
@@ -892,63 +888,29 @@ export async function pharmacyInventoryListHandler(req: AuthRequest, res: Respon
 
     const { search, lowStock } = req.query;
 
-    // Aggregate from order items to build inventory view
-    const allItems = await db
-      .select({
-        medicationName: pharmacyOrderItems.medicationName,
-        ndc: pharmacyOrderItems.ndc,
-        isControlled: pharmacyOrderItems.isControlled,
-        scheduleClass: pharmacyOrderItems.scheduleClass,
-        requiresRefrigeration: pharmacyOrderItems.requiresRefrigeration,
-        totalOrdered: sql<number>`SUM(${pharmacyOrderItems.quantity})`,
-        orderCount: count(),
-      })
-      .from(pharmacyOrderItems)
-      .innerJoin(pharmacyOrders, eq(pharmacyOrderItems.orderId, pharmacyOrders.id))
-      .where(eq(pharmacyOrders.pharmacyId, pharmacyId))
-      .groupBy(
-        pharmacyOrderItems.medicationName,
-        pharmacyOrderItems.ndc,
-        pharmacyOrderItems.isControlled,
-        pharmacyOrderItems.scheduleClass,
-        pharmacyOrderItems.requiresRefrigeration,
-      );
-
-    // Merge with local inventory adjustments
-    const localInv = getPharmacyInventory(pharmacyId);
-    const localMap = new Map(localInv.map(i => [i.medicationName, i]));
-
-    let inventory = allItems.map((item) => {
-      const local = localMap.get(item.medicationName);
-      const stockLevel = local?.stockLevel ?? Math.max(100 - Number(item.totalOrdered), 0);
-      const threshold = local?.lowStockThreshold ?? 10;
-      return {
-        medicationName: item.medicationName,
-        ndc: item.ndc || null,
-        isControlled: item.isControlled,
-        scheduleClass: item.scheduleClass,
-        requiresRefrigeration: item.requiresRefrigeration,
-        totalOrdered: Number(item.totalOrdered),
-        orderCount: Number(item.orderCount),
-        stockLevel,
-        lowStockThreshold: threshold,
-        isLowStock: stockLevel <= threshold,
-      };
-    });
-
+    const conditions = [eq(pharmacyInventory.pharmacyId, pharmacyId)];
     if (search) {
-      const q = String(search).toLowerCase();
-      inventory = inventory.filter(
-        (i) => i.medicationName.toLowerCase().includes(q) || (i.ndc && i.ndc.includes(q))
-      );
+      const q = `%${String(search).toLowerCase()}%`;
+      conditions.push(or(
+        sql`LOWER(${pharmacyInventory.medicationName}) LIKE ${q}`,
+        sql`${pharmacyInventory.ndc} LIKE ${q}`,
+      )!);
     }
+
+    const items = await db.select().from(pharmacyInventory)
+      .where(and(...conditions))
+      .orderBy(asc(pharmacyInventory.medicationName));
+
+    let inventory = items.map((item) => ({
+      ...item,
+      isLowStock: item.stockLevel <= item.lowStockThreshold,
+    }));
 
     if (lowStock === "true") {
       inventory = inventory.filter((i) => i.isLowStock);
     }
 
     const lowStockCount = inventory.filter((i) => i.isLowStock).length;
-
     res.json({ inventory, total: inventory.length, lowStockCount });
   } catch (err: any) {
     console.error("[PharmacyInventory]", err);
@@ -961,30 +923,30 @@ export async function pharmacyInventoryAdjustHandler(req: AuthRequest, res: Resp
     const pharmacyId = getPharmacyScopeId(req);
     if (!pharmacyId) return res.status(403).json({ message: "Pharmacy scope required" });
 
-    const { medicationName, ndc, adjustment, reason, lowStockThreshold } = req.body;
+    const { medicationName, adjustment, reason } = req.body;
     if (!medicationName) return res.status(400).json({ message: "medicationName required" });
 
-    const key = String(pharmacyId);
-    if (!inventoryStore.has(key)) inventoryStore.set(key, new Map());
-    const store = inventoryStore.get(key)!;
+    // Find existing item
+    const [existing] = await db.select().from(pharmacyInventory)
+      .where(and(eq(pharmacyInventory.pharmacyId, pharmacyId), eq(pharmacyInventory.medicationName, medicationName)))
+      .limit(1);
 
-    const existing = store.get(medicationName) || { medicationName, ndc, stockLevel: 50, lowStockThreshold: 10, adjustments: [] };
-    if (adjustment !== undefined) {
-      existing.stockLevel = Math.max(0, (existing.stockLevel || 0) + Number(adjustment));
-      existing.adjustments.push({
-        amount: Number(adjustment),
-        reason: reason || "Manual adjustment",
-        timestamp: new Date().toISOString(),
-        performedBy: req.user?.userId,
-      });
-    }
-    if (lowStockThreshold !== undefined) {
-      existing.lowStockThreshold = Number(lowStockThreshold);
-    }
-    if (ndc) existing.ndc = ndc;
-    store.set(medicationName, existing);
+    if (!existing) return res.status(404).json({ message: "Inventory item not found" });
 
-    res.json({ success: true, item: existing });
+    const newLevel = Math.max(0, existing.stockLevel + Number(adjustment));
+    const [updated] = await db.update(pharmacyInventory)
+      .set({ stockLevel: newLevel, updatedAt: new Date() })
+      .where(eq(pharmacyInventory.id, existing.id))
+      .returning();
+
+    await db.insert(pharmacyInventoryAdjustments).values({
+      inventoryItemId: existing.id,
+      adjustment: Number(adjustment),
+      reason: reason || "Manual adjustment",
+      performedBy: req.user?.userId,
+    });
+
+    res.json({ success: true, item: { ...updated, isLowStock: newLevel <= updated.lowStockThreshold } });
   } catch (err: any) {
     console.error("[PharmacyInventoryAdjust]", err);
     res.status(500).json({ message: "Failed to adjust inventory" });
@@ -996,23 +958,29 @@ export async function pharmacyInventoryAddHandler(req: AuthRequest, res: Respons
     const pharmacyId = getPharmacyScopeId(req);
     if (!pharmacyId) return res.status(403).json({ message: "Pharmacy scope required" });
 
-    const { medicationName, ndc, stockLevel, lowStockThreshold = 10 } = req.body;
+    const { medicationName, ndc, stockLevel, lowStockThreshold = 10, isControlled, requiresRefrigeration } = req.body;
     if (!medicationName) return res.status(400).json({ message: "medicationName required" });
 
-    const key = String(pharmacyId);
-    if (!inventoryStore.has(key)) inventoryStore.set(key, new Map());
-    const store = inventoryStore.get(key)!;
-
-    const item = {
+    const [item] = await db.insert(pharmacyInventory).values({
+      pharmacyId,
       medicationName,
       ndc: ndc || null,
       stockLevel: Number(stockLevel) || 0,
       lowStockThreshold: Number(lowStockThreshold),
-      adjustments: [{ amount: Number(stockLevel) || 0, reason: "Initial stock", timestamp: new Date().toISOString(), performedBy: req.user?.userId }],
-    };
-    store.set(medicationName, item);
+      isControlled: isControlled || false,
+      requiresRefrigeration: requiresRefrigeration || false,
+    }).returning();
 
-    res.json({ success: true, item });
+    if (Number(stockLevel) > 0) {
+      await db.insert(pharmacyInventoryAdjustments).values({
+        inventoryItemId: item.id,
+        adjustment: Number(stockLevel),
+        reason: "Initial stock",
+        performedBy: req.user?.userId,
+      });
+    }
+
+    res.json({ success: true, item: { ...item, isLowStock: item.stockLevel <= item.lowStockThreshold } });
   } catch (err: any) {
     console.error("[PharmacyInventoryAdd]", err);
     res.status(500).json({ message: "Failed to add inventory item" });
@@ -1021,8 +989,6 @@ export async function pharmacyInventoryAddHandler(req: AuthRequest, res: Respons
 
 // ─── Prescription Management ────────────────────────────────────────────────
 
-const prescriptionStore = new Map<string, any[]>();
-
 export async function pharmacyPrescriptionsListHandler(req: AuthRequest, res: Response) {
   try {
     const pharmacyId = getPharmacyScopeId(req);
@@ -1030,7 +996,26 @@ export async function pharmacyPrescriptionsListHandler(req: AuthRequest, res: Re
 
     const { search, status: filterStatus } = req.query;
 
-    // Get Rx data from order items linked to this pharmacy
+    // Get prescriptions from dedicated table
+    const conditions = [eq(pharmacyPrescriptions.pharmacyId, pharmacyId)];
+    if (search) {
+      const q = `%${String(search).toLowerCase()}%`;
+      conditions.push(or(
+        sql`LOWER(${pharmacyPrescriptions.rxNumber}) LIKE ${q}`,
+        sql`LOWER(${pharmacyPrescriptions.medicationName}) LIKE ${q}`,
+        sql`LOWER(${pharmacyPrescriptions.patientName}) LIKE ${q}`,
+      )!);
+    }
+    if (filterStatus && filterStatus !== "ALL") {
+      conditions.push(eq(pharmacyPrescriptions.validationStatus, String(filterStatus)));
+    }
+
+    const dbRxs = await db.select().from(pharmacyPrescriptions)
+      .where(and(...conditions))
+      .orderBy(desc(pharmacyPrescriptions.createdAt))
+      .limit(200);
+
+    // Also include prescriptions derived from order items (read-only)
     const rxItems = await db
       .select({
         id: pharmacyOrderItems.id,
@@ -1042,11 +1027,9 @@ export async function pharmacyPrescriptionsListHandler(req: AuthRequest, res: Re
         unit: pharmacyOrderItems.unit,
         isControlled: pharmacyOrderItems.isControlled,
         scheduleClass: pharmacyOrderItems.scheduleClass,
-        requiresRefrigeration: pharmacyOrderItems.requiresRefrigeration,
         orderPublicId: pharmacyOrders.publicId,
         orderStatus: pharmacyOrders.status,
         recipientName: pharmacyOrders.recipientName,
-        patientId: pharmacyOrders.patientId,
         createdAt: pharmacyOrderItems.createdAt,
       })
       .from(pharmacyOrderItems)
@@ -1055,39 +1038,37 @@ export async function pharmacyPrescriptionsListHandler(req: AuthRequest, res: Re
       .orderBy(desc(pharmacyOrderItems.createdAt))
       .limit(200);
 
-    // Merge with custom prescription store
-    const localRxs = prescriptionStore.get(String(pharmacyId)) || [];
+    // Track Rx numbers from DB to avoid duplicates
+    const dbRxNumbers = new Set(dbRxs.map(r => r.rxNumber));
+
+    const orderRxs = rxItems
+      .filter((item) => item.rxNumber && !dbRxNumbers.has(item.rxNumber))
+      .map((item) => ({
+        id: item.id,
+        rxNumber: item.rxNumber,
+        medicationName: item.medicationName,
+        ndc: item.ndc,
+        patientName: item.recipientName,
+        prescriber: null,
+        quantity: item.quantity,
+        unit: item.unit,
+        refillsRemaining: 0,
+        refillsTotal: 0,
+        isControlled: item.isControlled,
+        scheduleClass: item.scheduleClass,
+        validationStatus: "VALID",
+        linkedOrderId: item.orderId,
+        linkedOrderPublicId: item.orderPublicId,
+        createdAt: item.createdAt,
+        source: "order",
+      }));
 
     let prescriptions = [
-      ...localRxs.map((rx: any) => ({
-        ...rx,
-        source: "manual",
-      })),
-      ...rxItems
-        .filter((item) => item.rxNumber)
-        .map((item) => ({
-          id: item.id,
-          rxNumber: item.rxNumber,
-          medicationName: item.medicationName,
-          ndc: item.ndc,
-          patientName: item.recipientName,
-          patientId: item.patientId,
-          prescriber: null,
-          quantity: item.quantity,
-          unit: item.unit,
-          refillsRemaining: 0,
-          refillsTotal: 0,
-          isControlled: item.isControlled,
-          scheduleClass: item.scheduleClass,
-          validationStatus: "VALID",
-          linkedOrderId: item.orderId,
-          linkedOrderPublicId: item.orderPublicId,
-          orderStatus: item.orderStatus,
-          createdAt: item.createdAt,
-          source: "order",
-        })),
+      ...dbRxs.map((rx) => ({ ...rx, source: "manual" })),
+      ...orderRxs,
     ];
 
+    // Apply search filter to order-derived Rxs too
     if (search) {
       const q = String(search).toLowerCase();
       prescriptions = prescriptions.filter(
@@ -1115,7 +1096,7 @@ export async function pharmacyPrescriptionCreateHandler(req: AuthRequest, res: R
     if (!pharmacyId) return res.status(403).json({ message: "Pharmacy scope required" });
 
     const {
-      rxNumber, medicationName, ndc, patientName, patientId, prescriber,
+      rxNumber, medicationName, ndc, patientName, prescriber,
       quantity, unit, refillsRemaining, refillsTotal,
       isControlled, scheduleClass,
     } = req.body;
@@ -1124,17 +1105,12 @@ export async function pharmacyPrescriptionCreateHandler(req: AuthRequest, res: R
       return res.status(400).json({ message: "rxNumber, medicationName, and patientName are required" });
     }
 
-    const key = String(pharmacyId);
-    if (!prescriptionStore.has(key)) prescriptionStore.set(key, []);
-    const store = prescriptionStore.get(key)!;
-
-    const rx = {
-      id: Date.now(),
+    const [rx] = await db.insert(pharmacyPrescriptions).values({
+      pharmacyId,
       rxNumber,
       medicationName,
       ndc: ndc || null,
       patientName,
-      patientId: patientId || null,
       prescriber: prescriber || null,
       quantity: Number(quantity) || 1,
       unit: unit || "each",
@@ -1143,15 +1119,9 @@ export async function pharmacyPrescriptionCreateHandler(req: AuthRequest, res: R
       isControlled: isControlled || false,
       scheduleClass: scheduleClass || null,
       validationStatus: isControlled ? "PENDING_VERIFICATION" : "VALID",
-      linkedOrderId: null,
-      linkedOrderPublicId: null,
-      orderStatus: null,
-      createdAt: new Date().toISOString(),
-    };
+    }).returning();
 
-    store.push(rx);
-
-    res.status(201).json({ success: true, prescription: rx });
+    res.status(201).json({ success: true, prescription: { ...rx, source: "manual" } });
   } catch (err: any) {
     console.error("[PharmacyPrescriptionCreate]", err);
     res.status(500).json({ message: "Failed to create prescription" });

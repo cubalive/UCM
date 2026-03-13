@@ -334,6 +334,34 @@ export async function retryFailedWebhooks(): Promise<{ retried: number; failed: 
 }
 
 /**
+ * Background scheduler: Retry failed webhook deliveries every 30 seconds.
+ */
+let webhookRetryInterval: ReturnType<typeof setInterval> | null = null;
+
+export function startWebhookRetryScheduler(): void {
+  if (webhookRetryInterval) return;
+  webhookRetryInterval = setInterval(async () => {
+    try {
+      const result = await retryFailedWebhooks();
+      if (result.retried > 0 || result.failed > 0) {
+        console.log(
+          `[WebhookRetry] retried=${result.retried} failed=${result.failed}`,
+        );
+      }
+    } catch (err: any) {
+      console.warn(`[WebhookRetry] Error: ${err.message}`);
+    }
+  }, 30_000);
+}
+
+export function stopWebhookRetryScheduler(): void {
+  if (webhookRetryInterval) {
+    clearInterval(webhookRetryInterval);
+    webhookRetryInterval = null;
+  }
+}
+
+/**
  * Send a test webhook delivery to verify endpoint connectivity.
  */
 export async function sendTestWebhook(
