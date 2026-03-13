@@ -92,17 +92,17 @@ export default function BillingTariffsPage() {
             <Skeleton className="h-10 w-full" />
           ) : companiesQuery.isError ? (
             <div className="flex flex-col items-center gap-2">
-              <p className="text-sm text-destructive">Failed to load companies</p>
+              <p className="text-sm text-destructive">{t("billingConfig.failedLoadCompanies")}</p>
               <Button variant="outline" size="sm" onClick={() => companiesQuery.refetch()}>
-                Retry
+                {t("common.retry")}
               </Button>
             </div>
           ) : companies.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No companies found. Create one first in the Companies section.</p>
+            <p className="text-sm text-muted-foreground">{t("billingConfig.noCompaniesFound")}</p>
           ) : (
             <Select onValueChange={handleCompanyChange}>
               <SelectTrigger data-testid="select-company-scope">
-                <SelectValue placeholder="Choose a company..." />
+                <SelectValue placeholder={t("billingConfig.chooseCompany")} />
               </SelectTrigger>
               <SelectContent>
                 {companies.map((c: any) => (
@@ -148,7 +148,7 @@ export default function BillingTariffsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/billing/tariffs"] });
       setShowCreate(false);
-      toast({ title: "Tariff created" });
+      toast({ title: t("billingConfig.tariffCreated") });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -162,7 +162,7 @@ export default function BillingTariffsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/billing/tariffs"] });
       setEditTariff(null);
-      toast({ title: "Tariff updated" });
+      toast({ title: t("billingConfig.tariffUpdated") });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -172,7 +172,7 @@ export default function BillingTariffsPage() {
       apiFetch(`/api/company/billing/tariffs/${id}`, token, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/billing/tariffs"] });
-      toast({ title: "Tariff deleted" });
+      toast({ title: t("billingConfig.tariffDeleted") });
     },
     onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });

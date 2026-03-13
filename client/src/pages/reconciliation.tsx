@@ -262,7 +262,7 @@ function AgedARTab() {
                 <p className={`text-xl font-bold ${colors[bucket]}`} data-testid={`text-ar-${bucket}`}>
                   {fmt(data.totalCents)}
                 </p>
-                <p className="text-xs text-muted-foreground">{data.count} invoices</p>
+                <p className="text-xs text-muted-foreground">{t("reconciliation.invoicesOutstanding", { count: data.count })}</p>
               </CardContent>
             </Card>
           );
@@ -395,7 +395,7 @@ function PaymentMethodsTab() {
                     disabled={removeMutation.isPending}
                     data-testid={`button-remove-${pm.id}`}
                   >
-                    Remove
+                    {t("reconciliation.remove")}
                   </Button>
                 </div>
               </CardContent>
@@ -408,21 +408,22 @@ function PaymentMethodsTab() {
 }
 
 export default function ReconciliationPage() {
+  const { t } = useTranslation();
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">
         <CheckSquare className="h-6 w-6 text-blue-400" />
-        <h1 className="text-2xl font-bold">Payment Reconciliation</h1>
+        <h1 className="text-2xl font-bold">{t("reconciliation.title")}</h1>
       </div>
 
       <Tabs defaultValue="dashboard">
         <TabsList className="flex-wrap">
-          <TabsTrigger value="dashboard"><BarChart3 className="w-4 h-4 mr-1" />Dashboard</TabsTrigger>
-          <TabsTrigger value="runs"><Play className="w-4 h-4 mr-1" />Runs</TabsTrigger>
-          <TabsTrigger value="aging"><Clock className="w-4 h-4 mr-1" />Aging Report</TabsTrigger>
-          <TabsTrigger value="aged-ar" data-testid="tab-aged-ar"><DollarSign className="w-4 h-4 mr-1" />Aged AR</TabsTrigger>
-          <TabsTrigger value="write-off" data-testid="tab-write-off"><AlertTriangle className="w-4 h-4 mr-1" />Write-Off</TabsTrigger>
-          <TabsTrigger value="payment-methods" data-testid="tab-payment-methods"><DollarSign className="w-4 h-4 mr-1" />Payment Methods</TabsTrigger>
+          <TabsTrigger value="dashboard"><BarChart3 className="w-4 h-4 mr-1" />{t("reconciliation.dashboard")}</TabsTrigger>
+          <TabsTrigger value="runs"><Play className="w-4 h-4 mr-1" />{t("reconciliation.runs")}</TabsTrigger>
+          <TabsTrigger value="aging"><Clock className="w-4 h-4 mr-1" />{t("reconciliation.agingReport")}</TabsTrigger>
+          <TabsTrigger value="aged-ar" data-testid="tab-aged-ar"><DollarSign className="w-4 h-4 mr-1" />{t("reconciliation.agedAR")}</TabsTrigger>
+          <TabsTrigger value="write-off" data-testid="tab-write-off"><AlertTriangle className="w-4 h-4 mr-1" />{t("reconciliation.writeOff")}</TabsTrigger>
+          <TabsTrigger value="payment-methods" data-testid="tab-payment-methods"><DollarSign className="w-4 h-4 mr-1" />{t("reconciliation.paymentMethods")}</TabsTrigger>
         </TabsList>
         <TabsContent value="dashboard" className="mt-4"><DashboardTab /></TabsContent>
         <TabsContent value="runs" className="mt-4"><RunsTab /></TabsContent>

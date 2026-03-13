@@ -11,6 +11,8 @@ import { Languages } from "lucide-react";
 const languages = [
   { code: "en", label: "English", flag: "EN" },
   { code: "es", label: "Espa\u00f1ol", flag: "ES" },
+  { code: "pt", label: "Portugu\u00eas", flag: "PT" },
+  { code: "ht", label: "Krey\u00f2l", flag: "HT" },
 ];
 
 export function LanguageSwitcher() {
