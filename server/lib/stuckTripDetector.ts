@@ -116,7 +116,7 @@ let monitorInterval: ReturnType<typeof setInterval> | null = null;
  */
 export function startStuckTripMonitor(): void {
   if (monitorInterval) {
-    console.log("[StuckTripDetector] Monitor already running");
+    console.info(JSON.stringify({ event: "stuck_trip_monitor_already_running" }));
     return;
   }
 
@@ -128,7 +128,7 @@ export function startStuckTripMonitor(): void {
 
       if (stuckTrips.length === 0) return;
 
-      console.log(`[StuckTripDetector] Found ${stuckTrips.length} stuck trip(s)`);
+      console.info(JSON.stringify({ event: "stuck_trips_found", count: stuckTrips.length }));
 
       // Group by company for broadcast
       const byCompany = new Map<number, StuckTrip[]>();

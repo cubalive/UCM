@@ -1110,7 +1110,7 @@ export function startFraudMonitor(): void {
     fn: runFraudScan,
   });
 
-  console.log("[FRAUD-MONITOR] Starting (interval: 24h)");
+  console.info(JSON.stringify({ event: "fraud_monitor_started", intervalMs: FRAUD_MONITOR_INTERVAL_MS }));
   registerInterval("fraud_monitor", FRAUD_MONITOR_INTERVAL_MS, fraudMonitorTask, 60_000);
 }
 
