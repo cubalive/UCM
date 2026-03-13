@@ -106,7 +106,7 @@ export async function updateDispatcherPermissionsHandler(req: AuthRequest, res: 
       );
     }
 
-    console.log(`[DISPATCHER_PERMS] Updated permissions for user ${dispatcherUserId}: cities=[${allowedCityIds.join(",")}]`);
+    console.info(JSON.stringify({ event: "dispatcher_perms_updated", userId: dispatcherUserId, cityIds: allowedCityIds }));
 
     res.json({ allowedCityIds });
   } catch (err: any) {

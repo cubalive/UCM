@@ -125,13 +125,13 @@ export function startDunningScheduler() {
   });
 
   registerInterval("dunning", DUNNING_INTERVAL_MS, dunningTask);
-  console.log("[DUNNING] Scheduler started (interval: 6h)");
+  console.info(JSON.stringify({ event: "dunning_scheduler_started", intervalMs: DUNNING_INTERVAL_MS }));
 }
 
 export function stopDunningScheduler() {
   if (dunningTask) {
     dunningTask.stop();
     dunningTask = null;
-    console.log("[DUNNING] Stopped");
+    console.info(JSON.stringify({ event: "dunning_scheduler_stopped" }));
   }
 }

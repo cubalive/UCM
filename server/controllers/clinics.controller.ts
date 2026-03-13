@@ -134,7 +134,7 @@ export async function createClinicHandler(req: AuthRequest, res: Response) {
       if (updatedClinic) clinic = updatedClinic;
       authProvisioned = true;
       if (result.tempPassword) tempPassword = result.tempPassword;
-      console.log(`[clinicCreate] Auth user ${result.isNew ? "created" : "linked"}: ${result.userId}`);
+      console.info(JSON.stringify({ event: "clinic_auth_provisioned", isNew: result.isNew, userId: result.userId }));
     } catch (authErr: any) {
       console.error("[clinicCreate] Auth provisioning failed (non-fatal):", authErr.message);
     }
@@ -287,7 +287,7 @@ export async function updateClinicHandler(req: AuthRequest, res: Response) {
           email: updateData.email,
         });
         updateData.authUserId = authUserId;
-        console.log(`[clinicUpdate] Auth user linked: ${authUserId}`);
+        console.info(JSON.stringify({ event: "clinic_auth_linked", authUserId }));
       } catch (authErr: any) {
         console.error("[clinicUpdate] Auth provisioning failed (non-fatal):", authErr.message);
       }
