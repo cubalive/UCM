@@ -248,24 +248,24 @@ export default function BillingTariffsPage() {
         </div>
         <Button onClick={() => setShowCreate(true)} data-testid="button-create-tariff">
           <Plus className="w-4 h-4 mr-2" />
-          New Tariff
+          {t("billingConfig.newTariff")}
         </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-base">Billing Backfill</CardTitle>
+            <CardTitle className="text-base">{t("billingConfig.billingBackfill")}</CardTitle>
             <FileText className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex gap-2 flex-wrap">
               <div className="space-y-1">
-                <Label>From</Label>
+                <Label>{t("billingConfig.from")}</Label>
                 <Input type="date" value={backfillFrom} onChange={(e) => setBackfillFrom(e.target.value)} data-testid="input-backfill-from" />
               </div>
               <div className="space-y-1">
-                <Label>To</Label>
+                <Label>{t("billingConfig.to")}</Label>
                 <Input type="date" value={backfillTo} onChange={(e) => setBackfillTo(e.target.value)} data-testid="input-backfill-to" />
               </div>
             </div>
