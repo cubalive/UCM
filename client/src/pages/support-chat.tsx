@@ -10,11 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Send, Plus, Loader2, AlertTriangle, Search, Filter } from "lucide-react";
+import { MessageSquare, Send, Plus, Loader2, AlertTriangle, Search, Filter, Building2 } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { getStoredCompanyScopeId } from "@/lib/api";
+import { getStoredCompanyScopeId, setStoredCompanyScopeId } from "@/lib/api";
 
 export default function SupportChatPage() {
   const { token, user } = useAuth();
@@ -28,16 +28,57 @@ export default function SupportChatPage() {
 
   const isClinic = user?.role === "VIEWER" || user?.role === "CLINIC_USER";
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
-  const hasCompanyScope = isSuperAdmin ? !!getStoredCompanyScopeId() : true;
+  const [companyScopeId, setCompanyScopeIdState] = useState<string | null>(getStoredCompanyScopeId());
+  const hasCompanyScope = isSuperAdmin ? !!companyScopeId : true;
 
-  if (!isClinic && isSuperAdmin && !hasCompanyScope) {
+  const companiesQuery = useQuery<any[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch("/api/companies", token),
+    enabled: !!token && isSuperAdmin && !hasCompanyScope,
+  });
+
+  const handleCompanyChange = (value: string) => {
+    setStoredCompanyScopeId(value);
+    setCompanyScopeIdState(value);
+    queryClient.invalidateQueries();
+  };
+
+  if (isSuperAdmin && !hasCompanyScope) {
+    const companies = companiesQuery.data || [];
     return (
       <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="support-no-company">
-        <AlertTriangle className="w-10 h-10 text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Company Scope Required</h2>
+        <Building2 className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">Select a Company</h2>
         <p className="text-sm text-muted-foreground text-center max-w-md">
-          As a Super Admin, please select a company from the Companies page first to access support threads.
+          As a Super Admin, select a company to access support threads.
         </p>
+        <div className="w-full max-w-xs">
+          {companiesQuery.isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : companiesQuery.isError ? (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-sm text-destructive">Failed to load companies</p>
+              <Button variant="outline" size="sm" onClick={() => companiesQuery.refetch()}>
+                Retry
+              </Button>
+            </div>
+          ) : companies.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No companies found.</p>
+          ) : (
+            <Select onValueChange={handleCompanyChange}>
+              <SelectTrigger data-testid="select-company-scope">
+                <SelectValue placeholder="Choose a company..." />
+              </SelectTrigger>
+              <SelectContent>
+                {companies.map((c: any) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
     );
   }

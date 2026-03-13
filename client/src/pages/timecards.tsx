@@ -98,16 +98,31 @@ export default function TimecardsPage() {
         <Building2 className="w-10 h-10 text-muted-foreground" />
         <h2 className="text-lg font-semibold">Select a Company</h2>
         <p className="text-sm text-muted-foreground">Choose a company to manage timecards</p>
-        <Select onValueChange={handleCompanyChange}>
-          <SelectTrigger className="w-64" data-testid="select-company-scope">
-            <SelectValue placeholder="Select company..." />
-          </SelectTrigger>
-          <SelectContent>
-            {companies.map((c: any) => (
-              <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="w-full max-w-xs">
+          {companiesQuery.isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : companiesQuery.isError ? (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-sm text-destructive">Failed to load companies</p>
+              <Button variant="outline" size="sm" onClick={() => companiesQuery.refetch()}>
+                Retry
+              </Button>
+            </div>
+          ) : companies.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No companies found.</p>
+          ) : (
+            <Select onValueChange={handleCompanyChange}>
+              <SelectTrigger className="w-64" data-testid="select-company-scope">
+                <SelectValue placeholder="Select company..." />
+              </SelectTrigger>
+              <SelectContent>
+                {companies.map((c: any) => (
+                  <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
     );
   }

@@ -88,6 +88,15 @@ export default function BillingTariffsPage() {
         <div className="w-full max-w-xs">
           {companiesQuery.isLoading ? (
             <Skeleton className="h-10 w-full" />
+          ) : companiesQuery.isError ? (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-sm text-destructive">Failed to load companies</p>
+              <Button variant="outline" size="sm" onClick={() => companiesQuery.refetch()}>
+                Retry
+              </Button>
+            </div>
+          ) : companies.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No companies found. Create one first in the Companies section.</p>
           ) : (
             <Select onValueChange={handleCompanyChange}>
               <SelectTrigger data-testid="select-company-scope">
