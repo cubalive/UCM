@@ -8,7 +8,7 @@ on:
 
 env:
   NODE_ENV: test
-  DATABASE_URL: postgresql://test:test@localhost:5432/test
+  DATABASE_URL: postgresql://test:test@db.test.supabase.co:5432/test
 
 jobs:
   typecheck:
