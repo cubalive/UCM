@@ -13,6 +13,7 @@ import { ActiveTrip } from "./screens/ActiveTrip";
 import { Earnings } from "./screens/Earnings";
 import { Profile } from "./screens/Profile";
 import { ToastContainer } from "./components/ui/Toast";
+import { OfflineQueueStatus } from "@/components/OfflineQueueStatus";
 
 type Screen = "onboarding" | "dashboard" | "activeTrip" | "earnings" | "profile";
 
@@ -400,6 +401,9 @@ export function DriverAppV4() {
             tripPhase={tripPhase}
           />
         )}
+
+        {/* Offline queue status indicator */}
+        <OfflineQueueStatus />
 
         {/* Global Toast Notifications */}
         <ToastContainer />

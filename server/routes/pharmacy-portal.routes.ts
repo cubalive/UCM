@@ -33,6 +33,9 @@ import {
   pharmacyFeedbackHandler,
   pharmacyAutomationSettingsGetHandler,
   pharmacyAutomationSettingsUpdateHandler,
+  pharmacyErxIncomingHandler,
+  pharmacyErxWebhookHandler,
+  pharmacyErxVerifyPrescriberHandler,
 } from "../controllers/pharmacy-portal.controller";
 
 export function registerPharmacyPortalRoutes(app: Express) {
@@ -102,6 +105,13 @@ export function registerPharmacyPortalRoutes(app: Express) {
   // Automation settings
   app.get("/api/pharmacy/automation-settings", authMiddleware, requirePharmacyAdmin as any, pharmacyAutomationSettingsGetHandler as any);
   app.patch("/api/pharmacy/automation-settings", authMiddleware, requirePharmacyAdmin as any, pharmacyAutomationSettingsUpdateHandler as any);
+
+  // e-Rx / SureScripts integration
+  app.post("/api/pharmacy/erx/incoming", authMiddleware, phiAuditFor("pharmacy_prescription") as any, requirePharmacyScope as any, pharmacyErxIncomingHandler as any);
+  app.get("/api/pharmacy/erx/verify-prescriber", authMiddleware, requirePharmacyScope as any, pharmacyErxVerifyPrescriberHandler as any);
+
+  // e-Rx webhook (NO auth — uses HMAC signature verification)
+  app.post("/api/pharmacy/erx/webhook", pharmacyErxWebhookHandler as any);
 
   // Public tracking (NO auth required)
   app.get("/api/pharmacy/track/:publicId", pharmacyPublicTrackingHandler as any);

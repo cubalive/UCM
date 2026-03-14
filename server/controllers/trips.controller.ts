@@ -372,6 +372,30 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
       data: { tripId: String(id), action: "trip_assigned" },
     }).catch(err => console.error(`[PUSH] Assign push failed for driver ${driverId}:`, err.message));
 
+    // Deliver trip.assigned webhook to broker if trip originated from a broker request
+    if (trip.requestSource === "broker") {
+      import("@shared/schema").then(({ brokerTripRequests }) => {
+        db.select().from(brokerTripRequests)
+          .where(eq(brokerTripRequests.tripId, id))
+          .limit(1)
+          .then(([request]) => {
+            if (request?.brokerId) {
+              import("../lib/brokerWebhookEngine").then(({ deliverWebhook }) => {
+                deliverWebhook(request.brokerId, "trip.assigned", {
+                  tripId: id,
+                  requestId: request.id,
+                  status: "ASSIGNED",
+                  driverId,
+                  driverName: `${driver.firstName} ${driver.lastName}`,
+                  publicId: updatedTrip.publicId,
+                  assignedAt: now.toISOString(),
+                }).catch(() => {});
+              }).catch(() => {});
+            }
+          }).catch(() => {});
+      }).catch(() => {});
+    }
+
     await storage.createAuditLog({
       userId: req.user!.userId,
       action: "ASSIGN",

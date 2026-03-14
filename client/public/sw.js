@@ -31,15 +31,17 @@ const STATIC_EXTENSIONS = [
   ".ttf",
 ];
 
-/* ─── Queueable API paths (driver location pings and status updates) ─── */
+/* ─── Queueable API paths (driver location pings, status updates, pharmacy deliveries) ─── */
 const QUEUEABLE_PATHS = [
   "/api/driver/me/location",
   "/api/driver/trips/",
+  "/api/driver/deliveries/",
+  "/api/pharmacy/orders/",
 ];
 
 function isQueueablePath(pathname) {
   return QUEUEABLE_PATHS.some((p) => pathname.startsWith(p)) &&
-    (pathname.includes("/location") || pathname.includes("/status"));
+    (pathname.includes("/location") || pathname.includes("/status") || pathname.includes("/confirm"));
 }
 
 /* ─── IndexedDB-backed offline queue ─── */
