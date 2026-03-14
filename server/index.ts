@@ -13,6 +13,7 @@ import { phiAuditMiddleware } from "./middleware/phiAudit";
 import { inputSanitizer } from "./middleware/inputSanitizer";
 import { apiRateLimiter } from "./middleware/rateLimiter";
 import { structuredLoggerMiddleware } from "./middleware/structuredLogger";
+import compression from "compression";
 
 const app = express();
 const httpServer = createServer(app);
@@ -20,6 +21,14 @@ const httpServer = createServer(app);
 // Healthcheck MUST be registered before any middleware to guarantee Railway/infra can reach it
 app.get("/api/health/live", (_req, res) => {
   res.status(200).json({ status: "alive", uptime: Math.round(process.uptime()), pid: process.pid });
+});
+
+app.post("/api/metrics/web-vitals", express.json({ limit: "4kb" }), (req, res) => {
+  const { name, value, rating, page } = req.body || {};
+  if (name && value !== undefined) {
+    console.log(`[WEB-VITAL] ${name}=${typeof value === 'number' ? value.toFixed(1) : value} rating=${rating || 'unknown'} page=${page || '/'}`);
+  }
+  res.status(204).end();
 });
 
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -61,6 +70,7 @@ app.use(helmet({
   strictTransportSecurity: { maxAge: 63072000, includeSubDomains: true, preload: true },
 }));
 app.use(cookieParser());
+app.use(compression({ threshold: 1024 }));
 
 declare module "http" {
   interface IncomingMessage {

@@ -1,5 +1,5 @@
 /// <reference types="google.maps" />
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, authHeaders } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -723,8 +723,8 @@ function DispatchMapView({ token, localCityId, cities, setSelectedCity, setLocal
   });
 
   const drivers = driverLocations || [];
-  const staleCount = drivers.filter((d) => isStale(d.updated_at)).length;
-  const activeCount = drivers.filter((d) => !isStale(d.updated_at)).length;
+  const staleCount = useMemo(() => drivers.filter((d) => isStale(d.updated_at)).length, [drivers]);
+  const activeCount = useMemo(() => drivers.filter((d) => !isStale(d.updated_at)).length, [drivers]);
 
   const mapCenter = CITY_DEFAULTS.default;
   const mapZoom = 5;

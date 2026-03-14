@@ -1,8 +1,28 @@
 import { createRoot } from "react-dom/client";
+import { onCLS, onFCP, onLCP, onTTFB, onINP } from "web-vitals";
 import App from "./App";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+// ─── Web Vitals Tracking ───────────────────────────────────────────────────
+const reportWebVital = ({ name, value, rating }: { name: string; value: number; rating?: string }) => {
+  navigator.sendBeacon?.(
+    "/api/metrics/web-vitals",
+    JSON.stringify({ name, value, rating, page: location.pathname })
+  ) || fetch("/api/metrics/web-vitals", {
+    method: "POST",
+    body: JSON.stringify({ name, value, rating, page: location.pathname }),
+    headers: { "Content-Type": "application/json" },
+    keepalive: true,
+  }).catch(() => {});
+};
+
+onCLS(reportWebVital);
+onFCP(reportWebVital);
+onLCP(reportWebVital);
+onTTFB(reportWebVital);
+onINP(reportWebVital);
 
 const SW_UPDATE_INTERVAL = 30 * 60_000;
 const VERSION_CHECK_INTERVAL = 60_000;

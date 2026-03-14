@@ -276,6 +276,7 @@ export const drivers = pgTable("drivers", {
   index("idx_drivers_company_status").on(table.companyId, table.status),
   index("idx_drivers_city_status").on(table.cityId, table.status),
   index("idx_drivers_company_dispatch").on(table.companyId, table.dispatchStatus),
+  index("idx_drivers_company_dispatch_city").on(table.companyId, table.dispatchStatus, table.cityId),
 ]);
 
 export const clinics = pgTable("clinics", {
@@ -505,6 +506,7 @@ export const trips = pgTable("trips", {
   index("idx_trips_patient_created").on(table.patientId, table.createdAt),
   index("idx_trips_clinic_status").on(table.clinicId, table.status),
   index("idx_trips_scheduled_date").on(table.scheduledDate, table.status),
+  index("idx_trips_clinic_scheduled").on(table.clinicId, table.scheduledDate),
 ]);
 
 export const tripLocationPoints = pgTable("trip_location_points", {
@@ -591,7 +593,9 @@ export const invoices = pgTable("invoices", {
   receiptUrl: text("receipt_url"),
   paidAt: timestamp("paid_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_invoices_clinic_status").on(table.clinicId, table.status, table.createdAt),
+]);
 
 export const companyStripeAccounts = pgTable("company_stripe_accounts", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

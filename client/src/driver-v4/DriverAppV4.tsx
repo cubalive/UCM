@@ -8,6 +8,7 @@ import { colors } from "./design/tokens";
 import { useDriverStore } from "./store/driverStore";
 import { useAuth } from "@/lib/auth";
 import { ConfirmDialog } from "./components/ui/ConfirmDialog";
+import { createWebSocketConnection } from "@/lib/websocket";
 
 import { Onboarding } from "./screens/Onboarding";
 import { Dashboard } from "./screens/Dashboard";
@@ -307,8 +308,10 @@ export function DriverAppV4() {
   const pollActiveTrip = useDriverStore((s) => s.pollActiveTrip);
   const pollPharmacyDeliveries = useDriverStore((s) => s.pollPharmacyDeliveries);
   const updateLocation = useDriverStore((s) => s.updateLocation);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handleWsTripOffer = useDriverStore((s) => s.handleWsTripOffer);
+  const handleWsTripStatusChange = useDriverStore((s) => s.handleWsTripStatusChange);
   const geoRef = useRef<number | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
 
   const isAuthenticated = !!user && !!token;
 
@@ -320,19 +323,55 @@ export function DriverAppV4() {
     }
   }, [isAuthenticated, initialize]);
 
-  // Poll for offers and active trip every 10 seconds
+  // WebSocket connection — replaces 10s polling
   useEffect(() => {
     if (!isAuthenticated) return;
-    pollRef.current = setInterval(() => {
-      if (tripPhase === "none") {
-        pollOffers();
-        pollPharmacyDeliveries();
-      } else if (tripPhase !== "offer" && tripPhase !== "complete") {
-        pollActiveTrip();
+
+    const ws = createWebSocketConnection();
+
+    ws.on("connect", () => {
+      setWsConnected(true);
+      // Subscribe to driver-specific events
+      ws.send({ type: "subscribe_driver", driverId: user?.id });
+    });
+
+    ws.on("disconnect", () => {
+      setWsConnected(false);
+      // Reconnection is handled automatically by the WS client
+    });
+
+    ws.on("trip_offer", (data: any) => {
+      handleWsTripOffer(data);
+    });
+
+    ws.on("status_change", (data: any) => {
+      handleWsTripStatusChange(data);
+    });
+
+    ws.on("trip_status_change", (data: any) => {
+      handleWsTripStatusChange(data);
+    });
+
+    ws.on("location_request", () => {
+      // Dispatch requested driver's current location
+      const state = useDriverStore.getState();
+      if (state.driverLat && state.driverLng) {
+        state.updateLocation(state.driverLat, state.driverLng, state.driverHeading ?? undefined);
       }
-    }, 10_000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [isAuthenticated, tripPhase, pollOffers, pollActiveTrip, pollPharmacyDeliveries]);
+    });
+
+    ws.on("pharmacy_update", () => {
+      pollPharmacyDeliveries();
+    });
+
+    // Initial data load (one-time, not polling)
+    pollOffers();
+    pollPharmacyDeliveries();
+
+    return () => {
+      ws.disconnect();
+    };
+  }, [isAuthenticated, user?.id, handleWsTripOffer, handleWsTripStatusChange, pollOffers, pollPharmacyDeliveries]);
 
   // GPS tracking
   useEffect(() => {
@@ -420,6 +459,20 @@ export function DriverAppV4() {
             tripPhase={tripPhase}
           />
         )}
+
+        {/* WebSocket connection status */}
+        <div
+          className="absolute top-2 right-2 z-50 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium"
+          style={{
+            background: wsConnected ? "rgba(52,199,89,0.12)" : "rgba(0,0,0,0.06)",
+            color: wsConnected ? colors.success : colors.textTertiary,
+            backdropFilter: "blur(8px)",
+          }}
+          aria-live="polite"
+        >
+          <span style={{ fontSize: 8 }}>{wsConnected ? "●" : "○"}</span>
+          {wsConnected ? "Live" : "Reconnecting..."}
+        </div>
 
         {/* Offline queue status indicator */}
         <OfflineQueueStatus />

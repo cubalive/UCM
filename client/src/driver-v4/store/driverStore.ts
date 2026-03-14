@@ -156,6 +156,8 @@ interface DriverState {
   flushOfflineQueue: () => Promise<void>;
   pollPharmacyDeliveries: () => Promise<void>;
   advancePharmacyStatus: (orderId: number, newStatus: string) => Promise<void>;
+  handleWsTripOffer: (data: any) => void;
+  handleWsTripStatusChange: (data: any) => void;
   getNextAction: () => NextAction;
 }
 
@@ -618,6 +620,66 @@ export const useDriverStore = create<DriverState>()(
       }));
       set({ pharmacyDeliveries: deliveries });
     } catch {}
+  },
+
+  handleWsTripOffer: (data: any) => {
+    const offer = data.offer || data.data?.offer || data;
+    if (!offer || !offer.tripId) return;
+    const enrichedOffer = {
+      offerId: offer.offerId || offer.id,
+      tripId: offer.tripId,
+      publicId: offer.publicId || String(offer.tripId),
+      pickupAddress: offer.pickupAddress || "",
+      dropoffAddress: offer.dropoffAddress || "",
+      pickupLat: offer.pickupLat || null,
+      pickupLng: offer.pickupLng || null,
+      dropoffLat: offer.dropoffLat || null,
+      dropoffLng: offer.dropoffLng || null,
+      patientName: offer.patientName || "Patient",
+      secondsRemaining: offer.secondsRemaining || 30,
+      expiresAt: offer.expiresAt || new Date(Date.now() + 30000).toISOString(),
+      etaToPickupMinutes: offer.etaToPickupMinutes || 12,
+      estimatedTripMinutes: offer.estimatedTripMinutes || 25,
+    };
+    const expiresAt = new Date(enrichedOffer.expiresAt).getTime();
+    set({
+      pendingOffer: enrichedOffer,
+      tripPhase: "offer",
+      offerExpiresAt: expiresAt,
+      activeTrip: {
+        id: enrichedOffer.publicId,
+        tripId: enrichedOffer.tripId,
+        pickupAddress: enrichedOffer.pickupAddress,
+        dropoffAddress: enrichedOffer.dropoffAddress,
+        pickupLatLng: { lat: Number(enrichedOffer.pickupLat) || 0, lng: Number(enrichedOffer.pickupLng) || 0 },
+        dropoffLatLng: { lat: Number(enrichedOffer.dropoffLat) || 0, lng: Number(enrichedOffer.dropoffLng) || 0 },
+        passengerName: enrichedOffer.patientName,
+        notes: "",
+        etaMinutes: enrichedOffer.etaToPickupMinutes,
+        routePolyline: offer.routePolyline || null,
+      },
+    });
+  },
+
+  handleWsTripStatusChange: (data: any) => {
+    const update = data.data || data;
+    const tripId = update.tripId;
+    const newStatus = update.status || update.newStatus;
+    if (!newStatus) return;
+
+    const currentTrip = get().activeTrip;
+    if (currentTrip && currentTrip.tripId === tripId) {
+      const newPhase = statusToPhase(newStatus);
+      set({ tripPhase: newPhase, activeTrip: { ...currentTrip, status: newStatus } });
+
+      if (newStatus === "COMPLETED") {
+        set((s) => ({ completedRides: s.completedRides + 1 }));
+        setTimeout(() => set({ tripPhase: "none", activeTrip: null }), 2000);
+      }
+    } else if (!currentTrip && newStatus === "ASSIGNED") {
+      // New trip assigned via WS — fetch full trip data
+      get().pollActiveTrip();
+    }
   },
 
   advancePharmacyStatus: async (orderId: number, newStatus: string) => {
