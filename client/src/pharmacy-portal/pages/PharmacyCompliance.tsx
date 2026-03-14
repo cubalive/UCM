@@ -236,10 +236,10 @@ export default function PharmacyCompliance() {
 
       {/* Chain of Custody Modal */}
       {selectedOrderId && custodyData && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setSelectedOrderId(null)}>
-          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setSelectedOrderId(null)} role="presentation" aria-hidden="true">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="chain-custody-title">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+              <h3 id="chain-custody-title" className="text-lg font-semibold text-white flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-violet-400" />
                 Chain of Custody — {custodyData.publicId}
               </h3>

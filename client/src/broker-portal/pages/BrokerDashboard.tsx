@@ -25,10 +25,11 @@ export default function BrokerDashboard() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-6" role="status" aria-live="polite">
+        <span className="sr-only">Loading dashboard...</span>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[...Array(8)].map((_, i) => (
-            <div key={i} className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 animate-pulse h-24" />
+            <div key={i} className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 animate-pulse h-24" aria-hidden="true" />
           ))}
         </div>
       </div>
@@ -38,8 +39,8 @@ export default function BrokerDashboard() {
   if (isError) {
     return (
       <div className="p-6">
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
-          <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center" role="alert">
+          <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" aria-hidden="true" />
           <h3 className="text-lg font-semibold text-white mb-1">Failed to Load Dashboard</h3>
           <p className="text-sm text-gray-400">{(error as Error)?.message || "Something went wrong. Please try again."}</p>
         </div>
@@ -117,12 +118,12 @@ export default function BrokerDashboard() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-gray-500 text-xs uppercase">
-                <th className="text-left p-3">ID</th>
-                <th className="text-left p-3">Member</th>
-                <th className="text-left p-3">Date</th>
-                <th className="text-left p-3">Pickup</th>
-                <th className="text-left p-3">Status</th>
-                <th className="text-left p-3">Priority</th>
+                <th scope="col" className="text-left p-3">ID</th>
+                <th scope="col" className="text-left p-3">Member</th>
+                <th scope="col" className="text-left p-3">Date</th>
+                <th scope="col" className="text-left p-3">Pickup</th>
+                <th scope="col" className="text-left p-3">Status</th>
+                <th scope="col" className="text-left p-3">Priority</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1e293b]">

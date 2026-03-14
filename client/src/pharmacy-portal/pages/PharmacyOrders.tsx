@@ -88,9 +88,10 @@ export default function PharmacyOrders() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => refetch()}
+            aria-label="Refresh orders"
             className="p-2 hover:bg-white/5 rounded-lg transition-colors text-gray-400"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-4 h-4" aria-hidden="true" />
           </button>
           <Link href="/orders/new">
             <button className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium flex items-center gap-2">
@@ -103,16 +104,18 @@ export default function PharmacyOrders() {
 
       {/* Filters */}
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-4 flex flex-wrap items-center gap-3">
-        <Filter className="w-4 h-4 text-gray-500" />
+        <Filter className="w-4 h-4 text-gray-500" aria-hidden="true" />
         <input
           type="date"
           value={date}
           onChange={(e) => { setDate(e.target.value); setPage(1); }}
+          aria-label="Filter by date"
           className="bg-[#0a0f1e] border border-[#1e293b] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
         />
         <select
           value={status}
           onChange={(e) => { setStatus(e.target.value); setPage(1); }}
+          aria-label="Filter by status"
           className="bg-[#0a0f1e] border border-[#1e293b] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
         >
           {STATUS_OPTIONS.map((s) => (
@@ -122,6 +125,7 @@ export default function PharmacyOrders() {
         <select
           value={priority}
           onChange={(e) => { setPriority(e.target.value); setPage(1); }}
+          aria-label="Filter by priority"
           className="bg-[#0a0f1e] border border-[#1e293b] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
         >
           {PRIORITY_OPTIONS.map((p) => (
@@ -136,14 +140,14 @@ export default function PharmacyOrders() {
         <table className="w-full">
           <thead>
             <tr className="border-b border-[#1e293b]">
-              <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
-              <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recipient</th>
-              <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Delivery Address</th>
-              <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
-              <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-              <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Temp</th>
-              <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recipient</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Delivery Address</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Temp</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
             </tr>
           </thead>
           <tbody>
@@ -222,16 +226,18 @@ export default function PharmacyOrders() {
             <button
               onClick={() => setPage(Math.max(1, page - 1))}
               disabled={page <= 1}
+              aria-label="Previous page"
               className="p-2 rounded-lg bg-[#111827] border border-[#1e293b] text-gray-400 disabled:opacity-30 hover:bg-white/5"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             </button>
             <button
               onClick={() => setPage(Math.min(totalPages, page + 1))}
               disabled={page >= totalPages}
+              aria-label="Next page"
               className="p-2 rounded-lg bg-[#111827] border border-[#1e293b] text-gray-400 disabled:opacity-30 hover:bg-white/5"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
         </div>

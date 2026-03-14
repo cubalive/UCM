@@ -100,10 +100,11 @@ export default function PharmacyDashboard() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-6" role="status" aria-live="polite">
+        <span className="sr-only">Loading dashboard...</span>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 animate-pulse">
+            <div key={i} className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 animate-pulse" aria-hidden="true">
               <div className="h-4 bg-gray-700 rounded w-20 mb-3" />
               <div className="h-8 bg-gray-700 rounded w-16" />
             </div>
@@ -116,8 +117,8 @@ export default function PharmacyDashboard() {
   if (isError) {
     return (
       <div className="p-6">
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center">
-          <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center" role="alert">
+          <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" aria-hidden="true" />
           <h3 className="text-lg font-semibold text-white mb-1">Failed to Load Dashboard</h3>
           <p className="text-sm text-gray-400">{(error as Error)?.message || "Something went wrong. Please try again."}</p>
         </div>
@@ -168,12 +169,12 @@ export default function PharmacyDashboard() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#1e293b]">
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recipient</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recipient</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
               </tr>
             </thead>
             <tbody>
@@ -230,7 +231,7 @@ export default function PharmacyDashboard() {
           </h3>
           <span className="text-2xl font-bold text-emerald-400">{summary.deliveryRate}%</span>
         </div>
-        <div className="w-full bg-[#1e293b] rounded-full h-3">
+        <div className="w-full bg-[#1e293b] rounded-full h-3" role="progressbar" aria-valuenow={summary.deliveryRate} aria-valuemin={0} aria-valuemax={100} aria-label="Delivery performance">
           <div
             className="bg-gradient-to-r from-violet-500 to-emerald-500 h-3 rounded-full transition-all duration-500"
             style={{ width: `${summary.deliveryRate}%` }}

@@ -135,11 +135,11 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
               ].map((f, i) => (
                 <div key={i} className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(0,0,0,0.03)" }}>
-                    {f.icon}
+                    <span aria-hidden="true">{f.icon}</span>
                   </div>
                   <div>
-                    <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>{f.title}</p>
-                    <p className="text-[10px]" style={{ color: colors.textTertiary }}>{f.desc}</p>
+                    <p className="text-sm font-semibold" style={{ color: colors.textPrimary }}>{f.title}</p>
+                    <p className="text-xs" style={{ color: colors.textTertiary }}>{f.desc}</p>
                   </div>
                 </div>
               ))}
@@ -157,8 +157,8 @@ export function Onboarding({ onContinue }: { onContinue: () => void }) {
           </div>
 
           <div className="flex items-center justify-center gap-1.5 pt-2">
-            <Shield className="w-3 h-3" style={{ color: colors.textTertiary }} />
-            <span className="text-[10px]" style={{ color: colors.textTertiary }}>
+            <Shield className="w-3 h-3" aria-hidden="true" style={{ color: colors.textTertiary }} />
+            <span className="text-xs" style={{ color: colors.textTertiary }}>
               Secured by UCM • HIPAA Compliant
             </span>
           </div>

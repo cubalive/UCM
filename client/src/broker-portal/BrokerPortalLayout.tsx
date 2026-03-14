@@ -21,6 +21,7 @@ import BrokerSettings from "./pages/BrokerSettings";
 import LoginPage from "@/pages/login";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import { SkipToContent } from "@/components/SkipToContent";
 import { useBrokerWs } from "@/hooks/use-broker-ws";
 
 const ALLOWED_ROLES = ["BROKER_ADMIN", "BROKER_USER", "SUPER_ADMIN"];
@@ -57,9 +58,9 @@ export function BrokerPortalLayout() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
+      <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]" role="status" aria-live="polite">
         <div className="flex flex-col items-center space-y-4">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
           <p className="text-gray-400 text-sm">Loading broker portal...</p>
         </div>
       </div>
@@ -82,7 +83,7 @@ export function BrokerPortalLayout() {
       <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
         <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 max-w-md text-center space-y-4">
           <div className="w-16 h-16 mx-auto bg-red-500/10 rounded-full flex items-center justify-center">
-            <X className="w-8 h-8 text-red-400" />
+            <X className="w-8 h-8 text-red-400" aria-hidden="true" />
           </div>
           <h2 className="text-xl font-semibold text-white">Access Denied</h2>
           <p className="text-gray-400">
@@ -101,6 +102,7 @@ export function BrokerPortalLayout() {
 
   return (
     <div className="flex h-screen w-full bg-[#0a0f1e] text-white overflow-hidden" data-testid="broker-portal-layout">
+      <SkipToContent />
       <BrokerSidebar
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -108,12 +110,14 @@ export function BrokerPortalLayout() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 border-b border-[#1e293b] bg-[#0f172a]/80 backdrop-blur-sm flex items-center px-4 shrink-0">
+        <header className="h-14 border-b border-[#1e293b] bg-[#0f172a]/80 backdrop-blur-sm flex items-center px-4 shrink-0" role="banner">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-2 hover:bg-white/5 rounded-lg transition-colors"
+            className="lg:hidden p-2 hover:bg-white/5 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+            aria-label={sidebarOpen ? "Close sidebar menu" : "Open sidebar menu"}
+            aria-expanded={sidebarOpen}
           >
-            <Menu className="w-5 h-5 text-gray-400" />
+            <Menu className="w-5 h-5 text-gray-400" aria-hidden="true" />
           </button>
           <div className="flex items-center gap-3 ml-2 lg:ml-0">
             <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-400 rounded-full flex items-center justify-center text-white font-bold text-sm">
@@ -135,7 +139,7 @@ export function BrokerPortalLayout() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" role="main" aria-label="Broker portal content">
           <BrokerPortalRoutes />
         </main>
       </div>
@@ -144,6 +148,8 @@ export function BrokerPortalLayout() {
         <div
           className="fixed inset-0 bg-black/50 z-30 lg:hidden"
           onClick={() => setSidebarOpen(false)}
+          role="presentation"
+          aria-hidden="true"
         />
       )}
     </div>

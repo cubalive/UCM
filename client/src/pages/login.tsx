@@ -120,8 +120,8 @@ export default function LoginPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{t("app.title")}</h1>
           <Card>
             <CardContent className="py-8">
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <div className="flex flex-col items-center gap-3" role="status" aria-live="polite">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" aria-hidden="true" />
                 <p className="text-sm text-muted-foreground" data-testid="text-token-loading">
                   {t("login.signingYouIn")}
                 </p>
@@ -153,7 +153,7 @@ export default function LoginPage() {
         </div>
 
         {tokenError && (
-          <Card className="border-destructive">
+          <Card className="border-destructive" role="alert" aria-live="assertive">
             <CardContent className="py-4">
               <p className="text-sm text-destructive" data-testid="text-token-error">
                 {tokenError}
@@ -169,7 +169,7 @@ export default function LoginPage() {
           <Card>
             <CardHeader className="pb-4">
               <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-muted-foreground" />
+                <Mail className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <span className="text-sm text-muted-foreground">{t("login.resetPassword")}</span>
               </div>
             </CardHeader>
@@ -185,12 +185,12 @@ export default function LoginPage() {
                     onClick={() => { setForgotMode(false); setForgotSent(false); setForgotEmail(""); }}
                     data-testid="button-back-to-login"
                   >
-                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    <ArrowLeft className="w-4 h-4 mr-2" aria-hidden="true" />
                     {t("login.backToSignIn")}
                   </Button>
                 </div>
               ) : (
-                <form onSubmit={handleForgotPassword} className="space-y-4">
+                <form onSubmit={handleForgotPassword} className="space-y-4" aria-label="Reset password form">
                   <p className="text-sm text-muted-foreground">
                     {t("login.resetPrompt")}
                   </p>
@@ -203,6 +203,7 @@ export default function LoginPage() {
                       value={forgotEmail}
                       onChange={(e) => setForgotEmail(e.target.value)}
                       required
+                      autoComplete="email"
                       data-testid="input-forgot-email"
                     />
                   </div>
@@ -214,7 +215,7 @@ export default function LoginPage() {
                   >
                     {forgotLoading ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />
                         {t("login.sending")}
                       </>
                     ) : (
@@ -228,7 +229,7 @@ export default function LoginPage() {
                     onClick={() => { setForgotMode(false); setForgotEmail(""); }}
                     data-testid="button-cancel-forgot"
                   >
-                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    <ArrowLeft className="w-4 h-4 mr-2" aria-hidden="true" />
                     {t("login.backToSignIn")}
                   </Button>
                 </form>
@@ -239,12 +240,12 @@ export default function LoginPage() {
           <Card>
             <CardHeader className="pb-4">
               <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-muted-foreground" />
+                <Shield className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <span className="text-sm text-muted-foreground">{t("login.secureLogin")}</span>
               </div>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4" aria-label="Sign in form">
                 <div className="space-y-2">
                   <Label htmlFor="email">{t("login.email")}</Label>
                   <Input
@@ -254,6 +255,7 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    autoComplete="email"
                     data-testid="input-email"
                   />
                 </div>
@@ -266,6 +268,7 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
+                    autoComplete="current-password"
                     data-testid="input-password"
                   />
                 </div>

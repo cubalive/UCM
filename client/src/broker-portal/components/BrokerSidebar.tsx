@@ -53,11 +53,12 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
         ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
       `}
       data-testid="broker-sidebar"
+      aria-label="Broker portal sidebar"
     >
       <div className="p-4 border-b border-[#1e293b]">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-400 rounded-full flex items-center justify-center">
-            <Gavel className="w-5 h-5 text-white" />
+            <Gavel className="w-5 h-5 text-white" aria-hidden="true" />
           </div>
           <div>
             <h2 className="text-sm font-bold text-white">United Care</h2>
@@ -66,7 +67,7 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
         </div>
       </div>
 
-      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto" data-testid="broker-nav">
+      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto" data-testid="broker-nav" aria-label="Broker navigation">
         {NAV_ITEMS.map(({ path, label, icon: Icon, testId }) => {
           const isActive = currentPath === path || (path !== "/" && currentPath.startsWith(path));
           return (
@@ -82,7 +83,7 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
                 `}
                 data-testid={testId}
               >
-                <Icon className="w-4 h-4 shrink-0" />
+                <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
                 {label}
               </button>
             </Link>
@@ -96,7 +97,7 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
           data-testid="button-logout"
         >
-          <LogOut className="w-4 h-4" />
+          <LogOut className="w-4 h-4" aria-hidden="true" />
           Sign Out
         </button>
       </div>

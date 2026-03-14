@@ -125,9 +125,9 @@ function ConnectButton() {
         )}
         <div className="flex flex-col items-center">
           {actionLoading ? (
-            <Loader2 className="w-7 h-7 text-white animate-spin" />
+            <Loader2 className="w-7 h-7 text-white animate-spin" aria-hidden="true" />
           ) : (
-            <Zap className="w-7 h-7 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.2))" }} />
+            <Zap className="w-7 h-7 text-white" aria-hidden="true" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.2))" }} />
           )}
           <span className="text-[9px] font-bold tracking-wider uppercase text-white/80 mt-0.5">
             {actionLoading ? "..." : "GO"}
@@ -277,7 +277,7 @@ function SwipeableTripOffer() {
                 animate={!reduced ? { scale: [1, 1.1, 1] } : {}}
                 transition={{ duration: 2, repeat: Infinity }}
               >
-                <Zap className="w-4 h-4 text-white" />
+                <Zap className="w-4 h-4 text-white" aria-hidden="true" />
               </motion.div>
               <span className="text-sm font-bold" style={{ color: colors.textPrimary }}>
                 {activeTrip.tripType === "Delivery" ? "New Delivery" : "New Trip Request"}
@@ -313,7 +313,7 @@ function SwipeableTripOffer() {
                 border: "1px solid rgba(52,199,89,0.12)",
               }}
             >
-              <Navigation className="w-4 h-4" style={{ color: colors.success }} />
+              <Navigation className="w-4 h-4" aria-hidden="true" style={{ color: colors.success }} />
               <div>
                 <p className="text-lg font-bold leading-none" style={{ color: colors.success }}>
                   {etaToPickup} min
@@ -330,7 +330,7 @@ function SwipeableTripOffer() {
                 border: "1px solid rgba(74,144,217,0.12)",
               }}
             >
-              <Clock className="w-4 h-4" style={{ color: colors.sky }} />
+              <Clock className="w-4 h-4" aria-hidden="true" style={{ color: colors.sky }} />
               <div>
                 <p className="text-lg font-bold leading-none" style={{ color: colors.sky }}>
                   {estimatedTrip} min
@@ -367,7 +367,7 @@ function SwipeableTripOffer() {
 
           {/* Patient info */}
           <div className="flex items-center gap-2 px-5 pb-3">
-            <Shield className="w-3.5 h-3.5" style={{ color: colors.textTertiary }} />
+            <Shield className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.textTertiary }} />
             <span className="text-xs" style={{ color: colors.textSecondary }}>
               {activeTrip.passengerName} • {activeTrip.tripType || "Medical"}
             </span>
@@ -377,7 +377,7 @@ function SwipeableTripOffer() {
           <div className="flex gap-3 px-5 pb-5">
             <motion.button
               onClick={() => declineOffer()}
-              className="flex-1 py-3 rounded-2xl text-sm font-semibold"
+              className="flex-1 py-3 rounded-2xl text-sm font-semibold min-h-[44px]"
               style={{
                 background: colors.dangerLight,
                 color: colors.danger,
@@ -392,7 +392,7 @@ function SwipeableTripOffer() {
             </motion.button>
             <motion.button
               onClick={() => acceptOffer()}
-              className="flex-[2] py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2"
+              className="flex-[2] py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 min-h-[44px]"
               style={{
                 background: `linear-gradient(135deg, ${colors.success}, #2BB84E)`,
                 color: "#fff",
@@ -404,7 +404,7 @@ function SwipeableTripOffer() {
               data-testid="btn-accept-offer"
               disabled={actionLoading}
             >
-              {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {actionLoading && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
               Accept Trip
             </motion.button>
           </div>
@@ -495,7 +495,7 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
         <div className="flex gap-2 px-5 pb-4">
           <motion.button
             onClick={handleNavigate}
-            className="flex items-center justify-center gap-1.5 px-4 py-3 rounded-2xl"
+            className="flex items-center justify-center gap-1.5 px-4 py-3 rounded-2xl min-h-[44px]"
             style={{
               background: isPickupPhase
                 ? `linear-gradient(135deg, ${colors.success}, #2BB84E)`
@@ -507,27 +507,29 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
             }}
             whileTap={!reduced ? { scale: 0.95 } : undefined}
             data-testid="btn-navigate"
+            aria-label="Navigate to destination"
           >
-            <Navigation className="w-4 h-4" />
+            <Navigation className="w-4 h-4" aria-hidden="true" />
             <span className="text-xs font-semibold">Navigate</span>
           </motion.button>
 
           <motion.button
             onClick={() => onOpenTrip()}
-            className="flex items-center justify-center px-3 py-3 rounded-2xl"
+            className="flex items-center justify-center px-3 py-3 rounded-2xl min-h-[44px] min-w-[44px]"
             style={{
               background: "rgba(0,0,0,0.04)",
               border: "1px solid rgba(0,0,0,0.06)",
             }}
             whileTap={!reduced ? { scale: 0.95 } : undefined}
             data-testid="btn-trip-details"
+            aria-label="View trip details"
           >
-            <ChevronUp className="w-4 h-4" style={{ color: colors.textSecondary }} />
+            <ChevronUp className="w-4 h-4" aria-hidden="true" style={{ color: colors.textSecondary }} />
           </motion.button>
 
           <motion.button
             onClick={handleAction}
-            className="flex-1 py-3 rounded-2xl text-xs font-bold"
+            className="flex-1 py-3 rounded-2xl text-xs font-bold min-h-[44px]"
             style={{
               background: `linear-gradient(135deg, ${colors.sunrise}, ${colors.golden})`,
               color: "#fff",
@@ -563,12 +565,15 @@ function WaitingIndicator() {
         border: "1px solid rgba(52,199,89,0.15)",
         boxShadow: colors.shadowSm,
       }}
+      role="status"
+      aria-live="polite"
     >
       <motion.div
         className="w-2 h-2 rounded-full"
         style={{ background: colors.success }}
         animate={{ opacity: [1, 0.3, 1] }}
         transition={{ duration: 1.5, repeat: Infinity }}
+        aria-hidden="true"
       />
       <span className="text-xs font-medium" style={{ color: colors.textSecondary }}>
         Searching for trips nearby...
@@ -762,7 +767,7 @@ function ScheduleView() {
           {schedule.length > 3 && (
             <button
               onClick={() => setExpanded(!expanded)}
-              className="text-[10px] font-semibold"
+              className="text-xs font-semibold min-h-[44px] min-w-[44px] flex items-center justify-center"
               style={{ color: colors.sky }}
             >
               {expanded ? "Show Less" : "View All"}
@@ -987,26 +992,28 @@ function PharmacyDeliveriesCard() {
               <div className="flex gap-2">
                 <motion.button
                   onClick={() => handleNavigate(navLat, navLng)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl min-h-[44px]"
                   style={{
                     background: `linear-gradient(135deg, ${statusColor}, ${glowColor(statusColor, 0.8)})`,
                     color: "#fff",
                   }}
                   whileTap={!reduced ? { scale: 0.95 } : undefined}
+                  aria-label="Navigate to delivery location"
                 >
-                  <Navigation className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-semibold">Navigate</span>
+                  <Navigation className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span className="text-xs font-semibold">Navigate</span>
                 </motion.button>
 
                 {delivery.recipientPhone && (
                   <motion.button
                     onClick={() => window.open(`tel:${delivery.recipientPhone}`, "_self")}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl min-h-[44px]"
                     style={{ background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.06)" }}
                     whileTap={!reduced ? { scale: 0.95 } : undefined}
+                    aria-label="Call recipient"
                   >
-                    <Phone className="w-3.5 h-3.5" style={{ color: colors.textSecondary }} />
-                    <span className="text-[10px] font-semibold" style={{ color: colors.textSecondary }}>Call</span>
+                    <Phone className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.textSecondary }} />
+                    <span className="text-xs font-semibold" style={{ color: colors.textSecondary }}>Call</span>
                   </motion.button>
                 )}
               </div>

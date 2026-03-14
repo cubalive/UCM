@@ -35,8 +35,11 @@ export function ConfirmDialog({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
-          <div className="absolute inset-0 bg-black/30" onClick={onCancel} />
+          <div className="absolute inset-0 bg-black/30" onClick={onCancel} aria-hidden="true" />
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-dialog-title"
             className="relative w-full max-w-sm rounded-3xl overflow-hidden p-6"
             style={{
               background: "rgba(255,255,255,0.97)",
@@ -48,7 +51,7 @@ export function ConfirmDialog({
             exit={{ scale: 0.9, opacity: 0 }}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
           >
-            <h3 className="text-base font-bold mb-2" style={{ color: colors.textPrimary }}>
+            <h3 id="confirm-dialog-title" className="text-base font-bold mb-2" style={{ color: colors.textPrimary }}>
               {title}
             </h3>
             <p className="text-sm mb-6" style={{ color: colors.textSecondary }}>
@@ -57,7 +60,7 @@ export function ConfirmDialog({
             <div className="flex gap-3">
               <button
                 onClick={onCancel}
-                className="flex-1 py-3 rounded-2xl text-sm font-semibold"
+                className="flex-1 py-3 rounded-2xl text-sm font-semibold min-h-[44px]"
                 style={{
                   background: "rgba(0,0,0,0.04)",
                   color: colors.textSecondary,
@@ -68,7 +71,7 @@ export function ConfirmDialog({
               </button>
               <button
                 onClick={onConfirm}
-                className="flex-1 py-3 rounded-2xl text-sm font-bold text-white"
+                className="flex-1 py-3 rounded-2xl text-sm font-bold text-white min-h-[44px]"
                 style={{
                   background: confirmBg,
                   boxShadow: "0 4px 16px rgba(0,0,0,0.15)",

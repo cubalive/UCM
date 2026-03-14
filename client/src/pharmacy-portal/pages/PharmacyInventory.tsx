@@ -250,9 +250,9 @@ export default function PharmacyInventory() {
 
       {/* Adjust Stock Modal */}
       {adjustItem && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setAdjustItem(null)}>
-          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-white">Adjust Stock</h3>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setAdjustItem(null)} role="presentation" aria-hidden="true">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="adjust-stock-title">
+            <h3 id="adjust-stock-title" className="text-lg font-semibold text-white">Adjust Stock</h3>
             <p className="text-sm text-gray-400">{adjustItem.medicationName}</p>
             <p className="text-xs text-gray-500">Current stock: {adjustItem.stockLevel}</p>
             <div>
@@ -291,9 +291,9 @@ export default function PharmacyInventory() {
 
       {/* Add Item Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowAddModal(false)}>
-          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-white">Add Inventory Item</h3>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowAddModal(false)} role="presentation" aria-hidden="true">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="add-inventory-title">
+            <h3 id="add-inventory-title" className="text-lg font-semibold text-white">Add Inventory Item</h3>
             <div>
               <label className="text-xs text-gray-500 block mb-1">Medication Name *</label>
               <input type="text" value={newMedName} onChange={(e) => setNewMedName(e.target.value)} className="w-full bg-[#0a0f1e] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500" />

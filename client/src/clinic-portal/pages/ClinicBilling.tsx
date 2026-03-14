@@ -63,12 +63,12 @@ function InvoiceLineDrawer({ invoice, onClose }: { invoice: any; onClose: () => 
   const lines = invoiceData?.items || invoiceData?.lines || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" data-testid="invoice-drawer">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+    <div className="fixed inset-0 z-50 flex justify-end" data-testid="invoice-drawer" role="dialog" aria-modal="true" aria-labelledby="invoice-drawer-heading">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} role="presentation" aria-hidden="true" />
       <div className="relative w-full max-w-lg bg-[#0f172a] border-l border-[#1e293b] overflow-y-auto">
         <div className="sticky top-0 bg-[#0f172a]/95 backdrop-blur-sm border-b border-[#1e293b] px-6 py-4 flex items-center justify-between z-10">
           <div>
-            <h2 className="text-lg font-semibold text-white" data-testid="invoice-drawer-title">
+            <h2 id="invoice-drawer-heading" className="text-lg font-semibold text-white" data-testid="invoice-drawer-title">
               Invoice #{invoice.invoiceNumber || invoice.id}
             </h2>
             <p className="text-xs text-gray-500">

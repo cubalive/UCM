@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, Component, type ReactNode, ty
 import { motion, AnimatePresence } from "framer-motion";
 import { Home, DollarSign, User, Navigation2, MapPin, Power, AlertTriangle, RefreshCw } from "lucide-react";
 import { useReducedMotion } from "./design/accessibility";
+import { SkipToContent } from "@/components/SkipToContent";
 import { colors } from "./design/tokens";
 import { useDriverStore } from "./store/driverStore";
 import { useAuth } from "@/lib/auth";
@@ -62,12 +63,16 @@ function BottomTabBar({
 
   return (
     <>
-      <div
+      <nav
         className="absolute bottom-0 left-0 right-0 z-50"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)", pointerEvents: "auto" }}
+        aria-label="Main navigation"
+        role="navigation"
       >
         <div
           className="flex items-end justify-around px-2 pt-2 pb-3"
+          role="tablist"
+          aria-label="App sections"
           style={{
             background: "rgba(255,255,255,0.92)",
             backdropFilter: "blur(20px)",
@@ -165,7 +170,7 @@ function BottomTabBar({
             reduced={reduced}
           />
         </div>
-      </div>
+      </nav>
       <ConfirmDialog
         open={showEndConfirm}
         title="End Shift?"
@@ -197,13 +202,17 @@ function TabItem({
   return (
     <motion.button
       onClick={onPress}
-      className="relative flex flex-col items-center gap-0.5 px-3 py-1"
+      className="relative flex flex-col items-center gap-0.5 px-3 py-1 min-h-[44px] min-w-[44px]"
       whileTap={!reduced ? { scale: 0.9 } : undefined}
       data-testid={`tab-${tab.key}`}
+      role="tab"
+      aria-selected={isActive}
+      aria-label={tab.label}
     >
       <div className="relative">
         <Icon
           className="w-5 h-5"
+          aria-hidden="true"
           style={{
             color: isActive ? colors.sunrise : colors.textTertiary,
             strokeWidth: isActive ? 2.5 : 1.8,
@@ -367,11 +376,18 @@ export function DriverAppV4() {
           overflow: "hidden",
           background: colors.bg0,
         }}
+        role="application"
+        aria-label="Driver application"
       >
+        <SkipToContent />
         {/* Screen content */}
         <AnimatePresence mode="wait">
           <motion.div
             key={screen}
+            id="main-content"
+            tabIndex={-1}
+            role="main"
+            aria-label="Driver app content"
             initial={reduced ? {} : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduced ? {} : { opacity: 0 }}

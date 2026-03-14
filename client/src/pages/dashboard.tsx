@@ -307,63 +307,63 @@ export default function DashboardPage() {
           </>
         ) : (
           <>
-            <div onClick={() => navigate("/trips")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-trips">
+            <button onClick={() => navigate("/trips")} className="cursor-pointer hover:scale-[1.02] transition-transform text-left w-full" data-testid="kpi-trips" aria-label={`Total trips: ${stats?.trips ?? 0}. Click to view all trips`}>
               <KpiCard
                 title={t("dashboard.totalTrips")}
                 value={stats?.trips ?? 0}
-                icon={<Route className="w-4 h-4 text-emerald-500" />}
+                icon={<Route className="w-4 h-4 text-emerald-500" aria-hidden="true" />}
                 sparkData={tripSparkData}
                 color="emerald"
                 change={calcChange(tripSparkData)}
                 changeLabel="vs prev"
                 tooltip="Total number of trips in the system for the selected city. Click to view all trips."
               />
-            </div>
-            <div onClick={() => navigate("/patients")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-patients">
+            </button>
+            <button onClick={() => navigate("/patients")} className="cursor-pointer hover:scale-[1.02] transition-transform text-left w-full" data-testid="kpi-patients" aria-label={`Active patients: ${stats?.patients ?? 0}. Click to view all patients`}>
               <KpiCard
                 title={t("dashboard.activePatients")}
                 value={stats?.patients ?? 0}
-                icon={<HeartPulse className="w-4 h-4 text-rose-500" />}
+                icon={<HeartPulse className="w-4 h-4 text-rose-500" aria-hidden="true" />}
                 color="rose"
                 tooltip="Patients registered and active in the system. Click to view all patients."
               />
-            </div>
-            <div onClick={() => navigate("/drivers")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-drivers">
+            </button>
+            <button onClick={() => navigate("/drivers")} className="cursor-pointer hover:scale-[1.02] transition-transform text-left w-full" data-testid="kpi-drivers" aria-label={`Drivers: ${stats?.drivers ?? 0}. Click to view all drivers`}>
               <KpiCard
                 title={t("dashboard.drivers")}
                 value={stats?.drivers ?? 0}
-                icon={<UserCheck className="w-4 h-4 text-emerald-500" />}
+                icon={<UserCheck className="w-4 h-4 text-emerald-500" aria-hidden="true" />}
                 color="emerald"
                 tooltip="Total registered drivers across all statuses. Click to view all drivers."
               />
-            </div>
-            <div onClick={() => navigate("/vehicles")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-vehicles">
+            </button>
+            <button onClick={() => navigate("/vehicles")} className="cursor-pointer hover:scale-[1.02] transition-transform text-left w-full" data-testid="kpi-vehicles" aria-label={`Vehicles: ${stats?.vehicles ?? 0}. Click to view all vehicles`}>
               <KpiCard
                 title={t("dashboard.vehicles")}
                 value={stats?.vehicles ?? 0}
-                icon={<Truck className="w-4 h-4 text-amber-500" />}
+                icon={<Truck className="w-4 h-4 text-amber-500" aria-hidden="true" />}
                 color="amber"
                 tooltip="Fleet size — total vehicles registered. Click to view all vehicles."
               />
-            </div>
-            <div onClick={() => navigate("/clinics")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-clinics">
+            </button>
+            <button onClick={() => navigate("/clinics")} className="cursor-pointer hover:scale-[1.02] transition-transform text-left w-full" data-testid="kpi-clinics" aria-label={`Clinics: ${stats?.clinics ?? 0}. Click to view all clinics`}>
               <KpiCard
                 title={t("dashboard.clinics")}
                 value={stats?.clinics ?? 0}
-                icon={<Building2 className="w-4 h-4 text-purple-500" />}
+                icon={<Building2 className="w-4 h-4 text-purple-500" aria-hidden="true" />}
                 color="purple"
                 tooltip="Healthcare facilities partnered with UCM. Click to view all clinics."
               />
-            </div>
-            <div onClick={() => navigate("/users")} className="cursor-pointer hover:scale-[1.02] transition-transform" data-testid="kpi-users">
+            </button>
+            <button onClick={() => navigate("/users")} className="cursor-pointer hover:scale-[1.02] transition-transform text-left w-full" data-testid="kpi-users" aria-label={`Users: ${stats?.users ?? 0}. Click to view all users`}>
               <KpiCard
                 title={t("dashboard.users")}
                 value={stats?.users ?? 0}
-                icon={<Users className="w-4 h-4 text-cyan-500" />}
+                icon={<Users className="w-4 h-4 text-cyan-500" aria-hidden="true" />}
                 color="cyan"
                 tooltip="Platform users across all roles (admin, dispatch, drivers, clinics). Click to view all users."
               />
-            </div>
+            </button>
           </>
         )}
       </div>}

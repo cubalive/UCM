@@ -105,7 +105,7 @@ function SignaturePad({ onSave, onCancel }: { onSave: (data: string) => void; on
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs font-medium text-center" style={{ color: colors.textSecondary }}>
+      <p className="text-sm font-medium text-center" style={{ color: colors.textSecondary }}>
         Sign below to confirm delivery
       </p>
       <div
@@ -119,6 +119,8 @@ function SignaturePad({ onSave, onCancel }: { onSave: (data: string) => void; on
         <canvas
           ref={canvasRef}
           className="w-full"
+          role="img"
+          aria-label="Signature pad — draw your signature here"
           style={{ height: 200, cursor: "crosshair" }}
           onMouseDown={startDrawing}
           onMouseMove={draw}
@@ -138,21 +140,22 @@ function SignaturePad({ onSave, onCancel }: { onSave: (data: string) => void; on
       <div className="flex gap-2">
         <button
           onClick={onCancel}
-          className="flex-1 py-3 rounded-2xl text-sm font-medium"
+          className="flex-1 py-3 rounded-2xl text-sm font-medium min-h-[44px]"
           style={{ background: "rgba(0,0,0,0.04)", color: colors.textSecondary }}
         >
           Cancel
         </button>
         <button
           onClick={clear}
-          className="px-4 py-3 rounded-2xl"
+          className="px-4 py-3 rounded-2xl min-h-[44px] min-w-[44px]"
           style={{ background: "rgba(0,0,0,0.04)" }}
+          aria-label="Clear signature"
         >
-          <RotateCcw className="w-4 h-4" style={{ color: colors.textSecondary }} />
+          <RotateCcw className="w-4 h-4" aria-hidden="true" style={{ color: colors.textSecondary }} />
         </button>
         <button
           onClick={save}
-          className="flex-[2] py-3 rounded-2xl text-sm font-bold text-white"
+          className="flex-[2] py-3 rounded-2xl text-sm font-bold text-white min-h-[44px]"
           style={{ background: `linear-gradient(135deg, ${colors.success}, #2BB84E)` }}
         >
           Confirm Signature
@@ -217,8 +220,8 @@ function PhotoCapture({ onSave, onCancel }: { onSave: (data: string) => void; on
   if (error) {
     return (
       <div className="text-center py-8">
-        <p className="text-sm mb-4" style={{ color: colors.danger }}>{error}</p>
-        <button onClick={onCancel} className="text-sm font-medium underline" style={{ color: colors.sunrise }}>
+        <p className="text-sm mb-4" role="alert" style={{ color: colors.danger }}>{error}</p>
+        <button onClick={onCancel} className="text-sm font-medium underline min-h-[44px]" style={{ color: colors.sunrise }}>
           Go Back
         </button>
       </div>
@@ -227,7 +230,7 @@ function PhotoCapture({ onSave, onCancel }: { onSave: (data: string) => void; on
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs font-medium text-center" style={{ color: colors.textSecondary }}>
+      <p className="text-sm font-medium text-center" style={{ color: colors.textSecondary }}>
         Take a photo as proof of delivery
       </p>
       <div className="relative rounded-2xl overflow-hidden bg-black" style={{ minHeight: 240 }}>
@@ -247,7 +250,7 @@ function PhotoCapture({ onSave, onCancel }: { onSave: (data: string) => void; on
       <div className="flex gap-2">
         <button
           onClick={onCancel}
-          className="flex-1 py-3 rounded-2xl text-sm font-medium"
+          className="flex-1 py-3 rounded-2xl text-sm font-medium min-h-[44px]"
           style={{ background: "rgba(0,0,0,0.04)", color: colors.textSecondary }}
         >
           Cancel
@@ -255,23 +258,25 @@ function PhotoCapture({ onSave, onCancel }: { onSave: (data: string) => void; on
         {!photo ? (
           <button
             onClick={capture}
-            className="flex-[2] py-3 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2"
+            className="flex-[2] py-3 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2 min-h-[44px]"
             style={{ background: `linear-gradient(135deg, ${colors.sky}, ${colors.ocean})` }}
+            aria-label="Capture photo"
           >
-            <Camera className="w-4 h-4" /> Capture
+            <Camera className="w-4 h-4" aria-hidden="true" /> Capture
           </button>
         ) : (
           <>
             <button
               onClick={retake}
-              className="px-4 py-3 rounded-2xl"
+              className="px-4 py-3 rounded-2xl min-h-[44px] min-w-[44px]"
               style={{ background: "rgba(0,0,0,0.04)" }}
+              aria-label="Retake photo"
             >
-              <RotateCcw className="w-4 h-4" style={{ color: colors.textSecondary }} />
+              <RotateCcw className="w-4 h-4" aria-hidden="true" style={{ color: colors.textSecondary }} />
             </button>
             <button
               onClick={() => onSave(photo)}
-              className="flex-[2] py-3 rounded-2xl text-sm font-bold text-white"
+              className="flex-[2] py-3 rounded-2xl text-sm font-bold text-white min-h-[44px]"
               style={{ background: `linear-gradient(135deg, ${colors.success}, #2BB84E)` }}
             >
               Use Photo
@@ -349,7 +354,7 @@ export function ProofOfDelivery({ tripId, passengerName, onComplete, onSkip }: P
         <h2 className="text-lg font-bold" style={{ color: colors.textPrimary }}>
           Proof of Delivery
         </h2>
-        <p className="text-xs" style={{ color: colors.textSecondary }}>
+        <p className="text-sm" style={{ color: colors.textSecondary }}>
           Collect proof before completing the trip
         </p>
       </div>
@@ -360,16 +365,17 @@ export function ProofOfDelivery({ tripId, passengerName, onComplete, onSkip }: P
             {/* Recipient name */}
             <GlassCard variant="elevated" className="!p-4">
               <div className="flex items-center gap-3">
-                <User className="w-4 h-4" style={{ color: colors.sky }} />
+                <User className="w-4 h-4" aria-hidden="true" style={{ color: colors.sky }} />
                 <div className="flex-1">
-                  <label className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>
+                  <label htmlFor="pod-recipient-name" className="text-xs uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>
                     Recipient Name
                   </label>
                   <input
+                    id="pod-recipient-name"
                     type="text"
                     value={recipientName}
                     onChange={(e) => setRecipientName(e.target.value)}
-                    className="w-full text-sm font-medium bg-transparent outline-none"
+                    className="w-full text-base font-medium bg-transparent outline-none"
                     style={{ color: colors.textPrimary }}
                     placeholder="Patient or recipient name"
                   />
@@ -381,21 +387,21 @@ export function ProofOfDelivery({ tripId, passengerName, onComplete, onSkip }: P
             <GlassCard variant="elevated" className="!p-0">
               <button
                 onClick={() => setStep("signature")}
-                className="w-full flex items-center gap-4 p-4"
+                className="w-full flex items-center gap-4 p-4 min-h-[44px]"
               >
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `rgba(52,199,89,0.08)` }}>
-                  <Pen className="w-5 h-5" style={{ color: colors.success }} />
+                  <Pen className="w-5 h-5" aria-hidden="true" style={{ color: colors.success }} />
                 </div>
                 <div className="flex-1 text-left">
                   <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>Collect Signature</p>
-                  <p className="text-[10px]" style={{ color: colors.textTertiary }}>
+                  <p className="text-xs" style={{ color: colors.textTertiary }}>
                     {signatureData ? "Signature captured" : "Get patient/recipient signature"}
                   </p>
                 </div>
                 {signatureData ? (
-                  <Check className="w-5 h-5" style={{ color: colors.success }} />
+                  <Check className="w-5 h-5" aria-hidden="true" style={{ color: colors.success }} />
                 ) : (
-                  <ChevronRight className="w-4 h-4" style={{ color: colors.textTertiary }} />
+                  <ChevronRight className="w-4 h-4" aria-hidden="true" style={{ color: colors.textTertiary }} />
                 )}
               </button>
             </GlassCard>
@@ -404,21 +410,21 @@ export function ProofOfDelivery({ tripId, passengerName, onComplete, onSkip }: P
             <GlassCard variant="elevated" className="!p-0">
               <button
                 onClick={() => setStep("photo")}
-                className="w-full flex items-center gap-4 p-4"
+                className="w-full flex items-center gap-4 p-4 min-h-[44px]"
               >
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `rgba(74,144,217,0.08)` }}>
-                  <Camera className="w-5 h-5" style={{ color: colors.sky }} />
+                  <Camera className="w-5 h-5" aria-hidden="true" style={{ color: colors.sky }} />
                 </div>
                 <div className="flex-1 text-left">
                   <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>Take Photo</p>
-                  <p className="text-[10px]" style={{ color: colors.textTertiary }}>
+                  <p className="text-xs" style={{ color: colors.textTertiary }}>
                     {photoData ? "Photo captured" : "Photograph the delivery"}
                   </p>
                 </div>
                 {photoData ? (
-                  <Check className="w-5 h-5" style={{ color: colors.success }} />
+                  <Check className="w-5 h-5" aria-hidden="true" style={{ color: colors.success }} />
                 ) : (
-                  <ChevronRight className="w-4 h-4" style={{ color: colors.textTertiary }} />
+                  <ChevronRight className="w-4 h-4" aria-hidden="true" style={{ color: colors.textTertiary }} />
                 )}
               </button>
             </GlassCard>
@@ -437,7 +443,7 @@ export function ProofOfDelivery({ tripId, passengerName, onComplete, onSkip }: P
               )}
               <button
                 onClick={onSkip}
-                className="w-full py-2.5 text-xs font-medium"
+                className="w-full py-2.5 text-sm font-medium min-h-[44px]"
                 style={{ color: colors.textTertiary }}
               >
                 Skip — Complete without proof
@@ -464,13 +470,13 @@ export function ProofOfDelivery({ tripId, passengerName, onComplete, onSkip }: P
               <p className="text-sm font-semibold mb-2" style={{ color: colors.textPrimary }}>Proof Collected</p>
               {signatureData && (
                 <div className="mb-2">
-                  <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Signature</p>
+                  <p className="text-xs uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Signature</p>
                   <img src={signatureData} alt="Signature" className="w-full h-16 object-contain rounded-lg bg-white/50" />
                 </div>
               )}
               {photoData && (
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Photo</p>
+                  <p className="text-xs uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Photo</p>
                   <img src={photoData} alt="Delivery" className="w-full h-32 object-cover rounded-lg" />
                 </div>
               )}
@@ -478,21 +484,21 @@ export function ProofOfDelivery({ tripId, passengerName, onComplete, onSkip }: P
             <div className="flex gap-2">
               <button
                 onClick={() => setStep("choose")}
-                className="flex-1 py-3 rounded-2xl text-sm font-medium"
+                className="flex-1 py-3 rounded-2xl text-sm font-medium min-h-[44px]"
                 style={{ background: "rgba(0,0,0,0.04)", color: colors.textSecondary }}
               >
                 Add More
               </button>
               <button
                 onClick={handleSubmit}
-                className="flex-[2] py-3 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2"
+                className="flex-[2] py-3 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2 min-h-[44px]"
                 style={{
                   background: `linear-gradient(135deg, ${colors.success}, #2BB84E)`,
                   opacity: submitting ? 0.7 : 1,
                 }}
                 disabled={submitting}
               >
-                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <Check className="w-4 h-4" aria-hidden="true" />}
                 Submit & Complete
               </button>
             </div>

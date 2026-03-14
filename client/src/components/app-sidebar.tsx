@@ -337,9 +337,9 @@ function CollapsibleNavGroup({
             className="font-medium transition-all duration-200"
             data-testid={`btn-group-${group.labelKey}`}
           >
-            <GroupIcon className="w-4 h-4" />
+            <GroupIcon className="w-4 h-4" aria-hidden="true" />
             <span className="flex-1">{t(group.labelKey)}</span>
-            <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-200 ${openState ? "rotate-90" : ""}`} />
+            <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-200 ${openState ? "rotate-90" : ""}`} aria-hidden="true" />
           </SidebarMenuButton>
         </CollapsibleTrigger>
         <CollapsibleContent className="transition-all duration-200 data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
@@ -354,7 +354,7 @@ function CollapsibleNavGroup({
                     className="transition-all duration-150"
                   >
                     <Link href={item.url} data-testid={`link-${item.url.replace(/\//g, '') || 'dashboard'}`}>
-                      <item.icon className="w-3.5 h-3.5" />
+                      <item.icon className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>{t(item.titleKey)}</span>
                     </Link>
                   </SidebarMenuSubButton>
@@ -525,7 +525,7 @@ export function AppSidebar() {
         )}
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent role="navigation" aria-label="Main navigation">
         {showSimpleNav ? (
           <SidebarGroup>
             <SidebarGroupLabel>{t("nav.operations")}</SidebarGroupLabel>
@@ -541,7 +541,7 @@ export function AppSidebar() {
                         className="transition-all duration-150"
                       >
                         <Link href={item.url} data-testid={`link-${item.url.replace(/\//g, '') || 'dashboard'}`}>
-                          <item.icon className="w-4 h-4" />
+                          <item.icon className="w-4 h-4" aria-hidden="true" />
                           <span>{t(item.titleKey)}</span>
                         </Link>
                       </SidebarMenuButton>
@@ -619,10 +619,11 @@ export function AppSidebar() {
             size="icon"
             variant="ghost"
             onClick={logout}
+            aria-label="Log out"
             className="transition-colors duration-150 hover:text-destructive"
             data-testid="button-logout"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-4 h-4" aria-hidden="true" />
           </Button>
         </div>
         <p className="text-[10px] text-sidebar-foreground/40 text-center mt-1 tracking-wider" data-testid="text-admin-version">

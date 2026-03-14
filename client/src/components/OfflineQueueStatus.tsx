@@ -49,10 +49,13 @@ export function OfflineQueueStatus() {
           ? "bg-red-900/90 text-red-200 border border-red-700"
           : "bg-amber-900/90 text-amber-200 border border-amber-700"
       }`}
+      role="status"
+      aria-live="assertive"
+      aria-label={!isOnline ? `Offline${queuedCount > 0 ? `, ${queuedCount} items queued` : ""}` : `Syncing ${queuedCount} items`}
     >
       {!isOnline ? (
         <>
-          <WifiOff className="w-3.5 h-3.5" />
+          <WifiOff className="w-3.5 h-3.5" aria-hidden="true" />
           <span>Offline</span>
           {queuedCount > 0 && (
             <span className="bg-red-800 px-1.5 py-0.5 rounded text-[10px]">
@@ -62,7 +65,7 @@ export function OfflineQueueStatus() {
         </>
       ) : queuedCount > 0 ? (
         <>
-          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+          <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
           <span>Syncing {queuedCount} item{queuedCount !== 1 ? "s" : ""}...</span>
         </>
       ) : null}

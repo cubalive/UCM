@@ -22,8 +22,8 @@ export function LanguageSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="icon" variant="ghost" data-testid="button-language-switcher">
-          <Languages className="w-4 h-4" />
+        <Button size="icon" variant="ghost" data-testid="button-language-switcher" aria-label="Change language">
+          <Languages className="w-4 h-4" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">

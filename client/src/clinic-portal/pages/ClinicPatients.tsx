@@ -96,10 +96,10 @@ function PatientDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} role="presentation" aria-hidden="true" />
 
       {/* Drawer */}
-      <div className="relative w-full max-w-lg bg-[#0a0f1e] border-l border-[#1e293b] shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-300">
+      <div className="relative w-full max-w-lg bg-[#0a0f1e] border-l border-[#1e293b] shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-300" role="dialog" aria-modal="true" aria-labelledby="patient-detail-title">
         {/* Header */}
         <div className="sticky top-0 bg-[#0a0f1e]/95 backdrop-blur-md border-b border-[#1e293b] px-6 py-4 z-10">
           <div className="flex items-center justify-between">
@@ -109,7 +109,7 @@ function PatientDrawer({
                 {(patient.lastName?.[0] || "").toUpperCase()}
               </div>
               <div>
-                <h2 className="text-base font-semibold text-white">
+                <h2 id="patient-detail-title" className="text-base font-semibold text-white">
                   {patient.firstName} {patient.lastName}
                 </h2>
                 <p className="text-xs text-gray-500">Patient ID: #{patient.id}</p>
@@ -355,13 +355,13 @@ function AddPatientModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} role="presentation" aria-hidden="true" />
 
       {/* Modal */}
-      <div className="relative bg-[#111827] border border-[#1e293b] rounded-xl w-full max-w-2xl mx-4 shadow-2xl max-h-[90vh] flex flex-col">
+      <div className="relative bg-[#111827] border border-[#1e293b] rounded-xl w-full max-w-2xl mx-4 shadow-2xl max-h-[90vh] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="add-patient-title">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e293b] shrink-0">
-          <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <h2 id="add-patient-title" className="text-base font-semibold text-white flex items-center gap-2">
             <UserPlus className="w-5 h-5 text-emerald-400" />
             Add New Patient
           </h2>
@@ -686,10 +686,10 @@ function BulkImportModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[#111827] border border-[#1e293b] rounded-xl w-full max-w-2xl mx-4 shadow-2xl max-h-[90vh] flex flex-col">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} role="presentation" aria-hidden="true" />
+      <div className="relative bg-[#111827] border border-[#1e293b] rounded-xl w-full max-w-2xl mx-4 shadow-2xl max-h-[90vh] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="bulk-import-title">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e293b] shrink-0">
-          <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <h2 id="bulk-import-title" className="text-base font-semibold text-white flex items-center gap-2">
             <Upload className="w-5 h-5 text-emerald-400" />
             Bulk Import Patients
           </h2>

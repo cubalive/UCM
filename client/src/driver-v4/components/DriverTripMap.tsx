@@ -333,8 +333,8 @@ export function DriverTripMap({
 
   if (error) {
     return (
-      <div className={`flex items-center justify-center ${className}`} style={{ background: "#FFFFFF" }}>
-        <span style={{ color: "#4a5568", fontSize: 12 }}>Map unavailable</span>
+      <div className={`flex items-center justify-center ${className}`} style={{ background: "#FFFFFF" }} role="alert">
+        <span style={{ color: "#4a5568", fontSize: 14 }}>Map unavailable</span>
       </div>
     );
   }

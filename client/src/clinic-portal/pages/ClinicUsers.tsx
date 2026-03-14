@@ -334,12 +334,12 @@ function AddUserModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} role="presentation" aria-hidden="true" />
 
       {/* Modal */}
-      <div className="relative bg-[#111827] border border-[#1e293b] rounded-xl w-full max-w-md mx-4 shadow-2xl">
+      <div className="relative bg-[#111827] border border-[#1e293b] rounded-xl w-full max-w-md mx-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="add-user-title">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e293b]">
-          <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <h2 id="add-user-title" className="text-base font-semibold text-white flex items-center gap-2">
             <UserPlus className="w-5 h-5 text-emerald-400" />
             Add New User
           </h2>

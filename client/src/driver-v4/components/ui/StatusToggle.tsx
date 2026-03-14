@@ -26,7 +26,7 @@ export function StatusToggle({
       aria-label={value ? labels.on : labels.off}
       aria-checked={value}
       role="switch"
-      className="relative flex items-center gap-3 cursor-pointer select-none"
+      className="relative flex items-center gap-3 cursor-pointer select-none min-h-[44px]"
       style={{ outline: "none" }}
     >
       <div

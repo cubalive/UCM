@@ -98,8 +98,8 @@ export default function PharmacyNewOrder() {
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate("/orders")} className="p-2 hover:bg-white/5 rounded-lg">
-          <ArrowLeft className="w-5 h-5 text-gray-400" />
+        <button onClick={() => navigate("/orders")} aria-label="Go back to orders" className="p-2 hover:bg-white/5 rounded-lg">
+          <ArrowLeft className="w-5 h-5 text-gray-400" aria-hidden="true" />
         </button>
         <div>
           <h1 className="text-xl font-bold text-white">New Delivery Order</h1>
@@ -109,8 +109,8 @@ export default function PharmacyNewOrder() {
 
       {/* Warnings */}
       {hasControlled && (
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-3" role="alert">
+          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" aria-hidden="true" />
           <div>
             <p className="text-sm text-red-400 font-medium">Controlled Substance Detected</p>
             <p className="text-xs text-red-400/70">This order will require ID verification and chain of custody tracking.</p>
@@ -230,8 +230,8 @@ export default function PharmacyNewOrder() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500">Item {i + 1}</span>
                 {items.length > 1 && (
-                  <button type="button" onClick={() => removeItem(i)} className="text-red-400 hover:text-red-300">
-                    <Trash2 className="w-3 h-3" />
+                  <button type="button" onClick={() => removeItem(i)} aria-label={`Remove item ${i + 1}`} className="text-red-400 hover:text-red-300">
+                    <Trash2 className="w-3 h-3" aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -375,7 +375,7 @@ export default function PharmacyNewOrder() {
         </div>
 
         {createOrder.isError && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-sm text-red-400">
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-sm text-red-400" role="alert">
             {(createOrder.error as Error).message}
           </div>
         )}

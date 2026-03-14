@@ -234,11 +234,12 @@ export function Earnings({ onBack }: { onBack: () => void }) {
         <div className="flex items-center gap-3 mb-2">
           <button
             onClick={onBack}
-            className="flex items-center justify-center w-9 h-9 rounded-full"
+            className="flex items-center justify-center w-11 h-11 rounded-full min-h-[44px] min-w-[44px]"
             style={{ background: "rgba(255,255,255,0.80)", color: colors.textPrimary, boxShadow: colors.shadowSm, border: "1px solid rgba(0,0,0,0.04)" }}
             data-testid="btn-back"
+            aria-label="Back"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5" aria-hidden="true" />
           </button>
           <h1 className="text-xl font-bold" style={{ color: colors.textPrimary }}>
             Earnings
@@ -251,7 +252,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className="flex-1 py-2.5 rounded-xl text-xs font-semibold capitalize transition-all"
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold capitalize transition-all min-h-[44px]"
               style={{
                 background: period === p ? "white" : "transparent",
                 color: period === p ? colors.sunrise : colors.textTertiary,
@@ -298,21 +299,21 @@ export function Earnings({ onBack }: { onBack: () => void }) {
           <div className="grid grid-cols-3 gap-3">
             <div className="text-center">
               <div className="w-8 h-8 rounded-xl mx-auto mb-1.5 flex items-center justify-center" style={{ background: "rgba(255,107,53,0.08)" }}>
-                <DollarSign className="w-4 h-4" style={{ color: colors.sunrise }} />
+                <DollarSign className="w-4 h-4" aria-hidden="true" style={{ color: colors.sunrise }} />
               </div>
               <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>${stats.avgPerTrip.toFixed(2)}</p>
               <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Avg/Trip</p>
             </div>
             <div className="text-center">
               <div className="w-8 h-8 rounded-xl mx-auto mb-1.5 flex items-center justify-center" style={{ background: "rgba(74,144,217,0.08)" }}>
-                <Clock className="w-4 h-4" style={{ color: colors.sky }} />
+                <Clock className="w-4 h-4" aria-hidden="true" style={{ color: colors.sky }} />
               </div>
               <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>{stats.onlineHours.toFixed(1)}h</p>
               <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Online</p>
             </div>
             <div className="text-center">
               <div className="w-8 h-8 rounded-xl mx-auto mb-1.5 flex items-center justify-center" style={{ background: "rgba(52,199,89,0.08)" }}>
-                <TrendingUp className="w-4 h-4" style={{ color: colors.success }} />
+                <TrendingUp className="w-4 h-4" aria-hidden="true" style={{ color: colors.success }} />
               </div>
               <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>${stats.perHour.toFixed(2)}</p>
               <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>$/Hour</p>
@@ -506,7 +507,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
               <motion.button
                 onClick={handleLoadMore}
                 disabled={loadingMore}
-                className="w-full py-3 rounded-2xl flex items-center justify-center gap-2 mt-2"
+                className="w-full py-3 rounded-2xl flex items-center justify-center gap-2 mt-2 min-h-[44px]"
                 style={{
                   background: "rgba(255,255,255,0.72)",
                   border: "1px solid rgba(0,0,0,0.06)",
@@ -518,9 +519,9 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                 data-testid="btn-load-more"
               >
                 {loadingMore ? (
-                  <Loader2 className="w-4 h-4 animate-spin" style={{ color: colors.sunrise }} />
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" style={{ color: colors.sunrise }} />
                 ) : (
-                  <ChevronDown className="w-4 h-4" style={{ color: colors.sunrise }} />
+                  <ChevronDown className="w-4 h-4" aria-hidden="true" style={{ color: colors.sunrise }} />
                 )}
                 <span className="text-xs font-semibold" style={{ color: colors.sunrise }}>
                   {loadingMore ? "Loading..." : "Load More Trips"}

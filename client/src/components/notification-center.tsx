@@ -46,8 +46,8 @@ export function NotificationCenter() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button size="icon" variant="ghost" className="relative" data-testid="button-notification-bell">
-          <Bell className="w-4 h-4" />
+        <Button size="icon" variant="ghost" className="relative" data-testid="button-notification-bell" aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}>
+          <Bell className="w-4 h-4" aria-hidden="true" />
           {unreadCount > 0 && (
             <span className="absolute -top-0.5 -right-0.5 w-4 h-4 text-[10px] font-bold bg-destructive text-destructive-foreground rounded-full flex items-center justify-center" data-testid="badge-unread-count">
               {unreadCount > 9 ? "9+" : unreadCount}
@@ -66,7 +66,7 @@ export function NotificationCenter() {
               onClick={() => markAllReadMutation.mutate()}
               data-testid="button-mark-all-read"
             >
-              <Check className="w-3 h-3 mr-1" />
+              <Check className="w-3 h-3 mr-1" aria-hidden="true" />
               Mark all read
             </Button>
           )}

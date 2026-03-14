@@ -93,10 +93,10 @@ function ScheduleFormModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-[#111827] border border-[#1e293b] rounded-xl w-full max-w-lg mx-4 shadow-2xl">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} role="presentation" aria-hidden="true" />
+      <div className="relative bg-[#111827] border border-[#1e293b] rounded-xl w-full max-w-lg mx-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="recurring-schedule-title">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e293b]">
-          <h2 className="text-base font-semibold text-white flex items-center gap-2">
+          <h2 id="recurring-schedule-title" className="text-base font-semibold text-white flex items-center gap-2">
             <RotateCcw className="w-5 h-5 text-emerald-400" />
             {initial ? "Edit Schedule" : "New Recurring Schedule"}
           </h2>

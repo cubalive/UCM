@@ -561,8 +561,9 @@ function AnalyticsDashboardSection() {
       </div>
 
       {analyticsLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <div className="flex items-center justify-center py-12" role="status" aria-live="polite">
+          <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+          <span className="sr-only">Loading analytics...</span>
         </div>
       ) : (
         <div className="p-5 space-y-6">

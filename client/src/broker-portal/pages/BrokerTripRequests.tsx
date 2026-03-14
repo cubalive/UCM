@@ -53,14 +53,14 @@ export default function BrokerTripRequests() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-gray-500 text-xs uppercase border-b border-[#1e293b]">
-              <th className="text-left p-3">ID</th>
-              <th className="text-left p-3">Member</th>
-              <th className="text-left p-3">Date</th>
-              <th className="text-left p-3">Time</th>
-              <th className="text-left p-3">Service</th>
-              <th className="text-left p-3">Status</th>
-              <th className="text-left p-3">Priority</th>
-              <th className="text-left p-3">Budget</th>
+              <th scope="col" className="text-left p-3">ID</th>
+              <th scope="col" className="text-left p-3">Member</th>
+              <th scope="col" className="text-left p-3">Date</th>
+              <th scope="col" className="text-left p-3">Time</th>
+              <th scope="col" className="text-left p-3">Service</th>
+              <th scope="col" className="text-left p-3">Status</th>
+              <th scope="col" className="text-left p-3">Priority</th>
+              <th scope="col" className="text-left p-3">Budget</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#1e293b]">

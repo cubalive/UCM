@@ -53,7 +53,7 @@ function SettingsRow({
   return (
     <button
       onClick={onPress}
-      className="w-full flex items-center justify-between py-3 px-1 border-b"
+      className="w-full flex items-center justify-between py-3 px-1 border-b min-h-[44px]"
       style={{ borderColor: "rgba(0,0,0,0.04)", cursor: onPress ? "pointer" : "default" }}
       data-testid={testID}
     >
@@ -62,7 +62,7 @@ function SettingsRow({
           className="w-8 h-8 rounded-xl flex items-center justify-center"
           style={{ background: glowColor(accent, 0.08) }}
         >
-          <span style={{ color: accent }}>{icon}</span>
+          <span style={{ color: accent }} aria-hidden="true">{icon}</span>
         </div>
         <span className="text-sm" style={{ color: colors.textPrimary }}>{label}</span>
       </div>
@@ -70,7 +70,7 @@ function SettingsRow({
         {value && (
           <span className="text-xs" style={{ color: colors.textTertiary }}>{value}</span>
         )}
-        {onPress && <ChevronRight className="w-4 h-4" style={{ color: colors.textTertiary }} />}
+        {onPress && <ChevronRight className="w-4 h-4" aria-hidden="true" style={{ color: colors.textTertiary }} />}
       </div>
     </button>
   );
@@ -93,7 +93,7 @@ function ToggleRow({
 }) {
   return (
     <div
-      className="flex items-center justify-between py-3 px-1 border-b"
+      className="flex items-center justify-between py-3 px-1 border-b min-h-[44px]"
       style={{ borderColor: "rgba(0,0,0,0.04)" }}
       data-testid={testID}
     >
@@ -102,19 +102,20 @@ function ToggleRow({
           className="w-8 h-8 rounded-xl flex items-center justify-center"
           style={{ background: glowColor(accent, 0.08) }}
         >
-          <span style={{ color: accent }}>{icon}</span>
+          <span style={{ color: accent }} aria-hidden="true">{icon}</span>
         </div>
         <span className="text-sm" style={{ color: colors.textPrimary }}>{label}</span>
       </div>
       <button
         onClick={() => onChange(!value)}
-        className="relative w-11 h-6 rounded-full transition-colors"
+        className="relative w-11 h-6 rounded-full transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
         style={{
           background: value ? glowColor(colors.sunrise, 0.2) : "rgba(0,0,0,0.08)",
           border: `1px solid ${value ? glowColor(colors.sunrise, 0.3) : "rgba(0,0,0,0.06)"}`,
         }}
         role="switch"
         aria-checked={value}
+        aria-label={label}
       >
         <motion.div
           className="absolute top-0.5 w-5 h-5 rounded-full"
@@ -346,11 +347,12 @@ export function Profile({ onBack }: { onBack: () => void }) {
         <div className="flex items-center gap-3 mb-2">
           <button
             onClick={onBack}
-            className="flex items-center justify-center w-9 h-9 rounded-full"
+            className="flex items-center justify-center w-11 h-11 rounded-full min-h-[44px] min-w-[44px]"
             style={{ background: "rgba(255,255,255,0.80)", color: colors.textPrimary, boxShadow: colors.shadowSm, border: "1px solid rgba(0,0,0,0.04)" }}
             data-testid="btn-back"
+            aria-label="Back"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5" aria-hidden="true" />
           </button>
           <h1 className="text-xl font-bold" style={{ color: colors.textPrimary }}>
             Profile
@@ -378,7 +380,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
               <p className="text-xs" style={{ color: colors.textTertiary }}>UCM Driver</p>
               <div className="flex items-center gap-3 mt-1">
                 <span className="text-xs flex items-center gap-1" style={{ color: colors.warning }}>
-                  <Star className="w-3 h-3" style={{ fill: colors.warning }} /> {rating}
+                  <Star className="w-3 h-3" aria-hidden="true" style={{ fill: colors.warning }} /> {rating}
                 </span>
                 <span className="text-xs" style={{ color: colors.textTertiary }}>
                   {completedRides} rides
@@ -398,7 +400,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
               <button
                 key={opt}
                 onClick={() => setNavPreference(opt)}
-                className="flex-1 py-2.5 rounded-lg text-[10px] font-semibold capitalize transition-all"
+                className="flex-1 py-2.5 rounded-lg text-xs font-semibold capitalize transition-all min-h-[44px]"
                 style={{
                   background: navPreference === opt ? "white" : "transparent",
                   color: navPreference === opt ? colors.sunrise : colors.textTertiary,
@@ -534,7 +536,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                 <div className="py-3 px-1 space-y-2">
                   <button
                     onClick={() => window.open("tel:911")}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all min-h-[44px]"
                     style={{ background: glowColor(colors.danger, 0.06), border: `1px solid ${glowColor(colors.danger, 0.12)}` }}
                     data-testid="btn-emergency-911"
                   >
@@ -631,7 +633,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                       <button
                         key={opt.key}
                         onClick={() => toggleServiceType(opt.key)}
-                        className="px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all"
+                        className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all min-h-[44px]"
                         style={{
                           background: isActive ? glowColor(colors.sunrise, 0.12) : "rgba(0,0,0,0.03)",
                           color: isActive ? colors.sunrise : colors.textTertiary,
@@ -742,7 +744,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
             {notifStatus !== "granted" && notifStatus !== "denied" && notifSupported && (
               <button
                 onClick={requestPermission}
-                className="px-3 py-1.5 rounded-full text-[10px] font-semibold"
+                className="px-3 py-1.5 rounded-full text-xs font-semibold min-h-[44px]"
                 style={{
                   background: glowColor(colors.sunrise, 0.1),
                   color: colors.sunrise,
@@ -786,7 +788,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
         {/* Logout */}
         <motion.button
           onClick={() => setShowLogoutConfirm(true)}
-          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl"
+          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl min-h-[44px]"
           style={{
             background: glowColor(colors.danger, 0.06),
             border: `1px solid ${glowColor(colors.danger, 0.12)}`,
@@ -794,7 +796,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
           whileTap={{ scale: 0.97 }}
           data-testid="btn-logout"
         >
-          <LogOut className="w-4 h-4" style={{ color: colors.danger }} />
+          <LogOut className="w-4 h-4" aria-hidden="true" style={{ color: colors.danger }} />
           <span className="text-sm font-semibold" style={{ color: colors.danger }}>Log Out</span>
         </motion.button>
       </div>

@@ -150,7 +150,7 @@ function ProofOfDeliverySection({ tripId }: { tripId: number }) {
     },
   });
 
-  if (isLoading) return <div className="text-xs text-gray-500 py-2">Loading proof...</div>;
+  if (isLoading) return <div className="text-xs text-gray-500 py-2" role="status" aria-live="polite">Loading proof...</div>;
   if (!data?.hasProof) return null;
 
   return (
@@ -236,8 +236,8 @@ function TripDrawer({ trip, onClose, onTripUpdated }: TripDrawerProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" data-testid="trip-drawer">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+    <div className="fixed inset-0 z-50 flex justify-end" data-testid="trip-drawer" role="dialog" aria-modal="true" aria-label="Trip details">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
       <div className="relative w-full max-w-lg bg-[#0f172a] border-l border-[#1e293b] overflow-y-auto animate-in slide-in-from-right">
         <div className="sticky top-0 bg-[#0f172a]/95 backdrop-blur-sm border-b border-[#1e293b] px-6 py-4 flex items-center justify-between z-10">
           <div>
@@ -246,10 +246,11 @@ function TripDrawer({ trip, onClose, onTripUpdated }: TripDrawerProps) {
           </div>
           <button
             onClick={onClose}
+            aria-label="Close trip details"
             className="p-2 hover:bg-white/5 rounded-lg transition-colors"
             data-testid="button-close-drawer"
           >
-            <X className="w-5 h-5 text-gray-400" />
+            <X className="w-5 h-5 text-gray-400" aria-hidden="true" />
           </button>
         </div>
 
@@ -576,12 +577,13 @@ export default function ClinicTrips() {
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" aria-hidden="true" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search trips by patient, address..."
+            aria-label="Search trips"
             className="w-full pl-10 pr-4 py-2.5 bg-[#111827] border border-[#1e293b] rounded-lg text-sm text-white placeholder-gray-600 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 outline-none transition"
             data-testid="input-search-trips"
           />
@@ -590,6 +592,7 @@ export default function ClinicTrips() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Filter by status"
             className="px-3 py-2.5 bg-[#111827] border border-[#1e293b] rounded-lg text-sm text-white outline-none focus:border-emerald-500/50 transition"
             data-testid="select-status-filter"
           >
@@ -615,8 +618,8 @@ export default function ClinicTrips() {
 
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden" data-testid="trips-table">
         {isLoading ? (
-          <div className="p-12 text-center">
-            <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="p-12 text-center" role="status" aria-live="polite">
+            <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" aria-hidden="true" />
             <p className="text-gray-500 text-sm mt-3">Loading trips...</p>
           </div>
         ) : tripsList.length === 0 ? (

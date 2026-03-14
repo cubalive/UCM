@@ -40,7 +40,7 @@ function TripProgress({ currentPhase }: { currentPhase: TripPhase }) {
           <div key={step.key} className="flex-1 flex flex-col items-center gap-1">
             <div className="flex items-center justify-center w-full gap-0.5">
               {isDone || isActive ? (
-                <Icon className="w-3 h-3" style={{ color: isDone ? colors.success : colors.sunrise }} />
+                <Icon className="w-3 h-3" aria-hidden="true" style={{ color: isDone ? colors.success : colors.sunrise }} />
               ) : null}
             </div>
             <div
@@ -93,7 +93,7 @@ function TripCompleteSummary({ trip, onDone }: { trip: any; onDone: () => void }
             boxShadow: `0 8px 32px rgba(52,199,89,0.2)`,
           }}
         >
-          <CheckCircle2 className="w-10 h-10" style={{ color: colors.success }} />
+          <CheckCircle2 className="w-10 h-10" aria-hidden="true" style={{ color: colors.success }} />
         </div>
       </motion.div>
 
@@ -107,7 +107,7 @@ function TripCompleteSummary({ trip, onDone }: { trip: any; onDone: () => void }
       <GlassCard variant="elevated" className="!p-5 w-full max-w-sm space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <User className="w-4 h-4" style={{ color: colors.sky }} />
+            <User className="w-4 h-4" aria-hidden="true" style={{ color: colors.sky }} />
             <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>
               {trip?.passengerName || "Patient"}
             </span>
@@ -225,11 +225,11 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
       <NebulaBackground>
         <div className="flex flex-col items-center justify-center min-h-screen px-6">
           <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ background: "rgba(0,0,0,0.04)" }}>
-            <MapPin className="w-8 h-8" style={{ color: colors.textTertiary }} />
+            <MapPin className="w-8 h-8" aria-hidden="true" style={{ color: colors.textTertiary }} />
           </div>
           <p className="text-lg font-semibold" style={{ color: colors.textPrimary }}>No active trip</p>
           <p className="text-sm mb-4" style={{ color: colors.textSecondary }}>You'll see trip details here</p>
-          <button onClick={onBack} className="text-sm font-semibold underline" style={{ color: colors.sunrise }}>
+          <button onClick={onBack} className="text-sm font-semibold underline min-h-[44px]" style={{ color: colors.sunrise }}>
             Back to Dashboard
           </button>
         </div>
@@ -282,7 +282,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
           <div className="absolute top-4 left-4 right-4 z-30 flex items-center justify-between">
             <button
               onClick={onBack}
-              className="flex items-center gap-1 px-3 py-2 rounded-full text-xs font-medium"
+              className="flex items-center gap-1 px-3 py-2 rounded-full text-xs font-medium min-h-[44px]"
               style={{
                 background: "rgba(255,255,255,0.90)",
                 backdropFilter: "blur(12px)",
@@ -291,8 +291,9 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
                 boxShadow: colors.shadowSm,
               }}
               data-testid="btn-back-dashboard"
+              aria-label="Back to Dashboard"
             >
-              ← Dashboard
+              <span aria-hidden="true">←</span> Dashboard
             </button>
             <GlassButton
               icon={<AlertTriangle className="w-4 h-4" style={{ color: colors.danger }} />}
@@ -308,7 +309,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
           {isMovingPhase && (
             <motion.button
               onClick={handleNavigate}
-              className="absolute bottom-4 right-4 z-30 flex items-center gap-2 px-5 py-3 rounded-2xl"
+              className="absolute bottom-4 right-4 z-30 flex items-center gap-2 px-5 py-3 rounded-2xl min-h-[44px]"
               style={{
                 background: `linear-gradient(135deg, ${phaseColor}, ${isPickupPhase ? "#2BB84E" : colors.ocean})`,
                 boxShadow: `0 4px 20px ${glowColor(phaseColor, 0.35)}`,
@@ -320,7 +321,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
               data-testid="btn-start-navigation"
               aria-label={`Navigate to ${destLabel}`}
             >
-              <Navigation className="w-5 h-5 text-white" />
+              <Navigation className="w-5 h-5 text-white" aria-hidden="true" />
               <span className="text-sm font-bold text-white">Navigate</span>
             </motion.button>
           )}
@@ -336,7 +337,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
                 boxShadow: colors.shadowSm,
               }}
             >
-              <MapPin className="w-3.5 h-3.5" style={{ color: phaseColor }} />
+              <MapPin className="w-3.5 h-3.5" aria-hidden="true" style={{ color: phaseColor }} />
               <div>
                 <p className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: phaseColor }}>
                   {destLabel}
@@ -365,14 +366,14 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <User className="w-4 h-4" style={{ color: colors.sky }} />
+                  <User className="w-4 h-4" aria-hidden="true" style={{ color: colors.sky }} />
                   <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
                     {activeTrip.passengerName}
                   </span>
                 </div>
                 {activeTrip.scheduledTime && (
                   <div className="flex items-center gap-1.5 mb-2">
-                    <Clock className="w-3 h-3" style={{ color: colors.textTertiary }} />
+                    <Clock className="w-3 h-3" aria-hidden="true" style={{ color: colors.textTertiary }} />
                     <span className="text-[10px]" style={{ color: colors.textTertiary }}>
                       Scheduled: {new Date(activeTrip.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
@@ -413,7 +414,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
 
             {activeTrip.notes && (
               <div className="flex items-start gap-2 px-2 py-1.5 rounded-lg mb-2" style={{ background: "rgba(0,0,0,0.02)" }}>
-                <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: colors.textTertiary }} />
+                <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" aria-hidden="true" style={{ color: colors.textTertiary }} />
                 <p className="text-xs italic" style={{ color: colors.textTertiary }}>{activeTrip.notes}</p>
               </div>
             )}

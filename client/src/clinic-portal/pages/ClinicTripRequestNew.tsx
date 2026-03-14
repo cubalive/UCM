@@ -131,8 +131,8 @@ export default function ClinicTripRequestNew() {
     <div className="p-6 max-w-3xl mx-auto space-y-6" data-testid="new-trip-request-page">
       <div className="flex items-center gap-3">
         <Link href="/requests">
-          <button className="p-2 hover:bg-white/5 rounded-lg transition-colors" data-testid="button-back">
-            <ArrowLeft className="w-5 h-5 text-gray-400" />
+          <button className="p-2 hover:bg-white/5 rounded-lg transition-colors" data-testid="button-back" aria-label="Go back to requests">
+            <ArrowLeft className="w-5 h-5 text-gray-400" aria-hidden="true" />
           </button>
         </Link>
         <div>
@@ -165,10 +165,11 @@ export default function ClinicTripRequestNew() {
           ) : (
             <div className="space-y-3">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" aria-hidden="true" />
                 <input
                   type="text"
                   placeholder="Search patients..."
+                  aria-label="Search patients"
                   value={patientSearch}
                   onChange={(e) => setPatientSearch(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
@@ -207,8 +208,9 @@ export default function ClinicTripRequestNew() {
                 <div className="bg-[#0a0f1e] border border-[#1e293b] rounded-lg p-4 space-y-3" data-testid="new-patient-form">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs text-gray-400 mb-1 block">First Name *</label>
+                      <label htmlFor="patient-first-name" className="text-xs text-gray-400 mb-1 block">First Name *</label>
                       <input
+                        id="patient-first-name"
                         type="text"
                         value={newPatientForm.firstName}
                         onChange={(e) => setNewPatientForm({ ...newPatientForm, firstName: e.target.value })}
@@ -217,8 +219,9 @@ export default function ClinicTripRequestNew() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-gray-400 mb-1 block">Last Name *</label>
+                      <label htmlFor="patient-last-name" className="text-xs text-gray-400 mb-1 block">Last Name *</label>
                       <input
+                        id="patient-last-name"
                         type="text"
                         value={newPatientForm.lastName}
                         onChange={(e) => setNewPatientForm({ ...newPatientForm, lastName: e.target.value })}
@@ -229,8 +232,9 @@ export default function ClinicTripRequestNew() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs text-gray-400 mb-1 block">Phone</label>
+                      <label htmlFor="patient-phone" className="text-xs text-gray-400 mb-1 block">Phone</label>
                       <input
+                        id="patient-phone"
                         type="text"
                         value={newPatientForm.phone}
                         onChange={(e) => setNewPatientForm({ ...newPatientForm, phone: e.target.value })}
@@ -239,8 +243,9 @@ export default function ClinicTripRequestNew() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-gray-400 mb-1 block">Date of Birth</label>
+                      <label htmlFor="patient-dob" className="text-xs text-gray-400 mb-1 block">Date of Birth</label>
                       <input
+                        id="patient-dob"
                         type="date"
                         value={newPatientForm.dateOfBirth}
                         onChange={(e) => setNewPatientForm({ ...newPatientForm, dateOfBirth: e.target.value })}
@@ -264,13 +269,14 @@ export default function ClinicTripRequestNew() {
                   </div>
                   <div className="flex items-center gap-2">
                     <input
+                      id="patient-wheelchair"
                       type="checkbox"
                       checked={newPatientForm.wheelchairRequired}
                       onChange={(e) => setNewPatientForm({ ...newPatientForm, wheelchairRequired: e.target.checked })}
                       className="rounded"
                       data-testid="input-patient-wheelchair"
                     />
-                    <label className="text-xs text-gray-400">Wheelchair required</label>
+                    <label htmlFor="patient-wheelchair" className="text-xs text-gray-400">Wheelchair required</label>
                   </div>
                   <button
                     type="button"
@@ -323,8 +329,9 @@ export default function ClinicTripRequestNew() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Date *</label>
+              <label htmlFor="trip-date" className="text-xs text-gray-400 mb-1 block">Date *</label>
               <input
+                id="trip-date"
                 type="date"
                 value={form.scheduledDate}
                 onChange={(e) => setForm({ ...form, scheduledDate: e.target.value })}
@@ -333,8 +340,9 @@ export default function ClinicTripRequestNew() {
               />
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Time *</label>
+              <label htmlFor="trip-time" className="text-xs text-gray-400 mb-1 block">Time *</label>
               <input
+                id="trip-time"
                 type="time"
                 value={form.scheduledTime}
                 onChange={(e) => setForm({ ...form, scheduledTime: e.target.value })}
@@ -378,13 +386,14 @@ export default function ClinicTripRequestNew() {
 
           <div className="flex items-center gap-2">
             <input
+              id="round-trip"
               type="checkbox"
               checked={form.isRoundTrip}
               onChange={(e) => setForm({ ...form, isRoundTrip: e.target.checked })}
               className="rounded"
               data-testid="input-round-trip"
             />
-            <label className="text-sm text-gray-400">Round trip</label>
+            <label htmlFor="round-trip" className="text-sm text-gray-400">Round trip</label>
           </div>
 
           <div>

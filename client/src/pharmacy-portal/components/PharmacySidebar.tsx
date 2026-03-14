@@ -47,12 +47,13 @@ export function PharmacySidebar({ isOpen, onClose, currentPath }: PharmacySideba
         ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         flex flex-col
       `}
+      aria-label="Pharmacy portal sidebar"
     >
       {/* Header */}
       <div className="h-14 flex items-center justify-between px-4 border-b border-[#1e293b]">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg flex items-center justify-center">
-            <Pill className="w-4 h-4 text-white" />
+            <Pill className="w-4 h-4 text-white" aria-hidden="true" />
           </div>
           <div>
             <span className="text-sm font-bold text-white">UCM</span>
@@ -61,14 +62,15 @@ export function PharmacySidebar({ isOpen, onClose, currentPath }: PharmacySideba
         </div>
         <button
           onClick={onClose}
-          className="lg:hidden p-1 hover:bg-white/5 rounded"
+          className="lg:hidden p-1 hover:bg-white/5 rounded min-h-[44px] min-w-[44px] flex items-center justify-center"
+          aria-label="Close sidebar menu"
         >
-          <X className="w-4 h-4 text-gray-400" />
+          <X className="w-4 h-4 text-gray-400" aria-hidden="true" />
         </button>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
+      <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto" aria-label="Pharmacy navigation">
         {NAV_ITEMS.map((item) => {
           const isActive =
             item.path === "/"
@@ -78,25 +80,26 @@ export function PharmacySidebar({ isOpen, onClose, currentPath }: PharmacySideba
 
           return (
             <Link key={item.path} href={item.path}>
-              <div
+              <button
                 onClick={onClose}
                 className={`
-                  flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm cursor-pointer
+                  w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm
                   transition-all duration-150
                   ${isActive
                     ? "bg-violet-500/10 text-violet-400 font-medium border border-violet-500/20"
-                    : "text-gray-400 hover:text-white hover:bg-white/5"
+                    : "text-gray-400 hover:text-white hover:bg-white/5 border border-transparent"
                   }
                 `}
+                aria-current={isActive ? "page" : undefined}
               >
-                <Icon className="w-4 h-4 shrink-0" />
+                <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
                 <span>{item.label}</span>
                 {item.path === "/orders/new" && (
-                  <span className="ml-auto w-5 h-5 rounded-full bg-violet-500/20 text-violet-400 text-[10px] flex items-center justify-center font-bold">
+                  <span className="ml-auto w-5 h-5 rounded-full bg-violet-500/20 text-violet-400 text-[10px] flex items-center justify-center font-bold" aria-hidden="true">
                     +
                   </span>
                 )}
-              </div>
+              </button>
             </Link>
           );
         })}
@@ -108,7 +111,7 @@ export function PharmacySidebar({ isOpen, onClose, currentPath }: PharmacySideba
           onClick={() => logout()}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-red-400/5 w-full transition-colors"
         >
-          <LogOut className="w-4 h-4" />
+          <LogOut className="w-4 h-4" aria-hidden="true" />
           <span>Sign Out</span>
         </button>
       </div>

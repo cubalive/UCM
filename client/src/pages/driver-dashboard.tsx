@@ -2291,7 +2291,7 @@ export default function DriverDashboard() {
             onClick={() => setDrawerOpen(true)}
             data-testid="button-open-drawer"
           >
-            <Menu className="w-5 h-5 mr-2" />
+            <Menu className="w-5 h-5 mr-2" aria-hidden="true" />
             Menu
           </Button>
         </div>
@@ -2378,10 +2378,10 @@ export default function DriverDashboard() {
       {/* SLIDE-UP DRAWER */}
       {drawerOpen && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" data-testid="div-drawer-overlay">
-          <div className="absolute inset-0 bg-black/40" onClick={() => { setDrawerOpen(false); setDrawerSection(null); }} />
-          <div className="relative bg-background rounded-t-xl max-h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300">
+          <div className="absolute inset-0 bg-black/40" onClick={() => { setDrawerOpen(false); setDrawerSection(null); }} role="presentation" aria-hidden="true" />
+          <div className="relative bg-background rounded-t-xl max-h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300" role="dialog" aria-modal="true" aria-labelledby="driver-drawer-title">
             <div className="flex items-center justify-between px-4 py-3 border-b">
-              <span className="text-lg font-semibold">
+              <span className="text-lg font-semibold" id="driver-drawer-title">
                 {drawerSection === "profile" ? "My Profile" : drawerSection === "trips" ? "My Trips" : drawerSection === "schedule" ? "My Schedule" : drawerSection === "schedule-change" ? "Schedule Change" : drawerSection === "metrics" ? "My Metrics" : drawerSection === "bonus" ? "Weekly Bonus" : drawerSection === "earnings" ? "My Earnings" : "Menu"}
               </span>
               <div className="flex items-center gap-2">
