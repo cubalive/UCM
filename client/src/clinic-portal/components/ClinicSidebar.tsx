@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import {
   LayoutDashboard,
   Car,
@@ -23,21 +24,22 @@ interface ClinicSidebarProps {
 }
 
 const NAV_ITEMS = [
-  { path: "/", label: "Dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
-  { path: "/requests", label: "Trip Requests", icon: ClipboardList, testId: "nav-requests" },
-  { path: "/trips", label: "Trips", icon: Car, testId: "nav-trips" },
-  { path: "/patients", label: "Patients", icon: Users, testId: "nav-patients" },
-  { path: "/live", label: "Live View", icon: MapPin, testId: "nav-live" },
-  { path: "/scheduling", label: "AI Scheduling", icon: Brain, testId: "nav-scheduling" },
-  { path: "/recurring-schedules", label: "Recurring Schedules", icon: RotateCcw, testId: "nav-recurring" },
-  { path: "/providers", label: "Provider Directory", icon: Building2, testId: "nav-providers" },
-  { path: "/billing", label: "Billing", icon: CreditCard, testId: "nav-billing" },
-  { path: "/users", label: "User Management", icon: UserCog, testId: "nav-users" },
-  { path: "/profile", label: "Profile", icon: User, testId: "nav-profile" },
+  { path: "/", labelKey: "clinic.sidebar.dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
+  { path: "/requests", labelKey: "clinic.sidebar.tripRequests", icon: ClipboardList, testId: "nav-requests" },
+  { path: "/trips", labelKey: "clinic.sidebar.trips", icon: Car, testId: "nav-trips" },
+  { path: "/patients", labelKey: "clinic.sidebar.patients", icon: Users, testId: "nav-patients" },
+  { path: "/live", labelKey: "clinic.sidebar.liveView", icon: MapPin, testId: "nav-live" },
+  { path: "/scheduling", labelKey: "clinic.sidebar.scheduling", icon: Brain, testId: "nav-scheduling" },
+  { path: "/recurring-schedules", labelKey: "clinic.sidebar.recurring", icon: RotateCcw, testId: "nav-recurring" },
+  { path: "/providers", labelKey: "clinic.sidebar.providers", icon: Building2, testId: "nav-providers" },
+  { path: "/billing", labelKey: "clinic.sidebar.billing", icon: CreditCard, testId: "nav-billing" },
+  { path: "/users", labelKey: "clinic.sidebar.users", icon: UserCog, testId: "nav-users" },
+  { path: "/profile", labelKey: "clinic.sidebar.profile", icon: User, testId: "nav-profile" },
 ];
 
 export function ClinicSidebar({ isOpen, onClose, currentPath }: ClinicSidebarProps) {
   const { logout } = useAuth();
+  const { t } = useTranslation();
 
   return (
     <aside
@@ -49,7 +51,7 @@ export function ClinicSidebar({ isOpen, onClose, currentPath }: ClinicSidebarPro
         ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
       `}
       data-testid="clinic-sidebar"
-      aria-label="Clinic portal sidebar"
+      aria-label={t('clinic.sidebar.navigation')}
     >
       <div className="p-4 border-b border-[#1e293b]">
         <div className="flex items-center gap-3">
@@ -58,13 +60,13 @@ export function ClinicSidebar({ isOpen, onClose, currentPath }: ClinicSidebarPro
           </div>
           <div>
             <h2 className="text-sm font-bold text-white">United Care</h2>
-            <p className="text-[10px] text-emerald-400 uppercase tracking-wider">Clinic Portal</p>
+            <p className="text-[10px] text-emerald-400 uppercase tracking-wider">{t('clinic.title')}</p>
           </div>
         </div>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1" data-testid="clinic-nav" aria-label="Clinic navigation">
-        {NAV_ITEMS.map(({ path, label, icon: Icon, testId }) => {
+      <nav className="flex-1 p-3 space-y-1" data-testid="clinic-nav" aria-label={t('clinic.sidebar.navigation')}>
+        {NAV_ITEMS.map(({ path, labelKey, icon: Icon, testId }) => {
           const isActive = currentPath === path || (path !== "/" && currentPath.startsWith(path));
           return (
             <Link key={path} href={path}>
@@ -80,7 +82,7 @@ export function ClinicSidebar({ isOpen, onClose, currentPath }: ClinicSidebarPro
                 data-testid={testId}
               >
                 <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
-                {label}
+                {t(labelKey)}
               </button>
             </Link>
           );
@@ -94,7 +96,7 @@ export function ClinicSidebar({ isOpen, onClose, currentPath }: ClinicSidebarPro
           data-testid="button-logout"
         >
           <LogOut className="w-4 h-4" aria-hidden="true" />
-          Sign Out
+          {t('common.logout')}
         </button>
       </div>
     </aside>
