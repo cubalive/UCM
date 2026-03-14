@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -16,6 +17,7 @@ import {
 import { Route, TrendingDown, BarChart3, Zap, Loader2 } from "lucide-react";
 
 function FleetEfficiencyTab() {
+  const { t } = useTranslation();
   const { token } = useAuth();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
 
@@ -34,19 +36,19 @@ function FleetEfficiencyTab() {
       {data?.summary && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total Dead Miles</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("deadMile.totalDeadMiles")}</CardTitle></CardHeader>
             <CardContent><p className="text-2xl font-bold text-red-400">{(data.summary.totalDeadMiles || 0).toFixed(1)} mi</p></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total Revenue Miles</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("deadMile.totalRevenueMiles")}</CardTitle></CardHeader>
             <CardContent><p className="text-2xl font-bold text-emerald-400">{(data.summary.totalRevenueMiles || 0).toFixed(1)} mi</p></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Efficiency Ratio</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("deadMile.efficiencyRatio")}</CardTitle></CardHeader>
             <CardContent><p className="text-2xl font-bold">{((data.summary.efficiencyRatio || 0) * 100).toFixed(1)}%</p></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Drivers Tracked</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("deadMile.driversTracked")}</CardTitle></CardHeader>
             <CardContent><p className="text-2xl font-bold">{data.summary.driversTracked || 0}</p></CardContent>
           </Card>
         </div>
@@ -56,11 +58,11 @@ function FleetEfficiencyTab() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Driver</TableHead>
-              <TableHead>Dead Miles</TableHead>
-              <TableHead>Revenue Miles</TableHead>
-              <TableHead>Efficiency</TableHead>
-              <TableHead>Trips</TableHead>
+              <TableHead>{t("deadMile.driver")}</TableHead>
+              <TableHead>{t("deadMile.deadMiles")}</TableHead>
+              <TableHead>{t("deadMile.revenueMiles")}</TableHead>
+              <TableHead>{t("deadMile.efficiency")}</TableHead>
+              <TableHead>{t("deadMile.trips")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -85,6 +87,7 @@ function FleetEfficiencyTab() {
 }
 
 function OptimizationTab() {
+  const { t } = useTranslation();
   const { token } = useAuth();
   const { toast } = useToast();
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -101,9 +104,9 @@ function OptimizationTab() {
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/dead-mile"] });
-      toast({ title: "Route optimization complete", description: `${data.optimized || 0} routes improved` });
+      toast({ title: t("deadMile.optimizationComplete"), description: t("deadMile.routesImproved", { count: data.optimized || 0 }) });
     },
-    onError: (err: any) => toast({ title: "Optimization failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("deadMile.optimizationFailed"), description: err.message, variant: "destructive" }),
   });
 
   return (
@@ -112,15 +115,15 @@ function OptimizationTab() {
         <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-40" />
         <Button onClick={() => batchOptMutation.mutate()} disabled={batchOptMutation.isPending}>
           {batchOptMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
-          Run Batch Optimization
+          {t("deadMile.runBatchOptimization")}
         </Button>
       </div>
 
       {savingsQuery.data && (
         <Card>
-          <CardHeader><CardTitle>Potential Savings</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t("deadMile.potentialSavings")}</CardTitle></CardHeader>
           <CardContent>
-            <p className="text-lg">Estimated <span className="text-emerald-400 font-bold">{(savingsQuery.data.potentialSavingsMiles || 0).toFixed(1)} miles</span> could be saved with route reordering</p>
+            <p className="text-lg">{t("deadMile.estimatedSavings", { miles: (savingsQuery.data.potentialSavingsMiles || 0).toFixed(1) })}</p>
           </CardContent>
         </Card>
       )}
@@ -129,17 +132,18 @@ function OptimizationTab() {
 }
 
 export default function DeadMilePage() {
+  const { t } = useTranslation();
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">
         <TrendingDown className="h-6 w-6 text-red-400" />
-        <h1 className="text-2xl font-bold">Dead Mile Analytics</h1>
+        <h1 className="text-2xl font-bold">{t("deadMile.title")}</h1>
       </div>
 
       <Tabs defaultValue="efficiency">
         <TabsList>
-          <TabsTrigger value="efficiency"><BarChart3 className="w-4 h-4 mr-1" />Fleet Efficiency</TabsTrigger>
-          <TabsTrigger value="optimization"><Zap className="w-4 h-4 mr-1" />Route Optimization</TabsTrigger>
+          <TabsTrigger value="efficiency"><BarChart3 className="w-4 h-4 mr-1" />{t("deadMile.fleetEfficiency")}</TabsTrigger>
+          <TabsTrigger value="optimization"><Zap className="w-4 h-4 mr-1" />{t("deadMile.routeOptimization")}</TabsTrigger>
         </TabsList>
         <TabsContent value="efficiency" className="mt-4"><FleetEfficiencyTab /></TabsContent>
         <TabsContent value="optimization" className="mt-4"><OptimizationTab /></TabsContent>

@@ -50,7 +50,33 @@
     </div>
     <h1>You're Offline</h1>
     <p>United Care Mobility requires an internet connection. Please check your network and try again.</p>
+    <div id="queue-status" style="display:none; margin-bottom:1.25rem; background:#1e293b; padding:0.75rem 1rem; border-radius:8px; font-size:0.85rem;">
+      <span style="color:#fbbf24;">Pending updates:</span>
+      <span id="queue-count" style="color:#fff; font-weight:600;">0</span>
+      <p style="color:#64748b; font-size:0.75rem; margin-top:0.25rem;">These will sync automatically when you reconnect.</p>
+    </div>
     <button onclick="window.location.reload()">Retry</button>
   </div>
+  <script>
+    (function() {
+      try {
+        var req = indexedDB.open("ucm-offline-queue", 1);
+        req.onsuccess = function() {
+          var db = req.result;
+          if (!db.objectStoreNames.contains("queue")) { db.close(); return; }
+          var tx = db.transaction("queue", "readonly");
+          var store = tx.objectStore("queue");
+          var countReq = store.count();
+          countReq.onsuccess = function() {
+            if (countReq.result > 0) {
+              document.getElementById("queue-status").style.display = "block";
+              document.getElementById("queue-count").textContent = countReq.result;
+            }
+          };
+          tx.oncomplete = function() { db.close(); };
+        };
+      } catch(e) {}
+    })();
+  </script>
 </body>
 </html>

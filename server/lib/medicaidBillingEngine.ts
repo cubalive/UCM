@@ -873,6 +873,22 @@ export async function autoSubmitPendingClaims(
         },
       });
 
+      // Deliver claim.submitted webhook to broker if claim has a brokerId
+      if (claim.brokerId) {
+        try {
+          const { deliverWebhook } = await import("./brokerWebhookEngine");
+          await deliverWebhook(claim.brokerId, "claim.submitted", {
+            claimId: claim.id,
+            claimNumber: claim.claimNumber,
+            tripId: claim.tripId,
+            amountCents: claim.amountCents,
+            hcpcsCode: claim.hcpcsCode,
+            serviceDate: claim.serviceDate,
+            submittedAt: new Date().toISOString(),
+          }).catch(() => {});
+        } catch {}
+      }
+
       medicaidSubmitted++;
     } catch (err: any) {
       errors.push(`Medicaid claim ${claim.claimNumber}: ${err.message}`);
@@ -918,6 +934,27 @@ export async function autoSubmitPendingClaims(
           tripId: claim.tripId,
         },
       });
+
+      // Deliver claim.submitted webhook to broker if trip has a broker link
+      try {
+        if (claim.tripId) {
+          const { brokerTripRequests } = await import("@shared/schema");
+          const { eq: eqOp } = await import("drizzle-orm");
+          const [brokerReq] = await db.select({ brokerId: brokerTripRequests.brokerId })
+            .from(brokerTripRequests)
+            .where(eqOp(brokerTripRequests.tripId, claim.tripId))
+            .limit(1);
+          if (brokerReq?.brokerId) {
+            const { deliverWebhook } = await import("./brokerWebhookEngine");
+            await deliverWebhook(brokerReq.brokerId, "claim.submitted", {
+              ediClaimId: claim.id,
+              claimNumber: claim.claimNumber,
+              tripId: claim.tripId,
+              submittedAt: new Date().toISOString(),
+            }).catch(() => {});
+          }
+        }
+      } catch {}
 
       ediSubmitted++;
     } catch (err: any) {

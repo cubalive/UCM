@@ -3548,6 +3548,7 @@ export const pharmacies = pgTable("pharmacies", {
   name: text("name").notNull(),
   licenseNumber: text("license_number"),
   npiNumber: text("npi_number"),
+  ncpdpId: text("ncpdp_id"),
   address: text("address").notNull(),
   addressStreet: text("address_street"),
   addressCity: text("address_city"),

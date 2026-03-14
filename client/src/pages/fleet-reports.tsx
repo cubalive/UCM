@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -13,15 +14,11 @@ import {
   Truck, Users, Route, BarChart3, Wrench, AlertTriangle, RefreshCw, TrendingUp,
 } from "lucide-react";
 
-const PERIOD_OPTIONS = [
-  { label: "7 Days", value: 7 },
-  { label: "14 Days", value: 14 },
-  { label: "30 Days", value: 30 },
-  { label: "90 Days", value: 90 },
-];
+const PERIOD_OPTIONS = [7, 14, 30, 90];
 
 export default function FleetReportsPage() {
   const { token } = useAuth();
+  const { t } = useTranslation();
   const [days, setDays] = useState(30);
 
   const reportQuery = useQuery<any>({
@@ -38,26 +35,26 @@ export default function FleetReportsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2" data-testid="text-page-title">
             <BarChart3 className="w-6 h-6" />
-            Fleet Utilization Reports
+            {t("fleetReports.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Vehicle utilization, driver productivity, and fleet capacity metrics
+            {t("fleetReports.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-muted/50 rounded-lg p-0.5 border">
             {PERIOD_OPTIONS.map((opt) => (
               <button
-                key={opt.value}
-                onClick={() => setDays(opt.value)}
+                key={opt}
+                onClick={() => setDays(opt)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  days === opt.value
+                  days === opt
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
-                data-testid={`button-period-${opt.value}`}
+                data-testid={`button-period-${opt}`}
               >
-                {opt.label}
+                {t("fleetReports.days", { count: opt })}
               </button>
             ))}
           </div>
@@ -72,14 +69,14 @@ export default function FleetReportsPage() {
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 w-full" />)}
         </div>
       ) : !data ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">No data available</CardContent></Card>
+        <Card><CardContent className="py-12 text-center text-muted-foreground">{t("fleetReports.noData")}</CardContent></Card>
       ) : (
         <>
           {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm text-muted-foreground">Total Vehicles</CardTitle>
+                <CardTitle className="text-sm text-muted-foreground">{t("fleetReports.totalVehicles")}</CardTitle>
                 <Truck className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -88,7 +85,7 @@ export default function FleetReportsPage() {
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm text-muted-foreground">Utilization Rate</CardTitle>
+                <CardTitle className="text-sm text-muted-foreground">{t("fleetReports.utilizationRate")}</CardTitle>
                 <TrendingUp className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -97,7 +94,7 @@ export default function FleetReportsPage() {
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm text-muted-foreground">Active Drivers</CardTitle>
+                <CardTitle className="text-sm text-muted-foreground">{t("fleetReports.activeDrivers")}</CardTitle>
                 <Users className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -106,7 +103,7 @@ export default function FleetReportsPage() {
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm text-muted-foreground">Avg Trips/Day</CardTitle>
+                <CardTitle className="text-sm text-muted-foreground">{t("fleetReports.avgTripsDay")}</CardTitle>
                 <Route className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -119,7 +116,7 @@ export default function FleetReportsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Vehicle Status</CardTitle>
+                <CardTitle className="text-base">{t("fleetReports.vehicleStatus")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -159,17 +156,17 @@ export default function FleetReportsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Driver Productivity</CardTitle>
+                <CardTitle className="text-base">{t("fleetReports.driverProductivity")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="text-center p-3 rounded-lg bg-muted/50">
                     <p className="text-2xl font-bold" data-testid="text-total-trips">{data.drivers.totalTrips}</p>
-                    <p className="text-xs text-muted-foreground">Total Trips ({days}d)</p>
+                    <p className="text-xs text-muted-foreground">{t("fleetReports.totalTrips")} ({days}d)</p>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-muted/50">
                     <p className="text-2xl font-bold" data-testid="text-avg-per-driver">{data.drivers.avgTripsPerDriver}</p>
-                    <p className="text-xs text-muted-foreground">Avg Trips/Driver</p>
+                    <p className="text-xs text-muted-foreground">{t("fleetReports.avgTripsDriver")}</p>
                   </div>
                 </div>
               </CardContent>
@@ -180,17 +177,17 @@ export default function FleetReportsPage() {
           {data.drivers.topDrivers.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Top Drivers by Trip Count</CardTitle>
+                <CardTitle className="text-base">{t("fleetReports.topDrivers")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Rank</TableHead>
-                      <TableHead>Driver ID</TableHead>
-                      <TableHead className="text-right">Total Trips</TableHead>
-                      <TableHead className="text-right">Completed</TableHead>
-                      <TableHead className="text-right">Completion Rate</TableHead>
+                      <TableHead>{t("fleetReports.rank")}</TableHead>
+                      <TableHead>{t("fleetReports.driverId")}</TableHead>
+                      <TableHead className="text-right">{t("fleetReports.totalTrips")}</TableHead>
+                      <TableHead className="text-right">{t("fleetReports.completed")}</TableHead>
+                      <TableHead className="text-right">{t("fleetReports.completionRate")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

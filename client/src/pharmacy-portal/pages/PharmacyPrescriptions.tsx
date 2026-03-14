@@ -169,6 +169,7 @@ export default function PharmacyPrescriptions() {
               <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 uppercase">Refills</th>
               <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 uppercase">Flags</th>
               <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 uppercase">Validation</th>
+              <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 uppercase">Source</th>
               <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 uppercase">Linked Order</th>
             </tr>
           </thead>
@@ -176,12 +177,12 @@ export default function PharmacyPrescriptions() {
             {isLoading ? (
               [...Array(5)].map((_, i) => (
                 <tr key={i} className="border-b border-[#1e293b]/50">
-                  <td colSpan={9} className="px-5 py-4"><div className="h-4 bg-gray-700 rounded animate-pulse" /></td>
+                  <td colSpan={10} className="px-5 py-4"><div className="h-4 bg-gray-700 rounded animate-pulse" /></td>
                 </tr>
               ))
             ) : prescriptions.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-5 py-16 text-center text-gray-500">
+                <td colSpan={10} className="px-5 py-16 text-center text-gray-500">
                   <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
                   <p className="text-sm">No prescriptions found</p>
                   <p className="text-xs text-gray-600 mt-1">Import a prescription or create a delivery order with Rx info</p>
@@ -217,6 +218,15 @@ export default function PharmacyPrescriptions() {
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${VALIDATION_COLORS[rx.validationStatus] || VALIDATION_COLORS.VALID}`}>
                         <StatusIcon className="w-3 h-3" />
                         {rx.validationStatus.replace(/_/g, " ")}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                        rx.source === "erx" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                        : rx.source === "order" ? "bg-gray-500/10 text-gray-400 border border-gray-500/20"
+                        : "bg-violet-500/10 text-violet-400 border border-violet-500/20"
+                      }`}>
+                        {rx.source === "erx" ? "e-Rx" : rx.source === "order" ? "Order" : "Manual"}
                       </span>
                     </td>
                     <td className="px-5 py-3 text-center">

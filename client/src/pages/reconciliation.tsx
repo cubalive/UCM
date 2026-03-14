@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -19,6 +20,7 @@ function fmt(cents: number) { return "$" + (cents / 100).toFixed(2); }
 
 function DashboardTab() {
   const { token } = useAuth();
+  const { t } = useTranslation();
   const dashQuery = useQuery<any>({
     queryKey: ["/api/reconciliation/dashboard"],
     queryFn: () => apiFetch("/api/reconciliation/dashboard", token),
@@ -26,24 +28,24 @@ function DashboardTab() {
 
   if (dashQuery.isLoading) return <Skeleton className="h-40 w-full" />;
   const d = dashQuery.data;
-  if (!d) return <p className="text-muted-foreground">No data</p>;
+  if (!d) return <p className="text-muted-foreground">{t("reconciliation.noData")}</p>;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total Runs</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("reconciliation.totalRuns")}</CardTitle></CardHeader>
         <CardContent><p className="text-2xl font-bold">{d.totalRuns || 0}</p></CardContent>
       </Card>
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Matched</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("reconciliation.matched")}</CardTitle></CardHeader>
         <CardContent><p className="text-2xl font-bold text-emerald-400">{d.matchedCount || 0}</p></CardContent>
       </Card>
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Unmatched</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("reconciliation.unmatched")}</CardTitle></CardHeader>
         <CardContent><p className="text-2xl font-bold text-red-400">{d.unmatchedCount || 0}</p></CardContent>
       </Card>
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Disputed</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{t("reconciliation.disputed")}</CardTitle></CardHeader>
         <CardContent><p className="text-2xl font-bold text-amber-400">{d.disputedCount || 0}</p></CardContent>
       </Card>
     </div>
@@ -53,6 +55,7 @@ function DashboardTab() {
 function RunsTab() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [periodStart, setPeriodStart] = useState(() => {
     const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toISOString().split("T")[0];
   });
@@ -70,9 +73,9 @@ function RunsTab() {
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/reconciliation"] });
-      toast({ title: "Reconciliation complete", description: `Matched: ${data.matched || 0}, Unmatched: ${data.unmatched || 0}` });
+      toast({ title: t("reconciliation.reconciliationComplete"), description: `Matched: ${data.matched || 0}, Unmatched: ${data.unmatched || 0}` });
     },
-    onError: (err: any) => toast({ title: "Run failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("reconciliation.runFailed"), description: err.message, variant: "destructive" }),
   });
 
   const runs = runsQuery.data?.runs || [];
@@ -80,11 +83,11 @@ function RunsTab() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-end">
-        <div><label className="text-xs text-muted-foreground">Period Start</label><Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className="w-40" /></div>
-        <div><label className="text-xs text-muted-foreground">Period End</label><Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className="w-40" /></div>
+        <div><label className="text-xs text-muted-foreground">{t("reconciliation.periodStart")}</label><Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className="w-40" /></div>
+        <div><label className="text-xs text-muted-foreground">{t("reconciliation.periodEnd")}</label><Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className="w-40" /></div>
         <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
           {runMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
-          Run Reconciliation
+          {t("reconciliation.runReconciliation")}
         </Button>
       </div>
 
@@ -93,17 +96,17 @@ function RunsTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Run ID</TableHead>
-                <TableHead>Period</TableHead>
-                <TableHead>Matched</TableHead>
-                <TableHead>Unmatched</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Date</TableHead>
+                <TableHead>{t("reconciliation.runId")}</TableHead>
+                <TableHead>{t("reconciliation.period")}</TableHead>
+                <TableHead>{t("reconciliation.matched")}</TableHead>
+                <TableHead>{t("reconciliation.unmatched")}</TableHead>
+                <TableHead>{t("reconciliation.status")}</TableHead>
+                <TableHead>{t("reconciliation.date")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {runs.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No reconciliation runs yet</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">{t("reconciliation.noRuns")}</TableCell></TableRow>
               ) : (
                 runs.map((r: any) => (
                   <TableRow key={r.id}>
@@ -112,7 +115,7 @@ function RunsTab() {
                     <TableCell className="text-emerald-400">{r.matchedCount || 0}</TableCell>
                     <TableCell className="text-red-400">{r.unmatchedCount || 0}</TableCell>
                     <TableCell><Badge variant={r.status === "completed" ? "default" : "secondary"}>{r.status}</Badge></TableCell>
-                    <TableCell className="text-xs">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("en-US") : "—"}</TableCell>
+                    <TableCell className="text-xs">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}</TableCell>
                   </TableRow>
                 ))
               )}
@@ -126,6 +129,7 @@ function RunsTab() {
 
 function AgingTab() {
   const { token } = useAuth();
+  const { t } = useTranslation();
   const agingQuery = useQuery<any>({
     queryKey: ["/api/reconciliation/aging"],
     queryFn: () => apiFetch("/api/reconciliation/aging", token),
@@ -140,12 +144,12 @@ function AgingTab() {
         <Card key={i}>
           <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{b.label || `${b.minDays}-${b.maxDays} days`}</CardTitle></CardHeader>
           <CardContent>
-            <p className="text-xl font-bold">{b.count || 0} items</p>
+            <p className="text-xl font-bold">{b.count || 0} {t("reconciliation.items")}</p>
             <p className="text-sm text-muted-foreground">{fmt(b.totalCents || 0)}</p>
           </CardContent>
         </Card>
       ))}
-      {buckets.length === 0 && <p className="text-muted-foreground col-span-4">No aging data available</p>}
+      {buckets.length === 0 && <p className="text-muted-foreground col-span-4">{t("reconciliation.noAgingData")}</p>}
     </div>
   );
 }
@@ -153,6 +157,7 @@ function AgingTab() {
 function WriteOffTab() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [invoiceId, setInvoiceId] = useState("");
   const [reason, setReason] = useState("");
 
@@ -162,37 +167,37 @@ function WriteOffTab() {
       return res.json();
     },
     onSuccess: (data: any) => {
-      toast({ title: "Invoice written off", description: `Invoice #${data.invoiceId} has been written off.` });
+      toast({ title: t("reconciliation.invoiceWrittenOff"), description: `Invoice #${data.invoiceId} has been written off.` });
       setInvoiceId("");
       setReason("");
       queryClient.invalidateQueries({ queryKey: ["/api/reconciliation"] });
     },
-    onError: (err: any) => toast({ title: "Write-off failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("reconciliation.writeOffFailed"), description: err.message, variant: "destructive" }),
   });
 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-medium">Write-Off Management</h3>
-        <p className="text-sm text-muted-foreground">Mark uncollectable invoices as written off</p>
+        <h3 className="text-lg font-medium">{t("reconciliation.writeOffManagement")}</h3>
+        <p className="text-sm text-muted-foreground">{t("reconciliation.writeOffDesc")}</p>
       </div>
       <Card>
         <CardContent className="py-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Invoice ID</label>
+              <label className="text-sm font-medium">{t("reconciliation.invoiceId")}</label>
               <Input
                 type="number"
-                placeholder="Enter invoice ID"
+                placeholder={t("reconciliation.enterInvoiceId")}
                 value={invoiceId}
                 onChange={(e) => setInvoiceId(e.target.value)}
                 data-testid="input-writeoff-invoice-id"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Write-Off Reason</label>
+              <label className="text-sm font-medium">{t("reconciliation.writeOffReason")}</label>
               <Input
-                placeholder="Reason for write-off"
+                placeholder={t("reconciliation.reasonPlaceholder")}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 data-testid="input-writeoff-reason"
@@ -205,7 +210,7 @@ function WriteOffTab() {
             data-testid="button-submit-writeoff"
           >
             {writeOffMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <AlertTriangle className="w-4 h-4 mr-2" />}
-            Write Off Invoice
+            {t("reconciliation.writeOffInvoice")}
           </Button>
         </CardContent>
       </Card>
@@ -215,6 +220,7 @@ function WriteOffTab() {
 
 function AgedARTab() {
   const { token } = useAuth();
+  const { t } = useTranslation();
   const arQuery = useQuery<any>({
     queryKey: ["/api/billing/aged-ar"],
     queryFn: () => apiFetch("/api/billing/aged-ar", token),
@@ -222,7 +228,7 @@ function AgedARTab() {
   });
 
   if (arQuery.isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!arQuery.data) return <p className="text-muted-foreground">No data available</p>;
+  if (!arQuery.data) return <p className="text-muted-foreground">{t("reconciliation.noData")}</p>;
 
   const { buckets, totalOutstanding, totalCount } = arQuery.data;
 
@@ -230,12 +236,12 @@ function AgedARTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-medium">Aged Accounts Receivable</h3>
-          <p className="text-sm text-muted-foreground">Outstanding invoices by aging bucket</p>
+          <h3 className="text-lg font-medium">{t("reconciliation.agedAccountsReceivable")}</h3>
+          <p className="text-sm text-muted-foreground">{t("reconciliation.outstandingByBucket")}</p>
         </div>
         <div className="text-right">
           <p className="text-2xl font-bold">{fmt(totalOutstanding)}</p>
-          <p className="text-xs text-muted-foreground">{totalCount} invoices outstanding</p>
+          <p className="text-xs text-muted-foreground">{t("reconciliation.invoicesOutstanding", { count: totalCount })}</p>
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -250,13 +256,13 @@ function AgedARTab() {
           return (
             <Card key={bucket}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-muted-foreground">{bucket} Days</CardTitle>
+                <CardTitle className="text-sm text-muted-foreground">{bucket} {t("reconciliation.days")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className={`text-xl font-bold ${colors[bucket]}`} data-testid={`text-ar-${bucket}`}>
                   {fmt(data.totalCents)}
                 </p>
-                <p className="text-xs text-muted-foreground">{data.count} invoices</p>
+                <p className="text-xs text-muted-foreground">{t("reconciliation.invoicesOutstanding", { count: data.count })}</p>
               </CardContent>
             </Card>
           );
@@ -266,17 +272,17 @@ function AgedARTab() {
       {buckets["90+"]?.invoices?.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base text-red-500">90+ Day Outstanding</CardTitle>
+            <CardTitle className="text-base text-red-500">{t("reconciliation.day90Outstanding")}</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Invoice #</TableHead>
-                  <TableHead>Patient</TableHead>
-                  <TableHead>Service Date</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Age (Days)</TableHead>
+                  <TableHead>{t("reconciliation.invoiceNum")}</TableHead>
+                  <TableHead>{t("reconciliation.patient")}</TableHead>
+                  <TableHead>{t("reconciliation.serviceDate")}</TableHead>
+                  <TableHead className="text-right">{t("reconciliation.amount")}</TableHead>
+                  <TableHead className="text-right">{t("reconciliation.ageDays")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -301,6 +307,7 @@ function AgedARTab() {
 function PaymentMethodsTab() {
   const { token } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const pmQuery = useQuery<any>({
     queryKey: ["/api/billing/payment-methods"],
@@ -313,9 +320,9 @@ function PaymentMethodsTab() {
       apiFetch(`/api/billing/payment-methods/${pmId}/set-default`, token, { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-methods"] });
-      toast({ title: "Default payment method updated" });
+      toast({ title: t("reconciliation.defaultUpdated") });
     },
-    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("reconciliation.failed"), description: err.message, variant: "destructive" }),
   });
 
   const removeMutation = useMutation({
@@ -323,9 +330,9 @@ function PaymentMethodsTab() {
       apiFetch(`/api/billing/payment-methods/${pmId}`, token, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/billing/payment-methods"] });
-      toast({ title: "Payment method removed" });
+      toast({ title: t("reconciliation.paymentMethodRemoved") });
     },
-    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("reconciliation.failed"), description: err.message, variant: "destructive" }),
   });
 
   if (pmQuery.isLoading) return <Skeleton className="h-40 w-full" />;
@@ -336,15 +343,15 @@ function PaymentMethodsTab() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-medium">Payment Methods</h3>
-        <p className="text-sm text-muted-foreground">Manage saved payment methods</p>
+        <h3 className="text-lg font-medium">{t("reconciliation.paymentMethods")}</h3>
+        <p className="text-sm text-muted-foreground">{t("reconciliation.managePaymentMethods")}</p>
       </div>
       {methods.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <DollarSign className="w-10 h-10 mx-auto mb-3 opacity-40" />
-            <p>No payment methods on file</p>
-            <p className="text-xs mt-1">Configure Stripe to add payment methods</p>
+            <p>{t("reconciliation.noPaymentMethods")}</p>
+            <p className="text-xs mt-1">{t("reconciliation.configureStripe")}</p>
           </CardContent>
         </Card>
       ) : (
@@ -358,11 +365,11 @@ function PaymentMethodsTab() {
                   </div>
                   <div>
                     <p className="text-sm font-medium">
-                      {pm.type === "card" ? `${(brandIcons[pm.brand] || pm.brand).toUpperCase()} ending in ${pm.last4}` : pm.type}
+                      {pm.type === "card" ? `${(brandIcons[pm.brand] || pm.brand).toUpperCase()} ${t("reconciliation.endingIn")} ${pm.last4}` : pm.type}
                     </p>
-                    <p className="text-xs text-muted-foreground">Expires {pm.expMonth}/{pm.expYear}</p>
+                    <p className="text-xs text-muted-foreground">{t("reconciliation.expires")} {pm.expMonth}/{pm.expYear}</p>
                   </div>
-                  {pm.isDefault && <Badge variant="default" className="text-xs">Default</Badge>}
+                  {pm.isDefault && <Badge variant="default" className="text-xs">{t("reconciliation.default")}</Badge>}
                 </div>
                 <div className="flex gap-2">
                   {!pm.isDefault && (
@@ -373,7 +380,7 @@ function PaymentMethodsTab() {
                       disabled={setDefaultMutation.isPending}
                       data-testid={`button-set-default-${pm.id}`}
                     >
-                      Set Default
+                      {t("reconciliation.setDefault")}
                     </Button>
                   )}
                   <Button
@@ -381,14 +388,14 @@ function PaymentMethodsTab() {
                     variant="ghost"
                     className="text-destructive"
                     onClick={() => {
-                      if (window.confirm("Remove this payment method?")) {
+                      if (window.confirm(t("reconciliation.removeConfirm"))) {
                         removeMutation.mutate(pm.id);
                       }
                     }}
                     disabled={removeMutation.isPending}
                     data-testid={`button-remove-${pm.id}`}
                   >
-                    Remove
+                    {t("reconciliation.remove")}
                   </Button>
                 </div>
               </CardContent>
@@ -401,21 +408,22 @@ function PaymentMethodsTab() {
 }
 
 export default function ReconciliationPage() {
+  const { t } = useTranslation();
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">
         <CheckSquare className="h-6 w-6 text-blue-400" />
-        <h1 className="text-2xl font-bold">Payment Reconciliation</h1>
+        <h1 className="text-2xl font-bold">{t("reconciliation.title")}</h1>
       </div>
 
       <Tabs defaultValue="dashboard">
         <TabsList className="flex-wrap">
-          <TabsTrigger value="dashboard"><BarChart3 className="w-4 h-4 mr-1" />Dashboard</TabsTrigger>
-          <TabsTrigger value="runs"><Play className="w-4 h-4 mr-1" />Runs</TabsTrigger>
-          <TabsTrigger value="aging"><Clock className="w-4 h-4 mr-1" />Aging Report</TabsTrigger>
-          <TabsTrigger value="aged-ar" data-testid="tab-aged-ar"><DollarSign className="w-4 h-4 mr-1" />Aged AR</TabsTrigger>
-          <TabsTrigger value="write-off" data-testid="tab-write-off"><AlertTriangle className="w-4 h-4 mr-1" />Write-Off</TabsTrigger>
-          <TabsTrigger value="payment-methods" data-testid="tab-payment-methods"><DollarSign className="w-4 h-4 mr-1" />Payment Methods</TabsTrigger>
+          <TabsTrigger value="dashboard"><BarChart3 className="w-4 h-4 mr-1" />{t("reconciliation.dashboard")}</TabsTrigger>
+          <TabsTrigger value="runs"><Play className="w-4 h-4 mr-1" />{t("reconciliation.runs")}</TabsTrigger>
+          <TabsTrigger value="aging"><Clock className="w-4 h-4 mr-1" />{t("reconciliation.agingReport")}</TabsTrigger>
+          <TabsTrigger value="aged-ar" data-testid="tab-aged-ar"><DollarSign className="w-4 h-4 mr-1" />{t("reconciliation.agedAR")}</TabsTrigger>
+          <TabsTrigger value="write-off" data-testid="tab-write-off"><AlertTriangle className="w-4 h-4 mr-1" />{t("reconciliation.writeOff")}</TabsTrigger>
+          <TabsTrigger value="payment-methods" data-testid="tab-payment-methods"><DollarSign className="w-4 h-4 mr-1" />{t("reconciliation.paymentMethods")}</TabsTrigger>
         </TabsList>
         <TabsContent value="dashboard" className="mt-4"><DashboardTab /></TabsContent>
         <TabsContent value="runs" className="mt-4"><RunsTab /></TabsContent>

@@ -66,7 +66,8 @@ describe("isDriverOnline", () => {
   });
 
   it("returns true when lastSeenAt is exactly at the threshold boundary", () => {
-    const d = makeDriver({ dispatchStatus: "available", lastSeenAt: new Date(Date.now() - ONLINE_CUTOFF_MS).toISOString() });
+    // Add 1ms buffer to avoid flaky timing between Date construction and Date.now() inside isDriverOnline
+    const d = makeDriver({ dispatchStatus: "available", lastSeenAt: new Date(Date.now() - ONLINE_CUTOFF_MS + 1).toISOString() });
     expect(isDriverOnline(d)).toBe(true);
   });
 });

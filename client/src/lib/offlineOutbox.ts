@@ -3,8 +3,9 @@ const DB_VERSION = 1;
 const STORE_NAME = "outbox";
 const MAX_STATUS_ITEMS = 200;
 const MAX_LOCATION_ITEMS = 2000;
+const MAX_PHARMACY_ITEMS = 500;
 
-export type OutboxItemType = "trip_status" | "location";
+export type OutboxItemType = "trip_status" | "location" | "pharmacy_delivery";
 export type OutboxItemStatus = "pending" | "sending" | "failed";
 
 export interface OutboxItem {
@@ -84,7 +85,7 @@ export async function enqueue(type: OutboxItemType, payload: any, orderingKey?: 
 }
 
 async function enforceMaxItems(type: OutboxItemType) {
-  const max = type === "trip_status" ? MAX_STATUS_ITEMS : MAX_LOCATION_ITEMS;
+  const max = type === "trip_status" ? MAX_STATUS_ITEMS : type === "pharmacy_delivery" ? MAX_PHARMACY_ITEMS : MAX_LOCATION_ITEMS;
   const { store } = await txStore("readwrite");
   const index = store.index("type");
   const all: OutboxItem[] = [];
@@ -183,7 +184,7 @@ export async function flushQueue(sendFn: SendFn): Promise<{ sent: number; failed
   try {
     const pending = await getPendingItems();
 
-    const statusItems = pending.filter((i) => i.type === "trip_status");
+    const statusItems = pending.filter((i) => i.type === "trip_status" || i.type === "pharmacy_delivery");
     const locationItems = pending.filter((i) => i.type === "location");
 
     const groupedByTrip = new Map<string, OutboxItem[]>();

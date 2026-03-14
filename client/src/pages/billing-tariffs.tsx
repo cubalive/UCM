@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -50,6 +51,7 @@ function cents(v: number): string {
 
 export default function BillingTariffsPage() {
   const { token, user } = useAuth();
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [editTariff, setEditTariff] = useState<any>(null);
@@ -81,17 +83,26 @@ export default function BillingTariffsPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="billing-no-company">
         <Building2 className="w-10 h-10 text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Select a Company</h2>
+        <h2 className="text-lg font-semibold">{t("billingConfig.selectCompany")}</h2>
         <p className="text-sm text-muted-foreground text-center max-w-md">
-          As a Super Admin, select a company to access its billing configuration.
+          {t("billingConfig.selectCompanyDesc")}
         </p>
         <div className="w-full max-w-xs">
           {companiesQuery.isLoading ? (
             <Skeleton className="h-10 w-full" />
+          ) : companiesQuery.isError ? (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-sm text-destructive">{t("billingConfig.failedLoadCompanies")}</p>
+              <Button variant="outline" size="sm" onClick={() => companiesQuery.refetch()}>
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : companies.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("billingConfig.noCompaniesFound")}</p>
           ) : (
             <Select onValueChange={handleCompanyChange}>
               <SelectTrigger data-testid="select-company-scope">
-                <SelectValue placeholder="Choose a company..." />
+                <SelectValue placeholder={t("billingConfig.chooseCompany")} />
               </SelectTrigger>
               <SelectContent>
                 {companies.map((c: any) => (
@@ -137,7 +148,7 @@ export default function BillingTariffsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/billing/tariffs"] });
       setShowCreate(false);
-      toast({ title: "Tariff created" });
+      toast({ title: t("billingConfig.tariffCreated") });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -151,7 +162,7 @@ export default function BillingTariffsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/billing/tariffs"] });
       setEditTariff(null);
-      toast({ title: "Tariff updated" });
+      toast({ title: t("billingConfig.tariffUpdated") });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -161,7 +172,7 @@ export default function BillingTariffsPage() {
       apiFetch(`/api/company/billing/tariffs/${id}`, token, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/billing/tariffs"] });
-      toast({ title: "Tariff deleted" });
+      toast({ title: t("billingConfig.tariffDeleted") });
     },
     onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });
@@ -170,7 +181,7 @@ export default function BillingTariffsPage() {
     mutationFn: () =>
       apiFetch(`/api/company/billing/backfill?from=${backfillFrom}&to=${backfillTo}`, token, { method: "POST" }),
     onSuccess: (data: any) => {
-      toast({ title: "Backfill complete", description: `Processed ${data.processed} trips, ${data.errors} errors` });
+      toast({ title: t("billingConfig.backfillComplete"), description: t("billingConfig.processedTrips", { processed: data.processed, errors: data.errors }) });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -183,7 +194,7 @@ export default function BillingTariffsPage() {
       }),
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/billing/invoices"] });
-      toast({ title: "Invoice generated", description: `Invoice #${data.invoiceNumber}` });
+      toast({ title: t("billingConfig.invoiceGenerated"), description: `Invoice #${data.invoiceNumber}` });
     },
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
@@ -199,7 +210,7 @@ export default function BillingTariffsPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="billing-error">
         <AlertTriangle className="w-10 h-10 text-destructive" />
-        <h2 className="text-lg font-semibold">Failed to load billing data</h2>
+        <h2 className="text-lg font-semibold">{t("billingConfig.failedLoadBilling")}</h2>
         <p className="text-sm text-muted-foreground text-center max-w-md">{errorMsg}</p>
         <Button
           variant="outline"
@@ -210,7 +221,7 @@ export default function BillingTariffsPage() {
           }}
           data-testid="button-retry-billing"
         >
-          Retry
+          {t("common.retry")}
         </Button>
       </div>
     );
@@ -220,12 +231,12 @@ export default function BillingTariffsPage() {
     <div className="p-4 space-y-6 max-w-7xl mx-auto" data-testid="billing-tariffs-page">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Billing Configuration</h1>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">{t("billingConfig.title")}</h1>
           {isSuperAdmin && (
             <Select value={companyScopeId || ""} onValueChange={handleCompanyChange}>
               <SelectTrigger className="w-52" data-testid="select-company-switch">
                 <Building2 className="w-4 h-4 mr-1 text-muted-foreground shrink-0" />
-                <SelectValue placeholder="Switch company..." />
+                <SelectValue placeholder={t("billingConfig.switchCompany")} />
               </SelectTrigger>
               <SelectContent>
                 {(companiesQuery.data || []).map((c: any) => (
@@ -237,24 +248,24 @@ export default function BillingTariffsPage() {
         </div>
         <Button onClick={() => setShowCreate(true)} data-testid="button-create-tariff">
           <Plus className="w-4 h-4 mr-2" />
-          New Tariff
+          {t("billingConfig.newTariff")}
         </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-base">Billing Backfill</CardTitle>
+            <CardTitle className="text-base">{t("billingConfig.billingBackfill")}</CardTitle>
             <FileText className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex gap-2 flex-wrap">
               <div className="space-y-1">
-                <Label>From</Label>
+                <Label>{t("billingConfig.from")}</Label>
                 <Input type="date" value={backfillFrom} onChange={(e) => setBackfillFrom(e.target.value)} data-testid="input-backfill-from" />
               </div>
               <div className="space-y-1">
-                <Label>To</Label>
+                <Label>{t("billingConfig.to")}</Label>
                 <Input type="date" value={backfillTo} onChange={(e) => setBackfillTo(e.target.value)} data-testid="input-backfill-to" />
               </div>
             </div>
@@ -264,22 +275,22 @@ export default function BillingTariffsPage() {
               data-testid="button-run-backfill"
             >
               {backfillMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Run Backfill
+              {t("billingConfig.runBackfill")}
             </Button>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-base">Generate Invoice</CardTitle>
+            <CardTitle className="text-base">{t("billingConfig.generateInvoice")}</CardTitle>
             <DollarSign className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-1">
-              <Label>Clinic</Label>
+              <Label>{t("billingConfig.clinic")}</Label>
               <Select value={invoiceClinic} onValueChange={setInvoiceClinic}>
                 <SelectTrigger data-testid="select-invoice-clinic">
-                  <SelectValue placeholder="Select clinic" />
+                  <SelectValue placeholder={t("billingConfig.selectClinic")} />
                 </SelectTrigger>
                 <SelectContent>
                   {clinics.map((c: any) => (
@@ -290,11 +301,11 @@ export default function BillingTariffsPage() {
             </div>
             <div className="flex gap-2 flex-wrap">
               <div className="space-y-1">
-                <Label>Period Start</Label>
+                <Label>{t("billingConfig.periodStart")}</Label>
                 <Input type="date" value={invoiceFrom} onChange={(e) => setInvoiceFrom(e.target.value)} data-testid="input-invoice-from" />
               </div>
               <div className="space-y-1">
-                <Label>Period End</Label>
+                <Label>{t("billingConfig.periodEnd")}</Label>
                 <Input type="date" value={invoiceTo} onChange={(e) => setInvoiceTo(e.target.value)} data-testid="input-invoice-to" />
               </div>
             </div>
@@ -304,7 +315,7 @@ export default function BillingTariffsPage() {
               data-testid="button-generate-invoice"
             >
               {invoiceGenMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Generate Invoice
+              {t("billingConfig.generateInvoice")}
             </Button>
           </CardContent>
         </Card>
@@ -312,14 +323,14 @@ export default function BillingTariffsPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-          <CardTitle className="text-base">Tariffs</CardTitle>
+          <CardTitle className="text-base">{t("billingConfig.tariffs")}</CardTitle>
           <div className="flex items-center gap-2">
             <Select value={filterClinic} onValueChange={setFilterClinic}>
               <SelectTrigger className="w-48" data-testid="select-filter-clinic">
                 <SelectValue placeholder="All clinics" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all__">All</SelectItem>
+                <SelectItem value="__all__">{t("billingConfig.allClinics")}</SelectItem>
                 {clinics.map((c: any) => (
                   <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                 ))}
@@ -331,47 +342,47 @@ export default function BillingTariffsPage() {
           {tariffsQuery.isLoading ? (
             <div className="space-y-2"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div>
           ) : tariffs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No tariffs configured yet. Create one to start billing.</p>
+            <p className="text-sm text-muted-foreground">{t("billingConfig.noTariffs")}</p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Clinic</TableHead>
-                    <TableHead>Base Fee</TableHead>
-                    <TableHead>/Mile</TableHead>
-                    <TableHead>/Min</TableHead>
-                    <TableHead>WC Extra</TableHead>
-                    <TableHead>No-Show</TableHead>
-                    <TableHead>Cancel</TableHead>
-                    <TableHead>Min Fare</TableHead>
-                    <TableHead>Shared Mode</TableHead>
-                    <TableHead>Active</TableHead>
+                    <TableHead>{t("billingConfig.name")}</TableHead>
+                    <TableHead>{t("billingConfig.clinic")}</TableHead>
+                    <TableHead>{t("billingConfig.baseFee")}</TableHead>
+                    <TableHead>{t("billingConfig.perMile")}</TableHead>
+                    <TableHead>{t("billingConfig.perMin")}</TableHead>
+                    <TableHead>{t("billingConfig.wcExtra")}</TableHead>
+                    <TableHead>{t("billingConfig.noShowFee")}</TableHead>
+                    <TableHead>{t("billingConfig.cancelFee")}</TableHead>
+                    <TableHead>{t("billingConfig.minFare")}</TableHead>
+                    <TableHead>{t("billingConfig.sharedMode")}</TableHead>
+                    <TableHead>{t("billingConfig.active")}</TableHead>
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {tariffs.map((t: any) => (
-                    <TableRow key={t.id} data-testid={`row-tariff-${t.id}`}>
-                      <TableCell className="font-medium">{t.name}</TableCell>
-                      <TableCell>{t.clinicId ? clinics.find((c: any) => c.id === t.clinicId)?.name || t.clinicId : "Default"}</TableCell>
-                      <TableCell>${cents(t.baseFeeCents)}</TableCell>
-                      <TableCell>${cents(t.perMileCents)}</TableCell>
-                      <TableCell>${cents(t.perMinuteCents)}</TableCell>
-                      <TableCell>${cents(t.wheelchairExtraCents)}</TableCell>
-                      <TableCell>${cents(t.noShowFeeCents)}</TableCell>
-                      <TableCell>${cents(t.cancelFeeCents)}</TableCell>
-                      <TableCell>${cents(t.minimumFareCents)}</TableCell>
-                      <TableCell>{t.sharedTripMode}</TableCell>
+                  {tariffs.map((tariff: any) => (
+                    <TableRow key={tariff.id} data-testid={`row-tariff-${tariff.id}`}>
+                      <TableCell className="font-medium">{tariff.name}</TableCell>
+                      <TableCell>{tariff.clinicId ? clinics.find((c: any) => c.id === tariff.clinicId)?.name || tariff.clinicId : "Default"}</TableCell>
+                      <TableCell>${cents(tariff.baseFeeCents)}</TableCell>
+                      <TableCell>${cents(tariff.perMileCents)}</TableCell>
+                      <TableCell>${cents(tariff.perMinuteCents)}</TableCell>
+                      <TableCell>${cents(tariff.wheelchairExtraCents)}</TableCell>
+                      <TableCell>${cents(tariff.noShowFeeCents)}</TableCell>
+                      <TableCell>${cents(tariff.cancelFeeCents)}</TableCell>
+                      <TableCell>${cents(tariff.minimumFareCents)}</TableCell>
+                      <TableCell>{tariff.sharedTripMode}</TableCell>
                       <TableCell>
-                        <Badge variant={t.active ? "default" : "secondary"} data-testid={`badge-tariff-active-${t.id}`}>
-                          {t.active ? "Active" : "Inactive"}
+                        <Badge variant={tariff.active ? "default" : "secondary"} data-testid={`badge-tariff-active-${tariff.id}`}>
+                          {tariff.active ? t("billingConfig.active") : t("billingConfig.inactive")}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button size="icon" variant="ghost" onClick={() => setEditTariff(t)} data-testid={`button-edit-tariff-${t.id}`}>
+                          <Button size="icon" variant="ghost" onClick={() => setEditTariff(tariff)} data-testid={`button-edit-tariff-${tariff.id}`}>
                             <Pencil className="w-4 h-4" />
                           </Button>
                           <Button
@@ -379,12 +390,12 @@ export default function BillingTariffsPage() {
                             variant="ghost"
                             className="text-destructive hover:text-destructive"
                             onClick={() => {
-                              if (window.confirm(`Delete tariff "${t.name}"? This cannot be undone.`)) {
-                                deleteTariffMutation.mutate(t.id);
+                              if (window.confirm(t("billingConfig.deleteTariffConfirm", { name: tariff.name }))) {
+                                deleteTariffMutation.mutate(tariff.id);
                               }
                             }}
                             disabled={deleteTariffMutation.isPending}
-                            data-testid={`button-delete-tariff-${t.id}`}
+                            data-testid={`button-delete-tariff-${tariff.id}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -401,24 +412,24 @@ export default function BillingTariffsPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-          <CardTitle className="text-base">Generated Invoices (V2)</CardTitle>
+          <CardTitle className="text-base">{t("billingConfig.generatedInvoices")}</CardTitle>
         </CardHeader>
         <CardContent>
           {invoicesQuery.isLoading ? (
             <div className="space-y-2"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div>
           ) : invoices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No V2 invoices yet.</p>
+            <p className="text-sm text-muted-foreground">{t("billingConfig.noInvoices")}</p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Invoice #</TableHead>
-                    <TableHead>Clinic</TableHead>
-                    <TableHead>Period</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Payment</TableHead>
+                    <TableHead>{t("billingConfig.invoiceNumber")}</TableHead>
+                    <TableHead>{t("billingConfig.clinic")}</TableHead>
+                    <TableHead>{t("reconciliation.period")}</TableHead>
+                    <TableHead>{t("billingConfig.total")}</TableHead>
+                    <TableHead>{t("common.status")}</TableHead>
+                    <TableHead>{t("billingConfig.payment")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -453,7 +464,7 @@ export default function BillingTariffsPage() {
         onSubmit={(data: any) => createMutation.mutate(data)}
         isPending={createMutation.isPending}
         clinics={clinics}
-        title="Create Tariff"
+        title={t("billingConfig.createTariff")}
       />
 
       {editTariff && (
@@ -463,7 +474,7 @@ export default function BillingTariffsPage() {
           onSubmit={(data: any) => updateMutation.mutate({ id: editTariff.id, data })}
           isPending={updateMutation.isPending}
           clinics={clinics}
-          title="Edit Tariff"
+          title={t("billingConfig.editTariff")}
           defaults={editTariff}
         />
       )}
@@ -472,6 +483,7 @@ export default function BillingTariffsPage() {
 }
 
 function TariffFormDialog({ open, onClose, onSubmit, isPending, clinics, title, defaults }: any) {
+  const { t } = useTranslation();
   const [name, setName] = useState(defaults?.name || "");
   const [clinicId, setClinicId] = useState(defaults?.clinicId ? String(defaults.clinicId) : "__default__");
   const [baseFeeCents, setBaseFeeCents] = useState(defaults?.baseFeeCents || 0);
@@ -513,17 +525,17 @@ function TariffFormDialog({ open, onClose, onSubmit, isPending, clinics, title, 
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label>Name</Label>
+            <Label>{t("billingConfig.name")}</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} data-testid="input-tariff-name" />
           </div>
           <div className="space-y-1">
-            <Label>Clinic (leave empty for company default)</Label>
+            <Label>{t("billingConfig.clinicLabel")}</Label>
             <Select value={clinicId} onValueChange={setClinicId}>
               <SelectTrigger data-testid="select-tariff-clinic">
-                <SelectValue placeholder="Company Default" />
+                <SelectValue placeholder={t("billingConfig.clinicDefault")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__default__">Company Default</SelectItem>
+                <SelectItem value="__default__">{t("billingConfig.clinicDefault")}</SelectItem>
                 {clinics.map((c: any) => (
                   <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                 ))}
@@ -532,61 +544,61 @@ function TariffFormDialog({ open, onClose, onSubmit, isPending, clinics, title, 
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Base Fee (cents)</Label>
+              <Label>{t("billingConfig.baseFeeCents")}</Label>
               <Input type="number" value={baseFeeCents} onChange={(e) => setBaseFeeCents(e.target.value)} data-testid="input-base-fee" />
             </div>
             <div className="space-y-1">
-              <Label>Per Mile (cents)</Label>
+              <Label>{t("billingConfig.perMileCents")}</Label>
               <Input type="number" value={perMileCents} onChange={(e) => setPerMileCents(e.target.value)} data-testid="input-per-mile" />
             </div>
             <div className="space-y-1">
-              <Label>Per Minute (cents)</Label>
+              <Label>{t("billingConfig.perMinuteCents")}</Label>
               <Input type="number" value={perMinuteCents} onChange={(e) => setPerMinuteCents(e.target.value)} data-testid="input-per-minute" />
             </div>
             <div className="space-y-1">
-              <Label>Wait/Min (cents)</Label>
+              <Label>{t("billingConfig.waitMinCents")}</Label>
               <Input type="number" value={waitMinuteCents} onChange={(e) => setWaitMinuteCents(e.target.value)} data-testid="input-wait-min" />
             </div>
             <div className="space-y-1">
-              <Label>Wheelchair Extra (cents)</Label>
+              <Label>{t("billingConfig.wheelchairExtraCents")}</Label>
               <Input type="number" value={wheelchairExtraCents} onChange={(e) => setWheelchairExtraCents(e.target.value)} data-testid="input-wheelchair" />
             </div>
             <div className="space-y-1">
-              <Label>No-Show Fee (cents)</Label>
+              <Label>{t("billingConfig.noShowFeeCents")}</Label>
               <Input type="number" value={noShowFeeCents} onChange={(e) => setNoShowFeeCents(e.target.value)} data-testid="input-noshow" />
             </div>
             <div className="space-y-1">
-              <Label>Cancel Fee (cents)</Label>
+              <Label>{t("billingConfig.cancelFeeCents")}</Label>
               <Input type="number" value={cancelFeeCents} onChange={(e) => setCancelFeeCents(e.target.value)} data-testid="input-cancel" />
             </div>
             <div className="space-y-1">
-              <Label>Minimum Fare (cents)</Label>
+              <Label>{t("billingConfig.minimumFareCents")}</Label>
               <Input type="number" value={minimumFareCents} onChange={(e) => setMinimumFareCents(e.target.value)} data-testid="input-min-fare" />
             </div>
           </div>
           <div className="space-y-1">
-            <Label>Shared Trip Mode</Label>
+            <Label>{t("billingConfig.sharedTripMode")}</Label>
             <Select value={sharedTripMode} onValueChange={setSharedTripMode}>
               <SelectTrigger data-testid="select-shared-mode">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="PER_PATIENT">Per Patient</SelectItem>
-                <SelectItem value="SPLIT">Split</SelectItem>
+                <SelectItem value="PER_PATIENT">{t("billingConfig.perPatient")}</SelectItem>
+                <SelectItem value="SPLIT">{t("billingConfig.split")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Shared Trip Discount %</Label>
+            <Label>{t("billingConfig.sharedTripDiscount")}</Label>
             <Input type="number" value={sharedTripDiscountPct} onChange={(e) => setSharedTripDiscountPct(e.target.value)} data-testid="input-shared-discount" />
           </div>
           <div className="flex items-center gap-2">
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} id="tariff-active" data-testid="checkbox-tariff-active" />
-            <Label htmlFor="tariff-active">Active</Label>
+            <Label htmlFor="tariff-active">{t("billingConfig.active")}</Label>
           </div>
           <Button onClick={handleSubmit} disabled={isPending || !name} className="w-full" data-testid="button-submit-tariff">
             {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            {defaults ? "Update" : "Create"}
+            {defaults ? t("billingConfig.update") : t("common.create")}
           </Button>
         </div>
       </DialogContent>

@@ -1080,7 +1080,7 @@ export async function pharmacyPrescriptionsListHandler(req: AuthRequest, res: Re
       }));
 
     let prescriptions = [
-      ...dbRxs.map((rx) => ({ ...rx, source: "manual" })),
+      ...dbRxs.map((rx) => ({ ...rx, source: (rx.rxNumber?.startsWith("ERX-") ? "erx" : "manual") })),
       ...orderRxs,
     ];
 
@@ -1159,6 +1159,120 @@ export async function pharmacyPrescriptionCreateHandler(req: AuthRequest, res: R
   } catch (err: any) {
     console.error("[PharmacyPrescriptionCreate]", err);
     res.status(500).json({ message: "Failed to create prescription" });
+  }
+}
+
+// ─── e-Rx / SureScripts Integration ─────────────────────────────────────────
+
+export async function pharmacyErxIncomingHandler(req: AuthRequest, res: Response) {
+  try {
+    const pharmacyId = getPharmacyScopeId(req);
+    if (!pharmacyId) return res.status(403).json({ message: "Pharmacy scope required" });
+
+    const { processNewRxMessage, parseNCPDPMessage } = await import("../lib/sureScriptsEngine");
+
+    const contentType = req.headers["content-type"] || "application/json";
+    let message;
+
+    if (contentType.includes("json")) {
+      message = req.body;
+    } else {
+      // Parse NCPDP SCRIPT XML
+      const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+      message = parseNCPDPMessage(rawBody, contentType);
+      if (!message) {
+        return res.status(400).json({ message: "Failed to parse NCPDP SCRIPT message" });
+      }
+    }
+
+    const result = await processNewRxMessage(pharmacyId, message);
+
+    if (!result.success) {
+      return res.status(400).json({ ok: false, error: result.error });
+    }
+
+    res.status(201).json({
+      ok: true,
+      prescriptionId: result.prescriptionId,
+      rxNumber: result.rxNumber,
+      warnings: result.validationWarnings,
+    });
+  } catch (err: any) {
+    console.error("[eRx] Incoming error:", err);
+    res.status(500).json({ message: "Failed to process e-Rx message" });
+  }
+}
+
+export async function pharmacyErxWebhookHandler(req: Request, res: Response) {
+  try {
+    const { verifyWebhookSignature, parseNCPDPMessage, processNewRxMessage } = await import("../lib/sureScriptsEngine");
+
+    // Verify webhook signature if present
+    const signature = req.headers["x-surescripts-signature"] as string;
+    if (signature) {
+      const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+      if (!verifyWebhookSignature(rawBody, signature)) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+    }
+
+    const contentType = req.headers["content-type"] || "application/json";
+    const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    const message = parseNCPDPMessage(rawBody, contentType);
+
+    if (!message) {
+      return res.status(400).json({ message: "Failed to parse e-Rx message" });
+    }
+
+    // Resolve pharmacy by NCPDP ID
+    const ncpdpId = message.pharmacy?.ncpdpId;
+    if (!ncpdpId) {
+      return res.status(400).json({ message: "Missing pharmacy NCPDP ID" });
+    }
+
+    const [pharmacy] = await db.select({ id: pharmacies.id })
+      .from(pharmacies)
+      .where(eq(pharmacies.ncpdpId, ncpdpId))
+      .limit(1);
+
+    if (!pharmacy) {
+      return res.status(404).json({ message: `Pharmacy with NCPDP ID ${ncpdpId} not found` });
+    }
+
+    const result = await processNewRxMessage(pharmacy.id, message);
+
+    if (!result.success) {
+      return res.status(400).json({ ok: false, error: result.error });
+    }
+
+    res.status(201).json({
+      ok: true,
+      prescriptionId: result.prescriptionId,
+      rxNumber: result.rxNumber,
+    });
+  } catch (err: any) {
+    console.error("[eRx Webhook] Error:", err);
+    res.status(500).json({ message: "Webhook processing failed" });
+  }
+}
+
+export async function pharmacyErxVerifyPrescriberHandler(req: AuthRequest, res: Response) {
+  try {
+    const pharmacyId = getPharmacyScopeId(req);
+    if (!pharmacyId) return res.status(403).json({ message: "Pharmacy scope required" });
+
+    const { npi } = req.query;
+    if (!npi || typeof npi !== "string") {
+      return res.status(400).json({ message: "npi query parameter required" });
+    }
+
+    const { verifyPrescriber } = await import("../lib/sureScriptsEngine");
+    const result = await verifyPrescriber(npi);
+
+    res.json({ ok: true, verification: result });
+  } catch (err: any) {
+    console.error("[eRx] Verify prescriber error:", err);
+    res.status(500).json({ message: "Verification failed" });
   }
 }
 

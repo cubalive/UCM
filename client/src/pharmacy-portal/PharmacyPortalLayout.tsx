@@ -16,6 +16,7 @@ import LoginPage from "@/pages/login";
 import { useState } from "react";
 import { Menu, X, Pill } from "lucide-react";
 import { usePharmacyWs } from "@/hooks/use-pharmacy-ws";
+import { OfflineQueueStatus } from "@/components/OfflineQueueStatus";
 
 const ALLOWED_ROLES = ["PHARMACY_ADMIN", "PHARMACY_USER", "SUPER_ADMIN"];
 
@@ -132,6 +133,8 @@ export function PharmacyPortalLayout() {
           <PharmacyPortalRoutes />
         </main>
       </div>
+
+      <OfflineQueueStatus />
 
       {sidebarOpen && (
         <div

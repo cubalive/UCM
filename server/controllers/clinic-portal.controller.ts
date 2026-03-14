@@ -2,8 +2,8 @@ import type { Response } from "express";
 import { storage } from "../storage";
 import { type AuthRequest } from "../auth";
 import { db } from "../db";
-import { trips, patients, drivers, vehicles, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities, clinics, tripSignatures, deliveryProofs, companies } from "@shared/schema";
-import { eq, and, isNull, inArray, desc, gte, sql, or } from "drizzle-orm";
+import { trips, patients, drivers, vehicles, recurringSchedules, driverOffers, clinicFeatures, clinicCapacityConfig, cities, clinics, tripSignatures, deliveryProofs, companies, patientRatings } from "@shared/schema";
+import { eq, and, isNull, inArray, desc, gte, sql, or, gt, avg, count } from "drizzle-orm";
 import { getClinicScopeId } from "../middleware/requireClinicScope";
 
 function resolveClinicId(req: AuthRequest, user: any): number | null {
@@ -2066,10 +2066,30 @@ export async function clinicProvidersHandler(req: AuthRequest, res: Response) {
       const vehicleTypes = [...new Set(companyVehicles.map(v => v.capability).filter(Boolean))];
       const hasWheelchair = companyVehicles.some(v => v.wheelchairAccessible);
 
-      // Get completed trips count for rating
+      // Get completed trips count
       const completedTrips = await db.select({ id: trips.id })
         .from(trips)
         .where(and(eq(trips.companyId, company.id), eq(trips.status, "COMPLETED"), isNull(trips.deletedAt)));
+
+      // Get real patient ratings for this company
+      let rating: number | null = null;
+      let ratingCount = 0;
+      if (completedTrips.length > 10) {
+        const [ratingAgg] = await db
+          .select({
+            avgRating: avg(patientRatings.overallRating),
+            total: count(patientRatings.id),
+          })
+          .from(patientRatings)
+          .where(and(
+            eq(patientRatings.companyId, company.id),
+            gt(patientRatings.overallRating, 0),
+          ));
+        if (ratingAgg && Number(ratingAgg.total) > 0) {
+          rating = Math.round(Number(ratingAgg.avgRating) * 10) / 10;
+          ratingCount = Number(ratingAgg.total);
+        }
+      }
 
       return {
         id: company.id,
@@ -2081,7 +2101,8 @@ export async function clinicProvidersHandler(req: AuthRequest, res: Response) {
         hasWheelchair,
         completedTrips: completedTrips.length,
         serviceTypes: ["NEMT", ...(hasWheelchair ? ["Wheelchair"] : [])],
-        rating: completedTrips.length > 10 ? 4.2 + Math.random() * 0.8 : null,
+        rating,
+        ratingCount,
       };
     }));
 
