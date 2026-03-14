@@ -20,6 +20,7 @@ export default defineConfig({
     sourcemap: false,
     chunkSizeWarningLimit: 300,
     rollupOptions: {
+      external: ["@sentry/react"],
       output: {
         manualChunks: {
           // Core React + routing (loaded on every page)
