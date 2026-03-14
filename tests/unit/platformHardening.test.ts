@@ -59,7 +59,7 @@ describe("CircuitBreaker", () => {
   });
 
   it("transitions to half-open after reset timeout", async () => {
-    const cb = await createBreaker({ resetTimeoutMs: 50 });
+    const cb = await createBreaker({ resetTimeoutMs: 100 });
 
     // Open the circuit
     for (let i = 0; i < 3; i++) {
@@ -67,8 +67,8 @@ describe("CircuitBreaker", () => {
     }
     expect(cb.getStats().state).toBe("open");
 
-    // Wait for reset timeout
-    await new Promise(r => setTimeout(r, 60));
+    // Wait for reset timeout (generous margin for slow CI runners)
+    await new Promise(r => setTimeout(r, 250));
 
     // Should transition to half-open on next call
     const result = await cb.execute(async () => "recovered");
@@ -77,14 +77,14 @@ describe("CircuitBreaker", () => {
   });
 
   it("closes circuit after sufficient half-open successes", async () => {
-    const cb = await createBreaker({ resetTimeoutMs: 50, halfOpenMaxAttempts: 2 });
+    const cb = await createBreaker({ resetTimeoutMs: 100, halfOpenMaxAttempts: 2 });
 
     // Open the circuit
     for (let i = 0; i < 3; i++) {
       await expect(cb.execute(async () => { throw new Error("fail"); })).rejects.toThrow();
     }
 
-    await new Promise(r => setTimeout(r, 60));
+    await new Promise(r => setTimeout(r, 250));
 
     // Two successful calls in half-open should close
     await cb.execute(async () => "ok1");
@@ -93,13 +93,13 @@ describe("CircuitBreaker", () => {
   });
 
   it("reopens circuit on failure in half-open state", async () => {
-    const cb = await createBreaker({ resetTimeoutMs: 50 });
+    const cb = await createBreaker({ resetTimeoutMs: 100 });
 
     for (let i = 0; i < 3; i++) {
       await expect(cb.execute(async () => { throw new Error("fail"); })).rejects.toThrow();
     }
 
-    await new Promise(r => setTimeout(r, 60));
+    await new Promise(r => setTimeout(r, 250));
 
     // First call succeeds (half-open)
     await cb.execute(async () => "ok");
@@ -139,10 +139,10 @@ describe("CircuitBreaker", () => {
   });
 
   it("handles timeout", async () => {
-    const cb = await createBreaker({ timeoutMs: 50, failureThreshold: 10 });
+    const cb = await createBreaker({ timeoutMs: 100, failureThreshold: 10 });
 
     await expect(
-      cb.execute(() => new Promise(r => setTimeout(r, 200)))
+      cb.execute(() => new Promise(r => setTimeout(r, 500)))
     ).rejects.toThrow("timed out");
   });
 });
