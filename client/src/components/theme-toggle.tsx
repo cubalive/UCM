@@ -16,11 +16,11 @@ export function ThemeToggle() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="icon" variant="ghost" data-testid="button-theme-toggle">
+        <Button size="icon" variant="ghost" data-testid="button-theme-toggle" aria-label={`Toggle theme, current: ${resolvedTheme}`}>
           {resolvedTheme === "dark" ? (
-            <Moon className="w-4 h-4" />
+            <Moon className="w-4 h-4" aria-hidden="true" />
           ) : (
-            <Sun className="w-4 h-4" />
+            <Sun className="w-4 h-4" aria-hidden="true" />
           )}
         </Button>
       </DropdownMenuTrigger>
@@ -30,7 +30,7 @@ export function ThemeToggle() {
           className={theme === "light" ? "font-semibold" : ""}
           data-testid="menu-theme-light"
         >
-          <Sun className="w-4 h-4 mr-2" />
+          <Sun className="w-4 h-4 mr-2" aria-hidden="true" />
           {t("common.light")}
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -38,7 +38,7 @@ export function ThemeToggle() {
           className={theme === "dark" ? "font-semibold" : ""}
           data-testid="menu-theme-dark"
         >
-          <Moon className="w-4 h-4 mr-2" />
+          <Moon className="w-4 h-4 mr-2" aria-hidden="true" />
           {t("common.dark")}
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -46,7 +46,7 @@ export function ThemeToggle() {
           className={theme === "system" ? "font-semibold" : ""}
           data-testid="menu-theme-system"
         >
-          <Monitor className="w-4 h-4 mr-2" />
+          <Monitor className="w-4 h-4 mr-2" aria-hidden="true" />
           {t("common.system")}
         </DropdownMenuItem>
       </DropdownMenuContent>

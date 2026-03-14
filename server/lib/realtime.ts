@@ -125,27 +125,43 @@ export function initWebSocket(httpServer: Server): WebSocketServer {
       return;
     }
 
-    // Extract JWT from: 1) Sec-WebSocket-Protocol header, 2) Authorization header, 3) query param (legacy, deprecated)
+    // Extract JWT from: 1) Cookie, 2) Sec-WebSocket-Protocol header, 3) Authorization header
+    // Token in URL (query param) is NO LONGER supported — it leaks in logs/referrer.
     let token: string | undefined;
-    const protocols = req.headers["sec-websocket-protocol"];
-    if (protocols) {
-      // Client sends token as a subprotocol: new WebSocket(url, ["access_token", "<jwt>"])
-      const parts = typeof protocols === "string" ? protocols.split(",").map(s => s.trim()) : protocols;
-      const tokenIdx = parts.indexOf("access_token");
-      if (tokenIdx !== -1 && parts[tokenIdx + 1]) {
-        token = parts[tokenIdx + 1];
+
+    // Parse cookies from request headers
+    const cookieHeader = req.headers.cookie || "";
+    const cookies: Record<string, string> = {};
+    cookieHeader.split(";").forEach(c => {
+      const [key, ...valParts] = c.trim().split("=");
+      if (key) cookies[key.trim()] = valParts.join("=").trim();
+    });
+
+    // 1) httpOnly cookie (ucm_access or legacy ucm_session)
+    if (cookies["ucm_access"]) {
+      token = cookies["ucm_access"];
+    } else if (cookies["ucm_session"]) {
+      token = cookies["ucm_session"];
+    }
+
+    // 2) Sec-WebSocket-Protocol subprotocol (for native apps)
+    if (!token) {
+      const protocols = req.headers["sec-websocket-protocol"];
+      if (protocols) {
+        const parts = typeof protocols === "string" ? protocols.split(",").map(s => s.trim()) : protocols;
+        const tokenIdx = parts.indexOf("access_token");
+        if (tokenIdx !== -1 && parts[tokenIdx + 1]) {
+          token = parts[tokenIdx + 1];
+        }
       }
     }
+
+    // 3) Authorization header (for native apps)
     if (!token) {
       const authHeader = req.headers.authorization;
       if (authHeader?.startsWith("Bearer ")) {
         token = authHeader.slice(7);
       }
-    }
-    if (!token) {
-      // Legacy fallback: query param (deprecated — tokens in URLs may leak via logs/referrer)
-      const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-      token = url.searchParams.get("token") || undefined;
     }
 
     if (!token) {

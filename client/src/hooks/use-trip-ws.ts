@@ -32,7 +32,7 @@ export function useTripWs({ tripId, token, onDriverLocation, onStatusChange, onE
     if (!token || !tripId) return;
     if (!mountedRef.current) return;
 
-    const wsUrl = getWsUrl(token);
+    const wsUrl = getWsUrl();
 
     try {
       const ws = new WebSocket(wsUrl);

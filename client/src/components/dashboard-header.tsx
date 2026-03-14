@@ -64,8 +64,8 @@ function TenantScopeBadge() {
       <Badge variant="default" className="text-xs" data-testid="badge-tenant-scope">
         {companyName}
       </Badge>
-      <Button size="sm" variant="ghost" onClick={handleClear} data-testid="button-clear-scope-header">
-        <X className="w-3 h-3" />
+      <Button size="sm" variant="ghost" onClick={handleClear} aria-label="Clear tenant scope" data-testid="button-clear-scope-header">
+        <X className="w-3 h-3" aria-hidden="true" />
       </Button>
     </div>
   );
@@ -95,11 +95,12 @@ export function DashboardHeader() {
 
   return (
     <header
+      role="banner"
       className="flex items-center gap-3 h-16 px-4 border-b bg-background/80 backdrop-blur-xl flex-shrink-0 shadow-sm sticky top-0 scan-line"
       style={{ zIndex: 50 }}
       data-testid="dashboard-header"
     >
-      <SidebarTrigger data-testid="button-sidebar-toggle" />
+      <SidebarTrigger aria-label="Toggle sidebar navigation" data-testid="button-sidebar-toggle" />
 
       <div className="flex items-center gap-2 ml-1">
         {user?.companyId ? (
@@ -129,7 +130,7 @@ export function DashboardHeader() {
       <div className="flex-1 flex items-center justify-center gap-3 min-w-0">
         {needsCitySwitcher ? (
           <div className="flex items-center gap-1.5 flex-shrink-0" data-testid="city-switcher">
-            <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" aria-hidden="true" />
             <Select
               value={selectedCity ? String(selectedCity.id) : "all"}
               onValueChange={handleCityChange}
@@ -189,23 +190,24 @@ export function DashboardHeader() {
           size="icon"
           variant="ghost"
           onClick={() => soundToggle()}
+          aria-label={soundEnabled ? "Mute sounds" : "Enable sounds"}
           title={soundEnabled ? "Mute sounds" : "Enable sounds"}
           data-testid="button-header-sound-toggle"
         >
           {soundEnabled ? (
-            <Volume2 className="w-4 h-4" />
+            <Volume2 className="w-4 h-4" aria-hidden="true" />
           ) : (
-            <VolumeX className="w-4 h-4 text-muted-foreground" />
+            <VolumeX className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
           )}
         </Button>
         <ThemeToggle />
         <Link href="/users">
-          <Button size="icon" variant="ghost" data-testid="button-header-settings">
-            <Settings className="w-4 h-4" />
+          <Button size="icon" variant="ghost" aria-label="Settings" data-testid="button-header-settings">
+            <Settings className="w-4 h-4" aria-hidden="true" />
           </Button>
         </Link>
-        <Button size="icon" variant="ghost" onClick={logout} data-testid="button-header-logout">
-          <LogOut className="w-4 h-4" />
+        <Button size="icon" variant="ghost" onClick={logout} aria-label="Log out" data-testid="button-header-logout">
+          <LogOut className="w-4 h-4" aria-hidden="true" />
         </Button>
       </div>
     </header>

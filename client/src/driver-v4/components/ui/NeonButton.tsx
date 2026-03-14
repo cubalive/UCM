@@ -50,7 +50,7 @@ export function NeonButton({
       data-testid={testID}
       onClick={() => { if (!disabled) onPress(); }}
       disabled={disabled}
-      className={`relative flex items-center justify-center gap-2.5 font-semibold tracking-wide
+      className={`relative flex items-center justify-center gap-2.5 font-semibold tracking-wide min-h-[44px]
         ${size === "lg" ? "w-full py-4 px-8 text-base" : "py-3 px-6 text-sm"}`}
       style={{
         background: disabled ? "#E5E7EB" : config.bg,
@@ -67,7 +67,7 @@ export function NeonButton({
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
       aria-label={title}
     >
-      {icon && <span>{icon}</span>}
+      {icon && <span aria-hidden="true">{icon}</span>}
       <span>{title}</span>
     </motion.button>
   );

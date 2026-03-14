@@ -19,6 +19,8 @@ import { useTranslation } from "react-i18next";
 import "@/i18n";
 import { isDriverHost, isClinicHost, isPharmacyHost, isBrokerHost, isDispatchHost, getTokenKey } from "@/lib/hostDetection";
 import { pushError } from "@/lib/errorLog";
+import { SkipToContent } from "@/components/SkipToContent";
+import { LiveAnnouncerProvider } from "@/components/LiveAnnouncer";
 import { useBrandStyle } from "@/lib/useBrandStyle";
 import { CitySelectionModal } from "@/components/city-selection-modal";
 // Critical pages loaded eagerly (auth flow, initial render)
@@ -806,11 +808,12 @@ function AuthenticatedApp() {
     return (
       <AppErrorBoundary label="Dispatch">
         <SidebarProvider style={style as React.CSSProperties}>
+          <SkipToContent />
           <div className="flex h-screen w-full">
             <AppSidebar />
             <div className="flex flex-col flex-1 min-w-0">
               <DashboardHeader />
-              <main className="flex-1 overflow-auto">
+              <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" role="main" aria-label="Dispatch portal content">
                 <DispatchSubdomainRouter />
               </main>
             </div>
@@ -914,11 +917,12 @@ function AuthenticatedApp() {
   return (
     <AppErrorBoundary label="Admin">
       <SidebarProvider style={style as React.CSSProperties}>
+        <SkipToContent />
         <div className="flex h-screen w-full">
           <AppSidebar />
           <div className="flex flex-col flex-1 min-w-0">
             <DashboardHeader />
-            <main className="flex-1 overflow-auto">
+            <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" role="main" aria-label="Admin portal content">
               <Router />
             </main>
           </div>
@@ -959,7 +963,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider>
-          <AppWithVersionCheck />
+          <LiveAnnouncerProvider>
+            <AppWithVersionCheck />
+          </LiveAnnouncerProvider>
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

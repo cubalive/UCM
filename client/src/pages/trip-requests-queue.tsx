@@ -138,10 +138,10 @@ function RequestDetailDrawer({ request, onClose }: { request: any; onClose: () =
 
   return (
     <div className="fixed inset-0 z-50 flex" data-testid="request-detail-drawer">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="ml-auto relative w-full max-w-2xl bg-[#0f172a] border-l border-[#1e293b] flex flex-col h-full overflow-hidden">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} role="presentation" aria-hidden="true" />
+      <div className="ml-auto relative w-full max-w-2xl bg-[#0f172a] border-l border-[#1e293b] flex flex-col h-full overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="request-detail-title">
         <div className="flex items-center justify-between p-4 border-b border-[#1e293b]">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3" id="request-detail-title">
             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${statusColor(request.status)}`}>
               <StatusIcon status={request.status} />
               {request.status.replace("_", " ")}

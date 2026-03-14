@@ -250,9 +250,9 @@ export default function PharmacyPrescriptions() {
 
       {/* Create Prescription Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowCreateModal(false)}>
-          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowCreateModal(false)} role="presentation" aria-hidden="true">
+          <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="import-prescription-title">
+            <h3 id="import-prescription-title" className="text-lg font-semibold text-white flex items-center gap-2">
               <Pill className="w-5 h-5 text-violet-400" />
               Import Prescription
             </h3>

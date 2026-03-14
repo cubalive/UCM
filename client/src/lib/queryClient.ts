@@ -32,10 +32,21 @@ function resolveCredentials(): RequestCredentials {
   return isDriverHost ? "omit" : "include";
 }
 
+function getCsrfToken(): string {
+  const match = document.cookie.match(/(?:^|;\s*)ucm_csrf=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 function buildDefaultHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
-  const token = getStoredToken();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  // For driver host (native app), still send Bearer token
+  if (isDriverHost) {
+    const token = getStoredToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
+  // CSRF token for cookie-based auth
+  const csrfToken = getCsrfToken();
+  if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   const cityId = getStoredCityId();
   if (cityId) headers["X-City-Id"] = cityId;
   const fp = getDeviceFingerprint();

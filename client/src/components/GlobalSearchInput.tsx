@@ -110,29 +110,32 @@ export function GlobalSearchInput({
   return (
     <div ref={containerRef} className={`relative ${className}`} data-testid={`search-${entity}`}>
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
         <Input
           data-testid={`search-input-${entity}`}
           value={query}
           onChange={(e) => handleChange(e.target.value)}
           placeholder={placeholder || `Search ${entity}...`}
+          aria-label={placeholder || `Search ${entity}`}
+          role="searchbox"
           className="pl-9 pr-8"
         />
         {loading && (
-          <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+          <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
         )}
         {query && (
           <button
             data-testid={`search-clear-${entity}`}
             onClick={handleClear}
             className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded"
+            aria-label="Clear search"
           >
-            <X className="h-3.5 w-3.5 text-muted-foreground" />
+            <X className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
           </button>
         )}
       </div>
       {showDropdown && results.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full bg-popover border rounded-md shadow-lg max-h-64 overflow-y-auto" data-testid={`search-results-${entity}`}>
+        <div className="absolute z-50 mt-1 w-full bg-popover border rounded-md shadow-lg max-h-64 overflow-y-auto" data-testid={`search-results-${entity}`} role="listbox" aria-label={`${entity} search results`}>
           {results.map((r) => (
             <button
               key={r.id}

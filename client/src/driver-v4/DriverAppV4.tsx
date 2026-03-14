@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useRef, Component, type ReactNode, type ErrorInfo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Home, DollarSign, User, Navigation2, MapPin, Power, AlertTriangle, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useReducedMotion } from "./design/accessibility";
+import { SkipToContent } from "@/components/SkipToContent";
 import { colors } from "./design/tokens";
 import { useDriverStore } from "./store/driverStore";
 import { useAuth } from "@/lib/auth";
@@ -27,6 +29,7 @@ function BottomTabBar({
   onNavigate: (screen: Screen) => void;
   tripPhase: string;
 }) {
+  const { t } = useTranslation();
   const reduced = useReducedMotion();
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
@@ -36,11 +39,11 @@ function BottomTabBar({
   const [showEndConfirm, setShowEndConfirm] = useState(false);
 
   const tabs: { key: Screen; icon: typeof Home; label: string }[] = [
-    { key: "dashboard", icon: Home, label: "Home" },
-    { key: "earnings", icon: DollarSign, label: "Earnings" },
+    { key: "dashboard", icon: Home, label: t('driver.tabs.home') },
+    { key: "earnings", icon: DollarSign, label: t('driver.tabs.earnings') },
     // Center orb is inserted manually
-    { key: "activeTrip", icon: Navigation2, label: "Trip" },
-    { key: "profile", icon: User, label: "Profile" },
+    { key: "activeTrip", icon: Navigation2, label: t('driver.tabs.trip') },
+    { key: "profile", icon: User, label: t('driver.tabs.profile') },
   ];
 
   const isOnline = driverStatus === "online" && shiftStatus === "onShift";
@@ -62,12 +65,16 @@ function BottomTabBar({
 
   return (
     <>
-      <div
+      <nav
         className="absolute bottom-0 left-0 right-0 z-50"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)", pointerEvents: "auto" }}
+        aria-label="Main navigation"
+        role="navigation"
       >
         <div
           className="flex items-end justify-around px-2 pt-2 pb-3"
+          role="tablist"
+          aria-label="App sections"
           style={{
             background: "rgba(255,255,255,0.92)",
             backdropFilter: "blur(20px)",
@@ -116,7 +123,7 @@ function BottomTabBar({
               whileHover={!reduced ? { scale: 1.08 } : undefined}
               whileTap={!reduced ? { scale: 0.92 } : undefined}
               data-testid="orb-status"
-              aria-label={hasActiveTrip ? "Active trip" : isOnline ? "Go offline" : "Go online"}
+              aria-label={hasActiveTrip ? t('dashboard.activeTrip') : isOnline ? t('driver.status.goOffline') : t('driver.status.goOnline')}
             >
               {/* Pulse ring */}
               {(isOnline || hasActiveTrip) && !reduced && (
@@ -144,7 +151,7 @@ function BottomTabBar({
                 color: hasActiveTrip ? colors.sky : isOnline ? colors.danger : colors.sunrise,
               }}
             >
-              {hasActiveTrip ? "In Trip" : isOnline ? "Stop" : "Offline"}
+              {hasActiveTrip ? t('driver.status.inTrip') : isOnline ? t('driver.status.stop') : t('driver.status.offline')}
             </span>
           </div>
 
@@ -165,13 +172,13 @@ function BottomTabBar({
             reduced={reduced}
           />
         </div>
-      </div>
+      </nav>
       <ConfirmDialog
         open={showEndConfirm}
-        title="End Shift?"
-        message="Make sure all your trips are complete before ending your shift. This will set you offline."
-        confirmLabel="End Shift"
-        cancelLabel="Keep Working"
+        title={t('driver.shift.endShift')}
+        message={t('driver.shift.endShiftMessage')}
+        confirmLabel={t('driver.shift.endShiftConfirm')}
+        cancelLabel={t('driver.shift.keepWorking')}
         variant="danger"
         onConfirm={confirmEndShift}
         onCancel={() => setShowEndConfirm(false)}
@@ -197,13 +204,17 @@ function TabItem({
   return (
     <motion.button
       onClick={onPress}
-      className="relative flex flex-col items-center gap-0.5 px-3 py-1"
+      className="relative flex flex-col items-center gap-0.5 px-3 py-1 min-h-[44px] min-w-[44px]"
       whileTap={!reduced ? { scale: 0.9 } : undefined}
       data-testid={`tab-${tab.key}`}
+      role="tab"
+      aria-selected={isActive}
+      aria-label={tab.label}
     >
       <div className="relative">
         <Icon
           className="w-5 h-5"
+          aria-hidden="true"
           style={{
             color: isActive ? colors.sunrise : colors.textTertiary,
             strokeWidth: isActive ? 2.5 : 1.8,
@@ -286,6 +297,7 @@ class DriverErrorBoundary extends Component<{ children: ReactNode }, ErrorBounda
 
 /* ─── Main App Container ─── */
 export function DriverAppV4() {
+  const { t } = useTranslation();
   const [screen, setScreen] = useState<Screen>("onboarding");
   const reduced = useReducedMotion();
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -367,11 +379,18 @@ export function DriverAppV4() {
           overflow: "hidden",
           background: colors.bg0,
         }}
+        role="application"
+        aria-label={t('driver.app.title')}
       >
+        <SkipToContent />
         {/* Screen content */}
         <AnimatePresence mode="wait">
           <motion.div
             key={screen}
+            id="main-content"
+            tabIndex={-1}
+            role="main"
+            aria-label={t('driver.app.content')}
             initial={reduced ? {} : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduced ? {} : { opacity: 0 }}

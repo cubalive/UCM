@@ -36,7 +36,7 @@ export function CitySelectionModal() {
         <Card className="w-full max-w-md mx-4">
           <CardHeader>
             <div className="flex items-center gap-2">
-              <MapPin className="h-5 w-5 text-muted-foreground" />
+              <MapPin className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
               <CardTitle className="text-lg">No Cities Available</CardTitle>
             </div>
           </CardHeader>

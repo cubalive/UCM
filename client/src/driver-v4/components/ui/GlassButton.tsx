@@ -29,10 +29,10 @@ export function GlassButton({
       data-testid={testID}
       onClick={onPress}
       aria-label={label}
-      className="relative flex items-center justify-center"
+      className="relative flex items-center justify-center min-h-[44px] min-w-[44px]"
       style={{
-        width: size,
-        height: size,
+        width: Math.max(size, 44),
+        height: Math.max(size, 44),
         borderRadius: size / 2,
         background: "rgba(255,255,255,0.80)",
         backdropFilter: "blur(12px)",
@@ -45,7 +45,7 @@ export function GlassButton({
       whileHover={!reduced ? { scale: 1.1, boxShadow: colors.shadowMd } : undefined}
       whileTap={!reduced ? { scale: 0.92 } : undefined}
     >
-      {icon}
+      <span aria-hidden="true">{icon}</span>
       {badge != null && badge > 0 && (
         <span
           className="absolute -top-1 -right-1 flex items-center justify-center text-[9px] font-bold"

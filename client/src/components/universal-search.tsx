@@ -175,7 +175,7 @@ export function UniversalSearchBar() {
   return (
     <div ref={containerRef} className="relative w-full max-w-md" data-testid="universal-search">
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
         <Input
           ref={inputRef}
           data-testid="input-universal-search"
@@ -184,18 +184,23 @@ export function UniversalSearchBar() {
           onFocus={() => { if (query.length >= 2 && totalCount > 0) setOpen(true); }}
           onKeyDown={handleKeyDown}
           placeholder="Search trips, patients, drivers... (⌘K)"
+          aria-label="Search trips, patients, drivers"
+          role="searchbox"
+          aria-expanded={open}
+          aria-autocomplete="list"
           className="pl-9 pr-8 h-9 text-sm"
         />
         {loading && (
-          <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+          <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
         )}
         {query && (
           <button
             data-testid="button-clear-universal-search"
             onClick={handleClear}
             className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded"
+            aria-label="Clear search"
           >
-            <X className="h-3.5 w-3.5 text-muted-foreground" />
+            <X className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
           </button>
         )}
       </div>

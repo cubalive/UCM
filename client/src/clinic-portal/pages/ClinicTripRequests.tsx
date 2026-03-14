@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "wouter";
+import { useTranslation } from "react-i18next";
 import {
   Plus,
   Clock,
@@ -47,6 +48,7 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 export default function ClinicTripRequests() {
+  const { t } = useTranslation();
   const [statusFilter, setStatusFilter] = useState("");
 
   const { data: requests = [], isLoading } = useQuery<any[]>({
@@ -65,8 +67,8 @@ export default function ClinicTripRequests() {
     <div className="p-6 space-y-6" data-testid="clinic-trip-requests-page">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white" data-testid="text-page-title">Trip Requests</h1>
-          <p className="text-sm text-gray-400 mt-1">Request transportation for your patients</p>
+          <h1 className="text-2xl font-bold text-white" data-testid="text-page-title">{t('clinic.sidebar.tripRequests', 'Trip Requests')}</h1>
+          <p className="text-sm text-gray-400 mt-1">{t('clinic.tripRequest.subtitle', 'Request transportation for your patients')}</p>
         </div>
         <Link href="/requests/new">
           <button
@@ -74,7 +76,7 @@ export default function ClinicTripRequests() {
             data-testid="button-new-request"
           >
             <Plus className="w-4 h-4" />
-            New Request
+            {t('clinic.tripRequest.newRequest', 'New Request')}
           </button>
         </Link>
       </div>
@@ -103,8 +105,8 @@ export default function ClinicTripRequests() {
       ) : requests.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-500" data-testid="empty-state">
           <MessageSquare className="w-12 h-12 mb-4 opacity-50" />
-          <p className="text-lg font-medium">No trip requests found</p>
-          <p className="text-sm mt-1">Create your first trip request to get started</p>
+          <p className="text-lg font-medium">{t('clinic.tripRequest.noRequests', 'No trip requests found')}</p>
+          <p className="text-sm mt-1">{t('clinic.tripRequest.getStarted', 'Create your first trip request to get started')}</p>
         </div>
       ) : (
         <div className="space-y-3" data-testid="requests-list">

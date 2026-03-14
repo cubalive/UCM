@@ -69,7 +69,7 @@ export default function BrokerTripRequestNew() {
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <Link href="/trip-requests">
-          <button className="p-2 hover:bg-white/5 rounded-lg"><ArrowLeft className="w-4 h-4 text-gray-400" /></button>
+          <button className="p-2 hover:bg-white/5 rounded-lg" aria-label="Go back to trip requests"><ArrowLeft className="w-4 h-4 text-gray-400" aria-hidden="true" /></button>
         </Link>
         <h1 className="text-xl font-bold text-white">New Trip Request</h1>
       </div>
@@ -80,8 +80,9 @@ export default function BrokerTripRequestNew() {
           <h2 className="text-sm font-semibold text-white">Member Information</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Member Name *</label>
+              <label htmlFor="broker-member-name" className="block text-xs text-gray-400 mb-1">Member Name *</label>
               <input
+                id="broker-member-name"
                 required
                 value={form.memberName}
                 onChange={e => updateField("memberName", e.target.value)}
@@ -89,24 +90,27 @@ export default function BrokerTripRequestNew() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Member ID</label>
+              <label htmlFor="broker-member-id" className="block text-xs text-gray-400 mb-1">Member ID</label>
               <input
+                id="broker-member-id"
                 value={form.memberId}
                 onChange={e => updateField("memberId", e.target.value)}
                 className="w-full bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Phone</label>
+              <label htmlFor="broker-member-phone" className="block text-xs text-gray-400 mb-1">Phone</label>
               <input
+                id="broker-member-phone"
                 value={form.memberPhone}
                 onChange={e => updateField("memberPhone", e.target.value)}
                 className="w-full bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Preauthorization #</label>
+              <label htmlFor="broker-preauth" className="block text-xs text-gray-400 mb-1">Preauthorization #</label>
               <input
+                id="broker-preauth"
                 value={form.preauthorizationNumber}
                 onChange={e => updateField("preauthorizationNumber", e.target.value)}
                 className="w-full bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
@@ -120,8 +124,9 @@ export default function BrokerTripRequestNew() {
           <h2 className="text-sm font-semibold text-white">Trip Details</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <label className="block text-xs text-gray-400 mb-1">Pickup Address *</label>
+              <label htmlFor="broker-pickup" className="block text-xs text-gray-400 mb-1">Pickup Address *</label>
               <input
+                id="broker-pickup"
                 required
                 value={form.pickupAddress}
                 onChange={e => updateField("pickupAddress", e.target.value)}
@@ -129,8 +134,9 @@ export default function BrokerTripRequestNew() {
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs text-gray-400 mb-1">Dropoff Address *</label>
+              <label htmlFor="broker-dropoff" className="block text-xs text-gray-400 mb-1">Dropoff Address *</label>
               <input
+                id="broker-dropoff"
                 required
                 value={form.dropoffAddress}
                 onChange={e => updateField("dropoffAddress", e.target.value)}
@@ -138,8 +144,9 @@ export default function BrokerTripRequestNew() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Date *</label>
+              <label htmlFor="broker-date" className="block text-xs text-gray-400 mb-1">Date *</label>
               <input
+                id="broker-date"
                 required
                 type="date"
                 value={form.requestedDate}
@@ -148,8 +155,9 @@ export default function BrokerTripRequestNew() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Pickup Time *</label>
+              <label htmlFor="broker-pickup-time" className="block text-xs text-gray-400 mb-1">Pickup Time *</label>
               <input
+                id="broker-pickup-time"
                 required
                 type="time"
                 value={form.requestedPickupTime}
@@ -158,8 +166,9 @@ export default function BrokerTripRequestNew() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Return Time (if round trip)</label>
+              <label htmlFor="broker-return-time" className="block text-xs text-gray-400 mb-1">Return Time (if round trip)</label>
               <input
+                id="broker-return-time"
                 type="time"
                 value={form.requestedReturnTime}
                 onChange={e => updateField("requestedReturnTime", e.target.value)}
@@ -185,8 +194,9 @@ export default function BrokerTripRequestNew() {
           <h2 className="text-sm font-semibold text-white">Service Requirements</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Service Type</label>
+              <label htmlFor="broker-service-type" className="block text-xs text-gray-400 mb-1">Service Type</label>
               <select
+                id="broker-service-type"
                 value={form.serviceType}
                 onChange={e => updateField("serviceType", e.target.value)}
                 className="w-full bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
@@ -201,8 +211,9 @@ export default function BrokerTripRequestNew() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Priority</label>
+              <label htmlFor="broker-priority" className="block text-xs text-gray-400 mb-1">Priority</label>
               <select
+                id="broker-priority"
                 value={form.priority}
                 onChange={e => updateField("priority", e.target.value)}
                 className="w-full bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
@@ -214,8 +225,9 @@ export default function BrokerTripRequestNew() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Max Budget ($)</label>
+              <label htmlFor="broker-max-budget" className="block text-xs text-gray-400 mb-1">Max Budget ($)</label>
               <input
+                id="broker-max-budget"
                 type="number"
                 step="0.01"
                 value={form.maxBudget}
@@ -225,8 +237,9 @@ export default function BrokerTripRequestNew() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Diagnosis Code</label>
+              <label htmlFor="broker-diagnosis-code" className="block text-xs text-gray-400 mb-1">Diagnosis Code</label>
               <input
+                id="broker-diagnosis-code"
                 value={form.diagnosisCode}
                 onChange={e => updateField("diagnosisCode", e.target.value)}
                 className="w-full bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
@@ -252,8 +265,9 @@ export default function BrokerTripRequestNew() {
             ))}
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Special Needs / Notes</label>
+            <label htmlFor="broker-notes" className="block text-xs text-gray-400 mb-1">Special Needs / Notes</label>
             <textarea
+              id="broker-notes"
               value={form.notes}
               onChange={e => updateField("notes", e.target.value)}
               rows={3}

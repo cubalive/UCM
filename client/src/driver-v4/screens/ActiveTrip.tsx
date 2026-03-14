@@ -5,6 +5,7 @@ import {
   ChevronRight, User, FileText, Shield, CheckCircle2,
   Award, Route, Timer, ArrowRight, Star, Milestone
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useDriverStore, TripPhase } from "../store/driverStore";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
@@ -18,16 +19,20 @@ import { DriverTripMap } from "../components/DriverTripMap";
 import { ProofOfDelivery } from "../components/ProofOfDelivery";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 
-const PHASE_STEPS: { key: TripPhase; label: string; icon: typeof MapPin }[] = [
-  { key: "toPickup", label: "En Route", icon: Navigation },
-  { key: "arrivedPickup", label: "At Pickup", icon: MapPin },
-  { key: "waiting", label: "Waiting", icon: Timer },
-  { key: "toDropoff", label: "Transport", icon: Route },
-  { key: "arrivedDropoff", label: "At Dropoff", icon: Milestone },
-  { key: "complete", label: "Done", icon: CheckCircle2 },
-];
+function getPhaseSteps(t: (key: string) => string): { key: TripPhase; label: string; icon: typeof MapPin }[] {
+  return [
+    { key: "toPickup", label: t('driver.tripPhase.enRoute'), icon: Navigation },
+    { key: "arrivedPickup", label: t('driver.tripPhase.atPickup'), icon: MapPin },
+    { key: "waiting", label: t('driver.tripPhase.waiting'), icon: Timer },
+    { key: "toDropoff", label: t('driver.tripPhase.transport'), icon: Route },
+    { key: "arrivedDropoff", label: t('driver.tripPhase.atDropoff'), icon: Milestone },
+    { key: "complete", label: t('driver.tripPhase.done'), icon: CheckCircle2 },
+  ];
+}
 
 function TripProgress({ currentPhase }: { currentPhase: TripPhase }) {
+  const { t } = useTranslation();
+  const PHASE_STEPS = getPhaseSteps(t);
   const currentIndex = PHASE_STEPS.findIndex((s) => s.key === currentPhase);
 
   return (
@@ -40,7 +45,7 @@ function TripProgress({ currentPhase }: { currentPhase: TripPhase }) {
           <div key={step.key} className="flex-1 flex flex-col items-center gap-1">
             <div className="flex items-center justify-center w-full gap-0.5">
               {isDone || isActive ? (
-                <Icon className="w-3 h-3" style={{ color: isDone ? colors.success : colors.sunrise }} />
+                <Icon className="w-3 h-3" aria-hidden="true" style={{ color: isDone ? colors.success : colors.sunrise }} />
               ) : null}
             </div>
             <div
@@ -70,6 +75,7 @@ function TripProgress({ currentPhase }: { currentPhase: TripPhase }) {
 }
 
 function TripCompleteSummary({ trip, onDone }: { trip: any; onDone: () => void }) {
+  const { t } = useTranslation();
   const reduced = useReducedMotion();
 
   return (
@@ -93,21 +99,21 @@ function TripCompleteSummary({ trip, onDone }: { trip: any; onDone: () => void }
             boxShadow: `0 8px 32px rgba(52,199,89,0.2)`,
           }}
         >
-          <CheckCircle2 className="w-10 h-10" style={{ color: colors.success }} />
+          <CheckCircle2 className="w-10 h-10" aria-hidden="true" style={{ color: colors.success }} />
         </div>
       </motion.div>
 
       <h2 className="text-xl font-bold mb-1" style={{ color: colors.textPrimary }}>
-        Trip Complete!
+        {t('driver.trip.tripComplete')}
       </h2>
       <p className="text-sm mb-6" style={{ color: colors.textSecondary }}>
-        Great work, driver!
+        {t('driver.trip.greatWork')}
       </p>
 
       <GlassCard variant="elevated" className="!p-5 w-full max-w-sm space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <User className="w-4 h-4" style={{ color: colors.sky }} />
+            <User className="w-4 h-4" aria-hidden="true" style={{ color: colors.sky }} />
             <span className="text-sm font-medium" style={{ color: colors.textPrimary }}>
               {trip?.passengerName || "Patient"}
             </span>
@@ -123,14 +129,14 @@ function TripCompleteSummary({ trip, onDone }: { trip: any; onDone: () => void }
           <div className="flex items-start gap-2">
             <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background: colors.success }} />
             <div className="flex-1">
-              <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Pickup</span>
+              <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>{t('driver.trip.pickup')}</span>
               <p className="text-xs" style={{ color: colors.textSecondary }}>{trip?.pickupAddress || "-"}</p>
             </div>
           </div>
           <div className="flex items-start gap-2">
             <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background: colors.sunrise }} />
             <div className="flex-1">
-              <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Dropoff</span>
+              <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>{t('driver.trip.dropoff')}</span>
               <p className="text-xs" style={{ color: colors.textSecondary }}>{trip?.dropoffAddress || "-"}</p>
             </div>
           </div>
@@ -139,18 +145,18 @@ function TripCompleteSummary({ trip, onDone }: { trip: any; onDone: () => void }
         <div className="grid grid-cols-2 gap-3 pt-2" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
           <div className="text-center py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
             <p className="text-lg font-bold" style={{ color: colors.sky }}>{trip?.etaMinutes || "-"}m</p>
-            <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Duration</p>
+            <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>{t('driver.dashboard.duration')}</p>
           </div>
           <div className="text-center py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-            <p className="text-lg font-bold" style={{ color: colors.success }}>Medical</p>
-            <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Trip Type</p>
+            <p className="text-lg font-bold" style={{ color: colors.success }}>{t('driver.trip.medical')}</p>
+            <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>{t('driver.trip.tripType')}</p>
           </div>
         </div>
       </GlassCard>
 
       <div className="w-full max-w-sm mt-4">
         <NeonButton
-          title="Back to Dashboard"
+          title={t('driver.trip.backToDashboard')}
           onPress={onDone}
           variant="primary"
           testID="btn-back-after-complete"
@@ -162,6 +168,7 @@ function TripCompleteSummary({ trip, onDone }: { trip: any; onDone: () => void }
 }
 
 export function ActiveTrip({ onBack }: { onBack: () => void }) {
+  const { t } = useTranslation();
   const activeTrip = useDriverStore((s) => s.activeTrip);
   const tripPhase = useDriverStore((s) => s.tripPhase);
   const driverLat = useDriverStore((s) => s.driverLat);
@@ -225,12 +232,12 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
       <NebulaBackground>
         <div className="flex flex-col items-center justify-center min-h-screen px-6">
           <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ background: "rgba(0,0,0,0.04)" }}>
-            <MapPin className="w-8 h-8" style={{ color: colors.textTertiary }} />
+            <MapPin className="w-8 h-8" aria-hidden="true" style={{ color: colors.textTertiary }} />
           </div>
-          <p className="text-lg font-semibold" style={{ color: colors.textPrimary }}>No active trip</p>
-          <p className="text-sm mb-4" style={{ color: colors.textSecondary }}>You'll see trip details here</p>
-          <button onClick={onBack} className="text-sm font-semibold underline" style={{ color: colors.sunrise }}>
-            Back to Dashboard
+          <p className="text-lg font-semibold" style={{ color: colors.textPrimary }}>{t('driver.trip.noActiveTrip')}</p>
+          <p className="text-sm mb-4" style={{ color: colors.textSecondary }}>{t('driver.trip.noActiveTripDesc')}</p>
+          <button onClick={onBack} className="text-sm font-semibold underline min-h-[44px]" style={{ color: colors.sunrise }}>
+            {t('driver.trip.backToDashboard')}
           </button>
         </div>
       </NebulaBackground>
@@ -254,7 +261,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const destLabel = isPickupPhase ? "Pickup" : "Dropoff";
+  const destLabel = isPickupPhase ? t('driver.trip.pickup') : t('driver.trip.dropoff');
   const destAddress = isPickupPhase ? activeTrip.pickupAddress : activeTrip.dropoffAddress;
   const phaseColor = isPickupPhase ? colors.success : colors.sky;
 
@@ -282,7 +289,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
           <div className="absolute top-4 left-4 right-4 z-30 flex items-center justify-between">
             <button
               onClick={onBack}
-              className="flex items-center gap-1 px-3 py-2 rounded-full text-xs font-medium"
+              className="flex items-center gap-1 px-3 py-2 rounded-full text-xs font-medium min-h-[44px]"
               style={{
                 background: "rgba(255,255,255,0.90)",
                 backdropFilter: "blur(12px)",
@@ -291,8 +298,9 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
                 boxShadow: colors.shadowSm,
               }}
               data-testid="btn-back-dashboard"
+              aria-label={t('driver.trip.backToDashboard')}
             >
-              ← Dashboard
+              <span aria-hidden="true">←</span> {t('nav.dashboard')}
             </button>
             <GlassButton
               icon={<AlertTriangle className="w-4 h-4" style={{ color: colors.danger }} />}
@@ -308,7 +316,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
           {isMovingPhase && (
             <motion.button
               onClick={handleNavigate}
-              className="absolute bottom-4 right-4 z-30 flex items-center gap-2 px-5 py-3 rounded-2xl"
+              className="absolute bottom-4 right-4 z-30 flex items-center gap-2 px-5 py-3 rounded-2xl min-h-[44px]"
               style={{
                 background: `linear-gradient(135deg, ${phaseColor}, ${isPickupPhase ? "#2BB84E" : colors.ocean})`,
                 boxShadow: `0 4px 20px ${glowColor(phaseColor, 0.35)}`,
@@ -318,10 +326,10 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
               animate={{ scale: 1, opacity: 1 }}
               transition={{ delay: 0.3, type: "spring", stiffness: 300 }}
               data-testid="btn-start-navigation"
-              aria-label={`Navigate to ${destLabel}`}
+              aria-label={t('driver.trip.navigateTo', { destination: destLabel })}
             >
-              <Navigation className="w-5 h-5 text-white" />
-              <span className="text-sm font-bold text-white">Navigate</span>
+              <Navigation className="w-5 h-5 text-white" aria-hidden="true" />
+              <span className="text-sm font-bold text-white">{t('driver.trip.navigate')}</span>
             </motion.button>
           )}
 
@@ -336,7 +344,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
                 boxShadow: colors.shadowSm,
               }}
             >
-              <MapPin className="w-3.5 h-3.5" style={{ color: phaseColor }} />
+              <MapPin className="w-3.5 h-3.5" aria-hidden="true" style={{ color: phaseColor }} />
               <div>
                 <p className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: phaseColor }}>
                   {destLabel}
@@ -365,16 +373,16 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <User className="w-4 h-4" style={{ color: colors.sky }} />
+                  <User className="w-4 h-4" aria-hidden="true" style={{ color: colors.sky }} />
                   <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
                     {activeTrip.passengerName}
                   </span>
                 </div>
                 {activeTrip.scheduledTime && (
                   <div className="flex items-center gap-1.5 mb-2">
-                    <Clock className="w-3 h-3" style={{ color: colors.textTertiary }} />
+                    <Clock className="w-3 h-3" aria-hidden="true" style={{ color: colors.textTertiary }} />
                     <span className="text-[10px]" style={{ color: colors.textTertiary }}>
-                      Scheduled: {new Date(activeTrip.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      {t('driver.trip.scheduled')}: {new Date(activeTrip.scheduledTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
                 )}
@@ -383,7 +391,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
                     <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background: isPickupPhase ? colors.success : colors.textTertiary }} />
                     <div>
                       <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>
-                        {isPickupPhase ? "Heading to Pickup" : "Pickup (done)"}
+                        {isPickupPhase ? t('driver.trip.headingToPickup') : t('driver.trip.pickupDone')}
                       </span>
                       <p className="text-xs" style={{ color: isPickupPhase ? colors.textPrimary : colors.textTertiary }}>
                         {activeTrip.pickupAddress}
@@ -393,7 +401,7 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
                   <div className="flex items-start gap-2">
                     <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background: !isPickupPhase ? colors.sunrise : "rgba(0,0,0,0.08)" }} />
                     <div>
-                      <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Dropoff</span>
+                      <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>{t('driver.trip.dropoff')}</span>
                       <p className="text-xs" style={{ color: !isPickupPhase ? colors.textPrimary : colors.textTertiary }}>
                         {activeTrip.dropoffAddress}
                       </p>
@@ -406,14 +414,14 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
                 label={`${activeTrip.etaMinutes}m`}
                 size={64}
                 accentColor={phaseColor}
-                sublabel="ETA"
+                sublabel={t('driver.trip.eta')}
                 testID="progress-active-eta"
               />
             </div>
 
             {activeTrip.notes && (
               <div className="flex items-start gap-2 px-2 py-1.5 rounded-lg mb-2" style={{ background: "rgba(0,0,0,0.02)" }}>
-                <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: colors.textTertiary }} />
+                <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" aria-hidden="true" style={{ color: colors.textTertiary }} />
                 <p className="text-xs italic" style={{ color: colors.textTertiary }}>{activeTrip.notes}</p>
               </div>
             )}
@@ -423,11 +431,11 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
                 if (activeTrip.passengerPhone) {
                   window.open(`tel:${activeTrip.passengerPhone}`, "_self");
                 }
-              }} label="Call Passenger" size={40} testID="btn-call" />
-              <GlassButton icon={<Navigation className="w-4 h-4" />} onPress={handleNavigate} label="Navigate" size={40} accentColor={colors.sky} testID="btn-navigate" />
+              }} label={t('driver.trip.callPassenger')} size={40} testID="btn-call" />
+              <GlassButton icon={<Navigation className="w-4 h-4" />} onPress={handleNavigate} label={t('driver.trip.navigate')} size={40} accentColor={colors.sky} testID="btn-navigate" />
               <GlassButton icon={<AlertTriangle className="w-3.5 h-3.5" />} onPress={() => {
                 store.reportEmergency("Driver reported issue during trip");
-              }} label="Report Issue" size={40} accentColor={colors.warning} testID="btn-issue" />
+              }} label={t('driver.trip.reportIssue')} size={40} accentColor={colors.warning} testID="btn-issue" />
             </div>
           </GlassCard>
 
@@ -448,10 +456,10 @@ export function ActiveTrip({ onBack }: { onBack: () => void }) {
 
       <ConfirmDialog
         open={showEmergencyConfirm}
-        title="Report Emergency?"
-        message="This will immediately alert dispatch about an emergency at your current location. Only use for real emergencies."
-        confirmLabel="Report Emergency"
-        cancelLabel="Cancel"
+        title={t('driver.trip.reportEmergency')}
+        message={t('driver.trip.emergencyMessage')}
+        confirmLabel={t('driver.trip.reportEmergencyConfirm')}
+        cancelLabel={t('common.cancel')}
         variant="danger"
         onConfirm={() => {
           setShowEmergencyConfirm(false);

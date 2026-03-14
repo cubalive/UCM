@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
-import { signToken, comparePassword, hashPassword, getUserCityIds, setAuthCookie, type AuthRequest, verifyToken } from "../auth";
+import { signToken, signRefreshToken, comparePassword, hashPassword, getUserCityIds, setAuthCookies, clearAuthCookies, type AuthRequest, verifyToken, verifyRefreshToken, revokeToken, revokeAllUserTokens } from "../auth";
 import { loginSchema, driverDevices, users, companies, trips, userCityAccess, drivers } from "@shared/schema";
 import { db } from "../db";
 import { eq, and, sql } from "drizzle-orm";
@@ -56,7 +56,9 @@ export async function loginHandler(req: Request, res: Response) {
       }
     }
 
-    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null, pharmacyId: (user as any).pharmacyId || null, brokerId: (user as any).brokerId || null });
+    const tokenPayload = { userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null, pharmacyId: (user as any).pharmacyId || null, brokerId: (user as any).brokerId || null };
+    const accessToken = signToken(tokenPayload);
+    const refreshToken = signRefreshToken({ userId: user.id });
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
 
@@ -77,16 +79,16 @@ export async function loginHandler(req: Request, res: Response) {
       cityId: null,
     });
 
-    setAuthCookie(res, token, req);
+    setAuthCookies(res, accessToken, refreshToken, req);
 
     res.json({
-      token,
       user: { ...safeUser, cityAccess },
       cities: accessibleCities,
       mustChangePassword: user.mustChangePassword || false,
     });
   } catch (err: any) {
-    res.status(500).json({ message: err.message });
+    console.error("[loginHandler] Error:", err.message);
+    res.status(500).json({ message: "An unexpected error occurred" });
   }
 }
 
@@ -138,7 +140,8 @@ export async function loginJwtHandler(req: Request, res: Response) {
       }
     }
 
-    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null, pharmacyId: (user as any).pharmacyId || null, brokerId: (user as any).brokerId || null });
+    const tokenPayload = { userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null, pharmacyId: (user as any).pharmacyId || null, brokerId: (user as any).brokerId || null };
+    const token = signToken(tokenPayload);
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
     const userRole = user.role as string;
@@ -157,6 +160,7 @@ export async function loginJwtHandler(req: Request, res: Response) {
       cityId: null,
     });
 
+    // Driver app (native/mobile) — still receives token in body since it doesn't use cookies
     res.json({
       token,
       user: { ...safeUser, cityAccess },
@@ -164,7 +168,8 @@ export async function loginJwtHandler(req: Request, res: Response) {
       mustChangePassword: user.mustChangePassword || false,
     });
   } catch (err: any) {
-    res.status(500).json({ message: err.message });
+    console.error("[loginJwtHandler] Error:", err.message);
+    res.status(500).json({ message: "An unexpected error occurred" });
   }
 }
 
@@ -178,21 +183,23 @@ export async function devSessionHandler(_req: Request, res: Response) {
     if (!user) {
       return res.status(503).json({ message: "Dev session unavailable: admin user not found" });
     }
-    const token = signToken({ userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null, pharmacyId: (user as any).pharmacyId || null, brokerId: (user as any).brokerId || null });
+    const tokenPayload = { userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null, pharmacyId: (user as any).pharmacyId || null, brokerId: (user as any).brokerId || null };
+    const accessToken = signToken(tokenPayload);
+    const refreshToken = signRefreshToken({ userId: user.id });
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
     const accessibleCities = user.role === "SUPER_ADMIN"
       ? allCities
       : allCities.filter((c) => cityAccess.includes(c.id));
     const { password, ...safeUser } = user;
-    setAuthCookie(res, token, _req);
+    setAuthCookies(res, accessToken, refreshToken, _req);
     res.json({
-      token,
       user: { ...safeUser, cityAccess },
       cities: accessibleCities,
     });
   } catch (err: any) {
-    res.status(500).json({ message: err.message });
+    console.error("[devSessionHandler] Error:", err.message);
+    res.status(500).json({ message: "An unexpected error occurred" });
   }
 }
 
@@ -261,7 +268,8 @@ export async function authMeHandler(req: AuthRequest, res: Response) {
       workingCityScope: user.workingCityScope ?? "CITY",
     });
   } catch (err: any) {
-    res.status(500).json({ message: err.message });
+    console.error("[authMeHandler] Error:", err.message);
+    res.status(500).json({ message: "An unexpected error occurred" });
   }
 }
 
@@ -423,6 +431,9 @@ export async function changePasswordHandler(req: Request, res: Response) {
       console.error("[changePassword] Supabase sync failed (non-fatal):", sbErr.message);
     }
 
+    // Revoke ALL existing tokens for this user on password change
+    await revokeAllUserTokens(userId);
+
     storage.createAuditLog({
       action: "PASSWORD_CHANGED",
       entity: "user",
@@ -434,7 +445,7 @@ export async function changePasswordHandler(req: Request, res: Response) {
 
     const freshUser = await storage.getUser(userId);
     if (freshUser) {
-      const newToken = signToken({
+      const newTokenPayload = {
         userId: freshUser.id,
         role: freshUser.role,
         companyId: freshUser.companyId || null,
@@ -442,9 +453,11 @@ export async function changePasswordHandler(req: Request, res: Response) {
         driverId: freshUser.driverId || null,
         pharmacyId: (freshUser as any).pharmacyId || null,
         brokerId: (freshUser as any).brokerId || null,
-      });
-      setAuthCookie(res, newToken, req);
-      return res.json({ success: true, token: newToken });
+      };
+      const newAccessToken = signToken(newTokenPayload);
+      const newRefreshToken = signRefreshToken({ userId: freshUser.id });
+      setAuthCookies(res, newAccessToken, newRefreshToken, req);
+      return res.json({ success: true });
     }
 
     return res.json({ success: true });
@@ -524,10 +537,10 @@ export async function tokenLoginHandler(req: Request, res: Response) {
       cityId: null,
     });
 
-    setAuthCookie(res, jwtToken, req);
+    const refreshTkn = signRefreshToken({ userId: user.id });
+    setAuthCookies(res, jwtToken, refreshTkn, req);
 
     return res.json({
-      token: jwtToken,
       user: { ...safeUser, cityAccess },
       cities: accessibleCities,
       mustChangePassword: isRecovery || user.mustChangePassword || false,
@@ -624,11 +637,74 @@ export async function deleteAccountHandler(req: Request, res: Response) {
       userId,
     });
 
-    res.clearCookie("ucm_session");
+    clearAuthCookies(res, req);
     return res.json({ success: true, message: "Account successfully deleted" });
   } catch (err: any) {
     console.error("[deleteAccount] Error:", err.message);
     return res.status(500).json({ message: "Failed to delete account" });
+  }
+}
+
+/**
+ * POST /api/auth/refresh — Issue new access token using refresh cookie.
+ * The refresh token is in an httpOnly cookie scoped to /api/auth/refresh.
+ */
+export async function refreshHandler(req: Request, res: Response) {
+  try {
+    const refreshCookie = req.cookies?.ucm_refresh;
+    if (!refreshCookie) {
+      return res.status(401).json({ message: "No refresh token", code: "NO_REFRESH_TOKEN" });
+    }
+
+    let payload: { userId: number };
+    try {
+      payload = verifyRefreshToken(refreshCookie);
+    } catch {
+      return res.status(401).json({ message: "Invalid refresh token", code: "INVALID_REFRESH_TOKEN" });
+    }
+
+    const user = await storage.getUser(payload.userId);
+    if (!user || !user.active) {
+      return res.status(401).json({ message: "User not found or disabled", code: "USER_INVALID" });
+    }
+
+    const tokenPayload = {
+      userId: user.id,
+      role: user.role,
+      companyId: user.companyId || null,
+      clinicId: user.clinicId || null,
+      driverId: user.driverId || null,
+      pharmacyId: (user as any).pharmacyId || null,
+      brokerId: (user as any).brokerId || null,
+    };
+    const newAccessToken = signToken(tokenPayload);
+    const newRefreshToken = signRefreshToken({ userId: user.id });
+    setAuthCookies(res, newAccessToken, newRefreshToken, req);
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("[refreshHandler] Error:", err.message);
+    return res.status(500).json({ message: "An unexpected error occurred" });
+  }
+}
+
+/**
+ * POST /api/auth/logout — Revoke current token and clear all auth cookies.
+ */
+export async function logoutHandler(req: Request, res: Response) {
+  try {
+    // Revoke the access token if present
+    const accessToken = req.cookies?.ucm_access || req.cookies?.ucm_session;
+    if (accessToken) {
+      await revokeToken(accessToken).catch(() => {});
+    }
+
+    clearAuthCookies(res, req);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("[logoutHandler] Error:", err.message);
+    clearAuthCookies(res, req);
+    return res.json({ success: true });
   }
 }
 
