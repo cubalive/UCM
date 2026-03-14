@@ -441,7 +441,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                 <div className="grid grid-cols-2 gap-2 py-3 px-1">
                   {vehicleDetail.make && (
                     <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                      <Car className="w-3.5 h-3.5" style={{ color: colors.sunrise }} />
+                      <Car className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.sunrise }} />
                       <div>
                         <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Make</p>
                         <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.make}</p>
@@ -450,7 +450,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                   )}
                   {vehicleDetail.model && (
                     <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                      <Info className="w-3.5 h-3.5" style={{ color: colors.sky }} />
+                      <Info className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.sky }} />
                       <div>
                         <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Model</p>
                         <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.model}</p>
@@ -459,7 +459,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                   )}
                   {vehicleDetail.year && (
                     <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                      <Calendar className="w-3.5 h-3.5" style={{ color: colors.warning }} />
+                      <Calendar className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.warning }} />
                       <div>
                         <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Year</p>
                         <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.year}</p>
@@ -468,7 +468,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                   )}
                   {vehicleDetail.plate && (
                     <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                      <Hash className="w-3.5 h-3.5" style={{ color: colors.success }} />
+                      <Hash className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.success }} />
                       <div>
                         <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Plate</p>
                         <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.plate}</p>
@@ -477,7 +477,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                   )}
                   {vehicleDetail.color && (
                     <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                      <Palette className="w-3.5 h-3.5" style={{ color: colors.coral }} />
+                      <Palette className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.coral }} />
                       <div>
                         <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Color</p>
                         <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>{vehicleDetail.color}</p>
@@ -504,7 +504,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
               >
                 <div className="py-3 px-1 space-y-2">
                   <div className="flex items-start gap-3 px-3 py-2.5 rounded-xl" style={{ background: glowColor(colors.sky, 0.06), border: `1px solid ${glowColor(colors.sky, 0.12)}` }}>
-                    <FileText className="w-4 h-4 mt-0.5" style={{ color: colors.sky }} />
+                    <FileText className="w-4 h-4 mt-0.5" aria-hidden="true" style={{ color: colors.sky }} />
                     <div>
                       <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Document Management</p>
                       <p className="text-[10px]" style={{ color: colors.textTertiary }}>
@@ -514,7 +514,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                   </div>
                   {documentCount !== null && documentCount > 0 && (
                     <div className="flex items-center gap-3 px-3 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                      <Info className="w-3.5 h-3.5" style={{ color: colors.success }} />
+                      <Info className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.success }} />
                       <p className="text-[10px]" style={{ color: colors.textSecondary }}>
                         {documentCount} document{documentCount !== 1 ? "s" : ""} on file
                       </p>
@@ -540,21 +540,21 @@ export function Profile({ onBack }: { onBack: () => void }) {
                     style={{ background: glowColor(colors.danger, 0.06), border: `1px solid ${glowColor(colors.danger, 0.12)}` }}
                     data-testid="btn-emergency-911"
                   >
-                    <Phone className="w-4 h-4" style={{ color: colors.danger }} />
+                    <Phone className="w-4 h-4" aria-hidden="true" style={{ color: colors.danger }} />
                     <div className="text-left">
                       <p className="text-xs font-semibold" style={{ color: colors.danger }}>Emergency — 911</p>
                       <p className="text-[10px]" style={{ color: colors.textTertiary }}>Call for immediate help</p>
                     </div>
                   </button>
                   <div className="flex items-start gap-3 px-3 py-2.5 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                    <AlertTriangle className="w-4 h-4 mt-0.5" style={{ color: colors.warning }} />
+                    <AlertTriangle className="w-4 h-4 mt-0.5" aria-hidden="true" style={{ color: colors.warning }} />
                     <div>
                       <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Report Safety Issue</p>
                       <p className="text-[10px]" style={{ color: colors.textTertiary }}>Contact your dispatcher to report incidents, unsafe conditions, or vehicle issues.</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3 px-3 py-2.5 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                    <Shield className="w-4 h-4 mt-0.5" style={{ color: colors.success }} />
+                    <Shield className="w-4 h-4 mt-0.5" aria-hidden="true" style={{ color: colors.success }} />
                     <div>
                       <p className="text-xs font-semibold" style={{ color: colors.textPrimary }}>Safe Driving Tips</p>
                       <p className="text-[10px]" style={{ color: colors.textTertiary }}>Always wear your seatbelt, follow speed limits, and secure passengers before driving.</p>
@@ -662,7 +662,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                   <div className="grid grid-cols-2 gap-2">
                     {learnedPreferences.topServiceTypes && learnedPreferences.topServiceTypes.length > 0 && (
                       <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                        <Route className="w-3.5 h-3.5" style={{ color: colors.sky }} />
+                        <Route className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.sky }} />
                         <div>
                           <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Top Types</p>
                           <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>
@@ -673,7 +673,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                     )}
                     {learnedPreferences.avgDistance != null && (
                       <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                        <MapPin className="w-3.5 h-3.5" style={{ color: colors.success }} />
+                        <MapPin className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.success }} />
                         <div>
                           <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Avg Dist</p>
                           <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>
@@ -684,7 +684,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                     )}
                     {learnedPreferences.peakHours && (
                       <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                        <Clock className="w-3.5 h-3.5" style={{ color: colors.warning }} />
+                        <Clock className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.warning }} />
                         <div>
                           <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Peak Hours</p>
                           <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>
@@ -695,7 +695,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
                     )}
                     {learnedPreferences.acceptRate != null && (
                       <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                        <Zap className="w-3.5 h-3.5" style={{ color: colors.sunrise }} />
+                        <Zap className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.sunrise }} />
                         <div>
                           <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Accept Rate</p>
                           <p className="text-[10px] font-semibold" style={{ color: colors.textPrimary }}>
@@ -723,9 +723,9 @@ export function Profile({ onBack }: { onBack: () => void }) {
                 style={{ background: glowColor(notifStatus === "granted" ? colors.success : colors.warning, 0.08) }}
               >
                 {notifStatus === "granted" ? (
-                  <Bell className="w-4 h-4" style={{ color: colors.success }} />
+                  <Bell className="w-4 h-4" aria-hidden="true" style={{ color: colors.success }} />
                 ) : (
-                  <BellOff className="w-4 h-4" style={{ color: colors.warning }} />
+                  <BellOff className="w-4 h-4" aria-hidden="true" style={{ color: colors.warning }} />
                 )}
               </div>
               <div>

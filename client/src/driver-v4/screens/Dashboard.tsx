@@ -236,14 +236,14 @@ function SwipeableTripOffer() {
           className="flex items-center gap-1 px-3 py-1 rounded-full"
           style={{ opacity: declineOpacity, background: colors.dangerLight }}
         >
-          <X className="w-3.5 h-3.5" style={{ color: colors.danger }} />
+          <X className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.danger }} />
           <span className="text-[10px] font-semibold" style={{ color: colors.danger }}>Decline</span>
         </motion.div>
         <motion.div
           className="flex items-center gap-1 px-3 py-1 rounded-full"
           style={{ opacity: acceptOpacity, background: colors.successLight }}
         >
-          <Check className="w-3.5 h-3.5" style={{ color: colors.success }} />
+          <Check className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.success }} />
           <span className="text-[10px] font-semibold" style={{ color: colors.success }}>Accept</span>
         </motion.div>
       </div>
@@ -753,7 +753,7 @@ function ScheduleView() {
         {/* Header */}
         <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <div className="flex items-center gap-2">
-            <Calendar className="w-3.5 h-3.5" style={{ color: colors.sunrise }} />
+            <Calendar className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.sunrise }} />
             <span className="text-xs font-bold" style={{ color: colors.textPrimary }}>
               Today's Schedule
             </span>
@@ -811,7 +811,7 @@ function ScheduleView() {
               {/* Trip info */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <User className="w-3 h-3" style={{ color: colors.textTertiary }} />
+                  <User className="w-3 h-3" aria-hidden="true" style={{ color: colors.textTertiary }} />
                   <span className="text-xs font-medium truncate" style={{ color: colors.textPrimary }}>
                     {trip.patientName}
                   </span>
@@ -912,7 +912,7 @@ function PharmacyDeliveriesCard() {
         }}
       >
         <div className="flex items-center gap-2 px-2 pb-1">
-          <Pill className="w-4 h-4" style={{ color: colors.sunrise }} />
+          <Pill className="w-4 h-4" aria-hidden="true" style={{ color: colors.sunrise }} />
           <span className="text-xs font-bold" style={{ color: colors.textPrimary }}>
             Active Deliveries
           </span>
@@ -939,7 +939,7 @@ function PharmacyDeliveriesCard() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Package className="w-3.5 h-3.5" style={{ color: statusColor }} />
+                  <Package className="w-3.5 h-3.5" aria-hidden="true" style={{ color: statusColor }} />
                   <span className="text-xs font-semibold" style={{ color: colors.textPrimary }}>
                     {delivery.publicId}
                   </span>
@@ -949,7 +949,7 @@ function PharmacyDeliveriesCard() {
                     </span>
                   )}
                   {delivery.temperatureRequirement && delivery.temperatureRequirement !== "NONE" && (
-                    <Thermometer className="w-3 h-3" style={{ color: colors.sky }} />
+                    <Thermometer className="w-3 h-3" aria-hidden="true" style={{ color: colors.sky }} />
                   )}
                 </div>
                 <span
@@ -961,7 +961,7 @@ function PharmacyDeliveriesCard() {
               </div>
 
               <div className="flex items-center gap-2">
-                <MapPin className="w-3 h-3 flex-shrink-0" style={{ color: colors.textTertiary }} />
+                <MapPin className="w-3 h-3 flex-shrink-0" aria-hidden="true" style={{ color: colors.textTertiary }} />
                 <span className="text-[10px] truncate" style={{ color: colors.textSecondary }}>
                   {address}
                 </span>
@@ -969,7 +969,7 @@ function PharmacyDeliveriesCard() {
 
               {delivery.recipientName && (
                 <div className="flex items-center gap-2">
-                  <User className="w-3 h-3 flex-shrink-0" style={{ color: colors.textTertiary }} />
+                  <User className="w-3 h-3 flex-shrink-0" aria-hidden="true" style={{ color: colors.textTertiary }} />
                   <span className="text-[10px]" style={{ color: colors.textSecondary }}>
                     {delivery.recipientName}
                   </span>

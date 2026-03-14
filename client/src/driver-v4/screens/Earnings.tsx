@@ -348,7 +348,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
         {serviceBreakdown.length > 0 && (
           <GlassCard variant="default" testID="card-service-breakdown" className="!p-4">
             <div className="flex items-center gap-2 mb-3 px-1">
-              <BarChart3 className="w-3.5 h-3.5" style={{ color: colors.textTertiary }} />
+              <BarChart3 className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.textTertiary }} />
               <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>
                 By Service Type
               </p>
@@ -388,7 +388,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
         {/* Payment Method */}
         <GlassCard variant="default" testID="card-payment-method" className="!p-4">
           <div className="flex items-center gap-2 mb-2 px-1">
-            <CreditCard className="w-3.5 h-3.5" style={{ color: colors.textTertiary }} />
+            <CreditCard className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.textTertiary }} />
             <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>
               Payment Method
             </p>
@@ -409,7 +409,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                       className="w-8 h-8 rounded-lg flex items-center justify-center"
                       style={{ background: "rgba(0,0,0,0.04)" }}
                     >
-                      <Wallet className="w-4 h-4" style={{ color: colors.textSecondary }} />
+                      <Wallet className="w-4 h-4" aria-hidden="true" style={{ color: colors.textSecondary }} />
                     </div>
                     <div>
                       <p className="text-xs font-medium" style={{ color: colors.textPrimary }}>
@@ -438,7 +438,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                   className="w-8 h-8 rounded-lg flex items-center justify-center"
                   style={{ background: "rgba(0,0,0,0.03)" }}
                 >
-                  <Wallet className="w-4 h-4" style={{ color: colors.textTertiary }} />
+                  <Wallet className="w-4 h-4" aria-hidden="true" style={{ color: colors.textTertiary }} />
                 </div>
                 <div className="flex-1">
                   <p className="text-xs font-medium" style={{ color: colors.textSecondary }}>
@@ -450,7 +450,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                 </div>
               </div>
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
-                <Settings className="w-3.5 h-3.5" style={{ color: colors.sky }} />
+                <Settings className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.sky }} />
                 <p className="text-[10px]" style={{ color: colors.textSecondary }}>
                   To update your payment method, contact your dispatcher or admin.
                 </p>
@@ -482,7 +482,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                         className="w-9 h-9 rounded-xl flex items-center justify-center"
                         style={{ background: glowColor(SERVICE_COLORS[trip.serviceType || "transport"] || colors.sunrise, 0.08) }}
                       >
-                        <Calendar className="w-4 h-4" style={{ color: SERVICE_COLORS[trip.serviceType || "transport"] || colors.sunrise }} />
+                        <Calendar className="w-4 h-4" aria-hidden="true" style={{ color: SERVICE_COLORS[trip.serviceType || "transport"] || colors.sunrise }} />
                       </div>
                       <div>
                         <p className="text-sm font-medium" style={{ color: colors.textPrimary }}>{trip.passenger}</p>

@@ -131,7 +131,7 @@ function SignaturePad({ onSave, onCancel }: { onSave: (data: string) => void; on
           onTouchEnd={stopDrawing}
         />
         <p
-          className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px]"
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs"
           style={{ color: colors.textTertiary }}
         >
           Sign here
