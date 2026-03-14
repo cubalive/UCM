@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import crypto from "crypto";
 
 // ── PII Masking ─────────────────────────────────────────────────────────────
 
@@ -114,12 +115,17 @@ export function structuredLoggerMiddleware(
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Hash IP for HIPAA compliance — never log raw IPs */
 function getClientIp(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
+  let ip: string;
   if (typeof forwarded === "string") {
-    return forwarded.split(",")[0].trim();
+    ip = forwarded.split(",")[0].trim();
+  } else {
+    ip = req.socket?.remoteAddress ?? "unknown";
   }
-  return req.socket?.remoteAddress ?? "unknown";
+  if (ip === "unknown") return ip;
+  return crypto.createHash("sha256").update(ip).digest("hex").slice(0, 16);
 }
 
 function getErrorHint(statusCode: number): string {

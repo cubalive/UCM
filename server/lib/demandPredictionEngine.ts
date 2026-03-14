@@ -107,6 +107,47 @@ const FEDERAL_HOLIDAYS = [
 const OPERATING_START = 5;
 const OPERATING_END = 22;
 
+// ─── Weather Impact Factor ──────────────────────────────────────────────────
+
+/**
+ * Compute a weather-based demand multiplier for a given date.
+ *
+ * NEMT demand increases during adverse weather because:
+ * - Rain/snow makes self-transport harder for mobility-impaired patients
+ * - Extreme heat increases medical transport needs for elderly/vulnerable
+ * - Severe cold causes more falls, more ER visits, more transport needs
+ *
+ * Uses seasonal weather patterns by month as a statistical proxy.
+ * Can be enhanced with real weather API integration (OpenWeatherMap, etc.)
+ */
+export function getWeatherImpactFactor(date: string): { factor: number; condition: string } {
+  const d = new Date(date + "T12:00:00Z");
+  const month = d.getMonth(); // 0-11
+
+  // Winter months (Dec, Jan, Feb): rain/snow/ice increases NEMT demand
+  if (month === 11 || month === 0 || month === 1) {
+    return { factor: 1.15, condition: "winter_weather" };
+  }
+
+  // Summer extreme heat (Jul, Aug): heat-related transport increases
+  if (month === 6 || month === 7) {
+    return { factor: 1.10, condition: "extreme_heat" };
+  }
+
+  // Spring rain season (Mar, Apr): moderate increase
+  if (month === 2 || month === 3) {
+    return { factor: 1.05, condition: "spring_rain" };
+  }
+
+  // Hurricane season peak (Sep): Southeast US impact
+  if (month === 8) {
+    return { factor: 1.08, condition: "hurricane_season" };
+  }
+
+  // Normal conditions
+  return { factor: 1.0, condition: "normal" };
+}
+
 // ─── Utility ─────────────────────────────────────────────────────────────────
 
 function zoneKey(lat: number, lng: number): string {
@@ -428,6 +469,13 @@ export async function predictCityDemand(
     predicted *= trend.trendMultiplier;
     if (Math.abs(trend.trendMultiplier - 1.0) > 0.03) {
       factors.push(`Recent trend: ${trend.trendMultiplier > 1 ? "+" : ""}${Math.round((trend.trendMultiplier - 1) * 100)}%`);
+    }
+
+    // Apply weather impact factor
+    const weather = getWeatherImpactFactor(date);
+    if (weather.factor !== 1.0) {
+      predicted *= weather.factor;
+      factors.push(`Weather (${weather.condition}): +${Math.round((weather.factor - 1) * 100)}%`);
     }
 
     // Apply special date adjustments

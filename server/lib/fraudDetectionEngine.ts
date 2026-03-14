@@ -19,8 +19,8 @@
  */
 
 import { db } from "../db";
-import { trips, drivers, fraudAlerts, deadMileDailySummary } from "@shared/schema";
-import { eq, and, sql, gte, lte, isNull, desc } from "drizzle-orm";
+import { trips, drivers, fraudAlerts, deadMileDailySummary, tripSignatures } from "@shared/schema";
+import { eq, and, sql, gte, lte, isNull, desc, count } from "drizzle-orm";
 import { setJson, getJson } from "./redis";
 import { cache } from "./cache";
 import { createHarnessedTask, registerInterval, type HarnessedTask } from "./schedulerHarness";
@@ -1120,4 +1120,362 @@ export function stopFraudMonitor(): void {
     fraudMonitorTask = null;
   }
   console.log("[FRAUD-MONITOR] Stopped");
+}
+
+// ─── Trip Completion Fraud Scoring (5-Signal Model) ─────────────────────────
+
+export interface FraudSignal {
+  signal: string;
+  weight: number;
+  value: number;
+  threshold: number;
+  triggered: boolean;
+}
+
+export interface FraudScore {
+  tripId: number;
+  score: number; // 0-100
+  risk: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  signals: FraudSignal[];
+  action: 'AUTO_APPROVE' | 'FLAG_FOR_REVIEW' | 'HOLD' | 'BLOCK';
+  explanation: string;
+}
+
+/**
+ * Signal 1 — GPS mileage vs claimed mileage
+ * Compares actualDistanceMeters (converted to miles) against distanceMiles.
+ * Triggered when the discrepancy exceeds 10%.
+ */
+async function checkMileageDiscrepancy(trip: {
+  actualDistanceMeters: number | null;
+  distanceMiles: string | null;
+}): Promise<FraudSignal> {
+  const WEIGHT = 25;
+  const THRESHOLD = 0.10;
+
+  const actualMeters = trip.actualDistanceMeters;
+  const claimedMilesStr = trip.distanceMiles;
+
+  if (actualMeters == null || claimedMilesStr == null) {
+    return { signal: "mileage_discrepancy", weight: WEIGHT, value: 0, threshold: THRESHOLD, triggered: false };
+  }
+
+  const gpsMiles = actualMeters / 1609.34;
+  const claimedMiles = parseFloat(claimedMilesStr);
+
+  if (claimedMiles <= 0) {
+    return { signal: "mileage_discrepancy", weight: WEIGHT, value: 0, threshold: THRESHOLD, triggered: false };
+  }
+
+  const discrepancy = Math.abs(gpsMiles - claimedMiles) / claimedMiles;
+  return {
+    signal: "mileage_discrepancy",
+    weight: WEIGHT,
+    value: Math.round(discrepancy * 1000) / 1000,
+    threshold: THRESHOLD,
+    triggered: discrepancy > THRESHOLD,
+  };
+}
+
+/**
+ * Signal 2 — Trip frequency anomaly
+ * Checks if a patient's trips in the last 7 days exceed 3x their 90-day weekly average.
+ */
+async function checkTripFrequencyAnomaly(trip: {
+  patientId: number;
+  companyId: number;
+}): Promise<FraudSignal> {
+  const WEIGHT = 20;
+  const THRESHOLD = 3;
+
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+  const [last7Result] = await db
+    .select({ cnt: count() })
+    .from(trips)
+    .where(
+      and(
+        eq(trips.patientId, trip.patientId),
+        eq(trips.companyId, trip.companyId),
+        gte(trips.scheduledDate, sevenDaysAgo.toISOString().split("T")[0]),
+        isNull(trips.deletedAt),
+      )
+    );
+
+  const [last90Result] = await db
+    .select({ cnt: count() })
+    .from(trips)
+    .where(
+      and(
+        eq(trips.patientId, trip.patientId),
+        eq(trips.companyId, trip.companyId),
+        gte(trips.scheduledDate, ninetyDaysAgo.toISOString().split("T")[0]),
+        isNull(trips.deletedAt),
+      )
+    );
+
+  const tripsLast7Days = Number(last7Result?.cnt ?? 0);
+  const tripsLast90Days = Number(last90Result?.cnt ?? 0);
+  const avgWeekly = tripsLast90Days / (90 / 7);
+  const ratio = avgWeekly > 0 ? tripsLast7Days / avgWeekly : 0;
+
+  return {
+    signal: "trip_frequency_anomaly",
+    weight: WEIGHT,
+    value: Math.round(ratio * 100) / 100,
+    threshold: THRESHOLD,
+    triggered: tripsLast7Days > avgWeekly * THRESHOLD,
+  };
+}
+
+/**
+ * Signal 3 — Driver overlapping trips
+ * Checks if the driver has another trip overlapping in time window on the same date.
+ * Uses scheduledDate + pickupTime (text "HH:MM") to compute time ranges.
+ */
+async function checkDriverOverlap(trip: {
+  id: number;
+  driverId: number | null;
+  scheduledDate: string;
+  pickupTime: string | null;
+  durationMinutes: number | null;
+}): Promise<FraudSignal> {
+  const WEIGHT = 30;
+  const THRESHOLD = 0;
+
+  if (trip.driverId == null || trip.pickupTime == null) {
+    return { signal: "driver_overlap", weight: WEIGHT, value: 0, threshold: THRESHOLD, triggered: false };
+  }
+
+  const durationMin = trip.durationMinutes ?? 30; // default 30 min if not set
+
+  // Find other trips for this driver on the same date that overlap in time
+  // pickupTime is text "HH:MM" — use time arithmetic in SQL
+  const overlapping = await db
+    .select({ cnt: count() })
+    .from(trips)
+    .where(
+      and(
+        eq(trips.driverId, trip.driverId),
+        eq(trips.scheduledDate, trip.scheduledDate),
+        sql`${trips.id} != ${trip.id}`,
+        sql`${trips.pickupTime} IS NOT NULL`,
+        sql`${trips.status} NOT IN ('CANCELLED', 'NO_SHOW')`,
+        isNull(trips.deletedAt),
+        // Other trip starts before this trip ends AND other trip ends after this trip starts
+        sql`${trips.pickupTime}::time < (${trip.pickupTime}::time + (${durationMin} || ' minutes')::interval)`,
+        sql`(${trips.pickupTime}::time + (COALESCE(${trips.durationMinutes}, 30) || ' minutes')::interval) > ${trip.pickupTime}::time`,
+      )
+    );
+
+  const overlapCount = Number(overlapping[0]?.cnt ?? 0);
+
+  return {
+    signal: "driver_overlap",
+    weight: WEIGHT,
+    value: overlapCount,
+    threshold: THRESHOLD,
+    triggered: overlapCount > THRESHOLD,
+  };
+}
+
+/**
+ * Signal 4 — Address clustering
+ * Flags when >20 trips across ALL patients go to the same dropoff address in 30 days.
+ */
+async function checkAddressClustering(trip: {
+  dropoffAddress: string | null;
+  companyId: number;
+}): Promise<FraudSignal> {
+  const WEIGHT = 15;
+  const THRESHOLD = 20;
+
+  if (!trip.dropoffAddress) {
+    return { signal: "address_clustering", weight: WEIGHT, value: 0, threshold: THRESHOLD, triggered: false };
+  }
+
+  const normalizedAddress = trip.dropoffAddress.toLowerCase().trim();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const [result] = await db
+    .select({ cnt: count() })
+    .from(trips)
+    .where(
+      and(
+        eq(trips.companyId, trip.companyId),
+        sql`lower(trim(${trips.dropoffAddress})) = ${normalizedAddress}`,
+        gte(trips.scheduledDate, thirtyDaysAgo.toISOString().split("T")[0]),
+      )
+    );
+
+  const addressCount = Number(result?.cnt ?? 0);
+
+  return {
+    signal: "address_clustering",
+    weight: WEIGHT,
+    value: addressCount,
+    threshold: THRESHOLD,
+    triggered: addressCount > THRESHOLD,
+  };
+}
+
+/**
+ * Signal 5 — Signature missing on completed trip
+ * Checks if a completed trip has no associated signature record in tripSignatures.
+ * Most NEMT trips require proof-of-delivery signatures.
+ */
+async function checkMissingSignature(trip: {
+  id: number;
+  status: string;
+}): Promise<FraudSignal> {
+  const WEIGHT = 10;
+
+  // Only check completed trips
+  if (trip.status !== "COMPLETED") {
+    return { signal: "missing_signature", weight: WEIGHT, value: 0, threshold: 1, triggered: false };
+  }
+
+  const sigRows = await db
+    .select({
+      tripId: tripSignatures.tripId,
+      signatureRefused: tripSignatures.signatureRefused,
+      driverSigBase64: tripSignatures.driverSigBase64,
+    })
+    .from(tripSignatures)
+    .where(eq(tripSignatures.tripId, trip.id));
+
+  const hasSig = sigRows.length > 0 && sigRows[0].driverSigBase64 != null && !sigRows[0].signatureRefused;
+
+  return {
+    signal: "missing_signature",
+    weight: WEIGHT,
+    value: hasSig ? 0 : 1,
+    threshold: 1,
+    triggered: !hasSig,
+  };
+}
+
+/**
+ * Score a trip at completion time by running all 5 fraud signals.
+ *
+ * Risk thresholds:
+ *   CRITICAL (50+) → BLOCK
+ *   HIGH     (30-49) → HOLD
+ *   MEDIUM   (15-29) → FLAG_FOR_REVIEW
+ *   LOW      (0-14)  → AUTO_APPROVE
+ */
+export async function scoreTripOnCompletion(tripId: number): Promise<FraudScore> {
+  // Fetch the trip
+  const [trip] = await db
+    .select()
+    .from(trips)
+    .where(eq(trips.id, tripId));
+
+  if (!trip) {
+    throw new Error(`[FRAUD] Trip ${tripId} not found`);
+  }
+
+  // Run all 5 signals concurrently
+  const signals = await Promise.all([
+    checkMileageDiscrepancy({
+      actualDistanceMeters: trip.actualDistanceMeters,
+      distanceMiles: trip.distanceMiles,
+    }),
+    checkTripFrequencyAnomaly({
+      patientId: trip.patientId,
+      companyId: trip.companyId,
+    }),
+    checkDriverOverlap({
+      id: trip.id,
+      driverId: trip.driverId,
+      scheduledDate: trip.scheduledDate,
+      pickupTime: trip.pickupTime,
+      durationMinutes: trip.durationMinutes,
+    }),
+    checkAddressClustering({
+      dropoffAddress: trip.dropoffAddress,
+      companyId: trip.companyId,
+    }),
+    checkMissingSignature({
+      id: trip.id,
+      status: trip.status,
+    }),
+  ]);
+
+  // Compute score from triggered signals
+  const score = signals.reduce((sum, s) => sum + (s.triggered ? s.weight : 0), 0);
+
+  // Determine risk level
+  let risk: FraudScore["risk"];
+  if (score >= 50) risk = "CRITICAL";
+  else if (score >= 30) risk = "HIGH";
+  else if (score >= 15) risk = "MEDIUM";
+  else risk = "LOW";
+
+  // Determine action
+  let action: FraudScore["action"];
+  if (risk === "CRITICAL") action = "BLOCK";
+  else if (risk === "HIGH") action = "HOLD";
+  else if (risk === "MEDIUM") action = "FLAG_FOR_REVIEW";
+  else action = "AUTO_APPROVE";
+
+  // Generate human-readable explanation
+  const triggeredSignals = signals.filter((s) => s.triggered);
+  let explanation: string;
+  if (triggeredSignals.length === 0) {
+    explanation = "No fraud signals triggered. Trip appears legitimate.";
+  } else {
+    const details = triggeredSignals
+      .map((s) => {
+        switch (s.signal) {
+          case "mileage_discrepancy":
+            return `GPS mileage differs from claimed mileage by ${(s.value * 100).toFixed(1)}% (threshold: ${(s.threshold * 100).toFixed(0)}%)`;
+          case "trip_frequency_anomaly":
+            return `Patient trip frequency is ${s.value.toFixed(1)}x the 90-day weekly average (threshold: ${s.threshold}x)`;
+          case "driver_overlap":
+            return `Driver has ${s.value} overlapping trip(s) during this time window`;
+          case "address_clustering":
+            return `Dropoff address used ${s.value} times in last 30 days (threshold: ${s.threshold})`;
+          case "missing_signature":
+            return "Required signature is missing for this trip";
+          default:
+            return `${s.signal}: value=${s.value}, threshold=${s.threshold}`;
+        }
+      })
+      .join("; ");
+    explanation = `${triggeredSignals.length} signal(s) triggered (score ${score}): ${details}`;
+  }
+
+  // Persist to fraudAlerts if score warrants review
+  if (score >= 15) {
+    try {
+      await db.insert(fraudAlerts).values({
+        tripId,
+        companyId: trip.companyId,
+        cityId: trip.cityId ?? null,
+        driverId: trip.driverId ?? null,
+        alertType: "COMPLETION_SCORE",
+        severity: risk,
+        description: explanation,
+        details: {
+          score,
+          signals: signals.map((s) => ({
+            signal: s.signal,
+            weight: s.weight,
+            value: s.value,
+            threshold: s.threshold,
+            triggered: s.triggered,
+          })),
+          action,
+        },
+        status: action === "BLOCK" || action === "HOLD" ? "OPEN" : "OPEN",
+      });
+    } catch (err) {
+      console.error(`[FRAUD] Failed to persist fraud alert for trip ${tripId}:`, err);
+    }
+  }
+
+  return { tripId, score, risk, signals, action, explanation };
 }

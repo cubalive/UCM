@@ -141,6 +141,117 @@ export function registerHealthRoutes(app: Express) {
     });
   });
 
+  // ── Deep health check for admin dashboard ─────────────────────────────
+  app.get("/api/admin/health/deep", async (_req: Request, res: Response) => {
+    // Services health
+    const services: Record<string, any> = {};
+
+    // Database
+    try {
+      const dbStart = Date.now();
+      const poolResult = await db.execute(sql`SELECT count(*) as cnt FROM pg_stat_activity WHERE datname = current_database()`);
+      const dbLatency = Date.now() - dbStart;
+      const connCount = (poolResult as any).rows?.[0]?.cnt || 0;
+      services.database = { status: "ok", latencyMs: dbLatency, connectionPool: { active: Number(connCount) } };
+    } catch (err: any) {
+      services.database = { status: "error", latencyMs: 0, error: err.message };
+    }
+
+    // Redis
+    try {
+      const { pingRedis, isRedisConnected } = await import("../lib/redis");
+      if (isRedisConnected()) {
+        const ping = await pingRedis();
+        services.redis = { status: ping.ok ? "ok" : "error", latencyMs: ping.latencyMs };
+      } else {
+        services.redis = { status: "not_configured" };
+      }
+    } catch {
+      services.redis = { status: "not_configured" };
+    }
+
+    // External services (Stripe, Twilio, Google Maps, Firebase)
+    const externalResults = await checkExternalServices();
+    services.stripe = externalResults.stripe || { status: "not_configured" };
+    services.twilio = externalResults.twilio || { status: "not_configured" };
+    services.googleMaps = externalResults.googleMaps || { status: "not_configured" };
+
+    // Firebase check
+    services.firebase = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+      ? { status: "ok", latencyMs: 0 }
+      : { status: "not_configured" };
+
+    // Schedulers
+    let schedulers: Record<string, any> = {};
+    try {
+      const { getSchedulerStates } = await import("../lib/schedulerHarness");
+      const states = getSchedulerStates();
+      for (const [name, state] of Object.entries(states)) {
+        const s = state as any;
+        const errorRate = s.totalRuns > 0 ? s.failureCount / s.totalRuns : 0;
+        let status: "healthy" | "degraded" | "failed" = "healthy";
+        if (errorRate > 0.5) status = "failed";
+        else if (errorRate > 0.1 || s.failureCount > 3) status = "degraded";
+        schedulers[name] = {
+          lastRun: s.lastRunAt,
+          lastSuccess: s.lastSuccessAt,
+          status,
+          lastRunDurationMs: s.avgDurationMs,
+          errorRate: Math.round(errorRate * 100) / 100,
+          totalRuns: s.totalRuns,
+          successCount: s.successCount,
+          failureCount: s.failureCount,
+          isRunning: s.isRunning,
+          active: s.active,
+        };
+      }
+    } catch {}
+
+    // Metrics
+    let metrics: Record<string, any> = {};
+    try {
+      const { getCachedSnapshot } = await import("../lib/aiEngine");
+      const snapshot = await getCachedSnapshot();
+      if (snapshot) {
+        metrics = {
+          activeTrips: snapshot.metrics.activeTrips,
+          onlineDrivers: snapshot.metrics.driversOnline,
+          pendingClaims: 0,
+          websocketConnections: 0,
+          queueDepth: 0,
+          errorRateLast5min: snapshot.metrics.errorRatePct,
+        };
+      }
+    } catch {}
+
+    // WebSocket connections
+    try {
+      const { getWss } = await import("../lib/realtime");
+      const wss = getWss();
+      if (wss) metrics.websocketConnections = wss.clients.size;
+    } catch {}
+
+    // Pending claims count
+    try {
+      const claimResult = await db.execute(sql`
+        SELECT count(*) as cnt FROM medicaid_claims WHERE status IN ('draft', 'submitted')
+      `);
+      metrics.pendingClaims = Number((claimResult as any).rows?.[0]?.cnt || 0);
+    } catch {}
+
+    res.json({
+      services,
+      schedulers,
+      metrics,
+      memory: {
+        rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        heap_used_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      },
+      uptime: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   // ── Circuit breaker states endpoint ─────────────────────────────────────
   app.get("/api/health/circuits", async (_req: Request, res: Response) => {
     let circuitStates: Record<string, any> = {};

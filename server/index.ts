@@ -14,6 +14,18 @@ import { inputSanitizer } from "./middleware/inputSanitizer";
 import { apiRateLimiter } from "./middleware/rateLimiter";
 import { structuredLoggerMiddleware } from "./middleware/structuredLogger";
 import compression from "compression";
+import * as Sentry from "@sentry/node";
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || "development",
+    release: process.env.UCM_BUILD_VERSION || "dev",
+    tracesSampleRate: 0.1,
+    profilesSampleRate: 0.1,
+  });
+  console.log(JSON.stringify({ event: "sentry_initialized", environment: process.env.NODE_ENV || "development", ts: new Date().toISOString() }));
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -277,6 +289,20 @@ app.use(phiAuditMiddleware);
 // Structured request logger — logs every API request in structured JSON with PII masking.
 // Placed after auth/tenant middleware so user info is available.
 app.use(structuredLoggerMiddleware);
+
+// Attach Sentry user context for error tracking
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  const user = (req as any).user;
+  if (user && process.env.SENTRY_DSN) {
+    Sentry.setUser({ id: String(user.userId), role: user.role, companyId: user.companyId });
+  }
+  next();
+});
+
+// Sentry error handler — must be after all controllers but before custom error handlers
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 app.use((req, res, next) => {
   const start = Date.now();
