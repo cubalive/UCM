@@ -21,6 +21,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Menu, X, AlertTriangle, Bell } from "lucide-react";
 import { SkipToContent } from "@/components/SkipToContent";
+import { useTranslation } from "react-i18next";
 
 const CLINIC_ROLES = ["CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"];
 const ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
@@ -49,22 +50,23 @@ function ClinicPortalRoutes() {
 
 function ClinicHostUnauthorized() {
   const { logout } = useAuth();
+  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 max-w-md text-center space-y-4">
         <div className="w-16 h-16 mx-auto bg-red-500/10 rounded-full flex items-center justify-center">
           <X className="w-8 h-8 text-red-400" aria-hidden="true" />
         </div>
-        <h2 className="text-xl font-semibold text-white">Access Denied</h2>
+        <h2 className="text-xl font-semibold text-white">{t('clinic.layout.accessDenied', 'Access Denied')}</h2>
         <p className="text-gray-400">
-          This portal is restricted to clinic users only. Please contact your administrator if you believe this is an error.
+          {t('clinic.layout.accessDeniedMessage', 'This portal is restricted to clinic users only. Please contact your administrator if you believe this is an error.')}
         </p>
         <button
           onClick={() => logout()}
           className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
           data-testid="button-clinic-logout"
         >
-          Sign Out
+          {t('common.logout', 'Sign Out')}
         </button>
       </div>
     </div>
@@ -72,6 +74,7 @@ function ClinicHostUnauthorized() {
 }
 
 function NotificationBell() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { data } = useQuery<any>({
     queryKey: ["/api/clinic/notifications"],
@@ -108,7 +111,7 @@ function NotificationBell() {
         onClick={() => setOpen(!open)}
         className="relative p-2 hover:bg-white/5 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
         data-testid="notification-bell"
-        aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
+        aria-label={t('clinic.layout.notifications', 'Notifications ({{count}} unread)', { count: unreadCount })}
         aria-expanded={open}
         aria-haspopup="true"
       >
@@ -125,13 +128,13 @@ function NotificationBell() {
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} role="presentation" aria-hidden="true" />
           <div className="absolute right-0 top-full mt-2 w-80 bg-[#111827] border border-[#1e293b] rounded-xl shadow-2xl z-50 overflow-hidden" data-testid="notification-dropdown" role="menu" aria-label="Notifications">
             <div className="px-4 py-3 border-b border-[#1e293b] flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">Notifications</h3>
+              <h3 className="text-sm font-semibold text-white">{t('clinic.layout.notificationsTitle', 'Notifications')}</h3>
               {unreadCount > 0 && (
                 <button
                   onClick={handleMarkAllRead}
                   className="text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors"
                 >
-                  Mark all read
+                  {t('notifications.markAllRead')}
                 </button>
               )}
             </div>
@@ -139,7 +142,7 @@ function NotificationBell() {
               {notifications.length === 0 ? (
                 <div className="p-6 text-center">
                   <Bell className="w-8 h-8 text-gray-700 mx-auto mb-2" aria-hidden="true" />
-                  <p className="text-xs text-gray-500">No notifications yet</p>
+                  <p className="text-xs text-gray-500">{t('notifications.noNotifications')}</p>
                 </div>
               ) : (
                 notifications.slice(0, 20).map((n: any) => (
@@ -173,6 +176,7 @@ function NotificationBell() {
 }
 
 export function ClinicPortalLayout() {
+  const { t } = useTranslation();
   const { user, token, loading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [location] = useLocation();
@@ -193,7 +197,7 @@ export function ClinicPortalLayout() {
       <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]" role="status" aria-live="polite">
         <div className="flex flex-col items-center space-y-4">
           <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
-          <p className="text-gray-400 text-sm">Loading clinic portal...</p>
+          <p className="text-gray-400 text-sm">{t('common.loading')}</p>
         </div>
       </div>
     );
@@ -219,15 +223,15 @@ export function ClinicPortalLayout() {
           <div className="w-16 h-16 mx-auto bg-amber-500/10 rounded-full flex items-center justify-center">
             <AlertTriangle className="w-8 h-8 text-amber-400" aria-hidden="true" />
           </div>
-          <h2 className="text-xl font-semibold text-white">No Clinic Assigned</h2>
+          <h2 className="text-xl font-semibold text-white">{t('clinic.layout.noClinicAssigned', 'No Clinic Assigned')}</h2>
           <p className="text-gray-400">
-            Your account is not linked to a specific clinic. Use the admin panel to manage clinic billing and settings.
+            {t('clinic.layout.noClinicMessage', 'Your account is not linked to a specific clinic. Use the admin panel to manage clinic billing and settings.')}
           </p>
           <a
             href={window.location.hostname === "localhost" || window.location.hostname.startsWith("127.") ? "/?portal=admin" : "/"}
             className="inline-block px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors"
           >
-            Go to Admin Panel
+            {t('clinic.layout.goToAdmin', 'Go to Admin Panel')}
           </a>
         </div>
       </div>
@@ -254,7 +258,7 @@ export function ClinicPortalLayout() {
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="lg:hidden p-2 hover:bg-white/5 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
             data-testid="button-toggle-sidebar"
-            aria-label={sidebarOpen ? "Close sidebar menu" : "Open sidebar menu"}
+            aria-label={sidebarOpen ? t('clinic.layout.closeSidebar', 'Close sidebar menu') : t('clinic.layout.openSidebar', 'Open sidebar menu')}
             aria-expanded={sidebarOpen}
           >
             <Menu className="w-5 h-5 text-gray-400" aria-hidden="true" />
@@ -264,8 +268,8 @@ export function ClinicPortalLayout() {
               UC
             </div>
             <div>
-              <h1 className="text-sm font-semibold text-white leading-none">UCM Clinic Portal</h1>
-              <p className="text-xs text-gray-500 leading-none mt-0.5">{user.clinicId ? "Clinic Dashboard" : "Administrator"}</p>
+              <h1 className="text-sm font-semibold text-white leading-none">{t('clinic.layout.portalTitle', 'UCM Clinic Portal')}</h1>
+              <p className="text-xs text-gray-500 leading-none mt-0.5">{user.clinicId ? t('clinic.dashboard') : t('clinic.layout.administrator', 'Administrator')}</p>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3">
@@ -280,7 +284,7 @@ export function ClinicPortalLayout() {
           </div>
         </header>
 
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" role="main" aria-label="Clinic portal content">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" role="main" aria-label={t('clinic.layout.portalContent', 'Clinic portal content')}>
           <ClinicPortalRoutes />
         </main>
       </div>

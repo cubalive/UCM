@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, Component, type ReactNode, type ErrorInfo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Home, DollarSign, User, Navigation2, MapPin, Power, AlertTriangle, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useReducedMotion } from "./design/accessibility";
 import { SkipToContent } from "@/components/SkipToContent";
 import { colors } from "./design/tokens";
@@ -28,6 +29,7 @@ function BottomTabBar({
   onNavigate: (screen: Screen) => void;
   tripPhase: string;
 }) {
+  const { t } = useTranslation();
   const reduced = useReducedMotion();
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
@@ -37,11 +39,11 @@ function BottomTabBar({
   const [showEndConfirm, setShowEndConfirm] = useState(false);
 
   const tabs: { key: Screen; icon: typeof Home; label: string }[] = [
-    { key: "dashboard", icon: Home, label: "Home" },
-    { key: "earnings", icon: DollarSign, label: "Earnings" },
+    { key: "dashboard", icon: Home, label: t('driver.tabs.home') },
+    { key: "earnings", icon: DollarSign, label: t('driver.tabs.earnings') },
     // Center orb is inserted manually
-    { key: "activeTrip", icon: Navigation2, label: "Trip" },
-    { key: "profile", icon: User, label: "Profile" },
+    { key: "activeTrip", icon: Navigation2, label: t('driver.tabs.trip') },
+    { key: "profile", icon: User, label: t('driver.tabs.profile') },
   ];
 
   const isOnline = driverStatus === "online" && shiftStatus === "onShift";
@@ -121,7 +123,7 @@ function BottomTabBar({
               whileHover={!reduced ? { scale: 1.08 } : undefined}
               whileTap={!reduced ? { scale: 0.92 } : undefined}
               data-testid="orb-status"
-              aria-label={hasActiveTrip ? "Active trip" : isOnline ? "Go offline" : "Go online"}
+              aria-label={hasActiveTrip ? t('dashboard.activeTrip') : isOnline ? t('driver.status.goOffline') : t('driver.status.goOnline')}
             >
               {/* Pulse ring */}
               {(isOnline || hasActiveTrip) && !reduced && (
@@ -149,7 +151,7 @@ function BottomTabBar({
                 color: hasActiveTrip ? colors.sky : isOnline ? colors.danger : colors.sunrise,
               }}
             >
-              {hasActiveTrip ? "In Trip" : isOnline ? "Stop" : "Offline"}
+              {hasActiveTrip ? t('driver.status.inTrip') : isOnline ? t('driver.status.stop') : t('driver.status.offline')}
             </span>
           </div>
 
@@ -173,10 +175,10 @@ function BottomTabBar({
       </nav>
       <ConfirmDialog
         open={showEndConfirm}
-        title="End Shift?"
-        message="Make sure all your trips are complete before ending your shift. This will set you offline."
-        confirmLabel="End Shift"
-        cancelLabel="Keep Working"
+        title={t('driver.shift.endShift')}
+        message={t('driver.shift.endShiftMessage')}
+        confirmLabel={t('driver.shift.endShiftConfirm')}
+        cancelLabel={t('driver.shift.keepWorking')}
         variant="danger"
         onConfirm={confirmEndShift}
         onCancel={() => setShowEndConfirm(false)}
@@ -295,6 +297,7 @@ class DriverErrorBoundary extends Component<{ children: ReactNode }, ErrorBounda
 
 /* ─── Main App Container ─── */
 export function DriverAppV4() {
+  const { t } = useTranslation();
   const [screen, setScreen] = useState<Screen>("onboarding");
   const reduced = useReducedMotion();
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -377,7 +380,7 @@ export function DriverAppV4() {
           background: colors.bg0,
         }}
         role="application"
-        aria-label="Driver application"
+        aria-label={t('driver.app.title')}
       >
         <SkipToContent />
         {/* Screen content */}
@@ -387,7 +390,7 @@ export function DriverAppV4() {
             id="main-content"
             tabIndex={-1}
             role="main"
-            aria-label="Driver app content"
+            aria-label={t('driver.app.content')}
             initial={reduced ? {} : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduced ? {} : { opacity: 0 }}
