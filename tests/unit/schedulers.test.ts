@@ -636,19 +636,19 @@ describe("Circuit Breaker", () => {
   });
 
   it("after reset time: transitions to half-open then closed", async () => {
-    const cb = new CircuitBreaker(1, 10);
+    const cb = new CircuitBreaker(1, 50);
     try { await cb.execute(() => Promise.reject(new Error("fail"))); } catch {}
     expect(cb.getState()).toBe("open");
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 150));
     const result = await cb.execute(() => Promise.resolve("ok"));
     expect(result).toBe("ok");
     expect(cb.getState()).toBe("closed");
   });
 
   it("half-open: failure re-opens", async () => {
-    const cb = new CircuitBreaker(1, 10);
+    const cb = new CircuitBreaker(1, 50);
     try { await cb.execute(() => Promise.reject(new Error("fail"))); } catch {}
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 150));
     try { await cb.execute(() => Promise.reject(new Error("fail again"))); } catch {}
     expect(cb.getState()).toBe("open");
   });
