@@ -166,8 +166,9 @@ export default function BrokerTripRequestNew() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Return Time (if round trip)</label>
+              <label htmlFor="broker-return-time" className="block text-xs text-gray-400 mb-1">Return Time (if round trip)</label>
               <input
+                id="broker-return-time"
                 type="time"
                 value={form.requestedReturnTime}
                 onChange={e => updateField("requestedReturnTime", e.target.value)}
@@ -193,8 +194,9 @@ export default function BrokerTripRequestNew() {
           <h2 className="text-sm font-semibold text-white">Service Requirements</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Service Type</label>
+              <label htmlFor="broker-service-type" className="block text-xs text-gray-400 mb-1">Service Type</label>
               <select
+                id="broker-service-type"
                 value={form.serviceType}
                 onChange={e => updateField("serviceType", e.target.value)}
                 className="w-full bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
@@ -209,8 +211,9 @@ export default function BrokerTripRequestNew() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Priority</label>
+              <label htmlFor="broker-priority" className="block text-xs text-gray-400 mb-1">Priority</label>
               <select
+                id="broker-priority"
                 value={form.priority}
                 onChange={e => updateField("priority", e.target.value)}
                 className="w-full bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
@@ -222,8 +225,9 @@ export default function BrokerTripRequestNew() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Max Budget ($)</label>
+              <label htmlFor="broker-max-budget" className="block text-xs text-gray-400 mb-1">Max Budget ($)</label>
               <input
+                id="broker-max-budget"
                 type="number"
                 step="0.01"
                 value={form.maxBudget}
@@ -233,8 +237,9 @@ export default function BrokerTripRequestNew() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Diagnosis Code</label>
+              <label htmlFor="broker-diagnosis-code" className="block text-xs text-gray-400 mb-1">Diagnosis Code</label>
               <input
+                id="broker-diagnosis-code"
                 value={form.diagnosisCode}
                 onChange={e => updateField("diagnosisCode", e.target.value)}
                 className="w-full bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
@@ -260,8 +265,9 @@ export default function BrokerTripRequestNew() {
             ))}
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Special Needs / Notes</label>
+            <label htmlFor="broker-notes" className="block text-xs text-gray-400 mb-1">Special Needs / Notes</label>
             <textarea
+              id="broker-notes"
               value={form.notes}
               onChange={e => updateField("notes", e.target.value)}
               rows={3}

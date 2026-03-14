@@ -659,7 +659,7 @@ export default function ClinicTrips() {
                     {trip.pickupTime || ""}
                   </p>
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-600 shrink-0" />
+                <ChevronRight className="w-4 h-4 text-gray-600 shrink-0" aria-hidden="true" />
               </button>
             ))}
           </div>
