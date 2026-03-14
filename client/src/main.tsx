@@ -1,8 +1,48 @@
 import { createRoot } from "react-dom/client";
+import { onCLS, onFCP, onLCP, onTTFB, onINP } from "web-vitals";
 import App from "./App";
 import "./index.css";
 
+// ─── Sentry Client Error Tracking ──────────────────────────────────────────
+// Uses dynamic import so the app still works if @sentry/react isn't installed
+const VITE_SENTRY_DSN = (import.meta as any).env?.VITE_SENTRY_DSN as string | undefined;
+if (VITE_SENTRY_DSN) {
+  // @ts-ignore -- @sentry/react may or may not be installed
+  import("@sentry/react").then((Sentry: any) => {
+    Sentry.init({
+      dsn: VITE_SENTRY_DSN,
+      environment: (import.meta as any).env?.MODE || "development",
+      integrations: [
+        Sentry.browserTracingIntegration(),
+        Sentry.replayIntegration({ maskAllText: true, blockAllMedia: true }),
+      ],
+      tracesSampleRate: 0.1,
+      replaysOnErrorSampleRate: 1.0,
+      replaysSessionSampleRate: 0,
+    });
+  }).catch(() => {}); // @sentry/react not installed — skip silently
+}
+
 createRoot(document.getElementById("root")!).render(<App />);
+
+// ─── Web Vitals Tracking ───────────────────────────────────────────────────
+const reportWebVital = ({ name, value, rating }: { name: string; value: number; rating?: string }) => {
+  navigator.sendBeacon?.(
+    "/api/metrics/web-vitals",
+    JSON.stringify({ name, value, rating, page: location.pathname })
+  ) || fetch("/api/metrics/web-vitals", {
+    method: "POST",
+    body: JSON.stringify({ name, value, rating, page: location.pathname }),
+    headers: { "Content-Type": "application/json" },
+    keepalive: true,
+  }).catch(() => {});
+};
+
+onCLS(reportWebVital);
+onFCP(reportWebVital);
+onLCP(reportWebVital);
+onTTFB(reportWebVital);
+onINP(reportWebVital);
 
 const SW_UPDATE_INTERVAL = 30 * 60_000;
 const VERSION_CHECK_INTERVAL = 60_000;

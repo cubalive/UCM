@@ -564,9 +564,38 @@ export async function getTripsHandler(req: AuthRequest, res: Response) {
       )!);
     }
 
-    let query = db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt)).limit(limitParam);
+    // Cursor-based pagination: ?cursor=<id>&limit=50
+    const cursor = req.query.cursor ? parseInt(req.query.cursor as string) : undefined;
+    if (cursor && !isNaN(cursor)) {
+      conditions.push(sql`${trips.id} < ${cursor}`);
+    }
+
+    let query = db.select().from(trips).where(and(...conditions)).orderBy(desc(trips.createdAt)).limit(limitParam + 1);
     const result = await query;
-    res.json(result);
+
+    const hasMore = result.length > limitParam;
+    const rows = hasMore ? result.slice(0, limitParam) : result;
+    const nextCursor = hasMore && rows.length > 0 ? (rows[rows.length - 1] as any).id : null;
+
+    // Field selection: ?fields=id,status,scheduledAt,patientName
+    const fieldsParam = req.query.fields as string | undefined;
+    let data: any[] = rows;
+    if (fieldsParam) {
+      const allowedFields = new Set(fieldsParam.split(",").map((f: string) => f.trim()));
+      data = rows.map((row: any) => {
+        const filtered: Record<string, any> = {};
+        for (const key of Object.keys(row)) {
+          if (allowedFields.has(key)) filtered[key] = row[key];
+        }
+        return filtered;
+      });
+    }
+
+    res.json({
+      data,
+      nextCursor,
+      hasMore,
+    });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

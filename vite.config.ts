@@ -17,6 +17,8 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    sourcemap: false,
+    chunkSizeWarningLimit: 300,
     rollupOptions: {
       output: {
         manualChunks: {
@@ -58,9 +60,13 @@ export default defineConfig({
             "@hookform/resolvers",
             "zod",
           ],
-          // Icons (large bundle)
+          // Icons (large bundle — tree-shaken by Vite)
           "vendor-icons": [
             "lucide-react",
+          ],
+          // Animation library (heavy, used by driver-v4 + portals)
+          "vendor-motion": [
+            "framer-motion",
           ],
           // Charts / visualization
           "vendor-charts": [

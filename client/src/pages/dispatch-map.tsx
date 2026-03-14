@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth, authHeaders } from "@/lib/auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -427,13 +427,13 @@ export default function DispatchMapPage() {
     return getApproveBaseFee(approveTrip.cancelStage || "pre_assign");
   }
 
-  function openApproveModal(req: any) {
+  const openApproveModal = useCallback((req: any) => {
     setApproveTrip(req);
     setApproveFaultParty(req.faultParty || "clinic");
     setApproveFeeOverride("");
     setApproveOverrideNote("");
     setApproveModalOpen(true);
-  }
+  }, []);
 
   const approveCancelMutation = useMutation({
     mutationFn: async ({ tripId, faultParty, feeOverride, overrideNote }: {
@@ -519,7 +519,7 @@ export default function DispatchMapPage() {
     },
   });
 
-  async function openSmsDialog(trip: Trip) {
+  const openSmsDialog = useCallback(async (trip: Trip) => {
     setSmsTrip(trip);
     setSmsMode("template");
     setSmsCustomMessage("");
@@ -538,14 +538,73 @@ export default function DispatchMapPage() {
       setSmsPatient(null);
     }
     setSmsDialogOpen(true);
-  }
+  }, [token]);
 
-  const driversWithLocation = mapData?.drivers.filter((d) => d.lastLat && d.lastLng) || [];
-  const driversWithoutLocation = mapData?.drivers.filter((d) => !d.lastLat || !d.lastLng) || [];
-  const scheduledTrips = mapData?.trips.filter((t) => t.status === "SCHEDULED") || [];
-  const TERMINAL_STATUSES = ["COMPLETED", "CANCELLED", "NO_SHOW", "SCHEDULED"];
-  const assignedTrips = mapData?.trips.filter((t) => !TERMINAL_STATUSES.includes(t.status)) || [];
-  const availableVehicles = mapData?.vehicles.filter((v) => v.status === "ACTIVE") || [];
+  const handleSelectDriver = useCallback((driver: DriverWithVehicle) => {
+    setSelectedDriver(driver);
+  }, []);
+
+  const handleSelectTrip = useCallback((trip: Trip) => {
+    setSelectedTrip(trip);
+    setAssignDialogOpen(true);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    refetch();
+  }, [refetch]);
+
+  const handleOpenOverrideDialog = useCallback(() => {
+    setOverrideDriverId("");
+    setOverrideVehicleId("");
+    setOverrideDialogOpen(true);
+  }, []);
+
+  const TERMINAL_STATUSES = useMemo(() => ["COMPLETED", "CANCELLED", "NO_SHOW", "SCHEDULED"], []);
+
+  const driversWithLocation = useMemo(
+    () => mapData?.drivers.filter((d) => d.lastLat && d.lastLng) || [],
+    [mapData?.drivers]
+  );
+  const driversWithoutLocation = useMemo(
+    () => mapData?.drivers.filter((d) => !d.lastLat || !d.lastLng) || [],
+    [mapData?.drivers]
+  );
+  const scheduledTrips = useMemo(
+    () => mapData?.trips.filter((t) => t.status === "SCHEDULED") || [],
+    [mapData?.trips]
+  );
+  const assignedTrips = useMemo(
+    () => mapData?.trips.filter((t) => !TERMINAL_STATUSES.includes(t.status)) || [],
+    [mapData?.trips, TERMINAL_STATUSES]
+  );
+  const availableVehicles = useMemo(
+    () => mapData?.vehicles.filter((v) => v.status === "ACTIVE") || [],
+    [mapData?.vehicles]
+  );
+  const availableDriverCount = useMemo(
+    () => mapData?.drivers.filter((d) => d.dispatchStatus === "available").length || 0,
+    [mapData?.drivers]
+  );
+  const activeDriversForAssign = useMemo(
+    () => mapData?.drivers.filter((d) => d.status === "ACTIVE") || [],
+    [mapData?.drivers]
+  );
+  const legendItems = useMemo(
+    () => MAP_LEGEND_ITEMS.filter(item => !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(item.status)),
+    []
+  );
+
+  const overrideVehicleOptions = useMemo(() => {
+    const selectedOvDriver = mapData?.drivers.find(d => d.id === parseInt(overrideDriverId));
+    return (mapData?.vehicles || []).filter(v =>
+      v.status === "ACTIVE" && (selectedOvDriver ? v.cityId === selectedOvDriver.cityId : true)
+    );
+  }, [mapData?.drivers, mapData?.vehicles, overrideDriverId]);
+
+  const assignableDrivers = useMemo(() => {
+    if (!selectedTrip) return [];
+    return mapData?.drivers.filter((d) => d.status === "ACTIVE" && d.vehicleId && d.cityId === selectedTrip.cityId) || [];
+  }, [mapData?.drivers, selectedTrip]);
 
   if (isLoading) {
     return (
@@ -571,7 +630,7 @@ export default function DispatchMapPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="outline"
-            onClick={() => refetch()}
+            onClick={handleRefresh}
             data-testid="button-refresh-map"
           >
             <RefreshCw className="w-4 h-4 mr-2" />
@@ -606,7 +665,7 @@ export default function DispatchMapPage() {
               <CircleDot className="w-4 h-4 flex-shrink-0" style={{ color: DISPATCH_STATUS_COLORS.available }} />
               <div className="min-w-0">
                 <p className="text-lg font-semibold" data-testid="text-available-count">
-                  {mapData?.drivers.filter((d) => d.dispatchStatus === "available").length || 0}
+                  {availableDriverCount}
                 </p>
                 <p className="text-xs text-muted-foreground">Available</p>
               </div>
@@ -652,7 +711,7 @@ export default function DispatchMapPage() {
                 <DriverMarker
                   key={driver.id}
                   driver={driver}
-                  onClick={() => setSelectedDriver(driver)}
+                  onClick={() => handleSelectDriver(driver)}
                 />
               ))}
             </CardContent>
@@ -671,10 +730,7 @@ export default function DispatchMapPage() {
                 <TripMarker
                   key={trip.id}
                   trip={trip}
-                  onClick={() => {
-                    setSelectedTrip(trip);
-                    setAssignDialogOpen(true);
-                  }}
+                  onClick={() => handleSelectTrip(trip)}
                 />
               ))}
             </CardContent>
@@ -900,7 +956,7 @@ export default function DispatchMapPage() {
                 </div>
                 <div>
                   <p className="text-[10px] text-muted-foreground mb-1 font-medium">Trip Status</p>
-                  {MAP_LEGEND_ITEMS.filter(item => !["COMPLETED", "CANCELLED", "NO_SHOW"].includes(item.status)).map((item) => (
+                  {legendItems.map((item) => (
                     <div key={item.status} className="flex items-center gap-1.5 mb-0.5">
                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
                       <span className="text-[10px]">{item.label}</span>
@@ -924,11 +980,7 @@ export default function DispatchMapPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setOverrideDriverId("");
-                setOverrideVehicleId("");
-                setOverrideDialogOpen(true);
-              }}
+              onClick={handleOpenOverrideDialog}
               disabled={!cityId}
               data-testid="button-override-assignment"
             >
@@ -1007,9 +1059,7 @@ export default function DispatchMapPage() {
                     <SelectValue placeholder="Select a driver" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mapData?.drivers
-                      .filter(d => d.status === "ACTIVE")
-                      .map(d => (
+                    {activeDriversForAssign.map(d => (
                         <SelectItem key={d.id} value={d.id.toString()} data-testid={`option-override-driver-${d.id}`}>
                           {d.firstName} {d.lastName} ({d.publicId})
                         </SelectItem>
@@ -1024,12 +1074,7 @@ export default function DispatchMapPage() {
                     <SelectValue placeholder="Select a vehicle" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(() => {
-                      const selectedOvDriver = mapData?.drivers.find(d => d.id === parseInt(overrideDriverId));
-                      const filteredVehicles = (mapData?.vehicles || []).filter(v =>
-                        v.status === "ACTIVE" && (selectedOvDriver ? v.cityId === selectedOvDriver.cityId : true)
-                      );
-                      return filteredVehicles.length > 0 ? filteredVehicles.map(v => (
+                    {overrideVehicleOptions.length > 0 ? overrideVehicleOptions.map(v => (
                         <SelectItem key={v.id} value={v.id.toString()} data-testid={`option-override-vehicle-${v.id}`}>
                           {v.name} - {v.licensePlate}
                           {v.wheelchairAccessible ? " (WC)" : ""}
@@ -1038,8 +1083,7 @@ export default function DispatchMapPage() {
                         <div className="px-2 py-1.5 text-sm text-muted-foreground">
                           {overrideDriverId ? "No vehicles in this driver's city" : "Select a driver first"}
                         </div>
-                      );
-                    })()}
+                      )}
                   </SelectContent>
                 </Select>
               </div>
@@ -1208,9 +1252,7 @@ export default function DispatchMapPage() {
                   <SelectValue placeholder="Select a driver" />
                 </SelectTrigger>
                 <SelectContent>
-                  {mapData?.drivers
-                    .filter((d) => d.status === "ACTIVE" && d.vehicleId && d.cityId === selectedTrip.cityId)
-                    .map((d) => (
+                  {assignableDrivers.map((d) => (
                       <SelectItem key={d.id} value={d.id.toString()} data-testid={`option-driver-${d.id}`}>
                         {d.firstName} {d.lastName}
                         {d.vehicle ? ` (${d.vehicle.name})` : ""}
@@ -1218,7 +1260,7 @@ export default function DispatchMapPage() {
                         {DISPATCH_STATUS_LABELS[d.dispatchStatus]}
                       </SelectItem>
                     ))}
-                  {(mapData?.drivers.filter((d) => d.status === "ACTIVE" && d.vehicleId && d.cityId === selectedTrip.cityId).length ?? 0) === 0 && (
+                  {assignableDrivers.length === 0 && (
                     <div className="px-2 py-1.5 text-sm text-muted-foreground" data-testid="text-no-compatible-drivers">
                       No drivers available in this city
                     </div>

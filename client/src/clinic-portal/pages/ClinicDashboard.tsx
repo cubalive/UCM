@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/timezone";
 import { Link, useLocation } from "wouter";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { playSound } from "@/hooks/use-sound-notifications";
 import { resolveUrl } from "@/lib/api";
 import {
@@ -349,6 +349,10 @@ function PredictiveLoadCard({ forecast, summary }: { forecast: any[]; summary: a
     );
   }
 
+  const maxDemand = useMemo(
+    () => Math.max(...forecast.map((b: any) => b.totalDemand), 1),
+    [forecast]
+  );
   const peakConf = CONFIDENCE_COLORS[summary?.peakConfidence] || CONFIDENCE_COLORS.LOW;
 
   return (
@@ -393,7 +397,6 @@ function PredictiveLoadCard({ forecast, summary }: { forecast: any[]; summary: a
 
         <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
           {forecast.map((bucket: any, i: number) => {
-            const maxDemand = Math.max(...forecast.map((b: any) => b.totalDemand), 1);
             const pct = (bucket.totalDemand / maxDemand) * 100;
             const confColor = CONFIDENCE_COLORS[bucket.confidence] || CONFIDENCE_COLORS.LOW;
             return (
@@ -428,9 +431,15 @@ function CapacityForecastCard({ capacity }: { capacity: any }) {
   if (!capacity?.buckets?.length) return null;
 
   const shortages = capacity.shortages || [];
-  const nonZeroBuckets = capacity.buckets.filter((b: any) => b.driversNeededTotal > 0);
-  const peakBucket = nonZeroBuckets.reduce((max: any, b: any) =>
-    b.driversNeededTotal > (max?.driversNeededTotal || 0) ? b : max, null);
+  const nonZeroBuckets = useMemo(
+    () => capacity.buckets.filter((b: any) => b.driversNeededTotal > 0),
+    [capacity.buckets]
+  );
+  const peakBucket = useMemo(
+    () => nonZeroBuckets.reduce((max: any, b: any) =>
+      b.driversNeededTotal > (max?.driversNeededTotal || 0) ? b : max, null),
+    [nonZeroBuckets]
+  );
 
   return (
     <div className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden" data-testid="capacity-forecast-card">
@@ -521,7 +530,10 @@ function AnalyticsDashboardSection() {
   const analytics = analyticsData as any;
   const dailyData = analytics?.dailyData || [];
   const statusBreakdown = analytics?.statusBreakdown || {};
-  const maxDailyTotal = Math.max(...dailyData.map((d: any) => d.total), 1);
+  const maxDailyTotal = useMemo(
+    () => Math.max(...dailyData.map((d: any) => d.total), 1),
+    [dailyData]
+  );
 
   const statusColors: Record<string, string> = {
     COMPLETED: "#10b981",
@@ -534,7 +546,15 @@ function AnalyticsDashboardSection() {
     IN_PROGRESS: "#22c55e",
   };
 
-  const totalStatusTrips = Object.values(statusBreakdown).reduce((s: number, v: any) => s + (v as number), 0) as number;
+  const totalStatusTrips = useMemo(
+    () => Object.values(statusBreakdown).reduce((s: number, v: any) => s + (v as number), 0) as number,
+    [statusBreakdown]
+  );
+
+  const sortedStatusEntries = useMemo(
+    () => Object.entries(statusBreakdown).sort(([, a], [, b]) => (b as number) - (a as number)),
+    [statusBreakdown]
+  );
 
   return (
     <div className="bg-[#111827] border border-[#1e293b] rounded-xl overflow-hidden" data-testid="analytics-section">
@@ -649,8 +669,7 @@ function AnalyticsDashboardSection() {
                 <p className="text-xs text-gray-600 text-center py-6">No data</p>
               ) : (
                 <div className="space-y-2">
-                  {Object.entries(statusBreakdown)
-                    .sort(([, a], [, b]) => (b as number) - (a as number))
+                  {sortedStatusEntries
                     .map(([status, count]) => {
                       const pct = ((count as number) / totalStatusTrips) * 100;
                       const color = statusColors[status] || "#6b7280";
@@ -708,6 +727,7 @@ function AnalyticsDashboardSection() {
 export default function ClinicDashboard() {
   const { user } = useAuth();
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const toggleSound = useCallback(() => setSoundEnabled(prev => !prev), []);
   const firedSignaturesRef = useRef<Set<string>>(new Set());
 
   const { data: ops, isLoading: opsLoading } = useQuery({
@@ -779,22 +799,25 @@ export default function ClinicDashboard() {
   const avgRating = (metrics as any)?.avgRating ?? 0;
   const clinicTimezone = (ops as any)?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  const statCards = [
+  const statCards = useMemo(() => [
     { label: "Today's Trips", value: todayTrips, icon: CalendarDays, color: "blue", testId: "stat-today-trips" },
     { label: "Active Now", value: activeCount, icon: Car, color: "green", testId: "stat-active" },
     { label: "Completed", value: completedToday, icon: CheckCircle2, color: "emerald", testId: "stat-completed" },
     { label: "Cancelled", value: cancelledToday, icon: AlertTriangle, color: "amber", testId: "stat-cancelled" },
-  ];
+  ], [todayTrips, activeCount, completedToday, cancelledToday]);
 
-  const quickActions = [
+  const quickActions = useMemo(() => [
     { label: "View All Trips", href: "/trips", icon: Car, testId: "action-trips" },
     { label: "Live Tracking", href: "/live", icon: MapPin, testId: "action-live" },
     { label: "Billing & Invoices", href: "/billing", icon: CreditCard, testId: "action-billing" },
-  ];
+  ], []);
 
   const loading = opsLoading || metricsLoading || activeLoading;
 
-  const inboundWithDrivers = inboundTrips.filter((t: any) => t.driverLastLat && t.driverLastLng);
+  const inboundWithDrivers = useMemo(
+    () => inboundTrips.filter((t: any) => t.driverLastLat && t.driverLastLng),
+    [inboundTrips]
+  );
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6" data-testid="clinic-dashboard">
@@ -909,7 +932,7 @@ export default function ClinicDashboard() {
               )}
             </h2>
             <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
+              onClick={toggleSound}
               className="p-1.5 rounded-lg hover:bg-white/5 transition-colors text-gray-500 hover:text-gray-300"
               title={soundEnabled ? "Mute alerts" : "Unmute alerts"}
               data-testid="button-toggle-alert-sound"
@@ -920,7 +943,7 @@ export default function ClinicDashboard() {
           <SmartAlerts
             alerts={alerts}
             soundEnabled={soundEnabled}
-            onToggleSound={() => setSoundEnabled(!soundEnabled)}
+            onToggleSound={toggleSound}
           />
         </div>
       </div>
