@@ -5,6 +5,7 @@ import {
   Eye, Navigation, Shield, Info, ChevronRight, Settings, ExternalLink, Star,
   Bell, BellOff, Zap, Clock, MapPin, Route, Sliders, Phone, AlertTriangle, Palette, Hash, Calendar, LogOut
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useDriverStore } from "../store/driverStore";
 import { colors } from "../design/tokens";
 import { glowColor } from "../design/theme";
@@ -183,6 +184,7 @@ function PreferenceSlider({
 }
 
 export function Profile({ onBack }: { onBack: () => void }) {
+  const { t } = useTranslation();
   const navPreference = useDriverStore((s) => s.navPreference);
   const setNavPreference = useDriverStore((s) => s.setNavPreference);
   const rating = useDriverStore((s) => s.rating);
@@ -355,7 +357,7 @@ export function Profile({ onBack }: { onBack: () => void }) {
             <ChevronLeft className="w-5 h-5" aria-hidden="true" />
           </button>
           <h1 className="text-xl font-bold" style={{ color: colors.textPrimary }}>
-            Profile
+            {t('driver.profile.title')}
           </h1>
         </div>
 

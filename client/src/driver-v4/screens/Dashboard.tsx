@@ -1110,7 +1110,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => voi
           {/* Greeting + status */}
           <div>
             <p className="text-lg font-bold" style={{ color: colors.textPrimary }}>
-              {getGreeting()}, {(driverName || "Driver").split(" ")[0]}
+              {t('driver.dashboard.greeting', { name: (driverName || "Driver").split(" ")[0] })}
             </p>
             <StatusPill />
           </div>

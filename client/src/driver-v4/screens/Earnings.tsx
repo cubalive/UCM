@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { DollarSign, TrendingUp, Calendar, ChevronLeft, Clock, CreditCard, Loader2, ChevronDown, Wallet, BarChart3, Settings } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useDriverStore } from "../store/driverStore";
 import { colors } from "../design/tokens";
 import { glowColor } from "../design/theme";
@@ -73,6 +74,7 @@ function MiniChart({ chartData }: { chartData?: number[] }) {
 }
 
 export function Earnings({ onBack }: { onBack: () => void }) {
+  const { t } = useTranslation();
   const [period, setPeriod] = useState<"day" | "week" | "month">("day");
   const earningsToday = useDriverStore((s) => s.earningsToday);
   const earningsWeek = useDriverStore((s) => s.earningsWeek);
@@ -242,7 +244,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
             <ChevronLeft className="w-5 h-5" aria-hidden="true" />
           </button>
           <h1 className="text-xl font-bold" style={{ color: colors.textPrimary }}>
-            Earnings
+            {t('driver.earnings.title')}
           </h1>
         </div>
 
@@ -260,7 +262,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
               }}
               data-testid={`filter-${p}`}
             >
-              {p}
+              {p === "day" ? t('driver.earnings.today') : p === "week" ? t('driver.earnings.thisWeek') : t('driver.earnings.thisMonth')}
             </button>
           ))}
         </div>
@@ -270,7 +272,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
           <div className="flex items-center justify-between mb-3">
             <div>
               <p className="text-[10px] uppercase tracking-wider mb-1 font-medium" style={{ color: colors.textTertiary }}>
-                Total Earnings
+                {t('driver.earnings.totalEarnings')}
               </p>
               <motion.p
                 key={displayAmount}
@@ -285,7 +287,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
             <GlowProgressCircle
               progress={completedRides / 20}
               label={String(completedRides)}
-              sublabel="Rides"
+              sublabel={t('driver.earnings.tripsCount')}
               size={64}
               accentColor={colors.sunrise}
               testID="progress-rides"
@@ -302,21 +304,21 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                 <DollarSign className="w-4 h-4" aria-hidden="true" style={{ color: colors.sunrise }} />
               </div>
               <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>${stats.avgPerTrip.toFixed(2)}</p>
-              <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Avg/Trip</p>
+              <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>{t('driver.earnings.avgPerTrip')}</p>
             </div>
             <div className="text-center">
               <div className="w-8 h-8 rounded-xl mx-auto mb-1.5 flex items-center justify-center" style={{ background: "rgba(74,144,217,0.08)" }}>
                 <Clock className="w-4 h-4" aria-hidden="true" style={{ color: colors.sky }} />
               </div>
               <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>{stats.onlineHours.toFixed(1)}h</p>
-              <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>Online</p>
+              <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>{t('driver.status.online')}</p>
             </div>
             <div className="text-center">
               <div className="w-8 h-8 rounded-xl mx-auto mb-1.5 flex items-center justify-center" style={{ background: "rgba(52,199,89,0.08)" }}>
                 <TrendingUp className="w-4 h-4" aria-hidden="true" style={{ color: colors.success }} />
               </div>
               <p className="text-sm font-bold" style={{ color: colors.textPrimary }}>${stats.perHour.toFixed(2)}</p>
-              <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>$/Hour</p>
+              <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>{t('driver.earnings.perHour')}</p>
             </div>
           </div>
         </GlassCard>
@@ -324,18 +326,18 @@ export function Earnings({ onBack }: { onBack: () => void }) {
         {/* Weekly / Monthly Summary */}
         <GlassCard variant="default" testID="card-period-summary" className="!p-4">
           <p className="text-[10px] uppercase tracking-wider mb-3 px-1 font-semibold" style={{ color: colors.textTertiary }}>
-            Summary
+            {t('driver.earnings.summary')}
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-2xl" style={{ background: "rgba(255,107,53,0.05)", border: "1px solid rgba(255,107,53,0.08)" }}>
-              <p className="text-[9px] uppercase tracking-wider font-semibold mb-1" style={{ color: colors.textTertiary }}>This Week</p>
+              <p className="text-[9px] uppercase tracking-wider font-semibold mb-1" style={{ color: colors.textTertiary }}>{t('driver.earnings.thisWeek')}</p>
               <p className="text-lg font-bold" style={{ color: colors.sunrise }}>${summaryStats.weeklyTotal.toFixed(2)}</p>
               <p className="text-[10px]" style={{ color: colors.textTertiary }}>
                 {summaryStats.weeklyTrips} trips • {summaryStats.weeklyHours.toFixed(1)}h
               </p>
             </div>
             <div className="p-3 rounded-2xl" style={{ background: "rgba(74,144,217,0.05)", border: "1px solid rgba(74,144,217,0.08)" }}>
-              <p className="text-[9px] uppercase tracking-wider font-semibold mb-1" style={{ color: colors.textTertiary }}>This Month</p>
+              <p className="text-[9px] uppercase tracking-wider font-semibold mb-1" style={{ color: colors.textTertiary }}>{t('driver.earnings.thisMonth')}</p>
               <p className="text-lg font-bold" style={{ color: colors.sky }}>${summaryStats.monthlyTotal.toFixed(2)}</p>
               <p className="text-[10px]" style={{ color: colors.textTertiary }}>
                 {summaryStats.monthlyTrips} trips • {summaryStats.monthlyHours.toFixed(1)}h
@@ -350,7 +352,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
             <div className="flex items-center gap-2 mb-3 px-1">
               <BarChart3 className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.textTertiary }} />
               <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>
-                By Service Type
+                {t('driver.earnings.byServiceType')}
               </p>
             </div>
             <div className="space-y-2.5">
@@ -390,7 +392,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
           <div className="flex items-center gap-2 mb-2 px-1">
             <CreditCard className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.textTertiary }} />
             <p className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>
-              Payment Method
+              {t('driver.earnings.paymentMethod')}
             </p>
           </div>
           {paymentMethods.length > 0 ? (
@@ -416,7 +418,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                         {pm.brand} •••• {pm.last4}
                       </p>
                       <p className="text-[10px]" style={{ color: colors.textTertiary }}>
-                        {pm.type === "bank_account" ? "Bank Account" : "Card"}
+                        {pm.type === "bank_account" ? t('driver.earnings.bankAccount') : t('driver.earnings.card')}
                       </p>
                     </div>
                   </div>
@@ -425,7 +427,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                       className="text-[9px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider"
                       style={{ background: glowColor(colors.success, 0.1), color: colors.success }}
                     >
-                      Default
+                      {t('common.default')}
                     </span>
                   )}
                 </div>
@@ -442,17 +444,17 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                 </div>
                 <div className="flex-1">
                   <p className="text-xs font-medium" style={{ color: colors.textSecondary }}>
-                    Direct Deposit
+                    {t('driver.earnings.directDeposit')}
                   </p>
                   <p className="text-[10px]" style={{ color: colors.textTertiary }}>
-                    Earnings deposited to your account on file
+                    {t('driver.earnings.directDepositDesc')}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(0,0,0,0.02)" }}>
                 <Settings className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.sky }} />
                 <p className="text-[10px]" style={{ color: colors.textSecondary }}>
-                  To update your payment method, contact your dispatcher or admin.
+                  {t('driver.earnings.contactDispatcher')}
                 </p>
               </div>
             </div>
@@ -462,11 +464,11 @@ export function Earnings({ onBack }: { onBack: () => void }) {
         {/* Trip history with pagination */}
         <div>
           <h2 className="text-sm font-semibold mb-3 px-1" style={{ color: colors.textSecondary }}>
-            Trip History
+            {t('driver.earnings.tripHistory')}
           </h2>
           <div className="space-y-2" data-testid="trip-history-list">
             {tripHistory.length === 0 && (
-              <p className="text-center text-xs py-4" style={{ color: colors.textTertiary }}>No trip history yet</p>
+              <p className="text-center text-xs py-4" style={{ color: colors.textTertiary }}>{t('driver.earnings.noTripHistory')}</p>
             )}
             {tripHistory.map((trip, i) => (
               <motion.div
@@ -524,7 +526,7 @@ export function Earnings({ onBack }: { onBack: () => void }) {
                   <ChevronDown className="w-4 h-4" aria-hidden="true" style={{ color: colors.sunrise }} />
                 )}
                 <span className="text-xs font-semibold" style={{ color: colors.sunrise }}>
-                  {loadingMore ? "Loading..." : "Load More Trips"}
+                  {loadingMore ? t('common.loading') : t('driver.earnings.loadMore')}
                 </span>
               </motion.button>
             )}

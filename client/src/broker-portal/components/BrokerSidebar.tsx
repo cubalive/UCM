@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import {
   LayoutDashboard,
   FileText,
@@ -25,23 +26,24 @@ interface BrokerSidebarProps {
 }
 
 const NAV_ITEMS = [
-  { path: "/", label: "Dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
-  { path: "/trip-requests", label: "Trip Requests", icon: FileText, testId: "nav-trip-requests" },
-  { path: "/live-tracking", label: "Live Tracking", icon: Navigation, testId: "nav-live-tracking" },
-  { path: "/marketplace", label: "Marketplace", icon: ShoppingCart, testId: "nav-marketplace" },
-  { path: "/contracts", label: "Contracts", icon: Handshake, testId: "nav-contracts" },
-  { path: "/settlements", label: "Settlements", icon: DollarSign, testId: "nav-settlements" },
-  { path: "/sla-monitoring", label: "SLA Monitoring", icon: Shield, testId: "nav-sla-monitoring" },
-  { path: "/disputes", label: "Disputes", icon: Scale, testId: "nav-disputes" },
-  { path: "/compliance", label: "Compliance", icon: ClipboardCheck, testId: "nav-compliance" },
-  { path: "/communications", label: "Communications", icon: MessageSquare, testId: "nav-communications" },
-  { path: "/analytics", label: "Analytics", icon: BarChart3, testId: "nav-analytics" },
-  { path: "/settings", label: "Settings", icon: Settings, testId: "nav-settings" },
-  { path: "/profile", label: "Profile", icon: User, testId: "nav-profile" },
+  { path: "/", labelKey: "broker.sidebar.dashboard", icon: LayoutDashboard, testId: "nav-dashboard" },
+  { path: "/trip-requests", labelKey: "broker.sidebar.tripRequests", icon: FileText, testId: "nav-trip-requests" },
+  { path: "/live-tracking", labelKey: "broker.sidebar.liveTracking", icon: Navigation, testId: "nav-live-tracking" },
+  { path: "/marketplace", labelKey: "broker.sidebar.marketplace", icon: ShoppingCart, testId: "nav-marketplace" },
+  { path: "/contracts", labelKey: "broker.sidebar.contracts", icon: Handshake, testId: "nav-contracts" },
+  { path: "/settlements", labelKey: "broker.sidebar.settlements", icon: DollarSign, testId: "nav-settlements" },
+  { path: "/sla-monitoring", labelKey: "broker.sidebar.slaMonitoring", icon: Shield, testId: "nav-sla-monitoring" },
+  { path: "/disputes", labelKey: "broker.sidebar.disputes", icon: Scale, testId: "nav-disputes" },
+  { path: "/compliance", labelKey: "broker.sidebar.compliance", icon: ClipboardCheck, testId: "nav-compliance" },
+  { path: "/communications", labelKey: "broker.sidebar.communications", icon: MessageSquare, testId: "nav-communications" },
+  { path: "/analytics", labelKey: "broker.sidebar.analytics", icon: BarChart3, testId: "nav-analytics" },
+  { path: "/settings", labelKey: "broker.sidebar.settings", icon: Settings, testId: "nav-settings" },
+  { path: "/profile", labelKey: "broker.sidebar.profile", icon: User, testId: "nav-profile" },
 ];
 
 export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarProps) {
   const { logout } = useAuth();
+  const { t } = useTranslation();
 
   return (
     <aside
@@ -53,7 +55,7 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
         ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
       `}
       data-testid="broker-sidebar"
-      aria-label="Broker portal sidebar"
+      aria-label={t("broker.sidebar.navigation")}
     >
       <div className="p-4 border-b border-[#1e293b]">
         <div className="flex items-center gap-3">
@@ -61,14 +63,14 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
             <Gavel className="w-5 h-5 text-white" aria-hidden="true" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white">United Care</h2>
-            <p className="text-[10px] text-blue-400 uppercase tracking-wider">Broker Portal</p>
+            <h2 className="text-sm font-bold text-white">{t("broker.unitedCare")}</h2>
+            <p className="text-[10px] text-blue-400 uppercase tracking-wider">{t("broker.sidebar.brokerPortal")}</p>
           </div>
         </div>
       </div>
 
-      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto" data-testid="broker-nav" aria-label="Broker navigation">
-        {NAV_ITEMS.map(({ path, label, icon: Icon, testId }) => {
+      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto" data-testid="broker-nav" aria-label={t("broker.sidebar.navigation")}>
+        {NAV_ITEMS.map(({ path, labelKey, icon: Icon, testId }) => {
           const isActive = currentPath === path || (path !== "/" && currentPath.startsWith(path));
           return (
             <Link key={path} href={path}>
@@ -84,7 +86,7 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
                 data-testid={testId}
               >
                 <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
-                {label}
+                {t(labelKey)}
               </button>
             </Link>
           );
@@ -98,7 +100,7 @@ export function BrokerSidebar({ isOpen, onClose, currentPath }: BrokerSidebarPro
           data-testid="button-logout"
         >
           <LogOut className="w-4 h-4" aria-hidden="true" />
-          Sign Out
+          {t("broker.signOut")}
         </button>
       </div>
     </aside>

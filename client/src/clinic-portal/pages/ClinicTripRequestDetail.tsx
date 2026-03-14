@@ -46,6 +46,7 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 export default function ClinicTripRequestDetail() {
+  const { t } = useTranslation();
   const [, params] = useRoute("/requests/:id");
   const requestId = params?.id;
   const { user } = useAuth();
@@ -85,7 +86,7 @@ export default function ClinicTripRequestDetail() {
       refetchChat();
     },
     onError: () => {
-      toast({ title: "Failed to send message", variant: "destructive" });
+      toast({ title: t('clinic.tripRequest.failedToSendMessage', 'Failed to send message'), variant: "destructive" });
     },
   });
 
@@ -97,10 +98,10 @@ export default function ClinicTripRequestDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clinic/trip-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/clinic/trip-requests", requestId] });
-      toast({ title: "Trip request cancelled" });
+      toast({ title: t('clinic.tripRequest.cancelled', 'Trip request cancelled') });
     },
     onError: () => {
-      toast({ title: "Failed to cancel request", variant: "destructive" });
+      toast({ title: t('clinic.tripRequest.failedToCancel', 'Failed to cancel request'), variant: "destructive" });
     },
   });
 
@@ -125,9 +126,9 @@ export default function ClinicTripRequestDetail() {
   if (!request) {
     return (
       <div className="p-6 text-center text-gray-500">
-        <p>Trip request not found</p>
+        <p>{t('clinic.tripRequest.notFound', 'Trip request not found')}</p>
         <Link href="/requests">
-          <button className="mt-4 text-emerald-400 hover:text-emerald-300 text-sm">Back to requests</button>
+          <button className="mt-4 text-emerald-400 hover:text-emerald-300 text-sm">{t('clinic.tripRequest.backToRequests', 'Back to requests')}</button>
         </Link>
       </div>
     );
@@ -146,9 +147,9 @@ export default function ClinicTripRequestDetail() {
         </Link>
         <div className="flex-1">
           <h1 className="text-xl font-bold text-white" data-testid="text-request-title">
-            Trip Request #{request.publicId}
+            {t('clinic.tripRequest.requestTitle', 'Trip Request #{{id}}', { id: request.publicId })}
           </h1>
-          <p className="text-xs text-gray-500">Created {formatDate(request.createdAt)}</p>
+          <p className="text-xs text-gray-500">{t('clinic.tripRequest.created', 'Created {{date}}', { date: formatDate(request.createdAt) })}</p>
         </div>
         <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border ${statusColor(request.status)}`} data-testid="text-request-status">
           <StatusIcon status={request.status} />
@@ -159,13 +160,13 @@ export default function ClinicTripRequestDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-4">
           <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 space-y-4" data-testid="request-details-card">
-            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Request Details</h3>
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">{t('clinic.tripRequest.requestDetails', 'Request Details')}</h3>
 
             {request.patientName && (
               <div className="flex items-center gap-3">
                 <User className="w-4 h-4 text-gray-500" />
                 <div>
-                  <p className="text-sm text-gray-400">Patient</p>
+                  <p className="text-sm text-gray-400">{t('clinic.tripRequest.patient', 'Patient')}</p>
                   <p className="text-white text-sm font-medium" data-testid="text-patient-name">{request.patientName}</p>
                 </div>
               </div>
@@ -174,7 +175,7 @@ export default function ClinicTripRequestDetail() {
             <div className="flex items-center gap-3">
               <Calendar className="w-4 h-4 text-gray-500" />
               <div>
-                <p className="text-sm text-gray-400">Scheduled</p>
+                <p className="text-sm text-gray-400">{t('clinic.tripRequest.scheduled', 'Scheduled')}</p>
                 <p className="text-white text-sm font-medium" data-testid="text-schedule">{request.scheduledDate} at {request.scheduledTime}</p>
               </div>
             </div>
@@ -182,7 +183,7 @@ export default function ClinicTripRequestDetail() {
             <div className="flex items-start gap-3">
               <MapPin className="w-4 h-4 text-green-500 mt-0.5" />
               <div>
-                <p className="text-sm text-gray-400">Pickup</p>
+                <p className="text-sm text-gray-400">{t('trips.pickup', 'Pickup')}</p>
                 <p className="text-white text-sm" data-testid="text-pickup">{request.pickupAddress}</p>
               </div>
             </div>
@@ -190,54 +191,54 @@ export default function ClinicTripRequestDetail() {
             <div className="flex items-start gap-3">
               <MapPin className="w-4 h-4 text-red-500 mt-0.5" />
               <div>
-                <p className="text-sm text-gray-400">Dropoff</p>
+                <p className="text-sm text-gray-400">{t('trips.dropoff', 'Dropoff')}</p>
                 <p className="text-white text-sm" data-testid="text-dropoff">{request.dropoffAddress}</p>
               </div>
             </div>
 
             <div className="flex gap-6 text-sm">
               <div>
-                <p className="text-gray-400">Service Level</p>
+                <p className="text-gray-400">{t('clinic.tripRequest.serviceLevel', 'Service Level')}</p>
                 <p className="text-white capitalize" data-testid="text-service-level">{request.serviceLevel}</p>
               </div>
               <div>
-                <p className="text-gray-400">Passengers</p>
+                <p className="text-gray-400">{t('clinic.tripRequest.passengers', 'Passengers')}</p>
                 <p className="text-white" data-testid="text-passengers">{request.passengerCount}</p>
               </div>
               {request.isRoundTrip && (
                 <div>
-                  <p className="text-gray-400">Type</p>
-                  <p className="text-white">Round Trip</p>
+                  <p className="text-gray-400">{t('common.type', 'Type')}</p>
+                  <p className="text-white">{t('clinic.tripRequest.roundTrip', 'Round Trip')}</p>
                 </div>
               )}
             </div>
 
             {request.notes && (
               <div>
-                <p className="text-sm text-gray-400">Notes</p>
+                <p className="text-sm text-gray-400">{t('common.notes', 'Notes')}</p>
                 <p className="text-white text-sm" data-testid="text-notes">{request.notes}</p>
               </div>
             )}
 
             {request.dispatchNotes && (
               <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
-                <p className="text-xs text-orange-400 font-medium mb-1">Dispatch Notes</p>
+                <p className="text-xs text-orange-400 font-medium mb-1">{t('clinic.tripRequest.dispatchNotes', 'Dispatch Notes')}</p>
                 <p className="text-sm text-orange-200" data-testid="text-dispatch-notes">{request.dispatchNotes}</p>
               </div>
             )}
 
             {request.rejectedReason && (
               <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-                <p className="text-xs text-red-400 font-medium mb-1">Rejection Reason</p>
+                <p className="text-xs text-red-400 font-medium mb-1">{t('clinic.tripRequest.rejectionReason', 'Rejection Reason')}</p>
                 <p className="text-sm text-red-200" data-testid="text-rejection-reason">{request.rejectedReason}</p>
               </div>
             )}
 
             {request.approvedTripId && (
               <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
-                <p className="text-xs text-emerald-400 font-medium mb-1">Trip Created</p>
+                <p className="text-xs text-emerald-400 font-medium mb-1">{t('clinic.tripRequest.tripCreated', 'Trip Created')}</p>
                 <p className="text-sm text-emerald-200 flex items-center gap-2" data-testid="text-approved-trip">
-                  Trip #{request.approvedTripId}
+                  {t('clinic.tripRequest.tripNumber', 'Trip #{{id}}', { id: request.approvedTripId })}
                   <ExternalLink className="w-3.5 h-3.5" />
                 </p>
               </div>

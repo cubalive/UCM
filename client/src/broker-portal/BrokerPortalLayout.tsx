@@ -23,6 +23,7 @@ import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { SkipToContent } from "@/components/SkipToContent";
 import { useBrokerWs } from "@/hooks/use-broker-ws";
+import { useTranslation } from "react-i18next";
 
 const ALLOWED_ROLES = ["BROKER_ADMIN", "BROKER_USER", "SUPER_ADMIN"];
 
@@ -55,13 +56,14 @@ export function BrokerPortalLayout() {
   const { user, token, loading, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [location] = useLocation();
+  const { t } = useTranslation();
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]" role="status" aria-live="polite">
         <div className="flex flex-col items-center space-y-4">
           <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
-          <p className="text-gray-400 text-sm">Loading broker portal...</p>
+          <p className="text-gray-400 text-sm">{t("broker.loading")}</p>
         </div>
       </div>
     );
@@ -85,15 +87,15 @@ export function BrokerPortalLayout() {
           <div className="w-16 h-16 mx-auto bg-red-500/10 rounded-full flex items-center justify-center">
             <X className="w-8 h-8 text-red-400" aria-hidden="true" />
           </div>
-          <h2 className="text-xl font-semibold text-white">Access Denied</h2>
+          <h2 className="text-xl font-semibold text-white">{t("broker.accessDenied")}</h2>
           <p className="text-gray-400">
-            This portal is restricted to broker users only. Please contact your administrator.
+            {t("broker.accessDeniedMessage")}
           </p>
           <button
             onClick={() => logout()}
             className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
           >
-            Sign Out
+            {t("broker.signOut")}
           </button>
         </div>
       </div>
@@ -114,7 +116,7 @@ export function BrokerPortalLayout() {
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="lg:hidden p-2 hover:bg-white/5 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-            aria-label={sidebarOpen ? "Close sidebar menu" : "Open sidebar menu"}
+            aria-label={sidebarOpen ? t("broker.layout.closeSidebar") : t("broker.layout.openSidebar")}
             aria-expanded={sidebarOpen}
           >
             <Menu className="w-5 h-5 text-gray-400" aria-hidden="true" />
@@ -124,8 +126,8 @@ export function BrokerPortalLayout() {
               UC
             </div>
             <div>
-              <h1 className="text-sm font-semibold text-white leading-none">UCM Broker Portal</h1>
-              <p className="text-xs text-gray-500 leading-none mt-0.5">Transportation Marketplace</p>
+              <h1 className="text-sm font-semibold text-white leading-none">{t("broker.ucmBrokerPortal")}</h1>
+              <p className="text-xs text-gray-500 leading-none mt-0.5">{t("broker.portalSubtitle")}</p>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3">
@@ -139,7 +141,7 @@ export function BrokerPortalLayout() {
           </div>
         </header>
 
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" role="main" aria-label="Broker portal content">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" role="main" aria-label={t("broker.layout.brokerPortalContent")}>
           <BrokerPortalRoutes />
         </main>
       </div>
