@@ -5,6 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/timezone";
+import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   MapPin,

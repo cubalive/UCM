@@ -1,4 +1,5 @@
 import { useAuth } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
 import {
   LayoutDashboard,
@@ -22,21 +23,22 @@ interface PharmacySidebarProps {
   currentPath: string;
 }
 
-const NAV_ITEMS = [
-  { path: "/", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/orders", label: "Orders", icon: Package },
-  { path: "/orders/new", label: "New Order", icon: Plus },
-  { path: "/tracking", label: "Live Tracking", icon: Truck },
-  { path: "/inventory", label: "Inventory", icon: Boxes },
-  { path: "/prescriptions", label: "Prescriptions", icon: FileText },
-  { path: "/billing", label: "Billing", icon: DollarSign },
-  { path: "/metrics", label: "Analytics", icon: BarChart3 },
-  { path: "/compliance", label: "Compliance", icon: ShieldCheck },
-  { path: "/settings", label: "Settings", icon: Settings },
-];
-
 export function PharmacySidebar({ isOpen, onClose, currentPath }: PharmacySidebarProps) {
   const { logout } = useAuth();
+  const { t } = useTranslation();
+
+  const NAV_ITEMS = [
+    { path: "/", label: t('pharmacy.sidebar.dashboard'), icon: LayoutDashboard },
+    { path: "/orders", label: t('pharmacy.sidebar.orders'), icon: Package },
+    { path: "/orders/new", label: t('pharmacy.sidebar.newOrder'), icon: Plus },
+    { path: "/tracking", label: t('pharmacy.sidebar.tracking'), icon: Truck },
+    { path: "/inventory", label: t('pharmacy.sidebar.inventory'), icon: Boxes },
+    { path: "/prescriptions", label: t('pharmacy.sidebar.prescriptions'), icon: FileText },
+    { path: "/billing", label: t('pharmacy.sidebar.billing'), icon: DollarSign },
+    { path: "/metrics", label: t('pharmacy.sidebar.metrics'), icon: BarChart3 },
+    { path: "/compliance", label: t('pharmacy.sidebar.compliance'), icon: ShieldCheck },
+    { path: "/settings", label: t('pharmacy.sidebar.settings'), icon: Settings },
+  ];
 
   return (
     <aside
@@ -47,7 +49,7 @@ export function PharmacySidebar({ isOpen, onClose, currentPath }: PharmacySideba
         ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         flex flex-col
       `}
-      aria-label="Pharmacy portal sidebar"
+      aria-label={t('pharmacy.sidebar.label')}
     >
       {/* Header */}
       <div className="h-14 flex items-center justify-between px-4 border-b border-[#1e293b]">
@@ -57,20 +59,20 @@ export function PharmacySidebar({ isOpen, onClose, currentPath }: PharmacySideba
           </div>
           <div>
             <span className="text-sm font-bold text-white">UCM</span>
-            <span className="text-xs text-purple-400 block leading-none">Pharmacy</span>
+            <span className="text-xs text-purple-400 block leading-none">{t('pharmacy.title')}</span>
           </div>
         </div>
         <button
           onClick={onClose}
           className="lg:hidden p-1 hover:bg-white/5 rounded min-h-[44px] min-w-[44px] flex items-center justify-center"
-          aria-label="Close sidebar menu"
+          aria-label={t('pharmacy.sidebar.closeSidebar')}
         >
           <X className="w-4 h-4 text-gray-400" aria-hidden="true" />
         </button>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto" aria-label="Pharmacy navigation">
+      <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto" aria-label={t('pharmacy.sidebar.navigation')}>
         {NAV_ITEMS.map((item) => {
           const isActive =
             item.path === "/"
@@ -112,7 +114,7 @@ export function PharmacySidebar({ isOpen, onClose, currentPath }: PharmacySideba
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-red-400/5 w-full transition-colors"
         >
           <LogOut className="w-4 h-4" aria-hidden="true" />
-          <span>Sign Out</span>
+          <span>{t('pharmacy.sidebar.signOut')}</span>
         </button>
       </div>
     </aside>

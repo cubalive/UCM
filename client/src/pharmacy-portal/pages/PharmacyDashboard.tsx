@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import {
   Package,
   Truck,
@@ -84,6 +85,7 @@ const PRIORITY_BADGES: Record<string, string> = {
 
 export default function PharmacyDashboard() {
   const { token } = useAuth();
+  const { t } = useTranslation();
 
   const { data, isLoading, isError, error } = useQuery<DashboardData>({
     queryKey: ["/api/pharmacy/dashboard"],
@@ -91,7 +93,7 @@ export default function PharmacyDashboard() {
       const res = await fetch(`${API_BASE_URL}/api/pharmacy/dashboard`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error("Failed to load dashboard");
+      if (!res.ok) throw new Error(t('pharmacy.dashboard.error'));
       return res.json();
     },
     refetchInterval: 15000,
@@ -101,7 +103,7 @@ export default function PharmacyDashboard() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-6" role="status" aria-live="polite">
-        <span className="sr-only">Loading dashboard...</span>
+        <span className="sr-only">{t('pharmacy.dashboard.loadingDashboard')}</span>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           {[...Array(5)].map((_, i) => (
             <div key={i} className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 animate-pulse" aria-hidden="true">
@@ -119,8 +121,8 @@ export default function PharmacyDashboard() {
       <div className="p-6">
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 text-center" role="alert">
           <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" aria-hidden="true" />
-          <h3 className="text-lg font-semibold text-white mb-1">Failed to Load Dashboard</h3>
-          <p className="text-sm text-gray-400">{(error as Error)?.message || "Something went wrong. Please try again."}</p>
+          <h3 className="text-lg font-semibold text-white mb-1">{t('pharmacy.dashboard.error')}</h3>
+          <p className="text-sm text-gray-400">{(error as Error)?.message || t('pharmacy.dashboard.errorMessage')}</p>
         </div>
       </div>
     );
@@ -133,35 +135,35 @@ export default function PharmacyDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Pharmacy Dashboard</h1>
+          <h1 className="text-2xl font-bold text-white">{t('pharmacy.dashboard.title')}</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Real-time delivery overview — {data?.today || "Today"}
+            {t('pharmacy.dashboard.subtitle', { date: data?.today || "Today" })}
           </p>
         </div>
         <Link href="/orders/new">
           <button className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
             <Package className="w-4 h-4" />
-            New Delivery
+            {t('pharmacy.dashboard.newDelivery')}
           </button>
         </Link>
       </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <StatCard title="Total Today" value={summary.totalToday} icon={Package} color="violet" />
-        <StatCard title="Delivered" value={summary.delivered} icon={CheckCircle2} color="emerald" subtitle={`${summary.deliveryRate}% success rate`} />
-        <StatCard title="In Transit" value={summary.inTransit} icon={Truck} color="blue" />
-        <StatCard title="Pending" value={summary.pending} icon={Clock} color="amber" />
-        <StatCard title="Failed" value={summary.failed} icon={AlertTriangle} color="red" />
+        <StatCard title={t('pharmacy.dashboard.totalToday')} value={summary.totalToday} icon={Package} color="violet" />
+        <StatCard title={t('pharmacy.dashboard.delivered')} value={summary.delivered} icon={CheckCircle2} color="emerald" subtitle={t('pharmacy.dashboard.successRate', { rate: summary.deliveryRate })} />
+        <StatCard title={t('pharmacy.dashboard.inTransit')} value={summary.inTransit} icon={Truck} color="blue" />
+        <StatCard title={t('pharmacy.dashboard.pending')} value={summary.pending} icon={Clock} color="amber" />
+        <StatCard title={t('pharmacy.dashboard.failed')} value={summary.failed} icon={AlertTriangle} color="red" />
       </div>
 
       {/* Recent Orders */}
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl">
         <div className="px-5 py-4 border-b border-[#1e293b] flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">Today's Orders</h2>
+          <h2 className="text-sm font-semibold text-white">{t('pharmacy.dashboard.todaysOrders')}</h2>
           <Link href="/orders">
             <span className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1 cursor-pointer">
-              View all <ArrowRight className="w-3 h-3" />
+              {t('pharmacy.dashboard.viewAll')} <ArrowRight className="w-3 h-3" />
             </span>
           </Link>
         </div>
@@ -169,19 +171,19 @@ export default function PharmacyDashboard() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#1e293b]">
-                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order</th>
-                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recipient</th>
-                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
-                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.dashboard.order')}</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.dashboard.recipient')}</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.dashboard.items')}</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.dashboard.priority')}</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.dashboard.status')}</th>
+                <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.dashboard.time')}</th>
               </tr>
             </thead>
             <tbody>
               {(!data?.recentOrders || data.recentOrders.length === 0) ? (
                 <tr>
                   <td colSpan={6} className="px-5 py-12 text-center text-gray-500 text-sm">
-                    No orders today yet. Create your first delivery order.
+                    {t('pharmacy.dashboard.noOrders')}
                   </td>
                 </tr>
               ) : (
@@ -227,19 +229,19 @@ export default function PharmacyDashboard() {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-violet-400" />
-            Today's Delivery Performance
+            {t('pharmacy.dashboard.deliveryPerformance')}
           </h3>
           <span className="text-2xl font-bold text-emerald-400">{summary.deliveryRate}%</span>
         </div>
-        <div className="w-full bg-[#1e293b] rounded-full h-3" role="progressbar" aria-valuenow={summary.deliveryRate} aria-valuemin={0} aria-valuemax={100} aria-label="Delivery performance">
+        <div className="w-full bg-[#1e293b] rounded-full h-3" role="progressbar" aria-valuenow={summary.deliveryRate} aria-valuemin={0} aria-valuemax={100} aria-label={t('pharmacy.dashboard.deliveryPerformance')}>
           <div
             className="bg-gradient-to-r from-violet-500 to-emerald-500 h-3 rounded-full transition-all duration-500"
             style={{ width: `${summary.deliveryRate}%` }}
           />
         </div>
         <div className="flex justify-between mt-2 text-[10px] text-gray-600">
-          <span>{summary.delivered} delivered</span>
-          <span>{summary.totalToday} total</span>
+          <span>{t('pharmacy.dashboard.deliveredCount', { count: summary.delivered })}</span>
+          <span>{t('pharmacy.dashboard.totalCount', { count: summary.totalToday })}</span>
         </div>
       </div>
 
@@ -250,6 +252,7 @@ export default function PharmacyDashboard() {
 }
 
 function CustomerFeedbackSection({ token }: { token: string }) {
+  const { t } = useTranslation();
   const { data, isLoading } = useQuery({
     queryKey: ["/api/pharmacy/feedback"],
     queryFn: async () => {
@@ -293,7 +296,7 @@ function CustomerFeedbackSection({ token }: { token: string }) {
       <div className="px-5 py-4 border-b border-[#1e293b] flex items-center justify-between">
         <h2 className="text-sm font-semibold text-white flex items-center gap-2">
           <MessageSquare className="w-4 h-4 text-violet-400" />
-          Customer Feedback
+          {t('pharmacy.dashboard.customerFeedback')}
         </h2>
       </div>
       <div className="p-5">
@@ -302,7 +305,7 @@ function CustomerFeedbackSection({ token }: { token: string }) {
           <div className="text-center">
             <p className="text-4xl font-bold text-white">{feedbackSummary?.averageRating?.toFixed(1) || "0.0"}</p>
             <StarRating rating={Math.round(feedbackSummary?.averageRating || 0)} />
-            <p className="text-[10px] text-gray-500 mt-1">{feedbackSummary?.totalRatings || 0} ratings</p>
+            <p className="text-[10px] text-gray-500 mt-1">{t('pharmacy.dashboard.ratings', { count: feedbackSummary?.totalRatings || 0 })}</p>
           </div>
           <div className="flex-1 space-y-1">
             {feedbackSummary?.ratingDistribution?.map((d: any) => (
@@ -324,7 +327,7 @@ function CustomerFeedbackSection({ token }: { token: string }) {
         {/* Recent comments */}
         {recentWithComments.length > 0 && (
           <div className="space-y-3">
-            <p className="text-xs text-gray-500 font-medium">Recent Comments</p>
+            <p className="text-xs text-gray-500 font-medium">{t('pharmacy.dashboard.recentComments')}</p>
             {recentWithComments.map((f: any) => (
               <div key={f.orderId} className="bg-[#0a0f1e] rounded-lg p-3">
                 <div className="flex items-center justify-between mb-1">

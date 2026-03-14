@@ -1,5 +1,6 @@
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import { PharmacySidebar } from "./components/PharmacySidebar";
 import PharmacyDashboard from "./pages/PharmacyDashboard";
 import PharmacyOrders from "./pages/PharmacyOrders";
@@ -42,21 +43,22 @@ function PharmacyPortalRoutes() {
 
 function PharmacyHostUnauthorized() {
   const { logout } = useAuth();
+  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]">
       <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 max-w-md text-center space-y-4">
         <div className="w-16 h-16 mx-auto bg-red-500/10 rounded-full flex items-center justify-center">
           <X className="w-8 h-8 text-red-400" aria-hidden="true" />
         </div>
-        <h2 className="text-xl font-semibold text-white">Access Denied</h2>
+        <h2 className="text-xl font-semibold text-white">{t('pharmacy.layout.accessDenied')}</h2>
         <p className="text-gray-400">
-          This portal is restricted to pharmacy users only. Please contact your administrator if you believe this is an error.
+          {t('pharmacy.layout.accessDeniedMessage')}
         </p>
         <button
           onClick={() => logout()}
           className="px-6 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors"
         >
-          Sign Out
+          {t('pharmacy.sidebar.signOut')}
         </button>
       </div>
     </div>
@@ -65,6 +67,7 @@ function PharmacyHostUnauthorized() {
 
 export function PharmacyPortalLayout() {
   const { user, token, loading } = useAuth();
+  const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [location] = useLocation();
 
@@ -73,7 +76,7 @@ export function PharmacyPortalLayout() {
       <div className="flex items-center justify-center min-h-screen bg-[#0a0f1e]" role="status" aria-live="polite">
         <div className="flex flex-col items-center space-y-4">
           <div className="w-12 h-12 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
-          <p className="text-gray-400 text-sm">Loading pharmacy portal...</p>
+          <p className="text-gray-400 text-sm">{t('pharmacy.layout.loadingPortal')}</p>
         </div>
       </div>
     );
@@ -108,7 +111,7 @@ export function PharmacyPortalLayout() {
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="lg:hidden p-2 hover:bg-white/5 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-            aria-label={sidebarOpen ? "Close sidebar menu" : "Open sidebar menu"}
+            aria-label={sidebarOpen ? t('pharmacy.layout.closeSidebar') : t('pharmacy.layout.openSidebar')}
             aria-expanded={sidebarOpen}
           >
             <Menu className="w-5 h-5 text-gray-400" aria-hidden="true" />
@@ -118,8 +121,8 @@ export function PharmacyPortalLayout() {
               <Pill className="w-4 h-4 text-white" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-sm font-semibold text-white leading-none">UCM Pharmacy Portal</h1>
-              <p className="text-xs text-gray-500 leading-none mt-0.5">Delivery Management</p>
+              <h1 className="text-sm font-semibold text-white leading-none">{t('pharmacy.layout.portalTitle')}</h1>
+              <p className="text-xs text-gray-500 leading-none mt-0.5">{t('pharmacy.layout.deliveryManagement')}</p>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-3">
@@ -133,7 +136,7 @@ export function PharmacyPortalLayout() {
           </div>
         </header>
 
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" role="main" aria-label="Pharmacy portal content">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" role="main" aria-label={t('pharmacy.layout.pharmacyPortalContent')}>
           <PharmacyPortalRoutes />
         </main>
       </div>

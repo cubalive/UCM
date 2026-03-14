@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   MapPin,
@@ -18,6 +19,7 @@ import { useAuth } from "@/lib/auth";
 import { AddressAutocomplete, StructuredAddress } from "@/components/address-autocomplete";
 
 export default function ClinicTripRequestNew() {
+  const { t } = useTranslation();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { token } = useAuth();
@@ -73,10 +75,10 @@ export default function ClinicTripRequestNew() {
       setSelectedPatient(patient);
       setShowNewPatient(false);
       queryClient.invalidateQueries({ queryKey: ["/api/clinic/patients"] });
-      toast({ title: "Patient created successfully" });
+      toast({ title: t('clinic.tripRequest.patientCreated', 'Patient created successfully') });
     },
     onError: () => {
-      toast({ title: "Failed to create patient", variant: "destructive" });
+      toast({ title: t('clinic.tripRequest.patientCreateFailed', 'Failed to create patient'), variant: "destructive" });
     },
   });
 
@@ -87,11 +89,11 @@ export default function ClinicTripRequestNew() {
     },
     onSuccess: (request: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/clinic/trip-requests"] });
-      toast({ title: "Trip request submitted!" });
+      toast({ title: t('clinic.tripRequest.submitted') });
       setLocation(`/requests/${request.id}`);
     },
     onError: () => {
-      toast({ title: "Failed to submit trip request", variant: "destructive" });
+      toast({ title: t('clinic.tripRequest.submitFailed'), variant: "destructive" });
     },
   });
 
@@ -100,7 +102,7 @@ export default function ClinicTripRequestNew() {
     const pickupAddress = pickupAddr?.formattedAddress || form.pickupAddress;
     const dropoffAddress = dropoffAddr?.formattedAddress || form.dropoffAddress;
     if (!pickupAddress || !dropoffAddress || !form.scheduledDate || !form.scheduledTime) {
-      toast({ title: "Please fill all required fields", variant: "destructive" });
+      toast({ title: t('clinic.tripRequest.fillRequired', 'Please fill all required fields'), variant: "destructive" });
       return;
     }
 
@@ -118,7 +120,7 @@ export default function ClinicTripRequestNew() {
 
   function handleCreatePatient() {
     if (!newPatientForm.firstName || !newPatientForm.lastName) {
-      toast({ title: "First and last name are required", variant: "destructive" });
+      toast({ title: t('clinic.tripRequest.nameRequired', 'First and last name are required'), variant: "destructive" });
       return;
     }
     createPatientMutation.mutate({
@@ -136,22 +138,22 @@ export default function ClinicTripRequestNew() {
           </button>
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-white" data-testid="text-page-title">New Trip Request</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Request transportation for a patient</p>
+          <h1 className="text-2xl font-bold text-white" data-testid="text-page-title">{t('clinic.tripRequest.newRequest')}</h1>
+          <p className="text-sm text-gray-400 mt-0.5">{t('clinic.tripRequest.title', 'Request transportation for a patient')}</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 space-y-4">
           <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-            <User className="w-4 h-4" /> Patient
+            <User className="w-4 h-4" /> {t('trips.patient')}
           </h2>
 
           {selectedPatient ? (
             <div className="flex items-center justify-between bg-[#0a0f1e] rounded-lg p-3 border border-[#1e293b]" data-testid="selected-patient">
               <div>
                 <p className="text-white font-medium">{selectedPatient.firstName} {selectedPatient.lastName}</p>
-                <p className="text-xs text-gray-500">{selectedPatient.phone || "No phone"}</p>
+                <p className="text-xs text-gray-500">{selectedPatient.phone || t('clinic.tripRequest.noPhone', 'No phone')}</p>
               </div>
               <button
                 type="button"
@@ -159,7 +161,7 @@ export default function ClinicTripRequestNew() {
                 className="text-xs text-red-400 hover:text-red-300"
                 data-testid="button-remove-patient"
               >
-                Remove
+                {t('common.remove')}
               </button>
             </div>
           ) : (
@@ -168,8 +170,8 @@ export default function ClinicTripRequestNew() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" aria-hidden="true" />
                 <input
                   type="text"
-                  placeholder="Search patients..."
-                  aria-label="Search patients"
+                  placeholder={t('clinic.tripRequest.searchPatient')}
+                  aria-label={t('clinic.tripRequest.searchPatient')}
                   value={patientSearch}
                   onChange={(e) => setPatientSearch(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
@@ -201,14 +203,14 @@ export default function ClinicTripRequestNew() {
                 data-testid="button-toggle-new-patient"
               >
                 <Plus className="w-4 h-4" />
-                {showNewPatient ? "Cancel new patient" : "Create new patient"}
+                {showNewPatient ? t('common.cancel') : t('clinic.newPatient', 'Create new patient')}
               </button>
 
               {showNewPatient && (
                 <div className="bg-[#0a0f1e] border border-[#1e293b] rounded-lg p-4 space-y-3" data-testid="new-patient-form">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label htmlFor="patient-first-name" className="text-xs text-gray-400 mb-1 block">First Name *</label>
+                      <label htmlFor="patient-first-name" className="text-xs text-gray-400 mb-1 block">{t('clinic.tripRequest.firstName')} *</label>
                       <input
                         id="patient-first-name"
                         type="text"
@@ -219,7 +221,7 @@ export default function ClinicTripRequestNew() {
                       />
                     </div>
                     <div>
-                      <label htmlFor="patient-last-name" className="text-xs text-gray-400 mb-1 block">Last Name *</label>
+                      <label htmlFor="patient-last-name" className="text-xs text-gray-400 mb-1 block">{t('clinic.tripRequest.lastName')} *</label>
                       <input
                         id="patient-last-name"
                         type="text"
@@ -232,7 +234,7 @@ export default function ClinicTripRequestNew() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label htmlFor="patient-phone" className="text-xs text-gray-400 mb-1 block">Phone</label>
+                      <label htmlFor="patient-phone" className="text-xs text-gray-400 mb-1 block">{t('clinic.tripRequest.phone')}</label>
                       <input
                         id="patient-phone"
                         type="text"
@@ -243,7 +245,7 @@ export default function ClinicTripRequestNew() {
                       />
                     </div>
                     <div>
-                      <label htmlFor="patient-dob" className="text-xs text-gray-400 mb-1 block">Date of Birth</label>
+                      <label htmlFor="patient-dob" className="text-xs text-gray-400 mb-1 block">{t('clinic.tripRequest.dateOfBirth')}</label>
                       <input
                         id="patient-dob"
                         type="date"
@@ -276,7 +278,7 @@ export default function ClinicTripRequestNew() {
                       className="rounded"
                       data-testid="input-patient-wheelchair"
                     />
-                    <label htmlFor="patient-wheelchair" className="text-xs text-gray-400">Wheelchair required</label>
+                    <label htmlFor="patient-wheelchair" className="text-xs text-gray-400">{t('clinic.tripRequest.wheelchair')}</label>
                   </div>
                   <button
                     type="button"
@@ -286,7 +288,7 @@ export default function ClinicTripRequestNew() {
                     data-testid="button-create-patient"
                   >
                     {createPatientMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    Create Patient
+                    {t('clinic.newPatient', 'Create Patient')}
                   </button>
                 </div>
               )}
@@ -296,7 +298,7 @@ export default function ClinicTripRequestNew() {
 
         <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-5 space-y-4">
           <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-            <MapPin className="w-4 h-4" /> Trip Details
+            <MapPin className="w-4 h-4" /> {t('clinic.tripRequest.tripDetails')}
           </h2>
 
           <AddressAutocomplete
@@ -329,7 +331,7 @@ export default function ClinicTripRequestNew() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="trip-date" className="text-xs text-gray-400 mb-1 block">Date *</label>
+              <label htmlFor="trip-date" className="text-xs text-gray-400 mb-1 block">{t('clinic.tripRequest.scheduledDate')} *</label>
               <input
                 id="trip-date"
                 type="date"
@@ -340,7 +342,7 @@ export default function ClinicTripRequestNew() {
               />
             </div>
             <div>
-              <label htmlFor="trip-time" className="text-xs text-gray-400 mb-1 block">Time *</label>
+              <label htmlFor="trip-time" className="text-xs text-gray-400 mb-1 block">{t('clinic.tripRequest.scheduledTime')} *</label>
               <input
                 id="trip-time"
                 type="time"
@@ -354,7 +356,7 @@ export default function ClinicTripRequestNew() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Service Level</label>
+              <label className="text-xs text-gray-400 mb-1 block">{t('clinic.tripRequest.serviceLevel', 'Service Level')}</label>
               <select
                 value={form.serviceLevel}
                 onChange={(e) => setForm({ ...form, serviceLevel: e.target.value })}
@@ -371,7 +373,7 @@ export default function ClinicTripRequestNew() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Passengers</label>
+              <label className="text-xs text-gray-400 mb-1 block">{t('clinic.tripRequest.passengers', 'Passengers')}</label>
               <input
                 type="number"
                 min={1}
@@ -393,15 +395,15 @@ export default function ClinicTripRequestNew() {
               className="rounded"
               data-testid="input-round-trip"
             />
-            <label htmlFor="round-trip" className="text-sm text-gray-400">Round trip</label>
+            <label htmlFor="round-trip" className="text-sm text-gray-400">{t('clinic.tripRequest.roundTrip')}</label>
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Notes</label>
+            <label className="text-xs text-gray-400 mb-1 block">{t('clinic.tripRequest.notes')}</label>
             <textarea
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              placeholder="Any additional instructions or notes..."
+              placeholder={t('clinic.tripRequest.notesPlaceholder', 'Any additional instructions or notes...')}
               rows={3}
               className="w-full px-3 py-2.5 bg-[#0a0f1e] border border-[#1e293b] rounded-lg text-white text-sm placeholder-gray-500 focus:border-emerald-500 focus:outline-none resize-none"
               data-testid="input-notes"
@@ -420,7 +422,7 @@ export default function ClinicTripRequestNew() {
           ) : (
             <Check className="w-5 h-5" />
           )}
-          Submit Trip Request
+          {t('clinic.tripRequest.submit')}
         </button>
       </form>
     </div>

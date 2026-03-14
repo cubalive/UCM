@@ -6,6 +6,7 @@ import {
   Accessibility, BedDouble, Weight, Route, Users, Check, X, Loader2,
   Calendar, User, Pill, AlertCircle, Thermometer
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useDriverStore, type ServiceFilter, type ServiceType } from "../store/driverStore";
 import { useReducedMotion } from "../design/accessibility";
 import { colors } from "../design/tokens";
@@ -18,6 +19,7 @@ import { DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
 
 /* ─── Availability status pill ─── */
 function StatusPill() {
+  const { t } = useTranslation();
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -29,22 +31,22 @@ function StatusPill() {
   let animate = false;
 
   if (driverStatus === "offline") {
-    label = "Offline";
+    label = t('driver.status.offline');
     bgColor = "rgba(0,0,0,0.06)";
     textColor = colors.textTertiary;
     dotColor = colors.textTertiary;
   } else if (shiftStatus === "offShift") {
-    label = "Online";
+    label = t('driver.status.online');
     bgColor = "rgba(255,149,0,0.12)";
     textColor = colors.warning;
     dotColor = colors.warning;
   } else if (tripPhase !== "none" && tripPhase !== "complete" && tripPhase !== "offer") {
-    label = "In Trip";
+    label = t('driver.status.inTrip');
     bgColor = "rgba(74,144,217,0.12)";
     textColor = colors.sky;
     dotColor = colors.sky;
   } else {
-    label = "Available";
+    label = t('driver.status.available');
     bgColor = "rgba(52,199,89,0.12)";
     textColor = colors.success;
     dotColor = colors.success;
@@ -71,6 +73,7 @@ function StatusPill() {
 
 /* ─── Connect / Go Online button ─── */
 function ConnectButton() {
+  const { t } = useTranslation();
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -105,7 +108,7 @@ function ConnectButton() {
         whileHover={!reduced && !actionLoading ? { scale: 1.08 } : undefined}
         whileTap={!reduced && !actionLoading ? { scale: 0.92 } : undefined}
         data-testid="btn-connect"
-        aria-label="Go Online"
+        aria-label={t('driver.status.goOnline')}
         disabled={actionLoading}
       >
         {/* Pulse ring */}
@@ -135,7 +138,7 @@ function ConnectButton() {
         </div>
       </motion.button>
       <span className="text-xs font-medium" style={{ color: colors.textSecondary }}>
-        {actionLoading ? "Please wait..." : "Tap to go online"}
+        {actionLoading ? t('common.loading') : t('driver.status.goOnline')}
       </span>
     </div>
   );
@@ -195,6 +198,7 @@ function useOfferCountdown(): number {
 
 /* ─── Swipeable Trip Offer Card ─── */
 function SwipeableTripOffer() {
+  const { t } = useTranslation();
   const activeTrip = useDriverStore((s) => s.activeTrip);
   const pendingOffer = useDriverStore((s) => s.pendingOffer);
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -237,14 +241,14 @@ function SwipeableTripOffer() {
           style={{ opacity: declineOpacity, background: colors.dangerLight }}
         >
           <X className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.danger }} />
-          <span className="text-[10px] font-semibold" style={{ color: colors.danger }}>Decline</span>
+          <span className="text-[10px] font-semibold" style={{ color: colors.danger }}>{t('driver.dashboard.decline')}</span>
         </motion.div>
         <motion.div
           className="flex items-center gap-1 px-3 py-1 rounded-full"
           style={{ opacity: acceptOpacity, background: colors.successLight }}
         >
           <Check className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.success }} />
-          <span className="text-[10px] font-semibold" style={{ color: colors.success }}>Accept</span>
+          <span className="text-[10px] font-semibold" style={{ color: colors.success }}>{t('driver.dashboard.accept')}</span>
         </motion.div>
       </div>
 
@@ -280,7 +284,7 @@ function SwipeableTripOffer() {
                 <Zap className="w-4 h-4 text-white" aria-hidden="true" />
               </motion.div>
               <span className="text-sm font-bold" style={{ color: colors.textPrimary }}>
-                {activeTrip.tripType === "Delivery" ? "New Delivery" : "New Trip Request"}
+                {activeTrip.tripType === "Delivery" ? t('driver.dashboard.newDelivery') : t('driver.dashboard.tripOffer')}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -299,7 +303,7 @@ function SwipeableTripOffer() {
                 background: "rgba(255,107,53,0.1)",
                 color: colors.sunrise,
               }}>
-                Swipe to respond
+                {t('driver.dashboard.swipeToRespond')}
               </span>
             </div>
           </div>
@@ -319,7 +323,7 @@ function SwipeableTripOffer() {
                   {etaToPickup} min
                 </p>
                 <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>
-                  To Pickup
+                  {t('driver.dashboard.toPickup')}
                 </p>
               </div>
             </div>
@@ -336,7 +340,7 @@ function SwipeableTripOffer() {
                   {estimatedTrip} min
                 </p>
                 <p className="text-[9px] uppercase tracking-wider font-medium" style={{ color: colors.textTertiary }}>
-                  Trip Duration
+                  {t('driver.dashboard.tripDuration')}
                 </p>
               </div>
             </div>
@@ -350,7 +354,7 @@ function SwipeableTripOffer() {
                 <div className="w-0.5 h-6 rounded-full" style={{ background: "rgba(0,0,0,0.08)" }} />
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Pickup</span>
+                <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>{t('driver.trip.pickup')}</span>
                 <p className="text-sm truncate font-medium" style={{ color: colors.textPrimary }}>{activeTrip.pickupAddress}</p>
               </div>
             </div>
@@ -359,7 +363,7 @@ function SwipeableTripOffer() {
                 <div className="w-3 h-3 rounded-full" style={{ background: colors.sunrise, boxShadow: `0 2px 6px ${glowColor(colors.sunrise, 0.3)}` }} />
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>Dropoff</span>
+                <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: colors.textTertiary }}>{t('driver.trip.dropoff')}</span>
                 <p className="text-sm truncate font-medium" style={{ color: colors.textPrimary }}>{activeTrip.dropoffAddress}</p>
               </div>
             </div>
@@ -388,7 +392,7 @@ function SwipeableTripOffer() {
               data-testid="btn-decline-offer"
               disabled={actionLoading}
             >
-              Decline
+              {t('driver.dashboard.decline')}
             </motion.button>
             <motion.button
               onClick={() => acceptOffer()}
@@ -405,7 +409,7 @@ function SwipeableTripOffer() {
               disabled={actionLoading}
             >
               {actionLoading && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
-              Accept Trip
+              {t('driver.dashboard.accept')}
             </motion.button>
           </div>
         </div>
@@ -416,6 +420,7 @@ function SwipeableTripOffer() {
 
 /* ─── Active Trip Bottom Card ─── */
 function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
+  const { t } = useTranslation();
   const activeTrip = useDriverStore((s) => s.activeTrip);
   const tripPhase = useDriverStore((s) => s.tripPhase);
   const store = useDriverStore();
@@ -425,7 +430,7 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
   if (!activeTrip || !activePhasesVisible.includes(tripPhase)) return null;
 
   const isPickupPhase = ["toPickup", "arrivedPickup", "waiting"].includes(tripPhase);
-  const phaseLabel = isPickupPhase ? "En route to pickup" : "Transporting patient";
+  const phaseLabel = isPickupPhase ? t('driver.dashboard.enRouteToPickup') : t('driver.dashboard.transportingPatient');
   const address = isPickupPhase ? activeTrip.pickupAddress : activeTrip.dropoffAddress;
   const nextAction = store.getNextAction();
 
@@ -507,10 +512,10 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
             }}
             whileTap={!reduced ? { scale: 0.95 } : undefined}
             data-testid="btn-navigate"
-            aria-label="Navigate to destination"
+            aria-label={t('driver.trip.navigate')}
           >
             <Navigation className="w-4 h-4" aria-hidden="true" />
-            <span className="text-xs font-semibold">Navigate</span>
+            <span className="text-xs font-semibold">{t('driver.trip.navigate')}</span>
           </motion.button>
 
           <motion.button
@@ -522,7 +527,7 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
             }}
             whileTap={!reduced ? { scale: 0.95 } : undefined}
             data-testid="btn-trip-details"
-            aria-label="View trip details"
+            aria-label={t('common.details')}
           >
             <ChevronUp className="w-4 h-4" aria-hidden="true" style={{ color: colors.textSecondary }} />
           </motion.button>
@@ -548,6 +553,7 @@ function ActiveTripMapCard({ onOpenTrip }: { onOpenTrip: () => void }) {
 
 /* ─── Waiting indicator ─── */
 function WaitingIndicator() {
+  const { t } = useTranslation();
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -576,7 +582,7 @@ function WaitingIndicator() {
         aria-hidden="true"
       />
       <span className="text-xs font-medium" style={{ color: colors.textSecondary }}>
-        Searching for trips nearby...
+        {t('driver.dashboard.waitingForTrips')}
       </span>
     </motion.div>
   );
@@ -682,6 +688,7 @@ interface ScheduledTrip {
 }
 
 function ScheduleView() {
+  const { t } = useTranslation();
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
   const tripPhase = useDriverStore((s) => s.tripPhase);
@@ -755,7 +762,7 @@ function ScheduleView() {
           <div className="flex items-center gap-2">
             <Calendar className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.sunrise }} />
             <span className="text-xs font-bold" style={{ color: colors.textPrimary }}>
-              Today's Schedule
+              {t('driver.dashboard.scheduledTrips')}
             </span>
             <span
               className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
@@ -770,7 +777,7 @@ function ScheduleView() {
               className="text-xs font-semibold min-h-[44px] min-w-[44px] flex items-center justify-center"
               style={{ color: colors.sky }}
             >
-              {expanded ? "Show Less" : "View All"}
+              {expanded ? t('driver.dashboard.showLess') : t('driver.dashboard.viewAll')}
             </button>
           )}
         </div>
@@ -836,7 +843,7 @@ function ScheduleView() {
                     color: trip.status === "ASSIGNED" ? colors.sky : colors.textTertiary,
                   }}
                 >
-                  {trip.status === "ASSIGNED" ? "Assigned" : "Scheduled"}
+                  {trip.status === "ASSIGNED" ? t('status.assigned') : t('status.scheduled')}
                 </span>
               </div>
             </motion.div>
@@ -849,6 +856,7 @@ function ScheduleView() {
 
 /* ─── Active Pharmacy Deliveries ─── */
 function PharmacyDeliveriesCard() {
+  const { t } = useTranslation();
   const pharmacyDeliveries = useDriverStore((s) => s.pharmacyDeliveries);
   const driverStatus = useDriverStore((s) => s.driverStatus);
   const shiftStatus = useDriverStore((s) => s.shiftStatus);
@@ -914,7 +922,7 @@ function PharmacyDeliveriesCard() {
         <div className="flex items-center gap-2 px-2 pb-1">
           <Pill className="w-4 h-4" aria-hidden="true" style={{ color: colors.sunrise }} />
           <span className="text-xs font-bold" style={{ color: colors.textPrimary }}>
-            Active Deliveries
+            {t('driver.dashboard.pharmacyDeliveries')}
           </span>
           <span
             className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
@@ -998,10 +1006,10 @@ function PharmacyDeliveriesCard() {
                     color: "#fff",
                   }}
                   whileTap={!reduced ? { scale: 0.95 } : undefined}
-                  aria-label="Navigate to delivery location"
+                  aria-label={t('driver.trip.navigate')}
                 >
                   <Navigation className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span className="text-xs font-semibold">Navigate</span>
+                  <span className="text-xs font-semibold">{t('driver.trip.navigate')}</span>
                 </motion.button>
 
                 {delivery.recipientPhone && (
@@ -1010,10 +1018,10 @@ function PharmacyDeliveriesCard() {
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl min-h-[44px]"
                     style={{ background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.06)" }}
                     whileTap={!reduced ? { scale: 0.95 } : undefined}
-                    aria-label="Call recipient"
+                    aria-label={t('driver.dashboard.call')}
                   >
                     <Phone className="w-3.5 h-3.5" aria-hidden="true" style={{ color: colors.textSecondary }} />
-                    <span className="text-xs font-semibold" style={{ color: colors.textSecondary }}>Call</span>
+                    <span className="text-xs font-semibold" style={{ color: colors.textSecondary }}>{t('driver.dashboard.call')}</span>
                   </motion.button>
                 )}
               </div>
@@ -1069,6 +1077,7 @@ function MapBackground() {
 
 /* ─── Main Dashboard ─── */
 export function Dashboard({ onNavigate }: { onNavigate?: (screen: string) => void }) {
+  const { t } = useTranslation();
   const driverName = useDriverStore((s) => s.driverName);
   const tripPhase = useDriverStore((s) => s.tripPhase);
   const driverStatus = useDriverStore((s) => s.driverStatus);

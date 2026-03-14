@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
 import {
   Package,
@@ -52,6 +53,7 @@ const PRIORITY_BADGES: Record<string, string> = {
 
 export default function PharmacyOrders() {
   const { token } = useAuth();
+  const { t } = useTranslation();
   const [status, setStatus] = useState("ALL");
   const [priority, setPriority] = useState("ALL");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -67,7 +69,7 @@ export default function PharmacyOrders() {
       const res = await fetch(`${API_BASE_URL}/api/pharmacy/orders?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error("Failed to load orders");
+      if (!res.ok) throw new Error(t('errors.loadFailed'));
       return res.json();
     },
     refetchInterval: 30000,
@@ -82,13 +84,13 @@ export default function PharmacyOrders() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Orders</h1>
-          <p className="text-sm text-gray-400">Manage pharmacy delivery orders</p>
+          <h1 className="text-2xl font-bold text-white">{t('pharmacy.orders.title')}</h1>
+          <p className="text-sm text-gray-400">{t('pharmacy.orders.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => refetch()}
-            aria-label="Refresh orders"
+            aria-label={t('pharmacy.orders.refresh')}
             className="p-2 hover:bg-white/5 rounded-lg transition-colors text-gray-400"
           >
             <RefreshCw className="w-4 h-4" aria-hidden="true" />
@@ -96,7 +98,7 @@ export default function PharmacyOrders() {
           <Link href="/orders/new">
             <button className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium flex items-center gap-2">
               <Package className="w-4 h-4" />
-              New Order
+              {t('pharmacy.orders.newOrder')}
             </button>
           </Link>
         </div>
@@ -109,30 +111,30 @@ export default function PharmacyOrders() {
           type="date"
           value={date}
           onChange={(e) => { setDate(e.target.value); setPage(1); }}
-          aria-label="Filter by date"
+          aria-label={t('pharmacy.orders.filterByDate')}
           className="bg-[#0a0f1e] border border-[#1e293b] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
         />
         <select
           value={status}
           onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-          aria-label="Filter by status"
+          aria-label={t('pharmacy.orders.filterByStatus')}
           className="bg-[#0a0f1e] border border-[#1e293b] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
         >
           {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>{s === "ALL" ? "All Statuses" : s.replace(/_/g, " ")}</option>
+            <option key={s} value={s}>{s === "ALL" ? t('pharmacy.orders.allStatuses') : s.replace(/_/g, " ")}</option>
           ))}
         </select>
         <select
           value={priority}
           onChange={(e) => { setPriority(e.target.value); setPage(1); }}
-          aria-label="Filter by priority"
+          aria-label={t('pharmacy.orders.filterByPriority')}
           className="bg-[#0a0f1e] border border-[#1e293b] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
         >
           {PRIORITY_OPTIONS.map((p) => (
-            <option key={p} value={p}>{p === "ALL" ? "All Priorities" : p}</option>
+            <option key={p} value={p}>{p === "ALL" ? t('pharmacy.orders.allPriorities') : p}</option>
           ))}
         </select>
-        <span className="text-xs text-gray-500 ml-auto">{total} orders found</span>
+        <span className="text-xs text-gray-500 ml-auto">{t('pharmacy.orders.ordersFound', { count: total })}</span>
       </div>
 
       {/* Table */}
@@ -140,14 +142,14 @@ export default function PharmacyOrders() {
         <table className="w-full">
           <thead>
             <tr className="border-b border-[#1e293b]">
-              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
-              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recipient</th>
-              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Delivery Address</th>
-              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
-              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Temp</th>
-              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.orders.orderId')}</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.orders.recipient')}</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.orders.deliveryAddress')}</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.orders.items')}</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.orders.priority')}</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.orders.status')}</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.orders.temp')}</th>
+              <th scope="col" className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('pharmacy.orders.created')}</th>
             </tr>
           </thead>
           <tbody>
@@ -163,7 +165,7 @@ export default function PharmacyOrders() {
               <tr>
                 <td colSpan={8} className="px-5 py-16 text-center text-gray-500">
                   <Package className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                  <p className="text-sm">No orders found for the selected filters</p>
+                  <p className="text-sm">{t('pharmacy.orders.noOrders')}</p>
                 </td>
               </tr>
             ) : (
@@ -220,13 +222,13 @@ export default function PharmacyOrders() {
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-xs text-gray-500">
-            Page {page} of {totalPages} ({total} total)
+            {t('pharmacy.orders.pageOf', { page, totalPages, total })}
           </p>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPage(Math.max(1, page - 1))}
               disabled={page <= 1}
-              aria-label="Previous page"
+              aria-label={t('pharmacy.orders.previousPage')}
               className="p-2 rounded-lg bg-[#111827] border border-[#1e293b] text-gray-400 disabled:opacity-30 hover:bg-white/5"
             >
               <ChevronLeft className="w-4 h-4" aria-hidden="true" />
@@ -234,7 +236,7 @@ export default function PharmacyOrders() {
             <button
               onClick={() => setPage(Math.min(totalPages, page + 1))}
               disabled={page >= totalPages}
-              aria-label="Next page"
+              aria-label={t('pharmacy.orders.nextPage')}
               className="p-2 rounded-lg bg-[#111827] border border-[#1e293b] text-gray-400 disabled:opacity-30 hover:bg-white/5"
             >
               <ChevronRight className="w-4 h-4" aria-hidden="true" />
