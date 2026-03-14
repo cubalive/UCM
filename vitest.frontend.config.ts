@@ -2,7 +2,6 @@ import { defineConfig } from "vitest/config";
 import path from "path";
 
 export default defineConfig({
-  // Override PostCSS config so vite doesn't try to load tailwindcss in test mode
   css: {
     postcss: { plugins: [] },
   },
@@ -14,10 +13,9 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: "node",
-    include: ["tests/unit/**/*.test.ts", "tests/frontend/**/*.test.ts", "server/tests/**/*.test.ts", "shared/**/*.test.ts"],
-    exclude: ["tests/integration/**"],
-    setupFiles: ["tests/setup.ts"],
+    environment: "jsdom",
+    include: ["tests/frontend/**/*.test.tsx", "tests/frontend/**/*.test.ts"],
+    setupFiles: ["tests/setup-frontend.ts"],
     testTimeout: 10000,
   },
 });
