@@ -43,7 +43,7 @@ export function useRealtimeTrips({
     if (!token || !enabled) return;
     if (!companyId && !clinicId) return;
 
-    const wsUrl = getWsUrl(token);
+    const wsUrl = getWsUrl();
 
     try {
       const ws = new WebSocket(wsUrl);

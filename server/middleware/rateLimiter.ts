@@ -162,12 +162,26 @@ function inMemoryRateLimit(
 }
 
 // ── Pre-configured limiters for critical endpoints ──
+// ALL use Redis for distributed state across Railway replicas.
+// In-memory fallback only when Redis is completely unavailable.
 
-/** Auth endpoints: 10 attempts / 15 min, then block 15 min */
+/** Login: 5 attempts / minute per IP (brute-force protection) */
 export const authRateLimiter = rateLimiter({
-  max: 10,
-  windowMs: 15 * 60_000,
-  blockDurationMs: 15 * 60_000,
+  max: 5,
+  windowMs: 60_000,
+  blockDurationMs: 5 * 60_000,
+  keyFn: (req) => `auth:${getClientIp(req)}`,
+});
+
+/** Forgot password: 3 per hour per email (enumeration protection) */
+export const forgotPasswordRateLimiter = rateLimiter({
+  max: 3,
+  windowMs: 60 * 60_000,
+  blockDurationMs: 60 * 60_000,
+  keyFn: (req) => {
+    const email = (req.body?.email || "").toLowerCase().trim();
+    return `forgot:${email || getClientIp(req)}`;
+  },
 });
 
 /** Magic link requests: 5 / 10 min per IP */
@@ -177,14 +191,26 @@ export const magicLinkRateLimiter = rateLimiter({
   blockDurationMs: 10 * 60_000,
 });
 
-/** General API: 200 requests / minute per IP */
+/** General API: 300 / minute per user (authenticated) */
 export const apiRateLimiter = rateLimiter({
-  max: 200,
+  max: 300,
   windowMs: 60_000,
   blockDurationMs: 30_000,
+  keyFn: (req) => {
+    const user = (req as AuthRequest).user;
+    return user?.userId ? `api:user:${user.userId}` : `api:ip:${getClientIp(req)}`;
+  },
   skip: (req) => {
     return req.path === "/api/health" || req.path === "/api/health/live" || req.path === "/api/health/ready" || req.path === "/api/pwa/health";
   },
+});
+
+/** Public routes: 60 / minute per IP */
+export const publicRateLimiter = rateLimiter({
+  max: 60,
+  windowMs: 60_000,
+  blockDurationMs: 30_000,
+  keyFn: (req) => `pub:${getClientIp(req)}`,
 });
 
 /** PHI data access: 100 / minute per user (patients, trips with PHI) */
@@ -197,11 +223,15 @@ export const phiRateLimiter = rateLimiter({
   },
 });
 
-/** Password change: 3 attempts / hour */
+/** Password change: 5 attempts / hour per user */
 export const passwordRateLimiter = rateLimiter({
-  max: 3,
+  max: 5,
   windowMs: 60 * 60_000,
   blockDurationMs: 60 * 60_000,
+  keyFn: (req) => {
+    const user = (req as AuthRequest).user;
+    return `passwd:${user?.userId || getClientIp(req)}`;
+  },
 });
 
 // Export for testing

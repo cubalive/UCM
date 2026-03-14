@@ -1,10 +1,12 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import type { Request, Response, NextFunction } from "express";
 import { db } from "./db";
 import { users, userCityAccess, sessionRevocations, dispatcherCityPermissions } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { can, type Resource, type Permission } from "@shared/permissions";
+import { setWithTtl, getString } from "./lib/redis";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
@@ -14,7 +16,15 @@ if (IS_PROD && !process.env.JWT_SECRET) {
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-dev-only";
-const UCM_COOKIE = "ucm_session";
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET + "-refresh";
+const UCM_COOKIE = "ucm_access";
+const UCM_REFRESH_COOKIE = "ucm_refresh";
+const UCM_CSRF_COOKIE = "ucm_csrf";
+// Keep legacy cookie name for clearing on login (migration)
+const LEGACY_COOKIE = "ucm_session";
+
+const ACCESS_TOKEN_MAX_AGE = 15 * 60 * 1000; // 15 minutes
+const REFRESH_TOKEN_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function getCookieDomain(req: Request): string | undefined {
   const host = req.hostname || req.headers.host || "";
@@ -24,27 +34,67 @@ function getCookieDomain(req: Request): string | undefined {
   return undefined;
 }
 
-export function setAuthCookie(res: Response, token: string, req: Request): void {
-  const domain = getCookieDomain(req);
-  res.cookie(UCM_COOKIE, token, {
-    httpOnly: true,
-    secure: IS_PROD,
-    sameSite: IS_PROD ? "none" : "lax",
-    domain,
-    maxAge: 24 * 60 * 60 * 1000,
-    path: "/",
-  });
+export function generateCsrfToken(): string {
+  return crypto.randomBytes(32).toString("hex");
 }
 
-export function clearAuthCookie(res: Response, req: Request): void {
+export function setAuthCookies(res: Response, accessToken: string, refreshToken: string, req: Request): void {
   const domain = getCookieDomain(req);
-  res.clearCookie(UCM_COOKIE, {
+  const sameSite: "strict" | "lax" | "none" = IS_PROD ? "strict" : "lax";
+
+  // httpOnly access token cookie — 15 min
+  res.cookie(UCM_COOKIE, accessToken, {
     httpOnly: true,
     secure: IS_PROD,
-    sameSite: IS_PROD ? "none" : "lax",
+    sameSite,
     domain,
+    maxAge: ACCESS_TOKEN_MAX_AGE,
     path: "/",
   });
+
+  // httpOnly refresh token cookie — 7 days, restricted to refresh path
+  res.cookie(UCM_REFRESH_COOKIE, refreshToken, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite,
+    domain,
+    maxAge: REFRESH_TOKEN_MAX_AGE,
+    path: "/api/auth/refresh",
+  });
+
+  // CSRF token — readable by JS (not httpOnly), used as double-submit cookie
+  const csrfToken = generateCsrfToken();
+  res.cookie(UCM_CSRF_COOKIE, csrfToken, {
+    httpOnly: false,
+    secure: IS_PROD,
+    sameSite,
+    domain,
+    maxAge: ACCESS_TOKEN_MAX_AGE,
+    path: "/",
+  });
+
+  // Clear legacy cookie if present
+  res.clearCookie(LEGACY_COOKIE, { domain, path: "/" });
+}
+
+/** @deprecated Use setAuthCookies instead. Kept for backward compat during migration. */
+export function setAuthCookie(res: Response, token: string, req: Request): void {
+  const refreshToken = signRefreshToken({ userId: (jwt.decode(token) as any)?.userId });
+  setAuthCookies(res, token, refreshToken, req);
+}
+
+export function clearAuthCookies(res: Response, req: Request): void {
+  const domain = getCookieDomain(req);
+  const sameSite: "strict" | "lax" | "none" = IS_PROD ? "strict" : "lax";
+  res.clearCookie(UCM_COOKIE, { httpOnly: true, secure: IS_PROD, sameSite, domain, path: "/" });
+  res.clearCookie(UCM_REFRESH_COOKIE, { httpOnly: true, secure: IS_PROD, sameSite, domain, path: "/api/auth/refresh" });
+  res.clearCookie(UCM_CSRF_COOKIE, { httpOnly: false, secure: IS_PROD, sameSite, domain, path: "/" });
+  res.clearCookie(LEGACY_COOKIE, { domain, path: "/" });
+}
+
+/** @deprecated Use clearAuthCookies instead */
+export function clearAuthCookie(res: Response, req: Request): void {
+  clearAuthCookies(res, req);
 }
 
 export interface AuthPayload {
@@ -59,11 +109,76 @@ export interface AuthPayload {
 }
 
 export function signToken(payload: AuthPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "15m" });
+}
+
+export function signRefreshToken(payload: { userId: number }): string {
+  return jwt.sign(payload, REFRESH_SECRET, { expiresIn: "7d" });
 }
 
 export function verifyToken(token: string): AuthPayload {
   return jwt.verify(token, JWT_SECRET) as AuthPayload;
+}
+
+export function verifyRefreshToken(token: string): { userId: number } {
+  return jwt.verify(token, REFRESH_SECRET) as { userId: number };
+}
+
+/**
+ * Revoke a specific token by storing its hash in Redis.
+ * TTL = 24h (longer than any token validity).
+ */
+export async function revokeToken(token: string): Promise<void> {
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  await setWithTtl(`revoked_token:${tokenHash}`, "1", 86400);
+}
+
+/**
+ * Check if a token has been revoked via Redis.
+ * Uses a short in-memory cache (3 seconds max) for performance.
+ */
+const revokedCheckCache = new Map<string, { revoked: boolean; cachedAt: number }>();
+const REVOKED_CACHE_TTL = 3_000; // 3 seconds max
+
+export async function isTokenRevoked(token: string): Promise<boolean> {
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+  const cached = revokedCheckCache.get(tokenHash);
+  if (cached && (Date.now() - cached.cachedAt) < REVOKED_CACHE_TTL) {
+    return cached.revoked;
+  }
+
+  try {
+    const val = await getString(`revoked_token:${tokenHash}`);
+    const revoked = val === "1";
+    revokedCheckCache.set(tokenHash, { revoked, cachedAt: Date.now() });
+    // Prune cache periodically
+    if (revokedCheckCache.size > 10000) {
+      const now = Date.now();
+      for (const [k, v] of revokedCheckCache) {
+        if (now - v.cachedAt > REVOKED_CACHE_TTL) revokedCheckCache.delete(k);
+      }
+    }
+    return revoked;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Revoke ALL tokens for a user (e.g. on password change).
+ * Inserts a session revocation record so all tokens issued before now are invalid.
+ */
+export async function revokeAllUserTokens(userId: number): Promise<void> {
+  try {
+    await db.insert(sessionRevocations).values({
+      userId,
+      revokedAfter: new Date(),
+    });
+    invalidateRevocationCache(userId);
+  } catch (err) {
+    console.error("[AUTH] Failed to revoke all user tokens:", err);
+  }
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -79,7 +194,7 @@ export interface AuthRequest extends Request {
 }
 
 const revocationCache = new Map<number, { revokedAfter: number; cachedAt: number }>();
-const REVOCATION_CACHE_TTL = 30_000;
+const REVOCATION_CACHE_TTL = 3_000; // 3 seconds — maximum acceptable window for medical data
 
 async function getLatestRevocation(userId: number): Promise<number | null> {
   const cached = revocationCache.get(userId);
@@ -110,17 +225,32 @@ export function invalidateRevocationCache(userId: number): void {
 }
 
 export async function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
-  const header = req.headers.authorization;
   let token: string | undefined;
 
-  if (header?.startsWith("Bearer ")) {
-    token = header.slice(7);
-  } else if (req.cookies?.[UCM_COOKIE]) {
+  // Priority: 1) httpOnly access cookie, 2) legacy session cookie, 3) Bearer header (for driver app / mobile)
+  if (req.cookies?.[UCM_COOKIE]) {
     token = req.cookies[UCM_COOKIE];
+  } else if (req.cookies?.[LEGACY_COOKIE]) {
+    token = req.cookies[LEGACY_COOKIE];
+  } else {
+    const header = req.headers.authorization;
+    if (header?.startsWith("Bearer ")) {
+      token = header.slice(7);
+    }
   }
 
   if (!token) {
     return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  // Check per-token revocation via Redis (3s cache max)
+  try {
+    const revoked = await isTokenRevoked(token);
+    if (revoked) {
+      return res.status(401).json({ message: "Token revoked", code: "SESSION_REVOKED" });
+    }
+  } catch {
+    // Redis failure — proceed with other checks
   }
 
   try {
@@ -238,6 +368,64 @@ export function opsRouteGuard(req: AuthRequest, res: Response, next: NextFunctio
   next();
 }
 
+/**
+ * Immutable audit log for SUPER_ADMIN company impersonation.
+ * HIPAA requires an immutable record of cross-tenant access.
+ */
+async function auditSuperAdminImpersonation(req: AuthRequest, targetCompanyId: number): Promise<void> {
+  const { logAudit } = require("./middleware/logAudit");
+  await logAudit(
+    "SUPER_ADMIN_COMPANY_IMPERSONATION",
+    "company",
+    targetCompanyId,
+    {
+      targetCompanyId,
+      requestPath: req.path,
+      requestMethod: req.method,
+    },
+    null,
+    req.user!.userId,
+    {
+      companyId: targetCompanyId,
+      actorRole: req.user!.role,
+      req,
+    }
+  );
+}
+
+// Rate limit impersonation: max 100 per hour per SUPER_ADMIN
+const impersonationCounts = new Map<number, { count: number; windowStart: number }>();
+const IMPERSONATION_MAX = 100;
+const IMPERSONATION_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const IMPERSONATION_ALERT_THRESHOLD = 10;
+const IMPERSONATION_ALERT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+function checkImpersonationRateLimit(userId: number): boolean {
+  const now = Date.now();
+  let entry = impersonationCounts.get(userId);
+  if (!entry || (now - entry.windowStart) > IMPERSONATION_WINDOW_MS) {
+    entry = { count: 0, windowStart: now };
+    impersonationCounts.set(userId, entry);
+  }
+  entry.count++;
+  if (entry.count > IMPERSONATION_MAX) {
+    return false;
+  }
+  // Alert check: if > 10 in 5 minutes
+  if (entry.count >= IMPERSONATION_ALERT_THRESHOLD && (now - entry.windowStart) < IMPERSONATION_ALERT_WINDOW_MS) {
+    console.warn(JSON.stringify({
+      event: "impersonation_alert",
+      severity: "HIGH",
+      userId,
+      count: entry.count,
+      windowMinutes: Math.round((now - entry.windowStart) / 60000),
+      message: `SUPER_ADMIN userId=${userId} performed ${entry.count} impersonations in ${Math.round((now - entry.windowStart) / 60000)} minutes`,
+      ts: new Date().toISOString(),
+    }));
+  }
+  return true;
+}
+
 export function getCompanyIdFromAuth(req: AuthRequest): number | null {
   const tenantId = (req as any).tenantId;
   if (tenantId) return tenantId;
@@ -247,7 +435,24 @@ export function getCompanyIdFromAuth(req: AuthRequest): number | null {
     const headerVal = req.headers["x-ucm-company-id"];
     if (headerVal) {
       const parsed = parseInt(String(headerVal), 10);
-      if (!isNaN(parsed) && parsed > 0) return parsed;
+      if (!isNaN(parsed) && parsed > 0) {
+        // Rate limit check
+        if (!checkImpersonationRateLimit(req.user.userId)) {
+          console.error(JSON.stringify({
+            event: "impersonation_rate_limited",
+            severity: "CRITICAL",
+            userId: req.user.userId,
+            targetCompanyId: parsed,
+            ts: new Date().toISOString(),
+          }));
+          return null; // Deny impersonation
+        }
+        // Audit trail — fire-and-forget but log errors
+        auditSuperAdminImpersonation(req, parsed).catch((err) => {
+          console.error("[AUTH] Failed to audit SUPER_ADMIN impersonation:", err);
+        });
+        return parsed;
+      }
     }
     return null;
   }
@@ -309,7 +514,10 @@ export async function getActorContext(req: AuthRequest): Promise<ActorContext | 
     const headerVal = req.headers["x-ucm-company-id"];
     if (headerVal) {
       const parsed = parseInt(String(headerVal), 10);
-      if (!isNaN(parsed) && parsed > 0) effectiveCompanyId = parsed;
+      if (!isNaN(parsed) && parsed > 0) {
+        effectiveCompanyId = parsed;
+        // Audit is already handled by getCompanyIdFromAuth — no need to duplicate
+      }
     }
   }
   const allowedCityIds = await getUserCityIds(userId, role, effectiveCompanyId);
@@ -322,4 +530,52 @@ export async function getActorContext(req: AuthRequest): Promise<ActorContext | 
     cityId: allowedCityIds.length === 1 ? allowedCityIds[0] : null,
     allowedCityIds,
   };
+}
+
+/**
+ * CSRF protection middleware — validates X-CSRF-Token header against ucm_csrf cookie.
+ * Only applies to state-changing methods (POST, PUT, PATCH, DELETE).
+ * Skips CSRF for:
+ *   - Bearer token auth (mobile/driver app — not cookie-based)
+ *   - Stripe webhooks (use Stripe-Signature instead)
+ *   - Public API endpoints
+ */
+const CSRF_SKIP_PATHS = new Set([
+  "/api/stripe/webhook",
+  "/api/stripe-connect/webhook",
+  "/api/broker-api/v1",
+]);
+
+export function csrfProtection(req: Request, res: Response, next: NextFunction) {
+  // Only validate on state-changing methods
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+    return next();
+  }
+
+  // Skip CSRF for non-cookie auth (Bearer token from mobile apps)
+  const hasBearer = req.headers.authorization?.startsWith("Bearer ");
+  const hasCookieAuth = req.cookies?.[UCM_COOKIE] || req.cookies?.[LEGACY_COOKIE];
+  if (hasBearer && !hasCookieAuth) {
+    return next();
+  }
+
+  // Skip CSRF for webhook/public paths
+  for (const skipPath of CSRF_SKIP_PATHS) {
+    if (req.path.startsWith(skipPath)) return next();
+  }
+  if (req.path.startsWith("/api/public/")) return next();
+
+  // Skip CSRF for login/auth endpoints that don't yet have a session
+  if (req.path === "/api/auth/login" || req.path === "/api/auth/login-jwt" || req.path === "/api/auth/token-login" || req.path === "/api/auth/forgot-password") {
+    return next();
+  }
+
+  const csrfCookie = req.cookies?.[UCM_CSRF_COOKIE];
+  const csrfHeader = req.headers["x-csrf-token"] as string;
+
+  if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
+    return res.status(403).json({ message: "CSRF token validation failed", code: "CSRF_INVALID" });
+  }
+
+  next();
 }

@@ -45,7 +45,7 @@ export function useDriverWs({ driverId, token, onDispatchNotify, onDispatchNow, 
     if (!token || !driverId) return;
     if (!mountedRef.current) return;
 
-    const wsUrl = getWsUrl(token);
+    const wsUrl = getWsUrl();
 
     try {
       const ws = new WebSocket(wsUrl);

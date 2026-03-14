@@ -19,53 +19,51 @@ const AUTH_TAG_LENGTH = 16; // 128 bits
 const ENCODING: BufferEncoding = "base64";
 const SEPARATOR = ":";
 
-const IS_PROD = process.env.NODE_ENV === "production";
+// HIPAA §164.312(a)(2)(iv) — PHI encryption is MANDATORY in ALL environments.
+// UCM will NOT start without a valid PHI_ENCRYPTION_KEY.
+const rawKey = process.env.PHI_ENCRYPTION_KEY;
 
-let encryptionKey: Buffer | null = null;
-let keyWarningLogged = false;
+if (!rawKey) {
+  console.error(
+    "[PHI-ENCRYPT] FATAL: PHI_ENCRYPTION_KEY is not set.\n" +
+    "UCM cannot start without PHI encryption.\n" +
+    "HIPAA §164.312(a)(2)(iv) requires encryption of ePHI at rest.\n" +
+    "Set PHI_ENCRYPTION_KEY to a 64-character hex string (32 bytes) and restart."
+  );
+  process.exit(1);
+}
 
-function getKey(): Buffer | null {
-  if (encryptionKey) return encryptionKey;
+if (rawKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(rawKey)) {
+  console.error(
+    "[PHI-ENCRYPT] FATAL: PHI_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes).\n" +
+    `Current length: ${rawKey.length}, valid hex: ${/^[0-9a-fA-F]+$/.test(rawKey)}`
+  );
+  process.exit(1);
+}
 
-  const rawKey = process.env.PHI_ENCRYPTION_KEY;
-  if (!rawKey) {
-    if (IS_PROD) {
-      console.error(
-        "[PHI-ENCRYPT] FATAL: PHI_ENCRYPTION_KEY not set in production. " +
-        "HIPAA §164.312(a)(2)(iv) requires encryption of ePHI at rest. " +
-        "Set a 64-character hex string (32 bytes) and restart."
-      );
-      process.exit(1);
-    }
-    if (!keyWarningLogged) {
-      console.warn(
-        "[PHI-ENCRYPT] PHI_ENCRYPTION_KEY not set — PHI fields will NOT be encrypted. " +
-        "Set a 64-character hex string for HIPAA-compliant encryption."
-      );
-      keyWarningLogged = true;
-    }
-    return null;
+const encryptionKey: Buffer = Buffer.from(rawKey, "hex");
+
+// Verify encryption round-trip on startup
+try {
+  const testPlain = "phi-startup-test-" + Date.now();
+  const testIv = crypto.randomBytes(IV_LENGTH);
+  const testCipher = crypto.createCipheriv(ALGORITHM, encryptionKey, testIv, { authTagLength: AUTH_TAG_LENGTH });
+  const testEncrypted = Buffer.concat([testCipher.update(testPlain, "utf8"), testCipher.final()]);
+  const testTag = testCipher.getAuthTag();
+  const testDecipher = crypto.createDecipheriv(ALGORITHM, encryptionKey, testIv, { authTagLength: AUTH_TAG_LENGTH });
+  testDecipher.setAuthTag(testTag);
+  const testDecrypted = Buffer.concat([testDecipher.update(testEncrypted), testDecipher.final()]).toString("utf8");
+  if (testDecrypted !== testPlain) {
+    console.error("[PHI-ENCRYPT] FATAL: Encryption round-trip test failed — decrypted value does not match.");
+    process.exit(1);
   }
+  console.log("[PHI-ENCRYPT] Encryption key validated and round-trip test passed.");
+} catch (err: any) {
+  console.error("[PHI-ENCRYPT] FATAL: Encryption round-trip test failed:", err.message);
+  process.exit(1);
+}
 
-  if (rawKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(rawKey)) {
-    if (IS_PROD) {
-      console.error(
-        "[PHI-ENCRYPT] FATAL: PHI_ENCRYPTION_KEY must be a 64-character hex string (32 bytes). " +
-        "Cannot start in production without valid encryption key."
-      );
-      process.exit(1);
-    }
-    if (!keyWarningLogged) {
-      console.error(
-        "[PHI-ENCRYPT] PHI_ENCRYPTION_KEY must be a 64-character hex string (32 bytes). " +
-        "Encryption disabled."
-      );
-      keyWarningLogged = true;
-    }
-    return null;
-  }
-
-  encryptionKey = Buffer.from(rawKey, "hex");
+function getKey(): Buffer {
   return encryptionKey;
 }
 
@@ -78,7 +76,6 @@ export function encryptPHI(plaintext: string): string {
   if (!plaintext) return plaintext;
 
   const key = getKey();
-  if (!key) return plaintext;
 
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv, {
@@ -109,7 +106,6 @@ export function decryptPHI(ciphertext: string): string {
   if (!ciphertext) return ciphertext;
 
   const key = getKey();
-  if (!key) return ciphertext;
 
   // Check if this looks like an encrypted value (3 base64 segments separated by colons)
   const parts = ciphertext.split(SEPARATOR);

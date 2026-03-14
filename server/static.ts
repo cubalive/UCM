@@ -97,8 +97,28 @@ export function serveStatic(app: Express) {
     }),
   );
 
+  // Cache the index.html template in memory for nonce injection
+  const indexHtmlPath = path.resolve(distPath, "index.html");
+  let indexHtmlTemplate = "";
+  try {
+    indexHtmlTemplate = fs.readFileSync(indexHtmlPath, "utf-8");
+  } catch {
+    console.error("[STATIC] Could not read index.html template");
+  }
+
   app.use("/{*path}", (_req: Request, res: Response) => {
     res.set(NO_STORE_HEADERS);
-    res.sendFile(path.resolve(distPath, "index.html"));
+    res.set("Content-Type", "text/html");
+
+    // Inject CSP nonce into all <script> and <style> tags
+    const nonce = res.locals.cspNonce || "";
+    let html = indexHtmlTemplate;
+    if (nonce) {
+      html = html
+        .replace(/<script\b/g, `<script nonce="${nonce}"`)
+        .replace(/<style\b/g, `<style nonce="${nonce}"`)
+        .replace(/<link\b([^>]*rel=["']stylesheet["'])/g, `<link nonce="${nonce}"$1`);
+    }
+    res.send(html);
   });
 }

@@ -27,23 +27,34 @@ if (IS_PROD) {
   app.set("trust proxy", 1);
 }
 
+// Generate a unique nonce per request for strict CSP
+app.use((_req, res, next) => {
+  res.locals.cspNonce = crypto.randomBytes(16).toString("base64");
+  next();
+});
+
+app.use((req, res, next) => {
+  const nonce = res.locals.cspNonce;
+  const cspDirectives = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' https://js.stripe.com https://maps.googleapis.com`,
+    `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
+    "img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com https://*.stripe.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "connect-src 'self' wss: https://*.supabase.co https://api.stripe.com https://maps.googleapis.com https://*.upstash.io",
+    "frame-src https://js.stripe.com https://hooks.stripe.com",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+  res.setHeader("Content-Security-Policy", cspDirectives);
+  next();
+});
+
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://js.stripe.com", "https://maps.googleapis.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      imgSrc: ["'self'", "data:", "blob:", "https://*.googleapis.com", "https://*.gstatic.com", "https://*.stripe.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      connectSrc: ["'self'", "wss:", "https://*.supabase.co", "https://api.stripe.com", "https://maps.googleapis.com", "https://*.upstash.io"],
-      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
-      objectSrc: ["'none'"],
-      baseUri: ["'self'"],
-      formAction: ["'self'"],
-      frameAncestors: ["'none'"],
-      upgradeInsecureRequests: [],
-    },
-  },
+  contentSecurityPolicy: false, // Handled by custom middleware above with per-request nonce
   crossOriginEmbedderPolicy: false,
   crossOriginOpenerPolicy: { policy: "same-origin" },
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
@@ -191,8 +202,64 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
+// Intercept res.json to sanitize 5xx error messages before they reach the client.
+// This catches cases where controllers do res.status(500).json({ message: err.message })
+// and ensures internal details (DB errors, stack traces) are never exposed.
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  const originalJson = res.json.bind(res);
+  res.json = function (body: any) {
+    if (res.statusCode >= 500 && body && typeof body === "object") {
+      // Log the original error internally
+      if (body.message || body.error) {
+        console.error(JSON.stringify({
+          event: "sanitized_error_response",
+          originalMessage: body.message || body.error,
+          path: _req.path,
+          requestId: _req.requestId,
+          ts: new Date().toISOString(),
+        }));
+      }
+      // Replace with safe message
+      body = {
+        message: "An unexpected error occurred",
+        requestId: _req.requestId,
+      };
+    }
+    return originalJson(body);
+  } as any;
+  next();
+});
+
+// Prototype pollution protection — strip dangerous keys from all request bodies
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.body && typeof req.body === "object") {
+    const dangerousKeys = ["__proto__", "constructor", "prototype"];
+    const sanitize = (obj: any): any => {
+      if (typeof obj !== "object" || obj === null) return obj;
+      for (const key of dangerousKeys) {
+        if (key in obj) {
+          delete obj[key];
+        }
+      }
+      for (const value of Object.values(obj)) {
+        if (typeof value === "object" && value !== null) {
+          sanitize(value);
+        }
+      }
+      return obj;
+    };
+    req.body = sanitize(req.body);
+  }
+  next();
+});
+
 app.use(tracingMiddleware);
 app.use(inputSanitizer);
+
+// CSRF protection for all state-changing requests using cookie-based auth
+import { csrfProtection } from "./auth";
+app.use("/api", csrfProtection);
+
 app.use("/api", apiRateLimiter);
 app.use(tenantGuard);
 app.use(phiAuditMiddleware);
@@ -228,15 +295,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // During boot, serve a minimal loading page for browser requests
   const acceptsHtml = (req.headers.accept || "").includes("text/html");
   if (acceptsHtml) {
+    const nonce = res.locals.cspNonce || "";
     res.status(503).set("Retry-After", "5").set("Cache-Control", "no-store").send(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>UCM - Starting</title>
-<style>body{display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;
+<style nonce="${nonce}">body{display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;
 font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}
 .c{text-align:center}.spinner{width:40px;height:40px;border:4px solid #334155;
 border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
 @keyframes spin{to{transform:rotate(360deg)}}</style>
-<script>setTimeout(()=>location.reload(),5000)</script>
+<script nonce="${nonce}">setTimeout(()=>location.reload(),5000)</script>
 </head><body><div class="c"><div class="spinner"></div><p>Starting UCM Platform...</p></div></body></html>`);
     return;
   }
@@ -770,6 +838,10 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     await bootDb.execute(bootSql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS idempotency_key TEXT`);
     await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS jobs_idempotency_key_unique_idx ON jobs(idempotency_key) WHERE idempotency_key IS NOT NULL`);
 
+    // FIX 10: Email case normalization — lowercase all existing emails and create unique lower index
+    await bootDb.execute(bootSql`UPDATE users SET email = LOWER(email) WHERE email != LOWER(email)`);
+    await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users (LOWER(email))`);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);
@@ -1006,9 +1078,8 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
 
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = status < 500 ? err.message : "Internal Server Error";
 
-    // Structured error logging for monitoring/alerting
+    // Structured error logging for monitoring/alerting — full details, internal only
     const errorEntry: Record<string, unknown> = {
       event: "unhandled_error",
       severity: status >= 500 ? "ERROR" : "WARN",
@@ -1020,6 +1091,7 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
       stack: status >= 500 ? err.stack?.slice(0, 2000) : undefined,
       userId: (req as any).user?.userId,
       companyId: (req as any).user?.companyId,
+      dbCode: err.code,
       ts: new Date().toISOString(),
     };
     if (status >= 500) {
@@ -1032,9 +1104,33 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
       return next(err);
     }
 
-    // Never leak internal error details to client in production
+    // NEVER leak internal error details, DB schema, or stack traces to client.
+    // Map known DB error codes to safe messages.
+    let safeMessage: string;
+    if (err.code === "23505") {
+      // PostgreSQL unique violation — safe to tell client
+      safeMessage = "This record already exists";
+      return res.status(409).json({ error: safeMessage, requestId: req.requestId });
+    } else if (err.name === "ValidationError" || err.name === "ZodError") {
+      // Validation errors are safe to expose
+      safeMessage = err.message;
+      return res.status(400).json({ error: safeMessage, requestId: req.requestId });
+    } else if (status >= 500) {
+      safeMessage = "An unexpected error occurred";
+    } else if (status === 400) {
+      safeMessage = "Bad request";
+    } else if (status === 401) {
+      safeMessage = "Unauthorized";
+    } else if (status === 403) {
+      safeMessage = "Forbidden";
+    } else if (status === 404) {
+      safeMessage = "Not found";
+    } else {
+      safeMessage = "An unexpected error occurred";
+    }
+
     return res.status(status).json({
-      message,
+      message: safeMessage,
       code: err.code || (status >= 500 ? "INTERNAL_ERROR" : undefined),
       requestId: req.requestId,
     });

@@ -37,7 +37,7 @@ export function usePharmacyWs({
   const connect = useCallback(() => {
     if (!token || !enabled || !pharmacyId) return;
 
-    const wsUrl = getWsUrl(token);
+    const wsUrl = getWsUrl();
 
     try {
       const ws = new WebSocket(wsUrl);

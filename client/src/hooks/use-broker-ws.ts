@@ -41,7 +41,7 @@ export function useBrokerWs({
   const connect = useCallback(() => {
     if (!token || !enabled || !brokerId) return;
 
-    const wsUrl = getWsUrl(token);
+    const wsUrl = getWsUrl();
 
     try {
       const ws = new WebSocket(wsUrl);

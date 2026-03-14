@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { User, City } from "@shared/schema";
-import { getTokenKey, getCredentials, isDriverHost, DRIVER_TOKEN_KEY, migrateLegacyTokenIfNeeded } from "@/lib/hostDetection";
+import { isDriverHost, DRIVER_TOKEN_KEY, getCredentials } from "@/lib/hostDetection";
 import { API_BASE_URL } from "@/lib/api";
 
 function apiUrl(path: string): string {
@@ -22,6 +22,7 @@ interface MeData {
 
 interface AuthContextType {
   user: AuthUser | null;
+  /** @deprecated Token is now in httpOnly cookie. This is a placeholder for backward compat. */
   token: string | null;
   selectedCity: City | null;
   cities: City[];
@@ -42,8 +43,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
-
-const IS_DEV = import.meta.env.DEV;
 
 const CITY_REQUIRING_ROLES = ["SUPER_ADMIN", "super_admin", "ADMIN", "admin", "COMPANY_ADMIN", "company_admin", "DISPATCH", "dispatch"];
 
@@ -66,11 +65,56 @@ function storeWorkingCityId(cityId: number | null) {
   } catch {}
 }
 
+/**
+ * Read CSRF token from the ucm_csrf cookie (non-httpOnly, readable by JS).
+ */
+function getCsrfToken(): string {
+  const match = document.cookie.match(/(?:^|;\s*)ucm_csrf=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+/**
+ * Build headers for API requests. Includes CSRF token for state-changing requests.
+ * Does NOT include Authorization header — cookies are sent automatically.
+ */
+function buildSecureHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  const csrfToken = getCsrfToken();
+  if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+  const cityId = localStorage.getItem("ucm_working_city_id");
+  if (cityId) headers["X-City-Id"] = cityId;
+  try {
+    const scopeId = localStorage.getItem("ucm.superadmin.companyScopeId");
+    if (scopeId) headers["x-ucm-company-id"] = scopeId;
+  } catch {}
+  return headers;
+}
+
+/**
+ * Attempt to refresh the access token via the /api/auth/refresh endpoint.
+ * Returns true if refresh succeeded.
+ */
+async function attemptTokenRefresh(): Promise<boolean> {
+  try {
+    const res = await fetch(apiUrl("/api/auth/refresh"), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(() => {
-    migrateLegacyTokenIfNeeded();
-    return localStorage.getItem(getTokenKey());
+  // For driver host (native app), still use localStorage token
+  const [driverToken, setDriverToken] = useState<string | null>(() => {
+    if (isDriverHost) {
+      try { return localStorage.getItem(DRIVER_TOKEN_KEY); } catch { return null; }
+    }
+    return null;
   });
   const [selectedCity, setSelectedCityRaw] = useState<City | null>(null);
   const [cities, setCities] = useState<City[]>([]);
@@ -78,10 +122,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [meData, setMeData] = useState<MeData | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [devLoginAttempts, setDevLoginAttempts] = useState(0);
-  const [devBypassed, setDevBypassed] = useState(false);
   const [cityChosen, setCityChosen] = useState(false);
   const [lastAuthStatus, setLastAuthStatus] = useState<number | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN" || (user?.role as string) === "super_admin";
 
@@ -108,16 +151,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSelectedCityRaw(city);
     storeWorkingCityId(city?.id ?? null);
     setCityChosen(true);
-    const t = token || localStorage.getItem(getTokenKey());
-    if (t) {
-      fetch(apiUrl("/api/auth/working-city"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
-        credentials: getCredentials(),
-        body: JSON.stringify({ cityId: city?.id ?? null, scope: city ? "CITY" : "ALL" }),
-      }).catch(() => {});
-    }
-  }, [token]);
+    fetch(apiUrl("/api/auth/working-city"), {
+      method: "POST",
+      headers: buildSecureHeaders({ "Content-Type": "application/json" }),
+      credentials: "include",
+      body: JSON.stringify({ cityId: city?.id ?? null, scope: city ? "CITY" : "ALL" }),
+    }).catch(() => {});
+  }, []);
 
   const restoreCity = useCallback((availableCities: City[], userRole: string, serverCityId?: number | null, serverScope?: string | null) => {
     if (serverCityId != null) {
@@ -182,7 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
           setMeData(null);
           localStorage.removeItem(DRIVER_TOKEN_KEY);
-          setToken(null);
+          setDriverToken(null);
           setLoading(false);
           return;
         }
@@ -216,27 +256,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const fetchAppUser = useCallback(async (t: string, _retry = false) => {
+  const fetchAppUser = useCallback(async (_retry = false) => {
     setLoading(true);
     setError(null);
     try {
-      const creds = getCredentials();
       const authRes = await fetch(apiUrl("/api/auth/me"), {
-        headers: { Authorization: `Bearer ${t}` },
-        credentials: creds,
+        headers: buildSecureHeaders(),
+        credentials: "include",
       });
       setLastAuthStatus(authRes.status);
 
       if (!authRes.ok) {
         if (authRes.status === 401 || authRes.status === 403) {
           if (!_retry) {
-            console.debug(`[AUTH] 401 detected on /api/auth/me (app) – retrying before logout`);
-            await new Promise((r) => setTimeout(r, 800));
-            return fetchAppUser(t, true);
+            // Try refreshing the access token
+            const refreshed = await attemptTokenRefresh();
+            if (refreshed) {
+              return fetchAppUser(true);
+            }
           }
-          console.debug(`[AUTH] 401 retry failed on /api/auth/me (app) – clearing session`);
-          localStorage.removeItem(getTokenKey());
-          setToken(null);
+          console.debug(`[AUTH] Session expired – redirecting to login`);
           setUser(null);
           setMeData(null);
           setLoading(false);
@@ -259,8 +298,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const meRes = await fetch(apiUrl("/api/me"), {
-          headers: { Authorization: `Bearer ${t}` },
-          credentials: creds,
+          headers: buildSecureHeaders(),
+          credentials: "include",
         });
         if (meRes.ok) {
           setMeData(await meRes.json());
@@ -276,59 +315,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [restoreCity]);
 
-  const fetchUser = useCallback(async (t: string) => {
-    if (isDriverHost) {
-      return fetchDriverUser(t);
+  const fetchUser = useCallback(async () => {
+    if (isDriverHost && driverToken) {
+      return fetchDriverUser(driverToken);
     }
-    return fetchAppUser(t);
-  }, [fetchDriverUser, fetchAppUser]);
+    return fetchAppUser();
+  }, [fetchDriverUser, fetchAppUser, driverToken]);
 
   useEffect(() => {
-    if (token) {
-      fetchUser(token);
-    } else if (!isDriverHost && IS_DEV && devLoginAttempts < 2 && !devBypassed) {
-      setLoading(true);
-      fetch(apiUrl("/api/auth/dev-session"), { credentials: getCredentials() })
-        .then((res) => {
-          if (!res.ok) throw new Error("Dev session failed");
-          return res.json();
-        })
-        .then((data) => {
-          setToken(data.token);
-          localStorage.setItem(getTokenKey(), data.token);
-          setUser(data.user);
-          setCities(data.cities || []);
-          restoreCity(data.cities || [], data.user?.role || "");
-          console.log("[DEV] Auto-login succeeded as", data.user?.email);
-        })
-        .catch(() => {
-          const next = devLoginAttempts + 1;
-          setDevLoginAttempts(next);
-          console.warn(`[DEV] Auto-login attempt ${next}/2 failed`);
-          if (next >= 2) {
-            console.warn("[DEV] Auto-login failed 2 times, bypassing login gate");
-            setDevBypassed(true);
-            setUser({
-              id: 0,
-              email: "dev@agent.local",
-              role: "SUPER_ADMIN",
-              firstName: "Dev",
-              lastName: "Agent",
-              active: true,
-              publicId: "DEV000000",
-              phone: null,
-              cityAccess: [],
-              createdAt: new Date(),
-              mustChangePassword: false,
-            } as unknown as AuthUser);
-            setToken("dev-bypass-token");
-          }
-          setLoading(false);
-        });
-    } else {
-      setLoading(false);
+    if (isDriverHost) {
+      if (driverToken) {
+        fetchDriverUser(driverToken);
+      } else {
+        setLoading(false);
+      }
+    } else if (!sessionChecked) {
+      setSessionChecked(true);
+      // For web app, try to load session via cookie (no token needed)
+      fetchAppUser();
     }
-  }, [token, fetchUser, devLoginAttempts, devBypassed, restoreCity]);
+  }, [driverToken, fetchDriverUser, fetchAppUser, sessionChecked]);
 
   const login = async (email: string, password: string) => {
     setError(null);
@@ -347,8 +353,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(err.message || "Login failed");
       }
       const data = await res.json();
+      // Driver app still uses token in localStorage (native app, not browser)
       localStorage.setItem(DRIVER_TOKEN_KEY, data.token);
-      setToken(data.token);
+      setDriverToken(data.token);
       setUser(data.user);
       setCities(data.cities || []);
       setMeData(null);
@@ -357,12 +364,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const creds = getCredentials();
     const res = await fetch(apiUrl("/api/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
-      credentials: creds,
+      credentials: "include",
     });
     setLastAuthStatus(res.status);
     if (!res.ok) {
@@ -370,8 +376,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(err.message || "Login failed");
     }
     const data = await res.json();
-    setToken(data.token);
-    localStorage.setItem(getTokenKey(), data.token);
+    // No token in response body — auth is via httpOnly cookies set by server
     setUser(data.user);
     setCities(data.cities || []);
 
@@ -384,8 +389,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const meRes = await fetch(apiUrl("/api/me"), {
-        headers: { Authorization: `Bearer ${data.token}` },
-        credentials: creds,
+        headers: buildSecureHeaders(),
+        credentials: "include",
       });
       if (meRes.ok) {
         setMeData(await meRes.json());
@@ -398,30 +403,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await fetch(apiUrl("/api/auth/driver-logout"), {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${driverToken}`, "Content-Type": "application/json" },
           credentials: "omit",
         });
       } catch {}
       localStorage.removeItem(DRIVER_TOKEN_KEY);
-    } else if (token && user?.role?.toUpperCase() === "DRIVER") {
-      try {
-        await fetch(apiUrl("/api/auth/driver-logout"), {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          credentials: getCredentials(),
-        });
-      } catch {}
-      localStorage.removeItem(getTokenKey());
+      setDriverToken(null);
     } else {
       try {
         await fetch(apiUrl("/api/auth/logout"), {
           method: "POST",
-          credentials: getCredentials(),
+          headers: buildSecureHeaders({ "Content-Type": "application/json" }),
+          credentials: "include",
         });
       } catch {}
-      localStorage.removeItem(getTokenKey());
     }
-    setToken(null);
     setUser(null);
     setCities([]);
     setSelectedCityRaw(null);
@@ -430,16 +426,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setMustChangePassword(false);
     setLastAuthStatus(null);
+    setSessionChecked(false);
     localStorage.removeItem("ucm_working_city_id");
   };
 
   const retry = () => {
-    if (token) {
-      fetchUser(token);
-    } else {
-      setLoading(false);
-      setError(null);
-    }
+    fetchUser();
   };
 
   const clearMustChangePassword = () => {
@@ -450,7 +442,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
-        token,
+        token: user ? "cookie-auth" : null,
         selectedCity,
         cities,
         loading,
@@ -480,6 +472,13 @@ export function useAuth() {
   return ctx;
 }
 
-export function authHeaders(token: string | null): Record<string, string> {
-  return token ? { Authorization: `Bearer ${token}` } : {};
+/**
+ * @deprecated Token is now in httpOnly cookie. This returns CSRF + city headers only.
+ * Kept for backward compat with pages that use `authHeaders(token)`.
+ */
+export function authHeaders(_token: string | null): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const csrfToken = getCsrfToken();
+  if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+  return headers;
 }
