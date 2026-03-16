@@ -540,10 +540,15 @@ export async function getActorContext(req: AuthRequest): Promise<ActorContext | 
  *   - Stripe webhooks (use Stripe-Signature instead)
  *   - Public API endpoints
  */
+/**
+ * Paths to skip CSRF validation (relative to /api mount point).
+ * Since this middleware is mounted via app.use("/api", csrfProtection),
+ * req.path inside the handler does NOT include the "/api" prefix.
+ */
 const CSRF_SKIP_PATHS = new Set([
-  "/api/stripe/webhook",
-  "/api/stripe-connect/webhook",
-  "/api/broker-api/v1",
+  "/stripe/webhook",
+  "/stripe-connect/webhook",
+  "/broker-api/v1",
 ]);
 
 export function csrfProtection(req: Request, res: Response, next: NextFunction) {
@@ -563,10 +568,10 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
   for (const skipPath of CSRF_SKIP_PATHS) {
     if (req.path.startsWith(skipPath)) return next();
   }
-  if (req.path.startsWith("/api/public/")) return next();
+  if (req.path.startsWith("/public/")) return next();
 
   // Skip CSRF for login/auth endpoints that don't yet have a session
-  if (req.path === "/api/auth/login" || req.path === "/api/auth/login-jwt" || req.path === "/api/auth/token-login" || req.path === "/api/auth/forgot-password") {
+  if (req.path === "/auth/login" || req.path === "/auth/login-jwt" || req.path === "/auth/token-login" || req.path === "/auth/forgot-password") {
     return next();
   }
 
