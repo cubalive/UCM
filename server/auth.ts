@@ -10,13 +10,21 @@ import { setWithTtl, getString } from "./lib/redis";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
-if (IS_PROD && !process.env.JWT_SECRET) {
-  console.error("[AUTH] FATAL: JWT_SECRET not set in production. Tokens will be insecure.");
-  process.exit(1);
+if (!process.env.JWT_SECRET) {
+  throw new Error(
+    "FATAL: JWT_SECRET environment variable is not set. " +
+    "Set it in .env before starting the server."
+  );
 }
+const JWT_SECRET: string = process.env.JWT_SECRET;
 
-const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-dev-only";
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET + "-refresh";
+if (!process.env.JWT_REFRESH_SECRET) {
+  throw new Error(
+    "FATAL: JWT_REFRESH_SECRET environment variable is not set. " +
+    "Set it in .env before starting the server."
+  );
+}
+const REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET;
 const UCM_COOKIE = "ucm_access";
 const UCM_REFRESH_COOKIE = "ucm_refresh";
 const UCM_CSRF_COOKIE = "ucm_csrf";
@@ -105,11 +113,28 @@ export interface AuthPayload {
   driverId?: number | null;
   pharmacyId?: number | null;
   brokerId?: number | null;
+  scope?: "full" | "mfa_pending" | "mfa_setup";
   iat?: number;
 }
 
 export function signToken(payload: AuthPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ ...payload, scope: "full" }, JWT_SECRET, { expiresIn: "15m" });
+}
+
+export function signPreAuthToken(userId: number, role: string, companyId: number | null): string {
+  return jwt.sign(
+    { userId, role, companyId, scope: "mfa_pending" },
+    JWT_SECRET,
+    { expiresIn: "10m" },
+  );
+}
+
+export function signMfaSetupToken(userId: number, role: string, companyId: number | null): string {
+  return jwt.sign(
+    { userId, role, companyId, scope: "mfa_setup" },
+    JWT_SECRET,
+    { expiresIn: "30m" },
+  );
 }
 
 export function signRefreshToken(payload: { userId: number }): string {
@@ -256,6 +281,40 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
   try {
     const payload = verifyToken(token);
     req.user = payload;
+
+    // Block pre-auth (MFA pending) tokens from accessing non-MFA endpoints
+    if (
+      payload.scope === "mfa_pending" &&
+      !req.path.startsWith("/api/auth/mfa")
+    ) {
+      return res.status(403).json({
+        error: "MFA verification required",
+        code: "MFA_REQUIRED",
+      });
+    }
+
+    // Block MFA setup tokens from accessing non-setup endpoints
+    if (
+      payload.scope === "mfa_setup" &&
+      !req.path.startsWith("/api/auth/mfa")
+    ) {
+      return res.status(403).json({
+        error: "MFA setup required for your role",
+        code: "MFA_SETUP_REQUIRED",
+      });
+    }
+
+    // C-8: Block non-SUPER_ADMIN users with no companyId
+    if (
+      payload.role !== "SUPER_ADMIN" &&
+      !payload.companyId &&
+      payload.scope === "full"
+    ) {
+      return res.status(403).json({
+        error: "Account configuration error: no company assigned",
+        code: "NO_COMPANY",
+      });
+    }
 
     // All roles including SUPER_ADMIN are subject to session revocation.
     // A compromised SUPER_ADMIN token must be revocable.

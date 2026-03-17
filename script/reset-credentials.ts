@@ -31,18 +31,32 @@ interface CredentialDef {
   needsBroker?: boolean;
 }
 
+// M-5: Passwords read from environment variables — never hardcoded
+function getDevPassword(envKey: string, fallbackRole: string): string {
+  const val = process.env[envKey];
+  if (!val) {
+    console.warn(
+      `[WARN] ${envKey} not set in environment. ` +
+      `Generate a secure password: openssl rand -base64 24`,
+    );
+    // Generate a random password for dev environments only
+    return require("crypto").randomBytes(18).toString("base64");
+  }
+  return val;
+}
+
 const CREDENTIALS: CredentialDef[] = [
   {
-    email: "superadmin@unitedcaremobility.com",
-    password: "UCM_Admin_2026!",
+    email: process.env.DEV_SUPERADMIN_EMAIL || "superadmin@unitedcaremobility.com",
+    password: getDevPassword("DEV_SUPERADMIN_PASSWORD", "SUPER_ADMIN"),
     role: "SUPER_ADMIN",
     firstName: "Super",
     lastName: "Admin",
     portalUrl: "/dashboard",
   },
   {
-    email: "admin@unitedcaremobility.com",
-    password: "UCM_Admin_2026!",
+    email: process.env.DEV_ADMIN_EMAIL || "admin@unitedcaremobility.com",
+    password: getDevPassword("DEV_ADMIN_PASSWORD", "ADMIN"),
     role: "ADMIN",
     firstName: "Admin",
     lastName: "UCM",
@@ -50,8 +64,8 @@ const CREDENTIALS: CredentialDef[] = [
     needsCompany: true,
   },
   {
-    email: "companyadmin@unitedcaremobility.com",
-    password: "UCM_Company_2026!",
+    email: process.env.DEV_COMPANYADMIN_EMAIL || "companyadmin@unitedcaremobility.com",
+    password: getDevPassword("DEV_COMPANYADMIN_PASSWORD", "COMPANY_ADMIN"),
     role: "COMPANY_ADMIN",
     firstName: "Company",
     lastName: "Admin",
@@ -59,8 +73,8 @@ const CREDENTIALS: CredentialDef[] = [
     needsCompany: true,
   },
   {
-    email: "dispatcher@unitedcaremobility.com",
-    password: "UCM_Disp_2026!",
+    email: process.env.DEV_DISPATCHER_EMAIL || "dispatcher@unitedcaremobility.com",
+    password: getDevPassword("DEV_DISPATCHER_PASSWORD", "DISPATCH"),
     role: "DISPATCH",
     firstName: "Dispatch",
     lastName: "User",
@@ -68,8 +82,8 @@ const CREDENTIALS: CredentialDef[] = [
     needsCompany: true,
   },
   {
-    email: "driver@unitedcaremobility.com",
-    password: "UCM_Driver_2026!",
+    email: process.env.DEV_DRIVER_EMAIL || "driver@unitedcaremobility.com",
+    password: getDevPassword("DEV_DRIVER_PASSWORD", "DRIVER"),
     role: "DRIVER",
     firstName: "Test",
     lastName: "Driver",
@@ -78,8 +92,8 @@ const CREDENTIALS: CredentialDef[] = [
     needsDriver: true,
   },
   {
-    email: "clinic@unitedcaremobility.com",
-    password: "UCM_Clinic_2026!",
+    email: process.env.DEV_CLINIC_EMAIL || "clinic@unitedcaremobility.com",
+    password: getDevPassword("DEV_CLINIC_PASSWORD", "CLINIC_ADMIN"),
     role: "CLINIC_ADMIN",
     firstName: "Clinic",
     lastName: "Admin",
@@ -88,8 +102,8 @@ const CREDENTIALS: CredentialDef[] = [
     needsClinic: true,
   },
   {
-    email: "pharmacy@unitedcaremobility.com",
-    password: "UCM_Pharma_2026!",
+    email: process.env.DEV_PHARMACY_EMAIL || "pharmacy@unitedcaremobility.com",
+    password: getDevPassword("DEV_PHARMACY_PASSWORD", "PHARMACY_ADMIN"),
     role: "PHARMACY_ADMIN",
     firstName: "Pharmacy",
     lastName: "Admin",
@@ -98,8 +112,8 @@ const CREDENTIALS: CredentialDef[] = [
     needsPharmacy: true,
   },
   {
-    email: "broker@unitedcaremobility.com",
-    password: "UCM_Broker_2026!",
+    email: process.env.DEV_BROKER_EMAIL || "broker@unitedcaremobility.com",
+    password: getDevPassword("DEV_BROKER_PASSWORD", "BROKER_ADMIN"),
     role: "BROKER_ADMIN",
     firstName: "Broker",
     lastName: "Admin",

@@ -187,7 +187,7 @@ export async function sendOTP(
 
     // Use existing Twilio integration
     try {
-      const { sendSms } = await import("./twilioService");
+      const { sendSms } = await import("./twilioSms");
       await sendSms(
         phone,
         `Your UCM verification code is: ${code}. Expires in 10 minutes. Do not share this code.`,
@@ -199,21 +199,8 @@ export async function sendOTP(
   } else if (method === "email") {
     // Use existing Resend integration
     try {
-      const { sendEmail } = await import("../services/emailService");
-      await sendEmail({
-        to: user.email,
-        subject: "UCM Security Code",
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 400px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #10b981;">United Care Mobility</h2>
-            <p>Your verification code is:</p>
-            <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; text-align: center; margin: 16px 0;">
-              <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #111827;">${code}</span>
-            </div>
-            <p style="color: #6b7280; font-size: 14px;">This code expires in 10 minutes. Do not share it with anyone.</p>
-          </div>
-        `,
-      });
+      const { sendMfaCodeEmail } = await import("./mfaEmailHelper");
+      await sendMfaCodeEmail(user.email, code);
     } catch (err: any) {
       console.error("[MFA] Email send failed:", err.message);
       throw new Error("Failed to send email. Please try again.");

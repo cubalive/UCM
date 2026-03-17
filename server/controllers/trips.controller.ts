@@ -1259,10 +1259,22 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
       }
     }
 
+    const now = new Date();
     const timestampField = STATUS_TIMESTAMP_MAP[parsed.data.status];
     const updateData: any = { status: parsed.data.status };
     if (timestampField) {
-      updateData[timestampField] = new Date();
+      updateData[timestampField] = now;
+    }
+
+    // C-7: Enforce completedAt is always set when transitioning to COMPLETED
+    if (parsed.data.status === "COMPLETED") {
+      updateData.completedAt = now;
+      if (!trip.startedAt) {
+        updateData.startedAt = now;
+      }
+    }
+    if (parsed.data.status === "CANCELLED") {
+      updateData.cancelledAt = now;
     }
 
     if (parsed.data.status === "ARRIVED_PICKUP") {
@@ -1454,10 +1466,18 @@ export async function dispatchOverrideStatusHandler(req: AuthRequest, res: Respo
       return res.json({ message: "Already in this status", idempotent: true });
     }
 
+    const overrideNow = new Date();
     const timestampField = STATUS_TIMESTAMP_MAP[parsed.data.status];
     const updateData: any = { status: parsed.data.status };
     if (timestampField) {
-      updateData[timestampField] = new Date();
+      updateData[timestampField] = overrideNow;
+    }
+    // C-7: Enforce completedAt on override COMPLETED
+    if (parsed.data.status === "COMPLETED") {
+      updateData.completedAt = overrideNow;
+    }
+    if (parsed.data.status === "CANCELLED") {
+      updateData.cancelledAt = overrideNow;
     }
 
     const conditions = [eq(trips.id, id)];

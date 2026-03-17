@@ -1,11 +1,13 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
-import { signToken, signRefreshToken, comparePassword, hashPassword, getUserCityIds, setAuthCookies, clearAuthCookies, type AuthRequest, verifyToken, verifyRefreshToken, revokeToken, revokeAllUserTokens } from "../auth";
+import { signToken, signRefreshToken, signPreAuthToken, signMfaSetupToken, comparePassword, hashPassword, getUserCityIds, setAuthCookies, clearAuthCookies, type AuthRequest, verifyToken, verifyRefreshToken, revokeToken, revokeAllUserTokens } from "../auth";
 import { loginSchema, driverDevices, users, companies, trips, userCityAccess, drivers } from "@shared/schema";
 import { db } from "../db";
 import { eq, and, sql } from "drizzle-orm";
 import { getSupabaseServer } from "../../lib/supabaseClient";
 import { sendForgotPasswordLink } from "../services/emailService";
+import { MFA_REQUIRED_ROLES } from "../lib/mfaEngine";
+import { issueRefreshToken, consumeRefreshToken, revokeAllRefreshTokens } from "../lib/refreshTokenStore";
 
 export async function loginHandler(req: Request, res: Response) {
   try {
@@ -17,21 +19,87 @@ export async function loginHandler(req: Request, res: Response) {
     const normalizedEmail = parsed.data.email.trim().toLowerCase();
     const user = await storage.getUserByEmail(normalizedEmail);
     if (!user) {
-      console.log(`[AUTH] Login failed: no user found for email=${normalizedEmail}`);
-      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", details: `Unknown email: ${normalizedEmail}`, cityId: null, userId: null }).catch(() => {});
+      console.log(`[AUTH] Login failed: account not found`);
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", details: "Unknown email attempted", cityId: null, userId: null }).catch(() => {});
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const valid = await comparePassword(parsed.data.password, user.password);
     if (!valid) {
-      console.log(`[AUTH] Login failed: password mismatch for email=${normalizedEmail}`);
-      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Password mismatch for ${normalizedEmail}`, cityId: null, userId: user.id }).catch(() => {});
+      console.log(`[AUTH] Login failed: password mismatch for userId=${user.id}`);
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Password mismatch for userId=${user.id}`, cityId: null, userId: user.id }).catch(() => {});
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     if (!user.active) {
-      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Disabled account: ${normalizedEmail}`, cityId: null, userId: user.id }).catch(() => {});
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Disabled account userId=${user.id}`, cityId: null, userId: user.id }).catch(() => {});
       return res.status(403).json({ message: "Account disabled" });
+    }
+
+    // C-8: Block non-SUPER_ADMIN users with no companyId
+    if (user.role !== "SUPER_ADMIN" && !user.companyId) {
+      return res.status(403).json({
+        message: "Account configuration error: no company assigned",
+        code: "NO_COMPANY",
+      });
+    }
+
+    // C-4: Forced MFA setup for admin roles without MFA configured
+    if (MFA_REQUIRED_ROLES.includes(user.role) && !user.mfaEnabled) {
+      const setupToken = signMfaSetupToken(user.id, user.role, user.companyId || null);
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "LOGIN_MFA_SETUP_REQUIRED",
+        entity: "user",
+        entityId: user.id,
+        details: `Admin login requires MFA setup for role=${user.role}`,
+        cityId: null,
+      });
+      return res.status(200).json({
+        mfaSetupRequired: true,
+        setupToken,
+        message: "Two-factor authentication is required for your role. Please configure it to access the platform.",
+      });
+    }
+
+    // C-3: MFA gate — if user has MFA enabled, require verification before issuing full token
+    if (user.mfaEnabled) {
+      const preAuthToken = signPreAuthToken(user.id, user.role, user.companyId || null);
+
+      // For SMS/Email methods, trigger challenge immediately
+      if (user.mfaMethod === "sms" || user.mfaMethod === "email") {
+        try {
+          const { sendOTP } = await import("../lib/mfaEngine");
+          await sendOTP(user.id, user.mfaMethod as "sms" | "email");
+        } catch (err: any) {
+          console.error("[AUTH] Failed to send MFA challenge:", err.message);
+        }
+      }
+
+      const maskPhone = (phone: string | null) =>
+        phone ? `***${phone.slice(-4)}` : undefined;
+      const maskEmail = (email: string) =>
+        email.replace(/(.{2})[^@]*(@.*)/, "$1****$2");
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "LOGIN_MFA_PENDING",
+        entity: "user",
+        entityId: user.id,
+        details: `MFA challenge issued for ${user.email}`,
+        cityId: null,
+      });
+
+      return res.status(200).json({
+        mfaPending: true,
+        preAuthToken,
+        mfaMethod: user.mfaMethod,
+        mfaHint: user.mfaMethod === "sms"
+          ? maskPhone(user.mfaPhone || user.phone)
+          : user.mfaMethod === "email"
+          ? maskEmail(user.email)
+          : undefined,
+      });
     }
 
     if (user.role === "DRIVER" && user.driverId && process.env.DRIVER_DEVICE_BINDING === "true") {
@@ -58,7 +126,12 @@ export async function loginHandler(req: Request, res: Response) {
 
     const tokenPayload = { userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null, pharmacyId: (user as any).pharmacyId || null, brokerId: (user as any).brokerId || null };
     const accessToken = signToken(tokenPayload);
-    const refreshToken = signRefreshToken({ userId: user.id });
+    // H-1: Single-use refresh token with rotation
+    const refreshToken = await issueRefreshToken(
+      user.id,
+      req.ip || undefined,
+      req.headers["user-agent"] || undefined,
+    );
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
 
@@ -102,13 +175,13 @@ export async function loginJwtHandler(req: Request, res: Response) {
     const normalizedEmail = parsed.data.email.trim().toLowerCase();
     const user = await storage.getUserByEmail(normalizedEmail);
     if (!user) {
-      console.warn(`[AUTH] login-jwt: user not found email="${normalizedEmail}"`);
+      console.warn(`[AUTH] login-jwt: account not found`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const valid = await comparePassword(parsed.data.password, user.password);
     if (!valid) {
-      console.warn(`[AUTH] login-jwt: password mismatch userId=${user.id} email="${normalizedEmail}"`);
+      console.warn(`[AUTH] login-jwt: password mismatch userId=${user.id}`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
@@ -118,6 +191,24 @@ export async function loginJwtHandler(req: Request, res: Response) {
 
     if (user.role !== "DRIVER") {
       return res.status(403).json({ message: "This endpoint is for driver accounts only" });
+    }
+
+    // MFA gate for driver JWT login
+    if (user.mfaEnabled) {
+      const preAuthToken = signPreAuthToken(user.id, user.role, user.companyId || null);
+      if (user.mfaMethod === "sms" || user.mfaMethod === "email") {
+        try {
+          const { sendOTP } = await import("../lib/mfaEngine");
+          await sendOTP(user.id, user.mfaMethod as "sms" | "email");
+        } catch (err: any) {
+          console.error("[AUTH] Failed to send MFA challenge:", err.message);
+        }
+      }
+      return res.status(200).json({
+        mfaPending: true,
+        preAuthToken,
+        mfaMethod: user.mfaMethod,
+      });
     }
 
     if (user.role === "DRIVER" && user.driverId && process.env.DRIVER_DEVICE_BINDING === "true") {
@@ -495,7 +586,7 @@ export async function tokenLoginHandler(req: Request, res: Response) {
     const user = await storage.getUserByEmail(email);
 
     if (!user) {
-      console.log(`[tokenLogin] No local user found for email=${email}`);
+      console.log(`[tokenLogin] No local user found for magic link login`);
       return res.status(401).json({ message: "No account found for this email. Contact your administrator." });
     }
 
@@ -656,14 +747,13 @@ export async function refreshHandler(req: Request, res: Response) {
       return res.status(401).json({ message: "No refresh token", code: "NO_REFRESH_TOKEN" });
     }
 
-    let payload: { userId: number };
-    try {
-      payload = verifyRefreshToken(refreshCookie);
-    } catch {
-      return res.status(401).json({ message: "Invalid refresh token", code: "INVALID_REFRESH_TOKEN" });
+    // H-1: Single-use refresh token consumption with rotation
+    const result = await consumeRefreshToken(refreshCookie);
+    if (!result) {
+      return res.status(401).json({ message: "Invalid or expired refresh token", code: "INVALID_REFRESH_TOKEN" });
     }
 
-    const user = await storage.getUser(payload.userId);
+    const user = await storage.getUser(result.userId);
     if (!user || !user.active) {
       return res.status(401).json({ message: "User not found or disabled", code: "USER_INVALID" });
     }
@@ -678,7 +768,13 @@ export async function refreshHandler(req: Request, res: Response) {
       brokerId: (user as any).brokerId || null,
     };
     const newAccessToken = signToken(tokenPayload);
-    const newRefreshToken = signRefreshToken({ userId: user.id });
+    // Issue new refresh token in the same family (rotation)
+    const newRefreshToken = await issueRefreshToken(
+      user.id,
+      req.ip || undefined,
+      req.headers["user-agent"] || undefined,
+      result.family,
+    );
     setAuthCookies(res, newAccessToken, newRefreshToken, req);
 
     return res.json({ success: true });
