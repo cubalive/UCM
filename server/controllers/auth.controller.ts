@@ -126,12 +126,18 @@ export async function loginHandler(req: Request, res: Response) {
 
     const tokenPayload = { userId: user.id, role: user.role, companyId: user.companyId || null, clinicId: user.clinicId || null, driverId: user.driverId || null, pharmacyId: (user as any).pharmacyId || null, brokerId: (user as any).brokerId || null };
     const accessToken = signToken(tokenPayload);
-    // H-1: Single-use refresh token with rotation
-    const refreshToken = await issueRefreshToken(
-      user.id,
-      req.ip || undefined,
-      req.headers["user-agent"] || undefined,
-    );
+    // H-1: Single-use refresh token with rotation (fallback to JWT if table missing)
+    let refreshToken: string;
+    try {
+      refreshToken = await issueRefreshToken(
+        user.id,
+        req.ip || undefined,
+        req.headers["user-agent"] || undefined,
+      );
+    } catch (rtErr: any) {
+      console.warn("[AUTH] issueRefreshToken failed (table may not exist), falling back to JWT refresh:", rtErr.message);
+      refreshToken = signRefreshToken({ userId: user.id });
+    }
     const cityAccess = await storage.getUserCityAccess(user.id);
     const allCities = await storage.getCities();
 
@@ -756,12 +762,34 @@ export async function refreshHandler(req: Request, res: Response) {
     }
 
     // H-1: Single-use refresh token consumption with rotation
-    const result = await consumeRefreshToken(refreshCookie);
-    if (!result) {
-      return res.status(401).json({ message: "Invalid or expired refresh token", code: "INVALID_REFRESH_TOKEN" });
+    // Try DB-backed rotation first, fall back to JWT verify
+    let userId: number;
+    let family: string | undefined;
+    try {
+      const result = await consumeRefreshToken(refreshCookie);
+      if (!result) {
+        // May be a JWT fallback token — try verifying as JWT
+        try {
+          const jwtPayload = verifyRefreshToken(refreshCookie);
+          userId = jwtPayload.userId;
+        } catch {
+          return res.status(401).json({ message: "Invalid or expired refresh token", code: "INVALID_REFRESH_TOKEN" });
+        }
+      } else {
+        userId = result.userId;
+        family = result.family;
+      }
+    } catch {
+      // DB table may not exist — try JWT fallback
+      try {
+        const jwtPayload = verifyRefreshToken(refreshCookie);
+        userId = jwtPayload.userId;
+      } catch {
+        return res.status(401).json({ message: "Invalid or expired refresh token", code: "INVALID_REFRESH_TOKEN" });
+      }
     }
 
-    const user = await storage.getUser(result.userId);
+    const user = await storage.getUser(userId);
     if (!user || !user.active) {
       return res.status(401).json({ message: "User not found or disabled", code: "USER_INVALID" });
     }
@@ -776,13 +804,18 @@ export async function refreshHandler(req: Request, res: Response) {
       brokerId: (user as any).brokerId || null,
     };
     const newAccessToken = signToken(tokenPayload);
-    // Issue new refresh token in the same family (rotation)
-    const newRefreshToken = await issueRefreshToken(
-      user.id,
-      req.ip || undefined,
-      req.headers["user-agent"] || undefined,
-      result.family,
-    );
+    // Issue new refresh token in the same family (rotation), with JWT fallback
+    let newRefreshToken: string;
+    try {
+      newRefreshToken = await issueRefreshToken(
+        user.id,
+        req.ip || undefined,
+        req.headers["user-agent"] || undefined,
+        family,
+      );
+    } catch {
+      newRefreshToken = signRefreshToken({ userId: user.id });
+    }
     setAuthCookies(res, newAccessToken, newRefreshToken, req);
 
     return res.json({ success: true });
