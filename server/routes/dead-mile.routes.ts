@@ -109,12 +109,17 @@ router.get(
   requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = parseInt(req.query.companyId as string);
-      const from = req.query.from as string;
-      const to = req.query.to as string;
+      const companyId = parseInt(req.query.companyId as string) || req.user?.companyId;
+      const date = req.query.date as string;
+      const from = (req.query.from as string) || date || new Date().toISOString().split("T")[0];
+      const to = (req.query.to as string) || date || new Date().toISOString().split("T")[0];
 
-      if (!companyId || !from || !to) {
-        return res.status(400).json({ error: "companyId, from, and to are required" });
+      if (!companyId) {
+        return res.json({
+          summary: { totalDeadMiles: 0, totalRevenueMiles: 0, efficiencyRatio: 0, driversTracked: 0 },
+          drivers: [],
+          message: "Select a company to view fleet efficiency",
+        });
       }
 
       const efficiency = await getFleetEfficiency(companyId, from, to);
@@ -246,6 +251,95 @@ router.get(
       res.json(report);
     } catch (err: any) {
       console.error("[ROUTE-OPT] Error generating savings report:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Aliases for client compatibility ────────────────────────────────────────
+
+/**
+ * GET /api/dead-mile/optimization/savings?date=YYYY-MM-DD
+ * Client-facing alias for savings report (uses user's companyId or query param).
+ */
+router.get(
+  "/api/dead-mile/optimization/savings",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = parseInt(req.query.companyId as string) || req.user?.companyId;
+      const date = req.query.date as string;
+
+      if (!date) {
+        return res.status(400).json({ error: "date is required" });
+      }
+
+      if (!companyId) {
+        return res.json({
+          suggestions: [],
+          totalSavingsMiles: 0,
+          totalTimeSavedMinutes: 0,
+          driversWithSuggestions: 0,
+          message: "Select a company to view optimization savings",
+        });
+      }
+
+      const report = await getSavingsReport(companyId, date);
+      res.json(report);
+    } catch (err: any) {
+      console.error("[ROUTE-OPT] Error generating savings report:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+/**
+ * POST /api/dead-mile/optimization/batch?date=YYYY-MM-DD
+ * Client-facing batch optimization endpoint.
+ */
+router.post(
+  "/api/dead-mile/optimization/batch",
+  authMiddleware,
+  requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = parseInt(req.query.companyId as string || req.body.companyId) || req.user?.companyId;
+      const date = (req.query.date as string) || req.body.date;
+
+      if (!date) {
+        return res.status(400).json({ error: "date is required" });
+      }
+
+      if (!companyId) {
+        return res.status(400).json({ error: "companyId is required (set via query or user context)" });
+      }
+
+      const result = await batchOptimize(companyId, date);
+
+      // Apply all suggestions automatically
+      let optimized = 0;
+      for (const suggestion of result.suggestions) {
+        try {
+          await applyReorder(
+            suggestion.driverId,
+            suggestion.date,
+            suggestion.suggestedOrder.map((s) => ({ tripId: s.tripId, position: s.position }))
+          );
+          optimized++;
+        } catch (err: any) {
+          console.warn(`[ROUTE-OPT] Failed to apply suggestion for driver ${suggestion.driverId}: ${err.message}`);
+        }
+      }
+
+      res.json({
+        success: true,
+        optimized,
+        totalSavingsMiles: result.totalSavingsMiles,
+        totalTimeSavedMinutes: result.totalTimeSavedMinutes,
+      });
+    } catch (err: any) {
+      console.error("[ROUTE-OPT] Batch optimization error:", err.message);
       res.status(500).json({ error: err.message });
     }
   }

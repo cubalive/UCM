@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -60,6 +61,7 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
   const [citySearch, setCitySearch] = useState("");
   const [cityTimezone, setCityTimezone] = useState("America/Los_Angeles");
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const { data: statesData } = useQuery<{ ok: boolean; items: UsState[] }>({
     queryKey: ["/api/locations/states"],
@@ -88,7 +90,7 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
       });
     },
     onSuccess: () => {
-      toast({ title: "Company created successfully" });
+      toast({ title: t("companies.companyCreated") });
       setName("");
       setSelectedState("");
       setSelectedCityId("");
@@ -99,7 +101,7 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
       queryClient.invalidateQueries({ queryKey: ["/api/cities"] });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to create company", description: err.message, variant: "destructive" });
+      toast({ title: t("companies.createFailed"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -118,16 +120,16 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
       <DialogTrigger asChild>
         <Button data-testid="button-create-company">
           <Plus className="w-4 h-4 mr-2" />
-          New Company
+          {t("companies.newCompany")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create Company</DialogTitle>
+          <DialogTitle>{t("companies.createCompany")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <div className="space-y-2">
-            <Label htmlFor="company-name">Company Name</Label>
+            <Label htmlFor="company-name">{t("companies.companyName")}</Label>
             <Input
               id="company-name"
               value={name}
@@ -137,13 +139,13 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
             />
           </div>
           <div className="border-t pt-4">
-            <p className="text-sm font-medium mb-3">Primary City (required)</p>
+            <p className="text-sm font-medium mb-3">{t("companies.primaryCity")}</p>
             <div className="space-y-3">
               <div className="space-y-2">
-                <Label>State</Label>
+                <Label>{t("companies.state")}</Label>
                 <Select value={selectedState} onValueChange={handleStateChange}>
                   <SelectTrigger data-testid="select-company-state">
-                    <SelectValue placeholder="Select a state..." />
+                    <SelectValue placeholder={t("companies.selectState")} />
                   </SelectTrigger>
                   <SelectContent>
                     {states.map((s) => (
@@ -157,13 +159,13 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
 
               {selectedState && (
                 <div className="space-y-2">
-                  <Label>City</Label>
+                  <Label>{t("companies.city")}</Label>
                   <div className="relative">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       value={citySearch}
                       onChange={(e) => setCitySearch(e.target.value)}
-                      placeholder="Search cities..."
+                      placeholder={t("companies.searchCities")}
                       className="pl-8"
                       data-testid="input-city-search"
                     />

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -25,6 +26,7 @@ export default function SupportChatPage() {
   const [threadSearch, setThreadSearch] = useState("");
   const [threadStatusFilter, setThreadStatusFilter] = useState<"all" | "OPEN" | "CLOSED">("all");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   const isClinic = user?.role === "VIEWER" || user?.role === "CLINIC_USER";
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
@@ -48,26 +50,26 @@ export default function SupportChatPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center gap-4" data-testid="support-no-company">
         <Building2 className="w-10 h-10 text-muted-foreground" />
-        <h2 className="text-lg font-semibold">Select a Company</h2>
+        <h2 className="text-lg font-semibold">{t("supportChat.selectCompany")}</h2>
         <p className="text-sm text-muted-foreground text-center max-w-md">
-          As a Super Admin, select a company to access support threads.
+          {t("supportChat.selectCompanyDesc")}
         </p>
         <div className="w-full max-w-xs">
           {companiesQuery.isLoading ? (
             <Skeleton className="h-10 w-full" />
           ) : companiesQuery.isError ? (
             <div className="flex flex-col items-center gap-2">
-              <p className="text-sm text-destructive">Failed to load companies</p>
+              <p className="text-sm text-destructive">{t("supportChat.failedLoadCompanies")}</p>
               <Button variant="outline" size="sm" onClick={() => companiesQuery.refetch()}>
-                Retry
+                {t("supportChat.retry")}
               </Button>
             </div>
           ) : companies.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No companies found.</p>
+            <p className="text-sm text-muted-foreground">{t("supportChat.noCompanies")}</p>
           ) : (
             <Select onValueChange={handleCompanyChange}>
               <SelectTrigger data-testid="select-company-scope">
-                <SelectValue placeholder="Choose a company..." />
+                <SelectValue placeholder={t("supportChat.chooseCompany")} />
               </SelectTrigger>
               <SelectContent>
                 {companies.map((c: any) => (
@@ -115,9 +117,9 @@ export default function SupportChatPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/clinic/support/thread"] });
       setSelectedThread(data.id);
       setNewSubject("");
-      toast({ title: "Support thread created" });
+      toast({ title: t("supportChat.threadCreated") });
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("supportChat.error"), description: err.message, variant: "destructive" }),
   });
 
   const sendMessageMutation = useMutation({
@@ -138,7 +140,7 @@ export default function SupportChatPage() {
       });
       setNewMessage("");
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("supportChat.error"), description: err.message, variant: "destructive" }),
   });
 
   const closeThreadMutation = useMutation({
@@ -146,9 +148,9 @@ export default function SupportChatPage() {
       apiFetch(`/api/company/support/threads/${threadId}/close`, token, { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/support/threads"] });
-      toast({ title: "Thread closed" });
+      toast({ title: t("supportChat.threadClosed") });
     },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("supportChat.error"), description: err.message, variant: "destructive" }),
   });
 
   useEffect(() => {
@@ -178,12 +180,12 @@ export default function SupportChatPage() {
     <div className="p-4 max-w-5xl mx-auto" data-testid="support-chat-page">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
         <h1 className="text-2xl font-bold" data-testid="text-page-title">
-          {isClinic ? "Support" : "Support Threads"}
+          {isClinic ? t("supportChat.support") : t("supportChat.supportThreads")}
         </h1>
         {isClinic && (
           <div className="flex items-center gap-2">
             <Input
-              placeholder="Subject (optional)"
+              placeholder={t("supportChat.subject")}
               value={newSubject}
               onChange={(e) => setNewSubject(e.target.value)}
               className="w-48"
@@ -195,7 +197,7 @@ export default function SupportChatPage() {
               data-testid="button-new-thread"
             >
               {createThreadMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-              New Thread
+              {t("supportChat.newThread")}
             </Button>
           </div>
         )}
@@ -204,14 +206,14 @@ export default function SupportChatPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-[calc(100vh-12rem)]">
         <Card className="md:col-span-1 overflow-hidden flex flex-col">
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-base">Threads</CardTitle>
+            <CardTitle className="text-base">{t("supportChat.threads")}</CardTitle>
             <MessageSquare className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <div className="px-3 pb-2 space-y-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <Input
-                placeholder="Search threads..."
+                placeholder={t("supportChat.searchThreads")}
                 value={threadSearch}
                 onChange={(e) => setThreadSearch(e.target.value)}
                 className="pl-8 h-8 text-xs"
@@ -223,9 +225,9 @@ export default function SupportChatPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="OPEN">Open</SelectItem>
-                <SelectItem value="CLOSED">Closed</SelectItem>
+                <SelectItem value="all">{t("supportChat.allStatus")}</SelectItem>
+                <SelectItem value="OPEN">{t("supportChat.open")}</SelectItem>
+                <SelectItem value="CLOSED">{t("supportChat.closed")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -233,7 +235,7 @@ export default function SupportChatPage() {
             {threadsQuery.isLoading ? (
               <div className="space-y-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
             ) : threads.length === 0 ? (
-              <p className="text-sm text-muted-foreground p-2" data-testid="text-no-threads">No support threads yet.</p>
+              <p className="text-sm text-muted-foreground p-2" data-testid="text-no-threads">{t("supportChat.noThreads")}</p>
             ) : (
               threads.map((t: any) => (
                 <button
@@ -261,7 +263,7 @@ export default function SupportChatPage() {
         <Card className="md:col-span-2 overflow-hidden flex flex-col">
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
             <CardTitle className="text-base">
-              {currentThread ? currentThread.subject : "Select a thread"}
+              {currentThread ? currentThread.subject : t("supportChat.selectThread")}
             </CardTitle>
             {!isClinic && currentThread?.status === "OPEN" && (
               <Button
@@ -271,17 +273,17 @@ export default function SupportChatPage() {
                 disabled={closeThreadMutation.isPending}
                 data-testid="button-close-thread"
               >
-                Close Thread
+                {t("supportChat.closeThread")}
               </Button>
             )}
           </CardHeader>
           <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
             {selectedThread === null ? (
-              <p className="text-sm text-muted-foreground" data-testid="text-select-thread">Select a thread to view messages.</p>
+              <p className="text-sm text-muted-foreground" data-testid="text-select-thread">{t("supportChat.selectThreadPrompt")}</p>
             ) : messagesQuery.isLoading ? (
               <div className="space-y-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
             ) : messages.length === 0 ? (
-              <p className="text-sm text-muted-foreground" data-testid="text-no-messages">No messages yet. Send the first message.</p>
+              <p className="text-sm text-muted-foreground" data-testid="text-no-messages">{t("supportChat.noMessages")}</p>
             ) : (
               messages.map((m: any) => (
                 <div
@@ -297,7 +299,7 @@ export default function SupportChatPage() {
                     }`}
                   >
                     <p className="text-xs opacity-70 mb-1">
-                      {m.senderRole === "CLINIC" ? "You" : "Dispatch"} - {new Date(m.createdAt).toLocaleTimeString()}
+                      {m.senderRole === "CLINIC" ? t("supportChat.you") : t("supportChat.dispatch")} - {new Date(m.createdAt).toLocaleTimeString()}
                     </p>
                     <p className="text-sm whitespace-pre-wrap">{m.body}</p>
                   </div>
@@ -311,7 +313,7 @@ export default function SupportChatPage() {
               <Input
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type a message..."
+                placeholder={t("supportChat.typePlaceholder")}
                 onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
                 data-testid="input-message"
               />

@@ -576,7 +576,7 @@ export default function TripsPage() {
         />
       ) : (
         <div className="space-y-3">
-          {filtered.map((trip: any) => (
+          {(filtered || []).map((trip: any) => (
             <Card key={trip.id} className="hover-elevate cursor-pointer" onClick={() => navigate(`/trips/${trip.id}`)} data-testid={`card-trip-${trip.id}`}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
