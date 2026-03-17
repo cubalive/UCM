@@ -981,6 +981,19 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
       )
     `);
 
+    // Dispatcher city permissions table
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS dispatcher_city_permissions (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        city_id INTEGER NOT NULL REFERENCES cities(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS dispatcher_city_perms_user_city_idx ON dispatcher_city_permissions(user_id, city_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS dispatcher_city_perms_company_user_idx ON dispatcher_city_permissions(company_id, user_id)`);
+
     // Session revocations table
     await bootDb.execute(bootSql`
       CREATE TABLE IF NOT EXISTS session_revocations (
