@@ -368,6 +368,17 @@ export async function archiveUserHandler(req: AuthRequest, res: Response) {
 
     if (user.role === "SUPER_ADMIN") return res.status(400).json({ message: "Cannot archive super admin" });
 
+    // H-4: Check for active trips before archiving
+    if (user.driverId) {
+      const activeTrips = await storage.getActiveTripsForDriver(user.driverId);
+      if (activeTrips.length > 0) {
+        return res.status(409).json({
+          message: `Cannot archive user with ${activeTrips.length} active trips. Complete or reassign them first.`,
+          activeTrips: activeTrips.length,
+        });
+      }
+    }
+
     const reason = req.body?.reason || null;
     const updated = await storage.updateUser(id, { active: false, deletedAt: new Date(), deletedBy: req.user!.userId, deleteReason: reason } as any);
 

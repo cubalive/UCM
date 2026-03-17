@@ -175,7 +175,7 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
                   ) : (
                     <Select value={selectedCityId} onValueChange={setSelectedCityId}>
                       <SelectTrigger data-testid="select-company-city">
-                        <SelectValue placeholder="Select a city..." />
+                        <SelectValue placeholder={t("companies.selectCity")} />
                       </SelectTrigger>
                       <SelectContent>
                         {citiesList.map((c) => (
@@ -191,12 +191,12 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
 
               {selectedCityObj && (
                 <div className="text-sm text-muted-foreground bg-muted rounded-md px-3 py-2" data-testid="text-selected-city">
-                  Selected: {selectedCityObj.city}, {selectedCityObj.stateCode}
+                  {t("companies.selectedCity", { city: selectedCityObj.city, state: selectedCityObj.stateCode })}
                 </div>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="city-timezone">Timezone</Label>
+                <Label htmlFor="city-timezone">{t("companies.timezone")}</Label>
                 <Select value={cityTimezone} onValueChange={setCityTimezone}>
                   <SelectTrigger data-testid="select-city-timezone">
                     <SelectValue />
@@ -216,7 +216,7 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
             className="w-full"
             data-testid="button-submit-company"
           >
-            {createMutation.isPending ? "Creating..." : "Create Company"}
+            {createMutation.isPending ? t("companies.creating") : t("companies.createCompany")}
           </Button>
         </div>
       </DialogContent>
@@ -232,6 +232,7 @@ function CreateAdminDialog({ company, onCreated }: { company: Company; onCreated
   const [lastName, setLastName] = useState("");
   const [createdCreds, setCreatedCreds] = useState<{ email: string; password: string } | null>(null);
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -246,12 +247,12 @@ function CreateAdminDialog({ company, onCreated }: { company: Company; onCreated
       return { ...data, password: pw };
     },
     onSuccess: (data) => {
-      toast({ title: "Company Admin created" });
+      toast({ title: t("companies.adminCreated") });
       setCreatedCreds({ email: data.email, password: data.password });
       onCreated();
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to create admin", description: err.message, variant: "destructive" });
+      toast({ title: t("companies.adminCreateFailed"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -271,72 +272,72 @@ function CreateAdminDialog({ company, onCreated }: { company: Company; onCreated
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" data-testid={`button-create-admin-${company.id}`}>
           <UserPlus className="w-4 h-4 mr-1" />
-          Admin
+          {t("companies.admin")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create Admin for {company.name}</DialogTitle>
+          <DialogTitle>{t("companies.createAdmin", { name: company.name })}</DialogTitle>
         </DialogHeader>
         {createdCreds ? (
           <div className="space-y-3 pt-2">
-            <p className="text-sm text-muted-foreground">Admin account created. Save these credentials:</p>
+            <p className="text-sm text-muted-foreground">{t("companies.adminCredentials")}</p>
             <div className="space-y-2 bg-muted p-3 rounded-md">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium">Email:</span>
+                <span className="text-sm font-medium">{t("companies.email")}:</span>
                 <code className="text-sm" data-testid="text-created-admin-email">{createdCreds.email}</code>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium">Password:</span>
+                <span className="text-sm font-medium">{t("companies.password")}:</span>
                 <code className="text-sm" data-testid="text-created-admin-password">{createdCreds.password}</code>
               </div>
             </div>
             <Button variant="outline" className="w-full" onClick={() => handleClose(false)} data-testid="button-close-creds">
-              Done
+              {t("companies.done")}
             </Button>
           </div>
         ) : (
           <div className="space-y-4 pt-2">
             <div className="space-y-2">
-              <Label htmlFor="admin-email">Email</Label>
+              <Label htmlFor="admin-email">{t("companies.email")}</Label>
               <Input
                 id="admin-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@company.com"
+                placeholder={t("companies.emailPlaceholder")}
                 data-testid="input-admin-email"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="admin-password">Password</Label>
+              <Label htmlFor="admin-password">{t("companies.password")}</Label>
               <Input
                 id="admin-password"
                 type="text"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Leave blank to auto-generate"
+                placeholder={t("companies.passwordPlaceholder")}
                 data-testid="input-admin-password"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="admin-first">First Name</Label>
+                <Label htmlFor="admin-first">{t("companies.firstName")}</Label>
                 <Input
                   id="admin-first"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="Optional"
+                  placeholder={t("companies.optional")}
                   data-testid="input-admin-firstname"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="admin-last">Last Name</Label>
+                <Label htmlFor="admin-last">{t("companies.lastName")}</Label>
                 <Input
                   id="admin-last"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
-                  placeholder="Optional"
+                  placeholder={t("companies.optional")}
                   data-testid="input-admin-lastname"
                 />
               </div>
@@ -347,7 +348,7 @@ function CreateAdminDialog({ company, onCreated }: { company: Company; onCreated
               className="w-full"
               data-testid="button-submit-admin"
             >
-              {createMutation.isPending ? "Creating..." : "Create Admin"}
+              {createMutation.isPending ? t("companies.creatingAdmin") : t("companies.createAdminBtn")}
             </Button>
           </div>
         )}
@@ -369,6 +370,7 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
   const [customDomain, setCustomDomain] = useState((company as any).customDomain || "");
   const { token } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -398,13 +400,13 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Company updated" });
+      toast({ title: t("companies.companyUpdated") });
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       onUpdated();
       setOpen(false);
     },
     onError: (err: any) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: t("companies.updateError"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -412,7 +414,7 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
-      toast({ title: "File too large", description: "Max 2MB", variant: "destructive" });
+      toast({ title: t("companies.fileTooLarge"), description: t("companies.maxSize"), variant: "destructive" });
       return;
     }
     setUploadingLogo(true);
@@ -426,10 +428,10 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
       if (!res.ok) { const err = await res.json(); throw new Error(err.message); }
       const data = await res.json();
       setLogoPreview(data.logoUrl + "?t=" + Date.now());
-      toast({ title: "Logo uploaded" });
+      toast({ title: t("companies.logoUploaded") });
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
     } catch (err: any) {
-      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      toast({ title: t("companies.uploadFailed"), description: err.message, variant: "destructive" });
     } finally {
       setUploadingLogo(false);
       if (logoInputRef.current) logoInputRef.current.value = "";
@@ -441,10 +443,10 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
       const res = await rawAuthFetch(`/api/admin/companies/${company.id}/logo`, { method: "DELETE" });
       if (!res.ok) { const err = await res.json(); throw new Error(err.message); }
       setLogoPreview(null);
-      toast({ title: "Logo removed" });
+      toast({ title: t("companies.logoRemoved") });
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: t("companies.updateError"), description: err.message, variant: "destructive" });
     }
   }
 
@@ -457,11 +459,11 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit Company</DialogTitle>
+          <DialogTitle>{t("companies.editCompany")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label>Company Logo</Label>
+            <Label>{t("companies.companyLogo")}</Label>
             <div className="flex items-center gap-3">
               {logoPreview ? (
                 <img
@@ -483,11 +485,11 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
                   disabled={uploadingLogo}
                 >
                   {uploadingLogo ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Upload className="w-3 h-3 mr-1" />}
-                  Upload
+                  {t("companies.upload")}
                 </Button>
                 {logoPreview && (
                   <Button type="button" size="sm" variant="ghost" onClick={handleLogoDelete}>
-                    <Trash2 className="w-3 h-3 mr-1" /> Remove
+                    <Trash2 className="w-3 h-3 mr-1" /> {t("companies.remove")}
                   </Button>
                 )}
               </div>
@@ -499,10 +501,10 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
                 onChange={handleLogoUpload}
               />
             </div>
-            <p className="text-xs text-muted-foreground">PNG, JPEG, WebP, or SVG. Max 2MB.</p>
+            <p className="text-xs text-muted-foreground">{t("companies.logoHint")}</p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit-name">Company Name</Label>
+            <Label htmlFor="edit-name">{t("companies.companyName")}</Label>
             <Input
               id="edit-name"
               value={name}
@@ -527,7 +529,7 @@ function EditCompanyDialog({ company, onUpdated }: { company: Company; onUpdated
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit-timezone">Timezone</Label>
+            <Label htmlFor="edit-timezone">{t("companies.timezone")}</Label>
             <Select value={companyTimezone} onValueChange={setCompanyTimezone}>
               <SelectTrigger data-testid="select-edit-company-timezone">
                 <SelectValue />
@@ -763,6 +765,7 @@ function CompanyCitiesDialog({ company }: { company: Company; }) {
 function StripeConnectBadge({ company }: { company: Company }) {
   const { token } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
 
   const { data: stripeStatus, isLoading: statusLoading, refetch } = useQuery<{
@@ -802,14 +805,14 @@ function StripeConnectBadge({ company }: { company: Company }) {
         if (data.connectRequired) {
           setConnectError(true);
         }
-        toast({ title: "Error", description: data.message, variant: "destructive" });
+        toast({ title: t("companies.updateError"), description: data.message, variant: "destructive" });
         return;
       }
       toast({ title: "Stripe account created" });
       refetch();
       handleOnboard();
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: t("companies.updateError"), description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -827,14 +830,14 @@ function StripeConnectBadge({ company }: { company: Company }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast({ title: "Error", description: data.message, variant: "destructive" });
+        toast({ title: t("companies.updateError"), description: data.message, variant: "destructive" });
         return;
       }
       if (data.url) {
         window.open(data.url, "_blank");
       }
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: t("companies.updateError"), description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -905,6 +908,7 @@ function StripeConnectBadge({ company }: { company: Company }) {
 export default function CompaniesPage() {
   const { isSuperAdmin, token, user } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [currentScope, setCurrentScope] = useState<string | null>(() => getStoredCompanyScopeId());
   const [showArchived, setShowArchived] = useState(false);
 
@@ -920,7 +924,7 @@ export default function CompaniesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       toast({ title: "Company archived" });
     },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: t("companies.updateError"), description: err.message, variant: "destructive" }),
   });
 
   const restoreMutation = useMutation({
@@ -930,7 +934,7 @@ export default function CompaniesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       toast({ title: "Company restored" });
     },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: t("companies.updateError"), description: err.message, variant: "destructive" }),
   });
 
   const permanentDeleteMutation = useMutation({
@@ -940,7 +944,7 @@ export default function CompaniesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       toast({ title: "Company permanently deleted" });
     },
-    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: t("companies.updateError"), description: err.message, variant: "destructive" }),
   });
 
   const filteredCompanies = companies.filter((c: any) => {
@@ -983,8 +987,8 @@ export default function CompaniesPage() {
         <div className="flex items-center gap-3">
           <Building2 className="w-6 h-6 text-muted-foreground" />
           <div>
-            <h1 className="text-2xl font-bold" data-testid="text-companies-title">Companies</h1>
-            <p className="text-sm text-muted-foreground">Manage tenants and scope your view</p>
+            <h1 className="text-2xl font-bold" data-testid="text-companies-title">{t("companies.title")}</h1>
+            <p className="text-sm text-muted-foreground">{t("companies.subtitle")}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1005,7 +1009,7 @@ export default function CompaniesPage() {
             onCheckedChange={setShowArchived}
             data-testid="switch-show-archived-companies"
           />
-          <Label className="text-sm text-muted-foreground">Show Archived</Label>
+          <Label className="text-sm text-muted-foreground">{t("companies.showArchived")}</Label>
         </div>
       )}
 
@@ -1024,7 +1028,7 @@ export default function CompaniesPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
-          <CardTitle className="text-lg">All Companies</CardTitle>
+          <CardTitle className="text-lg">{t("companies.allCompanies")}</CardTitle>
           <Badge variant="secondary" data-testid="badge-company-count">{filteredCompanies.length}</Badge>
         </CardHeader>
         <CardContent>
@@ -1035,7 +1039,7 @@ export default function CompaniesPage() {
               <Skeleton className="h-10 w-full" />
             </div>
           ) : filteredCompanies.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">{showArchived ? "No archived companies." : "No companies yet. Create one to get started."}</p>
+            <p className="text-sm text-muted-foreground py-4 text-center">{showArchived ? "No archived companies." : t("companies.noCompanies")}</p>
           ) : (
             <Table>
               <TableHeader>

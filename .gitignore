@@ -3,6 +3,7 @@ dist/
 .env
 .env.local
 *.log
+ucm-credentials.txt
 coverage/
 .DS_Store
 drizzle/meta/

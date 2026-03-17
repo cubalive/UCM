@@ -173,8 +173,79 @@ export const users = pgTable("users", {
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
+  // MFA fields
+  mfaEnabled: boolean("mfa_enabled").notNull().default(false),
+  mfaMethod: text("mfa_method"), // 'totp' | 'sms' | 'email'
+  mfaSecret: text("mfa_secret"), // encrypted TOTP secret
+  mfaPhone: text("mfa_phone"), // phone for SMS OTP
+  mfaVerifiedAt: timestamp("mfa_verified_at"),
+  mfaFailedAttempts: integer("mfa_failed_attempts").notNull().default(0),
+  mfaLockedUntil: timestamp("mfa_locked_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ─── MFA Backup Codes ────────────────────────────────────────────────────────
+
+export const mfaBackupCodes = pgTable("mfa_backup_codes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  codeHash: text("code_hash").notNull(),
+  usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// ─── MFA Audit Log ───────────────────────────────────────────────────────────
+
+export const mfaAuditLog = pgTable("mfa_audit_log", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").references(() => users.id),
+  eventType: text("event_type").notNull(), // setup_started, setup_completed, verified_success, verified_failed, backup_used, disabled, locked, unlocked
+  method: text("method"), // totp, sms, email, backup
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  portal: text("portal"),
+  metadata: text("metadata"), // JSON string
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ─── Refresh Tokens (H-1: single-use rotation) ──────────────────────────────
+
+export const refreshTokens = pgTable("refresh_tokens", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  family: text("family").notNull(), // token family for rotation detection
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  revokedAt: timestamp("revoked_at"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_refresh_tokens_user").on(table.userId),
+  index("idx_refresh_tokens_hash").on(table.tokenHash),
+  index("idx_refresh_tokens_family").on(table.family),
+]);
+
+export type RefreshToken = typeof refreshTokens.$inferSelect;
+export type InsertRefreshToken = typeof refreshTokens.$inferInsert;
+
+// ─── Feature Flags (M-1: DB-persisted) ──────────────────────────────────────
+
+export const featureFlags = pgTable("feature_flags", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  companyId: integer("company_id").references(() => companies.id),
+  flagKey: text("flag_key").notNull(),
+  enabled: boolean("enabled").notNull().default(false),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("feature_flags_company_key_idx").on(table.companyId, table.flagKey),
+]);
+
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+export type InsertFeatureFlag = typeof featureFlags.$inferInsert;
 
 export const userCityAccess = pgTable("user_city_access", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -306,6 +377,7 @@ export const clinics = pgTable("clinics", {
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_clinics_company").on(table.companyId),
   index("idx_clinics_city").on(table.cityId),
@@ -345,6 +417,7 @@ export const patients = pgTable("patients", {
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_patients_company").on(table.companyId),
   index("idx_patients_clinic").on(table.clinicId),
@@ -593,6 +666,7 @@ export const invoices = pgTable("invoices", {
   receiptUrl: text("receipt_url"),
   paidAt: timestamp("paid_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_invoices_clinic_status").on(table.clinicId, table.status, table.createdAt),
 ]);

@@ -4,6 +4,7 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { authMiddleware, requireRole } from "../auth";
 
 let pkgVersion = "unknown";
 try {
@@ -142,7 +143,7 @@ export function registerHealthRoutes(app: Express) {
   });
 
   // ── Deep health check for admin dashboard ─────────────────────────────
-  app.get("/api/admin/health/deep", async (_req: Request, res: Response) => {
+  app.get("/api/admin/health/deep", authMiddleware, requireRole("SUPER_ADMIN"), async (_req: Request, res: Response) => {
     // Services health
     const services: Record<string, any> = {};
 
@@ -253,7 +254,7 @@ export function registerHealthRoutes(app: Express) {
   });
 
   // ── Circuit breaker states endpoint ─────────────────────────────────────
-  app.get("/api/health/circuits", async (_req: Request, res: Response) => {
+  app.get("/api/health/circuits", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN"), async (_req: Request, res: Response) => {
     let circuitStates: Record<string, any> = {};
     try {
       const { getCircuitBreakerStats } = await import("../lib/circuitBreaker");

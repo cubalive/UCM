@@ -1,6 +1,6 @@
 import { db } from "../db";
-import { pharmacyOrders, pharmacyOrderEvents, drivers, patients } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { pharmacyOrders, pharmacyOrderEvents, drivers, patients, users } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 import { sendPushToDriver, type PushPayload } from "./push";
 import { sendSms } from "./twilioSms";
 
@@ -44,6 +44,13 @@ export async function notifyPharmacyOrderUpdate(
 
     if (!order.driverId) {
       console.log(`[PharmacyNotify] Order ${orderId} has no driver assigned, skipping push`);
+      return { driverNotified: false };
+    }
+
+    // H-8: Check driver is active before sending notification
+    const [driver] = await db.select({ active: drivers.active }).from(drivers).where(eq(drivers.id, order.driverId)).limit(1);
+    if (!driver?.active) {
+      console.log(`[PharmacyNotify] Driver ${order.driverId} is inactive, skipping notification`);
       return { driverNotified: false };
     }
 
@@ -187,10 +194,15 @@ export async function notifyPatientDeliveryUpdate(
     let phone = order.recipientPhone;
     if (!phone && order.patientId) {
       const [patient] = await db
-        .select({ phone: patients.phone })
+        .select({ phone: patients.phone, active: patients.active })
         .from(patients)
         .where(eq(patients.id, order.patientId))
         .limit(1);
+      // H-8: Skip notification for inactive patients
+      if (patient && !patient.active) {
+        console.log(`[PharmacyPatientSms] Patient for order ${orderId} is inactive, skipping SMS`);
+        return { smsSent: false };
+      }
       phone = patient?.phone || null;
     }
 
@@ -198,6 +210,16 @@ export async function notifyPatientDeliveryUpdate(
       console.log(`[PharmacyPatientSms] No phone for order ${orderId}, skipping SMS`);
       return { smsSent: false };
     }
+
+    // H-8: Check SMS opt-out
+    try {
+      const { smsOptOut } = await import("@shared/schema");
+      const [optOut] = await db.select().from(smsOptOut).where(eq(smsOptOut.phone, phone)).limit(1);
+      if (optOut?.optedOut) {
+        console.log(`[PharmacyPatientSms] Phone ${phone.slice(-4)} opted out, skipping SMS`);
+        return { smsSent: false };
+      }
+    } catch {}
 
     const message = buildPatientSmsMessage(order, status);
     const result = await sendSms(phone, message);

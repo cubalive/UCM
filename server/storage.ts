@@ -56,28 +56,28 @@ export interface IStorage {
   setUserCityAccess(userId: number, cityIds: number[]): Promise<void>;
 
   getVehicles(cityId?: number): Promise<Vehicle[]>;
-  getVehicle(id: number): Promise<Vehicle | undefined>;
+  getVehicle(id: number, companyId?: number): Promise<Vehicle | undefined>;
   createVehicle(data: InsertVehicle): Promise<Vehicle>;
   updateVehicle(id: number, data: Partial<Vehicle>): Promise<Vehicle | undefined>;
 
   getDrivers(cityId?: number): Promise<Driver[]>;
-  getDriver(id: number): Promise<Driver | undefined>;
+  getDriver(id: number, companyId?: number): Promise<Driver | undefined>;
   createDriver(data: InsertDriver): Promise<Driver>;
   updateDriver(id: number, data: Partial<Driver>): Promise<Driver | undefined>;
   getDriverByVehicleId(vehicleId: number, excludeDriverId?: number): Promise<Driver | undefined>;
 
   getClinics(cityId?: number): Promise<Clinic[]>;
-  getClinic(id: number): Promise<Clinic | undefined>;
+  getClinic(id: number, companyId?: number): Promise<Clinic | undefined>;
   createClinic(data: InsertClinic): Promise<Clinic>;
   updateClinic(id: number, data: Partial<Clinic>): Promise<Clinic | undefined>;
 
   getPatients(cityId?: number): Promise<Patient[]>;
-  getPatient(id: number): Promise<Patient | undefined>;
+  getPatient(id: number, companyId?: number): Promise<Patient | undefined>;
   createPatient(data: InsertPatient): Promise<Patient>;
   updatePatient(id: number, data: Partial<Patient>): Promise<Patient | undefined>;
 
   getTrips(cityId?: number, limit?: number): Promise<Trip[]>;
-  getTrip(id: number): Promise<Trip | undefined>;
+  getTrip(id: number, companyId?: number): Promise<Trip | undefined>;
   createTrip(data: InsertTrip): Promise<Trip>;
   updateTrip(id: number, data: Partial<Trip>): Promise<Trip | undefined>;
   updateTripStatus(id: number, status: string): Promise<Trip | undefined>;
@@ -374,8 +374,12 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(vehicles).where(and(eq(vehicles.active, true), isNull(vehicles.deletedAt))).orderBy(vehicles.name);
   }
 
-  async getVehicle(id: number): Promise<Vehicle | undefined> {
-    const [vehicle] = await db.select().from(vehicles).where(eq(vehicles.id, id));
+  async getVehicle(id: number, companyId?: number): Promise<Vehicle | undefined> {
+    const conditions = [eq(vehicles.id, id)];
+    if (companyId) {
+      conditions.push(eq(vehicles.companyId, companyId));
+    }
+    const [vehicle] = await db.select().from(vehicles).where(and(...conditions));
     return vehicle;
   }
 
@@ -404,8 +408,12 @@ export class DatabaseStorage implements IStorage {
     ).orderBy(drivers.firstName);
   }
 
-  async getDriver(id: number): Promise<Driver | undefined> {
-    const [driver] = await db.select().from(drivers).where(eq(drivers.id, id));
+  async getDriver(id: number, companyId?: number): Promise<Driver | undefined> {
+    const conditions = [eq(drivers.id, id)];
+    if (companyId) {
+      conditions.push(eq(drivers.companyId, companyId));
+    }
+    const [driver] = await db.select().from(drivers).where(and(...conditions));
     return driver;
   }
 
@@ -446,8 +454,12 @@ export class DatabaseStorage implements IStorage {
     ).orderBy(clinics.name);
   }
 
-  async getClinic(id: number): Promise<Clinic | undefined> {
-    const [clinic] = await db.select().from(clinics).where(eq(clinics.id, id));
+  async getClinic(id: number, companyId?: number): Promise<Clinic | undefined> {
+    const conditions = [eq(clinics.id, id)];
+    if (companyId) {
+      conditions.push(eq(clinics.companyId, companyId));
+    }
+    const [clinic] = await db.select().from(clinics).where(and(...conditions));
     return clinic;
   }
 
@@ -473,8 +485,12 @@ export class DatabaseStorage implements IStorage {
     ).orderBy(patients.firstName);
   }
 
-  async getPatient(id: number): Promise<Patient | undefined> {
-    const [patient] = await db.select().from(patients).where(eq(patients.id, id));
+  async getPatient(id: number, companyId?: number): Promise<Patient | undefined> {
+    const conditions = [eq(patients.id, id)];
+    if (companyId) {
+      conditions.push(eq(patients.companyId, companyId));
+    }
+    const [patient] = await db.select().from(patients).where(and(...conditions));
     return patient;
   }
 
@@ -503,8 +519,12 @@ export class DatabaseStorage implements IStorage {
     return query;
   }
 
-  async getTrip(id: number): Promise<Trip | undefined> {
-    const [trip] = await db.select().from(trips).where(eq(trips.id, id));
+  async getTrip(id: number, companyId?: number): Promise<Trip | undefined> {
+    const conditions = [eq(trips.id, id)];
+    if (companyId) {
+      conditions.push(eq(trips.companyId, companyId));
+    }
+    const [trip] = await db.select().from(trips).where(and(...conditions));
     return trip;
   }
 
@@ -576,7 +596,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createAuditLog(data: InsertAuditLog): Promise<AuditLog> {
-    const [log] = await db.insert(auditLog).values(data).returning();
+    // C-9: Never allow null userId — use SYSTEM_ACTOR_ID for automated actions
+    const { SYSTEM_ACTOR_ID } = await import("@shared/constants");
+    const values = {
+      ...data,
+      userId: data.userId ?? SYSTEM_ACTOR_ID,
+    };
+    const [log] = await db.insert(auditLog).values(values).returning();
     return log;
   }
 
