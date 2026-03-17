@@ -353,7 +353,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(err.message || "Login failed");
       }
       const data = await res.json();
+
+      // Handle MFA responses (server may require MFA setup or verification)
+      if (data.mfaSetupRequired) {
+        throw new Error(data.message || "Two-factor authentication setup is required. Please contact your administrator.");
+      }
+      if (data.mfaPending) {
+        throw new Error("Two-factor authentication verification required. This feature is not yet available.");
+      }
+
       // Driver app still uses token in localStorage (native app, not browser)
+      if (!data.token || !data.user) {
+        throw new Error("Login failed: invalid server response");
+      }
       localStorage.setItem(DRIVER_TOKEN_KEY, data.token);
       setDriverToken(data.token);
       setUser(data.user);
@@ -376,6 +388,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(err.message || "Login failed");
     }
     const data = await res.json();
+
+    // Handle MFA responses (server may require MFA setup or verification)
+    if (data.mfaSetupRequired) {
+      throw new Error(data.message || "Two-factor authentication setup is required. Please contact your administrator.");
+    }
+    if (data.mfaPending) {
+      throw new Error("Two-factor authentication verification required. This feature is not yet available.");
+    }
+
+    // Validate the response contains user data
+    if (!data.user) {
+      throw new Error("Login failed: invalid server response");
+    }
+
     // No token in response body — auth is via httpOnly cookies set by server
     setUser(data.user);
     setCities(data.cities || []);
