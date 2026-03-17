@@ -12,11 +12,21 @@ import {
 
 const router = Router();
 
+// Helper: resolve companyId from user context or query param (SUPER_ADMIN can pass companyId)
+function resolveCompanyId(req: AuthRequest): number | null {
+  if (req.user?.companyId) return req.user.companyId;
+  if (req.user?.role === "SUPER_ADMIN") {
+    const qId = parseInt(req.query.companyId as string || req.body?.companyId);
+    if (qId && !isNaN(qId)) return qId;
+  }
+  return null;
+}
+
 // Run a new reconciliation
 router.post("/api/reconciliation/run", authMiddleware, requireRole("SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"), async (req: AuthRequest, res: Response) => {
   try {
-    const companyId = req.user?.companyId;
-    if (!companyId) return res.status(403).json({ message: "Company scope required" });
+    const companyId = resolveCompanyId(req);
+    if (!companyId) return res.status(400).json({ message: "companyId is required" });
 
     const { periodStart, periodEnd } = req.body;
     if (!periodStart || !periodEnd) {
@@ -34,8 +44,8 @@ router.post("/api/reconciliation/run", authMiddleware, requireRole("SUPER_ADMIN"
 // List reconciliation runs
 router.get("/api/reconciliation/runs", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const companyId = req.user?.companyId;
-    if (!companyId) return res.status(403).json({ message: "Company scope required" });
+    const companyId = resolveCompanyId(req);
+    if (!companyId) return res.json([]);
 
     const limit = parseInt(String(req.query.limit || "20"));
     const runs = await getReconciliationRuns(companyId, limit);
@@ -60,8 +70,8 @@ router.get("/api/reconciliation/runs/:runId", authMiddleware, async (req: AuthRe
 // Get aging report
 router.get("/api/reconciliation/aging", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const companyId = req.user?.companyId;
-    if (!companyId) return res.status(403).json({ message: "Company scope required" });
+    const companyId = resolveCompanyId(req);
+    if (!companyId) return res.json({ message: "Select a company to view aging report" });
 
     const report = await getAgingReport(companyId);
     res.json(report || { message: "No reconciliation runs found. Run a reconciliation first." });
@@ -73,8 +83,8 @@ router.get("/api/reconciliation/aging", authMiddleware, async (req: AuthRequest,
 // Dashboard with summary stats
 router.get("/api/reconciliation/dashboard", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const companyId = req.user?.companyId;
-    if (!companyId) return res.status(403).json({ message: "Company scope required" });
+    const companyId = resolveCompanyId(req);
+    if (!companyId) return res.json({ totalRuns: 0, totalItems: 0, message: "Select a company" });
 
     const dashboard = await getReconciliationDashboard(companyId);
     res.json(dashboard);
@@ -86,8 +96,8 @@ router.get("/api/reconciliation/dashboard", authMiddleware, async (req: AuthRequ
 // Clinic-specific reconciliation
 router.get("/api/reconciliation/clinic/:clinicId", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const companyId = req.user?.companyId;
-    if (!companyId) return res.status(403).json({ message: "Company scope required" });
+    const companyId = resolveCompanyId(req);
+    if (!companyId) return res.status(400).json({ message: "companyId is required" });
 
     const clinicId = parseInt(String(req.params.clinicId));
     const result = await getClinicReconciliation(companyId, clinicId);
