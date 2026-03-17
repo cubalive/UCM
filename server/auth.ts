@@ -210,8 +210,14 @@ export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }
 
-export async function comparePassword(password: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(password, hash);
+export async function comparePassword(password: string, hash: string | null | undefined): Promise<boolean> {
+  if (!hash) return false;
+  try {
+    return await bcrypt.compare(password, hash);
+  } catch {
+    // Invalid hash format (e.g., placeholder or corrupted value)
+    return false;
+  }
 }
 
 export interface AuthRequest extends Request {
