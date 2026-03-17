@@ -165,11 +165,11 @@ function inMemoryRateLimit(
 // ALL use Redis for distributed state across Railway replicas.
 // In-memory fallback only when Redis is completely unavailable.
 
-/** Login: 5 attempts / minute per IP (brute-force protection) */
+/** Login: 10 attempts / minute per IP (brute-force protection) */
 export const authRateLimiter = rateLimiter({
-  max: 5,
+  max: 10,
   windowMs: 60_000,
-  blockDurationMs: 5 * 60_000,
+  blockDurationMs: 2 * 60_000,
   keyFn: (req) => `auth:${getClientIp(req)}`,
 });
 
