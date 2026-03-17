@@ -78,12 +78,14 @@ Railway (primary), with Fly.io and Render as alternatives. API + Worker process 
 - The schema in `shared/schema.ts` uses Drizzle ORM with `drizzle-zod` for validation
 - DB connection requires `SUPABASE_DB_URL` or `DATABASE_URL` pointing to a Supabase instance
 
-## Current State (as of 2026-03-11)
+## Current State (as of 2026-03-17)
 
-### Recently Completed (all merged to `main`)
-- Railway deployment with API/Worker separation (2 replicas HA)
+### Recently Completed
+- Railway deployment with API/Worker separation (2 replicas HA) — deployed to `admin.unitedcaremobility.com`
 - Health check fixes: `/api/health/live` before middleware, worker mode minimal HTTP server
+- Healthcheck timeout increased to 120s (API) / 300s (Worker) to handle boot with DB migrations
 - Dispatch subdomain routing (`dispatch.*` restricts to dispatch/admin roles)
+- **MFA engine** — TOTP (Google Authenticator), SMS/Email OTP, backup codes, account lockout (`server/lib/mfaEngine.ts`)
 - **Pharmacy portal** — full CRUD: orders, tracking, notifications, metrics (`client/src/pharmacy-portal/`, `server/controllers/pharmacy-portal.controller.ts`)
 - **Broker portal** — dashboard, contracts, settlements, trip requests, marketplace (`client/src/broker-portal/`, `server/controllers/broker-portal.controller.ts`)
 - **Broker API v1** — external API with HMAC auth for broker integrations (`server/routes/broker-api-v1.routes.ts`, `server/lib/brokerApiAuth.ts`)
@@ -93,24 +95,35 @@ Railway (primary), with Fly.io and Render as alternatives. API + Worker process 
 - **Billing automation** — auto-invoicing, dunning emails, reconciliation, subscription tiers (`server/services/`)
 - **Driver app v4 redesign** — real route maps, navigation, proof of delivery (photo + signature)
 - **HIPAA compliance** — PHI encryption (`server/lib/phiEncryption.ts`), audit middleware (`server/middleware/phiAudit.ts`)
-- **Security hardening** — input sanitizer, rate limiter, performance tracker
+- **Security hardening** — httpOnly JWT cookies, CSRF double-submit, input sanitizer, rate limiter, SUPER_ADMIN impersonation audit
+- **i18n** — Spanish translations across all pages, clinic/pharmacy/broker/driver portals
 - **New engines** — SLA metrics, demand prediction, multi-stop optimizer, inter-city transfers, smart cancellation, cascade delays, trip grouping, dead mile tracking, patient ratings, SMS confirmation
 - **Mobile** — App Store readiness (account deletion, offline fallback, ATT, Capacitor configs)
 - **9 new UI pages** — AI dashboard, EDI billing, Medicaid billing, marketplace, ratings, reconciliation, city comparison, inter-city, dead mile, cascade alerts, smart cancel, trip groups
+
+### Required Environment Variables (Production)
+- `JWT_SECRET` — signing key for access tokens (required, app exits without it)
+- `JWT_REFRESH_SECRET` — signing key for refresh tokens (falls back to `JWT_SECRET + "-refresh"` if missing)
+- `SUPABASE_DB_URL` or `DATABASE_URL` — PostgreSQL connection (must contain "supabase" in hostname)
+- `PHI_ENCRYPTION_KEY` — AES key for HIPAA PHI encryption
+- `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` — Redis for rate limiter, job queue, leader election
+- `SENTRY_DSN` — (optional) error tracking
+- `GOOGLE_MAPS_API_KEY` — maps and geocoding
+- `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` + `TWILIO_PHONE_NUMBER` — SMS notifications
+- `RESEND_API_KEY` — email sending
+- `STRIPE_SECRET_KEY` — payments
+- `FCM_SERVICE_ACCOUNT` — Firebase push notifications
 
 ### Known Issues / Technical Debt
 - TypeScript errors may exist — run `npm run check` to verify
 - Some new engines (fraud detection, demand prediction, AI routes) have placeholder/mock logic that needs real ML integration
 - Broker API v1 webhook engine (`server/lib/brokerWebhookEngine.ts`) needs production webhook URLs configured
-- PHI encryption requires `PHI_ENCRYPTION_KEY` env var in production
-- Redis (`UPSTASH_REDIS_REST_URL`) required for rate limiter, job queue, leader election
 - `shared/permissions.ts` was modified to add broker/pharmacy roles — verify RBAC matrix is correct
+- esbuild `define` replaces `process.env.NODE_ENV` at build time — be aware that `IS_PROD` checks are compile-time constants in the bundle
 
 ### Suggested Next Steps
 - Run full test suite (`npx vitest run`) and fix any failures
 - Run `npm run check` and resolve TypeScript errors
-- Verify Railway deployment works end-to-end (API + Worker)
-- Configure production env vars: `PHI_ENCRYPTION_KEY`, `UPSTASH_REDIS_REST_URL`, broker webhook URLs
 - Real ML model integration for fraud detection and demand prediction
 - E2E tests for pharmacy portal, broker portal, and driver app v4
 - Stripe integration for broker settlements and pharmacy billing
