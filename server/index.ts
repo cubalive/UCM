@@ -13,6 +13,7 @@ import { phiAuditMiddleware } from "./middleware/phiAudit";
 import { inputSanitizer } from "./middleware/inputSanitizer";
 import { apiRateLimiter } from "./middleware/rateLimiter";
 import { structuredLoggerMiddleware } from "./middleware/structuredLogger";
+import { subdomainRoleGuard } from "./middleware/subdomainRoleGuard";
 import compression from "compression";
 import * as Sentry from "@sentry/node";
 
@@ -284,6 +285,7 @@ app.use("/api", csrfProtection);
 
 app.use("/api", apiRateLimiter);
 app.use(tenantGuard);
+app.use(subdomainRoleGuard);
 app.use(phiAuditMiddleware);
 
 // Structured request logger — logs every API request in structured JSON with PII masking.
