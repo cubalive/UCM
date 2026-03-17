@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -60,6 +61,7 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
   const [citySearch, setCitySearch] = useState("");
   const [cityTimezone, setCityTimezone] = useState("America/Los_Angeles");
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const { data: statesData } = useQuery<{ ok: boolean; items: UsState[] }>({
     queryKey: ["/api/locations/states"],
@@ -88,7 +90,7 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
       });
     },
     onSuccess: () => {
-      toast({ title: "Company created successfully" });
+      toast({ title: t("companies.companyCreated") });
       setName("");
       setSelectedState("");
       setSelectedCityId("");
@@ -99,7 +101,7 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
       queryClient.invalidateQueries({ queryKey: ["/api/cities"] });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to create company", description: err.message, variant: "destructive" });
+      toast({ title: t("companies.createFailed"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -118,16 +120,16 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
       <DialogTrigger asChild>
         <Button data-testid="button-create-company">
           <Plus className="w-4 h-4 mr-2" />
-          New Company
+          {t("companies.newCompany")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create Company</DialogTitle>
+          <DialogTitle>{t("companies.createCompany")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <div className="space-y-2">
-            <Label htmlFor="company-name">Company Name</Label>
+            <Label htmlFor="company-name">{t("companies.companyName")}</Label>
             <Input
               id="company-name"
               value={name}

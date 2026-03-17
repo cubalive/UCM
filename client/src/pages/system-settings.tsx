@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
@@ -26,6 +27,7 @@ import {
 // ─── Notification Channel Configuration ──────────────────────────────────────
 
 function NotificationChannelsTab() {
+  const { t } = useTranslation();
   const { token } = useAuth();
   const { toast } = useToast();
 
@@ -43,9 +45,9 @@ function NotificationChannelsTab() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notification-preferences"] });
-      toast({ title: "Notification preferences saved" });
+      toast({ title: t("systemSettings.notifications.saved") });
     },
-    onError: (err: any) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("systemSettings.notifications.saveFailed"), description: err.message, variant: "destructive" }),
   });
 
   const [localPrefs, setLocalPrefs] = useState<Record<string, { sms: boolean; email: boolean; push: boolean }> | null>(null);
@@ -68,14 +70,14 @@ function NotificationChannelsTab() {
   };
 
   const eventLabels: Record<string, string> = {
-    trip_assigned: "Trip Assigned",
-    trip_completed: "Trip Completed",
-    trip_cancelled: "Trip Cancelled",
-    payment_received: "Payment Received",
-    invoice_due: "Invoice Due",
-    driver_status_change: "Driver Status Change",
-    new_support_message: "New Support Message",
-    system_alert: "System Alert",
+    trip_assigned: t("systemSettings.events.trip_assigned"),
+    trip_completed: t("systemSettings.events.trip_completed"),
+    trip_cancelled: t("systemSettings.events.trip_cancelled"),
+    payment_received: t("systemSettings.events.payment_received"),
+    invoice_due: t("systemSettings.events.invoice_due"),
+    driver_status_change: t("systemSettings.events.driver_status_change"),
+    new_support_message: t("systemSettings.events.new_support_message"),
+    system_alert: t("systemSettings.events.system_alert"),
   };
 
   if (prefsQuery.isLoading) return <Skeleton className="h-40 w-full" />;
@@ -84,12 +86,12 @@ function NotificationChannelsTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-medium">Notification Channels</h3>
-          <p className="text-sm text-muted-foreground">Configure which channels to use for each event type</p>
+          <h3 className="text-lg font-medium">{t("systemSettings.notifications.title")}</h3>
+          <p className="text-sm text-muted-foreground">{t("systemSettings.notifications.subtitle")}</p>
         </div>
         <Button onClick={handleSave} disabled={!localPrefs || saveMutation.isPending} data-testid="button-save-notif-prefs">
           {saveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-          Save Changes
+          {t("systemSettings.notifications.saveChanges")}
         </Button>
       </div>
       <Card>
@@ -97,7 +99,7 @@ function NotificationChannelsTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Event</TableHead>
+                <TableHead>{t("systemSettings.notifications.event")}</TableHead>
                 <TableHead className="text-center">SMS</TableHead>
                 <TableHead className="text-center">Email</TableHead>
                 <TableHead className="text-center">Push</TableHead>
@@ -141,6 +143,7 @@ function NotificationChannelsTab() {
 // ─── SMS Template Management ─────────────────────────────────────────────────
 
 function SmsTemplatesTab() {
+  const { t } = useTranslation();
   const { token } = useAuth();
   const { toast } = useToast();
   const [editing, setEditing] = useState<string | null>(null);
@@ -163,9 +166,9 @@ function SmsTemplatesTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/sms-templates"] });
       setEditing(null);
-      toast({ title: "Template updated" });
+      toast({ title: t("systemSettings.sms.templateUpdated") });
     },
-    onError: (err: any) => toast({ title: "Update failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("systemSettings.sms.updateFailed"), description: err.message, variant: "destructive" }),
   });
 
   const testMutation = useMutation({
@@ -175,11 +178,11 @@ function SmsTemplatesTab() {
         body: JSON.stringify({ phoneNumber }),
       }),
     onSuccess: (data: any) => {
-      toast({ title: "Test SMS sent", description: `Sent to ${data.to}` });
+      toast({ title: t("systemSettings.sms.testSent"), description: `Sent to ${data.to}` });
       setTestingId(null);
       setTestPhone("");
     },
-    onError: (err: any) => toast({ title: "Test failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("systemSettings.sms.testFailed"), description: err.message, variant: "destructive" }),
   });
 
   const templates = templatesQuery.data?.templates || [];
@@ -189,8 +192,8 @@ function SmsTemplatesTab() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-medium">SMS Templates</h3>
-        <p className="text-sm text-muted-foreground">Edit and test SMS message templates</p>
+        <h3 className="text-lg font-medium">{t("systemSettings.sms.title")}</h3>
+        <p className="text-sm text-muted-foreground">{t("systemSettings.sms.subtitle")}</p>
       </div>
       <div className="space-y-3">
         {templates.map((tpl: any) => (
@@ -215,9 +218,9 @@ function SmsTemplatesTab() {
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => updateMutation.mutate({ templateId: tpl.id, template: editText })} disabled={updateMutation.isPending} data-testid={`button-save-template-${tpl.id}`}>
                       {updateMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
-                      Save
+                      {t("systemSettings.sms.save")}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditing(null)}>{t("systemSettings.sms.cancel")}</Button>
                   </div>
                 </div>
               ) : (
@@ -226,11 +229,11 @@ function SmsTemplatesTab() {
                   <div className="flex flex-col gap-1 flex-shrink-0">
                     <Button size="sm" variant="outline" onClick={() => { setEditing(tpl.id); setEditText(tpl.template); }} data-testid={`button-edit-${tpl.id}`}>
                       <Eye className="w-3 h-3 mr-1" />
-                      Edit
+                      {t("systemSettings.sms.edit")}
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => setTestingId(tpl.id)} data-testid={`button-test-${tpl.id}`}>
                       <Send className="w-3 h-3 mr-1" />
-                      Test
+                      {t("systemSettings.sms.test")}
                     </Button>
                   </div>
                 </div>
@@ -242,10 +245,10 @@ function SmsTemplatesTab() {
 
       <Dialog open={!!testingId} onOpenChange={() => setTestingId(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Send Test SMS</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t("systemSettings.sms.sendTestTitle")}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Phone Number</Label>
+              <Label>{t("systemSettings.sms.phoneNumber")}</Label>
               <Input
                 placeholder="+1 (555) 123-4567"
                 value={testPhone}
@@ -260,7 +263,7 @@ function SmsTemplatesTab() {
               data-testid="button-send-test"
             >
               {testMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
-              Send Test
+              {t("systemSettings.sms.sendTest")}
             </Button>
           </div>
         </DialogContent>
@@ -272,6 +275,7 @@ function SmsTemplatesTab() {
 // ─── Feature Flags (Company Settings) ────────────────────────────────────────
 
 function FeatureFlagsTab() {
+  const { t } = useTranslation();
   const [flags, setFlags] = useState<Record<string, boolean>>(() => {
     try {
       const stored = localStorage.getItem("ucm_feature_flags");
@@ -298,29 +302,29 @@ function FeatureFlagsTab() {
     const updated = { ...flags, [key]: !flags[key] };
     setFlags(updated);
     localStorage.setItem("ucm_feature_flags", JSON.stringify(updated));
-    toast({ title: "Feature flag updated", description: `${key}: ${updated[key] ? "enabled" : "disabled"}` });
+    toast({ title: t("systemSettings.features.flagUpdated"), description: `${key}: ${updated[key] ? t("systemSettings.features.enabled") : t("systemSettings.features.disabled")}` });
   };
 
   const flagLabels: Record<string, { label: string; description: string }> = {
-    auto_assign_v2: { label: "Auto-Assign v2", description: "Use the new scoring-based auto-assignment algorithm" },
-    zero_touch_dialysis: { label: "Zero-Touch Dialysis", description: "Automated dialysis trip scheduling" },
-    ai_routing: { label: "AI Routing", description: "AI-powered route optimization" },
-    pharmacy_portal: { label: "Pharmacy Portal", description: "Enable pharmacy partner portal" },
-    broker_portal: { label: "Broker Portal", description: "Enable broker partner portal" },
-    edi_billing: { label: "EDI Billing", description: "EDI 837/835 claim processing" },
-    medicaid_billing: { label: "Medicaid Billing", description: "Medicaid claim lifecycle management" },
-    sms_notifications: { label: "SMS Notifications", description: "Send SMS notifications to drivers/patients" },
-    email_notifications: { label: "Email Notifications", description: "Send email notifications" },
-    push_notifications: { label: "Push Notifications", description: "Send push notifications via FCM" },
-    demand_prediction: { label: "Demand Prediction", description: "ML-based demand forecasting" },
-    fraud_detection: { label: "Fraud Detection", description: "Anomaly scoring for trips and billing" },
+    auto_assign_v2: { label: t("systemSettings.flags.auto_assign_v2.label"), description: t("systemSettings.flags.auto_assign_v2.description") },
+    zero_touch_dialysis: { label: t("systemSettings.flags.zero_touch_dialysis.label"), description: t("systemSettings.flags.zero_touch_dialysis.description") },
+    ai_routing: { label: t("systemSettings.flags.ai_routing.label"), description: t("systemSettings.flags.ai_routing.description") },
+    pharmacy_portal: { label: t("systemSettings.flags.pharmacy_portal.label"), description: t("systemSettings.flags.pharmacy_portal.description") },
+    broker_portal: { label: t("systemSettings.flags.broker_portal.label"), description: t("systemSettings.flags.broker_portal.description") },
+    edi_billing: { label: t("systemSettings.flags.edi_billing.label"), description: t("systemSettings.flags.edi_billing.description") },
+    medicaid_billing: { label: t("systemSettings.flags.medicaid_billing.label"), description: t("systemSettings.flags.medicaid_billing.description") },
+    sms_notifications: { label: t("systemSettings.flags.sms_notifications.label"), description: t("systemSettings.flags.sms_notifications.description") },
+    email_notifications: { label: t("systemSettings.flags.email_notifications.label"), description: t("systemSettings.flags.email_notifications.description") },
+    push_notifications: { label: t("systemSettings.flags.push_notifications.label"), description: t("systemSettings.flags.push_notifications.description") },
+    demand_prediction: { label: t("systemSettings.flags.demand_prediction.label"), description: t("systemSettings.flags.demand_prediction.description") },
+    fraud_detection: { label: t("systemSettings.flags.fraud_detection.label"), description: t("systemSettings.flags.fraud_detection.description") },
   };
 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-medium">Feature Flags</h3>
-        <p className="text-sm text-muted-foreground">Enable or disable platform features</p>
+        <h3 className="text-lg font-medium">{t("systemSettings.features.title")}</h3>
+        <p className="text-sm text-muted-foreground">{t("systemSettings.features.subtitle")}</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {Object.entries(flags).map(([key, enabled]) => {
@@ -349,6 +353,7 @@ function FeatureFlagsTab() {
 // ─── Platform Fee Configuration ──────────────────────────────────────────────
 
 function PlatformFeeTab() {
+  const { t } = useTranslation();
   const [feePercent, setFeePercent] = useState("5.0");
   const [minFee, setMinFee] = useState("0.50");
   const [maxFee, setMaxFee] = useState("50.00");
@@ -357,14 +362,14 @@ function PlatformFeeTab() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-medium">Platform Fee Configuration</h3>
-        <p className="text-sm text-muted-foreground">Configure default platform fee settings</p>
+        <h3 className="text-lg font-medium">{t("systemSettings.fees.title")}</h3>
+        <p className="text-sm text-muted-foreground">{t("systemSettings.fees.subtitle")}</p>
       </div>
       <Card>
         <CardContent className="py-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>Fee Percentage (%)</Label>
+              <Label>{t("systemSettings.fees.feePercent")}</Label>
               <Input
                 type="number"
                 step="0.1"
@@ -374,7 +379,7 @@ function PlatformFeeTab() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Minimum Fee ($)</Label>
+              <Label>{t("systemSettings.fees.minFee")}</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -384,7 +389,7 @@ function PlatformFeeTab() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Maximum Fee ($)</Label>
+              <Label>{t("systemSettings.fees.maxFee")}</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -394,9 +399,9 @@ function PlatformFeeTab() {
               />
             </div>
           </div>
-          <Button onClick={() => toast({ title: "Fee configuration saved" })} data-testid="button-save-fees">
+          <Button onClick={() => toast({ title: t("systemSettings.fees.saved") })} data-testid="button-save-fees">
             <Save className="w-4 h-4 mr-2" />
-            Save Fee Configuration
+            {t("systemSettings.fees.save")}
           </Button>
         </CardContent>
       </Card>
@@ -407,15 +412,17 @@ function PlatformFeeTab() {
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function SystemSettingsPage() {
+  const { t } = useTranslation();
+
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2" data-testid="text-page-title">
           <Settings className="w-6 h-6" />
-          System Settings
+          {t("systemSettings.title")}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Configure system-wide settings, feature flags, and notifications
+          {t("systemSettings.subtitle")}
         </p>
       </div>
 
@@ -423,19 +430,19 @@ export default function SystemSettingsPage() {
         <TabsList>
           <TabsTrigger value="features" data-testid="tab-features">
             <Settings className="w-4 h-4 mr-1" />
-            Features
+            {t("systemSettings.tabs.features")}
           </TabsTrigger>
           <TabsTrigger value="notifications" data-testid="tab-notifications">
             <Bell className="w-4 h-4 mr-1" />
-            Notifications
+            {t("systemSettings.tabs.notifications")}
           </TabsTrigger>
           <TabsTrigger value="sms" data-testid="tab-sms">
             <MessageSquare className="w-4 h-4 mr-1" />
-            SMS Templates
+            {t("systemSettings.tabs.smsTemplates")}
           </TabsTrigger>
           <TabsTrigger value="fees" data-testid="tab-fees">
             <CreditCard className="w-4 h-4 mr-1" />
-            Platform Fees
+            {t("systemSettings.tabs.platformFees")}
           </TabsTrigger>
         </TabsList>
 

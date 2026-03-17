@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -83,6 +84,8 @@ export default function AutoAssignmentPage() {
   const [overrideDriverId, setOverrideDriverId] = useState<string>("");
   const [overrideVehicleId, setOverrideVehicleId] = useState<string>("");
 
+  const { t } = useTranslation();
+
   const nvCities = (cities || []).filter((c: any) =>
     ["Las Vegas", "Pahrump"].includes(c.name) && c.state === "NV"
   );
@@ -109,12 +112,12 @@ export default function AutoAssignmentPage() {
         body: JSON.stringify({ cityId, date }),
       }),
     onSuccess: (data: any) => {
-      toast({ title: "Plan generated", description: `${data.stats?.totalTrips || 0} trips processed` });
+      toast({ title: t("autoAssign.planGenerated"), description: t("autoAssign.tripsProcessed", { count: data.stats?.totalTrips || 0 }) });
       setActiveBatchId(data.batchId);
       queryClient.invalidateQueries({ queryKey: ["/api/assignment-batches"] });
     },
     onError: (err: any) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: t("autoAssign.error"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -122,12 +125,12 @@ export default function AutoAssignmentPage() {
     mutationFn: () =>
       apiFetch(`/api/assignment-batches/${activeBatchId}/apply`, token, { method: "POST" }),
     onSuccess: (data: any) => {
-      toast({ title: "Batch applied", description: `${data.applied} trips assigned` });
+      toast({ title: t("autoAssign.batchApplied"), description: t("autoAssign.tripsAssigned", { count: data.applied }) });
       queryClient.invalidateQueries({ queryKey: ["/api/assignment-batches"] });
       queryClient.invalidateQueries({ queryKey: ["/api/assignment-batches/proposals"] });
     },
     onError: (err: any) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: t("autoAssign.error"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -135,12 +138,12 @@ export default function AutoAssignmentPage() {
     mutationFn: () =>
       apiFetch(`/api/assignment-batches/${activeBatchId}/cancel`, token, { method: "POST" }),
     onSuccess: () => {
-      toast({ title: "Batch cancelled" });
+      toast({ title: t("autoAssign.batchCancelled") });
       setActiveBatchId(null);
       queryClient.invalidateQueries({ queryKey: ["/api/assignment-batches"] });
     },
     onError: (err: any) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: t("autoAssign.error"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -151,12 +154,12 @@ export default function AutoAssignmentPage() {
         body: JSON.stringify({ driverId: driverId || null, vehicleId: vehicleId || null, reason: "Manual override from Assignment Center" }),
       }),
     onSuccess: () => {
-      toast({ title: "Override saved" });
+      toast({ title: t("autoAssign.overrideSaved") });
       setOverrideTrip(null);
       queryClient.invalidateQueries({ queryKey: ["/api/assignment-batches/proposals"] });
     },
     onError: (err: any) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: t("autoAssign.error"), description: err.message, variant: "destructive" });
     },
   });
 
@@ -194,16 +197,16 @@ export default function AutoAssignmentPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <Zap className="w-6 h-6" />
         <h1 className="text-xl font-semibold" data-testid="text-auto-assignment-title">
-          Auto Assignment Center
+          {t("autoAssign.title")}
         </h1>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <Label>City</Label>
+          <Label>{t("autoAssign.city")}</Label>
           <Select value={cityId?.toString() || ""} onValueChange={handleCityChange}>
             <SelectTrigger className="w-48" data-testid="select-assignment-city">
-              <SelectValue placeholder="Select city" />
+              <SelectValue placeholder={t("autoAssign.selectCity")} />
             </SelectTrigger>
             <SelectContent>
               {nvCities.map((city: any) => (
@@ -215,7 +218,7 @@ export default function AutoAssignmentPage() {
           </Select>
         </div>
         <div className="flex items-center gap-2">
-          <Label>Date</Label>
+          <Label>{t("autoAssign.date")}</Label>
           <Input
             type="date"
             value={date}
@@ -230,29 +233,29 @@ export default function AutoAssignmentPage() {
           data-testid="button-generate-plan"
         >
           <Zap className="w-4 h-4 mr-2" />
-          {generateMutation.isPending ? "Generating..." : "Generate Plan"}
+          {generateMutation.isPending ? t("autoAssign.generating") : t("autoAssign.generatePlan")}
         </Button>
       </div>
 
       {cityId && batchesQuery.data && batchesQuery.data.length > 0 && !activeBatchId && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Previous Batches</CardTitle>
+            <CardTitle className="text-sm">{t("autoAssign.previousBatches")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               {batchesQuery.data.map((b: any) => (
                 <div key={b.id} className="flex items-center justify-between gap-3 flex-wrap" data-testid={`row-batch-${b.id}`}>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-mono">Batch #{b.id}</span>
+                    <span className="text-sm font-mono">{t("autoAssign.batch", { id: b.id })}</span>
                     <Badge variant={b.status === "applied" ? "default" : b.status === "cancelled" ? "destructive" : "secondary"}>
                       {b.status}
                     </Badge>
-                    <span className="text-xs text-muted-foreground">{b.tripCount} trips</span>
+                    <span className="text-xs text-muted-foreground">{b.tripCount} {t("autoAssign.trips")}</span>
                   </div>
                   {b.status === "proposed" && (
                     <Button variant="outline" onClick={() => setActiveBatchId(b.id)} data-testid={`button-view-batch-${b.id}`}>
-                      View
+                      {t("autoAssign.view")}
                     </Button>
                   )}
                 </div>
@@ -275,13 +278,13 @@ export default function AutoAssignmentPage() {
             <CardContent className="py-4">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3 flex-wrap">
-                  <span className="font-medium">Batch #{batch.id}</span>
+                  <span className="font-medium">{t("autoAssign.batch", { id: batch.id })}</span>
                   <Badge variant={batch.status === "applied" ? "default" : batch.status === "cancelled" ? "destructive" : "secondary"} data-testid="badge-batch-status">
                     {batch.status}
                   </Badge>
-                  <span className="text-sm text-muted-foreground">{proposals.length} trips</span>
+                  <span className="text-sm text-muted-foreground">{proposals.length} {t("autoAssign.trips")}</span>
                   <span className="text-sm text-muted-foreground">
-                    {proposals.filter(p => p.canAssign).length} assignable / {proposals.filter(p => !p.canAssign).length} blocked
+                    {proposals.filter(p => p.canAssign).length} {t("autoAssign.assignable")} / {proposals.filter(p => !p.canAssign).length} {t("autoAssign.blocked").toLowerCase()}
                   </span>
                 </div>
                 {batch.status === "proposed" && (
@@ -292,7 +295,7 @@ export default function AutoAssignmentPage() {
                       data-testid="button-apply-batch"
                     >
                       <Play className="w-4 h-4 mr-2" />
-                      {applyMutation.isPending ? "Applying..." : "Apply Batch"}
+                      {applyMutation.isPending ? t("autoAssign.applying") : t("autoAssign.applyBatch")}
                     </Button>
                     <Button
                       variant="destructive"
@@ -301,7 +304,7 @@ export default function AutoAssignmentPage() {
                       data-testid="button-cancel-batch"
                     >
                       <XCircle className="w-4 h-4 mr-2" />
-                      Cancel Batch
+                      {t("autoAssign.cancelBatch")}
                     </Button>
                   </div>
                 )}
@@ -314,8 +317,8 @@ export default function AutoAssignmentPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <MapPin className="w-4 h-4" />
-                  ZIP: {zip}
-                  <Badge variant="secondary">{groupProposals.length} trips</Badge>
+                  {t("autoAssign.zip", { zip })}
+                  <Badge variant="secondary">{groupProposals.length} {t("autoAssign.trips")}</Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -323,15 +326,15 @@ export default function AutoAssignmentPage() {
                   <table className="w-full text-sm" data-testid={`table-proposals-${zip}`}>
                     <thead>
                       <tr className="border-b text-muted-foreground">
-                        <th className="text-left py-2 pr-2">Trip</th>
-                        <th className="text-left py-2 px-2">Time</th>
-                        <th className="text-left py-2 px-2">Patient</th>
-                        <th className="text-left py-2 px-2">Type</th>
-                        <th className="text-left py-2 px-2">Status</th>
-                        <th className="text-left py-2 px-2">Driver</th>
-                        <th className="text-left py-2 px-2">Vehicle</th>
-                        <th className="text-left py-2 px-2">Reason</th>
-                        <th className="text-right py-2 pl-2">Actions</th>
+                        <th className="text-left py-2 pr-2">{t("autoAssign.table.trip")}</th>
+                        <th className="text-left py-2 px-2">{t("autoAssign.table.time")}</th>
+                        <th className="text-left py-2 px-2">{t("autoAssign.table.patient")}</th>
+                        <th className="text-left py-2 px-2">{t("autoAssign.table.type")}</th>
+                        <th className="text-left py-2 px-2">{t("autoAssign.table.status")}</th>
+                        <th className="text-left py-2 px-2">{t("autoAssign.table.driver")}</th>
+                        <th className="text-left py-2 px-2">{t("autoAssign.table.vehicle")}</th>
+                        <th className="text-left py-2 px-2">{t("autoAssign.table.reason")}</th>
+                        <th className="text-right py-2 pl-2">{t("autoAssign.table.actions")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -354,15 +357,15 @@ export default function AutoAssignmentPage() {
                             {!p.canAssign ? (
                               <Badge variant="destructive" className="text-xs">
                                 <AlertTriangle className="w-3 h-3 mr-1" />
-                                Blocked
+                                {t("autoAssign.blocked")}
                               </Badge>
                             ) : p.proposedDriverId ? (
                               <Badge variant="default" className="text-xs">
                                 <CheckCircle className="w-3 h-3 mr-1" />
-                                Assigned
+                                {t("autoAssign.assigned")}
                               </Badge>
                             ) : (
-                              <Badge variant="secondary" className="text-xs">Unassigned</Badge>
+                              <Badge variant="secondary" className="text-xs">{t("autoAssign.unassigned")}</Badge>
                             )}
                           </td>
                           <td className="py-2 px-2">{p.proposedDriverName || "—"}</td>
@@ -384,7 +387,7 @@ export default function AutoAssignmentPage() {
                                 data-testid={`button-override-${p.tripId}`}
                               >
                                 <Edit className="w-3 h-3" />
-                                Edit
+                                {t("autoAssign.edit")}
                               </Button>
                             )}
                           </td>
@@ -403,7 +406,7 @@ export default function AutoAssignmentPage() {
         <Card>
           <CardContent className="py-8 text-center">
             <MapPin className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-muted-foreground" data-testid="text-select-city-assignment">Select a city to begin auto assignment.</p>
+            <p className="text-muted-foreground" data-testid="text-select-city-assignment">{t("autoAssign.selectCityPrompt")}</p>
           </CardContent>
         </Card>
       )}
@@ -411,20 +414,20 @@ export default function AutoAssignmentPage() {
       <Dialog open={!!overrideTrip} onOpenChange={(open) => !open && setOverrideTrip(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Assignment - {overrideTrip?.tripPublicId}</DialogTitle>
+            <DialogTitle>{t("autoAssign.editAssignment", { id: overrideTrip?.tripPublicId })}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <Label className="text-xs text-muted-foreground">Patient</Label>
+                <Label className="text-xs text-muted-foreground">{t("autoAssign.table.patient")}</Label>
                 <p className="font-medium">{overrideTrip?.patientName}</p>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Pickup Time</Label>
+                <Label className="text-xs text-muted-foreground">{t("autoAssign.pickupTime")}</Label>
                 <p className="font-medium">{overrideTrip?.pickupTime || "—"}</p>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Type</Label>
+                <Label className="text-xs text-muted-foreground">{t("autoAssign.table.type")}</Label>
                 <p className="capitalize">{overrideTrip?.tripType?.replace("_", " ")}</p>
               </div>
               <div>
@@ -434,18 +437,18 @@ export default function AutoAssignmentPage() {
             </div>
             {overrideTrip?.assignmentReason && (
               <div className="rounded-md bg-muted/50 px-3 py-2">
-                <Label className="text-xs text-muted-foreground">Auto-assign reason</Label>
+                <Label className="text-xs text-muted-foreground">{t("autoAssign.autoAssignReason")}</Label>
                 <p className="text-sm">{overrideTrip.assignmentReason}</p>
               </div>
             )}
             <div className="space-y-2">
-              <Label>Driver</Label>
+              <Label>{t("autoAssign.table.driver")}</Label>
               <Select value={overrideDriverId} onValueChange={setOverrideDriverId}>
                 <SelectTrigger data-testid="select-override-driver">
-                  <SelectValue placeholder="Select driver" />
+                  <SelectValue placeholder={t("autoAssign.selectDriver")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No driver</SelectItem>
+                  <SelectItem value="none">{t("autoAssign.noDriver")}</SelectItem>
                   {driverOptions
                     .filter((d) => d.dispatchStatus !== "hold")
                     .map((d) => (
@@ -457,13 +460,13 @@ export default function AutoAssignmentPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Vehicle</Label>
+              <Label>{t("autoAssign.table.vehicle")}</Label>
               <Select value={overrideVehicleId} onValueChange={setOverrideVehicleId}>
                 <SelectTrigger data-testid="select-override-vehicle">
-                  <SelectValue placeholder="Select vehicle" />
+                  <SelectValue placeholder={t("autoAssign.selectVehicle")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No vehicle</SelectItem>
+                  <SelectItem value="none">{t("autoAssign.noVehicle")}</SelectItem>
                   {vehicleOptions.map((v) => (
                     <SelectItem key={v.id} value={v.id.toString()}>
                       {v.name} {v.wheelchairAccessible ? "(WC)" : ""}
@@ -474,7 +477,7 @@ export default function AutoAssignmentPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOverrideTrip(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setOverrideTrip(null)}>{t("autoAssign.cancel")}</Button>
             <Button
               onClick={() => {
                 if (overrideTrip) {
@@ -488,7 +491,7 @@ export default function AutoAssignmentPage() {
               disabled={overrideMutation.isPending}
               data-testid="button-save-override"
             >
-              {overrideMutation.isPending ? "Saving..." : "Save Changes"}
+              {overrideMutation.isPending ? t("autoAssign.saving") : t("autoAssign.saveChanges")}
             </Button>
           </DialogFooter>
         </DialogContent>
